@@ -831,18 +831,19 @@ impl Delivery {
             .values()
             .filter(|v| v.source == source && !v.paused && self.sockets.contains_key(&v.connection))
             .collect();
-        let mut codecs: Vec<&str> = facts
+        let produced: Vec<&str> = facts
             .map(|f| f.codecs.iter().map(String::as_str).collect())
             .unwrap_or_default();
-        if codecs.is_empty() {
-            codecs = live
-                .iter()
+        let codecs: Vec<&str> = if produced.is_empty() {
+            live.iter()
                 .flat_map(|v| v.codecs.iter().map(String::as_str))
-                .collect();
-        }
+                .collect()
+        } else {
+            produced.clone()
+        };
         let lists: Vec<Vec<&str>> = live
             .iter()
-            .map(|v| v.codecs.iter().map(String::as_str).collect())
+            .map(|v| decodable(&v.codecs, &produced))
             .collect();
         // Each view's budget: its share of what its link carries (the client's hint may lower it).
         let budgets: HashMap<String, f64> = live
@@ -1171,6 +1172,27 @@ fn taking(
             da.total_cmp(&db).then(a_id.cmp(b_id))
         })
         .map(|(id, _)| *id)
+}
+
+/// A view's codecs, best first, as what the producer encodes: its own string where the producer
+/// names it, else the producer's codec of the same family (a decoder for one profile of H.264
+/// takes the others). All of them while the producer named none.
+fn decodable<'a>(view: &'a [String], produced: &[&'a str]) -> Vec<&'a str> {
+    if produced.is_empty() {
+        return view.iter().map(String::as_str).collect();
+    }
+    let mut list: Vec<&str> = Vec::new();
+    for codec in view {
+        let taken = produced
+            .iter()
+            .copied()
+            .find(|p| *p == codec.as_str())
+            .or_else(|| produced.iter().copied().find(|p| same_family(p, codec)));
+        if let Some(taken) = taken.filter(|t| !list.contains(t)) {
+            list.push(taken);
+        }
+    }
+    list
 }
 
 /// Two WebCodecs strings of one codec family (`avc1`, `hvc1`/`hev1`, `vp09`, `vp8`, `av01`): a

@@ -11,6 +11,11 @@ const CONNECTION: &str = "mc_test";
 
 /// An engine with source `s1` (handle 1, producer connection 1) and an open media connection.
 fn watched(target: Value) -> Engine {
+    watched_decoding(target, json!(["avc1.42E033"]))
+}
+
+/// `watched`, with a view that decodes `codecs`, best first.
+fn watched_decoding(target: Value, codecs: Value) -> Engine {
     let mut engine = engine();
     open_tab(&mut engine, "s1", 1, 3);
     hello(&mut engine, 1, 3);
@@ -21,7 +26,7 @@ fn watched(target: Value) -> Engine {
         &mut engine,
         json!({ "type": "viewer.open", "viewer": "v1", "connection": CONNECTION,
                 "owner": owner("phone", pairing(1)), "issued": 2, "source": "s1",
-                "target": target, "codecs": ["avc1.42E033"],
+                "target": target, "codecs": codecs,
                 "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
                 "local": false, "audio": false }),
         &[],
@@ -247,6 +252,53 @@ fn a_closed_connection_closes_its_socket_with_its_reason_and_its_views_go() {
     )));
     assert!(binaries(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW)).is_empty());
     assert_eq!(engine.counts().viewers, 0);
+}
+
+/// The codecs ace-media asks the producer of `s1` for, once it said it encodes `encodes` and
+/// its first unit gave the size.
+fn planned_codecs(view: Value, encodes: Value) -> Vec<String> {
+    let mut engine = watched_decoding(json!({ "kind": "screen", "sessionId": "screen-1" }), view);
+    send(
+        &mut engine,
+        json!({ "type": "source.codecs", "source": "s1", "codecs": encodes }),
+        &[],
+        NOW,
+    );
+    let effects = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    let Some(plan) = wants(&effects).pop() else {
+        panic!("the first unit's size plans the view");
+    };
+    plan.into_iter().map(|encode| encode.codec).collect()
+}
+
+#[test]
+fn a_phone_that_prefers_hevc_gets_h264_from_a_producer_that_only_encodes_h264() {
+    assert_eq!(
+        planned_codecs(
+            json!(["hvc1.1.6.L153.B0", "avc1.42E033"]),
+            json!(["avc1.42E033"])
+        ),
+        ["avc1.42E033"]
+    );
+}
+
+#[test]
+fn a_phone_that_prefers_hevc_gets_hevc_from_a_producer_that_encodes_it() {
+    assert_eq!(
+        planned_codecs(
+            json!(["hvc1.1.6.L153.B0", "avc1.42E033"]),
+            json!(["avc1.42E033", "hvc1.1.6.L153.B0"])
+        ),
+        ["hvc1.1.6.L153.B0"]
+    );
+}
+
+#[test]
+fn a_view_naming_another_h264_profile_takes_the_one_the_producer_encodes() {
+    assert_eq!(
+        planned_codecs(json!(["avc1.640033"]), json!(["avc1.42E033"])),
+        ["avc1.42E033"]
+    );
 }
 
 #[test]
