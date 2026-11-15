@@ -68,7 +68,14 @@ export default defineConfig({
             "apps/ios/scripts/*.test.ts",
             "scripts/*.test.ts",
           ],
-          exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],
+          // A Node-only file that isn't a process test (noise-nk-vectors) runs in node-process.
+          exclude: [
+            "**/*.process.test.ts",
+            historyWorkerReview,
+            "**/node_modules/**",
+            ...react,
+            ...nodeOnlySuites,
+          ],
           maxWorkers: workers,
           sequence: { groupOrder: 0 },
         },

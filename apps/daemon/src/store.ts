@@ -11,8 +11,8 @@ import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
+import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
-
 /** Committed sequences between marks: a rollback within the last this many may go unseen. */
 const lineageStride = 64;
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
@@ -83,7 +83,6 @@ import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
-
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
@@ -182,6 +181,7 @@ export class Store {
   private markedSeq = 0;
   /** Rows from here on were written by this build and are read without validating again. */
   private readonly trust = untrusted();
+  readonly bounded = new BoundedEvents(() => this.db, this.trust, this);
   /** Whether every entity row is in this build's shape, so read without validating again. */
   private readonly entityTrust = untrustedEntities();
   constructor(

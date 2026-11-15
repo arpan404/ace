@@ -5,6 +5,7 @@ import { AccessError } from "../remote-auth.ts";
 import { accountBackend } from "./backend.ts";
 import { deviceGrantVerdict } from "./device-grant.ts";
 import { grantKeyCache } from "./grant-keys.ts";
+import type { GrantKeySet } from "@ace/account-grant";
 import { afterAttempt, codeStep } from "./machine-code-policy.ts";
 import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machine-codes.ts";
 import { readSession, writeSession, type StoredSession } from "./session-file.ts";
@@ -122,6 +123,52 @@ export function machineAccount(options: {
     }
   }
 
+  /** The grant's verdict under `published`, then the machine code, one check at a time. */
+  async function admitWith(
+    published: GrantKeySet,
+    hello: { grant: string; deviceId: string; machineCode?: string | undefined },
+  ): Promise<DeviceAdmission> {
+    const verdict = deviceGrantVerdict(hello.grant, {
+      keys: published,
+      now: options.now(),
+      account: active()?.account.id,
+      deviceId: hello.deviceId,
+    });
+    if (!verdict.accepted) return unauthorized();
+    const account = verdict.claims.account;
+    const expiresAt = verdict.claims.exp;
+    // One code check at a time, so concurrent wrong codes all count toward the lock.
+    const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
+      const code = options.codes.current();
+      const step = codeStep({
+        required: code !== undefined,
+        passed: code === undefined || options.codes.passed(hello.deviceId, account, code.version),
+        offered: hello.machineCode,
+        lock: options.codes.lock(),
+        now: options.now(),
+      });
+      if (step.kind === "admit") return { admitted: true, account, expiresAt };
+      if (step.kind === "refuse")
+        return { admitted: false, code: step.reason, message: refusals[step.reason] };
+      if (!code) return { admitted: true, account, expiresAt };
+      const correct = await machineCodeMatches(step.code, code.hash);
+      // The code changed while it was checked: the device enters the new one.
+      if (options.codes.current()?.version !== code.version)
+        return {
+          admitted: false,
+          code: "machine_code_required",
+          message: refusals.machine_code_required,
+        };
+      const next = afterAttempt(options.codes.lock(), correct, options.now());
+      options.codes.saveLock(next.lock);
+      if (next.step.kind === "refuse")
+        return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
+      options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
+      return { admitted: true, account, expiresAt };
+    });
+    codeChecks = run.catch(() => {});
+    return run;
+  }
   return {
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
@@ -274,46 +321,16 @@ export function machineAccount(options: {
       } catch {
         return unauthorized("Couldn't check this device's ace account. Try again.");
       }
-      const verdict = deviceGrantVerdict(hello.grant, {
-        keys: published,
-        now: options.now(),
-        account: active()?.account.id,
-        deviceId: hello.deviceId,
-      });
-      if (!verdict.accepted) return unauthorized();
-      const account = verdict.claims.account;
-      const expiresAt = verdict.claims.exp;
-      // One code check at a time, so concurrent wrong codes all count toward the lock.
-      const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
-        const code = options.codes.current();
-        const step = codeStep({
-          required: code !== undefined,
-          passed: code === undefined || options.codes.passed(hello.deviceId, account, code.version),
-          offered: hello.machineCode,
-          lock: options.codes.lock(),
-          now: options.now(),
-        });
-        if (step.kind === "admit") return { admitted: true, account, expiresAt };
-        if (step.kind === "refuse")
-          return { admitted: false, code: step.reason, message: refusals[step.reason] };
-        if (!code) return { admitted: true, account, expiresAt };
-        const correct = await machineCodeMatches(step.code, code.hash);
-        // The code changed while it was checked: the device enters the new one.
-        if (options.codes.current()?.version !== code.version)
-          return {
-            admitted: false,
-            code: "machine_code_required",
-            message: refusals.machine_code_required,
-          };
-        const next = afterAttempt(options.codes.lock(), correct, options.now());
-        options.codes.saveLock(next.lock);
-        if (next.step.kind === "refuse")
-          return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
-        options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-        return { admitted: true, account, expiresAt };
-      });
-      codeChecks = run.catch(() => {});
-      return run;
+      return admitWith(published, hello);
+    },
+    /**
+     * `admitDevice` that never waits on the network (an NK first message, ADR 0155): a grant
+     * whose key isn't cached is refused now, and the key is fetched for the next attempt.
+     */
+    async admitDeviceCached(hello: { grant: string; deviceId: string }): Promise<DeviceAdmission> {
+      if (!active()) return unauthorized();
+      const published = keys.cached(hello.grant);
+      return published ? admitWith(published, hello) : unauthorized();
     },
     /** Whether an admitted account device keeps access: same account, current code passed. */
     stillAdmitted(deviceId: string, account: string): boolean {

@@ -512,6 +512,17 @@ export class Subscriptions {
       this.#pump();
       return;
     }
+    // Events applied ahead of the subscription (ADR 0155): they confirm nothing, keep the
+    // thread syncing, and leave the subscription free to answer with a snapshot. One that
+    // doesn't follow what the store holds is dropped; the subscription covers it.
+    if (message.type === "events" && message.early) {
+      try {
+        entry.store.delivery(message);
+      } catch (error) {
+        if (!(error instanceof ClientError) || error.code !== "limit") throw error;
+      }
+      return;
+    }
     entry.snapshotAllowed = false;
     try {
       const result = entry.store.delivery(message);
