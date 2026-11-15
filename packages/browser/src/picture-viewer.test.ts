@@ -65,6 +65,7 @@ function setup(options: { refuse?: () => boolean } = {}) {
     viewer,
     received,
     keyframes: () => keyframes,
+    pending: () => timers.length,
     advance(ms: number) {
       now += ms;
       for (const timer of timers.filter((candidate) => candidate.at <= now)) {
@@ -216,5 +217,29 @@ describe("a source whose captures restart many times", () => {
     expect(received).toHaveLength(8);
     viewer.ack("capture-1", 8);
     expect(received.at(-1)).toMatchObject({ stream: "capture-5", sequence: 1, key: true });
+  });
+});
+
+describe("a source whose capture goes idle", () => {
+  it("still lets a keyframe through once the unacked pictures ahead of it are due", () => {
+    const { viewer, received, advance } = setup();
+    for (let sequence = 1; sequence <= 8; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 1 }));
+    viewer.push(frame(9, { key: true }));
+    expect(received).toHaveLength(8);
+    // Nothing more comes: no picture, ack or drain. The viewer wakes itself at the deadline.
+    advance(3_000);
+    expect(received).toHaveLength(8);
+    advance(1_000);
+    expect(received.at(-1)).toMatchObject({ sequence: 9, key: true });
+  });
+
+  it("cancels its wake-up when it closes", () => {
+    const { viewer, advance, pending } = setup();
+    viewer.push(frame(1, { key: true }));
+    expect(pending()).toBe(1);
+    viewer.close();
+    expect(pending()).toBe(0);
+    advance(10_000);
   });
 });

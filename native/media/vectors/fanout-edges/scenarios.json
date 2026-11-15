@@ -1107,7 +1107,7 @@
     ]
   },
   {
-    "name": "a full window nobody acks is lost after its lifetime",
+    "name": "a full window nobody acks is lost past its deadline",
     "window": {
       "frames": 3,
       "bytes": 1000
@@ -1117,7 +1117,7 @@
         "assign": true
       },
       {
-        "lifetime": 500
+        "roundTrip": 100
       },
       {
         "publish": {
@@ -1147,7 +1147,7 @@
         }
       },
       {
-        "time": 400
+        "time": 1200
       },
       {
         "publish": {
@@ -1159,7 +1159,7 @@
         }
       },
       {
-        "time": 501
+        "time": 1202
       },
       {
         "flush": true
@@ -1218,6 +1218,478 @@
       },
       {
         "counted": 5,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "an oversized keyframe at the floor rate on a 500 ms round trip is never lost",
+    "window": {
+      "frames": 3,
+      "bytes": 10000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "roundTrip": 500
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 32768
+          }
+        }
+      },
+      {
+        "time": 2250
+      },
+      {
+        "flush": true
+      },
+      {
+        "ack": 1
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 32768
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "a shorter round trip learned after a chunk went never brings its deadline forward",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "roundTrip": 500
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "roundTrip": 50
+      },
+      {
+        "time": 1999
+      },
+      {
+        "flush": true
+      },
+      {
+        "time": 2001
+      },
+      {
+        "flush": true
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "keyframe": "e"
+      }
+    ]
+  },
+  {
+    "name": "a late ack past a deadline",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "roundTrip": 100
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "time": 1400
+      },
+      {
+        "ack": 1
+      },
+      {
+        "pause": true
+      },
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      }
+    ]
+  },
+  {
+    "name": "a forget past a deadline",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "roundTrip": 100
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "restart": true
+      },
+      {
+        "time": 500
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "time": 1400
+      },
+      {
+        "forget": 3
+      },
+      {
+        "pause": true
+      },
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      }
+    ]
+  },
+  {
+    "name": "a late ack five captures back",
+    "window": {
+      "frames": 2,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 100,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 101,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "restart": true
+      },
+      {
+        "restart": true
+      },
+      {
+        "restart": true
+      },
+      {
+        "restart": true
+      },
+      {
+        "restart": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 101,
+        "generation": 1
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 100
+      },
+      {
+        "counted": 100,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 101
+      },
+      {
+        "counted": 101,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
         "bytes": 10
       }
     ]
@@ -1393,7 +1865,7 @@
         }
       },
       {
-        "time": 1999
+        "time": 2999
       },
       {
         "publish": {
@@ -1405,7 +1877,7 @@
         }
       },
       {
-        "time": 2001
+        "time": 3002
       },
       {
         "publish": {
@@ -1512,7 +1984,7 @@
         "assign": true
       },
       {
-        "lifetime": 800
+        "roundTrip": 100
       },
       {
         "publish": {
@@ -1536,7 +2008,7 @@
         "pause": true
       },
       {
-        "time": 801
+        "time": 1202
       },
       {
         "assign": true

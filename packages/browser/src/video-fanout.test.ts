@@ -238,19 +238,23 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 1]);
   });
 
-  it("a full window nobody acks is lost after its lifetime: freed, a loss, a keyframe asked for", () => {
-    const { fanout, keyframes, dropped, lost, clock, viewer } = setup({ frames: 3, bytes: 10_000 });
+  it("a chunk nobody acks is lost past its deadline: serialization at the floor, 2 RTT and 1 s", () => {
+    const { fanout, keyframes, dropped, lost, clock, viewer } = setup({
+      frames: 3,
+      bytes: 100_000,
+    });
     const phone = viewer("phone");
-    fanout.lifetime("phone", 500);
-    fanout.publish("e1", numbered(1, true));
+    fanout.roundTrip("phone", 100);
+    // 1,875 bytes take 100 ms at 150 kbit/s: the deadline is 100 + 2 x 100 + 1,000 = 1,300 ms.
+    fanout.publish("e1", { sequence: 1, key: true, bytes: new Uint8Array(1_875) });
     fanout.publish("e1", numbered(2, false));
     fanout.publish("e1", numbered(3, false));
-    clock.now = 400;
     fanout.publish("e1", numbered(4, true));
+    clock.now = 1_300;
+    fanout.flush();
     expect(phone.received).toHaveLength(3);
     expect(lost).toEqual([]);
-    // Past the lifetime, the three are lost: the waiting keyframe goes.
-    clock.now = 501;
+    clock.now = 1_301;
     fanout.flush();
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2, 3, 4]);
     expect(lost).toEqual(["phone"]);
@@ -258,14 +262,43 @@ describe("video to each viewer at its own pace", () => {
     expect(keyframes.at(-1)).toBe("e1");
   });
 
+  it("an oversized keyframe at the floor rate on a 500 ms round trip is never lost", () => {
+    const { fanout, lost, clock, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.roundTrip("phone", 500);
+    // 32 KiB take about 1.75 s to send at 150 kbit/s, then half a round trip to arrive and
+    // half to be acked: on a link at the floor, the ack comes at about 2.25 s.
+    fanout.publish("e1", { sequence: 1, key: true, bytes: new Uint8Array(32 * 1024) });
+    clock.now = 2_250;
+    fanout.acknowledgeThrough("phone", 1);
+    fanout.publish("e1", numbered(2, false));
+    expect(lost).toEqual([]);
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2]);
+  });
+
+  it("a shorter round trip learned later never brings an earlier chunk's deadline forward", () => {
+    const { fanout, lost, clock, viewer } = setup({ frames: 3, bytes: 10_000 });
+    viewer("phone");
+    fanout.roundTrip("phone", 500);
+    fanout.publish("e1", numbered(1, true));
+    fanout.roundTrip("phone", 50);
+    // 10 bytes take no time: its deadline is 2 x 500 + 1,000 = 2,000 ms, not 1,100.
+    clock.now = 1_999;
+    fanout.flush();
+    expect(lost).toEqual([]);
+    clock.now = 2_001;
+    fanout.flush();
+    expect(lost).toEqual(["phone"]);
+  });
+
   it("with no keyframe waiting, a loss asks for one and deltas wait for it", () => {
     const { fanout, keyframes, clock, viewer } = setup({ frames: 3, bytes: 10_000 });
     const phone = viewer("phone");
-    fanout.lifetime("phone", 500);
+    fanout.roundTrip("phone", 100);
     fanout.publish("e1", numbered(1, true));
     fanout.publish("e1", numbered(2, false));
     const asked = keyframes.length;
-    clock.now = 501;
+    clock.now = 1_301;
     fanout.publish("e1", numbered(3, false));
     expect(keyframes.length).toBe(asked + 1);
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2]);
@@ -273,16 +306,26 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2, 4]);
   });
 
-  it("without a lifetime from its link, a chunk is lost after 2 s", () => {
+  it("before a round trip is known, the deadline takes it as 1 s: 3 s past the send", () => {
     const { fanout, clock, viewer } = setup({ frames: 1, bytes: 10_000 });
     const phone = viewer("phone");
     fanout.publish("e1", numbered(1, true));
-    clock.now = 1_999;
+    clock.now = 2_999;
     fanout.publish("e1", numbered(2, true));
     expect(phone.received).toHaveLength(1);
-    clock.now = 2_001;
+    clock.now = 3_001;
     fanout.flush();
     expect(phone.received).toHaveLength(2);
+  });
+
+  it("knows when its earliest chunk in flight is due, for an owner with no other wake-up", () => {
+    const { fanout, viewer } = setup({ frames: 3, bytes: 10_000 });
+    viewer("phone");
+    expect(fanout.nextDeadline("phone")).toBeUndefined();
+    fanout.roundTrip("phone", 100);
+    fanout.publish("e1", numbered(1, true));
+    // 10 bytes at 150 kbit/s, two round trips and a second.
+    expect(fanout.nextDeadline("phone")).toBe((10 * 8 * 1000) / 150_000 + 200 + 1_000);
   });
 
   it("acks through a sequence clear a full window across a pause, with no generation named", () => {

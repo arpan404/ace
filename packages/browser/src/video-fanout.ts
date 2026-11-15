@@ -1,3 +1,5 @@
+import { linkFloor } from "./link-rate.ts";
+
 /*
  * Encoded video to each viewer, at the pace that viewer acknowledges (ADR 0088). Pure: no
  * timers or I/O, so the drop and keyframe rules are tested directly.
@@ -19,11 +21,15 @@
  * that one proves everything sent before it arrived. A late ack of an old generation releases
  * only what was sent before it. `forget` drops a generation the transport confirms it dropped.
  *
- * No debt lives for ever: a chunk unacked for longer than its viewer's `lifetime` (the owner sets
- * it from the link, `LinkRate.lifetimeMs`; 2 s until then) is lost. Its bytes are released, the
- * owner hears of the loss (`lost`, which cuts the link's rate), deltas wait and a keyframe is
- * asked for. So no pause, switch or missing ack keeps a window full: video resumes within
- * the lifetime. Time is the injected `now`.
+ * No debt lives for ever. On TCP a chunk is delayed, never lost, so this is a liveness guard
+ * against acks that never come (a bookkeeping bug), never a loss detector: it must not fire on
+ * a healthy link, however slow. Each chunk is stamped when it goes with a deadline: its send
+ * time, plus the time the bytes in flight ahead of it (itself included) take at the relay's
+ * floor rate (`linkFloor`, never the current rate, so a later cut can't shorten it), plus two
+ * round trips and a second. A chunk still unacked past its deadline is lost: its bytes are
+ * released, the owner hears of it (`lost`, which cuts the link's rate), deltas wait and a
+ * keyframe is asked for. So no pause, switch or missing ack keeps a window full. Time is the
+ * injected `now`; an owner with no other wake-up schedules one for `nextDeadline`.
  *
  * The window is also bounded in time (ADR 0149): a viewer's owner may hold its bytes in flight
  * to what its link carries (`LinkRate.backlogBytes`), so a thin link never builds seconds of
@@ -48,8 +54,20 @@ export interface VideoWindow {
   bytes: number;
 }
 
-/** A chunk's lifetime in flight until its owner knows the link's round trip. */
-export const defaultLifetimeMs = 2_000;
+/** A round trip taken for deadlines until the owner knows the link's. */
+export const unknownRoundTripMs = 1_000;
+/** Beyond its send time and two round trips, a chunk may be this late before it is lost. */
+const deadlineSlackMs = 1_000;
+
+/**
+ * When a chunk sent `at`, with `bytes` in flight up to and including it, is due: those bytes at
+ * the relay's floor rate, two round trips and a second.
+ */
+export function deadline(at: number, bytes: number, roundTrip: number | undefined): number {
+  return (
+    at + (bytes * 8 * 1000) / linkFloor + 2 * (roundTrip ?? unknownRoundTripMs) + deadlineSlackMs
+  );
+}
 
 export const videoWindow: VideoWindow = { frames: 60, bytes: 8 * 1024 * 1024 };
 
@@ -75,10 +93,10 @@ interface Viewer<C extends VideoPiece> {
   encode: string | undefined;
   /** Bumped by every change of encode: its sequences are a space of their own. */
   generation: number;
-  /** Chunks on the wire, in send order, whatever generation sent them, and when each went. */
-  inflight: { sequence: number; bytes: number; generation: number; at: number }[];
-  /** How long a chunk may go unacked before it is lost. */
-  lifetime: number;
+  /** Chunks on the wire, in send order, whatever generation sent them, and when each is due. */
+  inflight: { sequence: number; bytes: number; generation: number; deadline: number }[];
+  /** The link's round trip as the owner last heard it (`LinkRate.rtt`), for deadlines. */
+  roundTrip: number | undefined;
   inflightBytes: number;
   /** Starts with a keyframe whenever it isn't empty. */
   queue: C[];
@@ -110,7 +128,7 @@ export class VideoFanout<C extends VideoPiece> {
       encode: undefined,
       generation: 0,
       inflight: [],
-      lifetime: defaultLifetimeMs,
+      roundTrip: undefined,
       inflightBytes: 0,
       queue: [],
       queuedBytes: 0,
@@ -128,10 +146,16 @@ export class VideoFanout<C extends VideoPiece> {
     const viewer = this.viewers.get(id);
     if (viewer) viewer.bound = bytes;
   }
-  /** How long a viewer's chunks may go unacked before they are lost (`LinkRate.lifetimeMs`). */
-  lifetime(id: string, ms: number): void {
+  /** The viewer's link round trip now (`LinkRate.rtt`): chunks sent from now are due by it. */
+  roundTrip(id: string, ms: number | undefined): void {
     const viewer = this.viewers.get(id);
-    if (viewer) viewer.lifetime = ms;
+    if (viewer) viewer.roundTrip = ms;
+  }
+  /** When the viewer's earliest chunk in flight is due; undefined when none is in flight. */
+  nextDeadline(id: string): number | undefined {
+    const inflight = this.viewers.get(id)?.inflight;
+    if (!inflight?.length) return undefined;
+    return Math.min(...inflight.map((entry) => entry.deadline));
   }
   remove(id: string): void {
     const viewer = this.viewers.get(id);
@@ -255,11 +279,7 @@ export class VideoFanout<C extends VideoPiece> {
   private expire(viewer: Viewer<C>): boolean {
     const now = this.options.now();
     let lost = 0;
-    while (
-      lost < viewer.inflight.length &&
-      now - (viewer.inflight[lost]?.at ?? now) > viewer.lifetime
-    )
-      lost++;
+    while (lost < viewer.inflight.length && now > (viewer.inflight[lost]?.deadline ?? now)) lost++;
     if (!lost) return false;
     for (const entry of viewer.inflight.splice(0, lost)) viewer.inflightBytes -= entry.bytes;
     this.options.lost?.(viewer.id);
@@ -332,7 +352,11 @@ export class VideoFanout<C extends VideoPiece> {
         sequence: chunk.sequence,
         bytes: chunk.bytes.length,
         generation: viewer.generation,
-        at: this.options.now(),
+        deadline: deadline(
+          this.options.now(),
+          viewer.inflightBytes + chunk.bytes.length,
+          viewer.roundTrip,
+        ),
       };
       viewer.inflight.push(entry);
       viewer.inflightBytes += entry.bytes;

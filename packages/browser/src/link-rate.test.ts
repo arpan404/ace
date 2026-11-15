@@ -250,16 +250,3 @@ describe("after the first cut", () => {
     expect(rate.rate / from).toBeGreaterThan(1.08 ** 10);
   });
 });
-
-describe("a chunk's lifetime in flight", () => {
-  it("is 2 s until a round trip is known, then max(2 x the round trip, the in-flight bound)", () => {
-    const rate = new LinkRate(phone);
-    expect(rate.lifetimeMs).toBe(2_000);
-    for (let index = 0; index < 5; index++) {
-      rate.sent(index, 100, index * 100);
-      rate.acknowledged(index, index * 100 + 300);
-    }
-    // ADR 0150's bound at a 300 ms floor: 300 + max(300, 300 + 200) = 800 ms, over 2 x 300.
-    expect(rate.lifetimeMs).toBe(800);
-  });
-});

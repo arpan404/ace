@@ -348,8 +348,8 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
                 viewer.forget(generation, now, send, event);
             } else if let Some(time) = op["time"].as_f64() {
                 now = time;
-            } else if let Some(lifetime) = op["lifetime"].as_f64() {
-                viewer.set_lifetime(lifetime);
+            } else if let Some(round_trip) = op.get("roundTrip") {
+                viewer.set_round_trip(round_trip.as_f64());
             } else if let Some(refuse) = op["refuse"].as_bool() {
                 accepting.set(!refuse);
             } else if op.get("flush").is_some() {
@@ -412,6 +412,65 @@ fn link_rate_replays_edges_the_3g_link_loss_stalls_queueing_and_hints() {
                 }
                 (actual, expected) => assert_eq!(actual, expected, "{name} step {index}"),
             }
+        }
+    }
+}
+#[test]
+fn fanout_and_link_together_carry_a_loss_into_the_rate() {
+    for scenario in rows(&load("fanout-link")) {
+        let name = s(scenario, "name");
+        let mut viewer = Viewer::new(Window {
+            frames: 8,
+            bytes: 1_000_000,
+        });
+        let rate = std::cell::RefCell::new(LinkRate::new(Limits {
+            min: LINK_FLOOR,
+            max: 16_000_000.0,
+            initial: 1_500_000.0,
+        }));
+        let log = std::cell::RefCell::new(Vec::<Value>::new());
+        let now = std::cell::Cell::new(0.0);
+        let event = |e| match e {
+            Event::Keyframe => log.borrow_mut().push(json!("keyframe")),
+            Event::Sent(p) => rate.borrow_mut().sent(p.sequence, p.bytes, now.get()),
+            Event::Dropped => rate.borrow_mut().dropped(now.get()),
+            Event::Lost => {
+                log.borrow_mut().push(json!("lost"));
+                rate.borrow_mut().lost(now.get());
+            }
+            Event::Playing(_) => {}
+        };
+        viewer.assign(Some(1), event);
+        for (index, step) in rows(&scenario["steps"]).iter().enumerate() {
+            let op = &step["op"];
+            if let Some(time) = op["time"].as_f64() {
+                now.set(time);
+            } else if let Some(p) = op.get("publish") {
+                let p = Piece {
+                    sequence: u(p, "sequence"),
+                    key: b(p, "key"),
+                    bytes: u(p, "bytes") as usize,
+                };
+                viewer.publish(1, p, now.get(), |_| true, event);
+            } else if let Some(ack) = op["ack"].as_u64() {
+                let (backlog, rtt) = {
+                    let mut rate = rate.borrow_mut();
+                    rate.acknowledged(ack, now.get());
+                    (rate.backlog_bytes(), rate.rtt())
+                };
+                viewer.bound(backlog);
+                viewer.set_round_trip(rtt);
+                viewer.acknowledge_through(ack, now.get(), |_| true, event);
+            } else {
+                panic!("{name}: unknown op {op}");
+            }
+            let out = &step["output"];
+            assert_eq!(rate.borrow().rate(), n(out, "rate"), "{name} step {index}");
+            assert_eq!(
+                Value::Array(log.borrow_mut().drain(..).collect()),
+                out["events"],
+                "{name} step {index}"
+            );
         }
     }
 }

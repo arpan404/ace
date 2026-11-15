@@ -71,8 +71,6 @@ const headroom = 1.3;
 const provenWindowMs = 30_000;
 /** Bytes in flight may hold the link's rate for its round trip plus at least this long. */
 export const backlogMs = 300;
-/** A chunk's lifetime in flight before any round trip is known. */
-export const unknownLifetimeMs = 2_000;
 
 /**
  * Sends awaiting an ack that are remembered; past this the oldest is forgotten. A viewer's
@@ -164,18 +162,8 @@ export class LinkRate {
     return Math.round((this.#rate / 8) * ((rtt + Math.max(backlogMs, rtt + stallMs)) / 1000));
   }
   /**
-   * How long a chunk may go unacked before it counts as lost: max(2 × the smoothed round trip,
-   * the in-flight time bound of `backlogBytes`), or 2 s before a round trip is known.
-   */
-  get lifetimeMs(): number {
-    const smoothed = this.#smoothed;
-    if (smoothed === undefined) return unknownLifetimeMs;
-    const rtt = this.#floor[0]?.rtt ?? smoothed;
-    return Math.max(2 * smoothed, rtt + Math.max(backlogMs, rtt + stallMs));
-  }
-  /**
-   * Chunks went unacked past their lifetime: a loss. It cuts the rate as a drop with a queue
-   * does, once a round trip, whatever the queueing says.
+   * Chunks went unacked past their deadline (`video-fanout.ts`): a loss. It cuts the rate as a
+   * drop with a queue does, once a round trip, whatever the queueing says.
    */
   lost(at: number): void {
     if (at < this.#dropHoldUntil) return;

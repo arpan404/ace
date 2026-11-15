@@ -9,7 +9,7 @@ import { PictureScale } from "../src/video-scale.ts";
 import { planVideo } from "../src/video-policy.ts";
 import { QuantizerControl } from "../src/quantizer-control.ts";
 import { writeVectors } from "./media-vector-harness.ts";
-import { fanoutEdges, linkHints, linkRateEdges } from "./media-pacing-vectors.ts";
+import { fanoutEdges, fanoutLink, linkHints, linkRateEdges } from "./media-pacing-vectors.ts";
 import { linkCaps, planSteps, planTies, quantizerCap, scaleSteps } from "./media-step-vectors.ts";
 import { linkFloor } from "../src/link-rate.ts";
 export function mediaVectors() {
@@ -144,6 +144,7 @@ export function mediaVectors() {
     "quantizer-cap": quantizerCap(),
     fanout: { steps: fanoutSteps, ack: { after: 5, sequence: 4 }, events },
     "fanout-edges": fanoutEdges(),
+    "fanout-link": fanoutLink(),
     "link-rate-edges": linkRateEdges(),
     "link-hint": linkHints(),
     "link-capped": linkCaps(),

@@ -5,9 +5,11 @@
 //! Matching video-fanout.ts: each change of encode starts a generation (a sequence space of its
 //! own). Chunks on the wire stay in flight across it, the transport's debt, until an ack of
 //! their generation, or of a later one sent after them, releases them, or `forget` does. No
-//! debt lives for ever: a chunk unacked past the viewer's lifetime (its owner sets it from the
-//! link; 2 s until then) is lost: freed, reported (`Event::Lost`) and a keyframe owed. Time is
-//! passed in.
+//! debt lives for ever, but on TCP a chunk is delayed, never lost, so this is a liveness guard
+//! that must not fire on a healthy link: each chunk is due by its send time, plus the bytes in
+//! flight up to it at the relay's floor rate, two round trips and a second (`deadline`). Past
+//! it, the chunk is lost: freed, reported (`Event::Lost`) and a keyframe owed. Time is passed in.
+use crate::link_rate::LINK_FLOOR;
 use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece {
@@ -35,19 +37,27 @@ pub enum Event {
     /// The transport accepted this piece. Refused attempts are never reported.
     Sent(Piece),
     Dropped,
-    /// Chunks went unacked past the viewer's lifetime: they are lost.
+    /// Chunks went unacked past their deadline: they are lost.
     Lost,
 }
-/// A chunk's lifetime in flight until its owner knows the link's round trip.
-pub const DEFAULT_LIFETIME_MS: f64 = 2_000.0;
+/// A round trip taken for deadlines until the owner knows the link's.
+pub const UNKNOWN_ROUND_TRIP_MS: f64 = 1_000.0;
+const DEADLINE_SLACK_MS: f64 = 1_000.0;
+/// When a chunk sent `at`, with `bytes` in flight up to and including it, is due: those bytes
+/// at the relay's floor rate (never the current rate), two round trips and a second.
+pub fn deadline(at: f64, bytes: usize, round_trip: Option<f64>) -> f64 {
+    at + bytes as f64 * 8.0 * 1000.0 / LINK_FLOOR
+        + 2.0 * round_trip.unwrap_or(UNKNOWN_ROUND_TRIP_MS)
+        + DEADLINE_SLACK_MS
+}
 #[derive(Debug)]
 pub struct Viewer {
     window: Window,
     encode: Option<u64>,
     generation: u64,
-    /// Chunks on the wire in send order, with the generation that sent each and when.
+    /// Chunks on the wire in send order, with the generation that sent each and its deadline.
     inflight: VecDeque<(Piece, u64, f64)>,
-    lifetime: f64,
+    round_trip: Option<f64>,
     inflight_bytes: usize,
     queue: VecDeque<Piece>,
     queued_bytes: usize,
@@ -65,7 +75,7 @@ impl Viewer {
             encode: None,
             generation: 0,
             inflight: VecDeque::with_capacity(window.frames),
-            lifetime: DEFAULT_LIFETIME_MS,
+            round_trip: None,
             inflight_bytes: 0,
             queue: VecDeque::with_capacity(window.frames),
             queued_bytes: 0,
@@ -83,9 +93,16 @@ impl Viewer {
         self.bound
             .map_or(self.window.bytes, |b| b.min(self.window.bytes))
     }
-    /// How long a chunk may go unacked before it is lost (`LinkRate::lifetime_ms`).
-    pub fn set_lifetime(&mut self, ms: f64) {
-        self.lifetime = ms;
+    /// The link's round trip now (`LinkRate::rtt`): chunks sent from now are due by it.
+    pub fn set_round_trip(&mut self, ms: Option<f64>) {
+        self.round_trip = ms;
+    }
+    /// When the earliest chunk in flight is due; None when none is in flight.
+    pub fn next_deadline(&self) -> Option<f64> {
+        self.inflight
+            .iter()
+            .map(|(_, _, due)| *due)
+            .reduce(f64::min)
     }
     /// Whether chunks of `generation` are still on the wire.
     pub fn owes(&self, generation: u64) -> bool {
@@ -95,7 +112,7 @@ impl Viewer {
         let lost = self
             .inflight
             .iter()
-            .take_while(|(_, _, at)| now - *at > self.lifetime)
+            .take_while(|(_, _, due)| now > *due)
             .count();
         if lost == 0 {
             return false;
@@ -341,7 +358,12 @@ impl Viewer {
             }
             self.queue.pop_front();
             self.queued_bytes -= piece.bytes;
-            self.inflight.push_back((piece, self.generation, now));
+            let due = deadline(
+                now,
+                self.inflight_bytes.saturating_add(piece.bytes),
+                self.round_trip,
+            );
+            self.inflight.push_back((piece, self.generation, due));
             // `fits` bounded this, or the window was empty.
             self.inflight_bytes += piece.bytes;
             if !send(piece) {

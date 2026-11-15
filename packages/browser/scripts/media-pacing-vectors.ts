@@ -15,7 +15,7 @@ type FanoutOp =
   | { restart: true }
   | { pause: true }
   | { time: number }
-  | { lifetime: number };
+  | { roundTrip: number | null };
 
 const piece = (sequence: number, key: boolean, length: number): FanoutOp => ({
   publish: { sequence, key, bytes: { length } },
@@ -48,7 +48,7 @@ function fanoutScenario(name: string, window: VideoWindow, ops: FanoutOp[]) {
       if (op.generation === undefined) fanout.acknowledgeThrough("v", op.ack);
       else fanout.acknowledge("v", op.ack, op.generation);
     } else if ("time" in op) now = op.time;
-    else if ("lifetime" in op) fanout.lifetime("v", op.lifetime);
+    else if ("roundTrip" in op) fanout.roundTrip("v", op.roundTrip ?? undefined);
     else if ("pause" in op) fanout.assign("v", undefined);
     else if ("forget" in op) fanout.forget("v", op.forget);
     else if ("refuse" in op) accepting = !op.refuse;
@@ -176,23 +176,92 @@ export function fanoutEdges() {
       piece(6, true, 10),
       piece(7, false, 10),
     ]),
-    // No debt lives for ever: each stuck case below resumes within the lifetime.
+    // No debt lives for ever: each stuck case below resumes once its chunks pass their
+    // deadline (send time, the bytes up to them at 150 kbit/s, two round trips and a second).
     fanoutScenario(
-      "a full window nobody acks is lost after its lifetime",
+      "a full window nobody acks is lost past its deadline",
       { frames: 3, bytes: 1000 },
       [
         { assign: true },
-        { lifetime: 500 },
+        { roundTrip: 100 },
         piece(1, true, 10),
         piece(2, false, 10),
         piece(3, false, 10),
-        { time: 400 },
+        { time: 1_200 },
         piece(4, true, 10),
-        { time: 501 },
+        { time: 1_202 },
         { flush: true },
         piece(5, false, 10),
       ],
     ),
+    // On TCP a chunk is delayed, never lost: a link at the floor never reaches a deadline.
+    fanoutScenario(
+      "an oversized keyframe at the floor rate on a 500 ms round trip is never lost",
+      { frames: 3, bytes: 10_000 },
+      [
+        { assign: true },
+        { roundTrip: 500 },
+        piece(1, true, 32 * 1024),
+        { time: 2_250 },
+        { flush: true },
+        { ack: 1 },
+        piece(2, false, 10),
+      ],
+    ),
+    fanoutScenario(
+      "a shorter round trip learned after a chunk went never brings its deadline forward",
+      { frames: 3, bytes: 1000 },
+      [
+        { assign: true },
+        { roundTrip: 500 },
+        piece(1, true, 10),
+        { roundTrip: 50 },
+        { time: 1_999 },
+        { flush: true },
+        { time: 2_001 },
+        { flush: true },
+      ],
+    ),
+    // Expiry runs inside an ack and a forget too: a late one finds its neighbours lost.
+    fanoutScenario("a late ack past a deadline", { frames: 3, bytes: 1000 }, [
+      { assign: true },
+      { roundTrip: 100 },
+      piece(1, true, 10),
+      piece(2, false, 10),
+      { time: 1_400 },
+      { ack: 1 },
+      // A pause expires nothing: the loss shows at the ack, before the pause, or not at all.
+      { pause: true },
+      { assign: true },
+      piece(3, true, 10),
+    ]),
+    fanoutScenario("a forget past a deadline", { frames: 3, bytes: 1000 }, [
+      { assign: true },
+      { roundTrip: 100 },
+      piece(1, true, 10),
+      { restart: true },
+      { time: 500 },
+      piece(1, true, 10),
+      { time: 1_400 },
+      { forget: 3 },
+      { pause: true },
+      { assign: true },
+      piece(2, true, 10),
+    ]),
+    // A late ack may name a generation many captures back: it still frees its chunks.
+    fanoutScenario("a late ack five captures back", { frames: 2, bytes: 1000 }, [
+      { assign: true },
+      piece(100, true, 10),
+      piece(101, false, 10),
+      { restart: true },
+      { restart: true },
+      { restart: true },
+      { restart: true },
+      { restart: true },
+      piece(1, true, 10),
+      { ack: 101, generation: 1 },
+      piece(2, false, 10),
+    ]),
     fanoutScenario(
       "a pause with a full window, acks naming no generation",
       { frames: 3, bytes: 1000 },
@@ -215,20 +284,21 @@ export function fanoutEdges() {
       piece(3, false, 10),
       { restart: true },
       piece(1, true, 10),
-      { time: 1_999 },
+      { time: 2_999 },
       piece(2, false, 10),
-      { time: 2_001 },
+      // Each old chunk's deadline counts the bytes ahead of it: all three are due by 3,002 ms.
+      { time: 3_002 },
       piece(3, false, 10),
       piece(4, true, 10),
       piece(5, false, 10),
     ]),
     fanoutScenario("a paused full window nobody acks", { frames: 2, bytes: 1000 }, [
       { assign: true },
-      { lifetime: 800 },
+      { roundTrip: 100 },
       piece(1, true, 10),
       piece(2, false, 10),
       { pause: true },
-      { time: 801 },
+      { time: 1_202 },
       { assign: true },
       piece(3, true, 10),
       piece(4, false, 10),
@@ -506,4 +576,72 @@ export function linkHints() {
       output: { rate: rate.rate, probing: rate.probing },
     };
   });
+}
+
+/** One step of an owner's wiring: the fanout and the link estimator together. */
+type LinkOp =
+  | { publish: { sequence: number; key: boolean; bytes: number } }
+  | { ack: number }
+  | { time: number };
+
+/**
+ * A viewer as an owner wires it (`picture-viewer.ts`, `live-video.ts`): sends feed the link,
+ * acks feed both, the link's round trip dates new chunks, and a loss cuts the link's rate. The
+ * rate after each op is the output, so a loss that stops reaching the link shows.
+ */
+function fanoutLinkScenario(name: string, ops: LinkOp[]) {
+  let now = 0;
+  const events: unknown[] = [];
+  const rate = new LinkRate(phoneLimits);
+  const fanout = new VideoFanout<VideoPiece>({
+    window: { frames: 8, bytes: 1_000_000 },
+    keyframe: () => events.push("keyframe"),
+    playing: () => {},
+    sent: (_id, sequence, bytes) => rate.sent(sequence, bytes, now),
+    dropped: () => rate.dropped(now),
+    lost: () => {
+      events.push("lost");
+      rate.lost(now);
+    },
+    now: () => now,
+  });
+  fanout.add("v", { send: () => true });
+  fanout.assign("v", "e");
+  const steps = ops.map((op) => {
+    if ("time" in op) now = op.time;
+    else if ("publish" in op)
+      fanout.publish("e", { ...op.publish, bytes: { length: op.publish.bytes } });
+    else {
+      rate.acknowledged(op.ack, now);
+      fanout.bound("v", rate.backlogBytes);
+      fanout.roundTrip("v", rate.rtt);
+      fanout.acknowledgeThrough("v", op.ack);
+    }
+    return { op, output: { rate: rate.rate, events: events.splice(0) } };
+  });
+  return { name, steps };
+}
+
+/** A loss must reach the link: a second of acks, then none, past the chunks' deadlines. */
+export function fanoutLink() {
+  const second: LinkOp[] = Array.from({ length: 15 }, (_, i) => [
+    { time: i * 66 },
+    { publish: { sequence: i, key: i === 0, bytes: 2_000 } },
+    { time: i * 66 + 40 },
+    { ack: i },
+  ]).flat() as LinkOp[];
+  const silent: LinkOp[] = Array.from({ length: 6 }, (_, i) => [
+    { time: 1_000 + i * 66 },
+    { publish: { sequence: 15 + i, key: false, bytes: 2_000 } },
+  ]).flat() as LinkOp[];
+  return [
+    fanoutLinkScenario("acks stop: the chunks are lost and the link's rate is cut", [
+      ...second,
+      ...silent,
+      { time: 2_600 },
+      { publish: { sequence: 21, key: true, bytes: 2_000 } },
+      { time: 2_700 },
+      { publish: { sequence: 22, key: false, bytes: 2_000 } },
+    ]),
+  ];
 }

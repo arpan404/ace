@@ -204,10 +204,10 @@ export class LiveVideo {
     const link = this.viewers.get(id)?.link;
     if (link) {
       link.acknowledged(sequence, this.now());
-      // In flight is bounded by what the link carries in time, not only by the window, and
-      // no chunk stays in flight longer than the link's lifetime.
+      // In flight is bounded by what the link carries in time, not only by the window; chunks
+      // sent from now are due by its round trip.
       this.fanout.bound(id, link.backlogBytes);
-      this.fanout.lifetime(id, link.lifetimeMs);
+      this.fanout.roundTrip(id, link.rtt);
     }
     // Sequences only increase here, across encodes and pauses: an ack covers everything before.
     this.fanout.acknowledgeThrough(id, sequence);

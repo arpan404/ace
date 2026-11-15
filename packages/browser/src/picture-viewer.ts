@@ -66,6 +66,9 @@ export class PictureViewer {
   #codec: string | undefined;
   #lastKeyframe = -Infinity;
   #cancelKeyframe: (() => void) | undefined;
+  /** One wake-up at the earliest deadline of the pictures in flight, and when it is for. */
+  #cancelExpiry: (() => void) | undefined;
+  #expiryAt: number | undefined;
   #closed = false;
   constructor(kind: PictureKind, sourceId: string, ports: PictureViewerPorts) {
     this.#kind = kind;
@@ -118,6 +121,7 @@ export class PictureViewer {
       bytes,
       header,
     });
+    this.#armExpiry();
   }
   /** The viewer showed pictures up to `sequence`; `keyframe`: its decoder needs a fresh start. */
   ack(streamId: string, sequence: number, keyframe = false): void {
@@ -128,17 +132,19 @@ export class PictureViewer {
       // An earlier capture's picture shown late: off the wire, nothing more.
       this.#fanout.acknowledge("viewer", sequence, generation);
       this.#forgetCaptures();
+      this.#armExpiry();
       return;
     }
     if (this.#link) {
       this.#link.acknowledged(sequence, this.#ports.now());
-      // What is in flight is bounded by what the link carries in time, not only the window,
-      // and no picture stays in flight longer than the link's lifetime.
+      // What is in flight is bounded by what the link carries in time, not only the window;
+      // pictures sent from now are due by its round trip.
       this.#fanout.bound("viewer", this.#link.backlogBytes);
-      this.#fanout.lifetime("viewer", this.#link.lifetimeMs);
+      this.#fanout.roundTrip("viewer", this.#link.rtt);
     }
     this.#fanout.acknowledge("viewer", sequence, generation);
     if (keyframe) this.#fanout.keyframe("viewer");
+    this.#armExpiry();
   }
   /** Bits per second this viewer's link carries now, when it is followed (`link`). */
   get rate(): number | undefined {
@@ -150,11 +156,15 @@ export class PictureViewer {
   }
   /** The transport drained: retry what it refused. */
   flush(): void {
-    if (!this.#closed) this.#fanout.flush();
+    if (this.#closed) return;
+    this.#fanout.flush();
+    this.#armExpiry();
   }
   close(): void {
     this.#closed = true;
     this.#cancelKeyframe?.();
+    this.#cancelExpiry?.();
+    this.#cancelExpiry = undefined;
     this.#fanout.clear();
   }
   #send(waiting: Waiting): boolean {
@@ -189,6 +199,25 @@ export class PictureViewer {
       if (stream !== this.#stream && !this.#fanout.owes("viewer", generation))
         this.#generations.delete(stream);
     }
+  }
+  /**
+   * While pictures are in flight, one wake-up at the earliest one's deadline: a capture gone
+   * idle sends no picture, ack or drain to let a lost one go, and a keyframe may wait behind it.
+   */
+  #armExpiry(): void {
+    if (this.#closed) return;
+    const due = this.#fanout.nextDeadline("viewer");
+    if (due === this.#expiryAt) return;
+    this.#cancelExpiry?.();
+    this.#cancelExpiry = undefined;
+    this.#expiryAt = due;
+    if (due === undefined) return;
+    // Just past the deadline: a chunk is lost once the clock is beyond it.
+    this.#cancelExpiry = this.#ports.after(Math.max(0, due - this.#ports.now()) + 1, () => {
+      this.#cancelExpiry = undefined;
+      this.#expiryAt = undefined;
+      this.flush();
+    });
   }
   #askKeyframe(): void {
     if (this.#closed || this.#cancelKeyframe) return;
