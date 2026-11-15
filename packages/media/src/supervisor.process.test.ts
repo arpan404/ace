@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
+import { relayHost } from "./lane-relay-test-support.ts";
 import { removeWhenFree } from "./supervisor-test-support.ts";
 import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
 import { authenticateLane, connectLane } from "./lanes.ts";
@@ -155,9 +156,11 @@ it("a squatting server that doesn't hold the lane secret gets the hello's nonce 
   const secret = new Uint8Array(randomBytes(32));
   const squatter = createServer();
   const received: Buffer[] = [];
+  let closed = false;
   squatter.on("connection", (socket) => {
     socket.on("data", (chunk: Buffer) => received.push(chunk));
     socket.on("error", () => {});
+    socket.on("close", () => (closed = true));
     // A guess at a proof, and a nonce.
     socket.write(randomBytes(64));
   });
@@ -170,13 +173,82 @@ it("a squatting server that doesn't hold the lane secret gets the hello's nonce 
   const lane = await connectLane(address);
   await expect(authenticateLane(lane, "priority", secret, nonce)).rejects.toThrow(/did not prove/);
   lane.destroy();
-  await until(() => received.length > 0);
+  // Everything the squatter ever got, up to the connection's close.
+  await until(() => closed);
   const bytes = Buffer.concat(received);
   // Only the hello: magic, tag and a nonce. No secret, and no proof derived from it.
   expect(bytes.length).toBe(37);
   expect(bytes.subarray(0, 5)).toEqual(Buffer.from([0x41, 0x43, 0x45, 0x4c, 1]));
   expect(bytes.includes(Buffer.from(secret))).toBe(false);
 });
+
+/** `chunk` with the byte at `at` changed, when it falls in this chunk. */
+function flipped(chunk: Buffer, before: number, at: number): Buffer {
+  if (at < before || at >= before + chunk.length) return chunk;
+  const copy = Buffer.from(chunk);
+  copy[at - before] = (copy[at - before] ?? 0) ^ 0x01;
+  return copy;
+}
+
+// The daemon's hello and proof, then its first record; ace-media's reply, then its accept record.
+const helloAndProof = 37 + 32;
+const replyAndAccept = 64 + 2 + 17;
+
+it.runIf(real)(
+  "a relay that passes the hello through and then changes one byte the daemon sends gets the lane closed, never the frame accepted",
+  async () => {
+    let relay: ReturnType<typeof relayHost> | undefined;
+    const { supervisor, exits } = start(
+      {},
+      {
+        // Inside the first record on the priority lane (its length is the first two bytes).
+        host: (host) =>
+          (relay = relayHost(host, (lane, direction, chunk, before) =>
+            lane === 0 && direction === "toMedia"
+              ? flipped(chunk, before, helloAndProof + 4)
+              : chunk,
+          )).host,
+      },
+    );
+    cleanups.push(() => relay?.close());
+    supervisor.need();
+    await until(() => supervisor.health() === "healthy");
+    // The revocation's record is the one changed: ace-media refuses it and ends the lane.
+    expect(await supervisor.revoke({ type: "revoke", id: "r1", issued: 1, device: "d1" })).not.toBe(
+      "answered",
+    );
+    await until(() => exits.length > 0);
+    // The next process's lanes are relayed unchanged, and work.
+    await until(() => supervisor.health() === "healthy");
+    expect(await supervisor.revoke({ type: "revoke", id: "r2", issued: 2, device: "d1" })).toBe(
+      "answered",
+    );
+  },
+);
+
+it.runIf(real)(
+  "a relay that injects a record of its own on the egress lane gets the lane closed",
+  async () => {
+    let relay: ReturnType<typeof relayHost> | undefined;
+    const injected = Buffer.concat([Buffer.from([0, 32]), randomBytes(32)]);
+    const { supervisor, exits, state } = start(
+      {},
+      {
+        host: (host) =>
+          (relay = relayHost(host, (lane, direction, chunk, before) => {
+            const at = replyAndAccept - before;
+            if (lane !== 1 || direction !== "toDaemon" || at < 0 || at > chunk.length) return chunk;
+            return Buffer.concat([chunk.subarray(0, at), injected, chunk.subarray(at)]);
+          })).host,
+      },
+    );
+    cleanups.push(() => relay?.close());
+    supervisor.need();
+    await until(() => exits.length > 0);
+    expect(exits[0]).toMatchObject({ failure: true });
+    expect(state.egress).toBe(0);
+  },
+);
 
 it("refuses the real secret on a lane tag already taken, and on any lane once both are up", async () => {
   // The supervisor's egress lane waits until the duplicate has been tried, so the secret is still

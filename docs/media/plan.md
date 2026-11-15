@@ -258,10 +258,21 @@ table, including timed-out trials and the ranking cache.
     HMAC-SHA256 keyed by the secret over `"ace-media lane v1 server"`, the tag and that nonce,
     then a fresh nonce of its own. The daemon checks the proof before sending anything else,
     then sends its own, over `"ace-media lane v1 client"`, the tag and both nonces. ace-media
-    answers one byte, `0x01`, and the connection then carries that lane's frames. On a bad
-    hello, an unknown or repeated tag, a wrong proof or a connection after both lanes are up,
-    ace-media closes the connection without answering; on a wrong server proof the daemon
-    closes it. Either is a lane failure to the supervisor.
+    answers `0x01` as its first record (below), and the connection then carries that lane's
+    frames. On a bad hello, an unknown or repeated tag, a wrong proof or a connection after both
+    lanes are up, ace-media closes the connection without answering; on a wrong server proof the
+    daemon closes it. Either is a lane failure to the supervisor.
+  - **Lane records** (`ace_media::lane_cipher`, `packages/media/src/lane-records.ts`). After the
+    hello every byte of a lane, the accept byte first, is in authenticated encryption, so a
+    process relaying the whole hello between the two can neither read a lane nor get a frame of
+    its own accepted. Keys: HKDF-SHA256 from the lane secret, salt `"ace-media lane v1 keys"`,
+    over the tag, both nonces and `"daemon to media"` or `"media to daemon"`. Records: a u16 BE
+    length, then ChaCha20-Poly1305 from media-noise's transport (ace-media) and
+    `@ace/secure-channel`'s CipherState (daemon): Noise nonces, which are the per-direction
+    sequence numbers, with each direction rekeyed every 2^20 records. A record that fails to
+    open closes the lane. Measured on the M4 Max: sealing 1.97 GB/s in ace-media, with no
+    allocation per record (0.1 % of a core at 16 Mbit/s); opening 297 MB/s on Node and
+    248 MB/s on Bun in the daemon (under 1 %).
 - **Frames** (all lanes except egress). `u32 BE frame length` (the bytes after this field, at
   most 8 MiB on the normal lane, 64 KiB on the priority lane), then `u32 BE JSON length`, the
   JSON message in UTF-8, then an optional binary payload (the rest of the frame).
@@ -1303,8 +1314,13 @@ For scale, today's measurements (ADR 0147's Context): the Linux and Windows scre
 
 ## K1 contract clarifications
 
-- **The lane hello proves the server first** ("ace-media: lanes prove the server before the
-  daemon speaks"). The secret is never on a socket. A server that doesn't hold it (a squatting
+- **Lanes are authenticated, then encrypted** ("ace-media: lanes prove the server before the
+  daemon speaks"). Proving the secret alone would leave the lanes plaintext to a same-user
+  process that relays the hello between the daemon and ace-media; so every lane byte after the
+  hello is a sealed record under keys derived from the secret and that transcript (see "Lane
+  records"). A relay reads nothing, and a frame it modifies, injects, replays or reorders
+  closes the lane.
+- **The lane hello proves the server first.** The secret is never on a socket. A server that doesn't hold it (a squatting
   instance of a Windows pipe name, which any process of the user can create) receives a random
   nonce and nothing else. A proof is refused when it is replayed from another connection (the
   nonces differ), made with the other direction's label, or a guess. Nonces are fresh per

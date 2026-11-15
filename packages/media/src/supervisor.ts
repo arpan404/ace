@@ -389,7 +389,8 @@ export class MediaSupervisor {
       return undefined;
     }
     const nonces = this.#options.laneNonces ?? secureRandomBytes;
-    return { socket, frames: await authenticateLane(socket, lane, run.secret, nonces) };
+    // From here the lane is sealed: frames are opened as they arrive, writes sealed.
+    return await authenticateLane(socket, lane, run.secret, nonces);
   }
 
   #read(

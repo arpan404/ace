@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createConnection } from "node:net";
+import { deriveLaneKeys, LaneRecords } from "./lane-records.ts";
 import { encodeControl, type ControlLane, type ToMedia } from "./wire.ts";
 
 /**
@@ -142,19 +143,25 @@ function proof(secret: Uint8Array, ...parts: Uint8Array[]): Uint8Array {
   return new Uint8Array(hmac.digest());
 }
 
+/** An authenticated lane: its frames' plaintext, and a socket whose writes go out sealed. */
+export type SealedLane = { frames: ByteSource; socket: LaneSocket };
+
 /**
- * Proves ace-media and then the daemon on a socket lane, and waits for ace-media's accept byte.
- * Resolves with the source of the lane's frames (any bytes after the accept byte included);
- * rejects if ace-media's proof is wrong (the connection is destroyed, having carried only the
- * hello), if the lane is refused, or if it closes first. `random` gives the attempt's nonce,
- * fresh each call; the secret's copies made here are zeroed once used.
+ * Proves ace-media and then the daemon on a socket lane, then carries the lane in records
+ * (`lane-records.ts`), ace-media's accept byte first. Resolves once that accept record opens,
+ * with the lane's plaintext frames (any bytes after the accept included) and a socket that seals
+ * what is written to it. Rejects if ace-media's proof is wrong (the connection is destroyed,
+ * having carried only the hello), if its first record isn't the accept, or if the lane closes
+ * first. After that a record that fails to open (modified, injected, replayed, out of sequence)
+ * destroys the connection and ends the lane. `random` gives the attempt's nonce, fresh each
+ * call; the copies made here of the secret's proofs are zeroed once used.
  */
 export function authenticateLane(
   socket: LaneSocket,
   lane: SocketLane,
   secret: Uint8Array,
   random: (length: number) => Uint8Array,
-): Promise<ByteSource> {
+): Promise<SealedLane> {
   if (secret.length !== 32 || secret.every((byte) => byte === 0))
     return Promise.reject(new Error("The lane secret must be 32 bytes, not all zero"));
   const tag = Uint8Array.of(laneTags[lane]);
@@ -168,35 +175,74 @@ export function authenticateLane(
   return new Promise((resolve, reject) => {
     let phase: "proof" | "accept" | "open" | "failed" = "proof";
     let reply = new Uint8Array(0);
+    let records: LaneRecords | undefined;
     let listener: ((chunk: Uint8Array) => void) | undefined;
     const held: Uint8Array[] = [];
+    const ends: ((error?: Error) => void)[] = [];
+    let ended: { error?: Error } | undefined;
     const deliver = (chunk: Uint8Array) => {
       if (chunk.length === 0) return;
       if (listener) listener(chunk);
       else held.push(chunk);
     };
+    const end = (error?: Error) => {
+      if (ended) return;
+      ended = error ? { error } : {};
+      for (const next of ends.splice(0)) next(error);
+    };
     const fail = (error: Error) => {
       phase = "failed";
       expected.fill(0);
+      records?.close();
       reject(error);
     };
-    const accept = (chunk: Uint8Array) => {
-      if (chunk.length === 0) return;
-      if (chunk[0] !== laneAccepted) return fail(new Error(`ace-media refused the ${lane} lane`));
-      phase = "open";
-      deliver(chunk.subarray(1));
-      resolve({
-        onData(next) {
-          listener = next;
-          for (const queued of held.splice(0)) next(queued);
-        },
-        onEnd: (next) => socket.onEnd(next),
-      });
+    const sealedSocket: LaneSocket = {
+      write(chunk, done) {
+        if (!records || phase !== "open") {
+          done(new Error(`The ${lane} lane is closed`));
+          return false;
+        }
+        return socket.write(records.seal(chunk), done);
+      },
+      onDrain: (next) => socket.onDrain(next),
+      onData(next) {
+        listener = next;
+        for (const queued of held.splice(0)) next(queued);
+      },
+      onEnd(next) {
+        if (ended) next(ended.error);
+        else ends.push(next);
+      },
+      destroy: () => socket.destroy(),
+    };
+    /** Opens what arrived; the first plaintext must be exactly the accept byte. */
+    const received = (chunk: Uint8Array) => {
+      let plains: Uint8Array[];
+      try {
+        plains = records?.open(chunk) ?? [];
+      } catch {
+        socket.destroy();
+        const error = new Error(`A ${lane} lane record failed to open`);
+        if (phase === "accept") return fail(error);
+        phase = "failed";
+        return end(error);
+      }
+      for (const plain of plains) {
+        if (phase === "accept") {
+          if (plain.length !== 1 || plain[0] !== laneAccepted) {
+            socket.destroy();
+            return fail(new Error(`ace-media refused the ${lane} lane`));
+          }
+          phase = "open";
+          resolve({ frames: sealedSocket, socket: sealedSocket });
+          continue;
+        }
+        deliver(plain);
+      }
     };
     socket.onData((chunk) => {
       if (phase === "failed") return;
-      if (phase === "open") return deliver(chunk);
-      if (phase === "accept") return accept(chunk);
+      if (phase !== "proof") return received(chunk);
       reply = Uint8Array.from([...reply, ...chunk]);
       if (reply.length < proofBytes + nonceBytes) return;
       const presented = reply.subarray(0, proofBytes);
@@ -207,13 +253,16 @@ export function authenticateLane(
       expected.fill(0);
       const serverNonce = reply.slice(proofBytes, proofBytes + nonceBytes);
       const rest = reply.subarray(proofBytes + nonceBytes);
+      const keys = deriveLaneKeys(secret, tag[0] ?? 0, nonce, serverNonce);
+      records = new LaneRecords(keys.toMedia, keys.toDaemon);
       phase = "accept";
       const answer = proof(secret, clientLabel, tag, nonce, serverNonce);
       socket.write(answer, () => answer.fill(0));
-      accept(rest);
+      received(rest);
     });
     socket.onEnd((error) => {
-      if (phase === "open" || phase === "failed") return;
+      if (phase === "open") return end(error);
+      if (phase === "failed") return;
       fail(error ?? new Error(`The ${lane} lane closed during authentication`));
     });
     socket.write(hello, () => hello.fill(0));

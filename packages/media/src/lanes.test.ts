@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { deriveLaneKeys, LaneRecords } from "./lane-records.ts";
 import {
   authenticateLane,
   controlFrameReader,
@@ -170,48 +171,120 @@ const drawn = (nonces: Uint8Array[]) => (length: number) => {
   return next.slice();
 };
 
-describe("authenticateLane", () => {
-  const vectors = z
-    .object({
-      secret: z.string(),
-      clientNonce: z.string(),
-      serverNonce: z.string(),
-      serverLabel: z.string(),
-      clientLabel: z.string(),
-      cases: z.array(
-        z.object({ tag: z.number(), serverProof: z.string(), clientProof: z.string() }),
+const vectors = z
+  .object({
+    secret: z.string(),
+    clientNonce: z.string(),
+    serverNonce: z.string(),
+    serverLabel: z.string(),
+    clientLabel: z.string(),
+    cases: z.array(
+      z.object({
+        tag: z.number(),
+        serverProof: z.string(),
+        clientProof: z.string(),
+        acceptRecord: z.string(),
+        firstRecord: z.string(),
+      }),
+    ),
+  })
+  .parse(
+    JSON.parse(
+      readFileSync(
+        new URL("../../../native/media/vectors/lane/proofs.json", import.meta.url),
+        "utf8",
       ),
-    })
-    .parse(
-      JSON.parse(
-        readFileSync(
-          new URL("../../../native/media/vectors/lane/proofs.json", import.meta.url),
-          "utf8",
-        ),
-      ),
-    );
-  const secret = bytes(vectors.secret);
-  const clientNonce = bytes(vectors.clientNonce);
-  const serverNonce = bytes(vectors.serverNonce);
-  const priority = vectors.cases.find((entry) => entry.tag === 1);
-  if (!priority) throw new Error("no priority vector");
+    ),
+  );
+const secret = bytes(vectors.secret);
+const clientNonce = bytes(vectors.clientNonce);
+const serverNonce = bytes(vectors.serverNonce);
+const priority = vectors.cases.find((entry) => entry.tag === 1);
+if (!priority) throw new Error("no priority vector");
 
-  it("proves the server first, then itself, as the shared vectors say, and hands over what follows", async () => {
+/** ace-media's end of a lane opened with the shared vectors' nonces. */
+function mediaEnd(tag: number): LaneRecords {
+  const keys = deriveLaneKeys(secret, tag, clientNonce, serverNonce);
+  return new LaneRecords(keys.toDaemon, keys.toMedia);
+}
+
+describe("authenticateLane", () => {
+  for (const entry of vectors.cases) {
+    const lane = entry.tag === 1 ? ("priority" as const) : ("egress" as const);
+    it(`on the ${lane} lane proves the server, then itself, and seals the lane as the shared vectors say`, async () => {
+      const pair = socketPair();
+      const authenticated = authenticateLane(
+        pair.socket,
+        lane,
+        secret.slice(),
+        drawn([clientNonce]),
+      );
+      // The hello: magic, tag, the nonce. Nothing derived from the secret yet.
+      expect([...(pair.written[0] ?? [])]).toEqual([
+        0x41,
+        0x43,
+        0x45,
+        0x4c,
+        entry.tag,
+        ...clientNonce,
+      ]);
+      const reply = Uint8Array.from([...bytes(entry.serverProof), ...serverNonce]);
+      // The reply may come in any chunks.
+      pair.emit(reply.subarray(0, 10));
+      pair.emit(reply.subarray(10));
+      expect([...(pair.written[1] ?? [])]).toEqual([...bytes(entry.clientProof)]);
+      // ace-media's accept byte is its first record; a frame's bytes follow in the next.
+      const media = mediaEnd(entry.tag);
+      pair.emit(bytes(entry.acceptRecord));
+      media.seal(Uint8Array.of(1));
+      const frame = media.seal(Uint8Array.of(42, 43));
+      pair.emit(frame.subarray(0, 3));
+      pair.emit(frame.subarray(3));
+      const opened = await authenticated;
+      const received: number[] = [];
+      opened.frames.onData((chunk) => received.push(...chunk));
+      pair.emit(media.seal(Uint8Array.of(44)));
+      expect(received).toEqual([42, 43, 44]);
+      // What the daemon writes goes out as records: its first is the vector's.
+      opened.socket.write(new TextEncoder().encode("ping"), () => {});
+      expect(Buffer.from(pair.written[2] ?? []).toString("hex")).toBe(entry.firstRecord);
+    });
+  }
+
+  it("refuses a tampered accept record", async () => {
     const pair = socketPair();
     const lane = authenticateLane(pair.socket, "priority", secret.slice(), drawn([clientNonce]));
-    // The hello: magic, tag, the nonce. Nothing derived from the secret yet.
-    expect([...(pair.written[0] ?? [])]).toEqual([0x41, 0x43, 0x45, 0x4c, 1, ...clientNonce]);
-    const reply = Uint8Array.from([...bytes(priority.serverProof), ...serverNonce]);
-    // The reply may come in any chunks.
-    pair.emit(reply.subarray(0, 10));
-    pair.emit(reply.subarray(10));
-    expect([...(pair.written[1] ?? [])]).toEqual([...bytes(priority.clientProof)]);
-    pair.emit(Uint8Array.of(1, 42));
-    pair.emit(Uint8Array.of(43));
+    pair.emit(Uint8Array.from([...bytes(priority.serverProof), ...serverNonce]));
+    const accept = bytes(priority.acceptRecord).map((byte, i) => (i === 4 ? byte ^ 1 : byte));
+    pair.emit(accept);
+    await expect(lane).rejects.toThrow();
+    expect(pair.destroyed()).toBe(true);
+  });
+
+  it("ends the lane at a record that fails to open after the accept", async () => {
+    const pair = socketPair();
+    const authenticated = authenticateLane(
+      pair.socket,
+      "egress",
+      secret.slice(),
+      drawn([clientNonce]),
+    );
+    const egress = vectors.cases.find((entry) => entry.tag === 2);
+    if (!egress) throw new Error("no egress vector");
+    pair.emit(Uint8Array.from([...bytes(egress.serverProof), ...serverNonce]));
+    const media = mediaEnd(2);
+    pair.emit(media.seal(Uint8Array.of(1)));
+    const opened = await authenticated;
     const received: number[] = [];
-    (await lane).onData((chunk) => received.push(...chunk));
-    pair.emit(Uint8Array.of(44));
-    expect(received).toEqual([42, 43, 44]);
+    const ended: (Error | undefined)[] = [];
+    opened.frames.onData((chunk) => received.push(...chunk));
+    opened.frames.onEnd((error) => ended.push(error));
+    const injected = media.seal(Uint8Array.of(7)).map((byte, i) => (i === 3 ? byte ^ 1 : byte));
+    pair.emit(injected);
+    pair.emit(media.seal(Uint8Array.of(8)));
+    expect(received).toEqual([]);
+    expect(ended).toHaveLength(1);
+    expect(pair.destroyed()).toBe(true);
   });
 
   const refusals: [string, () => Uint8Array][] = [
