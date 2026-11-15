@@ -84,6 +84,15 @@ impl Viewer {
     pub fn playing(&self) -> bool {
         self.playing
     }
+    /// Holds the bytes in flight to `bytes` from now on (its link's budget). A lone piece always
+    /// goes when nothing is in flight, so a keyframe larger than the budget still passes.
+    pub fn limit_bytes(&mut self, bytes: usize) {
+        self.window.bytes = bytes.max(1);
+    }
+    /// Whether a piece is still queued here, waiting for room: its payload must be kept.
+    pub fn queued(&self, sequence: u64) -> bool {
+        self.queue.iter().any(|p| p.sequence == sequence)
+    }
     pub fn backlogged(&self) -> bool {
         !self.queue.is_empty() || self.dropping
     }

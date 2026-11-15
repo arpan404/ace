@@ -201,7 +201,7 @@ export function startMachines(context: ServiceContext): void {
   });
 
   // Bound once the children exist below: a machine answering again ends their wait on it.
-  let machineReachable: ((machine: string) => void) | undefined;
+  let machineReachable: ((machine: string, sentAt?: number) => void) | undefined;
   // One kept-open, pinned connection per paired machine, so a call costs one round trip.
   // Every socket hand-over checks the pairing is still saved, through one kept-open reader.
   const saved = new SavedPairings(config.dataDir, record("warn"));
@@ -214,14 +214,13 @@ export function startMachines(context: ServiceContext): void {
   const directory = new MachineDirectory({
     connections,
     now,
-    reachable: (machine) => machineReachable?.(machine),
+    reachable: (machine, sentAt) => machineReachable?.(machine, sentAt),
+    // The one reader of the pairings the connection pool checks too: read again only when the
+    // file is replaced or any connection (Settings here, the CLI elsewhere) commits to it.
     profiles: () => {
-      const profiles = new Profiles(config.dataDir);
-      try {
-        return profiles.list();
-      } finally {
-        profiles.close();
-      }
+      const list = saved.list();
+      if (!list) throw new Error("The saved pairings can't be read just now");
+      return list;
     },
     transport: options.machines?.transport ?? machineRequest,
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
@@ -253,7 +252,13 @@ export function startMachines(context: ServiceContext): void {
     transfers: (profile) => new TransferClient(probes, profile).probe(),
   });
   // Linking again or unlinking ends that machine's old connections before it reports done.
-  resources.own(fleet.onChange((profiles) => connections.retain(profiles)));
+  resources.own(
+    fleet.onChange((profiles) => {
+      connections.retain(profiles);
+      // Children on a machine paired again, or no longer, are planned again at once.
+      children.pairingsChanged();
+    }),
+  );
   services.fleet = fleet;
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;
@@ -372,7 +377,7 @@ export function startMachines(context: ServiceContext): void {
     log: record("warn"),
   });
   resources.own(() => children.close());
-  machineReachable = (machine) => children.machineReachable(machine);
+  machineReachable = (machine, sentAt) => children.machineReachable(machine, sentAt);
   // New input on a stopped parent may resume it: what waits for it is tried at once.
   resources.own(
     store.subscribe((events) => {

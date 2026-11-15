@@ -77,6 +77,8 @@ export interface ServerOptions {
     Partial<Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "handleHttp">>;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
+  /** What ace-media runs on (ADR 0148): its probe's list and each source's steps. */
+  mediaAcceleration?: import("@ace/media/acceleration").MediaAccelerationStore | undefined;
   /** This Mac's locked computer use component (`lockedUse.*`); a placeholder when absent. */
   lockedUse?: import("@ace/screen").LockedUseInstaller;
   devices?: import("@ace/devices").DevicesService | import("./lazy-devices.ts").LazyDevices;

@@ -135,6 +135,10 @@ it("waiting tasks survive a restart of the other machine: they start when a slot
   ).toHaveLength(1);
   expect(await stateHere(pair, waiting)).toBe("queued");
 
+  // The restart took time here too: reads that failed while the target was down are due again.
+  // (This fixture's clock only moves when told; a child's own wait ends by time, not by others.)
+  pair.source.h.clock.advance(pair.source.h.clock.now() + 31_000);
+
   // Cancelling a waiting child after the restart settles it without running.
   const stop = await pair.source.call({
     op: "agent.cancel",

@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { BrowserMedia } from "@ace/browser";
+import { MediaAccelerationStore } from "@ace/media/acceleration";
 import type { IngestProducer, IngestSource } from "@ace/media/ingest-sources";
 import type { MediaConnectGrant, MediaOwner } from "@ace/media/media-connections";
 import type { MediaDeliveryPort } from "@ace/media/media-viewers";
@@ -30,7 +31,7 @@ const MediaSetting = (value: unknown): "auto" | "legacy" => (value === "auto" ? 
 const mediaKeys = ["media.encode", "media.delivery"] as const;
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
-function findBinary(): string | undefined {
+export function findMediaBinary(): string | undefined {
   const entry = process.argv[1];
   if (entry && basename(entry) === "ace.mjs")
     return mediaBinaryPath({
@@ -71,6 +72,8 @@ export type DaemonMedia = BrowserMedia & {
    * does, so a session started under `legacy` still moves when the setting turns `auto`.
    */
   attach(producer: IngestProducer): IngestSource;
+  /** What ace-media runs on, kept across its restarts and before the runtime exists (empty). */
+  acceleration: MediaAccelerationStore;
 };
 
 /** One per daemon: the browser and the screen share it. */
@@ -81,12 +84,13 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
   const media = createMedia(context);
   started.set(context.services, media);
   if (media) context.services.mediaDelivery = () => media.delivery();
+  if (media) context.services.mediaAcceleration = media.acceleration;
   return media;
 }
 
 function createMedia(context: ServiceContext): DaemonMedia | undefined {
   if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
-  const binary = findBinary();
+  const binary = findMediaBinary();
   if (!binary) return undefined;
   const { services, id, config, resources } = context;
   let settings: MediaSettings = legacyMediaSettings;
@@ -96,6 +100,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let runtimeDir: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
   const waiting = new Map<IngestProducer, { source: IngestSource | undefined }>();
+  const acceleration = new MediaAccelerationStore();
 
   const start = () =>
     (starting ??= (async () => {
@@ -116,6 +121,8 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
         id,
         capabilities: platformRouteCapabilities(process.platform),
+        platform: process.platform,
+        acceleration,
         log: (level, message, fields) => context.log.log(level, `ace-media: ${message}`, fields),
       });
       for (const [producer, slot] of waiting) slot.source = runtime.sources.add(producer);
@@ -169,6 +176,7 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
 
   return {
     delivery: () => (runtime ? delivery(runtime) : undefined),
+    acceleration,
     add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,

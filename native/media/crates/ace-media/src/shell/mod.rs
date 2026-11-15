@@ -19,7 +19,7 @@ use crate::encode::worker::Output;
 use crate::engine::sources::IngestId;
 use crate::engine::{Engine, Now};
 use crate::framing::{encode, read_control};
-use crate::probe::{TRIAL_DEADLINE, probe, trials};
+use crate::probe::{Cancel, TRIAL_DEADLINE, probe, trials};
 use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
 use egress::EgressLane;
@@ -150,6 +150,14 @@ struct Places<'a> {
     runtime: &'a Path,
 }
 
+struct CancelOnDrop(Cancel);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 async fn serve(
     version: &str,
     clock: &Clock,
@@ -175,7 +183,9 @@ async fn serve(
         Err(error) => return fail(&format!("ingest websocket: {error}")),
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
-    // Clients' media connections (D1): loopback, plain WebSocket.
+    // Clients' media connections (D1): loopback only, plain WebSocket. Nothing binds beyond
+    // loopback until the TLS listener lands: `listen`'s remote part is taken and wiped, never
+    // served (remote clients use the relay, D2).
     let media_listener = match TcpListener::bind(("127.0.0.1", 0)).await {
         Ok(listener) => listener,
         Err(error) => return fail(&format!("media listener: {error}")),
@@ -184,7 +194,12 @@ async fn serve(
         .local_addr()
         .map_or(0, |a| u32::from(a.port()));
 
-    let probed = tokio::task::spawn_blocking(|| probe(trials(), TRIAL_DEADLINE)).await;
+    // Trials still running when ace-media stops close their sessions at their next step.
+    let cancel = Cancel::default();
+    let _cancel_on_exit = CancelOnDrop(cancel.clone());
+    let trial_cancel = cancel.clone();
+    let probed =
+        tokio::task::spawn_blocking(move || probe(trials(), TRIAL_DEADLINE, &trial_cancel)).await;
     let Ok((mut capabilities, late)) = probed else {
         return fail("probe");
     };
@@ -206,7 +221,7 @@ async fn serve(
         .filter(|_| std::fs::create_dir_all(&profiles).is_ok());
     if let Some(options) = chrome.clone() {
         let slot = capabilities.add_slot();
-        crate::trials::chrome_trial(options, TRIAL_DEADLINE, move |found| {
+        crate::trials::chrome_trial(options, TRIAL_DEADLINE, &cancel, move |found| {
             let _ = late_chrome.send((slot, vec![found]));
         });
     }
@@ -384,6 +399,7 @@ async fn serve(
                     *shared = list.clone();
                 }
                 engine.capabilities_changed(&list);
+                pictures.capabilities_changed();
                 let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
                     && stdout.send(bytes).is_err()

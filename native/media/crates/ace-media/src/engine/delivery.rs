@@ -33,8 +33,15 @@ const RTT_WINDOW_MS: u64 = 10_000;
 /// At most one keyframe request per encode in this time.
 const KEYFRAME_SPACING_MS: u64 = 200;
 const STATS_MS: u64 = 1_000;
-/// Units held for one view while its window is full; past this the oldest go.
-const HELD: usize = 64;
+/// ADR 0149's floor: video's share never plans below this.
+pub const RATE_FLOOR: f64 = 150_000.0;
+/// The round trip assumed before a view's link has measured one.
+const RTT_GUESS_MS: f64 = 100.0;
+/// What the bytes in flight may hold beyond one round trip (ADR 0149 decision 2).
+const SLACK_MS: f64 = 300.0;
+/// The bytes in flight a view is held to: at least one small unit, at most the fanout's window.
+const MIN_BUDGET: usize = 16 * 1024;
+const MAX_BUDGET: usize = 8 * 1024 * 1024;
 const FRAME_AUDIO: u8 = 2;
 
 /// Whose view an ack is for, in the client's ids.
@@ -434,11 +441,16 @@ impl Delivery {
         now_ms: u64,
         out: &mut Vec<Effect>,
     ) {
+        let Some(session) = self.views.get(key).map(|v| v.session.clone()) else {
+            return;
+        };
+        let share = self.share(&session);
         let Some(view) = self.views.get_mut(key) else {
             return;
         };
         let at = now_ms as f64;
         view.rate.acknowledged(sequence, at);
+        view.fanout.limit_bytes(budget_bytes(view, share));
         let mut events = Vec::new();
         let mut sent = 0;
         {
@@ -450,15 +462,20 @@ impl Delivery {
             } = view;
             fanout.acknowledge(
                 sequence,
-                |piece| {
-                    sent += send(out, connection, held, piece);
-                    true
+                |piece| match send(out, connection, held, piece) {
+                    Some(bytes) => {
+                        sent += bytes;
+                        true
+                    }
+                    None => false,
                 },
                 |e| events.push(e),
             );
             if keyframe {
                 fanout.keyframe(|e| events.push(e));
             }
+            // A unit's bytes live exactly as long as the fanout queues it.
+            held.retain(|(sequence, _)| fanout.queued(*sequence));
         }
         self.bytes_out += sent;
         self.events(key, events, now_ms, out);
@@ -591,9 +608,6 @@ impl Delivery {
                     ..
                 } = view;
                 held.push_back((sequence, built.pieces));
-                while held.len() > HELD {
-                    held.pop_front();
-                }
                 fanout.publish(
                     u64::from(frame.encode),
                     Piece {
@@ -601,12 +615,18 @@ impl Delivery {
                         key: built.key,
                         bytes: built.bytes,
                     },
-                    |piece| {
-                        sent += send(out, connection, held, piece);
-                        true
+                    |piece| match send(out, connection, held, piece) {
+                        Some(bytes) => {
+                            sent += bytes;
+                            true
+                        }
+                        None => false,
                     },
                     |e| events.push(e),
                 );
+                // A unit's bytes live exactly as long as the fanout queues it: what it dropped,
+                // or never took, goes with it. So the held bytes never outgrow its window.
+                held.retain(|(sequence, _)| fanout.queued(*sequence));
             }
             self.bytes_out += sent;
             self.events(key, events, now_ms, out);
@@ -693,12 +713,16 @@ impl Delivery {
             .iter()
             .map(|v| v.codecs.iter().map(String::as_str).collect())
             .collect();
+        // Each view's budget: its share of what its link carries (the client's hint may lower it).
+        let budgets: HashMap<String, f64> = live
+            .iter()
+            .map(|v| (v.id.get().to_owned(), carried(v) * share(&v.session)))
+            .collect();
         let viewers: Vec<VideoViewer<'_>> = live
             .iter()
             .zip(lists.iter())
             .map(|(v, list)| {
-                let measured = v.rate.rate();
-                let link = v.hint_bps.map_or(measured, |h| h.min(measured));
+                let link = carried(v);
                 VideoViewer {
                     id: v.id.get(),
                     viewport: PlanViewport {
@@ -742,13 +766,29 @@ impl Delivery {
                     free
                 }
             };
+            // The planner keeps 500 kbit/s; video's share follows the link below that, down to
+            // ADR 0149's floor, so a thin or inflating link is never asked for more than it has.
+            let budget = plan
+                .viewers
+                .iter()
+                .filter(|(_, key)| *key == encode.key)
+                .filter_map(|(viewer, _)| budgets.get(viewer))
+                .copied()
+                .fold(f64::INFINITY, f64::min);
+            let bitrate = if budget.is_finite() {
+                f64::from(encode.bitrate)
+                    .min(budget.max(RATE_FLOOR))
+                    .round() as u32
+            } else {
+                encode.bitrate
+            };
             wanted.push(EncodeSpec {
                 id,
                 codec: encode.codec.clone(),
                 width: encode.width,
                 height: encode.height,
                 fps: encode.fps,
-                bitrate: encode.bitrate,
+                bitrate,
                 quantizer: None,
             });
         }
@@ -774,9 +814,14 @@ impl Delivery {
             .map(|(k, _)| k.clone())
             .collect();
         for key in keys {
+            let Some(session) = self.views.get(&key).map(|v| v.session.clone()) else {
+                continue;
+            };
+            let share = self.share(&session);
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
+            view.fanout.limit_bytes(budget_bytes(view, share));
             let next = if view.paused || !self.sockets.contains_key(&view.connection) {
                 None
             } else {
@@ -839,35 +884,24 @@ impl Delivery {
     }
 }
 
-/// Sends one unit's held pieces when the fanout lets it go; older held units it skipped are
-/// dropped. Returns the bytes sent.
+/// Sends one unit's held pieces when the fanout lets it go. `None` when its bytes aren't held:
+/// the fanout is told the piece wasn't accepted, never that it was.
 fn send(
     out: &mut Vec<Effect>,
     connection: &str,
     held: &mut VecDeque<(u64, Vec<Vec<u8>>)>,
     piece: Piece,
-) -> u64 {
-    while let Some((sequence, _)) = held.front() {
-        if *sequence >= piece.sequence {
-            break;
-        }
-        held.pop_front();
-    }
-    let Some((sequence, _)) = held.front() else {
-        return 0;
-    };
-    if *sequence != piece.sequence {
-        return 0;
-    }
-    let Some((_, pieces)) = held.pop_front() else {
-        return 0;
-    };
+) -> Option<u64> {
+    let at = held
+        .iter()
+        .position(|(sequence, _)| *sequence == piece.sequence)?;
+    let (_, pieces) = held.remove(at)?;
     let mut bytes = 0;
     for piece in pieces {
         bytes += piece.len() as u64;
         media(out, connection, MediaOut::Binary(piece));
     }
-    bytes
+    Some(bytes)
 }
 
 /// Whether a new plan differs enough to tell the producer: other encodes, sizes or codecs, or a
@@ -922,4 +956,19 @@ fn same_family(a: &str, b: &str) -> bool {
         None => c.to_owned(),
     };
     family(a) == family(b)
+}
+
+/// What a view's link carries now: its measured rate, lowered by the client's hint.
+fn carried(view: &View) -> f64 {
+    let measured = view.rate.rate();
+    view.hint_bps.map_or(measured, |hint| hint.min(measured))
+}
+
+/// The bytes a view may have in flight: its share of the link over one round trip and the
+/// slack (ADR 0149), so delivery itself holds video to its share, whatever the producer sends.
+fn budget_bytes(view: &View, share: f64) -> usize {
+    let rate = carried(view) * share;
+    let rtt = view.rate.rtt().unwrap_or(RTT_GUESS_MS).max(0.0);
+    let bytes = rate / 8.0 * (rtt + SLACK_MS) / 1000.0;
+    (bytes as usize).clamp(MIN_BUDGET, MAX_BUDGET)
 }
