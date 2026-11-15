@@ -67,8 +67,8 @@ export const builtRouteCapabilities: RouteCapabilities = {
  * This build's capabilities on `platform`. On a Mac the screen helper streams into ace-media's
  * ingest too (E3): screens, and Android emulators whose picture it encodes (`--encode-frames`);
  * and ace-media reads a Simulator's serve-sim stream itself. The daemon forwards an Android
- * device's scrcpy units everywhere.
- * Screens elsewhere wait for their helpers' encoders (E1, E2).
+ * device's scrcpy units everywhere. Linux screens stream in from their helper too (E2);
+ * Windows' wait for theirs (E1).
  */
 export function platformRouteCapabilities(platform: string): RouteCapabilities {
   // The daemon forwards an Android device's scrcpy units itself, on every platform.
@@ -76,7 +76,11 @@ export function platformRouteCapabilities(platform: string): RouteCapabilities {
   return {
     ...builtRouteCapabilities,
     ingest:
-      platform === "darwin" ? [...ingest, "screen", "emulator-frames", "simulator"] : [...ingest],
+      platform === "darwin"
+        ? [...ingest, "screen", "emulator-frames", "simulator"]
+        : platform === "linux"
+          ? [...ingest, "screen"]
+          : [...ingest],
   };
 }
 

@@ -66,6 +66,7 @@ function socketFrame(sequence: number, keyframe: boolean): Frame {
     {
       version: 2,
       sessionId: "backlog",
+      platform: "macos",
       seq: sequence,
       ts: sequence,
       width: 640,

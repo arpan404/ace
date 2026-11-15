@@ -12,9 +12,11 @@ import type { HelperPort } from "./helper-session.ts";
 import { PathMerge } from "@ace/media/path-merge";
 
 /**
- * A Mac screen session as an ace-media producer (docs/media/plan.md, E3). When the route sends
- * screens to ace-media, the helper is given the ingest socket with each `stream.configure` and
- * writes its H.264 there; ace-media's egress brings the units back as the frames the helper's
+ * A Mac (E3) or Linux (E2) screen session as an ace-media producer (docs/media/plan.md). When
+ * the route sends screens to ace-media, the helper is given the ingest socket with each
+ * `stream.configure` and writes its H.264 there. On Linux the daemon's path keeps today's
+ * JPEG pictures, which the daemon encodes for viewers as before, so only the ace-media route
+ * runs the helper's encoder; ace-media's egress brings the units back as the frames the helper's
  * socket would have carried, header for header, for the daemon's legacy viewer, recorder and
  * stills. Both paths go through one ordered merge, so a route change loses or repeats nothing.
  */
@@ -60,6 +62,8 @@ export function egressScreenFrame(sessionId: string, frame: MediaFrame): Frame |
 
 export type ScreenMediaSourceOptions = {
   sessionId: string;
+  /** The helper's platform: ace-media's origin, and whether the daemon's path carries video. */
+  platform: "macos" | "linux";
   helper: HelperPort;
   media: ScreenMedia;
   /** A frame from either path, video in sequence order and stills in theirs. */
@@ -104,7 +108,7 @@ export class ScreenMediaSource {
     this.#source = options.media.add({
       source: `screen:${options.sessionId}`,
       kind: "screen",
-      origin: { kind: "screen", platform: "macos" },
+      origin: { kind: "screen", platform: options.platform },
       sessionId: options.sessionId,
       epoch: () => screenOpeningEpoch,
       // The screen's legacy viewer, recorder and stills all hang off the frames the helper
@@ -115,6 +119,11 @@ export class ScreenMediaSource {
       // ace-media's end marker for a path, after its last unit.
       pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
     });
+  }
+
+  /** Whether the helper sends video to ace-media now (its stills then come only on request). */
+  get ingesting(): boolean {
+    return this.#onPath !== daemonPath;
   }
 
   /** Frames dropped as older than one already handed on, or lost to a cut path. */
@@ -229,7 +238,12 @@ export class ScreenMediaSource {
       reply = ScreenStreamConfigured.parse(
         await this.#options.helper.request({
           op: "stream.configure",
-          settings,
+          // A Linux helper's video goes to ace-media only: on the daemon's path it sends the
+          // JPEG pictures the daemon has always encoded itself.
+          settings:
+            address || this.#options.platform === "macos"
+              ? settings
+              : { ...settings, codec: "jpeg" },
           epoch: screenOpeningEpoch,
           ...(address ? { ingest: address.ingest } : {}),
         }),

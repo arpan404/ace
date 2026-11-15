@@ -224,11 +224,18 @@ describe("named routes", () => {
       expect(
         mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
       ).toMatchObject({ producer: "ace-media", egress: true });
-    for (const platform of ["linux", "win32"])
-      for (const kind of ["screen", "emulator-frames"] as const)
-        expect(
-          mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
-        ).toMatchObject({ producer: "daemon", tee: false, egress: false });
+    // Linux screens stream into ace-media (E2); its emulators and Windows' screens don't yet.
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("linux")).screen).toEqual(
+      mac.screen,
+    );
+    for (const [platform, kind] of [
+      ["linux", "emulator-frames"],
+      ["win32", "screen"],
+      ["win32", "emulator-frames"],
+    ] as const)
+      expect(mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind]).toMatchObject(
+        { producer: "daemon", tee: false, egress: false },
+      );
   });
 });
 

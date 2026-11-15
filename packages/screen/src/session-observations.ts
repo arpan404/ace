@@ -101,16 +101,18 @@ export class SessionObservations {
     const settings = ScreenStreamSettings.parse(raw);
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (
-      session.helper.capabilities?.platform !== "macos" ||
-      !session.helper.capabilities.codecs.includes("h264")
-    )
-      return { codec: "jpeg" };
+    const capabilities = session.helper.capabilities;
+    // A Linux helper encodes video only into ace-media (its media source decides the path).
+    const video =
+      capabilities?.platform === "macos" ||
+      (capabilities?.platform.startsWith("linux") === true && session.media !== undefined);
+    if (!video || !capabilities?.codecs.includes("h264")) return { codec: "jpeg" };
     const result = session.media
       ? await session.media.configure(settings)
       : StreamCodec.parse(await session.helper.request({ op: "stream.configure", settings }));
     // A view may ask just before its subscription lands; the last one leaving switches back.
-    if (result.codec === "h264") session.viewerVideo = true;
+    if (result.codec === "h264" || (session.media && settings.codec === "h264"))
+      session.viewerVideo = true;
     return result;
   }
   /**
@@ -135,7 +137,7 @@ export class SessionObservations {
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (session.helper.capabilities?.platform === "macos")
+    if (session.helper.capabilities?.platform === "macos" || session.media?.ingesting)
       await session.helper.request({ op: "stream.keyframe" });
   }
   async captureScreenshot(id: string): Promise<Frame> {
@@ -145,7 +147,9 @@ export class SessionObservations {
     const lease = session.pixels.acquire();
     try {
       await lease.ready;
-      if (session.helper.capabilities.platform === "macos") {
+      // A helper streaming video sends a still only when asked (the Mac always, Linux while
+      // its video goes to ace-media).
+      if (session.helper.capabilities.platform === "macos" || session.media?.ingesting) {
         session.pixels.invalidateImage();
         await session.helper.request({ op: "stream.image" });
       }

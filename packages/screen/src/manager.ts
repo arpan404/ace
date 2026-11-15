@@ -490,14 +490,16 @@ export class ScreenManager {
     await Promise.all([...this.sessions.values()].map((session) => session.pixels.settle()));
     return ScreenInventory.parse(await this.inspect("targets"));
   }
-  /** A Mac session streams into ace-media while the route says so (ADR 0147, phase 2). */
+  /** A Mac or Linux session streams into ace-media while the route says so (ADR 0147, phase 2). */
   private attachMedia(session: Session): void {
     const media = this.options.media;
     const capabilities = session.helper.capabilities;
-    if (!media || session.media || capabilities?.platform !== "macos") return;
-    if (!capabilities.codecs.includes("h264")) return;
+    const platform = mediaPlatform(capabilities?.platform);
+    if (!media || session.media || !platform) return;
+    if (!capabilities?.codecs.includes("h264")) return;
     session.media = new ScreenMediaSource({
       sessionId: session.state.sessionId,
+      platform,
       helper: session.helper,
       media,
       accept: (frame) => this.acceptOrdered(session, frame),
@@ -923,4 +925,11 @@ export class ScreenManager {
   private fail(session: Session, error: Error): void {
     this.lifecycle.fail(session, error);
   }
+}
+
+/** The helpers whose video can stream into ace-media: the Mac's (E3) and Linux's (E2). */
+function mediaPlatform(platform: string | undefined): "macos" | "linux" | undefined {
+  if (platform === "macos") return "macos";
+  if (platform?.startsWith("linux")) return "linux";
+  return undefined;
 }
