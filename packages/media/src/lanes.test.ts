@@ -156,6 +156,20 @@ function socketPair() {
   };
 }
 
+const bytes = (hex: string) => new Uint8Array(Buffer.from(hex, "hex"));
+const mac = (key: Uint8Array, ...parts: Uint8Array[]) => {
+  const hmac = createHmac("sha256", key);
+  for (const part of parts) hmac.update(part);
+  return new Uint8Array(hmac.digest());
+};
+const label = (text: string) => new TextEncoder().encode(text);
+/** Every nonce the daemon drew, in order. */
+const drawn = (nonces: Uint8Array[]) => (length: number) => {
+  const next = nonces.shift();
+  if (!next || next.length !== length) throw new Error("no nonce left");
+  return next.slice();
+};
+
 describe("authenticateLane", () => {
   const vectors = z
     .object({
@@ -176,24 +190,11 @@ describe("authenticateLane", () => {
         ),
       ),
     );
-  const bytes = (hex: string) => new Uint8Array(Buffer.from(hex, "hex"));
   const secret = bytes(vectors.secret);
   const clientNonce = bytes(vectors.clientNonce);
   const serverNonce = bytes(vectors.serverNonce);
-  const mac = (key: Uint8Array, ...parts: Uint8Array[]) => {
-    const hmac = createHmac("sha256", key);
-    for (const part of parts) hmac.update(part);
-    return new Uint8Array(hmac.digest());
-  };
-  const label = (text: string) => new TextEncoder().encode(text);
   const priority = vectors.cases.find((entry) => entry.tag === 1);
   if (!priority) throw new Error("no priority vector");
-  /** Every nonce the daemon drew, in order. */
-  const drawn = (nonces: Uint8Array[]) => (length: number) => {
-    const next = nonces.shift();
-    if (!next || next.length !== length) throw new Error("no nonce left");
-    return next.slice();
-  };
 
   it("proves the server first, then itself, as the shared vectors say, and hands over what follows", async () => {
     const pair = socketPair();
