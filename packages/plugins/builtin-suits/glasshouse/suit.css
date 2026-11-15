@@ -35,7 +35,7 @@
   --suit-r-tile: 15px;
 
   /* Daylight glass: clear and bright at its edges, the room's colour showing through. */
-  --suit-tint-far: rgb(255 255 255 / 0.26);
+  --suit-tint-far: rgb(255 255 255 / 0.38);
   --suit-tint-mid: rgb(255 255 255 / 0.34);
   --suit-tint-near: rgb(255 255 255 / 0.5);
   --suit-tint-float: rgb(250 253 252 / 0.72);
@@ -75,6 +75,7 @@
   --suit-etched-title: 0 1px 0 rgb(255 255 255 / 0.9), 0 -1px 0 rgb(30 70 78 / 0.18);
   --suit-bead-hi: #ffffff;
   --suit-bead-lo: #dce9e8;
+  --suit-lens-hi: rgb(255 255 255 / 0.6);
 
   --suit-fill: var(--suit-tint-mid);
   --suit-shine: var(--suit-glint);
@@ -98,7 +99,7 @@
   --suit-tint-well: rgb(6 14 18 / 0.45);
   --suit-glint: linear-gradient(
     150deg,
-    rgb(190 225 250 / 0.11) 0%,
+    rgb(190 225 250 / 0.075) 0%,
     rgb(190 225 250 / 0.03) 26%,
     rgb(190 225 250 / 0) 48%,
     rgb(190 225 250 / 0.02) 78%,
@@ -126,6 +127,7 @@
   --suit-etched-title: 0 1px 0 rgb(0 0 0 / 0.65), 0 -1px 0 rgb(190 225 245 / 0.14);
   --suit-bead-hi: var(--color-active);
   --suit-bead-lo: var(--color-surface-2);
+  --suit-lens-hi: rgb(200 235 255 / 0.1);
 }
 
 [data-part="app"] {
@@ -281,7 +283,7 @@
 /* The open place sits in a small glass lens. */
 [data-part="rail-item"][data-state="active"] {
   --suit-fill: var(--suit-tint-near);
-  --suit-shine: radial-gradient(circle at 32% 26%, rgb(255 255 255 / 0.55), transparent 62%);
+  --suit-shine: radial-gradient(circle at 32% 26%, var(--suit-lens-hi), transparent 62%);
   --suit-edge: var(--suit-line);
   color: var(--color-link);
   box-shadow:
@@ -319,7 +321,7 @@
 }
 [data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
   background:
-    radial-gradient(circle at 32% 26%, rgb(255 255 255 / 0.5), transparent 65%), var(--suit-wash);
+    radial-gradient(circle at 32% 26%, var(--suit-lens-hi), transparent 65%), var(--suit-wash);
   color: var(--color-link);
   box-shadow:
     inset 0 0 0 1px var(--suit-glow),
@@ -343,7 +345,7 @@
   margin-block: 6px;
 }
 [data-scheme="dark"] [data-part="thread-row"] {
-  --suit-fill: rgb(24 42 52 / 0.38);
+  --suit-fill: rgb(14 27 34 / 0.6);
 }
 [data-scheme="dark"] [data-part="thread-row"][data-state="active"],
 [data-scheme="dark"] [data-part="thread-row"][data-state="selected"] {
@@ -925,7 +927,7 @@
 [data-part="menu-item"]:hover,
 [data-part="menu-item"]:focus-visible {
   background:
-    radial-gradient(ellipse at 20% 0%, rgb(255 255 255 / 0.35), transparent 70%), var(--suit-wash);
+    radial-gradient(ellipse at 20% 0%, var(--suit-lens-hi), transparent 70%), var(--suit-wash);
   box-shadow:
     inset 0 0 0 1px var(--suit-glow),
     var(--suit-rim);
@@ -1072,8 +1074,7 @@
   border-radius: 999px;
   border: 1px solid var(--suit-line);
   background:
-    radial-gradient(circle at 34% 26%, rgb(255 255 255 / 0.7), transparent 50%),
-    var(--suit-tint-near);
+    radial-gradient(circle at 34% 26%, var(--suit-lens-hi), transparent 50%), var(--suit-tint-near);
   box-shadow:
     inset 0 -2px 3px rgb(var(--suit-shade) / 0.16),
     0 3px 6px -2px rgb(var(--suit-shade) / 0.3);

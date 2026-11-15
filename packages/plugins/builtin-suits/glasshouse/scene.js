@@ -36,9 +36,9 @@ let leaves = []; // blurred foliage silhouettes
 // Fixed placements, as fractions of the window, so the room is the same every time.
 const bloomSpots = {
   light: [
-    { rgb: "255,190,90", a: 0.6, x: 0.08, y: 0.0, r: 0.62, d: 0.9 },
-    { rgb: "255,216,130", a: 0.42, x: 0.5, y: 0.08, r: 0.4, d: 1.3 },
-    { rgb: "90,190,200", a: 0.5, x: 0.12, y: 0.98, r: 0.58, d: 0.8 },
+    { rgb: "255,192,96", a: 0.58, x: 0.3, y: -0.06, r: 0.66, d: 0.9 },
+    { rgb: "255,220,140", a: 0.38, x: 0.66, y: 0.06, r: 0.4, d: 1.3 },
+    { rgb: "100,190,205", a: 0.44, x: 0.08, y: 0.98, r: 0.56, d: 0.8 },
     { rgb: "120,190,110", a: 0.48, x: 0.74, y: 0.92, r: 0.56, d: 1.1 },
     { rgb: "165,215,150", a: 0.36, x: 0.86, y: 0.32, r: 0.36, d: 1.6 },
     { rgb: "120,200,190", a: 0.32, x: 0.4, y: 0.55, r: 0.3, d: 1.2 },

@@ -42,7 +42,7 @@
     }
   },
   "light": {
-    "canvas": "#EEF4F3",
+    "canvas": "#FFFFFF",
     "sidebar": "#E3ECEB",
     "surface": "#F9FCFB",
     "raised": "#FFFFFF",
@@ -54,7 +54,7 @@
     "text": "#122024",
     "muted": "#33454A",
     "subtle": "#46595E",
-    "faint": "#687C81",
+    "faint": "#5A6E73",
     "accent": "#1C6578",
     "accentHover": "#15566A",
     "accentFg": "#FFFFFF",
