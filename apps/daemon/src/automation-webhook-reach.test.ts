@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { noWayOn, webhookState, type WebhookWays } from "./automation-webhook-reach.ts";
+import {
+  isLoopbackHost,
+  noWayOn,
+  webhookState,
+  type WebhookWays,
+} from "./automation-webhook-reach.ts";
 
 const hook = "0123456789abcdef0123456789abcdef";
 const off: WebhookWays = { custom: { on: false }, tailscale: { on: false }, relay: { on: false } };
@@ -36,5 +41,23 @@ describe("a webhook's addresses", () => {
       urls: [],
       problem: tailscale.problem,
     });
+  });
+});
+
+describe("loopback hosts", () => {
+  it("names this computer whatever the port or spelling", () => {
+    for (const host of [
+      "localhost",
+      "LOCALHOST:8080",
+      "127.0.0.1:443",
+      "127.8.9.1",
+      "[::1]:9",
+      "a.localhost",
+    ])
+      expect(isLoopbackHost(host), host).toBe(true);
+  });
+  it("leaves real names and addresses alone", () => {
+    for (const host of ["hooks.example.com", "mac.tail0.ts.net:443", "10.0.0.2", "128.0.0.1"])
+      expect(isLoopbackHost(host), host).toBe(false);
   });
 });

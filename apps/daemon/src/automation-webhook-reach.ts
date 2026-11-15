@@ -36,3 +36,18 @@ export function webhookState(
     problem: blocked && "problem" in blocked ? blocked.problem.slice(0, 512) : noWayOn,
   };
 }
+
+/**
+ * Whether a Host names this computer's loopback (`localhost`, 127.0.0.0/8, `::1`), whatever the
+ * port. Webhooks are never served there, even when the person's own URL is set to one.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const name = host
+    .toLowerCase()
+    .replace(/:\d+$/, "")
+    .replace(/^\[(.*)\]$/, "$1")
+    .replace(/\.$/, "");
+  return (
+    name === "localhost" || name.endsWith(".localhost") || name === "::1" || name.startsWith("127.")
+  );
+}

@@ -414,6 +414,20 @@ test("at the person's own URL a webhook runs with its switch on, and never at th
     expect(await postAt(port, `127.0.0.1:${port}`, path, made.secret ?? "", now())).not.toBe(202);
     expect(await postAt(port, "hooks.example.com", path, made.secret ?? "", now())).toBe(202);
     expect(await runs()).toHaveLength(1);
+    // Nor does it when the person's own URL is set to a loopback address.
+    await f.daemon.settings.set("remote.mcpPublicUrl", `https://127.0.0.1:${port}`, {
+      kind: "global",
+    });
+    await expect
+      .poll(() => f.daemon.automationWebhooks?.state("deploy-check").problem, wait)
+      .toMatch(/points at this computer/);
+    expect(await postAt(port, `127.0.0.1:${port}`, path, made.secret ?? "", now())).not.toBe(202);
+    await f.daemon.settings.set("remote.mcpPublicUrl", "https://hooks.example.com", {
+      kind: "global",
+    });
+    await expect
+      .poll(() => f.daemon.automationWebhooks?.state("deploy-check").url, wait)
+      .toBe(`https://hooks.example.com${path}`);
     // The list leads with the address ace cloud doesn't carry.
     expect(f.daemon.automationWebhooks?.state("deploy-check")).toMatchObject({
       url: `https://hooks.example.com${path}`,

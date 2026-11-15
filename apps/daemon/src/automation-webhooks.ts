@@ -18,7 +18,12 @@ import type {
 } from "@ace/protocol";
 import type { ReachFacts } from "./external-mcp/reach.ts";
 import { publicOrigin, tailnetUrl, unreachable } from "./external-mcp/reach.ts";
-import { hooksPath, webhookState, type WebhookWays } from "./automation-webhook-reach.ts";
+import {
+  hooksPath,
+  isLoopbackHost,
+  webhookState,
+  type WebhookWays,
+} from "./automation-webhook-reach.ts";
 import { RateLimit } from "./external-mcp/oauth/rate-limit.ts";
 import type { RelayHttpHandler } from "./relay-http.ts";
 import type { ServiceContext } from "./services/types.ts";
@@ -120,9 +125,14 @@ export async function startAutomationWebhooks(
     return {
       custom: !on.custom
         ? { on: false }
-        : custom
-          ? { on: true, base: custom }
-          : { on: true, problem: "Add your own URL in Settings, under Connect an app." },
+        : custom && isLoopbackHost(new URL(custom).host)
+          ? {
+              on: true,
+              problem: "Your own URL points at this computer; webhooks need a public one.",
+            }
+          : custom
+            ? { on: true, base: custom }
+            : { on: true, problem: "Add your own URL in Settings, under Connect an app." },
       tailscale: !tailscale
         ? { on: false }
         : "problem" in tailscale

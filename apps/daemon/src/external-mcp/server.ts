@@ -22,7 +22,7 @@ import { daemonComputerToolkit } from "../computer-tools.ts";
 import { computerName } from "../computer-name.ts";
 import type { RelayHttpHandler } from "../relay-http.ts";
 import { baseOfResource, resourceMetadataUrl, type OutsideBase } from "./oauth/base.ts";
-import { hooksPath } from "../automation-webhook-reach.ts";
+import { hooksPath, isLoopbackHost } from "../automation-webhook-reach.ts";
 import { publicMetadataFetch } from "./oauth/cimd-fetch.ts";
 import { outsideOAuth } from "./oauth/service.ts";
 import {
@@ -152,7 +152,13 @@ export async function externalMcp(context: ServiceContext) {
       if (!base) return new Response("Host not allowed", { status: 403 });
       // Webhooks only at the person's own URL, never at the loopback address (ADR 0158).
       const webhooks = context.services.automationWebhooks;
-      if (base.path === "custom" && webhooks && isHookPath(new URL(request.url).pathname))
+      // and never under a loopback Host, even when that URL was set to one.
+      if (
+        base.path === "custom" &&
+        webhooks &&
+        isHookPath(new URL(request.url).pathname) &&
+        !isLoopbackHost(request.headers.get("host") ?? "localhost")
+      )
         return webhooks.serve(request, "custom");
       return oauth(request, base, serve);
     },
