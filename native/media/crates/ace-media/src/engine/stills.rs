@@ -415,6 +415,7 @@ impl Stills {
 
     /// `still.poster`: the source's picture fitted to a viewer's viewport at 10–20 KB, answered
     /// like a still.
+    #[allow(clippy::too_many_arguments)]
     pub fn poster(
         &mut self,
         request: Id,
