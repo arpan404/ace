@@ -1,8 +1,9 @@
 import { useId, type ReactNode } from "react";
 import { AccentPicker } from "./accent-picker.tsx";
 import { ModePicker } from "./mode-picker.tsx";
-import { SuitsSection } from "./suits-section.tsx";
-import { ThemeChooser } from "./theme-chooser.tsx";
+import { LookPicker } from "./look-picker.tsx";
+import { useLook } from "./look.ts";
+import { PreviewStrip } from "./preview-strip.tsx";
 import {
   SettingRow,
   SettingSection,
@@ -16,9 +17,11 @@ import {
   TranscriptSize,
   themeHasGlass,
   transcriptSizes,
+  type BackdropMotion,
   type Density,
   type ReduceMotion,
 } from "@/theme/appearance.ts";
+import { suitPalette } from "@/theme/suits/suit-css.ts";
 import { themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { snapTranslucency, translucencyMax, translucencyStep } from "@/theme/translucency.ts";
@@ -28,6 +31,11 @@ const motionOptions: { value: ReduceMotion; label: string }[] = [
   { value: "system", label: "System" },
   { value: "on", label: "On" },
   { value: "off", label: "Off" },
+];
+const backdropOptions: { value: BackdropMotion; label: string }[] = [
+  { value: "full", label: "Full" },
+  { value: "reduced", label: "Reduced" },
+  { value: "still", label: "Still" },
 ];
 const densityOptions: { value: Density; label: string }[] = [
   { value: "comfortable", label: "Comfortable" },
@@ -91,26 +99,52 @@ function TranslucencyRow(props: {
   );
 }
 
-/** Mode, theme, Suits, translucency, motion, density and transcript size. Every change applies at once. */
+/**
+ * Mode, look, accent, backdrop motion, translucency, motion, density and transcript size. Every
+ * change applies at once; only the controls the picked look uses show.
+ */
 export function AppearanceSettings() {
-  const { appearance, update, resolved, systemReducesTransparency, softwareRendering } = useTheme();
+  const { appearance, update, resolved, suit, systemReducesTransparency, softwareRendering } =
+    useTheme();
+  const look = useLook();
+  const solidLook = suit
+    ? suitPalette(suit.manifest, resolved.scheme).material.glass === null
+      ? suit.manifest.name
+      : undefined
+    : themeHasGlass(appearance.theme, resolved.scheme)
+      ? undefined
+      : themes[appearance.theme].name;
   return (
     <>
+      <PreviewStrip />
       <PickerGroup id="appearance.mode">
         <ModePicker />
       </PickerGroup>
-      <PickerGroup id="appearance.theme">
-        <ThemeChooser />
+      <PickerGroup id="appearance.look">
+        <LookPicker />
       </PickerGroup>
-      <SuitsSection />
       <PickerGroup id="appearance.accent">
-        <AccentPicker />
+        {look.summary && look.suitId !== null ? (
+          <p className="text-ui text-muted-foreground">{look.summary.name} sets its own colours.</p>
+        ) : (
+          <AccentPicker />
+        )}
       </PickerGroup>
       <SettingSection label="Display" card scope="device">
+        {look.suitId !== null && look.summary?.scene && (
+          <SettingRow {...settingRow("appearance.backdropMotion")}>
+            <SegmentedControl
+              label="Backdrop motion"
+              value={appearance.backdropMotion}
+              options={backdropOptions}
+              onValueChange={(backdropMotion) => update({ backdropMotion })}
+            />
+          </SettingRow>
+        )}
         <TranslucencyRow
           forcedSolid={
-            !themeHasGlass(appearance.theme, resolved.scheme)
-              ? `${themes[appearance.theme].name} is always solid`
+            solidLook
+              ? `${solidLook} is always solid`
               : systemReducesTransparency
                 ? "Solid while your system reduces transparency"
                 : softwareRendering

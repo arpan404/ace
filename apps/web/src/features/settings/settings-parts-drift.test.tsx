@@ -133,13 +133,16 @@ test.each(auditedPages)("every button and link in Settings %s names its part", a
   expect(unnamedControls(path)).toEqual([]);
 });
 
-test("Appearance's Suits name their buttons, Make one with an agent a secondary one", async () => {
+test("Appearance's looks name their parts, Make your own a card among them", async () => {
   await harness({ suits: fakeSuitLibrary([fakeSuit({ id: "sunset" })]).transport }).open(
     "/settings/appearance",
   );
-  const make = await screen.findByRole("link", { name: "Make one with an agent" });
-  expect(make.getAttribute("data-part")).toBe("button");
-  expect(make.getAttribute("data-variant")).toBe("secondary");
+  const sunset = await screen.findByRole("radio", { name: "sunset" });
+  expect(sunset.getAttribute("data-part")).toBe("card");
+  expect(sunset.getAttribute("data-variant")).toBe("picker");
+  const make = await screen.findByRole("link", { name: "Make your own" });
+  expect(make.getAttribute("data-part")).toBe("card");
+  expect(make.getAttribute("data-variant")).toBe("make-look");
   expect(unnamedControls("/settings/appearance")).toEqual([]);
 });
 

@@ -30,6 +30,10 @@ interface Library {
   want(summary: SuitSummary): void;
   /** An agent's preview on top of the device setting; undefined when none runs. */
   preview: SuitId | null | undefined;
+  /** Keeps the preview on this device, as an agent's keep does: it becomes the setting. */
+  keepPreview(): void;
+  /** Ends the preview on this device, as an agent's revert does: the setting shows again. */
+  revertPreview(): void;
   /** The daemon channel, for the live check's `suitCheck` and `suitReport`. */
   transport: SuitTransport | undefined;
 }
@@ -125,6 +129,12 @@ export function SuitLibraryProvider(props: {
     });
   }, [transport, update]);
 
+  const keepPreview = useCallback(() => {
+    if (preview !== undefined) update({ suit: preview });
+    setPreview(undefined);
+  }, [preview, update]);
+  const revertPreview = useCallback(() => setPreview(undefined), []);
+
   // The wanted Suit is always read; Settings asks for the rest to draw their swatches.
   const wantedId = wantedSuit(appearance.suit, preview);
   const picked = summaries?.find((summary) => summary.id === wantedId);
@@ -176,9 +186,11 @@ export function SuitLibraryProvider(props: {
       detail: (summary) => details.get(versionKey(summary))?.detail,
       want,
       preview,
+      keepPreview,
+      revertPreview,
       transport,
     }),
-    [summaries, failed, details, want, preview, transport],
+    [summaries, failed, details, want, preview, keepPreview, revertPreview, transport],
   );
   return <LibraryContext.Provider value={value}>{props.children}</LibraryContext.Provider>;
 }
@@ -190,6 +202,8 @@ const noLibrary: Library = {
   detail: () => undefined,
   want: () => {},
   preview: undefined,
+  keepPreview: () => {},
+  revertPreview: () => {},
   transport: undefined,
 };
 

@@ -47,7 +47,7 @@ async function appearanceWearing(suit: string) {
   await waitFor(() => expect(root.getAttribute("data-suit")).toBe(suit));
 }
 
-test("each Suit in the list is drawn as it looks: its parts, its own CSS, labels and ornaments", async () => {
+test("each Suit card is drawn as it looks: its parts, its own CSS, labels and ornaments", async () => {
   await appearanceWearing("neon");
   const list = document.body;
   await waitFor(() => expect(miniatures(list, "moss")).toHaveLength(1));
@@ -68,11 +68,16 @@ test("each Suit in the list is drawn as it looks: its parts, its own CSS, labels
   expect(document.querySelector('[data-suit-miniature] [data-part="composer"]')).toBeNull();
 });
 
-test("the Custom card shows the Suit on screen, and the mode cards show it in each scheme", async () => {
+test("the picked Suit's card draws it in the scheme on screen, and the mode cards in each scheme", async () => {
   await appearanceWearing("neon");
-  const themes = screen.getByRole("radiogroup", { name: "Theme" });
-  const custom = within(themes).getByRole("radio", { name: "Custom · Neon" });
-  await waitFor(() => expect(miniatures(custom, "neon")).toHaveLength(1));
+  const looks = screen.getByRole("radiogroup", { name: "Look" });
+  const card = within(looks).getByRole("radio", { name: "Neon" });
+  expect(card.getAttribute("aria-checked")).toBe("true");
+  await waitFor(() => expect(miniatures(card, "neon")).toHaveLength(1));
+  const [own] = miniatures(card, "neon");
+  expect(own?.querySelector("[data-suit]")?.getAttribute("data-scheme")).toBe(
+    root.getAttribute("data-scheme"),
+  );
 
   const modes = screen.getByRole("radiogroup", { name: "Mode" });
   const schemes = (name: string) =>
