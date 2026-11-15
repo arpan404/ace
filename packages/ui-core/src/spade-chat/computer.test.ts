@@ -8,6 +8,7 @@ import {
   spadeLiveSurfaces,
   spadeSurfaceHeading,
   spadeSurfaceLine,
+  spadeUsedSurfaces,
 } from "./index.ts";
 
 const computer = (surfaces: unknown[], driver = "bot") => parseSpadeComputer({ driver, surfaces });
@@ -120,5 +121,45 @@ describe("a bot's terminal stream", () => {
     });
     expect(parseSpadeTerminalFrame("output", '{"seq":1,"data_b64":"%%"}')).toBeUndefined();
     expect(parseSpadeTerminalFrame("bell", "{}")).toBeUndefined();
+  });
+});
+
+describe("the surfaces a profile shows", () => {
+  test("are the ones Spade says it ever used, in the switcher's order, never one it didn't", () => {
+    const parsed = parseSpadeComputer({
+      driver: "bot",
+      state: "ready",
+      used: ["terminal", "browser", "fax"],
+      surfaces: [
+        { kind: "browser", live: false, last: 5 },
+        { kind: "terminal", live: false },
+        { kind: "files", live: false },
+      ],
+    });
+    expect(spadeUsedSurfaces(parsed)).toEqual(["browser", "terminal"]);
+    expect(parsed?.state).toBe("ready");
+  });
+
+  test("include one it uses right now, even before Spade lists it as used", () => {
+    const parsed = parseSpadeComputer({
+      driver: "bot",
+      state: "ready",
+      used: [],
+      surfaces: [{ kind: "screen", live: true }],
+    });
+    expect(spadeUsedSurfaces(parsed)).toEqual(["screen"]);
+  });
+
+  test("from an older Spade are each one live or used before, and its state is unknown", () => {
+    const parsed = computer([
+      { kind: "browser", live: false, last: 3 },
+      { kind: "terminal", live: false },
+      { kind: "files", live: false },
+    ]);
+    expect(spadeUsedSurfaces(parsed)).toEqual(["browser"]);
+    expect(parsed?.state).toBeUndefined();
+    expect(parseSpadeComputer({ driver: "bot", surfaces: [], state: "warm" })?.state).toBe(
+      undefined,
+    );
   });
 });

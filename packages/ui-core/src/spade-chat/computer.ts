@@ -48,6 +48,17 @@ export interface SpadeComputer {
   /** The hidden ace thread its browser and screen run in, once it used either. */
   threadId: string | undefined;
   surfaces: SpadeSurface[];
+  /**
+   * The computer as a whole: `starting` while the bot reached for its browser or screen and it
+   * hasn't shown yet ("Waking up…"), `ready` while something runs, else `asleep`. Undefined from
+   * an older Spade.
+   */
+  state: "asleep" | "starting" | "ready" | undefined;
+  /**
+   * Every surface it has ever had, in the switcher's order; undefined from an older Spade, which
+   * the app reads from the surfaces' `live` and `last` instead (`spadeUsedSurfaces`).
+   */
+  used: SpadeSurfaceKind[] | undefined;
 }
 
 const kinds: readonly SpadeSurfaceKind[] = ["browser", "screen", "terminal", "files"];
@@ -87,13 +98,36 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
       : driver === "person"
         ? "exclusive"
         : "cowork";
+  const state =
+    fields.state === "asleep" || fields.state === "starting" || fields.state === "ready"
+      ? fields.state
+      : undefined;
+  const used = Array.isArray(fields.used)
+    ? kinds.filter((kind) => (fields.used as unknown[]).includes(kind))
+    : undefined;
   return {
     driver,
     mode,
     stopping: fields.stopping === true,
     threadId: text(fields.thread_id),
     surfaces,
+    state,
+    used,
   };
+}
+
+/**
+ * The surfaces a bot's profile shows, in order: what Spade says it has ever used, else (an older
+ * Spade) each surface live now or used before. One it uses now always shows.
+ */
+export function spadeUsedSurfaces(computer: SpadeComputer | undefined): SpadeSurfaceKind[] {
+  const surfaces = computer?.surfaces ?? [];
+  const shown = new Set<SpadeSurfaceKind>(
+    computer?.used ??
+      surfaces.filter((each) => each.live || each.last !== undefined).map((each) => each.kind),
+  );
+  for (const surface of surfaces) if (surface.live) shown.add(surface.kind);
+  return kinds.filter((kind) => shown.has(kind));
 }
 
 /** What a surface does now, in a few words: Spade's state first, else its title. */

@@ -242,6 +242,51 @@ export function spadeActivityWords(entry: SpadeActivityEntry): SpadeActivityWord
   };
 }
 
+/** How an entry went, when it went wrong or still waits: the one thing a row shows in colour. */
+export type SpadeActivityException = { words: string; tone: "failed" | "needs" | "quiet" };
+
+/** An entry as a profile's row: Spade's sentence and detail, and only an exception beside it. */
+export interface SpadeActivityRow {
+  sentence: string;
+  detail: string | undefined;
+  exception: SpadeActivityException | undefined;
+}
+
+const failedOutcomes = new Set(["error", "failed", "interrupted"]);
+
+/**
+ * One activity row in Spade's own words (`sentence`, `detail`): never a tool's name or its
+ * arguments. An older Spade that sends no sentence gets the app's words for it. Beside it only
+ * what stands out: a failure, a refusal, the reviewer asking, a cap reached. A step that went
+ * fine says nothing more.
+ */
+export function spadeActivityRow(entry: SpadeActivityEntry): SpadeActivityRow {
+  const outcome = entry.outcome ?? "";
+  const exception: SpadeActivityException | undefined =
+    entry.kind === "cap"
+      ? { words: "Capped", tone: "failed" }
+      : failedOutcomes.has(outcome)
+        ? { words: "Failed", tone: "failed" }
+        : outcome === "declined" || reviewVerdicts[outcome] === "refused"
+          ? { words: outcome === "declined" ? "Declined" : "Refused", tone: "failed" }
+          : entry.kind === "review" && reviewVerdicts[outcome] === "asked you"
+            ? { words: "Asked you", tone: "needs" }
+            : outcome === "running"
+              ? { words: "Running", tone: "quiet" }
+              : undefined;
+  if (entry.sentence !== undefined)
+    return { sentence: entry.sentence, detail: entry.detail, exception };
+  const words = sentenceOf(entry);
+  // An older Spade: its summary holds a call's arguments, so only the kinds whose summary is
+  // words of its own show one.
+  const prose = entry.kind === "bot" || entry.kind === "routine" || entry.kind === "spend";
+  return {
+    sentence: words.sentence,
+    detail: words.detail || (prose ? entry.summary : undefined) || undefined,
+    exception,
+  };
+}
+
 /** The activity query: kinds, a day (`YYYY-MM-DD`), words, and the page before an entry. */
 export interface SpadeActivityQuery {
   kinds?: readonly SpadeActivityKind[];

@@ -6,6 +6,7 @@ import {
   parseSpadeAgent,
   parseSpadeLiveFrame,
   parseSpadeOversight,
+  spadeActivityRow,
   spadeActivitySearch,
   spadeActivityWords,
   spadeBubbles,
@@ -352,5 +353,57 @@ describe("the chat", () => {
       ["Writing it down.", undefined],
       ["Saved your plan.", ["notes/plan.md"]],
     ]);
+  });
+});
+
+describe("an activity row", () => {
+  const row = (fields: Record<string, unknown>) => spadeActivityRow(parsedEntry(fields));
+
+  test("says what Spade said, never the tool's name or its arguments", () => {
+    expect(
+      row({
+        kind: "tool",
+        name: "web_fetch",
+        summary: "url: https://example.com/page",
+        sentence: "Read a web page",
+        detail: "https://example.com/page",
+        outcome: "ok",
+      }),
+    ).toEqual({
+      sentence: "Read a web page",
+      detail: "https://example.com/page",
+      exception: undefined,
+    });
+  });
+
+  test("from an older Spade, uses the app's words and leaves a call's arguments out", () => {
+    const old = row({
+      kind: "tool",
+      name: "web_fetch",
+      summary: "url: https://x.dev",
+      outcome: "ok",
+    });
+    expect(old.sentence).not.toContain("web_fetch");
+    expect(old.detail).toBeUndefined();
+    expect(row({ kind: "spend", summary: "3 steps", outcome: "finished" }).detail).toBe("3 steps");
+  });
+
+  test("marks only what went wrong or waits on the person", () => {
+    const exception = (fields: Record<string, unknown>) =>
+      row({ sentence: "Did it", ...fields }).exception;
+    expect(exception({ kind: "tool", outcome: "ok" })).toBeUndefined();
+    expect(exception({ kind: "routine", outcome: null })).toBeUndefined();
+    expect(exception({ kind: "tool", outcome: "error" })).toEqual({
+      words: "Failed",
+      tone: "failed",
+    });
+    expect(exception({ kind: "spend", outcome: "interrupted" })?.words).toBe("Failed");
+    expect(exception({ kind: "tool", outcome: "declined" })?.words).toBe("Declined");
+    expect(exception({ kind: "review", outcome: "refused" })?.words).toBe("Refused");
+    expect(exception({ kind: "review", outcome: "escalated" })).toEqual({
+      words: "Asked you",
+      tone: "needs",
+    });
+    expect(exception({ kind: "cap", name: "daily" })?.tone).toBe("failed");
   });
 });

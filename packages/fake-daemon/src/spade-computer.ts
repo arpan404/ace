@@ -98,6 +98,8 @@ export class FakeSpadeComputer {
   private readonly threads = new Map<string, string>();
   /** Bots whose work is still stopping after a take-over (a test sets it, then clears it). */
   private readonly stoppingBots = new Set<string>();
+  /** Bots whose computer is starting: it reached for its browser or screen, nothing shows yet. */
+  private readonly wakingBots = new Set<string>();
   private sequence = 0;
   /** True: changes send no `computer` frame, as a stream that lags behind would. */
   quiet = false;
@@ -122,7 +124,20 @@ export class FakeSpadeComputer {
         since: null,
       };
     const driver = this.drivers.get(agent) ?? "bot";
+    const terminal = this.terminals.get(agent);
+    const files = Object.keys(this.deps.files(agent)).length > 0;
+    // Every surface it has had, in Spade's order: the ones it reached for, its shell once it ran
+    // something, its files once it kept one.
+    const had = new Set<string>(used.map((surface) => surface.kind));
+    if (terminal && terminal.output.length > 0) had.add("terminal");
+    if (files) had.add("files");
     return {
+      state: this.wakingBots.has(agent)
+        ? "starting"
+        : used.some((surface) => surface.live)
+          ? "ready"
+          : "asleep",
+      used: ["browser", "screen", "terminal", "files"].filter((kind) => had.has(kind)),
       driver,
       mode: driver === "person" ? "exclusive" : "cowork",
       stopping: this.stoppingBots.has(agent),
@@ -140,6 +155,13 @@ export class FakeSpadeComputer {
     const list = (this.surfaces.get(agent) ?? []).filter((each) => each.kind !== surface.kind);
     list.push({ since: surface.live ? this.deps.now() : null, ...surface });
     this.surfaces.set(agent, list);
+    this.changed(agent);
+  }
+
+  /** The bot reached for its browser or screen and it is starting (true), or it came up. */
+  waking(agent: string, starting: boolean): void {
+    if (starting) this.wakingBots.add(agent);
+    else this.wakingBots.delete(agent);
     this.changed(agent);
   }
 
