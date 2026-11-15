@@ -3,7 +3,7 @@ import { afterEach, expect, test } from "vitest";
 import { WebSocket } from "ws";
 import { AgentId, Item, ItemId, ServerMessage, type ClientMessage } from "@ace/protocol";
 import { wireTrims } from "@ace/projection/wire-trim";
-import { outputReadBytes, pageReplyBytes } from "./reply-bounds.ts";
+import { outputReadBytes } from "./reply-bounds.ts";
 import { itemRawReplyBytes } from "./services/item-raw.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import type { Store } from "./store.ts";
