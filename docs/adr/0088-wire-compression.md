@@ -147,3 +147,8 @@ through a real socket and fails on any reply over its bound or any content lost.
 windows, turn steps, the snapshot window (1 MiB each) and entity pages are not bounded this way
 yet: a page smaller than an item would show it reduced, so they need the same reading on and a
 whole-item read first.
+
+### Whole-reply bound (2026-11-15)
+
+- An `item.raw` reply's ceiling (`itemRawReplyBytes`, 72 KiB) is on the whole reply as sent,
+  envelope included.
