@@ -87,69 +87,6 @@ export class ChildLedger {
       ),
     );
   }
-  /** The machines to serve next, those served longest ago first, with where each stopped. */
-  machinesDue(limit: number): { machine: string; after: string | null }[] {
-    return this.store
-      .atomic((db) =>
-        db
-          .prepare(
-            "SELECT machine, after FROM machine_child_cursors ORDER BY served, machine LIMIT ?",
-          )
-          .all(limit),
-      )
-      .map((row) => ({
-        machine: z.string().parse(row.machine),
-        after: z.string().nullable().parse(row.after),
-      }));
-  }
-  /**
-   * Up to `limit` of a machine's unsettled children after `after` in id order, continuing from
-   * the first once the last is passed, so the machine's children are read in a cycle.
-   */
-  unsettledAfter(machine: string, after: string | null, limit: number): ChildRow[] {
-    const next = this.all(
-      "SELECT * FROM machine_children WHERE settled=0 AND machine=? AND id>? ORDER BY id LIMIT ?",
-      machine,
-      after ?? "",
-      limit,
-    );
-    if (after === null || next.length >= limit) return next;
-    return [
-      ...next,
-      ...this.all(
-        "SELECT * FROM machine_children WHERE settled=0 AND machine=? AND id<=? ORDER BY id LIMIT ?",
-        machine,
-        after,
-        limit - next.length,
-      ),
-    ];
-  }
-  /** The machine was served in `turn`, reading up to `after`: one write per machine. */
-  markServed(machine: string, turn: number, after: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare("UPDATE machine_child_cursors SET served=?, after=? WHERE machine=?")
-        .run(turn, after, machine),
-    );
-  }
-  /** Leaves the rotation once the machine has no unsettled child; a new one brings it back. */
-  untrack(machine: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
-          "DELETE FROM machine_child_cursors WHERE machine=? AND NOT EXISTS(SELECT 1 FROM machine_children WHERE settled=0 AND machine=?)",
-        )
-        .run(machine, machine),
-    );
-  }
-  /** The latest turn a machine was served in. */
-  lastServedTurn(): number {
-    return Number(
-      this.store.atomic((db) =>
-        db.prepare("SELECT COALESCE(MAX(served),0) AS turn FROM machine_child_cursors").get(),
-      )?.turn ?? 0,
-    );
-  }
   /** Settled children whose result the parent has not taken yet. */
   undelivered(): ChildRow[] {
     return this.all(
@@ -217,13 +154,6 @@ export class ChildLedger {
           child.device ?? null,
           child.createdAt,
         ),
-    );
-    this.track(child.machine);
-  }
-  /** The machine may have unsettled children: it joins the polling rotation. */
-  private track(machine: string): void {
-    this.store.atomic((db) =>
-      db.prepare("INSERT OR IGNORE INTO machine_child_cursors (machine) VALUES (?)").run(machine),
     );
   }
   /** Status replies read before now no longer apply to the child. */
@@ -320,14 +250,11 @@ export class ChildLedger {
   }
   /** Open again, with no view until its machine is read. */
   markReopened(id: ThreadId): void {
-    this.store.atomic((db) => {
-      db.prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?").run(
-        id,
-      );
-      db.prepare(
-        "INSERT OR IGNORE INTO machine_child_cursors (machine) SELECT machine FROM machine_children WHERE id=?",
-      ).run(id);
-    });
+    this.store.atomic((db) =>
+      db
+        .prepare("UPDATE machine_children SET settled=0, delivered=0, view=NULL WHERE id=?")
+        .run(id),
+    );
   }
   /** The machine's latest view; a settle also starts the re-check window. */
   writeView(id: ThreadId, view: string, settled: boolean, now: number): void {
