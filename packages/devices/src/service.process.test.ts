@@ -4,6 +4,7 @@ import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
 import { AgentId, ThreadId } from "@ace/protocol";
 import type { DeviceInput } from "@ace/protocol/devices";
 import { devicesToolkit, agentOwner, connectDevices } from "./index.ts";
+import { deviceImageStream } from "./stream-control.ts";
 import { decodeStreamMessage, StreamAssembler } from "@ace/browser/stream";
 import {
   agent,
@@ -978,4 +979,22 @@ it("reaching a recording limit reports why capture stopped and publishes its vid
   expect(await h.request({ op: "record.stop", deviceId })).toMatchObject({
     bytes: expect.any(Number),
   });
+});
+
+it("a viewer whose sink throws gives up its stream request, so the capture goes unwatched once the owner's next view closes", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  const owner = { kind: "human", owner: "flaky-viewer" } as const;
+  let gone = false;
+  await h.service.subscribeEvery(deviceId, owner, () => {
+    if (gone) throw new Error("sink gone");
+  });
+  expect(h.profiles.at(-1)).toMatchObject({ codec: "h264" });
+  // The sink's socket goes: the frame hub drops it at its next frame.
+  gone = true;
+  h.publish(1);
+  const release = await h.service.subscribeEvery(deviceId, owner, () => {});
+  release();
+  await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
 });
