@@ -1,5 +1,5 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, fireEvent, screen, waitFor } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
@@ -133,4 +133,103 @@ test("+, the third top button, offers New bot, New group and Import bot, and an 
   fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [file] } });
   await waitFor(() => expect(spade.sent("POST", "/v1/agents/import")).toHaveLength(1));
   await screen.findByRole("feed", { name: "Conversation with Pilot" });
+});
+
+const items = async () => (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+
+const rightClick = (target: Element) => userEvent.pointer({ keys: "[MouseRight]", target });
+
+test("Pin from a row's right-click menu moves it to the strip under the buttons, keeping its dot, and Unpin puts it back", async () => {
+  const { spade } = await spadeApp("/spade", crew);
+  await rightClick(await botRow("Inbox"));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
+  await waitFor(() =>
+    expect(spade.sent("PUT", "/v1/agents/inbox/pin")).toEqual([{ pinned: true }]),
+  );
+  const strip = await screen.findByRole("list", { name: "Pinned" });
+  const tile = within(strip).getByRole("link", { name: "Inbox" });
+  expect(tile.querySelector("[data-face-dot]")?.getAttribute("data-face-dot")).toBe("needs-you");
+  // Pinned conversations leave the rows below.
+  await waitFor(async () => expect(await names()).toEqual(["Inbox", "Spade", "Scout", "Garden"]));
+  expect(within(strip).queryByRole("link", { name: "Scout" })).toBeNull();
+
+  await rightClick(tile);
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Unpin" }));
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Pinned" })).toBeNull());
+  await waitFor(async () => expect(await names()).toEqual(["Spade", "Inbox", "Scout", "Garden"]));
+});
+
+test("the strip shows pins oldest first, and Spade can be pinned like any bot", async () => {
+  await spadeApp("/spade", (world) => {
+    crew(world);
+    const pin = (id: string, at: number) => {
+      const agent = world.agents.find((each) => each.id === id);
+      if (agent) agent.pinned_at = at;
+    };
+    pin("garden", 10);
+    pin("main", 20);
+    pin("scout", 5);
+  });
+  const strip = await screen.findByRole("list", { name: "Pinned" });
+  expect(
+    within(strip)
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("aria-label")),
+  ).toEqual(["Scout", "Garden", "Spade"]);
+  await waitFor(async () => expect(await names()).toEqual(["Scout", "Garden", "Spade", "Inbox"]));
+});
+
+test("the right-click menu offers only what applies: Spade has no Delete, a read bot no Mark as read", async () => {
+  await spadeApp("/spade", (world) => {
+    crew(world);
+    world.addAgent({ id: "news", name: "News", unseen: true });
+  });
+  await rightClick(await botRow("Spade"));
+  expect(await items()).toEqual(["Pin", "Open profile", "Duplicate", "Export"]);
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  await rightClick(await botRow("News"));
+  expect(await items()).toEqual([
+    "Pin",
+    "Mark as read",
+    "Open profile",
+    "Duplicate",
+    "Export",
+    "Delete",
+  ]);
+});
+
+test("Mark as read sends the seen cursor, and Delete asks first", async () => {
+  const { spade } = await spadeApp("/spade", (world) => {
+    crew(world);
+    world.addAgent({ id: "news", name: "News", unseen: true });
+  });
+  await rightClick(await botRow("News"));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Mark as read" }));
+  await waitFor(() => expect(spade.sent("PUT", "/v1/conversations/c-news/seen")).toHaveLength(1));
+
+  await rightClick(await botRow("Scout"));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  const ask = await screen.findByRole("dialog", { name: "Delete Scout?" });
+  expect(spade.sent("DELETE", "/v1/agents/scout")).toHaveLength(0);
+  await userEvent.click(within(ask).getByRole("button", { name: "Delete bot" }));
+  await waitFor(() => expect(spade.sent("DELETE", "/v1/agents/scout")).toHaveLength(1));
+});
+
+test("a group's menu offers Pin, Open and Delete, and pinning it moves it to the strip", async () => {
+  const { spade } = await spadeApp("/spade", (world) => {
+    crew(world);
+    world.teams.addGroup({
+      id: "crew",
+      name: "Crew",
+      members: [{ agent: "scout", machine: null, name: "Scout", avatar: null, away: false }],
+    });
+  });
+  await rightClick(await botRow("Crew"));
+  const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+  expect(items).toEqual(["Pin", "Open", "Delete"]);
+  await userEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
+  await waitFor(() => expect(spade.sent("PUT", "/v1/groups/crew/pin")).toEqual([{ pinned: true }]));
+  const strip = await screen.findByRole("list", { name: "Pinned" });
+  expect(within(strip).getByRole("link", { name: "Crew" })).toBeTruthy();
 });

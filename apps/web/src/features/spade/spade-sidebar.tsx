@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button.tsx";
 import { NewBotDialog } from "./spade-bot-dialog.tsx";
 import { SpadeListSearch, SpadeListTop } from "./spade-list-head.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
-import { searchSpadeList, spadeListEntries } from "./spade-list-rows.ts";
+import { SpadePinStrip } from "./spade-pin-strip.tsx";
+import { SpadeRowMenu } from "./spade-row-menu.tsx";
+import { searchSpadeList, spadeListEntries, splitPinned } from "./spade-list-rows.ts";
 import { Problem } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
@@ -44,7 +46,12 @@ export function SpadeSidebar() {
     select: (params) => params.agentId ?? params.groupId,
   });
   const all = spadeListEntries(roster.bots, groups);
-  const entries = searchSpadeList(all, query);
+  const searched = query.trim() !== "";
+  // Searching looks through everything, pinned too; otherwise the strip holds what's pinned.
+  const { pinned, rest } = searched
+    ? { pinned: [], rest: searchSpadeList(all, query) }
+    : splitPinned(all);
+  const entries = rest;
   const closeSearch = () => {
     setQuery("");
     setSearching(false);
@@ -61,6 +68,7 @@ export function SpadeSidebar() {
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
         {searching && <SpadeListSearch query={query} onQuery={setQuery} onClose={closeSearch} />}
+        {pinned.length > 0 && <SpadePinStrip entries={pinned} bots={roster.bots} open={open} />}
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}
           {!roster.bots.length && !line.ready ? null : !roster.bots.length && roster.error ? (
@@ -92,22 +100,26 @@ export function SpadeSidebar() {
               {entries.map((entry) =>
                 entry.kind === "bot" ? (
                   <li key={`${entry.bot.machine.key}/${entry.bot.id}`}>
-                    <BotListRow
-                      bot={entry.bot}
-                      state={entry.row.state}
-                      line={entry.row.line}
-                      current={open === entry.bot.id}
-                    />
+                    <SpadeRowMenu entry={entry}>
+                      <BotListRow
+                        bot={entry.bot}
+                        state={entry.row.state}
+                        line={entry.row.line}
+                        current={open === entry.bot.id}
+                      />
+                    </SpadeRowMenu>
                   </li>
                 ) : (
                   <li key={`group:${entry.group.machine.key}/${entry.group.id}`}>
-                    <GroupListRow
-                      group={entry.group}
-                      bots={roster.bots}
-                      state={entry.row.state}
-                      line={entry.row.line}
-                      current={open === entry.group.id}
-                    />
+                    <SpadeRowMenu entry={entry}>
+                      <GroupListRow
+                        group={entry.group}
+                        bots={roster.bots}
+                        state={entry.row.state}
+                        line={entry.row.line}
+                        current={open === entry.group.id}
+                      />
+                    </SpadeRowMenu>
                   </li>
                 ),
               )}

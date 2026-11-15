@@ -5,6 +5,7 @@ import {
   spadeBotRow,
   spadeListEntries,
   spadeNeedsYouCount,
+  splitPinned,
 } from "./spade-list-rows.ts";
 import type { RosterGroup } from "./use-spade-groups.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -41,7 +42,7 @@ const row = (fields: Record<string, unknown>, place?: Partial<RosterBot>) =>
 
 const said = (text: string, from = "agent") => ({ from, text, at: 1, from_agent: null });
 
-test("the list leaves Spade to the head and orders needs you, working, failed, unseen, then the rest by latest", () => {
+test("the list puts Spade first as an ordinary row, then orders needs you, working, failed, unseen, then the rest by latest", () => {
   const bots = [
     bot({ id: "main", kind: "main", name: "Spade", last_activity: 99 }),
     bot({ id: "old", name: "Old", last_activity: 1, last_message: said("bye") }),
@@ -59,7 +60,7 @@ test("the list leaves Spade to the head and orders needs you, working, failed, u
     spadeListEntries(bots, groups).map((entry) =>
       entry.kind === "bot" ? entry.bot.name : entry.group.name,
     ),
-  ).toEqual(["Github", "Inbox", "Trips", "Research", "Drafts", "New", "Study", "Old"]);
+  ).toEqual(["Spade", "Github", "Inbox", "Trips", "Research", "Drafts", "New", "Study", "Old"]);
 });
 
 test("each row's state and line follow the row-state table", () => {
@@ -119,4 +120,24 @@ test("the rail counts what waits on the person, groups included, and nothing tha
     bot({ id: "c", name: "C", problem: "Codex is signed out." }),
   ];
   expect(spadeNeedsYouCount(bots, [group({ id: "g", name: "G", state: "waiting" })])).toBe(2);
+});
+
+test("pinned conversations leave the rows and read oldest pin first, Spade's included", () => {
+  const entries = spadeListEntries(
+    [
+      bot({ id: "main", kind: "main", name: "Spade" }),
+      bot({ id: "a", name: "Atlas", last_activity: 3, pinned_at: 200 }),
+      bot({ id: "b", name: "Bolt", last_activity: 2 }),
+    ],
+    [group({ id: "g", name: "Crew", last_activity: 1, pinned_at: 100 })],
+  );
+  const name = (entry: (typeof entries)[number]) =>
+    entry.kind === "bot" ? entry.bot.name : entry.group.name;
+  const { pinned, rest } = splitPinned(entries);
+  expect(pinned.map(name)).toEqual(["Crew", "Atlas"]);
+  expect(rest.map(name)).toEqual(["Spade", "Bolt"]);
+  const spadePinned = splitPinned(
+    spadeListEntries([bot({ id: "main", kind: "main", name: "Spade", pinned_at: 5 })], []),
+  );
+  expect(spadePinned.pinned.map(name)).toEqual(["Spade"]);
 });

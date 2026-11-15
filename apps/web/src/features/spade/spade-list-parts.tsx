@@ -118,7 +118,7 @@ function FaceCell(props: { children: ReactNode }) {
 }
 
 /** The live pose for a row: still while off, pleased while unseen, else the bot's own state. */
-function livePose(bot: RosterBot, state: SpadeRowState): BotFaceState | null {
+export function livePose(bot: RosterBot, state: SpadeRowState): BotFaceState | null {
   if (state === "off") return null;
   if (state === "unseen") return "done";
   return botFaceStateOf(bot);

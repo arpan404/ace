@@ -117,6 +117,25 @@ export function spadeListEntries(
   ];
 }
 
+/** When the person pinned the conversation (ms); undefined when it isn't pinned. */
+export const pinnedAt = (entry: SpadeListEntry): number | undefined =>
+  entry.kind === "bot" ? entry.bot.pinnedAt : entry.group.pinnedAt;
+
+/**
+ * The pinned conversations, oldest pin first, which show as a strip under the list's buttons,
+ * and the rest, which stay in the rows below in their order.
+ */
+export function splitPinned(entries: readonly SpadeListEntry[]): {
+  pinned: SpadeListEntry[];
+  rest: SpadeListEntry[];
+} {
+  const pinned = entries.filter((entry) => pinnedAt(entry) !== undefined);
+  return {
+    pinned: pinned.toSorted((a, b) => (pinnedAt(a) ?? 0) - (pinnedAt(b) ?? 0)),
+    rest: entries.filter((entry) => pinnedAt(entry) === undefined),
+  };
+}
+
 function words(entry: SpadeListEntry): string[] {
   const said = entry.kind === "bot" ? entry.bot.lastMessage?.text : entry.group.lastMessage?.text;
   const named =

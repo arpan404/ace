@@ -138,6 +138,7 @@ function rosterGroup(
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
     lastActivity: group.lastActivity,
+    pinnedAt: group.pinnedAt,
     state: still ? "idle" : group.state,
     status: still ? undefined : group.status,
     lastMessage: group.lastMessage,
