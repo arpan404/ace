@@ -55,6 +55,8 @@
   --suit-grain-light: rgb(255 222 176 / 0.045);
   --suit-brass: linear-gradient(180deg, #f2dca4 0%, #cfa25a 36%, #9b7230 64%, #d8b26c 100%);
   --suit-brass-ink: #2a1a08;
+  /* Brass that carries words: the same metal, its darkest band kept light under the ink. */
+  --suit-brass-plate: linear-gradient(180deg, #f3dfaa 0%, #d8b26e 45%, #bf9655 62%, #ddb878 100%);
   --suit-brass-rim: #6e4f1e;
   --suit-leather: #4a2f1d;
   --suit-stitch: rgb(236 214 178 / 0.35);
@@ -412,7 +414,7 @@
 [data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
   color: var(--suit-brass-ink);
   text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
-  background: var(--suit-brass);
+  background: var(--suit-brass-plate);
   box-shadow:
     inset 0 0 0 1px var(--suit-brass-rim),
     0 1px 2px rgb(0 0 0 / 0.3);
@@ -485,7 +487,7 @@
   vertical-align: 2px;
   color: var(--suit-brass-ink);
   text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
-  background: var(--suit-brass);
+  background: var(--suit-brass-plate);
   border-radius: 4px;
   box-shadow: inset 0 0 0 1px var(--suit-brass-rim);
 }
@@ -984,13 +986,19 @@
   font-weight: 700;
   text-shadow: 0 1px 0 var(--suit-carve);
 }
+/* The chosen slat carries its own brass plate, so its ink always sits on brass. */
 [data-part="segment"][data-state="selected"] {
   color: var(--suit-brass-ink);
   text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
+  border-radius: 8px;
+  background: var(--suit-brass-plate);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-brass-rim),
+    0 1px 2px rgb(0 0 0 / 0.35);
 }
 [data-part="segmented-thumb"] {
   border-radius: 8px;
-  background: var(--suit-brass);
+  background: var(--suit-brass-plate);
   box-shadow:
     inset 0 0 0 1px var(--suit-brass-rim),
     0 1px 2px rgb(0 0 0 / 0.35);
@@ -1006,6 +1014,14 @@
 [data-part="badge"] {
   border-radius: 6px;
   font-weight: 700;
+}
+/*
+ * A state pill draws its words in the canvas colour; the lodge's canvas is warm cream, so by
+ * day the words on a filled pill are pure white to keep their contrast on ace's fills.
+ */
+[data-scheme="light"]
+  [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
+  color: #ffffff;
 }
 [data-part="kbd"] {
   border-radius: 5px;
@@ -1214,7 +1230,7 @@
   letter-spacing: 0.08em;
   line-height: 1.3;
   color: var(--suit-brass-ink);
-  background: var(--suit-brass);
+  background: var(--suit-brass-plate);
   border-radius: 4px;
   box-shadow:
     inset 0 0 0 1px var(--suit-brass-rim),
@@ -1288,7 +1304,7 @@
   overflow: hidden;
   color: var(--suit-brass-ink);
   text-shadow: 0 1px 0 rgb(255 240 200 / 0.35);
-  background: var(--suit-brass);
+  background: var(--suit-brass-plate);
   box-shadow: inset 0 -1px 0 var(--suit-brass-rim);
   border-radius: 8px 8px 0 0;
   pointer-events: none;
