@@ -97,12 +97,16 @@ export function connectBrowser(
     binary: boolean;
     video?: BrowserVideoRequest | undefined;
     /**
-     * Each subscriber ace-media delivers to on the client's media connection, with its viewer
-     * there. The capture still runs here, so the producer streams; while every subscriber is
-     * delivered by ace-media, its chunks are acknowledged here at once and never sent on this
-     * socket.
+     * Each subscriber ace-media delivers to, with the media connection it named. The capture
+     * still runs here, so the producer streams; while every subscriber is delivered by ace-media,
+     * nothing goes on this socket.
      */
     media: Map<string, string>;
+    /**
+     * The one view ace-media holds per media connection for this thread: a client can't tell two
+     * views of one thread apart, so its subscribers there share it (fanned out client-side).
+     */
+    views: Map<string, string>;
     /** The view the capture was last told about, to tell it again when delivery changes. */
     shown?: CaptureViewer | undefined;
   };
@@ -115,12 +119,15 @@ export function connectBrowser(
    */
   const deliveredBy = (entry: Subscription, capture: CaptureViewer): CaptureViewer =>
     allMedia(entry) ? { ...capture, delivered: true } : capture;
-  /** Retires a subscriber's view on its media connection, if it had one. */
+  /** A subscriber leaves its media connection's view; the last one out closes it. */
   const retire = (entry: Subscription | undefined, subscriber: string) => {
-    const mediaViewer = entry?.media.get(subscriber);
-    if (!entry || mediaViewer === undefined) return;
+    const connection = entry?.media.get(subscriber);
+    if (!entry || connection === undefined) return;
     entry.media.delete(subscriber);
-    options.media?.delivery()?.unbind(mediaViewer);
+    if ([...entry.media.values()].includes(connection)) return;
+    const mediaViewer = entry.views.get(connection);
+    entry.views.delete(connection);
+    if (mediaViewer !== undefined) options.media?.delivery()?.unbind(mediaViewer);
   };
   const subscriptions = new Map<string, Subscription>();
   const sendStream = options.sendStream;
@@ -166,20 +173,21 @@ export function connectBrowser(
    */
   const bindMedia = (
     threadId: string,
-    subscriber: string,
     connection: string,
     message: Extract<BrowserClientMessage, { type: "browser.subscribe" }>,
-  ): string | undefined => {
+    entry: Subscription | undefined,
+  ): { viewer: string; created: boolean } | undefined => {
     const media = options.media;
     const delivery = media?.delivery();
     const owner = media?.owner();
     const kinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
     if (!owner || !delivery || !kinds.some((kind) => delivery.serves(kind))) return undefined;
+    // Another subscriber of this thread already has the connection's view: share it.
+    const shared = entry?.views.get(connection);
+    if (shared !== undefined) return { viewer: shared, created: false };
     const viewport = message.viewport;
-    const id = `${owner.session}/${threadId}/${subscriber}`.slice(0, 64);
     const link = viewLink(viewport?.link);
     const bound = delivery.bind({
-      viewer: id,
       requester: owner,
       connection,
       target: { kind: "browser", threadId },
@@ -190,8 +198,9 @@ export function connectBrowser(
       ...(link ? { link } : {}),
       shows: (producer) => producer.threadId === threadId,
     });
-    if (!bound) throw new Error("media-connection: that media connection isn't this session's");
-    return id;
+    if (bound === undefined)
+      throw new Error("media-connection: that media connection isn't this session's");
+    return { viewer: bound, created: true };
   };
   let pending = 0;
   let closed = false;
@@ -393,48 +402,64 @@ export function connectBrowser(
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";
-            // A resubscribe replaces this subscriber's view: the old one goes first, so the two
-            // never both deliver.
-            retire(subscriptions.get(threadId), subscriber);
-            const delivered = message.media
-              ? bindMedia(threadId, subscriber, message.media.connection, message)
-              : undefined;
-            // The newest subscriber's build decides how frames travel on this connection.
-            const binary = message.binaryFrames === true && sendStream !== undefined;
-            // Video travels only as binary stream messages.
-            const video = binary ? message.video : undefined;
-            // A viewer that says what it shows gets frames sized for it from the first one.
-            const capture = message.viewport ? viewer(message.viewport, video) : undefined;
-            let entry = subscriptions.get(threadId);
-            if (entry) {
-              if (entry.subscribers.size >= 64 && !entry.subscribers.has(subscriber))
+            const existing = subscriptions.get(threadId);
+            // Limits first: nothing is granted for a subscribe that is then refused.
+            if (existing) {
+              if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
                 throw new Error("Browser subscriber limit");
-              entry.binary = binary;
-              entry.video = video;
-              if (delivered) entry.media.set(subscriber, delivered);
-              entry.subscribers.add(subscriber);
-              const shown = capture && deliveredBy(entry, capture);
-              if (capture) entry.shown = capture;
-              if (shown) service.configureCapture(threadId, options.connectionId, shown);
-              options.send({ type: "browser.state", state: service.state(threadId) });
-              service.replayFrame(threadId, options.connectionId);
-            } else {
-              if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-              entry = {
-                subscribers: new Set([subscriber]),
-                stop() {},
-                binary,
-                video,
-                media: new Map(delivered ? [[subscriber, delivered]] : []),
-                shown: capture,
+            } else if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
+            // A resubscribe replaces this subscriber's view: it leaves the old one first, so the
+            // two never both deliver.
+            retire(existing, subscriber);
+            const joined = message.media
+              ? bindMedia(threadId, message.media.connection, message, existing)
+              : undefined;
+            try {
+              // The newest subscriber's build decides how frames travel on this connection.
+              const binary = message.binaryFrames === true && sendStream !== undefined;
+              // Video travels only as binary stream messages.
+              const video = binary ? message.video : undefined;
+              // A viewer that says what it shows gets frames sized for it from the first one.
+              const capture = message.viewport ? viewer(message.viewport, video) : undefined;
+              const join = (entry: Subscription) => {
+                if (!joined || !message.media) return;
+                entry.media.set(subscriber, message.media.connection);
+                entry.views.set(message.media.connection, joined.viewer);
               };
-              const shown = capture && deliveredBy(entry, capture);
-              bind(threadId, entry, shown);
-              subscriptions.set(threadId, entry);
-              if (shown) service.configureCapture(threadId, options.connectionId, shown);
+              let entry = existing;
+              if (entry) {
+                entry.binary = binary;
+                entry.video = video;
+                join(entry);
+                entry.subscribers.add(subscriber);
+                const shown = capture && deliveredBy(entry, capture);
+                if (capture) entry.shown = capture;
+                if (shown) service.configureCapture(threadId, options.connectionId, shown);
+                options.send({ type: "browser.state", state: service.state(threadId) });
+                service.replayFrame(threadId, options.connectionId);
+              } else {
+                entry = {
+                  subscribers: new Set([subscriber]),
+                  stop() {},
+                  binary,
+                  video,
+                  media: new Map(),
+                  views: new Map(),
+                  shown: capture,
+                };
+                join(entry);
+                const shown = capture && deliveredBy(entry, capture);
+                bind(threadId, entry, shown);
+                subscriptions.set(threadId, entry);
+                if (shown) service.configureCapture(threadId, options.connectionId, shown);
+              }
+            } catch (error) {
+              // A view granted for this subscribe goes with it.
+              if (joined?.created) options.media?.delivery()?.unbind(joined.viewer);
+              throw error;
             }
-            if (delivered && message.media) {
-              const poster = await options.media?.delivery()?.poster(delivered);
+            if (joined && message.media) {
+              const poster = await options.media?.delivery()?.poster(joined.viewer);
               if (!closed)
                 options.send({
                   type: "browser.result",
@@ -471,7 +496,7 @@ export function connectBrowser(
             const entry = subscriptions.get(threadId);
             if (!entry) throw new Error("Browser viewer is not subscribed");
             const delivery = options.media?.delivery();
-            for (const mediaViewer of entry.media.values()) {
+            for (const mediaViewer of entry.views.values()) {
               delivery?.configure(
                 mediaViewer,
                 viewViewport(message.viewport),
@@ -533,7 +558,7 @@ export function connectBrowser(
     close() {
       closed = true;
       for (const entry of subscriptions.values()) {
-        for (const mediaViewer of entry.media.values())
+        for (const mediaViewer of entry.views.values())
           options.media?.delivery()?.unbind(mediaViewer);
         entry.stop();
       }
