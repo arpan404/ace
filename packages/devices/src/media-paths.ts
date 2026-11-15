@@ -1,9 +1,10 @@
 import type { EgressUnit } from "@ace/media/egress";
-import type {
-  IngestAddress,
-  IngestProducer,
-  IngestSource,
-  Origin,
+import {
+  h264Only,
+  type IngestAddress,
+  type IngestProducer,
+  type IngestSource,
+  type Origin,
 } from "@ace/media/ingest-sources";
 import { PathMerge } from "@ace/media/path-merge";
 import { readProducerStamp } from "@ace/media/producer-stamp";
@@ -143,6 +144,9 @@ export class DeviceVideoPaths {
         if (interrupted) options.keyframe();
       },
     });
+    // A device's stream is H.264 whatever its producer (scrcpy, serve-sim, the helper's frame
+    // encoder), so a view that prefers HEVC is planned onto it.
+    this.#source.codecs([...h264Only]);
   }
 
   /** Units dropped: from a path given up on, or deltas waiting for their keyframe. */

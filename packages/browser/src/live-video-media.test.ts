@@ -7,21 +7,23 @@ import type { VideoEncode } from "./video-policy.ts";
 const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} };
 
 /** An encoder that records the encodes it is asked to run, and the capture's events. */
-function host() {
+function host(supported = ["avc1.42E033"]) {
   const encodes: VideoEncode[][] = [];
   const opened: CaptureEvents[] = [];
+  const codecs: string[][] = [];
   const video: VideoHost = {
-    supported: async () => ["avc1.42E033"],
+    supported: async () => supported,
     open: async (_page, _width, _height, events) => {
       opened.push(events);
       return {
         encodes: (specs) => encodes.push([...specs]),
+        codecs: (told) => void codecs.push([...told]),
         keyframe: () => {},
         close: () => {},
       };
     },
   };
-  return { video, encodes, opened };
+  return { video, encodes, opened, codecs };
 }
 
 const pane: CaptureViewer = {
@@ -90,4 +92,31 @@ test("beside a viewer on the main socket, the capture runs the daemon's plan and
   const last = encoder.encodes.at(-1) ?? [];
   expect(last).toContainEqual(wanted);
   expect(last.some((encode) => encode.key !== wanted.key)).toBe(true);
+});
+
+const hevc = "hvc1.1.6.L153.B0";
+
+test("the capture tells ace-media the codecs its encoder runs, so it plans views only in those", async () => {
+  const encoder = host([hevc, "avc1.42E033"]);
+  const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
+  video.attach({ host: encoder.video, page }, "tab-1", { width: 640, height: 400, scale: 1 });
+  video.add("phone", { send: () => true }, { ...pane, delivered: true });
+  await ticks(video);
+  expect(encoder.codecs).toEqual([[hevc, "avc1.42E033"]]);
+});
+
+test("an HEVC encode ace-media planned that fails is no longer offered to it, so the view gets H.264", async () => {
+  const encoder = host([hevc, "avc1.42E033"]);
+  const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
+  video.attach({ host: encoder.video, page }, "tab-1", { width: 640, height: 400, scale: 1 });
+  video.add("phone", { send: () => true }, { ...pane, delivered: true });
+  await ticks(video);
+  const events = encoder.opened[0];
+  if (!events) throw new Error("no capture opened");
+  const planned = { ...wanted, key: `media/1/${hevc}/320x200`, codec: hevc };
+  events.want?.([planned]);
+  await ticks(video);
+  events.failed(planned.key);
+  await ticks(video);
+  expect(encoder.codecs.at(-1)).toEqual(["avc1.42E033"]);
 });

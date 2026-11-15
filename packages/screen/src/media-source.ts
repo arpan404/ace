@@ -1,6 +1,11 @@
 import type { EgressUnit } from "@ace/media/egress";
 import type { MediaFrame } from "@ace/media/frame";
-import type { IngestAddress, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import {
+  h264Only,
+  type IngestAddress,
+  type IngestProducer,
+  type IngestSource,
+} from "@ace/media/ingest-sources";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import {
   ScreenStreamConfigured,
@@ -194,6 +199,8 @@ export class ScreenMediaSource {
         void update.catch(() => {});
       },
     });
+    // Every helper encodes H.264 only (`wantedStreamSettings`), whatever a view prefers.
+    this.#source.codecs([...h264Only]);
   }
 
   /** Whether the helper sends video to ace-media now (its stills then come only on request). */

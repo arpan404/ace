@@ -117,8 +117,9 @@ struct View {
 struct SourceFacts {
     /// The page's CSS size and scale (`source.page`), or the last unit's display size.
     page: Option<(f64, f64, f64)>,
-    /// What the producer can encode (`source.codecs`); empty: whatever the views decode.
-    codecs: Vec<String>,
+    /// What the producer can encode (`source.codecs`), possibly nothing; none told: whatever
+    /// the views decode.
+    codecs: Option<Vec<String>>,
     ids: HashMap<String, u32>,
     wanted: Vec<EncodeSpec>,
     keyframes: HashMap<u32, u64>,
@@ -346,7 +347,7 @@ impl Delivery {
 
     /// `source.codecs`: what the producer's encoder supports.
     pub fn codecs(&mut self, source: &str, codecs: &[String], now_ms: u64, out: &mut Vec<Effect>) {
-        self.sources.entry(source.to_owned()).or_default().codecs = codecs.to_vec();
+        self.sources.entry(source.to_owned()).or_default().codecs = Some(codecs.to_vec());
         self.replan(source, now_ms, out);
     }
 
@@ -831,18 +832,17 @@ impl Delivery {
             .values()
             .filter(|v| v.source == source && !v.paused && self.sockets.contains_key(&v.connection))
             .collect();
-        let mut codecs: Vec<&str> = facts
-            .map(|f| f.codecs.iter().map(String::as_str).collect())
-            .unwrap_or_default();
-        if codecs.is_empty() {
-            codecs = live
-                .iter()
+        let produced: Option<Vec<&str>> = facts
+            .and_then(|f| f.codecs.as_ref())
+            .map(|c| c.iter().map(String::as_str).collect());
+        let codecs: Vec<&str> = produced.clone().unwrap_or_else(|| {
+            live.iter()
                 .flat_map(|v| v.codecs.iter().map(String::as_str))
-                .collect();
-        }
+                .collect()
+        });
         let lists: Vec<Vec<&str>> = live
             .iter()
-            .map(|v| v.codecs.iter().map(String::as_str).collect())
+            .map(|v| decodable(&v.codecs, produced.as_deref()))
             .collect();
         // Each view's budget: its share of what its link carries (the client's hint may lower it).
         let budgets: HashMap<String, f64> = live
@@ -1171,6 +1171,27 @@ fn taking(
             da.total_cmp(&db).then(a_id.cmp(b_id))
         })
         .map(|(id, _)| *id)
+}
+
+/// A view's codecs, best first, as what the producer encodes: its own string where the producer
+/// names it, else the producer's codec of the same family (a decoder for one profile of H.264
+/// takes the others). All of them while the producer told nothing.
+fn decodable<'a>(view: &'a [String], produced: Option<&[&'a str]>) -> Vec<&'a str> {
+    let Some(produced) = produced else {
+        return view.iter().map(String::as_str).collect();
+    };
+    let mut list: Vec<&str> = Vec::new();
+    for codec in view {
+        let taken = produced
+            .iter()
+            .copied()
+            .find(|p| *p == codec.as_str())
+            .or_else(|| produced.iter().copied().find(|p| same_family(p, codec)));
+        if let Some(taken) = taken.filter(|t| !list.contains(t)) {
+            list.push(taken);
+        }
+    }
+    list
 }
 
 /// Two WebCodecs strings of one codec family (`avc1`, `hvc1`/`hev1`, `vp09`, `vp8`, `av01`): a
