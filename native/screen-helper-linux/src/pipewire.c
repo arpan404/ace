@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 /* One picture as the producer handed it over: mapped memory, or a DMA-BUF the consumer
  * imports. Valid only during the callback. */
@@ -50,6 +51,8 @@ struct capture {
     /* A buffer the consumer keeps until its frame rate allows it; returned to the producer
      * once a newer one replaces it or it has been used. */
     struct pw_buffer *held;
+    /* Buffers PipeWire refused back (reported once). */
+    unsigned refused;
     int failed;
     struct pw_buffer *(*dequeue)(struct pw_stream *);
     int (*queue)(struct pw_stream *, struct pw_buffer *);
@@ -65,16 +68,15 @@ static void stop_ready(void *user, int fd, uint32_t mask) {
     char byte;
     (void)read(fd, &byte, 1);
 }
-static void format_changed(void *user, unsigned id, const struct spa_pod *pod) {
-    struct capture *c = user;
-    if (id != SPA_PARAM_Format || !pod) return;
-    if (spa_format_video_raw_parse(pod, &c->video) < 0 ||
-        c->video.size.width > 8192 || c->video.size.height > 8192 ||
-        (uint64_t)c->video.size.width*c->video.size.height > 16777216) { c->failed = 1; return; }
-    /* A format with a modifier is the DMA-BUF one this consumer offered. */
-    c->dmabuf = c->offer_dmabuf && (c->video.flags & SPA_VIDEO_FLAG_MODIFIER) != 0;
-    /* Ask for crop metadata (window streams mark the window's region inside a larger
-     * buffer), and say which memory the buffers may be. */
+/* Asks for crop metadata (window streams mark the window's region inside a larger buffer),
+ * and says which memory the buffers may be and, when `count` isn't 0, how many there are. */
+/* Gives a buffer back to the producer. PipeWire refuses one that isn't this consumer's to
+ * give (a removed buffer's slot, reused): said once, as it means a buffer was held too long. */
+static void give_back(struct capture *c, struct pw_buffer *b) {
+    if (c->queue(c->stream, b) < 0 && !c->refused++)
+        fprintf(stderr, "capture: PipeWire refused a buffer handed back\n");
+}
+static void buffer_params(struct capture *c, int count) {
     unsigned char buffer[512];
     struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
     const struct spa_pod *params[2];
@@ -82,9 +84,26 @@ static void format_changed(void *user, unsigned id, const struct spa_pod *pod) {
         SPA_PARAM_META_type, SPA_POD_Id(SPA_META_VideoCrop),
         SPA_PARAM_META_size, SPA_POD_Int(sizeof(struct spa_meta_region)));
     int types = c->dmabuf ? (1<<SPA_DATA_DmaBuf) : ((1<<SPA_DATA_MemFd)|(1<<SPA_DATA_MemPtr));
-    params[1] = spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
-        SPA_PARAM_BUFFERS_dataType, SPA_POD_CHOICE_FLAGS_Int(types));
+    params[1] = count
+        ? spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+            SPA_PARAM_BUFFERS_buffers, SPA_POD_Int(count),
+            SPA_PARAM_BUFFERS_dataType, SPA_POD_CHOICE_FLAGS_Int(types))
+        : spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+            SPA_PARAM_BUFFERS_dataType, SPA_POD_CHOICE_FLAGS_Int(types));
     if (c->update_params) c->update_params(c->stream, params, 2);
+}
+static void format_changed(void *user, unsigned id, const struct spa_pod *pod) {
+    struct capture *c = user;
+    if (id != SPA_PARAM_Format || !pod) return;
+    /* A held buffer is of the old format, and PipeWire removes it next: give it back now, and
+     * never read it with the new format's size. */
+    if (c->held) { give_back(c, c->held); c->held = NULL; }
+    if (spa_format_video_raw_parse(pod, &c->video) < 0 ||
+        c->video.size.width > 8192 || c->video.size.height > 8192 ||
+        (uint64_t)c->video.size.width*c->video.size.height > 16777216) { c->failed = 1; return; }
+    /* A format with a modifier is the DMA-BUF one this consumer offered. */
+    c->dmabuf = c->offer_dmabuf && (c->video.flags & SPA_VIDEO_FLAG_MODIFIER) != 0;
+    buffer_params(c, 0);
 }
 static void state_changed(void *user, enum pw_stream_state old, enum pw_stream_state state, const char *error) {
     (void)old; (void)error;
@@ -143,26 +162,32 @@ static int deliver(struct capture *c, struct pw_buffer *b) {
 /* Delivers `b`; a buffer it keeps replaces the one held, one it doesn't goes back at once. */
 static void offer(struct capture *c, struct pw_buffer *b) {
     if (deliver(c, b)) {
-        if (c->held && c->held != b) c->queue(c->stream, c->held);
+        if (c->held && c->held != b) give_back(c, c->held);
         c->held = b;
         return;
     }
-    if (c->held && c->held != b) { c->queue(c->stream, c->held); }
+    if (c->held && c->held != b) give_back(c, c->held);
     c->held = NULL;
-    c->queue(c->stream, b);
+    give_back(c, b);
 }
 static void process(void *user) {
     struct capture *c = user;
     /* Only the newest buffer matters: older ones go straight back. */
     struct pw_buffer *b, *newest = NULL;
     while ((b = c->dequeue(c->stream))) {
-        if (newest) c->queue(c->stream, newest);
+        if (newest) give_back(c, newest);
         newest = b;
     }
     if (newest) offer(c, newest);
 }
+/* PipeWire is removing a buffer (a new format, or new buffers): it is no longer held. */
+static void buffer_removed(void *user, struct pw_buffer *b) {
+    struct capture *c = user;
+    if (c->held == b) c->held = NULL;
+}
 static const struct pw_stream_events events = {
     .version = PW_VERSION_STREAM_EVENTS, .state_changed = state_changed,
+    .remove_buffer = buffer_removed,
     .param_changed = format_changed, .process = process
 };
 #define LOAD(member, name) do { *(void **)(&member) = dlsym(c->library,name); if (!member) goto fail; } while (0)
@@ -255,3 +280,20 @@ void ace_pw_shared_memory_only(struct capture *c) {
     const struct spa_pod *format = video_format(&builder, 0);
     c->update_params(c->stream, &format, 1);
 }
+/* Tests only (debug builds): offers the formats again, BGRx alone or all of them, so the stream
+ * negotiates its format and PipeWire removes every buffer and allocates new ones, as a resize or
+ * a move to shared memory does. */
+void ace_pw_reallocate(struct capture *c, int narrow) {
+    if (!c || !c->update_params) return;
+    unsigned char buffer[1024];
+    struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+    const struct spa_pod *format = narrow
+        ? spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
+            SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
+            SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+            SPA_FORMAT_VIDEO_format, SPA_POD_Id(SPA_VIDEO_FORMAT_BGRx))
+        : video_format(&builder, 0);
+    c->update_params(c->stream, &format, 1);
+}
+/* Whether a buffer is held (a removed one never is). */
+int ace_pw_holding(struct capture *c) { return c && c->held != NULL; }

@@ -6,7 +6,7 @@ use crate::{
         video::{Stamp, StreamControl, Video, VideoSink},
     },
     pipewire_ffi::{
-        RawPicture, ace_pw_destroy, ace_pw_dmabuf, ace_pw_open, ace_pw_redeliver,
+        RawPicture, ace_pw_destroy, ace_pw_dmabuf, ace_pw_holding, ace_pw_open, ace_pw_redeliver,
         ace_pw_shared_memory_only, ace_pw_step,
     },
     protocol::{Result, internal},
@@ -121,9 +121,6 @@ struct Frames {
     shown: Arc<AtomicU64>,
     control: Arc<Control>,
     video: Video,
-    /// The C shell holds the newest buffer: it can be encoded again (a keyframe, a still,
-    /// someone starting to watch) without waiting for the desktop to change.
-    held: bool,
     /// The held buffer hasn't been published yet.
     fresh: bool,
     /// The next delivery is the held buffer offered again, not a new one.
@@ -170,6 +167,15 @@ impl Frames {
 
     fn generation(&self) -> Option<u64> {
         Some(self.control.generation.load(Ordering::Acquire)).filter(|g| *g > 0)
+    }
+
+    /// Whether the C shell holds a buffer: it keeps the newest, so a keyframe, a still or
+    /// someone starting to watch can encode the picture again without waiting for the desktop.
+    /// PipeWire may remove it (a new format or new buffers); then nothing is held, and the
+    /// picture it was is gone with it.
+    fn holding(&self) -> bool {
+        // SAFETY: the stream is open, on this thread (null before it opens).
+        !self.capture.is_null() && unsafe { ace_pw_holding(self.capture) } != 0
     }
 
     fn watching(&self) -> bool {
@@ -352,6 +358,10 @@ impl Frames {
     /// when it is due, a keyframe or still is owed, or someone starts watching.
     fn catch_up(&mut self) -> Result<()> {
         self.video.drain();
+        if !self.holding() {
+            // PipeWire took the held buffer back (renegotiation): its picture can't be sent.
+            self.fresh = false;
+        }
         let watching = self.watching();
         let video = self.video.active(watching).is_some();
         if std::mem::replace(&mut self.was_video, video) && !video && watching {
@@ -367,14 +377,14 @@ impl Frames {
                     || self.control.refresh.load(Ordering::Acquire)
                     || self.video.control.still_owed())
         };
-        if owed && self.held && !self.capture.is_null() {
+        if owed && self.holding() && !self.capture.is_null() {
             self.redelivering = true;
             // SAFETY: the stream is open, on this thread; it calls `on_frame` synchronously.
             unsafe { ace_pw_redeliver(self.capture) };
             self.redelivering = false;
             return Ok(());
         }
-        if !self.held && self.control.refresh.swap(false, Ordering::AcqRel) {
+        if !self.holding() && self.control.refresh.swap(false, Ordering::AcqRel) {
             if let Some(last) = &self.last {
                 let generation = self.generation();
                 return self.publisher.frame(
@@ -394,13 +404,13 @@ impl Frames {
         let watching = self.watching();
         if self.video.active(watching).is_some() {
             let control = &self.video.control;
-            if self.held && (control.key_owed() || control.still_owed()) {
+            if self.holding() && (control.key_owed() || control.still_owed()) {
                 return 0;
             }
             if self.video.waiting() {
                 return 5;
             }
-            if !self.held || !self.fresh {
+            if !self.holding() || !self.fresh {
                 return -1;
             }
             return self
@@ -413,8 +423,8 @@ impl Frames {
             self.control.refresh.load(Ordering::Acquire) || self.video.control.still_owed();
         wait_ms(
             watching,
-            self.held && self.fresh,
-            refresh && (self.held || self.last.is_some()),
+            self.holding() && self.fresh,
+            refresh && (self.holding() || self.last.is_some()),
             self.next.saturating_duration_since(Instant::now()),
         )
     }
@@ -467,7 +477,6 @@ unsafe extern "C" fn on_frame(user: *mut c_void, raw: *const RawPicture) -> i32 
             false
         }
     };
-    frames.held = keep;
     i32::from(keep)
 }
 
@@ -541,7 +550,6 @@ pub fn capture(
         shown,
         control,
         video,
-        held: false,
         fresh: false,
         redelivering: false,
         arrival: Arrival::default(),
@@ -567,6 +575,18 @@ pub fn capture(
     // Frames arrive only from `ace_pw_step` below, on this thread, after this is set.
     frames.capture = c;
     let mut reported_dmabuf = false;
+    // Debug builds only: renegotiate buffers this often (ms), for tests of buffers removed while
+    // one is held. Release builds never read it.
+    let reallocate = cfg!(debug_assertions)
+        .then(|| {
+            std::env::var("ACE_SCREEN_TEST_REALLOCATE_MS")
+                .ok()?
+                .parse::<u64>()
+                .ok()
+        })
+        .flatten()
+        .map(Duration::from_millis);
+    let mut reallocated = (Instant::now(), 0);
     let result = (|| {
         while !stop.load(Ordering::Acquire) {
             // Wakes for a buffer, the runtime's wake byte (watch, configure, stop), or the held
@@ -586,6 +606,14 @@ pub fn capture(
                         "shared memory"
                     }
                 );
+            }
+            if let Some(every) = reallocate
+                && frames.last.is_some()
+                && reallocated.0.elapsed() >= every
+            {
+                reallocated = (Instant::now(), 1 - reallocated.1);
+                // SAFETY: the stream is open, on this thread.
+                unsafe { crate::pipewire_ffi::ace_pw_reallocate(c, reallocated.1) };
             }
             let caught =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| frames.catch_up()));

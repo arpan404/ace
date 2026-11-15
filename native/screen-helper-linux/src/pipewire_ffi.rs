@@ -61,8 +61,13 @@ unsafe extern "C" {
     pub fn ace_pw_destroy(c: *mut c_void);
     /// Offers the kept buffer again.
     pub fn ace_pw_redeliver(c: *mut c_void);
+    /// Whether a buffer is held; one PipeWire removed never is.
+    pub fn ace_pw_holding(c: *mut c_void) -> i32;
     /// Whether the producer chose DMA-BUFs.
     pub fn ace_pw_dmabuf(c: *mut c_void) -> i32;
+    /// Tests only: offers the formats again (BGRx alone when `narrow`), so the stream
+    /// negotiates again and PipeWire allocates every buffer anew.
+    pub fn ace_pw_reallocate(c: *mut c_void, narrow: i32);
     /// Asks for shared memory from now on (a DMA-BUF this machine couldn't import).
     pub fn ace_pw_shared_memory_only(c: *mut c_void);
 }
