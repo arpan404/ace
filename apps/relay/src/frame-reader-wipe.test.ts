@@ -111,18 +111,19 @@ it("a first-flight frame whose reader failed during its throttle wait is wiped",
   expect(wiped(early)).toBe(true);
 });
 
+/** A ws socket for forwarding: open, with `bufferedAmount` queued, sends done at once. */
+const peer = (bufferedAmount: number) => {
+  const ws = Object.assign(socket(), {
+    readyState: 1,
+    OPEN: 1,
+    bufferedAmount,
+    send: (_data: unknown, _options: unknown, done?: (error?: Error) => void) => done?.(),
+    terminate() {},
+  });
+  return ws;
+};
 it("a forwarded first-flight frame refused by the relay's buffer cap is wiped", async () => {
   const { pairStreams } = await import("./forward.ts");
-  const peer = (bufferedAmount: number) => {
-    const ws = Object.assign(socket(), {
-      readyState: 1,
-      OPEN: 1,
-      bufferedAmount,
-      send: (_data: unknown, _options: unknown, done?: (error?: Error) => void) => done?.(),
-      terminate() {},
-    });
-    return ws;
-  };
   const clientSocket = peer(0);
   const hostSocket = peer(Number.MAX_SAFE_INTEGER);
   const client = {
