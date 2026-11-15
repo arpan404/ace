@@ -109,6 +109,29 @@ A client opening with Noise NK (above) offers its first message as `ace.v3` with
 
 Unlike the XX entry, this one is ciphertext with no forward secrecy. It carries the ticket or grant, the device id and the subscribes, sealed to the daemon's static key; anyone who keeps it and later obtains that key can read it. The relay never logs it, on success, refusal or error, and keeps it only as the held early frame. A proxy or CDN in front of a self-hosted relay that logs or keeps request headers would keep it: disable header logging there. A captured entry replayed later is refused, or confined, as any replayed NK first message is (ADR 0155, step 2).
 
+#### What the relay erases, and what it can't
+
+**What ace's code guarantees.** A first-flight message taken from the upgrade (NK's or XX's) is decoded once, straight into one buffer the relay owns. Canonical form is checked on the text, so no second decoded copy is made. That buffer moves to the client's held-frame slot without being copied, and is zero-filled on every exit:
+
+- **Self-hosted relay:**
+  - forwarded to the joining daemon, after the socket has finished sending it;
+  - dropped when the client is expired, rejected by its host, replaced by a newer registration, disconnected or turned away, through the frame reader's `fail`;
+  - the upgrade failing before it completed;
+  - an unknown purpose, where it was never handed over.
+
+  The frame reader zero-fills everything else it drops as well: frames refused on arrival, oversized ones, and step 1's early frames sent as frames.
+- **Hosted relay:**
+  - forwarded, right after `send`, which copies the bytes into the outgoing message;
+  - released with its socket (expired, rejected, replaced, disconnected);
+  - a waiting client's frame that won't be forwarded.
+
+**What can't be erased.** The guarantee is that ace's own code keeps no copy past the hand-over and zero-fills the buffers it owns. It is not that the ciphertext never exists in relay memory:
+
+- **Strings.** The upgrade header arrives as a JavaScript string, in the HTTP parser and in the request object the WebSocket library is handed. Strings can't be zero-filled. They live until the runtime collects them.
+- **The self-hosted relay's request object.** `ws` (8.x) keeps no reference to that request on a server-side socket; it holds one only for the sockets it opens as a client. Node frees its HTTP parser for an upgrade, and the relay keeps the request only in weak maps. So once the upgrade completes the request and its header strings are unreachable, though they stay in memory until collected.
+- **The hosted relay.** The Worker and the object read the header through the platform's `Headers`, whose values are strings too, and the Worker builds the object's request from a copy of them. workerd and Cloudflare's edge keep their own copies. An object evicted while it holds a frame loses its memory to the platform without ace zero-filling it.
+- **In transit.** On both relays, the runtime, the TLS layer and the kernel hold their own copies of the bytes as they pass.
+
 ## Framing, limits and backpressure
 
 Each WebSocket binary message is one Noise message, at most 65,535 bytes. Compression is disabled. JSON has a 16 MiB encoded limit and fragments into encrypted chunks. Binary logical messages are capped at 64 KiB plus a 16-byte file envelope. Encrypted fragment kinds 0/1 retain JSON continuation/final framing; additive kinds 2/3 carry binary continuation/final fragments. Every fragment in a logical message must have the same kind. `sendBinary` copies admitted bytes so later caller changes cannot alter a queued encrypted message. The final-fragment flag is encrypted; no plaintext logical length or sequence number is added. Non-final chunks have a fixed size, and directions rekey every `2^20` fragments.

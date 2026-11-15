@@ -368,6 +368,19 @@ From the same traces, XX with step 3 reaches "confirmed current" at the same tim
 
 Step 3 was therefore built first on XX, with no cryptographic change. The XX first message (the 32-byte ephemeral key) goes in the upgrade as `ace.x1.<base64url>`; an NK first message would use `ace.n1.` as above. Measured on the same bench for a returning client, confirmed current is 1,755 to 1,348 ms with a loopback join, and 1,881 to 1,587 ms with a 60 ms daemon leg.
 
+### Erasure of first-flight material, and its limits
+
+An NK first message carries the ticket or grant and the subscribes, sealed to the daemon's static key with no forward secrecy. The relays therefore keep it, and XX's first message, in exactly one buffer they own, from decoding to hand-over, and zero-fill that buffer on every exit: forwarded (after the write), released, expired, rejected, replaced, disconnected, or the upgrade failing. The client erases both of a dial's handshake states, NK's and XX's, on every exit too.
+
+The guarantee is that ace's own code keeps no copy past hand-over and wipes what it owns, not that the ciphertext never exists in relay memory:
+
+- the upgrade header is a JavaScript string in the HTTP parser and the request object, and on the hosted relay in the platform's `Headers`;
+- strings can't be zero-filled and live until the runtime collects them;
+- the runtime, the TLS layer, the kernel and, for ace cloud, workerd and Cloudflare's edge hold their own copies in transit;
+- an evicted object's memory goes to the platform without being zero-filled.
+
+The relay contract states this in full ([docs/relay](../relay/README.md), "What the relay erases, and what it can't").
+
 ### Not proposed now
 
 - **Resumption across a short drop** (Noise `NKpsk0` with a key from the last session): it saves
