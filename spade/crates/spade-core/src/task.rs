@@ -142,15 +142,19 @@ pub fn nudge(step: u32) -> String {
         "<continue step=\"{step}\">Nobody has written since your last reply, and your task is \
          still marked working, so carry on with the next step. Call task_status with done when \
          the task is finished. If you need the person, ask with ask_user and set \
-         blocked_on_person. If you must wait on something outside (a build, a reply, a date), set \
-         waiting and save a routine to check back. Write to the person only at milestones.\
+         blocked_on_person. If you must wait on something outside (a build, a reply, a date), call \
+         sleep_until or wait_for and end your reply. Write to the person only at milestones.\
          </continue>"
     )
 }
 
 /// Whether Spade starts the next step of the bot's task, and when.
 pub fn next(events: &[Event], policy: &Policy) -> Next {
-    if !ended_finished(events) || stopped_since_last_reply(events) || jobs_running(events) {
+    if !ended_finished(events)
+        || stopped_since_last_reply(events)
+        || jobs_running(events)
+        || sleeping(events)
+    {
         return Next::Nothing;
     }
     if state(events).map(|s| s.status) != Some(Status::Working) {
@@ -229,6 +233,11 @@ fn stopped_since_last_reply(events: &[Event]) -> bool {
     events[start..]
         .iter()
         .any(|e| matches!(e, Event::Known(Known::StopRequested { .. })))
+}
+
+/// The bot sleeps or waits on a wake (ADR 0160): the wake is its next step.
+fn sleeping(events: &[Event]) -> bool {
+    !crate::wake::open(events).is_empty()
 }
 
 /// A background job still runs: its result starts the next turn.
