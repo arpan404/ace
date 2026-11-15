@@ -44,7 +44,15 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
   const channelAcks: unknown[] = [];
   let events: Parameters<Parameters<ScreenStreamClient["connect"]>[0]["open"]>[0] | undefined;
   let ids = 0;
-  const client = new ScreenStreamClient({ id: () => `r${++ids}`, schedule: () => () => {} });
+  /** Request deadlines, fired by the test (`timeOut`). */
+  const deadlines = new Set<() => void>();
+  const client = new ScreenStreamClient({
+    id: () => `r${++ids}`,
+    schedule: (run) => {
+      deadlines.add(run);
+      return () => void deadlines.delete(run);
+    },
+  });
   client.connect({
     open: (handlers) => void (events = handlers),
     send: (message) => {
@@ -111,6 +119,13 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
       for (const watcher of watchers) watcher();
     },
     onChannel,
+    /** Every pending request's deadline passes. */
+    timeOut() {
+      for (const run of Array.from(deadlines)) {
+        deadlines.delete(run);
+        run();
+      }
+    },
     deliver(message: StreamMessage) {
       for (const listener of streams) listener(message);
     },
@@ -281,5 +296,25 @@ describe("screen pictures across a media rebind", () => {
     await flush();
     view.client.ack(unstamped);
     expect(view.channelAcks).toHaveLength(1);
+  });
+
+  it("a subscribe that times out stops holding pictures, and its late reply still settles delivery", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    const [subscribe] = view.subscribes;
+    view.timeOut();
+    await flush();
+    // No answer in time: the stream is the channel's until the daemon says otherwise.
+    view.onChannel(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    // The answer comes late: the daemon delivers by the media connection after all.
+    view.reply(subscribe!, "binds");
+    await flush();
+    view.deliver(frame(2));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
+    view.client.ack(view.drawn[1]!);
+    expect(view.mediaAcks.map((ack) => ack.on)).toEqual(["mc_aaaaaaaaaa"]);
   });
 });

@@ -14,8 +14,8 @@ import {
   PictureQueue,
   SharedStreams,
   type MediaRoute,
+  type Settled,
   type SourcePicture,
-  type Stamped,
 } from "@ace/browser/live-view";
 import type { MediaPoster } from "@ace/protocol";
 import type { PictureChunk, StreamMessage } from "@ace/browser/stream";
@@ -211,7 +211,15 @@ export class ScreenStreamClient {
       };
       const abort = () => finish(failure("internal", "Screen request aborted"));
       const cancelTimer = this.options.schedule(
-        () => finish(failure("timeout", "Screen request timed out")),
+        () => {
+          if (
+            generation !== undefined &&
+            operation.op === "subscribe" &&
+            this.pending.has(requestId)
+          )
+            this.timedOut(requestId, operation.sessionId, generation);
+          finish(failure("timeout", "Screen request timed out"));
+        },
         options.timeoutMs ?? defaultTimeoutMs(operation),
       );
       this.pending.set(requestId, {
@@ -326,16 +334,26 @@ export class ScreenStreamClient {
    * What a subscribe's reply released: the pictures that came its settled way while it was on its
    * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
    */
-  private release(
-    sourceId: string,
-    released: { pictures: readonly Stamped[]; needsKeyframe: boolean },
-  ): void {
-    for (const { frame, generation } of released.pictures)
+  private release(sourceId: string, settled: Settled): void {
+    for (const { frame, generation } of settled.pictures)
       this.pictures.publish({ ...frame, sourceId, generation });
-    const first = released.pictures[0];
-    if (released.needsKeyframe && first)
-      this.ack({ ...first.frame, sourceId, generation: first.generation }, true);
+    const ask = settled.ask;
+    if (ask) this.ack({ ...ask.frame, sourceId, generation: ask.generation }, true);
   }
+  /**
+   * A subscribe got no answer in time: its source stops waiting (delivery falls back to the
+   * channel), and its reply, should it still come, is kept for (`late`), bounded.
+   */
+  private timedOut(requestId: string, sourceId: string, generation: number): void {
+    this.media.abandon(sourceId, generation);
+    this.late.set(requestId, { sourceId, generation });
+    for (const oldest of this.late.keys()) {
+      if (this.late.size <= 32) break;
+      this.late.delete(oldest);
+    }
+  }
+  /** Subscribes that timed out, by request id, whose late reply still settles their delivery. */
+  private readonly late = new Map<string, { sourceId: string; generation: number }>();
 
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
@@ -354,6 +372,16 @@ export class ScreenStreamClient {
     else if (frame.type === "screen.state") this.putState(frame.state);
     else {
       const request = this.pending.get(frame.requestId);
+      const late = request ? undefined : this.late.get(frame.requestId);
+      if (late) {
+        this.late.delete(frame.requestId);
+        if (frame.ok)
+          this.release(
+            late.sourceId,
+            this.media.subscribed(late.sourceId, late.generation, frame.media),
+          );
+        return;
+      }
       if (!request) return;
       this.pending.delete(frame.requestId);
       request.cancel();

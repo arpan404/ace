@@ -371,8 +371,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * The thread's stream starts over (a reconnect, a pause, another backend). Its last picture
    * stays until the new stream's first keyframe replaces it.
    */
+  /** A subscribe's delivery ends (a new socket, unsubscribed, disposed): its reply changes nothing. */
+  const endDelivery = (threadId: string) => {
+    deliveries.delete(threadId);
+    candidates.delete(threadId);
+  };
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
+    endDelivery(threadId);
     videos.reset(threadId);
     sounds.reset(threadId);
     // The next subscription sends every tab's page state again.
@@ -440,8 +446,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     candidates.delete(threadId);
     const decode = captures.get(threadId)?.nativeShown !== true;
     for (const chunk of held?.pictures ?? []) videos.receive(threadId, chunk, decode);
-    const first = held?.pictures[0];
-    if (held?.needsKeyframe && first) ack(threadId, first.sequence, true);
+    if (held?.needsKeyframe && held.ask) ack(threadId, held.ask.sequence, true);
     if (onMedia && reply.media?.poster) void showPoster(threadId, reply.media.poster);
     return reply.result;
   };
@@ -783,6 +788,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       videos.dispose();
+      deliveries.clear();
+      candidates.clear();
       sounds.dispose();
       views.clear();
       pages.clear();
@@ -828,6 +835,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         });
       };
       function stop() {
+        endDelivery(threadId);
         watches.delete(threadId);
         current.cancel?.();
         // The subscription ends: a later view's stream starts from its own keyframe, and a
