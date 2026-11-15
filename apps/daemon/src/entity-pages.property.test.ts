@@ -8,15 +8,17 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
+import { requestChars, wholeRequestChars } from "@ace/projection/interaction-summary";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 
 // Generated threads of pending and resolved requests (approvals with large descriptions or
 // commands, large question sets, large form schemas, some larger than any page, more than 200
 // pending among them) read page by page while requests are answered and new ones arrive
-// between reads. Reading every page lists, whole, every request pending both when the read
-// began and when it ended, and every one resolved throughout exactly once; every page holds
-// what was asked, or one request larger than that alone.
+// between reads. Reading every page lists every request pending both when the read began and
+// when it ended, and every one resolved throughout, exactly once: whole, or summarized and saying
+// so when it is too large to send whole (ADR 0156). Every page holds what was asked, or one
+// request larger than that alone.
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -186,8 +188,11 @@ it.each(cases)(
       // What was asked, or one request larger than that, alone.
       if (page.entries.length > 1) expect(bytes).toBeLessThanOrEqual(maxBytes);
       for (const entry of page.entries) {
-        // Whole: exactly what was asked.
-        expect(entry.request).toEqual(asked.get(entry.id));
+        const whole = asked.get(entry.id);
+        if (!whole) throw new Error(`Never asked ${entry.id}`);
+        // Whole, exactly what was asked, or a summary that says how large the whole is.
+        if (requestChars(whole) <= wholeRequestChars) expect(entry.request).toEqual(whole);
+        else expect(entry.truncated).toEqual({ chars: requestChars(whole) });
         listed.set(entry.id, (listed.get(entry.id) ?? 0) + 1);
       }
       if (page.entitiesBefore !== null) expect(page.entitiesBefore).toBeLessThan(before);

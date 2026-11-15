@@ -1,6 +1,7 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import type { EntityCollection, ThreadView, Thread } from "@ace/protocol";
 import { entityPage, type TooLarge } from "@ace/projection/entity-pages";
+import { summarizeInteraction, wholeRequestChars } from "@ace/projection/interaction-summary";
 import { storedEntity, type EntityTrust, type StoredEntity } from "./stored-decode.ts";
 
 const active = `CASE
@@ -155,7 +156,8 @@ export class EntityWindow {
         return {
           ...page,
           collection,
-          ...this.entries(thread, collection, before, limit, maxBytes),
+          // A request too large to send with its thread goes as its summary (ADR 0156).
+          ...this.entries(thread, collection, before, limit, maxBytes, summarizeInteraction),
         };
       case "backgroundTasks":
         return {
@@ -165,13 +167,17 @@ export class EntityWindow {
         };
     }
   }
-  /** At most `limit` (and 200) entries and `maxBytes` of them, as `entityPage` cuts pages. */
+  /**
+   * At most `limit` (and 200) entries and `maxBytes` of them, as `entityPage` cuts pages, each
+   * as `sent` gives it to clients and weighed as that.
+   */
   private entries<C extends EntityCollection>(
     thread: Pick<Thread, "id">,
     collection: C,
     before: number,
     limit: number,
     maxBytes: number,
+    sent?: (entity: StoredEntity<C>) => StoredEntity<C>,
   ): { entries: StoredEntity<C>[]; tooLarge?: TooLarge[]; entitiesBefore: number | null } {
     const trust = this.trust;
     const statement = this.rows.bind(this);
@@ -195,14 +201,32 @@ export class EntityWindow {
         )) {
           const value = String(row.value);
           const id = String(row.id);
-          yield {
-            seq: Number(row.created_seq),
-            id,
-            bytes: Buffer.byteLength(value),
-            length: value.length,
-            entity: () => storedEntity(collection, value, trust),
-            kind: () => kindOf(id),
-          };
+          const seq = Number(row.created_seq);
+          const bytes = Buffer.byteLength(value);
+          const kind = () => kindOf(id);
+          // UTF-8 bytes are never fewer than UTF-16 units: a row within the bound goes as it is.
+          const stored =
+            sent && bytes > wholeRequestChars ? storedEntity(collection, value, trust) : undefined;
+          const shaped = stored && sent?.(stored);
+          if (shaped !== undefined && shaped !== stored) {
+            const json = JSON.stringify(shaped);
+            yield {
+              seq,
+              id,
+              bytes: Buffer.byteLength(json),
+              length: json.length,
+              entity: () => shaped,
+              kind,
+            };
+          } else
+            yield {
+              seq,
+              id,
+              bytes,
+              length: value.length,
+              entity: () => stored ?? storedEntity(collection, value, trust),
+              kind,
+            };
         }
       };
     const { tooLarge, ...page } = entityPage(
