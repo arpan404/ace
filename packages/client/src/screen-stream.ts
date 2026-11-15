@@ -8,13 +8,21 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
-import { PictureQueue, SharedStreams, type SourcePicture } from "@ace/browser/live-view";
+import {
+  MediaSubscriptions,
+  PictureQueue,
+  SharedStreams,
+  type MediaRoute,
+  type SourcePicture,
+} from "@ace/browser/live-view";
+import type { MediaPoster } from "@ace/protocol";
+import type { StreamMessage } from "@ace/browser/stream";
 import { authenticatedChannel, type AuthenticatedChannelOptions } from "./device-transport.ts";
 import { ScreenClientError } from "./screen.ts";
 
 export { ScreenClientError } from "./screen.ts";
 export type { AuthenticatedChannelOptions } from "./device-transport.ts";
-export type { SourcePicture } from "@ace/browser/live-view";
+export type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
 export { browserDeviceSocket as browserScreenSocket } from "./device-transport.ts";
 
 export interface ScreenTransport {
@@ -42,6 +50,8 @@ export interface ScreenStreamClientOptions {
   schedule(callback: () => void, delayMs: number): () => void;
 }
 type Pending = {
+  /** The session a `subscribe` named, for the poster its reply brings. */
+  subscribe?: string;
   resolve(data: unknown): void;
   reject(error: Error): void;
   cancel(): void;
@@ -71,8 +81,36 @@ export class ScreenStreamClient {
   /** Stream kind messages (`@ace/browser/stream`) being put back together. */
   private readonly assembler = new StreamAssembler();
   private readonly pictures = new PictureQueue(8);
+  /** Which sessions' pictures come by the media connection (ADR 0147 §4). */
+  private readonly media = new MediaSubscriptions();
+  private stopMedia: (() => void) | undefined;
   constructor(options: ScreenStreamClientOptions) {
     this.options = options;
+  }
+  /**
+   * Take live pictures by this media connection when it has a binding: each held stream
+   * subscribes again whenever the binding changes, acks follow the pictures, and requests and
+   * state stay on this channel. `undefined` goes back to the channel alone.
+   */
+  useMedia(route: MediaRoute | undefined): void {
+    this.stopMedia?.();
+    this.stopMedia = undefined;
+    this.media.use(route);
+    if (!route) return;
+    const stops = [
+      route.watch(() => {
+        if (!this.snapshot.connected) return;
+        for (const sessionId of this.streams.held()) this.subscribe(sessionId);
+      }),
+      route.onStream((message) => this.receiveMedia(message)),
+    ];
+    this.stopMedia = () => {
+      for (const stop of stops) stop();
+    };
+  }
+  /** The still the session's subscribe brought back, to show until its first live picture. */
+  poster(sessionId: string): MediaPoster | undefined {
+    return this.media.poster(sessionId);
   }
   getSnapshot(): ScreenStreamSnapshot {
     return this.snapshot;
@@ -119,6 +157,7 @@ export class ScreenStreamClient {
     this.assembler.reset();
     this.states.clear();
     this.streams.reset();
+    this.media.reset();
     this.pictures.discard();
     for (const request of this.pending.values()) {
       request.cancel();
@@ -157,6 +196,7 @@ export class ScreenStreamClient {
         options.timeoutMs ?? defaultTimeoutMs(operation),
       );
       this.pending.set(requestId, {
+        ...(operation.op === "subscribe" ? { subscribe: operation.sessionId } : {}),
         resolve,
         reject,
         cancel: () => {
@@ -209,6 +249,7 @@ export class ScreenStreamClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
+    if (this.media.ack(picture.sourceId, message)) return;
     try {
       void Promise.resolve(transport.send(message)).catch(() => {});
     } catch {
@@ -216,6 +257,11 @@ export class ScreenStreamClient {
     }
   }
   private readonly streams = new SharedStreams();
+  private subscribe(sessionId: string): void {
+    void this.request({ op: "subscribe", sessionId, ...this.media.fields(sessionId) }).catch(
+      () => {},
+    );
+  }
   /**
    * Keep `sessionId`'s live stream open for one view. Views of the same session share one
    * daemon subscription: the first view subscribes, the last to release unsubscribes.
@@ -223,9 +269,20 @@ export class ScreenStreamClient {
   retainStream(sessionId: string): () => void {
     return this.streams.retain(
       sessionId,
-      () => void this.request({ op: "subscribe", sessionId }).catch(() => {}),
-      () => void this.request({ op: "unsubscribe", sessionId }).catch(() => {}),
+      () => this.subscribe(sessionId),
+      () => {
+        this.media.forget(sessionId);
+        void this.request({ op: "unsubscribe", sessionId }).catch(() => {});
+      },
     );
+  }
+  private receiveMedia(message: StreamMessage): void {
+    if (
+      message.kind === "screen.frame" &&
+      this.snapshot.connected &&
+      this.states.get(message.sourceId)?.lifecycle === "live"
+    )
+      this.pictures.publish({ ...message.frame, sourceId: message.sourceId });
   }
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
@@ -252,6 +309,10 @@ export class ScreenStreamClient {
       request.cancel();
       if (!frame.ok) request.reject(new ScreenClientError(frame));
       else {
+        if (request.subscribe && frame.media) {
+          this.media.subscribed(request.subscribe, frame.media);
+          if (this.media.poster(request.subscribe)) this.publish({ ...this.snapshot });
+        }
         try {
           const state = ScreenState.safeParse(frame.data);
           if (state.success) this.putState(state.data);
