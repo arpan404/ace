@@ -1313,8 +1313,8 @@ export class Store {
     return this.threadReads.acquireThread(id);
   }
   /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
-  snapshotThread(id: ThreadId): ThreadView {
-    return this.threadReads.snapshotThread(id);
+  snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
+    return this.threadReads.snapshotThread(id, tail);
   }
   readEntityPage(
     threadId: ThreadId,
@@ -1381,6 +1381,10 @@ export class Store {
   }
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
     return this.navigation.markThreadRead(threadId, deviceId, lastSeenSeq);
+  }
+  /** Told after `markThreadRead`, possibly before its transaction commits. */
+  onThreadRead(listener: (threadId: ThreadId, deviceId: DeviceId) => void): () => void {
+    return this.navigation.onThreadRead(listener);
   }
   outputThread(streamId: string) {
     return this.threadReads.outputThread(streamId);

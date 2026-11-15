@@ -347,6 +347,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       options.id,
       () => this.connection.subscribable,
       this.#persistence(),
+      options.openTail && {
+        tail: options.openTail,
+        delay: (milliseconds, run) => options.scheduler.set(milliseconds, run),
+      },
     );
     this.#sidebar = new Sidebar(
       limits,

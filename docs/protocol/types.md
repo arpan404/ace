@@ -10022,6 +10022,7 @@ Example:
 | scope | yes | [SubscriptionScope.json](schema/SubscriptionScope.json) |  |
 | paced | no | boolean |  |
 | afterSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| tail | no | object | {"properties":{"items":{"type":"integer","minimum":1,"maximum":200},"bytes":{"type":"integer","minimum":1024,"maximum":1048576}},"required":["items","bytes"]} |
 
 Example:
 
@@ -10036,6 +10037,10 @@ Example:
     }
   },
   "subscriptionId": "example",
+  "tail": {
+    "bytes": 1027,
+    "items": 3
+  },
   "type": "subscribe"
 }
 ```
@@ -10449,12 +10454,12 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "seq": 1,
+    "seq": 0,
     "threads": {}
   }
 }
@@ -32271,6 +32276,7 @@ Example:
 | itemOrder | yes | array | {"items":{"type":"string"}} |
 | itemSeqs | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | itemsBefore | no | union | {"default":null,"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| partial | no | object | {"properties":{"previews":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1}}},"required":["previews"]} |
 | interactions | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Interaction.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | backgroundTasks | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/BackgroundTask.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | usage | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/UsageUpdated.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
@@ -32287,6 +32293,9 @@ Example:
   "itemOrder": [],
   "items": {},
   "kind": "thread",
+  "partial": {
+    "previews": []
+  },
   "runs": {},
   "seq": 1,
   "thread": {
@@ -32384,8 +32393,7 @@ Example:
     "updatedAt": 6,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 
@@ -32398,6 +32406,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| reads | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadReadCursor.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 
 Example:
 
@@ -35379,6 +35388,7 @@ Example:
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 | place | no | [ListedThreadPlace.json](schema/ListedThreadPlace.json) |  |
+| readState | no | [ThreadReadCursor.json](schema/ThreadReadCursor.json) |  |
 
 Example:
 
@@ -35402,6 +35412,10 @@ Example:
   "prSettled": 3,
   "prSettledKey": "example",
   "provider": "acp",
+  "readState": {
+    "lastSeenSeq": 4,
+    "updatedAt": null
+  },
   "snoozeWoke": {
     "at": 8,
     "on": "needs_you",
@@ -35474,6 +35488,7 @@ Example:
 | seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | threads | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadListEntry.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | keep | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| reads | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/ThreadReadCursor.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 
 Example:
 
@@ -35682,6 +35697,24 @@ Example:
     "visibility": "limited"
   },
   "instanceId": "example"
+}
+```
+
+## ThreadReadCursor
+
+[JSON Schema](schema/ThreadReadCursor.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| lastSeenSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| updatedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "lastSeenSeq": 4,
+  "updatedAt": 9
 }
 ```
 
@@ -36113,6 +36146,7 @@ Example:
 | itemOrder | yes | array | {"items":{"type":"string"}} |
 | itemSeqs | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | itemsBefore | no | union | {"default":null,"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| partial | no | object | {"properties":{"previews":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1}}},"required":["previews"]} |
 | interactions | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Interaction.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | backgroundTasks | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/BackgroundTask.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | usage | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/UsageUpdated.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
@@ -36129,6 +36163,9 @@ Example:
   "itemOrder": [],
   "items": {},
   "kind": "thread",
+  "partial": {
+    "previews": []
+  },
   "runs": {},
   "seq": 4,
   "thread": {
@@ -36284,8 +36321,7 @@ Example:
     "updatedAt": 1,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 
