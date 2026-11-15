@@ -91,6 +91,16 @@ test("signed in with no machine, Fleet lists the machines on the ace account", a
   expect(screen.getByText("Travel laptop")).toBeTruthy();
 });
 
+test("with no machine, Settings lists Profile and Fleet in its sidebar", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  openWindow({ daemon, stores: stores(), at: "/settings/remote" });
+  const nav = await screen.findByRole("navigation", { name: "Settings pages" });
+  const links = within(nav)
+    .getAllByRole("link")
+    .map((link) => link.textContent);
+  expect(links).toEqual(["Profile", "Fleet"]);
+});
+
 test("pairing from inside the app makes it this window's machine, and a reload keeps it", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000, token: "a".repeat(64) });
   vi.stubGlobal("fetch", (input: string, init?: RequestInit) => daemon.access.fetch(input, init));
