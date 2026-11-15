@@ -10,8 +10,9 @@ import type { RosterGroup } from "./use-spade-groups.ts";
 
 /*
  * What Spade's list says about each conversation (docs/design/spade.md §2): its state, which
- * picks the face's pose, its dot and its line's colour; its one line; and where it sits. Pure, so
- * the rules are tested directly.
+ * picks the face's pose, its dot and its line's colour; its one line; and where it sits. Spade
+ * sends each latest message as a plain-text preview and says which conversations finished
+ * unseen (its seen cursor). Pure, so the rules are tested directly.
  */
 
 /**
@@ -34,48 +35,6 @@ export interface SpadeRow {
   line: string;
 }
 
-/*
- * The seam to Spade's messenger fields, until every Spade sends them. `unseen` (the bot finished
- * and the person hasn't opened it since) is read off the agent as Spade sent it; a Spade before
- * the seen cursor sends none, and then everything counts as seen. Previews arrive as plain text
- * from such a Spade; one before that may send markdown, so the list strips it either way.
- */
-
-/** The bot or group finished something the person hasn't seen; false when Spade doesn't say. */
-export function unseenOf(entry: RosterBot | RosterGroup): boolean {
-  // Groups don't carry Spade's raw fields yet: until they do, a group counts as seen.
-  return "raw" in entry && entry.raw.unseen === true;
-}
-
-/**
- * A message as one plain line: markdown's marks gone (emphasis, headings, quotes, fences, list
- * marks, strike-through, inline code ticks), links and images as their words, whitespace folded.
- */
-export function plainPreview(text: string): string {
-  return (
-    text
-      // Fences and their language, keeping what they hold.
-      .replaceAll(/```[^\n]*\n?/g, " ")
-      // Images and links as their words; a bare autolink as its address.
-      .replaceAll(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replaceAll(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-      .replaceAll(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
-      // Line starts: headings, quotes, list marks, task boxes, rules.
-      .replaceAll(
-        /^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)/gm,
-        "",
-      )
-      .replaceAll(/^[ \t]*(?:[-*_][ \t]*){3,}$/gm, " ")
-      // Emphasis, strike-through and code ticks around words.
-      .replaceAll(/(\*\*|__)(?=\S)(.+?)(?<=\S)\1/g, "$2")
-      .replaceAll(/(?<![\w*])([*_])(?=\S)(.+?)(?<=\S)\1(?![\w*])/g, "$2")
-      .replaceAll(/~~(?=\S)(.+?)(?<=\S)~~/g, "$1")
-      .replaceAll(/`([^`]+)`/g, "$1")
-      .replaceAll(/\s+/g, " ")
-      .trim()
-  );
-}
-
 /** Off here or on the machine named (ace runs on more than Macs); its machine offline says so. */
 function offLine(entry: { away: boolean; machine: { primary: boolean; name: string } }): string {
   if (entry.away) return `${entry.machine.name} is offline`;
@@ -84,7 +43,7 @@ function offLine(entry: { away: boolean; machine: { primary: boolean; name: stri
 
 function lastLine(bot: RosterBot): string {
   const last = bot.lastMessage;
-  const text = last?.text ? plainPreview(last.text) : "";
+  const text = last?.text ?? "";
   if (!last || !text) return "No messages yet";
   if (last.from === "agent") return text;
   return `${last.fromAgent ? last.fromAgent.name : "You"}: ${text}`;
@@ -111,7 +70,7 @@ export function spadeBotRow(bot: RosterBot): SpadeRow {
   if (bot.state === "working") return { state: "working", line: bot.status ?? "Working" };
   // A subscription that couldn't run (signed out, out of quota): its next step in a few words.
   if (bot.problem) return { state: "failed", line: spadeProblemStep(bot.problem) };
-  const state = unseenOf(bot) ? "unseen" : "rest";
+  const state = bot.unseen ? "unseen" : "rest";
   // Cards left for later wait on nothing: a quiet count, never the needs-you colour (ADR 0154).
   if (bot.questionsForLater > 0) return { state, line: spadeForLaterWords(bot.questionsForLater) };
   // At a cap it makes no model call until the cap ends (ADR 0135).
@@ -122,13 +81,10 @@ export function spadeBotRow(bot: RosterBot): SpadeRow {
 /** A group's row: what it waits on or does, else its last speaker named, then their words. */
 export function spadeGroupRow(group: RosterGroup): SpadeRow {
   if (group.away || group.unavailable) return { state: "off", line: offLine(group) };
-  const last = group.lastMessage;
-  const said = spadeGroupLine(
-    last ? { ...group, lastMessage: { ...last, text: plainPreview(last.text) } } : group,
-  );
+  const said = spadeGroupLine(group);
   if (group.state === "waiting") return { state: "needs-you", line: said.text };
   if (group.state === "working") return { state: "working", line: said.text };
-  return { state: unseenOf(group) ? "unseen" : "rest", line: said.text };
+  return { state: group.unseen ? "unseen" : "rest", line: said.text };
 }
 
 export type SpadeListEntry =
@@ -163,7 +119,7 @@ function words(entry: SpadeListEntry): string[] {
     entry.kind === "bot"
       ? [entry.bot.name]
       : [entry.group.name, ...entry.group.members.map((member) => member.name)];
-  return [...named, entry.row.line, said === undefined ? "" : plainPreview(said)];
+  return [...named, entry.row.line, said ?? ""];
 }
 
 /** The rows whose name, line, last message or (a group's) members hold the search's words. */

@@ -1,7 +1,6 @@
 import { parseSpadeAgentValue, parseSpadeGroupValue } from "@ace/ui-core/spade-chat";
 import { expect, test } from "vitest";
 import {
-  plainPreview,
   searchSpadeList,
   spadeBotRow,
   spadeListEntries,
@@ -52,12 +51,15 @@ test("the list leaves Spade to the head and orders needs you, working, failed, u
     bot({ id: "inbox", name: "Inbox", last_activity: 4, state: "working", status: "Reading" }),
     bot({ id: "gh", name: "Github", last_activity: 0, state: "waiting", waiting_for: "question" }),
   ];
-  const groups = [group({ id: "study", name: "Study", last_activity: 10 })];
+  const groups = [
+    group({ id: "study", name: "Study", last_activity: 10 }),
+    group({ id: "drafts", name: "Drafts", last_activity: 1, unseen: true }),
+  ];
   expect(
     spadeListEntries(bots, groups).map((entry) =>
       entry.kind === "bot" ? entry.bot.name : entry.group.name,
     ),
-  ).toEqual(["Github", "Inbox", "Trips", "Research", "New", "Study", "Old"]);
+  ).toEqual(["Github", "Inbox", "Trips", "Research", "Drafts", "New", "Study", "Old"]);
 });
 
 test("each row's state and line follow the row-state table", () => {
@@ -77,7 +79,6 @@ test("each row's state and line follow the row-state table", () => {
     state: "unseen",
     line: "Found it.",
   });
-  // A Spade before the seen cursor says nothing: what it said counts as seen.
   expect(row({ last_message: said("Yo") })).toEqual({ state: "rest", line: "Yo" });
   expect(row({ last_message: said("Water the tomatoes", "person") })).toEqual({
     state: "rest",
@@ -92,23 +93,10 @@ test("each row's state and line follow the row-state table", () => {
   ).toEqual({ state: "off", line: "Studio Mac is offline" });
 });
 
-test("a preview reads as plain text, whatever markdown the message carried", () => {
-  expect(
-    plainPreview(
-      "## Plan\n\n- **Weather:** clear, _9–20°C_\n- [the outage](https://x.y) ~~is~~ `ok`",
-    ),
-  ).toBe("Plan Weather: clear, 9–20°C the outage is ok");
-  expect(plainPreview("> quoted\n```ts\nconst a = 1;\n```\n![a chart](c.png) 1. done")).toBe(
-    "quoted const a = 1; a chart 1. done",
-  );
-  // Words that only look like marks stay.
-  expect(plainPreview("snake_case and 2 * 3 * 4")).toBe("snake_case and 2 * 3 * 4");
-});
-
 test("search finds conversations by name, members and their words", () => {
   const entries = spadeListEntries(
     [
-      bot({ id: "garden", name: "Garden", last_message: said("Water the **tomatoes**", "person") }),
+      bot({ id: "garden", name: "Garden", last_message: said("Water the tomatoes", "person") }),
       bot({ id: "inbox", name: "Inbox" }),
     ],
     [group({ id: "study", name: "Bayes nets" })],

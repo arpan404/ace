@@ -91,6 +91,28 @@ test("a failed bot's line is its next step, and the foot leads to the person's n
   );
 });
 
+test("opening a bot that finished unseen marks its conversation seen, and a seen one sends nothing", async () => {
+  const { spade } = await spadeApp("/spade", (world) => {
+    crew(world);
+    const scout = world.agents.find((agent) => agent.id === "scout");
+    if (scout) world.status(scout, "idle", null);
+    world.addAgent({ id: "news", name: "News", unseen: true });
+  });
+  const news = await botRow("News");
+  const scout = await botRow("Scout");
+  await userEvent.click(scout);
+  await screen.findByRole("feed", { name: "Conversation with Scout" });
+  await userEvent.click(news);
+  await screen.findByRole("feed", { name: "Conversation with News" });
+  await waitFor(() => expect(spade.sent("PUT", "/v1/conversations/c-news/seen")).toHaveLength(1));
+  expect(spade.sent("PUT", "/v1/conversations/c-scout/seen")).toHaveLength(0);
+  // The list reads again: News is no longer unseen, so nothing more is sent.
+  await waitFor(() =>
+    expect(spade.agents.find((agent) => agent.id === "news")?.unseen).toBe(false),
+  );
+  expect(spade.sent("PUT", "/v1/conversations/c-news/seen")).toHaveLength(1);
+});
+
 test("+ offers New bot, New group and Import bot, and an imported bot opens", async () => {
   const { spade } = await spadeApp("/spade", crew);
   await openNew("New bot");

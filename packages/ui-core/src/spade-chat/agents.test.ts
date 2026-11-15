@@ -127,6 +127,26 @@ test("an agent from a Spade that only says whether it works reads as working or 
   expect(old?.state).toBe("working");
 });
 
+const read = (fields: Record<string, unknown>) =>
+  parseSpadeAgent(JSON.stringify({ agent: agent(fields) }));
+
+test("an agent says where its seen cursor is and whether it finished unseen, and an older Spade reads as seen", () => {
+  const sent = read({
+    seen_seq: 7,
+    unseen: true,
+    last_message: { from: "agent", text: "Done.", at: 1, seq: 9, from_agent: null },
+  });
+  expect([sent?.seenSeq, sent?.unseen, sent?.lastMessage?.seq]).toEqual([7, true, 9]);
+  const older = read({ last_message: { from: "agent", text: "Hi", at: 1, from_agent: null } });
+  expect([older?.seenSeq, older?.unseen, older?.lastMessage?.seq]).toEqual([
+    undefined,
+    false,
+    undefined,
+  ]);
+  // Odd values don't lose the agent.
+  expect(read({ seen_seq: "x", unseen: "yes" })?.unseen).toBe(false);
+});
+
 test("a model reference splits at its first slash, so model ids keep theirs", () => {
   expect(splitSpadeModel("openrouter/anthropic/claude")).toEqual({
     endpoint: "openrouter",

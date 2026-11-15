@@ -141,27 +141,11 @@ function rosterGroup(
     state: still ? "idle" : group.state,
     status: still ? undefined : group.status,
     lastMessage: group.lastMessage,
+    seenSeq: group.seenSeq,
+    unseen: still ? false : group.unseen,
     machine,
     host,
     away,
     unavailable,
   };
-}
-
-/** One entry of the Spade panel: a bot, or a group. */
-export type RosterEntry = { kind: "bot"; bot: RosterBot } | { kind: "group"; group: RosterGroup };
-
-/** Spade first, then bots and groups by latest activity, newest first. */
-export function rosterEntries(
-  bots: readonly RosterBot[],
-  groups: readonly RosterGroup[],
-): RosterEntry[] {
-  const entries: RosterEntry[] = [
-    ...bots.map((bot) => ({ kind: "bot" as const, bot })),
-    ...groups.map((group) => ({ kind: "group" as const, group })),
-  ];
-  const main = (entry: RosterEntry) => entry.kind === "bot" && entry.bot.kind === "main";
-  const activity = (entry: RosterEntry) =>
-    entry.kind === "bot" ? entry.bot.lastActivity : entry.group.lastActivity;
-  return entries.toSorted((a, b) => Number(main(b)) - Number(main(a)) || activity(b) - activity(a));
 }

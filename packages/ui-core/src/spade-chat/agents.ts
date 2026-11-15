@@ -32,6 +32,8 @@ export interface SpadeLastMessage {
   from: "person" | "agent";
   text: string;
   at: number;
+  /** Its event in the conversation; undefined from a Spade before seen cursors. */
+  seq: number | undefined;
   /** Another bot that sent it into this conversation (`from` is then `person`). */
   fromAgent: { id: string; name: string } | undefined;
 }
@@ -61,6 +63,10 @@ export interface SpadeAgent {
   /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
   problem: string | undefined;
   lastMessage: SpadeLastMessage | undefined;
+  /** The conversation's seen cursor: the last event the person has seen; undefined when never marked. */
+  seenSeq: number | undefined;
+  /** It finished and the person hasn't seen it since: never while it works or waits on them. */
+  unseen: boolean;
   /** Its spend and caps (ADR 0135); undefined from a Spade before them. */
   spending: SpadeSpending | undefined;
   /** Its own model review switch; undefined follows the default. */
@@ -85,6 +91,7 @@ const lastMessageShape = z.object({
   from: z.enum(["person", "agent"]).catch("agent"),
   text: z.string().catch(""),
   at: time.default(0),
+  seq: z.number().int().nonnegative().nullish().catch(undefined),
   from_agent: z
     .object({ id: z.string(), name: z.string().catch("") })
     .nullish()
@@ -109,6 +116,8 @@ const agentShape = z.object({
   status: z.string().nullish().catch(undefined),
   problem: z.string().nullish().catch(undefined),
   last_message: lastMessageShape.nullish().catch(undefined),
+  seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
+  unseen: z.boolean().catch(false).default(false),
 });
 
 function avatarOf(raw: unknown, seed: string, main: boolean): SpadeAvatar {
@@ -157,8 +166,16 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     status: agent.status || undefined,
     problem: agent.problem || undefined,
     lastMessage: last
-      ? { from: last.from, text: last.text, at: last.at, fromAgent: last.from_agent ?? undefined }
+      ? {
+          from: last.from,
+          text: last.text,
+          at: last.at,
+          seq: last.seq ?? undefined,
+          fromAgent: last.from_agent ?? undefined,
+        }
       : undefined,
+    seenSeq: agent.seen_seq ?? undefined,
+    unseen: agent.unseen,
     spending: parseSpadeSpending(record.spending),
     review: parseSpadeReview(record.review),
     computer: parseSpadeComputer(record.computer),
