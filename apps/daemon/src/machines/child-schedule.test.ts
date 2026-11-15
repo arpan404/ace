@@ -5,9 +5,13 @@ import {
   defaultScheduleConfig,
   restored,
   foldCall,
+  failureOf,
   heardFrom,
+  stampRead,
   machineBack,
-  machineDown,
+  wentDown,
+  type ReadStamp,
+  type Reachability,
   nextDue,
   planTurn,
   type CallOutcome,
@@ -109,6 +113,8 @@ interface Trace {
   endedBy: Map<string, number>;
   /** When each child's reads failed, by when they were sent. */
   failedAt: Map<string, number[]>;
+  /** When each of those failures came back, in the same order. */
+  failureArrived: Map<string, number[]>;
   /** When each child's read was last answered, by the simulated machine. */
   answeredAt: Map<string, number[]>;
   /** Isolation breaches: a call mixing a child whose call failed with others. */
@@ -142,8 +148,17 @@ function simulate(
   ms: number,
   restarts: number[] = [],
   start = 0,
-  /** Every call sent in [from, to) finds the machine down and fails at once. */
-  outage?: { from: number; to: number },
+  /**
+   * Every call sent in [from, to) finds the machine down and fails, coming back `failsAfterMs`
+   * later (at once by default; a timeout can bring it back after the machine is up again).
+   */
+  outages: readonly {
+    from: number;
+    to: number;
+    failsAfterMs?: number | (() => number);
+    /** Calls sent this long before it begins are caught by it too, and fail as its own do. */
+    catchesMs?: number;
+  }[] = [],
   /**
    * Other calls to the machine that got through (a description, say), as the directory reports
    * them: when each was sent and when its reply arrived.
@@ -161,32 +176,52 @@ function simulate(
     ended: new Map(),
     endedBy: new Map(),
     failedAt: new Map(),
+    failureArrived: new Map(),
     answeredAt: new Map(),
     breaches: [],
   };
   /** Children whose last call failed or was refused, until a call of them alone is answered. */
   const tainted = new Set<string>();
-  const pending: { at: number; started: number; ids: string[]; result: CallOutcome }[] = [];
-  /** When the machine was last known up, as the shell keeps it. */
-  let heard: number | undefined;
-  /** When the read that began the machine's current down episode went out, if it is down. */
-  let downSince: number | undefined;
-  const fold = (ids: string[], given: CallOutcome, now: number, started = now) => {
-    // A failure while nothing else there answered is the machine's (as the shell marks it).
-    const machineWide = machineDown(heard, started, config);
-    const result: CallOutcome = given.kind === "failed" ? { kind: "failed", machineWide } : given;
-    if (result.kind === "failed" && machineWide) downSince ??= started;
+  const pending: {
+    at: number;
+    started: number;
+    stamp: ReadStamp;
+    ids: string[];
+    result: CallOutcome;
+  }[] = [];
+  /** What is known of whether the machine is up, as the shell keeps it. */
+  let reach: Reachability = {};
+  /** A call sent at `sent` got through, here or elsewhere: the machine may be back. */
+  const heard = (at: { sent: number; now: number }) => {
+    const result = heardFrom(reach, at);
+    reach = result.state;
+    // The directory's recovery callback, as wired in the daemon.
+    if (result.back) records = machineBack(records, at.now);
+  };
+  const fold = (
+    ids: string[],
+    given: CallOutcome,
+    now: number,
+    started = now,
+    // What the read carried from when it was sent (now, unless it comes back later).
+    stamp: ReadStamp = stampRead(reach, started, config),
+  ) => {
+    // A failure is the machine's when nothing there was heard from around when it was sent (as
+    // the shell marks it), whenever it arrives.
+    const of = failureOf(reach, stamp);
+    if (given.kind === "failed" && of === "machine") reach = wentDown(reach, started);
+    const result: CallOutcome =
+      given.kind === "failed"
+        ? {
+            kind: "failed",
+            machineWide: of !== "own",
+            machineBack: of === "machine_back",
+            machineFailures: reach.downFailures,
+          }
+        : given;
     const folded = foldCall(records, tracked, ids, result, { sent: started, now }, config);
     records = folded.records;
-    if (result.kind !== "failed") {
-      heard = heardFrom(heard, { sent: started, now });
-      // The directory's recovery callback, as wired in the daemon: a call sent once the machine
-      // was down got through, so it is back. One sent before then proves nothing of now.
-      if (downSince !== undefined && started >= downSince) {
-        records = machineBack(records, now);
-        downSince = undefined;
-      }
-    }
+    if (result.kind !== "failed") heard({ sent: started, now });
     for (const id of folded.ended) {
       trace.ended.set(id, now);
       trace.endedBy.set(id, started);
@@ -202,8 +237,9 @@ function simulate(
     } else
       for (const id of ids) {
         tainted.add(id);
-        if (result.kind === "failed")
-          trace.failedAt.set(id, [...(trace.failedAt.get(id) ?? []), started]);
+        if (result.kind !== "failed") continue;
+        trace.failedAt.set(id, [...(trace.failedAt.get(id) ?? []), started]);
+        trace.failureArrived.set(id, [...(trace.failureArrived.get(id) ?? []), now]);
       }
   };
   for (let now = start; now <= start + ms; now += POLL) {
@@ -217,14 +253,9 @@ function simulate(
       pending.splice(0);
     }
     for (const call of pending.filter((entry) => entry.at <= now))
-      fold(call.ids, call.result, now, call.started);
-    for (const other of others.filter((entry) => entry.now <= now && entry.now > now - POLL)) {
-      heard = heardFrom(heard, other);
-      if (downSince !== undefined && other.sent >= downSince) {
-        records = machineBack(records, now);
-        downSince = undefined;
-      }
-    }
+      fold(call.ids, call.result, now, call.started, call.stamp);
+    for (const other of others.filter((entry) => entry.now <= now && entry.now > now - POLL))
+      heard(other);
     pending.splice(0, pending.length, ...pending.filter((entry) => entry.at > now));
     const plan = planTurn(tracked, records, now, config);
     records = plan.records;
@@ -238,9 +269,23 @@ function simulate(
         trace.asked.set(id, list);
         asks.set(id, (asks.get(id) ?? 0) + 1);
       }
-      const down = outage !== undefined && now >= outage.from && now < outage.to;
-      if (down) {
-        fold(ids, { kind: "failed" }, now);
+      const outage = outages.find(
+        (entry) => now >= entry.from - (entry.catchesMs ?? 0) && now < entry.to,
+      );
+      if (outage) {
+        const after =
+          typeof outage.failsAfterMs === "function"
+            ? outage.failsAfterMs()
+            : (outage.failsAfterMs ?? 0);
+        if (after > 0)
+          pending.push({
+            at: now + after,
+            started: now,
+            stamp: stampRead(reach, now, config),
+            ids,
+            result: { kind: "failed" },
+          });
+        else fold(ids, { kind: "failed" }, now);
         continue;
       }
       const result = outcome(ids, byId, asks);
@@ -252,8 +297,21 @@ function simulate(
         }),
       );
       if (ids.some((id) => byId.get(id)?.behaviour.kind === "times_out"))
-        pending.push({ at: now + TIMEOUT_MS, started: now, ids, result: { kind: "failed" } });
-      else if (delay > 0) pending.push({ at: now + delay, started: now, ids, result });
+        pending.push({
+          at: now + TIMEOUT_MS,
+          started: now,
+          stamp: stampRead(reach, now, config),
+          ids,
+          result: { kind: "failed" },
+        });
+      else if (delay > 0)
+        pending.push({
+          at: now + delay,
+          started: now,
+          stamp: stampRead(reach, now, config),
+          ids,
+          result,
+        });
       else fold(ids, result, now);
     }
   }
@@ -473,9 +531,58 @@ test("an answer counts as of when its read went out: a reply to a read sent befo
   ).toEqual([]);
 });
 
-test("c. once its machine is back, every child whose reads failed in the outage is read promptly, whatever late replies arrive meanwhile", () => {
+test("c. once its machine is back, every child whose reads failed in the outage is read promptly, whatever late replies or failures arrive meanwhile", () => {
+  for (const seed of seeds)
+    // Failures that come back at once, and ones that time out, some after the machine is back.
+    for (const failsAfterMs of [0, TIMEOUT_MS]) {
+      const next = random(seed * 17);
+      const children: SimChild[] = Array.from({ length: 40 }, (_, index) => ({
+        id: `w-${String(index).padStart(2, "0")}`,
+        settled: false,
+        settledAt: null,
+        unconfirmed: false,
+        paired: true,
+        behaviour: { kind: "healthy" },
+      }));
+      const to = 2 * MINUTE + 38_000 + Math.floor(next() * 10_000);
+      const outage = { from: 2 * MINUTE, to, failsAfterMs };
+      // Descriptions sent before the outage whose replies arrive all through it: they prove the
+      // machine was up when they were sent, nothing of the outage.
+      const others = Array.from({ length: 60 }, () => {
+        const sent = MINUTE + Math.floor(next() * MINUTE);
+        return { sent, now: outage.from + Math.floor(next() * (outage.to - outage.from)) };
+      }).filter((call) => call.now > call.sent);
+      // Then a description sent once the outage is over gets through: the machine is back.
+      const back = outage.to + 2 * POLL;
+      others.push({ sent: outage.to + POLL, now: back });
+      const trace = simulate(children, 6 * MINUTE, [], 0, [outage], others);
+      const turns = Math.ceil(children.length / 16) + 2;
+      const label = `seed ${seed} failing after ${failsAfterMs} ms`;
+      let checked = 0;
+      for (const child of children) {
+        const sent = trace.failedAt.get(child.id) ?? [];
+        const arrived = trace.failureArrived.get(child.id) ?? [];
+        const inOutage = sent.flatMap((at, index) =>
+          at >= outage.from && at < outage.to ? [arrived[index] ?? at] : [],
+        );
+        if (inOutage.length === 0) continue;
+        checked++;
+        // Read within a few turns of the machine answering again, or of the last of its outage
+        // failures coming back if that is later: never at the end of a 30 s wait.
+        const from = Math.max(back, ...inOutage);
+        const after = (trace.asked.get(child.id) ?? []).find((at) => at > from);
+        expect((after ?? Infinity) - from, `${label} ${child.id}`).toBeLessThanOrEqual(
+          turns * POLL,
+        );
+      }
+      expect(checked, label).toBeGreaterThan(0);
+    }
+});
+
+test("c. through outage after outage, every child whose reads an outage took down is read promptly once its machine is back", () => {
+  let checked = 0;
   for (const seed of seeds) {
-    const next = random(seed * 17);
+    const next = random(seed * 23);
     const children: SimChild[] = Array.from({ length: 40 }, (_, index) => ({
       id: `w-${String(index).padStart(2, "0")}`,
       settled: false,
@@ -484,41 +591,251 @@ test("c. once its machine is back, every child whose reads failed in the outage 
       paired: true,
       behaviour: { kind: "healthy" },
     }));
-    const outage = { from: 2 * MINUTE, to: 2 * MINUTE + 38_000 + Math.floor(next() * 10_000) };
-    // Descriptions sent before the outage whose replies arrive all through it: they prove the
-    // machine was up when they were sent, nothing of the outage.
-    const others = Array.from({ length: 60 }, () => {
-      const sent = MINUTE + Math.floor(next() * MINUTE);
-      return { sent, now: outage.from + Math.floor(next() * (outage.to - outage.from)) };
-    }).filter((call) => call.now > call.sent);
-    // Then a description sent once the outage is over gets through: the machine is back.
-    const back = outage.to + 2 * POLL;
-    others.push({ sent: outage.to + POLL, now: back });
-    const trace = simulate(children, 6 * MINUTE, [], 0, outage, others);
+    // A long outage, long enough for waits to reach the 30 s cap, then short ones close behind
+    // it. Every read an outage takes down fails only when it times out: after that outage is
+    // over, often after the next has come and gone. Each short outage also takes down reads
+    // sent while the machine was still up, just before it began. A description sent as each
+    // ends shows the machine back.
+    const outages: {
+      from: number;
+      to: number;
+      failsAfterMs: number | (() => number);
+      catchesMs: number;
+    }[] = [];
+    const others: { sent: number; now: number }[] = [];
+    let at = 2 * MINUTE;
+    for (let index = 0; index < 5; index++) {
+      const length = index === 0 ? 2 * MINUTE : 2 * POLL + Math.floor(next() * 3) * POLL;
+      const to = at + length;
+      outages.push({
+        from: at,
+        to,
+        // The long outage's reads take 10 to 40 s each to fail.
+        failsAfterMs: index === 0 ? () => 10_000 + Math.floor(next() * 30) * POLL : TIMEOUT_MS,
+        catchesMs: index === 0 ? 0 : POLL,
+      });
+      others.push({ sent: to, now: to + POLL });
+      at = to + 3 * POLL + Math.floor(next() * 2) * POLL;
+    }
+    const trace = simulate(children, 8 * MINUTE, [], 0, outages, others);
+    const last = outages.at(-1);
+    if (!last) throw new Error("no outage");
+    const back = last.to + POLL;
     const turns = Math.ceil(children.length / 16) + 2;
-    let checked = 0;
     for (const child of children) {
-      if (!trace.failedAt.get(child.id)?.some((at) => at >= outage.from && at < outage.to))
-        continue;
+      const sent = trace.failedAt.get(child.id) ?? [];
+      const arrived = trace.failureArrived.get(child.id) ?? [];
+      // Every read an outage took down, however it was sent and whenever it failed.
+      const taken = sent.flatMap((when, index) =>
+        outages.some((outage) => when >= outage.from - outage.catchesMs && when < outage.to)
+          ? [arrived[index] ?? when]
+          : [],
+      );
+      if (taken.length === 0) continue;
       checked++;
-      const after = (trace.asked.get(child.id) ?? []).find((at) => at > back);
-      // Read within a few turns of the machine answering again, not at the end of a 30 s wait.
-      expect((after ?? Infinity) - back, `seed ${seed} ${child.id}`).toBeLessThanOrEqual(
+      // Read within a few turns of the last recovery, or of the last such failure coming back
+      // if later: never at the end of a wait of its own.
+      const from = Math.max(back, ...taken);
+      const after = (trace.asked.get(child.id) ?? []).find((when) => when > from);
+      expect((after ?? Infinity) - from, `seed ${seed} ${child.id}`).toBeLessThanOrEqual(
         turns * POLL,
       );
     }
-    expect(checked, `seed ${seed}`).toBeGreaterThan(0);
   }
+  expect(checked).toBeGreaterThan(5 * seeds.length);
 });
 
-test("reachability evidence is as of when the call that got through was sent", () => {
+test("a read sent while its machine was up that a later outage takes down is the machine's, not the child's", () => {
+  const config = defaultScheduleConfig(POLL, 0);
+  const child: ScheduleChild = {
+    id: "c",
+    settled: false,
+    settledAt: null,
+    unconfirmed: false,
+    paired: true,
+  };
+  // Outage A left the child at the 30 s cap; recovery at 100 s ended that wait, not its count.
+  let reach = heardFrom(wentDown({}, 60_000), { sent: 100_000, now: 100_000 }).state;
+  let records = new Map<string, ChildRecord>([
+    [
+      "c",
+      {
+        failures: 8,
+        retryAt: 130_000,
+        machineWide: true,
+        suspect: false,
+        implicated: 0,
+        inFlight: false,
+      },
+    ],
+  ]);
+  records = machineBack(records, 100_000);
+  // Its read at 101 s goes out with the machine up: B is not established yet.
+  const read = stampRead(reach, 101_000, config);
+  expect(read.downAtSend).toBe(false);
+  // Another read establishes B at 104 s; recovery at 106 s.
+  reach = wentDown(reach, 104_000);
+  reach = heardFrom(reach, { sent: 106_000, now: 106_000 }).state;
+  // The held 101 s read fails at 111 s: B began while it was on its way, so it is the machine's.
+  expect(failureOf(reach, read)).toBe("machine_back");
+  const folded = foldCall(
+    records,
+    [child],
+    ["c"],
+    machineFailure(true),
+    { sent: 101_000, now: 111_000 },
+    config,
+  );
+  expect(nextDue([child], folded.records, 111_000, config)).toBeLessThanOrEqual(111_000);
+});
+
+test("a child that fails alone on a healthy machine still backs off to the cap", () => {
+  const config = defaultScheduleConfig(POLL, 0);
+  const child: ScheduleChild = {
+    id: "c",
+    settled: false,
+    settledAt: null,
+    unconfirmed: false,
+    paired: true,
+  };
+  let reach: Reachability = {};
+  let records = new Map<string, ChildRecord>();
+  const asked: number[] = [];
+  let now = 0;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    // Something else there answers just before each read, so no outage is ever established.
+    reach = heardFrom(reach, { sent: now, now }).state;
+    const read = stampRead(reach, now, config);
+    expect(failureOf(reach, read)).toBe("own");
+    asked.push(now);
+    records = foldCall(
+      records,
+      [child],
+      ["c"],
+      { kind: "failed", machineWide: false },
+      { sent: now, now },
+      config,
+    ).records;
+    now = nextDue([child], records, now, config) ?? Infinity;
+  }
+  // Its own waits double to the cap: the last reads are 30 s apart.
+  expect(gaps(asked).slice(-3)).toEqual([30_000, 30_000, 30_000]);
+});
+
+test("reachability is judged as of when each call was sent, success or failure", () => {
   const config = defaultScheduleConfig(POLL, 0);
   // A call sent at 10 s comes back at 100 s: the machine was known up at 10 s, not 100 s.
-  const heard = heardFrom(undefined, { sent: 10_000, now: 100_000 });
-  expect(machineDown(heard, 100_000, config)).toBe(true);
-  expect(machineDown(heard, 11_000, config)).toBe(false);
+  let reach = heardFrom({}, { sent: 10_000, now: 100_000 }).state;
+  expect(failureOf(reach, stampRead(reach, 100_000, config))).toBe("machine");
+  expect(failureOf(reach, stampRead(reach, 11_000, config))).toBe("own");
   // Evidence only moves forward.
-  expect(heardFrom(heard, { sent: 5_000, now: 120_000 })).toBe(heard);
+  expect(heardFrom(reach, { sent: 5_000, now: 120_000 }).state.heard).toBe(10_000);
+  // Down from a read sent at 100 s; a call sent before that, answered now, isn't recovery.
+  reach = wentDown(reach, 100_000);
+  expect(heardFrom(reach, { sent: 90_000, now: 130_000 }).back).toBe(false);
+  const during = stampRead(reach, 120_000, config);
+  // One sent at 140 s is: the machine is back.
+  const back = heardFrom(reach, { sent: 140_000, now: 141_000 });
+  expect(back.back).toBe(true);
+  // A read sent during the outage whose failure arrives after it is the machine's, and over.
+  expect(failureOf(back.state, during)).toBe("machine_back");
+  // One sent after the machine was heard from again is the child's own.
+  expect(failureOf(back.state, stampRead(back.state, 141_000, config))).toBe("own");
+});
+
+test("a read sent in one outage that fails after a later outage has come and gone is still that outage's", () => {
+  const config = defaultScheduleConfig(POLL, 0);
+  // Heard from at 99 s; outage A found by a read sent at 100 s.
+  let reach = wentDown(heardFrom({}, { sent: 99_000, now: 99_000 }).state, 100_000);
+  // A child's read, alone, is sent at 101 s.
+  const read = stampRead(reach, 101_000, config);
+  // A is over at 102 s; outage B starts at 105 s and is over at 106 s.
+  reach = heardFrom(reach, { sent: 102_000, now: 102_000 }).state;
+  reach = wentDown(reach, 105_000);
+  const recovered = heardFrom(reach, { sent: 106_000, now: 106_000 });
+  expect(recovered.back).toBe(true);
+  reach = recovered.state;
+  // The 101 s read times out at 111 s: the machine's, and over, so no wait of its own starts.
+  expect(failureOf(reach, read)).toBe("machine_back");
+  const child: ScheduleChild = {
+    id: "c",
+    settled: false,
+    settledAt: null,
+    unconfirmed: false,
+    paired: true,
+  };
+  // It had reached the 30 s cap during A; A's recovery ended that wait.
+  let records = new Map<string, ChildRecord>([
+    [
+      "c",
+      {
+        failures: 8,
+        retryAt: 130_000,
+        machineWide: true,
+        suspect: false,
+        implicated: 0,
+        inFlight: true,
+      },
+    ],
+  ]);
+  records = machineBack(records, 106_000);
+  const folded = foldCall(
+    records,
+    [child],
+    ["c"],
+    machineFailure(true),
+    { sent: 101_000, now: 111_000 },
+    config,
+  );
+  expect(nextDue([child], folded.records, 111_000, config)).toBeLessThanOrEqual(111_000);
+});
+
+/** A failure that was the machine's; `over` when the outage it came from has ended since. */
+const machineFailure = (over: boolean): CallOutcome => ({
+  kind: "failed",
+  machineWide: true,
+  machineBack: over,
+});
+
+test("a failure of a read sent during an outage that is over starts no wait of its own", () => {
+  const config = defaultScheduleConfig(POLL, 0);
+  const child: ScheduleChild = {
+    id: "c",
+    settled: false,
+    settledAt: null,
+    unconfirmed: false,
+    paired: true,
+  };
+  // Failing during the outage, its wait grew; the machine came back and ended it.
+  let records = foldCall(
+    new Map(),
+    [child],
+    ["c"],
+    machineFailure(false),
+    { sent: 0, now: 0 },
+    config,
+  ).records;
+  records = machineBack(records, 5_000);
+  // Its read sent during the outage times out after that: it is due at once all the same.
+  const late = foldCall(
+    records,
+    [child],
+    ["c"],
+    machineFailure(true),
+    { sent: 4_000, now: 14_000 },
+    config,
+  );
+  expect(nextDue([child], late.records, 14_000, config)).toBeLessThanOrEqual(14_000);
+  // A failure while the machine is still down does start one.
+  const down = foldCall(
+    records,
+    [child],
+    ["c"],
+    machineFailure(false),
+    { sent: 4_000, now: 14_000 },
+    config,
+  );
+  expect(nextDue([child], down.records, 14_000, config)).toBeGreaterThan(14_000);
 });
 
 test("e. an unconfirmed stop, or a child past its window, keeps to the fast pace", () => {

@@ -115,4 +115,12 @@ if (process.platform === "win32") {
         stdio: "inherit",
       },
     );
+  // E2: the Linux screen streams through this binary and back on egress (with
+  // ACE_SCREEN_INTEGRATION=1 and ACE_LINUX_HELPER, inside a GNOME Wayland session).
+  if (process.platform === "linux")
+    execFileSync("bun", ["--bun", "x", "vitest", "run", "src/media-ingest.linux.process.test.ts"], {
+      cwd: new URL("../packages/screen/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    });
 }

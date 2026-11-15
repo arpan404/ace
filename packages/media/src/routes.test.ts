@@ -224,8 +224,12 @@ describe("named routes", () => {
       expect(
         mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
       ).toMatchObject({ producer: "ace-media", egress: true });
+    // Linux screens stream into ace-media (E2); its emulators and simulators don't.
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("linux")).screen).toEqual(
+      mac.screen,
+    );
     for (const [platform, kinds] of [
-      ["linux", ["screen", "emulator-frames"]],
+      ["linux", ["emulator-frames"]],
       ["win32", ["emulator-frames", "simulator"]],
     ] as const)
       for (const kind of kinds)

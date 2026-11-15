@@ -4,7 +4,7 @@ import type { setup } from "../agent-control/test-support.ts";
 import { REMOTE_CHILD_LEASE_MS } from "../liveness/lease.ts";
 import { REMOTE_STOP, stopBound } from "../liveness/stop.ts";
 import { STOP_TRACKING } from "./child-lost.ts";
-import type { MachineChildren } from "./children.ts";
+import { UNREACHABLE_RETRY_CAP_MS, type MachineChildren } from "./children.ts";
 import {
   children,
   ids,
@@ -42,6 +42,25 @@ function stopTracking(ledger: MachineChildren, interactionId: string) {
       },
     }),
   );
+}
+
+/**
+ * Its machine answers again. It failed every read while silent, so the next read waits out that
+ * machine's backoff, never longer than its cap; polls come once a second meanwhile.
+ */
+async function answersAgain(
+  fixture: Awaited<ReturnType<typeof parentWithChildren>>,
+  id: ThreadId,
+  on: MachineChildren = fixture.ledger,
+) {
+  const { f, rijan, at } = fixture;
+  rijan.silent = false;
+  const answered = f.clock.now();
+  while (
+    on.watched(id)?.view.contact === "lost" &&
+    f.clock.now() < answered + UNREACHABLE_RETRY_CAP_MS
+  )
+    await at(f.clock.now() + 1_000, on);
 }
 
 /** A working child, its parent's own turn over, then its machine goes silent past the lease. */
@@ -96,12 +115,12 @@ it("a working child whose machine goes silent past the lease keeps its parent fr
 });
 
 it("a child that lost contact reports again: the question closes by itself and it reads working, still holding its parent", async () => {
-  const { f, parent, rijan, ledger, id, at } = await silentChild();
+  const fixture = await silentChild();
+  const { f, parent, rijan, ledger, id, at } = fixture;
   expect(asks(f, parent)).toHaveLength(1);
 
   // Polling goes on at the scheduler's backed-off pace; the machine answers again.
-  rijan.silent = false;
-  for (let poll = 0; poll < 4; poll++) await at(f.clock.now() + 30_000);
+  await answersAgain(fixture, id);
   const back = parentView(f, parent);
   expect(asks(f, parent)).toEqual([]);
   expect(ledger.watched(id)?.view).toMatchObject({ state: "working" });
@@ -144,7 +163,8 @@ it("stopping tracking a child that lost contact settles it cancelled and lets it
 });
 
 it("a daemon restart while contact is lost keeps the one question, and it still closes when the machine answers", async () => {
-  const { f, parent, rijan, ledger, id, at } = await silentChild();
+  const fixture = await silentChild();
+  const { f, parent, rijan, ledger, id, at } = fixture;
   const [ask] = asks(f, parent);
   ledger.close();
 
@@ -154,8 +174,7 @@ it("a daemon restart while contact is lost keeps the one question, and it still 
   expect(restarted.watched(id)?.view).toMatchObject({ state: "needs_you", contact: "lost" });
   expect(parentView(f, parent).status.state).toBe("needs_you");
 
-  rijan.silent = false;
-  for (let poll = 0; poll < 4; poll++) await at(f.clock.now() + 30_000, restarted);
+  await answersAgain(fixture, id, restarted);
   expect(asks(f, parent)).toEqual([]);
   expect(restarted.watched(id)?.view.state).toBe("working");
   restarted.close();

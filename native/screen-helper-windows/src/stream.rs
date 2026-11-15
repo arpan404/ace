@@ -5,8 +5,9 @@ use crate::{
     media::config::{StreamCodec, StreamSettings},
     tiles::Tiles,
 };
+use media_ingest::epochs::EpochLedger;
+pub use media_ingest::epochs::{CaptureTime, Epoch};
 use media_ingest::VideoUnit;
-use std::collections::VecDeque;
 /// Caller supplies event time. A denied pacing slot never updates hashes, so a final change survives.
 pub struct Stream {
     tiles: Tiles,
@@ -22,58 +23,11 @@ pub struct Stream {
     video_next_ms: f64,
     keyframe: bool,
     image: bool,
-    /// When each privacy epoch was applied, in raw QPC ticks, oldest first. A picture takes
-    /// the epoch in force at its own capture time, however late it is dequeued.
-    epochs: VecDeque<(i64, Epoch)>,
+    /// When each privacy epoch was applied, in raw QPC ticks. A picture takes the epoch in
+    /// force at its own capture time, however late it is dequeued (`media_ingest::epochs`).
+    epochs: EpochLedger,
 }
 
-/// A privacy epoch, and whether pictures under it are private. The daemon says which; one it
-/// doesn't counts as private, so a tie can only ever err toward private.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Epoch {
-    pub id: u32,
-    pub private: bool,
-}
-impl Epoch {
-    pub fn unsaid(id: u32) -> Self {
-        Self { id, private: true }
-    }
-}
-
-/// When a picture was captured: every raw QPC tick it may have been taken at (closed range).
-/// WGC timestamps are 100 ns units, coarser than the counter on many machines.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CaptureTime {
-    pub first: i64,
-    pub last: i64,
-}
-impl CaptureTime {
-    pub fn exact(ticks: i64) -> Self {
-        Self {
-            first: ticks,
-            last: ticks,
-        }
-    }
-    /// The ticks `t` whose `floor(t * 10^7 / frequency)` is `units`: the counter value a 100 ns
-    /// timestamp was rounded down from.
-    pub fn from_100ns(units: i64, frequency: i64) -> Self {
-        if frequency <= 0 {
-            return Self::exact(units);
-        }
-        let ceil = |numerator: i128| -> i64 {
-            let denominator = 10_000_000i128;
-            (numerator.div_euclid(denominator) + i128::from(numerator.rem_euclid(denominator) != 0))
-                as i64
-        };
-        let f = i128::from(frequency);
-        Self {
-            first: ceil(i128::from(units) * f),
-            last: ceil((i128::from(units) + 1) * f) - 1,
-        }
-    }
-}
-/// Epoch applications kept: far more than can happen within a picture's lifetime in the helper.
-const EPOCHS: usize = 64;
 impl Stream {
     pub fn new(session: String, version: u8, fps: u32) -> Self {
         Self {
@@ -89,19 +43,14 @@ impl Stream {
             video_next_ms: 0.0,
             keyframe: false,
             image: false,
-            epochs: VecDeque::new(),
+            epochs: EpochLedger::default(),
         }
     }
     /// `stream.configure`: video at the settings' rate, or JPEG stills at it (30 fps at most).
     /// `epoch` applies from `now_ticks`, the raw QPC counter.
     pub fn configure(&mut self, settings: StreamSettings, epoch: Option<Epoch>, now_ticks: i64) {
         if let Some(epoch) = epoch {
-            if self.epochs.back().map(|(_, e)| *e) != Some(epoch) {
-                self.epochs.push_back((now_ticks, epoch));
-                if self.epochs.len() > EPOCHS {
-                    self.epochs.pop_front();
-                }
-            }
+            self.epochs.apply(now_ticks, epoch);
         }
         match settings.codec {
             StreamCodec::H264 => {
@@ -121,34 +70,16 @@ impl Stream {
     pub fn video(&self) -> Option<StreamSettings> {
         self.video
     }
-    /// The epoch of a picture captured at `when`. Every epoch that may have been in force
-    /// during it is a candidate: the one before its first tick, and any applied within it (an
-    /// application at exactly the picture's tick may have come either side of it). A private
-    /// candidate wins, the earliest one; otherwise the latest. So a tie at a switch from private
-    /// to clear stays private, and one at a switch to private is private already. 0 before any
-    /// epoch was given, as on the Mac.
+    /// The epoch of a picture captured at `when`: the shared rule, which errs toward private.
     pub fn epoch_at(&self, when: CaptureTime) -> u32 {
-        let before = self
-            .epochs
-            .iter()
-            .rev()
-            .find(|(at, _)| *at < when.first)
-            .map(|(_, epoch)| *epoch)
-            .unwrap_or(Epoch {
-                id: 0,
-                private: false,
-            });
-        let within = self
-            .epochs
-            .iter()
-            .filter(|(at, _)| (when.first..=when.last).contains(at))
-            .map(|(_, epoch)| *epoch);
-        let candidates: Vec<Epoch> = std::iter::once(before).chain(within).collect();
-        candidates
-            .iter()
-            .find(|epoch| epoch.private)
-            .or(candidates.last())
-            .map_or(0, |epoch| epoch.id)
+        self.epochs.epoch_at(when)
+    }
+    /// The epoch of the newest picture, captured at `when`, which replaces every older one: the
+    /// ledger forgets what only an older picture could need.
+    pub fn epoch_for_newest(&mut self, when: CaptureTime) -> u32 {
+        let epoch = self.epochs.epoch_at(when);
+        self.epochs.forget_before(when.first);
+        epoch
     }
     pub fn request_keyframe(&mut self) {
         self.keyframe = true;
