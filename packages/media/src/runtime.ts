@@ -1,3 +1,4 @@
+import { MediaAccelerationStore } from "./acceleration.ts";
 import { EgressRouter } from "./egress.ts";
 import { RouteWatch } from "./route-watch.ts";
 import { builtRouteCapabilities, sourceKinds, type RouteCapabilities } from "./routes.ts";
@@ -32,6 +33,8 @@ export class MediaRuntime {
   readonly routes: RouteWatch;
   readonly egress: EgressRouter;
   readonly sources: IngestSources;
+  /** What ace-media runs on: its probe's list and each source's steps. */
+  readonly acceleration = new MediaAccelerationStore();
 
   constructor(options: MediaRuntimeOptions) {
     const capabilities = options.capabilities ?? builtRouteCapabilities;
@@ -42,6 +45,7 @@ export class MediaRuntime {
         this.sources.replay();
       },
       onMessage: (message, payload) => {
+        this.acceleration.message(message);
         this.sources.message(message);
         options.onMessage?.(message, payload);
       },
@@ -49,6 +53,7 @@ export class MediaRuntime {
       onExit: (exit) => {
         // Producers go back to the daemon first, with nothing left to drain.
         this.sources.exited();
+        this.acceleration.exited();
         this.routes.update();
         options.onExit?.(exit);
       },
@@ -73,6 +78,7 @@ export class MediaRuntime {
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
+      acceleration: (source, acceleration) => this.acceleration.report(source, acceleration),
     });
   }
 
