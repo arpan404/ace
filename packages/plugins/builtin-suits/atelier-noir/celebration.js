@@ -1,7 +1,8 @@
 // Atelier Noir's celebration: a gold wax seal pressed onto the window when the work is done.
 // It drops in from above the glass, presses (the wax squashes and spreads), rests while a glint
 // crosses its face, then lifts away in light. A merged pull request gets the seal with two satin
-// ribbon tails. The whole moment is 3.6 s; afterwards the canvas is clear and ace unmounts it.
+// ribbon tails. The whole moment is 3.6 s; afterwards the canvas is clear and it calls
+// ace.finish(). ace never plays it under Reduce motion.
 // Shapes only (no images), allocated once per size; each frame clears and draws a few dozen paths.
 
 const dropMs = 460;
@@ -20,6 +21,7 @@ let scheme = "dark";
 let still = false;
 let startAt = null;
 let ribbons = false;
+let over = true;
 
 const points = 44;
 const blobR = new Float32Array(points);
@@ -209,26 +211,23 @@ function draw(time) {
   const r = Math.max(64, Math.min(116, Math.min(width, height) * 0.12));
   const cx = width / 2;
   const cy = height * 0.46;
-  if (still) {
-    // Reduce motion: the seal at rest, no veil, no movement.
-    if (ribbons) {
-      ribbon(cx, cy, r, -1);
-      ribbon(cx, cy, r, 1);
-    }
-    seal(cx, cy, r, 1, 0);
-    return;
-  }
+  if (over) return;
   if (startAt === null) startAt = time;
   const t = time - startAt;
-  if (t >= endMs) return;
+  if (still || t >= endMs) {
+    // Played out (or motion was turned off mid-way): clear, and let ace take the frame down.
+    over = true;
+    ace.finish();
+    return;
+  }
   const fade = 1 - easeIn(clamp((t - fadeFrom) / fadeMs));
-  // A veil dims the room a little so the seal reads, and lifts with it.
-  const veil = clamp(t / dropMs) * fade * (scheme === "dark" ? 0.32 : 0.14);
-  ctx.fillStyle =
-    scheme === "dark"
-      ? `rgba(4, 3, 2, ${veil.toFixed(3)})`
-      : `rgba(40, 30, 14, ${veil.toFixed(3)})`;
-  ctx.fillRect(0, 0, width, height);
+  // A soft shadow pools under the seal so it reads on any page; the rest of the window stays clear.
+  const pool = clamp(t / dropMs) * fade * (scheme === "dark" ? 0.42 : 0.2);
+  const shade = ctx.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 2.6);
+  shade.addColorStop(0, `rgba(8, 5, 2, ${pool.toFixed(3)})`);
+  shade.addColorStop(1, "rgba(8, 5, 2, 0)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(cx - r * 2.6, cy - r * 2.6, r * 5.2, r * 5.2);
 
   const drop = easeIn(clamp(t / dropMs));
   const press = clamp((t - dropMs) / pressMs);
@@ -269,8 +268,11 @@ ace.scene({
     draw(time);
   },
   signal(name) {
-    // The moment starts on the next frame; a merged pull request adds the ribbons.
+    // ace wakes it with "done" or "pr-merged"; the moment starts on the next frame, and a merged
+    // pull request adds the ribbons.
+    if (name !== "done" && name !== "pr-merged") return;
     ribbons = name === "pr-merged";
-    if (name === "done" || name === "pr-merged") startAt = null;
+    startAt = null;
+    over = false;
   },
 });

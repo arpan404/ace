@@ -2,7 +2,8 @@
 // or a pull request merges. A soft golden burst opens behind the centre, a crimson banner
 // unrolls from a scroll in both directions, its words ink in ("Quest complete", or "Bounty
 // claimed" for a merge), gold flecks drift down, and everything fades by 3.6 s. The canvas is
-// otherwise clear, so the window shows through. Under Reduce motion it draws nothing.
+// otherwise clear, so the window shows through; then it calls ace.finish(). Under Reduce motion
+// ace never plays it.
 
 const flecks = 42;
 const fadeStart = 2900;
@@ -14,6 +15,7 @@ let height = 0;
 let ratio = 1;
 let still = false;
 let start = -1;
+let over = true;
 let words = "Quest complete";
 
 const fleckX = new Float32Array(flecks);
@@ -179,10 +181,15 @@ function draw(time) {
   if (!ctx) return;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, width * ratio, height * ratio);
-  if (still) return;
+  if (over) return;
   if (start < 0) start = time;
   const t = time - start;
-  if (t >= fadeEnd) return;
+  if (still || t >= fadeEnd) {
+    // Played out (or motion was turned off mid-way): clear, and let ace take the frame down.
+    over = true;
+    ace.finish();
+    return;
+  }
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   const fade = 1 - easeInOut(clamp((t - fadeStart) / (fadeEnd - fadeStart)));
   const cx = width / 2;
@@ -206,6 +213,10 @@ ace.scene({
     draw(time);
   },
   signal(name) {
+    // ace wakes the celebration with "done" or "pr-merged"; the moment starts from it.
+    if (name !== "done" && name !== "pr-merged") return;
     words = name === "pr-merged" ? "Bounty claimed" : "Quest complete";
+    start = -1;
+    over = false;
   },
 });

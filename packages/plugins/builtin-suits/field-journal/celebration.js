@@ -4,7 +4,8 @@
 // By lamplight (dark) a swarm of fireflies rises from the lower edge, each blinking in its own
 // rhythm, and fades. On paper (light) a flutter of small moths and pressed-flower petals drifts up
 // and across, wings beating, and fades. A merged pull request brings a fuller swarm than a done
-// turn. The canvas stays transparent everywhere nothing flies, and everything has faded by 3.6 s.
+// turn. The canvas stays transparent everywhere nothing flies; everything has faded by 3.6 s, and
+// then it calls ace.finish(). ace never plays it under Reduce motion.
 // Everything is allocated in init and resize; frame only moves numbers and draws.
 
 const most = 64;
@@ -20,7 +21,8 @@ let still = false;
 let now = 0;
 let startAt = 0;
 // The scene clock is shared, so a flight starts on the first frame after launch, not at time 0.
-let waiting = true;
+let waiting = false;
+let over = true;
 let count = 40;
 
 const px = new Float32Array(most);
@@ -46,6 +48,7 @@ function launch(signal) {
   seed = signal === "pr-merged" ? 23 : 19;
   count = signal === "pr-merged" ? most : 40;
   waiting = true;
+  over = false;
   for (let i = 0; i < most; i++) {
     px[i] = random();
     py[i] = 0.75 + random() * 0.4;
@@ -160,9 +163,14 @@ function draw() {
   if (!ctx) return;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  if (still) return;
+  if (over || waiting) return;
   const elapsed = now - startAt;
-  if (elapsed > lifeMs) return;
+  if (still || elapsed > lifeMs) {
+    // Played out (or motion was turned off mid-way): clear, and let ace take the frame down.
+    over = true;
+    ace.finish();
+    return;
+  }
   for (let i = 0; i < count; i++) {
     const age = elapsed - delay[i];
     const seen = presence(age);
@@ -187,7 +195,6 @@ ace.scene({
   init(view) {
     paintGlow();
     fit(view);
-    launch("done");
   },
   frame(time, view) {
     now = time;
