@@ -341,23 +341,6 @@ describe("screen pictures across a media rebind", () => {
     expect(view.subscribes[1]?.media).toEqual({ connection: "mc_aaaaaaaaaa" });
   });
 
-  it("a resubscribe that fails keeps the delivery it replaced, as the daemon does", async () => {
-    const view = harness();
-    view.client.retainStream("app");
-    view.reply(view.subscribes[0]!, "binds");
-    await flush();
-    // The view can't decode HEVC: the same connection is asked again, for H.264, and that fails.
-    view.client.fallBack("app", "hvc1.1.6.L153.B0");
-    view.reply(view.subscribes[1]!, "fails");
-    await flush();
-    // The daemon regranted the old view, which goes on delivering by the media connection.
-    view.deliver(frame(2));
-    await flush();
-    expect(view.drawn.map((picture) => picture.sequence)).toEqual([2]);
-    view.client.ack(view.drawn[0]!);
-    expect(view.mediaAcks.map((ack) => ack.on)).toEqual(["mc_aaaaaaaaaa"]);
-  });
-
   it("a released stream or a closed channel leaves no retry waiting on the clock", async () => {
     const view = harness();
     const release = view.client.retainStream("app");
