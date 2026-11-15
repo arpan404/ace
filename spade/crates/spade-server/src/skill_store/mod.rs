@@ -79,6 +79,8 @@ pub struct SkillView {
     /// How many other files it has besides SKILL.md.
     pub files: usize,
     pub updated_at: i64,
+    /// The bots that have loaded it, by id.
+    pub used_by: Vec<String>,
 }
 
 /// Why **Add to ace's library** did not.
@@ -167,10 +169,12 @@ impl SkillStore {
 
     /// Every skill in the store, for Settings: by name, then origin.
     pub fn views(&self) -> Result<Vec<SkillView>, String> {
+        let users = self.store.skill_users().map_err(|e| e.to_string())?;
         Ok(self
             .rows()?
             .into_iter()
             .map(|row| SkillView {
+                used_by: users.get(&row.name).cloned().unwrap_or_default(),
                 files: files_of(&row).len(),
                 id: row.id,
                 name: row.name,

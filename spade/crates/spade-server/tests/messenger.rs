@@ -276,3 +276,143 @@ fn a_computer_wakes_while_ace_brings_up_the_browser_and_keeps_the_surfaces_it_us
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn each_connected_app_names_the_bots_that_may_use_it() -> Result {
+    let app = spade_testkit::FakeConnector::start(vec![spade_testkit::connector::tool(
+        "echo",
+        Some(true),
+        None,
+    )])
+    .await;
+    app.accept_token("api-key-1");
+    let spade = Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        support::Options {
+            connectors: true,
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let (status, body) = spade
+        .post(
+            "/v1/connectors",
+            json!({ "url": app.url(), "name": "Fake", "local": true, "token": "api-key-1" }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let connector = body["connector"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (_, roster) = spade.get("/v1/agents").await?;
+    let main = roster["agents"][0]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let bot = spade.new_agent("Inbox", "").await?;
+    let other = spade.new_agent("Trips", "").await?;
+    let bot = bot["id"].as_str().unwrap_or_default().to_owned();
+
+    let users = |body: &Value| body["connectors"][0]["bots"].clone();
+    let (_, body) = spade.get("/v1/connectors").await?;
+    assert_eq!(
+        users(&body),
+        json!([main]),
+        "Spade uses every app; a new bot none"
+    );
+    let (status, _) = spade
+        .put(
+            &format!("/v1/agents/{bot}/connectors"),
+            json!({ "connectors": [connector] }),
+        )
+        .await?;
+    assert_eq!(status, 200);
+    let (_, body) = spade.get("/v1/connectors").await?;
+    let mut shown: Vec<String> = serde_json::from_value(users(&body))?;
+    shown.sort();
+    let mut expected = vec![main, bot];
+    expected.sort();
+    assert_eq!(shown, expected);
+    assert!(
+        !users(&body)
+            .to_string()
+            .contains(other["id"].as_str().unwrap_or("-"))
+    );
+    let (_, one) = spade.get(&format!("/v1/connectors/{connector}")).await?;
+    assert_eq!(one["connector"]["bots"].as_array().map(Vec::len), Some(2));
+    Ok(())
+}
+
+#[tokio::test]
+async fn each_skill_names_the_bots_that_wrote_it_and_the_bots_that_use_it() -> Result {
+    use spade_server::clock::SystemClock;
+    use spade_server::learning::{Draft, Learning};
+    use spade_server::skill_store::SkillStore;
+    use spade_server::tools::SkillLibrary;
+
+    let dir = tempfile::tempdir()?;
+    // The store's own file, with the bots its rows name.
+    let rows = spade_store::Store::open(&dir.path().join("skills.sqlite"))?;
+    for bot in ["a_writer", "a_reader"] {
+        rows.create_agent(
+            spade_store::NewAgent {
+                id: bot,
+                kind: "bot",
+                name: bot,
+                task: "",
+                avatar: "{}",
+                model: "fake/m",
+                conversation: &format!("c_{bot}"),
+            },
+            &[],
+            1,
+        )?;
+    }
+    rows.record_skill_load("a_reader", "release-notes")?;
+    rows.record_skill_load("a_writer", "release-notes")?;
+    let store = SkillStore::open(
+        dir.path().join("skills"),
+        rows,
+        std::sync::Arc::new(SystemClock),
+        None,
+    );
+    let library: std::sync::Arc<dyn SkillLibrary> = store.clone();
+    let learning = std::sync::Arc::new(Learning::new(
+        dir.path().join("learning"),
+        std::sync::Arc::new(SystemClock),
+        library,
+    ));
+    let draft = |name: &str| Draft {
+        name: name.to_owned(),
+        description: "Write release notes".to_owned(),
+        body: "Group by area.\n".to_owned(),
+        why: "Asked twice.".to_owned(),
+        base: None,
+        source: None,
+    };
+    let saved = learning.propose("a_writer", "c_a_writer.k1", draft("release-notes"))?;
+    learning.answer("a_writer", &saved.id, true).await?;
+    // A discarded one wrote nothing.
+    let other = learning.propose("a_reader", "c_a_reader.k2", draft("release-notes"))?;
+    learning.answer("a_reader", &other.id, false).await?;
+
+    let spade = Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        support::Options {
+            skill_store: Some(store),
+            learning: Some(learning),
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let (status, body) = spade.get("/v1/skills").await?;
+    assert_eq!(status, 200, "{body}");
+    let skill = &body["skills"][0];
+    assert_eq!(skill["name"], "release-notes", "{body}");
+    assert_eq!(skill["written_by"], json!(["a_writer"]));
+    assert_eq!(skill["used_by"], json!(["a_reader", "a_writer"]));
+    Ok(())
+}
