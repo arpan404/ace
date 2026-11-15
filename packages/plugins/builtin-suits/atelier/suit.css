@@ -28,6 +28,7 @@
 
 /* Threads: the open one carries a verdigris mark at its edge. */
 [data-part="thread-row"][data-state="active"] {
+  background: var(--surface-2);
   box-shadow:
     inset 2px 0 0 var(--accent-theme),
     0 0 0 1px var(--color-border);

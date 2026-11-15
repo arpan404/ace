@@ -15,10 +15,18 @@
 
 /* Threads: the open one is lit from its edge, as if by the last of the sun. */
 [data-part="thread-row"][data-state="active"] {
+  background: var(--surface-2);
+  box-shadow:
+    inset 2px 0 0 color-mix(in srgb, var(--accent-theme) 70%, transparent),
+    0 0 0 1px var(--color-border);
+}
+
+[data-scheme="dark"] [data-part="thread-row"][data-state="active"] {
+  box-shadow: none;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--accent-theme) 16%, var(--sidebar)) 0%,
-    color-mix(in srgb, var(--accent-theme) 5%, var(--sidebar)) 100%
+    color-mix(in srgb, var(--accent-theme) 11%, var(--sidebar)) 0%,
+    color-mix(in srgb, var(--accent-theme) 3%, var(--sidebar)) 100%
   );
 }
 

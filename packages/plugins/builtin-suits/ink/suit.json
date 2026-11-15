@@ -7,7 +7,7 @@
   "base": "ace",
   "light": {
     "canvas": "#FFFFFF",
-    "sidebar": "#F7F7F7",
+    "sidebar": "#FAFAFA",
     "surface": "#FAFAFA",
     "raised": "#FFFFFF",
     "hover": "#F1F1F1",

@@ -31,11 +31,15 @@
 }
 
 [data-part="thread-row"][data-state="active"] {
-  background: color-mix(in srgb, var(--accent-theme) 11%, var(--sidebar));
+  background: var(--surface-2);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-theme) 22%, transparent),
+    0 4px 12px -8px rgb(40 52 30 / 0.3);
 }
 
 [data-scheme="dark"] [data-part="thread-row"][data-state="active"] {
   background: color-mix(in srgb, var(--accent-theme) 9%, var(--sidebar));
+  box-shadow: none;
 }
 
 [data-part="nav-item"][data-state="active"] {

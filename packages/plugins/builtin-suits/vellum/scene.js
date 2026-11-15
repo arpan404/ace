@@ -3,7 +3,7 @@
 // the scheme changes; ticks draw nothing.
 
 const sheets = {
-  light: { paper: "#F7F2E9", light: "rgba(255, 252, 244, 0.55)", shade: "rgba(120, 92, 56, 0.07)", grain: 7, fibre: "rgba(110, 84, 52, 0.05)" },
+  light: { paper: "#F9F4EB", light: "rgba(255, 252, 244, 0.55)", shade: "rgba(120, 92, 56, 0.07)", grain: 7, fibre: "rgba(110, 84, 52, 0.05)" },
   dark: { paper: "#1A1714", light: "rgba(255, 214, 160, 0.035)", shade: "rgba(0, 0, 0, 0.22)", grain: 5, fibre: "rgba(236, 214, 180, 0.025)" },
 };
 const tileSize = 192;
