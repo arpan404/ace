@@ -33,9 +33,9 @@ export function FirstRunFrame(props: {
       className="relative min-h-0 flex-1 overflow-y-auto bg-background outline-none"
     >
       <div className="mx-auto flex min-h-full w-full max-w-[480px] flex-col px-6 pt-[12vh] pb-12">
-        <div className="mb-12 flex h-6 items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <AceLogo className="size-5" />
+        <div className="mb-12 flex h-8 items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 text-lg font-semibold tracking-title">
+            <AceLogo className="size-8" />
             ace
           </div>
           <div className="text-sm text-muted-foreground tabular-nums">{props.corner}</div>
