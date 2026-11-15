@@ -11,7 +11,9 @@ import { z } from "zod";
  */
 
 const Version = z.object({ webSocketDebuggerUrl: z.string() });
-const Targets = z.array(z.object({ type: z.string(), webSocketDebuggerUrl: z.string() }));
+const Targets = z.array(
+  z.object({ type: z.string(), url: z.string(), webSocketDebuggerUrl: z.string() }),
+);
 const Evaluated = z.object({
   id: z.literal(1),
   result: z.object({
@@ -68,8 +70,14 @@ export async function decodeInChromium(
       }
     }
     if (!port) throw new Error("Chromium did not open DevTools");
-    const targets = Targets.parse(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json());
-    const target = targets.find((entry) => entry.type === "page");
+    let target: z.infer<typeof Targets>[number] | undefined;
+    for (let waited = 0; !target && waited < 20_000; waited += 100) {
+      const targets = Targets.parse(
+        await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(),
+      );
+      target = targets.find((entry) => entry.type === "page" && entry.url === page);
+      if (!target) await pause(100);
+    }
     if (!target) throw new Error("No page target");
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
@@ -84,6 +92,8 @@ export async function decodeInChromium(
       const chunks = ${JSON.stringify(chunks)};
       const errors = [];
       let decoded = 0, width = 0, height = 0;
+      if (typeof VideoDecoder === "undefined")
+        return { decoded, width, height, errors: ["no VideoDecoder (secure context: " + isSecureContext + ")"] };
       const decoder = new VideoDecoder({
         output: (frame) => { decoded++; width = frame.codedWidth; height = frame.codedHeight; frame.close(); },
         error: (error) => errors.push(String(error)),
