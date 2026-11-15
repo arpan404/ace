@@ -1,6 +1,7 @@
 # 0155: A returning client reaches the welcome one round trip after the relay socket opens
 
-Status: proposed. Date: 2026-11-15. For review before any handshake code is written. Builds on
+Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: build all three steps). Reviewed
+before any handshake code was written. Builds on
 [ADR 0150](0150-fewer-connect-round-trips.md) (connect round trips), [ADR 0110](0110-cloudflare-relay.md)
 and [ADR 0141](0141-ace-cloud.md) (the hosted relay), [ADR 0111](0111-account-machine-access.md)
 (account grants), [ADR 0070](0070-runtime-remote-access.md) and the
@@ -71,7 +72,7 @@ So on ace cloud a returning client in the same session waits about 2.3 s to the 
 any loss (3 round trips to open, the join, 2 round trips of handshake and hello), and a relaunch
 of an account device about 3.5 s.
 
-## Decision (proposed): three steps, each shippable alone
+## Decision: three steps, each shippable alone
 
 Every step is negotiated: a client uses it only when it knows the other end supports it, and
 anything else gets today's behaviour. None of them changes what the relay can see: it still
