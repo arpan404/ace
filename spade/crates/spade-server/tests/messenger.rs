@@ -7,6 +7,9 @@ mod support;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use spade_server::computer::{Computers, Kind, Lifecycle, Report, Terminals};
+use spade_server::workspace::Workspaces;
+use spade_server::workspace::shell::Shell;
 use spade_testkit::Script;
 use support::{Result, Spade};
 
@@ -190,6 +193,86 @@ async fn new_bots_start_on_the_model_the_person_chose_for_them() -> Result {
     assert_eq!(
         models["new_bot_model"], "fake/other",
         "kept across a restart"
+    );
+    Ok(())
+}
+
+fn computers(
+    root: &std::path::Path,
+    clock: std::sync::Arc<support::ManualClock>,
+) -> std::sync::Arc<Computers> {
+    let workspaces = Workspaces::new(root.join("workspace"));
+    let terminals = Terminals::new(
+        root.join("terminal"),
+        workspaces.clone(),
+        Shell::system(),
+        clock.clone(),
+    );
+    Computers::open(root.join("computer"), workspaces, terminals, clock)
+}
+
+#[test]
+fn a_computer_wakes_while_ace_brings_up_the_browser_and_keeps_the_surfaces_it_used() -> Result {
+    let dir = tempfile::tempdir()?;
+    let clock = support::ManualClock::at(1_000_000);
+    let all = computers(dir.path(), clock.clone());
+    let fresh = all.view("a_1");
+    assert_eq!(
+        (fresh.state, fresh.used.as_slice()),
+        (Lifecycle::Asleep, &[][..])
+    );
+
+    all.bot_used("a_1", Kind::Browser);
+    assert_eq!(
+        all.view("a_1").state,
+        Lifecycle::Starting,
+        "the bot reached for it"
+    );
+    clock.set(1_002_000);
+    all.report(
+        "a_1",
+        Kind::Browser,
+        Report {
+            live: true,
+            ..Report::default()
+        },
+    )?;
+    let view = all.view("a_1");
+    assert_eq!(
+        (view.state, view.used.as_slice()),
+        (Lifecycle::Ready, &[Kind::Browser][..])
+    );
+
+    // ace never answers for the screen: it reads as starting only a while.
+    all.bot_used("a_1", Kind::Screen);
+    assert_eq!(all.view("a_1").state, Lifecycle::Starting);
+    clock.set(1_002_000 + 31_000);
+    assert_eq!(
+        all.view("a_1").state,
+        Lifecycle::Ready,
+        "the browser is still open"
+    );
+    all.report("a_1", Kind::Browser, Report::default())?;
+    clock.set(1_002_000 + 31_000 + 3 * 60_000);
+    assert_eq!(
+        all.view("a_1").state,
+        Lifecycle::Asleep,
+        "all closed and quiet"
+    );
+
+    // After a restart, what it used is still known; nothing is open.
+    drop(all);
+    let all = computers(dir.path(), clock);
+    let view = all.view("a_1");
+    assert_eq!(
+        (view.state, view.used.as_slice()),
+        (Lifecycle::Asleep, &[Kind::Browser, Kind::Screen][..])
+    );
+    assert!(all.view("a_2").used.is_empty(), "each bot its own");
+    all.remove("a_1");
+    assert!(
+        all.view("a_1").used.is_empty(),
+        "a deleted bot's go with it"
     );
     Ok(())
 }
