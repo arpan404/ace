@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { MapLayout, PlacedWire, Point } from "./data/fleet-map-layout.ts";
 import type { FleetMap, MapNode } from "@ace/ui-core/fleet-map";
 import { DeviceArt, RelayCloud, toneColor } from "./fleet-map-art.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * The Fleet map as SVG, from its facts and layout: zones, the relay cloud, the wires with their
@@ -201,6 +202,7 @@ export function FleetMapSvg(props: {
     <svg
       role="group"
       aria-label="Network map of your fleet"
+      {...part("chart", undefined, "fleet-map")}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       width={props.width}
       height={(props.width / layout.width) * layout.height}
