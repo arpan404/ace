@@ -48,6 +48,9 @@
 [data-part="toast"],
 [data-part="command-palette"] {
   --suit-hand: "Journal Hand", "Bradley Hand", cursive;
+  --suit-eyelet: #a8814a;
+  --suit-string: rgb(150 120 80 / 0.75);
+  --suit-tag-edge: rgb(78 60 36 / 0.45);
   --suit-grid: rgb(96 118 150 / 0.09);
   --suit-grid-strong: rgb(96 118 150 / 0.16);
   --suit-wash-sage: rgb(125 148 97 / 0.2);
@@ -84,6 +87,8 @@
   --suit-wash-ochre: rgb(201 147 90 / 0.14);
   --suit-tape: rgb(150 128 92 / 0.55);
   --suit-paper-edge: rgb(0 0 0 / 0.4);
+  --suit-tag-edge: rgb(232 200 150 / 0.28);
+  --suit-string: rgb(214 186 140 / 0.6);
   --suit-lift:
     0 1px 0 rgb(255 230 190 / 0.04) inset, 0 1px 2px rgb(0 0 0 / 0.4),
     0 8px 18px -8px rgb(0 0 0 / 0.55);
@@ -221,47 +226,58 @@
 }
 
 /*
- * Each thread is a specimen label: a small card with a punched hole on its left, a catalogue
- * number in hand, and a hairline frame. The open one is pressed under a leaf.
+ * Each thread is a specimen tag: a card cut to a point on its left, with a brass eyelet and the
+ * string it hangs by, and its catalogue number in hand. The open one is pressed under a leaf.
+ * The tag's paper is a variable, so hover and selection change the paper, not the shape.
  */
 [data-part="thread-row"] {
+  --suit-tag: color-mix(in oklab, var(--color-surface-1) 90%, var(--color-sidebar));
   counter-increment: specimen;
   position: relative;
-  margin-block: 3px;
-  padding-left: 46px;
-  border-radius: 3px 8px 8px 3px;
-  background: color-mix(in oklab, var(--color-surface-1) 88%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 45%, transparent);
-  transition:
-    background-color 140ms ease,
-    box-shadow 140ms ease;
+  margin-block: 4px;
+  padding-left: 48px;
+  border-radius: 0 6px 6px 0;
+  background:
+    linear-gradient(135deg, transparent 11px, var(--suit-tag) 11.5px) left top / 50% 50% no-repeat,
+    linear-gradient(45deg, transparent 11px, var(--suit-tag) 11.5px) left bottom / 50% 50% no-repeat,
+    linear-gradient(var(--suit-tag), var(--suit-tag)) right / 50.5% 100% no-repeat;
+  filter: drop-shadow(0 0 0.6px var(--suit-tag-edge)) drop-shadow(0 1px 1px var(--suit-paper-edge));
+  transition: filter 140ms ease;
 }
 [data-part="thread-row"]:hover {
-  background: var(--color-surface-1);
-  box-shadow:
-    inset 0 0 0 1px var(--color-border-strong),
-    0 2px 6px -4px var(--suit-paper-edge);
+  --suit-tag: var(--color-surface-1);
+  filter: drop-shadow(0 0 0.6px var(--suit-tag-edge)) drop-shadow(0 3px 4px var(--suit-paper-edge));
 }
-/* The punched hole and its reinforcement ring. */
+/* The eyelet and its string: a brass ring punched near the point, the string running off the tag. */
 [data-part="thread-row"]::before {
   content: "";
   position: absolute;
-  left: 8px;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
-  border-radius: 50%;
-  background: var(--color-sidebar);
-  box-shadow:
-    inset 0 1px 1px var(--suit-paper-edge),
-    0 0 0 2px color-mix(in oklab, var(--color-border-strong) 55%, transparent);
+  left: -4px;
+  top: calc(50% - 17px);
+  width: 24px;
+  height: 22px;
+  background:
+    radial-gradient(
+      circle at 18px 17px,
+      var(--color-sidebar) 0 2.6px,
+      var(--suit-eyelet) 2.6px 4.4px,
+      color-mix(in oklab, var(--suit-eyelet) 40%, transparent) 4.4px 5px,
+      transparent 5.2px
+    ),
+    linear-gradient(
+        to top right,
+        transparent calc(50% - 0.7px),
+        var(--suit-string) calc(50% - 0.7px) calc(50% + 0.7px),
+        transparent calc(50% + 0.7px)
+      )
+      0 0 / 18px 17px no-repeat;
+  pointer-events: none;
 }
 /* The catalogue number. */
 [data-part="thread-row"]::after {
   content: counter(specimen, decimal-leading-zero);
   position: absolute;
-  left: 22px;
+  left: 24px;
   top: 50%;
   transform: translateY(-50%);
   font-family: var(--suit-hand);
@@ -271,26 +287,21 @@
 }
 
 [data-part="thread-row"][data-state="selected"] {
-  background: color-mix(in oklab, var(--color-tint) 12%, var(--color-surface-1));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 45%, transparent);
+  --suit-tag: color-mix(in oklab, var(--color-tint) 12%, var(--color-surface-1));
 }
 
-/* The open specimen: raised off the page with a pressed leaf laid across its hole. */
+/* The open specimen: lifted off the page, on fresher paper, with a pressed leaf laid across it. */
 [data-part="thread-row"][data-state="active"] {
-  background: var(--color-surface-1);
-  box-shadow:
-    inset 0 0 0 1px var(--color-border-strong),
-    inset 3px 0 0 var(--color-tint),
-    var(--suit-lift);
+  --suit-tag: color-mix(in oklab, var(--color-surface-2) 70%, var(--color-surface-1));
+  filter: drop-shadow(0 0 0.8px var(--color-tint)) drop-shadow(0 4px 6px var(--suit-paper-edge));
 }
 [data-part="thread-row"][data-state="active"]::before {
-  left: 1px;
+  left: 0;
+  top: 50%;
   width: 20px;
   height: 28px;
   margin-top: -15px;
-  border-radius: 0;
   background: var(--suit-leaf) no-repeat center / 20px 28px;
-  box-shadow: none;
   transform: rotate(-22deg);
 }
 [data-part="thread-row"][data-state="active"]::after {
@@ -471,65 +482,107 @@
 }
 
 /*
- * Steps are observations. Each kind gets a small drawn field mark (a hand lens for a search, a
- * field book for a read, a quill for an edit…) stamped on a paper disc over the step's own glyph.
+ * Steps are numbered observations. A group opens under a heading in hand ("Observations"), each
+ * step is "Obs. 3" in the margin, and its kind is a small field sketch (a hand lens for a search,
+ * a field book for a read, a quill for an edit…) drawn on a paper disc in place of ace's glyph.
+ * A pencilled margin rule runs down the left. A failed step keeps ace's own glyph.
  */
+[data-part="tool-group-header"] {
+  counter-reset: observation;
+  border-radius: 4px;
+  font-family: var(--font-prose);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--color-muted-foreground);
+  box-shadow: inset 0 -1px 0 var(--suit-grid-strong);
+}
+[data-part="tool-group-header"]::after {
+  content: "observations";
+  margin-left: auto;
+  padding-left: 12px;
+  font-family: var(--suit-hand);
+  font-style: normal;
+  font-size: 15px;
+  color: var(--color-link);
+  white-space: nowrap;
+}
+[data-part="tool-group-header"]:hover,
+[data-part="tool-group-header"][data-state="open"] {
+  color: var(--color-foreground);
+  background: color-mix(in oklab, var(--suit-wash-sage) 70%, transparent);
+}
 [data-part="tool-row"] {
   --suit-disc: var(--color-background);
+  counter-increment: observation;
   position: relative;
-  padding-left: 8px;
+  padding-left: 6px;
   border-radius: 4px;
   font-family: var(--font-sans);
   font-size: 14px;
+  background: linear-gradient(
+      90deg,
+      transparent 49px,
+      color-mix(in oklab, var(--color-tint) 35%, transparent) 49px 50px,
+      transparent 50px
+    )
+    no-repeat;
   transition: background-color 140ms ease;
 }
 [data-part="tool-row"]:hover {
   --suit-disc: color-mix(in oklab, var(--color-hover) 60%, var(--color-background));
-  background: color-mix(in oklab, var(--color-hover) 60%, transparent);
+  background-color: color-mix(in oklab, var(--color-hover) 60%, transparent);
 }
 [data-part="tool-row"][data-state="open"] {
   --suit-disc: color-mix(in oklab, var(--color-surface-1) 70%, var(--color-background));
-  background: color-mix(in oklab, var(--color-surface-1) 70%, transparent);
+  background-color: color-mix(in oklab, var(--color-surface-1) 70%, transparent);
   box-shadow: inset 0 0 0 1px var(--color-border);
 }
+/* The observation's number, in hand, in the margin. */
 [data-part="tool-row"]::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 50%;
+  content: "Obs." counter(observation);
+  flex: 0 0 36px;
+  margin-right: 12px;
+  font-family: var(--suit-hand);
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--color-subtle-foreground);
+}
+[data-part="tool-row"]:is([data-state="done"], [data-state="open"], [data-state="closed"])
+  [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-tool);
   width: 26px;
   height: 26px;
-  margin-top: -13px;
+  color: transparent;
   border-radius: 50%;
   background:
-    var(--suit-icon-tool) no-repeat center / 19px 19px,
+    var(--suit-sketch) no-repeat center / 19px 19px,
     var(--suit-disc);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-border-strong) 60%, transparent);
-  pointer-events: none;
 }
-[data-part="tool-row"][data-variant="read"]::before {
-  background-image: var(--suit-icon-read);
+[data-part="tool-row"][data-variant="read"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-read);
 }
-[data-part="tool-row"][data-variant="search"]::before {
-  background-image: var(--suit-icon-search);
+[data-part="tool-row"][data-variant="search"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-search);
 }
-[data-part="tool-row"][data-variant="list"]::before {
-  background-image: var(--suit-icon-list);
+[data-part="tool-row"][data-variant="list"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-list);
 }
-[data-part="tool-row"][data-variant="shell"]::before {
-  background-image: var(--suit-icon-shell);
+[data-part="tool-row"][data-variant="shell"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-shell);
 }
-[data-part="tool-row"][data-variant="edit"]::before {
-  background-image: var(--suit-icon-edit);
+[data-part="tool-row"][data-variant="edit"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-edit);
 }
-[data-part="tool-row"][data-variant="web"]::before {
-  background-image: var(--suit-icon-web);
+[data-part="tool-row"][data-variant="web"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-web);
 }
-[data-part="tool-row"][data-variant="think"]::before {
-  background-image: var(--suit-icon-think);
+[data-part="tool-row"][data-variant="think"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-think);
 }
-[data-part="tool-row"][data-variant="note"]::before {
-  background-image: var(--suit-icon-note);
+[data-part="tool-row"][data-variant="note"] [data-part="tool-icon"] {
+  --suit-sketch: var(--suit-icon-note);
 }
 [data-part="tool-row"][data-state="failed"] {
   box-shadow: inset 2px 0 0 var(--color-border-strong);
@@ -633,6 +686,41 @@
   border-radius: 999px;
 }
 
+/* The queue is a slip tucked under the index card: taped at its top, headed in hand, each
+   waiting message on a pencilled line. */
+[data-part="composer-strip"][data-variant="queue"]::after {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 64px;
+  height: 14px;
+  margin-left: -32px;
+  background: var(--suit-tape);
+  rotate: -2deg;
+  box-shadow: 0 1px 1px var(--suit-paper-edge);
+  pointer-events: none;
+}
+[data-part="queue-strip"] {
+  font-family: var(--suit-hand);
+  font-size: 15px;
+  color: var(--color-link);
+}
+[data-part="queue-item"] {
+  font-family: var(--font-prose);
+  font-size: 14px;
+  color: var(--color-foreground);
+  border-radius: 2px;
+  box-shadow: inset 0 -1px 0 var(--suit-grid-strong);
+}
+[data-part="queue-item"]:hover {
+  background: var(--suit-wash-sage);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--suit-wash-ochre);
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+
 /* ------------------------------------------------------------------ controls */
 
 [data-part="button"] {
@@ -670,8 +758,45 @@
   background: var(--color-surface-1);
 }
 
+/* A switch is a strap of waxed canvas with a brass snap; on, the strap is dyed in the accent. */
+[data-part="switch"] {
+  background: color-mix(in oklab, var(--color-sidebar) 80%, #6d6a4a);
+  box-shadow:
+    inset 0 1px 2px var(--suit-paper-edge),
+    inset 0 0 0 1px var(--color-border-strong);
+}
 [data-part="switch"][data-state="checked"] {
   background: var(--color-tint);
+  box-shadow:
+    inset 0 1px 2px var(--suit-paper-edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 60%, #000);
+}
+[data-part="switch-thumb"] {
+  background: radial-gradient(circle at 35% 35%, #f6e2b4, var(--suit-eyelet) 62%, #6b4f26);
+  box-shadow:
+    0 1px 2px var(--suit-paper-edge),
+    inset 0 0 0 1px rgb(80 56 24 / 0.5);
+}
+/* One-of-n is a row of index cards; the chosen card is lifted on a sage wash with a pencil line. */
+[data-part="segmented"] {
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--color-sidebar) 70%, var(--color-background));
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="segmented-thumb"] {
+  border-radius: 3px;
+  background: linear-gradient(var(--suit-wash-sage), var(--suit-wash-sage)), var(--color-surface-1);
+  box-shadow:
+    inset 0 -2px 0 color-mix(in oklab, var(--color-tint) 70%, transparent),
+    0 1px 2px var(--suit-paper-edge);
+}
+[data-part="segment"] {
+  border-radius: 3px;
+  font-family: var(--font-prose);
+}
+[data-part="segment"][data-state="selected"] {
+  color: var(--color-foreground);
+  font-weight: 600;
 }
 
 [data-part="tab"] {
@@ -880,7 +1005,12 @@
   background: color-mix(in oklab, var(--color-tint) 12%, transparent);
 }
 
-/* One pull request is a specimen sheet. */
+/*
+ * One pull request is a specimen sheet: its heading sits in a label box ruled in ink, like the
+ * label glued to the corner of a herbarium sheet, with "Specimen sheet" and its number in hand.
+ * The description is the sheet itself, on the journal's grid; the merge box is the determination
+ * slip, ruled with a line for the collector's signature.
+ */
 [data-page="pull"] [data-part="page-title"],
 [data-page="issue"] [data-part="page-title"],
 [data-page="automation"] [data-part="page-title"],
@@ -890,12 +1020,61 @@
   font-size: 24px;
   letter-spacing: -0.01em;
 }
+[data-page="pull"] [data-part="pr-header"],
+[data-page="issue"] [data-part="pr-header"] {
+  margin: 12px 20px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 3px var(--color-surface-1),
+    inset 0 0 0 4px var(--suit-grid-strong),
+    var(--suit-lift);
+}
+[data-page="pull"] [data-part="page-title"]::before,
+[data-page="issue"] [data-part="page-title"]::before {
+  content: "Specimen sheet";
+  display: block;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-subtle-foreground);
+  border-bottom: 1px dashed var(--suit-grid-strong);
+}
+[data-page="issue"] [data-part="page-title"]::before {
+  content: "Field query";
+}
 [data-page="pull"][data-variant="merged"] [data-part="page-title"]::after {
-  content: " — collected";
+  content: " \2014  collected";
   font-family: var(--suit-hand);
   font-weight: 600;
   font-size: 20px;
   color: var(--color-link);
+}
+/* The number in the header is the sheet's accession number, written on a slip of tape. */
+[data-part="app"][data-page="pull"] [data-part="header-title"],
+[data-part="app"][data-page="issue"] [data-part="header-title"] {
+  padding: 0 10px;
+  font-family: var(--suit-hand);
+  font-size: 19px;
+  line-height: 24px;
+  color: var(--color-foreground);
+  background: var(--suit-tape);
+  rotate: -1.5deg;
+  box-shadow: 0 1px 2px var(--suit-paper-edge);
+}
+[data-page="pull"] [data-part="card"][data-variant="description"],
+[data-page="issue"] [data-part="card"][data-variant="description"] {
+  background:
+    linear-gradient(var(--suit-grid) 1px, transparent 1px) 0 0 / 100% 22px,
+    linear-gradient(90deg, var(--suit-grid) 1px, transparent 1px) 0 0 / 22px 100%,
+    var(--color-surface-1);
+  border-color: var(--color-border-strong);
+  border-radius: 2px;
 }
 [data-part="card"][data-variant="description"],
 [data-part="review-comment"] {
@@ -904,7 +1083,35 @@
   line-height: 1.65;
 }
 [data-part="merge-box"] {
-  border-radius: 4px;
+  border-radius: 2px;
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-1);
+  box-shadow:
+    inset 0 0 0 3px var(--color-surface-1),
+    inset 0 0 0 4px var(--suit-grid-strong);
+}
+[data-part="merge-box"]::before {
+  content: "Determination";
+  display: block;
+  padding: 10px 16px 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-subtle-foreground);
+  border-bottom: 1px dashed var(--suit-grid-strong);
+}
+[data-part="merge-box"]::after {
+  content: "det. by the expedition";
+  display: block;
+  padding: 14px 18px 12px;
+  text-align: right;
+  font-family: var(--suit-hand);
+  font-size: 16px;
+  color: var(--color-muted-foreground);
+  background: linear-gradient(var(--color-border-strong), var(--color-border-strong)) right 18px top
+    10px / 200px 1px no-repeat;
 }
 [data-part="timeline-item"],
 [data-part="review-comment"] {
@@ -915,24 +1122,65 @@
   border-radius: 3px;
 }
 
-/* ------------------------------------------------------------------ side panel */
+/* ------------------------------------------------------------------ side panel: the field kit */
 
+/*
+ * The side panel is the field kit's pouch: its tab row is waxed canvas with a stitched seam, each
+ * tab a pocket flap stitched along its edge, the open one buttoned with a brass snap. The file
+ * list is the kit inventory, a pencilled rule under each entry.
+ */
 [data-part="panel-header"] {
-  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+  background:
+    repeating-linear-gradient(0deg, rgb(255 255 255 / 0.018) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 0.03) 0 1px, transparent 1px 3px),
+    color-mix(in oklab, var(--color-sidebar) 85%, #6d6a4a);
+  box-shadow:
+    inset 0 -1px 0 var(--color-border-strong),
+    inset 0 -4px 0 transparent;
+  border-bottom: 1px dashed color-mix(in oklab, var(--color-border-strong) 80%, transparent);
 }
 [data-part="panel-tab"] {
-  border-radius: 4px 4px 0 0;
-  font-family: var(--font-sans);
+  position: relative;
+  border-radius: 8px 8px 0 0;
+  font-family: var(--font-prose);
+  font-style: italic;
+  color: var(--color-muted-foreground);
+  outline: 1px dashed color-mix(in oklab, var(--color-border-strong) 70%, transparent);
+  outline-offset: -4px;
+}
+[data-part="panel-tab"]:hover {
+  color: var(--color-foreground);
+  background: color-mix(in oklab, var(--color-surface-1) 50%, transparent);
 }
 [data-part="panel-tab"][data-state="selected"] {
+  color: var(--color-foreground);
   background: var(--color-background);
+  outline-color: color-mix(in oklab, var(--color-tint) 70%, transparent);
   box-shadow:
-    inset 0 2px 0 var(--color-tint),
     inset 1px 0 0 var(--color-border-strong),
-    inset -1px 0 0 var(--color-border-strong);
+    inset -1px 0 0 var(--color-border-strong),
+    inset 0 1px 0 var(--color-border-strong);
+}
+/* The brass snap on the open flap. */
+[data-part="panel-tab"][data-state="selected"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f0d39a, var(--suit-eyelet) 60%, #6b4f26);
+  pointer-events: none;
 }
 [data-part="file-tree"] {
   font-family: var(--font-sans);
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0 31px,
+    var(--suit-grid-strong) 31px 32px
+  );
 }
 [data-part="diff-file"] {
   border-radius: 4px;
