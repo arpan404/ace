@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { CaretDownIcon, XIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, XIcon } from "@ace/icons";
 import {
   Menu,
   MenuContent,

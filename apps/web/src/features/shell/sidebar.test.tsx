@@ -40,7 +40,7 @@ const place = (name: string | RegExp) => within(appNav()).getByRole("link", { na
 test("the rail's places stay on screen across Automations and Skills, with no Back to app", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
-  expect(place(/^Threads/).getAttribute("aria-current")).toBe("page");
+  expect(place(/^Projects/).getAttribute("aria-current")).toBe("page");
   for (const name of ["Automations", "Skills"] as const) {
     await userEvent.click(place(name));
     await title(landing[name]);
@@ -49,16 +49,16 @@ test("the rail's places stay on screen across Automations and Skills, with no Ba
     expect(within(sidebar).getByRole("heading", { level: 2, name })).toBeTruthy();
     expect(await ownList[name](sidebar)).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
-    expect(list("Threads")).toBeNull();
+    expect(list("Projects")).toBeNull();
     // The rail stays: every place, Settings and the profile, the current one marked.
     expect(place(name).getAttribute("aria-current")).toBe("page");
-    expect(place(/^Threads/).getAttribute("aria-current")).toBeNull();
+    expect(place(/^Projects/).getAttribute("aria-current")).toBeNull();
     for (const other of [/^Code review/, "Settings"]) expect(place(other)).toBeTruthy();
     expect(within(appNav()).getByRole("button", { name: /^You, account/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Back to app" })).toBeNull();
-    await userEvent.click(place(/^Threads/));
+    await userEvent.click(place(/^Projects/));
     await title("New thread");
-    expect(list("Threads")).toBeTruthy();
+    expect(list("Projects")).toBeTruthy();
   }
 });
 
@@ -68,24 +68,24 @@ test("Settings keeps the rail and lists only its own pages in the panel", async 
   await userEvent.click(place("Settings"));
   await title("Settings");
   expect(place("Settings").getAttribute("aria-current")).toBe("page");
-  for (const name of [/^Threads/, /^Code review/, "Automations", "Skills"])
+  for (const name of [/^Projects/, /^Code review/, "Automations", "Skills"])
     expect(place(name)).toBeTruthy();
   expect(within(appNav()).getByRole("button", { name: /^You, account/ })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Back to app" })).toBeNull();
   expect(screen.getByRole("navigation", { name: "Settings pages" })).toBeTruthy();
-  expect(list("Threads")).toBeNull();
+  expect(list("Projects")).toBeNull();
   // The panel lists Settings' pages only: Automations and Skills are places of their own.
   const sidebar = screen.getByRole("complementary", { name: "Settings" });
   for (const name of ["Automations", "Skills"]) {
     expect(within(sidebar).queryByRole("link", { name })).toBeNull();
     expect(within(sidebar).queryByRole("complementary", { name })).toBeNull();
   }
-  await userEvent.click(place(/^Threads/));
+  await userEvent.click(place(/^Projects/));
   await title("New thread");
-  expect(list("Threads")).toBeTruthy();
+  expect(list("Projects")).toBeTruthy();
 });
 
-test("Threads in the rail returns to the thread the person left, across Settings pages", async () => {
+test("Projects in the rail returns to the thread the person left, across Settings pages", async () => {
   const history = createMemoryHistory({ initialEntries: ["/t/thread-router"] });
   const app = harness({ history });
   app.play(longHistory(2)).runUntilBlocked();
@@ -100,7 +100,7 @@ test("Threads in the rail returns to the thread the person left, across Settings
   );
   await screen.findByRole("heading", { name: "Appearance" });
 
-  await userEvent.click(place(/^Threads/));
+  await userEvent.click(place(/^Projects/));
   await title("Document the router");
   expect(history.location.pathname).toBe("/t/thread-router");
 });
@@ -113,7 +113,7 @@ test("Spade in the rail opens Spade's place, between Chats and Code review", asy
     .getAllByRole("link")
     .map((link) => link.getAttribute("aria-label"));
   expect(order.slice(0, 4)).toEqual([
-    "Threads",
+    "Projects",
     "Chats",
     "Spade",
     expect.stringMatching(/^Code review/),
@@ -123,19 +123,19 @@ test("Spade in the rail opens Spade's place, between Chats and Code review", asy
   expect(place("Spade").getAttribute("aria-current")).toBe("page");
 });
 
-test("Threads in the rail says a thread needs the person only while they are elsewhere", async () => {
+test("Projects in the rail says a thread needs the person only while they are elsewhere", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
   // On Threads the list itself says so: the place carries no count.
-  await screen.findByRole("complementary", { name: "Threads" });
-  expect(place("Threads")).toBeTruthy();
+  await screen.findByRole("complementary", { name: "Projects" });
+  expect(place("Projects")).toBeTruthy();
   await userEvent.click(place("Settings"));
   await title("Settings");
-  const threads = await within(appNav()).findByRole("link", { name: /^Threads, \d+ needs? you$/ });
+  const threads = await within(appNav()).findByRole("link", { name: /^Projects, \d+ needs? you$/ });
   expect(threads.querySelector('[data-tone="needs-you"]')).toBeTruthy();
   await userEvent.click(threads);
   await title("New thread");
-  expect(place("Threads").querySelector('[data-tone="needs-you"]')).toBeNull();
+  expect(place("Projects").querySelector('[data-tone="needs-you"]')).toBeNull();
 });
 
 test("the profile menu holds the account and connection actions; Usage is a rail place", async () => {
@@ -147,7 +147,7 @@ test("the profile menu holds the account and connection actions; Usage is a rail
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
   await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
   await screen.findByRole("heading", { level: 2, name: "Fleet" });
-  await userEvent.click(place(/^Threads/));
+  await userEvent.click(place(/^Projects/));
   await title("New thread");
 
   const account = await openProfileMenu();
@@ -166,7 +166,7 @@ test("the profile menu holds the account and connection actions; Usage is a rail
   await userEvent.keyboard("{Escape}");
   await userEvent.click(place(/^Usage/));
   await title("Usage");
-  expect(list("Threads")).toBeTruthy();
+  expect(list("Projects")).toBeTruthy();
   // GitHub opens Pull requests first; its panel lists its three pages.
   await userEvent.click(place(/^Code review/));
   await title("Pull requests");
@@ -199,7 +199,7 @@ test("⌘K opens Automations and Skills as their own places, each with its list"
     expect(await ownList[name](sidebar)).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Settings pages" })).toBeNull();
     expect(place(name).getAttribute("aria-current")).toBe("page");
-    await userEvent.click(place(/^Threads/));
+    await userEvent.click(place(/^Projects/));
     await title("New thread");
   }
 });
@@ -215,19 +215,19 @@ test("the profile menu closes on Escape and gives focus back to the profile", as
   expect(document.activeElement).toBe(button(/^You, account/));
 });
 
-test("Search in the Threads title row opens a field in place, not the palette", async () => {
+test("Search in the Projects title row opens a field in place, not the palette", async () => {
   await harness().open("/new");
   await title("New thread");
   // Row 1 is the title row again: Threads, then Search. Row 2 holds the All projects filter.
-  const panel = screen.getByRole("complementary", { name: "Threads" });
-  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  const panel = screen.getByRole("complementary", { name: "Projects" });
+  expect(within(panel).getByRole("heading", { level: 2, name: "Projects" })).toBeTruthy();
   const filter = within(panel).getByRole("button", { name: "Project filter: All projects" });
   expect(filter.textContent).toBe("All projects");
   const titleRow = within(panel)
     .getByRole("button", { name: "Search threads" })
     .closest('[data-slot="panel-top"]');
   expect(
-    within(titleRow as HTMLElement).getByRole("heading", { level: 2, name: "Threads" }),
+    within(titleRow as HTMLElement).getByRole("heading", { level: 2, name: "Projects" }),
   ).toBeTruthy();
   expect(
     within(titleRow as HTMLElement).queryByRole("button", { name: /^Project filter/ }),
@@ -240,12 +240,12 @@ test("Search in the Threads title row opens a field in place, not the palette", 
   expect(screen.getByRole("heading", { level: 1, name: "New thread" })).toBeTruthy();
 });
 
-test("New thread is the pencil at the end of the filter row under the Threads title row", async () => {
+test("New thread is the pencil at the end of the filter row under the Projects title row", async () => {
   await workbenchApp().open("/new");
   await title("New thread");
-  const panel = screen.getByRole("complementary", { name: "Threads" });
+  const panel = screen.getByRole("complementary", { name: "Projects" });
   // Row 1: Threads, then Search.
-  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(within(panel).getByRole("heading", { level: 2, name: "Projects" })).toBeTruthy();
   const search = within(panel).getByRole("button", { name: "Search threads" });
   const titleRow = search.closest('[data-slot="panel-top"]');
   if (!titleRow) throw new Error("No title row");
@@ -264,7 +264,7 @@ test("New thread is the pencil at the end of the filter row under the Threads ti
   const start = within(row).getByRole("link", { name: "New thread" });
   expect(filter.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start.textContent).toBe("");
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   expect(within(threads).queryByRole("link", { name: "New thread" })).toBeNull();
   await userEvent.hover(start);
   expect((await screen.findByRole("tooltip")).textContent).toContain("New thread");
@@ -293,7 +293,7 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
   const view = await harness({ storage }).open("/new");
   await title("New thread");
   await userEvent.keyboard("{Meta>}\\{/Meta}");
-  await waitFor(() => expect(list("Threads")).toBeNull());
+  await waitFor(() => expect(list("Projects")).toBeNull());
   expect(screen.queryByRole("navigation", { name: "App" })).toBeNull();
   view.unmount();
 
@@ -302,9 +302,9 @@ test("⌘\\ hides the sidebar, and the choice survives a reload", async () => {
   // The page proper, past its skeleton (which draws a header of its own): with no project yet,
   // a chat's composer.
   await screen.findByRole("combobox", { name: "Message" });
-  expect(list("Threads")).toBeNull();
+  expect(list("Projects")).toBeNull();
   await userEvent.click(button("Show sidebar"));
-  expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(await screen.findByRole("complementary", { name: "Projects" })).toBeTruthy();
 });
 
 /** The window's first three buttons are back, forward and the sidebar toggle named `toggle`. */
@@ -326,7 +326,7 @@ test("back, forward and the sidebar toggle lead the top bar whether the sidebar 
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/new");
   await title("New thread");
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Document the router/ }));
   await title("Document the router");
 
@@ -343,7 +343,7 @@ test("back, forward and the sidebar toggle lead the top bar whether the sidebar 
 
   // Sidebar hidden: the same three lead the header, the toggle now offering to show it.
   await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
-  await waitFor(() => expect(list("Threads")).toBeNull());
+  await waitFor(() => expect(list("Projects")).toBeNull());
   expect(screen.queryByRole("navigation", { name: "App" })).toBeNull();
   leading("Show sidebar");
   expect(header().getByRole("button", { name: "Back" })).toBeTruthy();
@@ -354,7 +354,7 @@ test("back, forward and the sidebar toggle lead the top bar whether the sidebar 
   await title("Document the router");
 
   await userEvent.click(header().getByRole("button", { name: "Show sidebar" }));
-  expect(await screen.findByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(await screen.findByRole("complementary", { name: "Projects" })).toBeTruthy();
   leading("Hide sidebar");
 });
 
@@ -362,7 +362,7 @@ test("with no project yet, the sidebar and the palette lead to Add project, and 
   await harness().open("/new");
   await title("New thread");
   const add = await within(
-    await screen.findByRole("complementary", { name: "Threads" }),
+    await screen.findByRole("complementary", { name: "Projects" }),
   ).findByRole("button", { name: /^Add project/ });
   expect(within(appNav()).queryByRole("link", { name: /^New thread/ })).toBeNull();
   await userEvent.click(add);
@@ -419,7 +419,7 @@ test("the panel's New thread row opens New thread in the one project there is", 
   });
   await app.open("/t/tidy");
   await title("Tidy the README");
-  const row = within(await screen.findByRole("complementary", { name: "Threads" })).getByRole(
+  const row = within(await screen.findByRole("complementary", { name: "Projects" })).getByRole(
     "link",
     { name: "New thread" },
   );
@@ -444,7 +444,7 @@ test("settled threads leave the Inbox, and the Settled tab lists every one of th
   for (const index of titles.keys())
     await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(`task-${index}`) });
   await app.open("/new");
-  const nav = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const nav = within(await screen.findByRole("navigation", { name: "Projects" }));
   await userEvent.click(await nav.findByRole("tab", { name: /^Settled/ }));
   // All seven at once: no project folds them behind Show more.
   await waitFor(() => expect(nav.getAllByRole("link", { name: / task\./ })).toHaveLength(7));

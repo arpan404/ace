@@ -1,5 +1,5 @@
 import { currentAttention, rowStatusLook, spokenRowStatus } from "@ace/ui-core";
-import { DotsSixVerticalIcon } from "@phosphor-icons/react";
+import { DotsSixVerticalIcon } from "@ace/icons";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
 import { use, type ComponentType, type ReactElement } from "react";

@@ -19,8 +19,8 @@ import {
   StopCircleIcon,
   WarningCircleIcon,
   XIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
@@ -45,7 +45,7 @@ const foldedLine =
   "group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-sm px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground";
 
 type CardAction = Exclude<WorktreeAction, "dismiss">;
-const actions: Record<CardAction, { tip: string; icon: PhosphorIcon }> = {
+const actions: Record<CardAction, { tip: string; icon: GlyphIcon }> = {
   local: {
     tip: "Start the thread on the local checkout instead and send your message there",
     icon: LaptopIcon,

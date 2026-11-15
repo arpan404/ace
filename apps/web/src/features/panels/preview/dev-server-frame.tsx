@@ -1,4 +1,4 @@
-import { BrowserIcon } from "@phosphor-icons/react";
+import { BrowserIcon } from "@ace/icons";
 import { PreviewGatewayStatus } from "@ace/protocol";
 import { addressHost, displayAddress, type BrowserFailure } from "@ace/ui-core";
 import { useEffect, useRef, useState, type RefObject } from "react";

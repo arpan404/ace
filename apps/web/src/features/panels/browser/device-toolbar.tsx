@@ -1,4 +1,4 @@
-import { DeviceRotateIcon, XIcon } from "@phosphor-icons/react";
+import { DeviceRotateIcon, XIcon } from "@ace/icons";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";

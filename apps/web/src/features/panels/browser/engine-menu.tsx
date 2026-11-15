@@ -1,4 +1,4 @@
-import { GlobeIcon } from "@phosphor-icons/react";
+import { GlobeIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import {
   MenuContent,

@@ -23,7 +23,7 @@ import {
   StopCircleIcon,
   TerminalWindowIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { revealer } from "@/boot/open-external.ts";
 import {
   Menu,

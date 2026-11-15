@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
-import { TerminalIcon } from "@phosphor-icons/react";
+import { TerminalIcon } from "@ace/icons";
 import { Suspense, useCallback, useId, useMemo, useState } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { cn } from "@/lib/cn.ts";

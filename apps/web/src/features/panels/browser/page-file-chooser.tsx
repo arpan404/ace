@@ -1,5 +1,5 @@
 import { addressHost } from "@ace/ui-core";
-import { PaperclipIcon } from "@phosphor-icons/react";
+import { PaperclipIcon } from "@ace/icons";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import type { BrowserView } from "../sources.ts";

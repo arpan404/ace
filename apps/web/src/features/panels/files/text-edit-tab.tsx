@@ -1,4 +1,4 @@
-import { FileTextIcon } from "@phosphor-icons/react";
+import { FileTextIcon } from "@ace/icons";
 import { fileLanguage } from "@ace/ui-core";
 import { useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";

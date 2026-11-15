@@ -1,5 +1,5 @@
 import { passageText, quoteContextChars, type MessageQuote } from "@ace/ui-core";
-import { QuotesIcon } from "@phosphor-icons/react";
+import { QuotesIcon } from "@ace/icons";
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/cn.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";

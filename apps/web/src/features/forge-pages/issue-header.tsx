@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowSquareOutIcon, CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, CopyIcon, DotsThreeIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";

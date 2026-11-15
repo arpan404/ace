@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { DiagnosticsHealth } from "@ace/protocol";
-import { ArrowClockwiseIcon, CheckIcon, CopyIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CheckIcon, CopyIcon, WarningCircleIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";

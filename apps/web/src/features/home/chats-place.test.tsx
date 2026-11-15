@@ -14,7 +14,7 @@ const minute = 60_000;
 const day = 24 * 60 * minute;
 
 const chatsNav = () => screen.getByRole("navigation", { name: "Chats" });
-const threadsNav = () => screen.getByRole("navigation", { name: "Threads" });
+const threadsNav = () => screen.getByRole("navigation", { name: "Projects" });
 const rail = () => screen.getByRole("navigation", { name: "App" });
 /** A place in the rail, by the start of its name (a dot's words follow it). */
 const place = (name: string) => within(rail()).getByRole("link", { name: new RegExp(`^${name}`) });
@@ -105,7 +105,7 @@ const everyDay = () =>
   ]);
 
 /** Open `path` and wait for a panel's first row. */
-async function open(app: ReturnType<typeof harness>, path: string, panel: "Chats" | "Threads") {
+async function open(app: ReturnType<typeof harness>, path: string, panel: "Chats" | "Projects") {
   history.replace(path);
   await app.open(path);
   const nav = await screen.findByRole("navigation", { name: panel });
@@ -133,11 +133,11 @@ test("the Chats place lists unsettled chats under Active, settled ones by day, a
   expect(within(chatsNav()).queryByRole("link", { name: /^Dedupe thread events/ })).toBeNull();
 });
 
-test("the Threads panel and History leave chats out", async () => {
+test("the Projects panel and History leave chats out", async () => {
   const app = everyDay();
   await app.client.start();
   await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(tls.thread.id) });
-  await open(app, "/new", "Threads");
+  await open(app, "/new", "Projects");
   expect(within(threadsNav()).getByRole("link", { name: /^Dedupe thread events/ })).toBeTruthy();
   for (const title of [/^Regex for semver/, /^Three days in Lisbon/, /^How TLS/])
     expect(within(threadsNav()).queryByRole("link", { name: title })).toBeNull();
@@ -223,18 +223,18 @@ test("a chat that needs the person leads Chats' Active, and the title row has no
   expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
 });
 
-test("the rail highlights Chats while a chat is open and Threads while a project thread is", async () => {
+test("the rail highlights Chats while a chat is open and Projects while a project thread is", async () => {
   const app = everyDay();
   await open(app, `/t/${lisbon.thread.id}`, "Chats");
   expect(place("Chats").getAttribute("aria-current")).toBe("page");
-  expect(place("Threads").getAttribute("aria-current")).toBeNull();
+  expect(place("Projects").getAttribute("aria-current")).toBeNull();
   await visit("/t/thread-dedupe");
-  await screen.findByRole("navigation", { name: "Threads" });
-  expect(place("Threads").getAttribute("aria-current")).toBe("page");
+  await screen.findByRole("navigation", { name: "Projects" });
+  expect(place("Projects").getAttribute("aria-current")).toBe("page");
   expect(place("Chats").getAttribute("aria-current")).toBeNull();
 });
 
-test("Move to project takes a chat out of Chats and into its project in Threads", async () => {
+test("Move to project takes a chat out of Chats and into its project in Projects", async () => {
   const app = everyDay();
   await open(app, "/chats", "Chats");
   await userEvent.click(
@@ -248,7 +248,7 @@ test("Move to project takes a chat out of Chats and into its project in Threads"
     expect(within(chatsNav()).queryByRole("link", { name: /^Three days in Lisbon/ })).toBeNull(),
   );
   await visit("/new");
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   expect(await within(threads).findByRole("link", { name: /^Three days in Lisbon/ })).toBeTruthy();
 });
 

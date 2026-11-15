@@ -10,7 +10,7 @@ import {
   KeyboardIcon,
   RecordIcon,
   TextAaIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { DevicePosture } from "@ace/protocol";
 import { formatElapsed } from "@ace/ui-core";
 import { useState, type RefObject } from "react";

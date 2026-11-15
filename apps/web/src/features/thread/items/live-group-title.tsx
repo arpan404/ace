@@ -1,6 +1,6 @@
 import type { ToolSurface } from "@ace/protocol";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
-import { HammerIcon } from "@phosphor-icons/react";
+import { HammerIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { StepGlyph } from "./step-glyph.tsx";
 import { RowParts } from "./transcript-row.tsx";

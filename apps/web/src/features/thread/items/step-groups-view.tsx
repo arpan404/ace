@@ -28,8 +28,8 @@ import {
   PlugIcon,
   RobotIcon,
   TerminalIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { BrowserUseIcon, ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { memo, use, useCallback, useId, useMemo, useState } from "react";
 import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
@@ -137,7 +137,7 @@ export function GroupedSteps(props: {
   );
 }
 
-const groupIcons: Record<GroupIcon, PhosphorIcon> = {
+const groupIcons: Record<GroupIcon, GlyphIcon> = {
   explore: MagnifyingGlassIcon,
   mixed: HammerIcon,
   edit: NotePencilIcon,

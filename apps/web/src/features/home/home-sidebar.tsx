@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
+import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@ace/icons";
 import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
@@ -39,7 +39,7 @@ const StartedTitlePublisher = deferredComponent(() =>
 );
 
 /**
- * The Threads panel, under the window's top bar (ADR 0107): its title row ("Threads", Search),
+ * The Projects panel, under the window's top bar (ADR 0107): its title row ("Projects", Search),
  * the filter row under it (the project and device filter, then New thread), the tabs (Inbox,
  * Snoozed, Settled), then the open tab's list. The Inbox is one flat list across projects and
  * machines in the order the person would act (pinned, needs you, running, unseen, the rest),
@@ -99,13 +99,13 @@ export function HomeSidebar() {
       : undefined;
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <PanelTitleSearch title="Threads" label="Search threads" query={query} onQuery={setQuery} />
+      <PanelTitleSearch title="Projects" label="Search threads" query={query} onQuery={setQuery} />
       <div className="flex h-8 shrink-0 items-center gap-1 pr-2.5 pl-2">
         <ProjectFilter />
         <NewThreadButton />
       </div>
       <nav
-        aria-label="Threads"
+        aria-label="Projects"
         className="relative flex min-h-0 flex-1 flex-col [&_[data-virtual-viewport]]:pb-[52px]"
         onKeyDown={(event) => {
           const next = tabKey(event);

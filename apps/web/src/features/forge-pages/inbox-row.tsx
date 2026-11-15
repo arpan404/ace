@@ -1,5 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
-import { BellSlashIcon, CheckIcon, EnvelopeOpenIcon } from "@phosphor-icons/react";
+import { BellSlashIcon, CheckIcon, EnvelopeOpenIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ForgeInboxRow } from "@ace/protocol";
 import { inboxTarget } from "@ace/ui-core";

@@ -1,4 +1,4 @@
-import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@ace/icons";
 import { memo } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

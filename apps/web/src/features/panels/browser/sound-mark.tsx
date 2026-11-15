@@ -1,4 +1,4 @@
-import { SpeakerHighIcon, SpeakerSlashIcon } from "@phosphor-icons/react";
+import { SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
 import { useCallback, useSyncExternalStore } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import type { BrowserTabView, PreviewSource } from "../sources.ts";

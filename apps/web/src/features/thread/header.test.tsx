@@ -101,7 +101,7 @@ test("a usage limit remains on the sidebar and leaves the thread title clear", a
   for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
   await app.open("/t/thread-limit-flags");
   await screen.findByRole("feed", { name: "Transcript" });
-  const list = await screen.findByRole("navigation", { name: "Threads" });
+  const list = await screen.findByRole("navigation", { name: "Projects" });
   const row = await within(list).findByRole("link", {
     name: /Remove the legacy feature-flag reader/,
   });
@@ -351,7 +351,7 @@ test("another thread opens with the card closed", async () => {
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   await openWorkCard();
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /Fix flaky checkout test/ }));
   await screen.findByRole("heading", { level: 1, name: "Fix flaky checkout test" });
   expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
@@ -773,7 +773,7 @@ test("the ⋯ menu keeps the common thread actions in the row menu's order", asy
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent ?? "");
   await userEvent.keyboard("{Escape}");
-  const row = within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
+  const row = within(screen.getByRole("navigation", { name: "Projects" })).getByRole("link", {
     name: /Replay cursor resets/,
   });
   await userEvent.pointer({ keys: "[MouseRight]", target: row });

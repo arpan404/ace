@@ -1,4 +1,4 @@
-import { MonitorIcon } from "@phosphor-icons/react";
+import { MonitorIcon } from "@ace/icons";
 import { useAppIcon } from "@/lib/app-icons.ts";
 import { cn } from "@/lib/cn.ts";
 

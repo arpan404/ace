@@ -10,7 +10,7 @@ import {
   type RefObject,
 } from "react";
 import { useRender } from "@base-ui/react/use-render";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { DisclosureCaret } from "@/components/ui/disclosure.tsx";
 import { InCard } from "@/components/ui/surface-context.ts";
 import { cn } from "@/lib/cn.ts";

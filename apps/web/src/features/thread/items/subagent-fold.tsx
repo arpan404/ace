@@ -1,5 +1,5 @@
 import { subagentSpan, subagentTerminal, type SubagentState } from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { useId, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";

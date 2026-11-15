@@ -1,5 +1,5 @@
 import { desktopBrowserViews, type BrowserAccelerator } from "@/boot/desktop-browser.ts";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import {
   displayAddress,

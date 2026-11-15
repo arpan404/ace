@@ -396,7 +396,7 @@ paints ace in the OS scheme. Reloading in any theme or mode never flashes the wr
 - "Working for…" sits at the top of the turn.
 - Consecutive tool calls group into one summary row. The newest call stays visible and the rest
   sit behind a toggle. Exploration calls collapse into "Explored …".
-- Every row has a real icon (Phosphor). Browser and computer-use rows show the site favicon or the
+- Every row has a real icon (ace's set). Browser and computer-use rows show the site favicon or the
   app icon.
 - A finished turn folds into "Worked for X ›" and loads its steps lazily on expand. These stay
   visible: the final message, failures and still-running subagents.
@@ -450,11 +450,11 @@ One component per job. Before drawing something new, use these.
 - **Add rows:** `SettingAddRow`, a plus icon then the noun ("Add account", "Pair a device",
   "Add machine").
 - **Disclosure:** `Disclosure` (`components/ui/disclosure.tsx`) or `SettingDisclosure` inside a
-  card. Both turn the same Phosphor caret; the browser's triangle never shows.
+  card. Both turn the same caret; the browser's triangle never shows.
 - **Select:** `Select` (`components/ui/select.tsx`). Two to three exclusive states, such as
   Open / Closed, use `SegmentedControl`. No native `<select>`.
 - **Empty states:** `EmptyState`, `page` for a main pane and `inline` for a list.
-- **Icons:** Phosphor only. Account badges and machine marks pick from curated Phosphor sets
+- **Icons:** ace's own set only. Account badges and machine marks pick from curated sets of it
   (`account-badge-icons.ts`, `machine-label.tsx`). `bun run check:ui` rejects emoji code points
   in `apps/web/src`.
 - **Radii and type:** use the scale tokens (`rounded-sm`, `rounded-md`, `rounded-lg`;

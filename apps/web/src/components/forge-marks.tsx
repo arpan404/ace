@@ -1,10 +1,5 @@
 import type { CSSProperties } from "react";
-import {
-  CheckCircleIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  RecordIcon,
-} from "@phosphor-icons/react";
+import { CheckCircleIcon, GitMergeIcon, GitPullRequestIcon, RecordIcon } from "@ace/icons";
 import { prTone, prWords, type IssueState, type PrState } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 

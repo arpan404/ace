@@ -1,6 +1,6 @@
 import type { ForkPoint, ThreadListEntry } from "@ace/protocol";
 import type { ThreadRowFlags } from "@ace/ui-core";
-import { GitPullRequestIcon, LinkBreakIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon, LinkBreakIcon } from "@ace/icons";
 import { useState } from "react";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { ThreadActionItems } from "@/features/organize/index.ts";

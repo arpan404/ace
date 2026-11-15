@@ -73,7 +73,7 @@ test("the Chats device filter narrows the list and the search, apart from Thread
   await chooseDevice("All devices");
   await waitFor(() => expect(titles(chatsNav())).toHaveLength(2));
   // Threads keeps its own filter: it never narrowed.
-  await userEvent.click(within(rail()).getByRole("link", { name: /^Threads/ }));
+  await userEvent.click(within(rail()).getByRole("link", { name: /^Projects/ }));
   const filter = await screen.findByRole("button", { name: /^Project filter:/ });
   expect(filter.getAttribute("aria-label")).toBe("Project filter: All projects");
 });
@@ -107,7 +107,7 @@ test("another machine's chat that needs the person is in Chats' Active and light
   const asks = askingChatScenario("disk", "Why is the disk full?", "Disk?", "du -sh /var");
   const { app } = twoMachines("/new", asks);
   await app.open("/new");
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   await waitFor(() =>
     expect(
       within(rail())

@@ -49,7 +49,7 @@ function headerWidth(width: number) {
 /** The side panel's toggle: at the header's right, or ending the docked panel's strip. */
 const panelToggle = () => screen.getByRole("button", { name: "Right panel" });
 
-const sidebar = () => screen.queryByRole("complementary", { name: "Threads" });
+const sidebar = () => screen.queryByRole("complementary", { name: "Projects" });
 
 /** The header's one ⋯, once its code has loaded and it reports itself as a collapsed popup. */
 function moreActions(header: HTMLElement) {
@@ -77,11 +77,11 @@ test("on a narrow window the sidebar is a sheet from the header, closing once a 
   await openThread();
   expect(screen.queryByRole("navigation", { name: "App" })).toBeNull();
 
-  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to projects" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   // The same one sidebar: its places, the threads, and the profile with Settings beside it.
   expect(within(sheet).getByRole("navigation", { name: "App" })).toBeTruthy();
-  expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(within(sheet).getByRole("complementary", { name: "Projects" })).toBeTruthy();
   expect(within(sheet).getByRole("button", { name: /^You, account/ })).toBeTruthy();
   expect(within(sheet).getByRole("link", { name: "Settings" })).toBeTruthy();
   await openProfileView("Automations");
@@ -92,10 +92,10 @@ test("on a narrow window the sidebar is a sheet from the header, closing once a 
   await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
 
   // The sheet carries its own toggle and opens the current view's list.
-  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to projects" }));
   const again = await screen.findByRole("dialog", { name: "Sidebar" });
   expect(within(again).getByRole("complementary", { name: "Automations" })).toBeTruthy();
-  expect(within(again).queryByRole("complementary", { name: "Threads" })).toBeNull();
+  expect(within(again).queryByRole("complementary", { name: "Projects" })).toBeNull();
   await userEvent.click(within(again).getByRole("button", { name: "Hide sidebar" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
@@ -118,7 +118,7 @@ test("on a phone the header shows the side panel's toggle, and its ⋯ lists Cha
   windowWidth(390);
   await openThread();
   const header = screen.getByRole("banner");
-  for (const name of ["Back to threads", /^Thread details/, "Right panel"])
+  for (const name of ["Back to projects", /^Thread details/, "Right panel"])
     expect(within(header).getByRole("button", { name })).toBeTruthy();
   const more = await moreActions(header);
   await userEvent.click(more);
@@ -266,7 +266,7 @@ test("on a tablet the sidebar waits in a sheet, so the thread keeps the window's
     within(screen.getByRole("banner")).getByRole("button", { name: /sidebar/ }),
   );
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
-  expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(within(sheet).getByRole("complementary", { name: "Projects" })).toBeTruthy();
   await userEvent.click(within(sheet).getByRole("button", { name: "Hide sidebar" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
   // The panel docks beside the thread and leaves no sidebar behind when it closes.
@@ -358,10 +358,10 @@ test("in a wide window the panel sits beside the thread and Escape leaves it ope
 test("the sheet closes when its link to the page already open is tapped", async () => {
   windowWidth(390);
   await openThread();
-  // On a phone the header's way to the list is "Back to threads" (#126).
-  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  // On a phone the header's way to the list is "Back to projects" (#126).
+  await userEvent.click(screen.getByRole("button", { name: "Back to projects" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
-  const threads = within(sheet).getByRole("navigation", { name: "Threads" });
+  const threads = within(sheet).getByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: /^Cap cold-start replay/ }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
@@ -369,11 +369,11 @@ test("the sheet closes when its link to the page already open is tapped", async 
 test("Search in the sheet opens the threads search in place, and the sheet stays", async () => {
   windowWidth(390);
   await openThread();
-  // On a phone the header's way to the list is "Back to threads" (#126).
-  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  // On a phone the header's way to the list is "Back to projects" (#126).
+  await userEvent.click(screen.getByRole("button", { name: "Back to projects" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   // Row 1 is the title row again: Threads, then Search. Row 2 holds the All projects filter.
-  expect(within(sheet).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(within(sheet).getByRole("heading", { level: 2, name: "Projects" })).toBeTruthy();
   expect(
     within(sheet).getByRole("button", { name: "Project filter: All projects" }).textContent,
   ).toBe("All projects");
@@ -386,7 +386,7 @@ test("Search in the sheet opens the threads search in place, and the sheet stays
 test("on a phone Settings lists its pages once: on the page, with the sheet left to the threads", async () => {
   windowWidth(390);
   await openThread();
-  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to projects" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   await userEvent.click(within(sheet).getByRole("link", { name: "Settings" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
@@ -394,8 +394,8 @@ test("on a phone Settings lists its pages once: on the page, with the sheet left
   expect(await page.findByRole("link", { name: "Appearance" })).toBeTruthy();
   expect(screen.getAllByRole("link", { name: "Appearance" })).toHaveLength(1);
 
-  await userEvent.click(screen.getByRole("button", { name: "Back to threads" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to projects" }));
   const again = await screen.findByRole("dialog", { name: "Sidebar" });
-  expect(within(again).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(within(again).getByRole("complementary", { name: "Projects" })).toBeTruthy();
   expect(within(again).queryByRole("link", { name: "Appearance" })).toBeNull();
 });

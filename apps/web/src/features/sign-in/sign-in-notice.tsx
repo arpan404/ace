@@ -1,6 +1,6 @@
 import type { ProviderKind } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { SignInButton } from "./sign-in-button.tsx";
 import { useSignIn } from "./sign-in-host.tsx";

@@ -60,7 +60,7 @@ function badgeIn(element: HTMLElement) {
 
 const sidebarBadge = () =>
   badgeIn(
-    within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
+    within(screen.getByRole("navigation", { name: "Projects" })).getByRole("link", {
       name: /Fix the footer/,
     }),
   );
