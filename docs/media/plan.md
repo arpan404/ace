@@ -1775,6 +1775,34 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
 - **Bench.** `packages/browser/bench/media-link.ts` in `check:perf`, enforced below a load
   average of 24. A 5 s run at load about 1,000 (debug build): median 58 fps, p10 55, daemon video
   bytes 0, local hop +11 ms at p95. The numbers are owed on a quiet machine with a release build.
+- **Review fixes (at `7c8cac7d02`).**
+  - **The ticket** is the lane's from `send` on: it wipes the buffer once written or dropped.
+    ace-media refuses an all-zero ticket outright, both granted (`connection.closed`
+    `invalid-ticket`) and presented.
+  - **Posters and privacy.** `still.poster` carries `clear`, the epochs the daemon decided clear
+    for the source. A poster comes only from a picture whose every epoch (a JPEG's, or every unit
+    of its video group since the keyframe) is in them and none was discarded; `record.epochs`
+    discards reach the stills at once, and a poster job whose epochs are discarded while it is
+    made fails `private`. The daemon asks with what the producer vouches for
+    (`IngestProducer.clearEpochs`); none vouches yet, so no poster is made anywhere until a
+    producer can state its source's privacy history (owed).
+  - **Generations** are the daemon's opaque strings (credential hashes) end to end; the wire's
+    `Admission.pairing.generation` is a string, compared for equality only.
+  - **Video's share is enforced in delivery**: a view's bytes in flight are held to its share of
+    its link over one round trip and 300 ms (`fanout::Viewer::limit_bytes`), and the wanted bit
+    rate follows the share below the planner's 500 kbit/s, to the 150 kbit/s floor.
+  - **`source.want` reaches the browser's capture** (`IngestProducer.want`,
+    `CaptureEvents.want`): views ace-media delivers (`CaptureViewer.delivered`) leave the
+    daemon's plan once ace-media has one, and the capture runs ace-media's encodes under
+    ace-media's ids (the daemon's own start at 2^20). Screens and devices don't apply it yet.
+  - **Bridges** hold one view per subscriber; a resubscribe retires the old one first.
+  - **Held bytes** live exactly as long as the fanout queues their unit; a send whose bytes are
+    missing is never reported accepted.
+  - **A stalled client** never strands its close: writes run on their own task, bounded by 5 s,
+    and a close cuts the socket 100 ms after its frame; a revocation lands within 250 ms.
+  - **Route loss** closes the view's grant in ace-media.
+  - **Loopback only.** The direct listener binds 127.0.0.1 alone, and a test pins that `listen`'s
+    remote part opens nothing, until the TLS listener lands; remote clients use D2's relay.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
@@ -1788,10 +1816,10 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     `main`, which holds the TypeScript `LinkFollow` and the Rust step scale.
   - The TLS listener from `listen` (LAN and Tailscale clients); `media.connect` gives only a
     loopback URL today.
-  - `live-video.ts` as a thin driver: applying `source.want` to producers (`aceVideo.encodes`,
-    the helper's `stream.configure`, scrcpy) and dropping the daemon's own plan for views
-    ace-media delivers. Until then the daemon plans its capture for the bound view, and a view
-    ace-media delivers on 3G is paced there but encoded at the daemon's rate.
+  - Applying `source.want` to screen and device producers (the helper's `stream.configure`,
+    scrcpy, the emulator encoder), as the browser's capture now does.
+  - A producer that vouches for its clear epochs (`IngestProducer.clearEpochs`), so posters can
+    be made: the browser's tabs need their privacy history plumbed to the media producer.
   - The tee (encode `legacy` with delivery `auto`): such subscribes are served on the main
     socket.
   - With `media.delivery: auto`, main-socket viewers of a source ace-media delivers get no
