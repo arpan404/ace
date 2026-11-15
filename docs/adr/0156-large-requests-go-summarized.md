@@ -41,13 +41,15 @@ offered "Approve plan", and a file edit's input or a browser script can be cut.
    option id goes, and every decline goes even past the option cap, so a person can always say no.
    A summary is under 64 Ki code units however large the request.
 3. **`interaction.read` reads the whole request** as pages of its JSON (64 Ki code units each)
-   with a `version`; a reader whose pages differ in `version` starts again. A copy that is itself
-   a summary (another machine's request mirrored here) can't be read whole.
+   with a `version`, the SHA-256 of that JSON; a reader whose pages differ in `version` starts
+   again. A copy that is itself a summary (another machine's request mirrored here) can't be read
+   whole.
 4. **An affirmative answer needs the person to have been shown the whole request.** Allow,
    approve, accept and answering questions are affirmative; deny, reject, cancel, decline and
-   dismiss are not. A client sets `readWhole: true` on `interaction.resolve` only once it showed
-   the request whole. The daemon refuses an affirmative answer from a client
-   (`request_not_read`) to a request it sends summarized without `readWhole`, and always to a
+   dismiss are not. A client sets `readWhole` on `interaction.resolve` to the `version` it read,
+   only once it showed the request whole. The daemon refuses an affirmative answer from a client
+   (`request_not_read`) to a request it sends summarized unless `readWhole` is the request's
+   version now, so a request replaced after it was read can't be approved unseen, and always to a
    mirrored summary. Clients older than this decision get summaries with the flag stripped and
    their affirmative answers refused, never applied.
 
@@ -73,6 +75,7 @@ offered "Approve plan", and a file edit's input or a browser script can be cut.
   every kind, keep every decline, and which answers need the whole request.
 - `apps/daemon/src/pending-pages.process.test.ts`: the #2099 reproductions open, live events and
   entity pages carry summaries, `interaction.read` returns the whole request under one version
-  (a new one once it is replaced), and an affirmative answer without `readWhole` is refused.
+  (a new one once it is replaced), and an affirmative answer is refused without the version read
+  or with a version the request no longer has.
 - `apps/daemon/src/interaction-reads.test.ts`: pages never split a character, a mirrored summary
   can't be read whole.
