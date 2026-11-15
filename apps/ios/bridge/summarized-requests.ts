@@ -22,10 +22,10 @@ export function summarizedNote(interaction: Interaction): string {
   return `This request is too large to review on the phone. Open it on your computer to ${verb} it.`;
 }
 
-/** `interaction` with only the approval options that decline, when it went summarized. */
+/** A summarized `interaction` with only the approval options that decline. */
 export function declinesOnly(interaction: Interaction): Interaction {
   const request = interaction.request;
-  if (request.kind !== "approval" || !sentSummarized(interaction)) return interaction;
+  if (request.kind !== "approval") return interaction;
   return {
     ...interaction,
     request: {
