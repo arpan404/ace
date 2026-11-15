@@ -71,6 +71,18 @@ const Head = z.object({ head: z.number() });
 const Probe = z.object({
   longestGaps: z.array(z.object({ ms: z.number(), deflateMs: z.number() })),
   deflates: z.array(z.object({ bytes: z.number(), ms: z.number() })),
+  relayCommands: z
+    .array(
+      z.object({
+        commandId: z.string(),
+        payload: z.string(),
+        threadId: z.string(),
+        inAt: z.number(),
+        sendAt: z.number().optional(),
+        sentAt: z.number().optional(),
+      }),
+    )
+    .optional(),
 });
 const epoch = () => performance.timeOrigin + performance.now();
 
@@ -80,7 +92,14 @@ interface Wait {
   aheadBytes: number;
 }
 type Urgent = "otherApproval" | "sidebarNeedsYou" | "sameApproval" | "stopAck" | "sendReceipt";
-type UrgentSet = Partial<Record<Urgent, Wait>> & { failed?: string[] };
+/** A client command as the client saw it, for the probe's relay times (`relayCommands`). */
+interface CommandTimes {
+  payload: string;
+  threadId: string;
+  calledAt: number;
+  receivedAt?: number;
+}
+type UrgentSet = Partial<Record<Urgent, Wait>> & { failed?: string[]; commands?: CommandTimes[] };
 type Bulk = "snapshot" | "resume" | "catchUp" | "live" | "raw" | "output";
 
 /** Resolves when `ready()` first holds, checked on each change `observe` reports. */
@@ -290,6 +309,20 @@ async function session(path: LinkPath, profileName: string) {
       const sendReceipt = await send;
       if (stopAck) result.stopAck = stopAck;
       if (sendReceipt) result.sendReceipt = sendReceipt;
+      result.commands = [
+        {
+          payload: "thread.interrupt",
+          threadId: prepared.stopped,
+          calledAt: clientStart.at,
+          ...(stopAck ? { receivedAt: clientStart.at + stopAck.ms } : {}),
+        },
+        {
+          payload: "thread.send",
+          threadId: prepared.sentId,
+          calledAt: clientStart.at,
+          ...(sendReceipt ? { receivedAt: clientStart.at + sendReceipt.ms } : {}),
+        },
+      ];
       if (failed.length) result.failed = failed;
       prepared.asked.release();
       prepared.sent.release();
@@ -304,8 +337,28 @@ async function session(path: LinkPath, profileName: string) {
     };
     const probe = async <T>(run: () => Promise<T>) => {
       await daemon.request({ op: "probe-reset" });
+      // The relay's own counters across the episode (relay path): frames it held back for the
+      // per-IP message budget, readers it paused for a full socket, and its fullest socket.
+      const counters = relay && { ...relay.stats };
+      if (relay) relay.stats.peakBufferedBytes = 0;
       const value = await run();
-      return { ...value, probe: Probe.parse(await daemon.request({ op: "probe-read" })) };
+      const relayStats = relay &&
+        counters && {
+          throttledFrames: relay.stats.throttledFrames - counters.throttledFrames,
+          pausedReaders: relay.stats.pausedReaders - counters.pausedReaders,
+          forwardedFrames: relay.stats.forwardedFrames - counters.forwardedFrames,
+          peakBufferedBytes: relay.stats.peakBufferedBytes,
+        };
+      // Under head-of-line-traced.ts: when each command's result reached the client's channel.
+      const arrivals: unknown = Reflect.get(globalThis, "__aceHeadOfLineClientArrivals");
+      const clientRelay = arrivals instanceof Map ? Object.fromEntries(arrivals) : undefined;
+      if (arrivals instanceof Map) arrivals.clear();
+      return {
+        ...value,
+        probe: Probe.parse(await daemon.request({ op: "probe-read" })),
+        ...(clientRelay ? { clientRelay } : {}),
+        ...(relayStats ? { relayStats } : {}),
+      };
     };
 
     // Idle: nothing else on the link.
