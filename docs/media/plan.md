@@ -1755,8 +1755,8 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Plans.** A source's views are planned together with `media_core::plan`, against
     `source.page` (or the first unit's size) and `source.codecs` (or what the views decode);
     the encodes go out as `source.want` when ids, sizes, codecs or fps change, or the bit rate
-    moves over 20 %. Ids start at 0 and only go up (wrapping past ids still in use), so a dropped
-    encode's queued units never land on a new one.
+    moves over 20 %. Ids are [1, 2^20) and only go up, so a dropped encode's queued units never
+    land on a new one; a source that uses them up is opened again (round 4, below).
     Plans follow the links once a second, with `viewer.stats`.
   - **Taking what the producer sends.** Until the daemon applies `source.want` to producers (see
     "Owed"), a producer runs its own encodes: a view takes its planned encode once the producer
@@ -1863,6 +1863,27 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Browser subscribes are transactional.** A subscribe that fails partway restores the
     thread's subscription (subscribers, views, capture settings) and closes the view it was
     granted; a replaced view closes only once the subscribe succeeded.
+- **Review fixes (round 4, at `33650ac5aa`).** No client wire change.
+  - **A failed resubscribe keeps delivering.** ace-media holds one view per connection and
+    target, so a same-connection resubscribe's new view replaces the old one there at once. When
+    the subscribe then fails, the bridge closes the new view and regrants the old one
+    (`MediaDeliveryPort.regrant`: its `viewer.open` again, under its id and current intent, with
+    a fresh issue). Its sequences continue and it starts at a keyframe.
+  - **Disjoint id ranges.** ace-media's encode ids are [1, 2^20) and the daemon's own are
+    [2^20, 2^31), each enforced by its allocator (`next_media_id`, `encode-ids.ts`). An id
+    ace-media gives outside its range is never pinned.
+  - **No wrap: a used-up range reopens its source.** Ids never wrap in place.
+    - ace-media out of ids reports the source `ended` with no reason, and the daemon opens it
+      again under a fresh id and handle (`IngestSources`' reconnect). The old path drains to
+      its egress end marker, or is cut after `drainMs`. The new source's ids start at 1.
+    - The daemon out of ids asks the same reconnect and starts over once every path open then
+      has ended. It skips the ids that ran across the reopen until the next one.
+    - On a new path, the capture stops ace-media's old encodes before it moves; the extension
+      drops a stopped encoder's output at once. ace-media's pins are kept per path, so the old
+      path's late units keep their labels, and the live video plans its delivered views itself
+      until the new plan comes. `IngestSources` hands the producer a plan made while its
+      source was still opening.
+  - **A shared encode's keyframe cut** moves once per keyframe, however many views take it.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
