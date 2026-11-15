@@ -414,3 +414,41 @@ fn the_wanted_bit_rate_follows_the_share_below_the_planners_floor_down_to_150_kb
     // 35 % of 400 kbit/s is 140 kbit/s: held at the 150 kbit/s floor.
     assert_eq!(cut.map(|w| w[0].bitrate), Some(150_000));
 }
+
+#[test]
+fn one_connection_holds_one_view_of_a_target_and_acks_reach_it() {
+    // A client can't tell two views of one thread on one connection apart (their pieces name the
+    // same thread), so a second grant for the same connection and target replaces the first.
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    send(
+        &mut engine,
+        json!({ "type": "viewer.open", "viewer": "v2", "connection": CONNECTION,
+                "owner": owner("phone", pairing(1)), "issued": 3, "source": "s1",
+                "target": { "kind": "browser", "threadId": "t1" }, "codecs": ["avc1.42E033"],
+                "viewport": { "width": 390, "height": 844, "dpr": 3, "scale": 1 },
+                "local": false, "audio": false }),
+        &[],
+        NOW,
+    );
+    assert_eq!(engine.counts().viewers, 1);
+    let mut effects = ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW);
+    for n in 1..80 {
+        effects.extend(ingest(&mut engine, 1, h264(false, n, 1, Vec::new()), NOW));
+    }
+    let first = binaries(&effects).len();
+    // Each unit goes once: never twice for two views of the same thread.
+    assert!(first <= 60, "{first} pieces");
+    // An ack frees the one view's window.
+    engine.media_message(
+        CONNECTION,
+        &json!({ "type": "browser.ack", "threadId": "t1", "sequence": first, "video": true })
+            .to_string(),
+        NOW,
+    );
+    let mut later = ingest(&mut engine, 1, h264(true, 90, 1, Vec::new()), NOW);
+    later.extend(engine.effects());
+    assert!(
+        !binaries(&later).is_empty(),
+        "the acked view takes the next keyframe"
+    );
+}

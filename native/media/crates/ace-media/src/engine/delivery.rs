@@ -180,7 +180,8 @@ impl Delivery {
     }
 
     /// A granted view. Replacing one with the same id starts it over.
-    pub fn open(&mut self, open: Open, now_ms: u64, out: &mut Vec<Effect>) {
+    /// Returns the views it replaced (another view of the same target on the same connection).
+    pub fn open(&mut self, open: Open, now_ms: u64, out: &mut Vec<Effect>) -> Vec<String> {
         let limits = if open.local {
             Limits {
                 initial: 8_000_000.0,
@@ -190,10 +191,32 @@ impl Delivery {
             Limits::default()
         };
         let source = open.source.clone();
-        if let Some(old) = self.views.remove(open.viewer.get())
-            && old.source != source
-        {
-            self.replan(&old.source, now_ms, out);
+        // One view per connection and target: the client can't tell two apart (their pieces
+        // name the same ids), so a grant for a target already shown there replaces that view.
+        let replaced: Vec<String> = self
+            .views
+            .iter()
+            .filter(|(key, v)| {
+                key.as_str() != open.viewer.get()
+                    && v.connection == open.connection
+                    && v.target == open.target
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut sources = Vec::new();
+        for key in &replaced {
+            if let Some(old) = self.views.remove(key) {
+                sources.push(old.source);
+            }
+        }
+        if let Some(old) = self.views.remove(open.viewer.get()) {
+            sources.push(old.source);
+        }
+        sources.retain(|old| *old != source);
+        sources.sort();
+        sources.dedup();
+        for old in sources {
+            self.replan(&old, now_ms, out);
         }
         self.views.insert(
             open.viewer.get().to_owned(),
@@ -219,6 +242,7 @@ impl Delivery {
             },
         );
         self.replan(&source, now_ms, out);
+        replaced
     }
 
     pub fn configure(
