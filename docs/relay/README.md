@@ -98,6 +98,17 @@ A client that would offer `ace.early.1` (it has a grant, or this relay's marker 
 
 The entry is never logged by the relay. A proxy or CDN in front of a self-hosted relay sees it in the request headers. For XX it is a public ephemeral key, sent in the clear today as the stream's first frame and authenticating nothing. A first message with an encrypted payload would put that ciphertext and its metadata in the headers too, so disable header logging in a proxy in front of the relay.
 
+### An NK first message in the upgrade request
+
+A client opening with Noise NK (above) offers its first message as `ace.v3` with one entry `ace.n1.<message>`, beside the XX entry. It offers neither entry when its NK message wouldn't fit: it is then sent whole as the early frame.
+
+- **The entry's rule:** canonical unpadded base64url of 48 to 3,066 bytes (what fits a 4 KiB entry), in a header of at most 8 KiB. With a ticket or a grant and every allowed subscribe it is about 1.6 to 1.8 KiB.
+- **What the relay takes:** once room is reserved, a relay takes a valid NK entry ahead of the XX one and echoes `ace.v3`.
+- **A relay that knows only the XX entry** never reads the NK one. It takes XX's and echoes `ace.v2`, and the stream is then XX, that relay's quickest path.
+- **A relay that knows neither** echoes `ace.early.1`, and the NK message goes as its early frame.
+
+Unlike the XX entry, this one is ciphertext with no forward secrecy. It carries the ticket or grant, the device id and the subscribes, sealed to the daemon's static key; anyone who keeps it and later obtains that key can read it. The relay never logs it, on success, refusal or error, and keeps it only as the held early frame. A proxy or CDN in front of a self-hosted relay that logs or keeps request headers would keep it: disable header logging there. A captured entry replayed later is refused, or confined, as any replayed NK first message is (ADR 0155, step 2).
+
 ## Framing, limits and backpressure
 
 Each WebSocket binary message is one Noise message, at most 65,535 bytes. Compression is disabled. JSON has a 16 MiB encoded limit and fragments into encrypted chunks. Binary logical messages are capped at 64 KiB plus a 16-byte file envelope. Encrypted fragment kinds 0/1 retain JSON continuation/final framing; additive kinds 2/3 carry binary continuation/final fragments. Every fragment in a logical message must have the same kind. `sendBinary` copies admitted bytes so later caller changes cannot alter a queued encrypted message. The final-fragment flag is encrypted; no plaintext logical length or sequence number is added. Non-final chunks have a fixed size, and directions rekey every `2^20` fragments.
