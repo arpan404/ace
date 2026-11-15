@@ -2,8 +2,8 @@ import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
 import {
   MediaSubscriptions,
-  mediaRetryCooldownMs,
   mediaSubscribeDeadlineMs,
+  SubscribeRetry,
   type DeliveryState,
   type MediaRoute,
 } from "@ace/browser/live-view";
@@ -143,6 +143,8 @@ interface Watch {
   picture: { width: number; height: number } | undefined;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
+  /** A failed subscribe's retry on the shared ladder and cooldown. */
+  ladder: SubscribeRetry;
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
@@ -407,6 +409,9 @@ export class BrowserLive {
         error: undefined,
         pages: new Map(),
         retry: undefined,
+        ladder: new SubscribeRetry(this.#media, action.threadId, (run, ms) =>
+          this.#schedule(ms, run),
+        ),
       };
       this.#watch = watch;
       // Each watch starts on the first page of tabs, whatever an earlier one had shown.
@@ -516,6 +521,7 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    watch.ladder.stop();
     this.#media.forget(watch.threadId);
     this.#endFollowing();
     this.#annotate.close();
@@ -533,12 +539,19 @@ export class BrowserLive {
   #requestId(): string {
     return `ios-browser-${++this.#requests}`;
   }
-  #subscribe(watch: Watch): void {
+  /**
+   * Subscribes the view, unless it is subscribed or one is on its way. After a failed subscribe it
+   * waits on the shared ladder and cooldown (`SubscribeRetry`): the view's own poll waits with
+   * it, and an event (an engine opened, the state changed, a new session) may skip one step's
+   * wait, never the cooldown.
+   */
+  #subscribe(watch: Watch, cause: "event" | "poll" = "event"): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
+    if (watch.ladder.waiting && (cause === "poll" || !watch.ladder.event())) return;
     watch.retry?.();
     watch.retry = this.#schedule(retryMs, () => {
       watch.retry = undefined;
-      this.#subscribe(watch);
+      this.#subscribe(watch, "poll");
     });
     if (this.#owner.state !== "ready") return;
     watch.subscribing = true;
@@ -548,12 +561,14 @@ export class BrowserLive {
     const begun = this.#media.begin(watch.threadId);
     const { media } = begun.fields;
     let refused = false;
-    /** When the shared ladder says to ask again after a failure: its delay. */
-    let retryAfter: number | undefined;
+    /** The request failed while it was still the view's latest, however its delivery settled. */
+    let lost = false;
     const failed = (error: unknown) => {
       const next = this.#media.failed(watch.threadId, begun.generation, error);
       if (next === "resubscribe") refused = true;
-      else if (next === "retry") retryAfter = this.#retryDelay(watch.threadId);
+      // A deadline may have settled its delivery already (`ignore`): the request failed all the
+      // same, and climbs the ladder.
+      else if (this.#media.generation(watch.threadId) === begun.generation) lost = true;
     };
     // No answer in time: the thread stops waiting on the media connection (a late reply still
     // settles it), so Swift stops holding its pictures.
@@ -608,23 +623,20 @@ export class BrowserLive {
         if (h264Only !== this.#h264Only || ((moved || refused) && this.#watch === watch)) {
           watch.subscribed = false;
           this.#subscribe(watch);
-        } else if (this.#watch === watch && !watch.subscribed) {
-          // Not subscribed and nothing else on its way (the view's own retry may have fired while
-          // this one was out): ask again on the shared ladder, or the view's usual pace.
+        } else if (this.#watch === watch && lost) {
+          // Asked again on the shared ladder; the view's own poll waits with it.
           watch.retry?.();
-          watch.retry = this.#schedule(retryAfter ?? retryMs, () => {
+          watch.retry = undefined;
+          watch.ladder.failed(() => this.#subscribe(watch, "poll"));
+        } else if (this.#watch === watch && !watch.subscribed && !watch.retry) {
+          // Not subscribed and nothing else on its way (the view's own poll may have fired while
+          // this one was out): it asks again at its usual pace.
+          watch.retry = this.#schedule(retryMs, () => {
             watch.retry = undefined;
-            this.#subscribe(watch);
+            this.#subscribe(watch, "poll");
           });
         }
       });
-  }
-  /** The shared ladder's next wait; once spent, the connection isn't named for a while. */
-  #retryDelay(threadId: string): number {
-    const delay = this.#media.retryDelay(threadId);
-    if (delay !== undefined) return delay;
-    this.#media.giveUp(threadId);
-    return mediaRetryCooldownMs;
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */
   /**

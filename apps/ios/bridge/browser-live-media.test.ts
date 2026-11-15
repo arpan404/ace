@@ -1,6 +1,12 @@
 import { host } from "./test-host.ts";
 import { ClientError } from "@ace/client";
-import type { DeliveryState, MediaRoute } from "@ace/browser/live-view";
+import {
+  mediaRetryCooldownMs,
+  mediaRetryDelaysMs,
+  mediaSubscribeDeadlineMs,
+  type DeliveryState,
+  type MediaRoute,
+} from "@ace/browser/live-view";
 import type { MediaStreamClientMessage } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { closeBrowserFixtures, liveBrowser as live, viewport } from "./browser-fixture.ts";
@@ -193,4 +199,71 @@ test("a decoder failure from before a resubscribe doesn't drop the view to H.264
   } finally {
     Reflect.deleteProperty(host, "video");
   }
+});
+
+/** A view whose subscribes naming the media connection never get an answer until failed. */
+async function hanging() {
+  const media = connection();
+  media.bind("mc_aaaaaaaa");
+  const browser = await live({ media: "hangs" });
+  const deliveries: DeliveryState[] = [];
+  browser.view.useMedia(media.route, (_view, state) => deliveries.push(state));
+  browser.view.action({ kind: "open", threadId: "web", viewport });
+  await until(() => browser.hanging.length === 1, "a subscribe left waiting");
+  const named = () =>
+    subscribes(browser.requested).filter((subscribe) => subscribe.media !== undefined).length;
+  /** The deadline passes for the subscribe out now, then it fails. */
+  const timeOut = async () => {
+    browser.elapse(mediaSubscribeDeadlineMs);
+    browser.hanging.shift()?.(new ClientError("timeout"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  return { ...browser, media, deliveries, named, timeOut };
+}
+
+test("subscribes that time out before failing climb the shared ladder, then fall back to the channel", async () => {
+  const view = await hanging();
+  for (const wait of mediaRetryDelaysMs) {
+    await view.timeOut();
+    // Waiting on the ladder: the view's own poll (every 5 s) asks nothing meanwhile.
+    const before = view.named();
+    if (wait !== 5_000) {
+      view.elapse(5_000);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(view.named()).toBe(before);
+    }
+    view.elapse(wait);
+    await until(() => view.named() === before + 1, `the retry after ${wait} ms`);
+  }
+  await view.timeOut();
+  // The ladder is spent: after the cooldown the view subscribes on the channel, naming nothing.
+  const asked = subscribes(view.requested).length;
+  view.elapse(mediaRetryCooldownMs);
+  await until(() => subscribes(view.requested).length === asked + 1, "the channel's subscribe");
+  expect(subscribes(view.requested).at(-1)?.media).toBeUndefined();
+  expect(view.named()).toBe(mediaRetryDelaysMs.length + 1);
+});
+
+test("events during the cooldown send nothing until it ends", async () => {
+  const view = await hanging();
+  for (const wait of mediaRetryDelaysMs) {
+    await view.timeOut();
+    view.elapse(wait);
+    await until(() => view.hanging.length === 1, "the next try");
+  }
+  await view.timeOut();
+  const asked = subscribes(view.requested).length;
+  // The main session drops and comes back, twice (each a ready connection the view subscribes
+  // on), and the binding moves: none of it skips the cooldown.
+  for (let round = 0; round < 2; round++) {
+    view.daemon.disconnectAll();
+    await until(() => view.client.state !== "ready", "the session dropped");
+    await until(() => view.client.state === "ready", "the session back");
+  }
+  view.media.bind("mc_bbbbbbbb");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  view.elapse(5_000);
+  expect(subscribes(view.requested)).toHaveLength(asked);
+  view.elapse(mediaRetryCooldownMs);
+  await until(() => subscribes(view.requested).length > asked, "the subscribe after the cooldown");
 });
