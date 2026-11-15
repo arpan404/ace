@@ -382,13 +382,29 @@ export class DeviceClient {
   current(picture: DevicePicture): boolean {
     return this.media.current(picture.sourceId, picture.generation);
   }
+  /**
+   * A subscribe of `deviceId` failed: try again after the bounded backoff, unless the channel
+   * closed, nothing holds the stream any more or another subscribe went out meanwhile.
+   */
+  private retryLater(deviceId: string): void {
+    const delay = this.media.retryDelay(deviceId);
+    if (delay === undefined) return;
+    const epoch = this.epoch;
+    const generation = this.media.generation(deviceId);
+    this.options.schedule(() => {
+      if (this.epoch !== epoch || this.media.generation(deviceId) !== generation) return;
+      if (this.liveStreams.held().includes(deviceId)) this.subscribe(deviceId);
+    }, delay);
+  }
   private subscribe(deviceId: string): void {
     const { generation, fields } = this.media.begin(deviceId);
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(deviceId);
     void this.send({ op: "subscribe", deviceId, ...fields }, generation).catch((error: unknown) => {
+      const next = this.media.failed(deviceId, generation, error);
       // A connection the daemon won't bind here: the stream goes on this channel instead.
-      if (this.media.refused(deviceId, generation, error)) this.subscribe(deviceId);
+      if (next === "resubscribe") return this.subscribe(deviceId);
+      if (next === "retry") this.retryLater(deviceId);
     });
   }
   private receiveMedia(message: StreamMessage): void {

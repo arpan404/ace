@@ -5,6 +5,8 @@ import { ThreadId, type MediaStreamClientMessage, type MediaPoster } from "@ace/
 import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
+import type { PosterDecoder } from "@/lib/video/poster.ts";
+import { mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -74,7 +76,13 @@ afterEach(() => {
  * as `serves here` does, but first replays the page's last picture (a keyframe) on the socket,
  * before the reply, as the browser bridge does.
  */
-type Daemon = "binds" | "serves here" | "replays here" | "replays, answers later" | "refuses";
+type Daemon =
+  | "binds"
+  | "answers later"
+  | "serves here"
+  | "replays here"
+  | "replays, answers later"
+  | "refuses";
 
 function withMediaReplies(
   api: ClientApi,
@@ -101,7 +109,8 @@ function withMediaReplies(
           }
           const reply = await target.request(input, options);
           if (named && (daemon === "replays here" || daemon === "replays, answers later")) replay();
-          if (named && daemon === "replays, answers later") await answered;
+          if (named && (daemon === "replays, answers later" || daemon === "answers later"))
+            await answered;
           if (
             input.type !== "browser.subscribe" ||
             !named ||
@@ -125,7 +134,10 @@ async function watching(
   initial: string | undefined,
   poster?: MediaPoster,
   answer: Daemon = "binds",
+  decodePoster?: PosterDecoder,
 ) {
+  /** The view's timers, fired by the test (`fire`) by their delay. */
+  const timers = new Set<{ run: () => void; ms: number }>();
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   daemon.browser.drive(thread, { url: "http://localhost:5173" });
@@ -151,14 +163,18 @@ async function watching(
       answered,
     ),
     {
-      schedule: () => () => {},
+      schedule: (run, ms) => {
+        const timer = { run, ms };
+        timers.add(timer);
+        return () => void timers.delete(timer);
+      },
       visibility: { visible: () => true, watch: () => () => {} },
       videoDecoder: decoder.factory,
       videoSupport: () => Promise.resolve(["hvc1.1.6.L153.B0", "avc1.42E033"]),
       media: link.media,
       poster: async (shown) => {
         posters.push(shown);
-        return { sequence: -1, draw() {}, close() {} };
+        return decodePoster ? decodePoster(shown) : { sequence: -1, draw() {}, close() {} };
       },
     },
   );
@@ -201,6 +217,14 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** Every timer of this delay runs. */
+    fire(ms: number) {
+      for (const timer of Array.from(timers))
+        if (timer.ms === ms) {
+          timers.delete(timer);
+          timer.run();
+        }
+    },
   };
 }
 
@@ -324,4 +348,44 @@ test("the reply of a subscribe a rebind replaced never shows the picture held fo
   // The subscribe again (naming B) gets replay 2, and only that one is the view's.
   await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
   expect(view.mainAcks()).not.toContainEqual(expect.objectContaining({ sequence: 1 }));
+});
+
+test("a subscribe that times out stops holding video, and its late reply still settles delivery", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "answers later");
+  // No answer in time: the video is the socket's until the daemon says otherwise.
+  view.fire(mediaSubscribeDeadlineMs);
+  view.wire.stream(video(1, true));
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(1));
+  await waitFor(() =>
+    expect(view.mainAcks()).toContainEqual(expect.objectContaining({ sequence: 1 })),
+  );
+  // The answer comes late: the daemon delivers by the media connection after all.
+  view.answer();
+  await waitFor(() => expect(view.subscribes().length).toBeGreaterThan(0));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  view.link.deliver(video(2, true));
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
+  expect(view.link.acks).toContainEqual(expect.objectContaining({ sequence: 2 }));
+});
+
+test("a poster still decoding when the view rebinds is never drawn", async () => {
+  const decodes: {
+    resolve: (picture: { sequence: number; draw(): void; close(): void }) => void;
+  }[] = [];
+  const closed: number[] = [];
+  const view = await watching(
+    "mc_aaaaaaaaaa",
+    { width: 1170, height: 2400, jpeg: "/9j/AA==" },
+    "binds",
+    () => new Promise((resolve) => decodes.push({ resolve })),
+  );
+  await waitFor(() => expect(decodes).toHaveLength(1));
+  // The connection moves while poster A decodes; the subscribe naming B brings poster B.
+  view.link.move("mc_bbbbbbbbbb");
+  await waitFor(() => expect(decodes).toHaveLength(2));
+  decodes[0]!.resolve({ sequence: -100, draw() {}, close: () => void closed.push(-100) });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  decodes[1]!.resolve({ sequence: -200, draw() {}, close: () => void closed.push(-200) });
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(-200));
+  expect(closed).toContain(-100);
 });

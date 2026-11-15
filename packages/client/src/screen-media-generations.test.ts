@@ -130,14 +130,18 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
       for (const listener of streams) listener(message);
     },
     /** `channel`: the daemon serves the stream on the channel itself (no `media` in the reply). */
-    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "channel") {
+    /** `fails`: a transient error, such as the daemon's pending-request limit. */
+    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "channel" | "fails") {
       server(
-        answer === "refuses"
+        answer === "refuses" || answer === "fails"
           ? {
               type: "screen.result",
               requestId: subscribe.requestId,
               ok: false,
-              error: "media-connection: that media connection isn't this session's",
+              error:
+                answer === "fails"
+                  ? "Too many pending screen requests"
+                  : "media-connection: that media connection isn't this session's",
             }
           : {
               type: "screen.result",
@@ -315,6 +319,40 @@ describe("screen pictures across a media rebind", () => {
     await flush();
     expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
     view.client.ack(view.drawn[1]!);
+    expect(view.mediaAcks.map((ack) => ack.on)).toEqual(["mc_aaaaaaaaaa"]);
+  });
+
+  it("a subscribe that fails for another reason stops holding pictures and tries again later", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    // Nothing was delivered before it: the channel's pictures draw.
+    view.onChannel(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    // A bounded backoff later, it subscribes again, naming the connection.
+    expect(view.subscribes).toHaveLength(1);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.subscribes[1]?.media).toEqual({ connection: "mc_aaaaaaaaaa" });
+  });
+
+  it("a resubscribe that fails keeps the delivery it replaced, as the daemon does", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "binds");
+    await flush();
+    // The view can't decode HEVC: the same connection is asked again, for H.264, and that fails.
+    view.client.fallBack("app", "hvc1.1.6.L153.B0");
+    view.reply(view.subscribes[1]!, "fails");
+    await flush();
+    // The daemon regranted the old view, which goes on delivering by the media connection.
+    view.deliver(frame(2));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([2]);
+    view.client.ack(view.drawn[0]!);
     expect(view.mediaAcks.map((ack) => ack.on)).toEqual(["mc_aaaaaaaaaa"]);
   });
 });

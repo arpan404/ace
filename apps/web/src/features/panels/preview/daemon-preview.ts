@@ -50,17 +50,18 @@ import {
 } from "@/lib/video/codecs.ts";
 import type { MediaConnection } from "@ace/client/media";
 import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
-import { DeliveryCandidates, isMediaRefusal } from "@ace/browser/live-view";
+import {
+  channelPath,
+  mediaSubscribeDeadlineMs,
+  MediaSubscriptions,
+  type MediaRoute,
+} from "@ace/browser/live-view";
 
-/** The socket path: the client's own connection to the daemon (legacy delivery). */
-const socketPath = "socket";
-
-/** One subscribe of a thread's view: what it named, and what the daemon answered. */
-interface Delivery {
-  token: number;
-  asked: string | undefined;
-  via: string | undefined;
-}
+/**
+ * How long a subscribe naming a media connection stays correlated with its reply: past the view's
+ * own deadline (`mediaSubscribeDeadlineMs`), so a late reply still settles its delivery.
+ */
+const lateReplyMs = 120_000;
 
 /** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
 export type PreviewMedia = Pick<
@@ -260,18 +261,21 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const frames = new Map<string, LivePicture>();
   const media = binaryFrames ? options.media : undefined;
-  /** The media connection each thread's video was confirmed on, so its acks follow it. */
-  const deliveries = new Map<string, Delivery>();
-  let deliveryTokens = 0;
-  /** Video that came while a subscribe naming a connection waits for its reply, either way. */
-  const candidates = new Map<string, DeliveryCandidates<BrowserVideoChunk>>();
-  /** The way a thread's video comes now: its subscribe's answer, else what it asked for. */
-  const expectedPath = (threadId: string) => {
-    const delivery = deliveries.get(threadId);
-    return delivery ? (delivery.via ?? delivery.asked ?? socketPath) : socketPath;
+  /**
+   * Each thread's video delivery, shared with the screen and device channels: one generation per
+   * subscribe, video held either way until its reply settles it, refusals, failures and timeouts.
+   * It names the media connection only while this client decodes video at all.
+   */
+  let decodesVideo = false;
+  const route: MediaRoute | undefined = media && {
+    binding: () => (decodesVideo ? media.binding() : undefined),
+    codecs: () => [],
+    watch: (listener) => media.watch(listener),
+    onStream: (listener) => media.onStream(listener),
+    ack: (message) => media.ack(message),
   };
-  /** A connection the daemon refused for a thread: not named again while it is the binding. */
-  const refusedOn = new Map<string, string>();
+  const deliveries = new MediaSubscriptions<BrowserVideoChunk>();
+  deliveries.use(route);
   /** Each thread's tabs' last pictures from when they were shown (split view's other half). */
   const stills = new Map<string, Map<string, LivePicture>>();
   /** The shown tab changed: its picture stays as that tab's still instead of being dropped. */
@@ -363,19 +367,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     captures.delete(threadId);
     videos.delete(threadId);
     sounds.delete(threadId);
-    deliveries.delete(threadId);
-    candidates.delete(threadId);
-    refusedOn.delete(threadId);
+    deliveries.forget(threadId);
   };
   /**
    * The thread's stream starts over (a reconnect, a pause, another backend). Its last picture
    * stays until the new stream's first keyframe replaces it.
    */
   /** A subscribe's delivery ends (a new socket, unsubscribed, disposed): its reply changes nothing. */
-  const endDelivery = (threadId: string) => {
-    deliveries.delete(threadId);
-    candidates.delete(threadId);
-  };
+  const endDelivery = (threadId: string) => deliveries.end(threadId);
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
     endDelivery(threadId);
@@ -413,41 +412,53 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (codecs.length) await media?.settled();
     if (disposed) throw new Error("preview_disposed");
     const viewport = captures.get(threadId);
-    const offered = codecs.length ? media?.binding() : undefined;
-    const binding = offered && refusedOn.get(threadId) !== offered.connection ? offered : undefined;
+    decodesVideo = codecs.length > 0;
     // This subscribe supersedes any still in flight: their replies change nothing from here on.
-    const token = ++deliveryTokens;
-    deliveries.set(threadId, { token, asked: binding?.connection, via: undefined });
-    candidates.delete(threadId);
-    const reply = await request({
-      type: "browser.subscribe",
-      threadId: ThreadId.parse(threadId),
-      ...(binaryFrames ? { binaryFrames: true } : {}),
-      ...(viewport ? { viewport } : {}),
-      ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
-      ...(binding ? { media: binding } : {}),
-    });
-    const delivery = deliveries.get(threadId);
-    if (delivery?.token !== token) return reply.ok ? reply.result : undefined;
-    if (!reply.ok) {
-      // A connection the daemon won't bind for this session: subscribe on the socket instead.
-      if (binding && isMediaRefusal(new Error(reply.error))) {
-        refusedOn.set(threadId, binding.connection);
-        return subscribe(threadId);
-      }
-      throw new Error(reply.error ?? "browser_failed");
+    const { generation, fields } = deliveries.begin(threadId);
+    const binding = fields.media;
+    // No answer in time: the thread's video is the socket's until its reply comes, if it does.
+    const cancelDeadline = binding
+      ? later(() => deliveries.abandon(threadId, generation), mediaSubscribeDeadlineMs)
+      : undefined;
+    let reply: Awaited<
+      ReturnType<typeof request<{ type: "browser.subscribe"; threadId: ThreadId }>>
+    >;
+    try {
+      reply = await request(
+        {
+          type: "browser.subscribe",
+          threadId: ThreadId.parse(threadId),
+          ...(binaryFrames ? { binaryFrames: true } : {}),
+          ...(viewport ? { viewport } : {}),
+          ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
+          ...(binding ? { media: binding } : {}),
+        },
+        binding ? { timeoutMs: lateReplyMs } : undefined,
+      );
+    } catch (error) {
+      deliveries.failed(threadId, generation, error);
+      throw error;
+    } finally {
+      cancelDeadline?.();
     }
+    if (!reply.ok) {
+      const error = new Error(reply.error ?? "browser_failed");
+      // A connection the daemon won't bind for this session: subscribe on the socket instead.
+      // Any other failure keeps (or falls back to) a delivery, and the poll tries again.
+      if (deliveries.failed(threadId, generation, error) === "resubscribe")
+        return subscribe(threadId);
+      throw error;
+    }
+    if (deliveries.generation(threadId) !== generation) return reply.result;
     // Only a reply naming the connection moves the video there (ace-media may not serve it).
-    const onMedia = binding !== undefined && reply.media?.connection === binding.connection;
-    delivery.via = onMedia ? binding.connection : socketPath;
     // Video that came the settled way while the reply was on its way (the daemon replays a page's
     // last picture before answering) shows now; the rest is dropped.
-    const held = candidates.get(threadId)?.settle(delivery.via);
-    candidates.delete(threadId);
+    const settled = deliveries.subscribed(threadId, generation, reply.media);
     const decode = captures.get(threadId)?.nativeShown !== true;
-    for (const chunk of held?.pictures ?? []) videos.receive(threadId, chunk, decode);
-    if (held?.needsKeyframe && held.ask) ack(threadId, held.ask.sequence, true);
-    if (onMedia && reply.media?.poster) void showPoster(threadId, reply.media.poster);
+    for (const { frame } of settled.pictures) videos.receive(threadId, frame, decode);
+    if (settled.ask) ack(threadId, settled.ask.frame.sequence, true);
+    const poster = deliveries.poster(threadId);
+    if (poster) void showPoster(threadId, generation, poster);
     return reply.result;
   };
   /** A person's browser command, in the tab it names (else the one shown). */
@@ -558,11 +569,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   /** The poster shows until the first video picture replaces it, never over one. */
   const showPoster = async (
     threadId: string,
+    generation: number,
     poster: { width: number; height: number; jpeg: string },
   ) => {
+    // The delivery and the view it was decoded for: it shows only if both are still current.
+    const watch = watches.get(threadId);
     const picture = await (options.poster ?? imagePoster)(poster);
     if (!picture) return;
-    if (disposed || !watches.has(threadId) || frames.has(threadId)) return picture.close();
+    const stale =
+      disposed ||
+      !watch ||
+      watches.get(threadId) !== watch ||
+      deliveries.generation(threadId) !== generation;
+    if (stale || frames.has(threadId)) return picture.close();
     const { width, height } = captureOf(threadId);
     frames.set(
       threadId,
@@ -575,17 +594,18 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   /** ACKs video chunks up to `sequence` (cumulative); `keyframe` asks for a fresh start. */
   const ack = (threadId: string, sequence: number, keyframe: boolean) => {
-    const path = expectedPath(threadId);
-    if (path !== socketPath) {
-      // Video of a connection that has since closed is acked nowhere, never on another one.
-      if (media?.binding()?.connection === path)
-        media.ack({
-          type: "browser.ack",
-          threadId: ThreadId.parse(threadId),
-          sequence,
-          video: true,
-          ...(keyframe ? { keyframe: true as const } : {}),
-        });
+    // The decoder is reset whenever the delivery changes, so what it acks is the current one's.
+    const way = deliveries.way(threadId, deliveries.generation(threadId) ?? 0);
+    // Video of a connection that has since closed is acked nowhere, never on another one.
+    if (way === "stale") return;
+    if (way === "media") {
+      media?.ack({
+        type: "browser.ack",
+        threadId: ThreadId.parse(threadId),
+        sequence,
+        video: true,
+        ...(keyframe ? { keyframe: true as const } : {}),
+      });
       return;
     }
     try {
@@ -664,32 +684,28 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   try {
     stops.push(client.onMessage(receive));
     /** Stream messages that came by `path`: only the way the thread's subscribe expects. */
+    /**
+     * Stream messages that came by `path`: video only the way the thread's subscribe expects (held
+     * either way until its reply settles it), sound likewise.
+     */
     const onStream = (path: string) => (message: StreamMessage) => {
-      const delivery =
-        message.kind === "browser.video" ? deliveries.get(message.threadId) : undefined;
-      if (message.kind === "browser.video" && delivery?.via === undefined && delivery?.asked) {
-        // Unsettled: held until the reply says which way the video comes.
-        if (path !== delivery.asked && path !== socketPath) return;
-        let held = candidates.get(message.threadId);
-        if (!held) candidates.set(message.threadId, (held = new DeliveryCandidates()));
-        held.hold(path, message.chunk);
-        return;
-      }
-      if (
-        (message.kind === "browser.video" || message.kind === "browser.audio") &&
-        expectedPath(message.threadId) !== path
+      if (disposed) return;
+      if (message.kind === "browser.video") {
+        const stamped = deliveries.arrive(message.threadId, path, message.chunk);
+        if (stamped)
+          videos.receive(
+            message.threadId,
+            stamped.frame,
+            captures.get(message.threadId)?.nativeShown !== true,
+          );
+      } else if (
+        message.kind === "browser.audio" &&
+        watches.has(message.threadId) &&
+        deliveries.expects(message.threadId, path)
       )
-        return;
-      if (message.kind === "browser.video" && !disposed)
-        videos.receive(
-          message.threadId,
-          message.chunk,
-          captures.get(message.threadId)?.nativeShown !== true,
-        );
-      else if (message.kind === "browser.audio" && !disposed && watches.has(message.threadId))
         sounds.receive(message.threadId, message.chunk);
     };
-    const stopStream = client.onStream?.(onStream(socketPath));
+    const stopStream = client.onStream?.(onStream(channelPath));
     if (stopStream) stops.push(stopStream);
     if (media) {
       // Pieces on the media connection are of the connection it has now.
@@ -788,8 +804,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       videos.dispose();
-      deliveries.clear();
-      candidates.clear();
+      deliveries.reset();
       sounds.dispose();
       views.clear();
       pages.clear();

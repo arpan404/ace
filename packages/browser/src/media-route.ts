@@ -6,7 +6,7 @@ import type {
 } from "@ace/protocol";
 import type { StreamMessage } from "./stream.ts";
 import type { PictureChunk } from "./stream-picture.ts";
-import { DeliveryCandidates } from "./delivery-candidates.ts";
+import { DeliveryCandidates, type CandidateShape } from "./delivery-candidates.ts";
 
 /**
  * A client's media connection as a live-view channel sees it (ADR 0147 §4): what to name in a
@@ -25,6 +25,12 @@ export interface MediaRoute {
   /** Sends on the media connection; false when it can't, and the ack goes by the channel. */
   ack(message: MediaStreamClientMessage): boolean;
 }
+
+/**
+ * How long a subscribe naming a media connection may wait for its reply before its source stops
+ * waiting and falls back to the channel; a later reply still settles it.
+ */
+export const mediaSubscribeDeadlineMs = 15_000;
 
 /** A subscribe the daemon refused for naming a media connection that isn't this session's. */
 export const isMediaRefusal = (error: unknown): boolean =>
@@ -53,26 +59,49 @@ interface Delivery {
   via: string | undefined;
 }
 
+/** Waits before a failed subscribe is tried again, by attempt; then it stays on the channel. */
+export const mediaRetryDelaysMs = [1_000, 2_000, 5_000, 10_000] as const;
+
+/** What a failed subscribe leaves to do: subscribe again now, later, or nothing. */
+export type FailedSubscribe = "resubscribe" | "retry" | "ignore";
+
 /**
  * Each source's deliveries, one generation per subscribe (ADR 0147 §4). Every subscribe opens a
- * generation; its reply or refusal is matched to it, and one a later subscribe superseded changes
- * nothing. Every picture is stamped with its source's generation as it arrives, and only when it
- * came the way that generation expects (the connection it named, else the channel); acks for an
- * older generation are dropped, never sent through the current one. A subscribe the daemon
- * refused, or answered without `media`, stays on the channel; a refused connection isn't named
- * again for the source until the binding changes. Also the poster the subscribe brought back, and
- * the codecs each source's viewer couldn't decode.
+ * generation; its reply, refusal, failure or timeout is matched to it, and one a later subscribe
+ * superseded changes nothing. Every picture is stamped with its source's generation as it
+ * arrives, and only when it came the way that generation expects (the connection it named, else
+ * the channel); while a subscribe naming a connection waits for its reply, pictures from either
+ * way are held as candidates, bounded, and the reply releases the settled way's. Acks for an older
+ * generation are dropped, never sent through the current one.
+ *
+ * - A subscribe refused for its connection subscribes again on the channel, and that connection
+ *   isn't named again for the source until the binding changes.
+ * - A subscribe answered without `media` (ace-media doesn't deliver that kind now) is the
+ *   channel's.
+ * - A subscribe that fails otherwise keeps the delivery it replaced when that way still holds
+ *   (the daemon regrants the old view), else falls back to the channel; either way it is tried
+ *   again on `mediaRetryDelaysMs`.
+ * - A subscribe that gets no answer in time (`abandon`) falls back to the channel; its late reply
+ *   still settles it.
+ *
+ * Shared by the screen and device channels (pictures) and the browser's view (video chunks).
+ * Also the poster each subscribe brought back, and the codecs each source's viewer couldn't
+ * decode.
  */
-export class MediaSubscriptions {
+export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   #route: MediaRoute | undefined;
   /** Generations count up across sources and resets, so an old one never matches again. */
   #next = 0;
   #deliveries = new Map<string, Delivery>();
+  /** The settled delivery a pending subscribe replaced: kept again if that subscribe fails. */
+  #previous = new Map<string, Delivery>();
+  /** Failed subscribes in a row, per source, for the retry delay. */
+  #attempts = new Map<string, number>();
   /** Refused for this source: not named again while it is the binding. */
   #refused = new Map<string, string>();
   #posters = new Map<string, MediaPoster>();
   /** Pictures that came while a subscribe naming a connection waits for its reply. */
-  #candidates = new Map<string, DeliveryCandidates<PictureChunk>>();
+  #candidates = new Map<string, DeliveryCandidates<F>>();
   /**
    * Codec families a source's viewer couldn't decode: that source alone asks without them. Kept
    * across reconnects of the channel, and dropped with the route.
@@ -99,6 +128,8 @@ export class MediaSubscriptions {
     const generation = ++this.#next;
     this.#posters.delete(source);
     this.#candidates.delete(source);
+    const replaced = this.#deliveries.get(source);
+    if (replaced?.via !== undefined) this.#previous.set(source, replaced);
     const asked =
       binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
     this.#deliveries.set(source, { generation, asked, via: undefined });
@@ -107,6 +138,10 @@ export class MediaSubscriptions {
       generation,
       fields: { media: binding, ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}) },
     };
+  }
+  /** The generation of `source`'s current subscribe, if it has one. */
+  generation(source: string): number | undefined {
+    return this.#deliveries.get(source)?.generation;
   }
   /** The decoders `source`'s subscribe names: the route's, less what failed for this source. */
   codecs(source: string): string[] {
@@ -133,12 +168,14 @@ export class MediaSubscriptions {
    * The reply to `generation`'s subscribe: delivery by the media connection only when it names
    * the one asked for. A reply to a superseded subscribe changes nothing.
    */
-  subscribed(source: string, generation: number, media: MediaSubscribed | undefined): Settled {
+  subscribed(source: string, generation: number, media: MediaSubscribed | undefined): Settled<F> {
     const delivery = this.#current(source, generation);
     if (!delivery) return { pictures: [] };
     const bound = delivery.asked !== undefined && media?.connection === delivery.asked;
     const via = bound && delivery.asked ? delivery.asked : channelPath;
     delivery.via = via;
+    this.#previous.delete(source);
+    this.#attempts.delete(source);
     if (bound && media?.poster) this.#posters.set(source, media.poster);
     // What came the settled way while the reply was on its way shows now; the rest is dropped.
     const held = this.#candidates.get(source)?.settle(via);
@@ -157,17 +194,39 @@ export class MediaSubscriptions {
     const delivery = this.#current(source, generation);
     if (!delivery || delivery.via !== undefined) return;
     delivery.via = channelPath;
+    this.#previous.delete(source);
     this.#candidates.delete(source);
   }
   /**
-   * `generation`'s subscribe failed. True when it is still the current one, had named a media
-   * connection and was refused for it: subscribe again, and it goes on the channel.
+   * `generation`'s subscribe failed with `error`. Unless a later subscribe superseded it, or a
+   * timeout already settled it, nothing more is held for it, and:
+   * - refused for the connection it named: `resubscribe` now (it goes on the channel);
+   * - otherwise the delivery it replaced is kept when that way still holds, else the source falls
+   *   back to the channel, and it is to be tried again (`retry`, after `retryDelay`).
    */
-  refused(source: string, generation: number, error: unknown): boolean {
+  failed(source: string, generation: number, error: unknown): FailedSubscribe {
     const delivery = this.#current(source, generation);
-    if (!delivery?.asked || !isMediaRefusal(error)) return false;
-    this.#refused.set(source, delivery.asked);
-    return true;
+    if (!delivery || delivery.via !== undefined) return "ignore";
+    this.#candidates.delete(source);
+    if (delivery.asked && isMediaRefusal(error)) {
+      this.#refused.set(source, delivery.asked);
+      return "resubscribe";
+    }
+    const previous = this.#previous.get(source);
+    this.#previous.delete(source);
+    const holds =
+      previous?.via === channelPath ||
+      (previous?.via !== undefined && previous.via === this.#route?.binding()?.connection);
+    if (previous && holds) this.#deliveries.set(source, previous);
+    else delivery.via = channelPath;
+    return "retry";
+  }
+  /** How long until a failed source is tried again; undefined once the retries are spent. */
+  retryDelay(source: string): number | undefined {
+    const attempt = this.#attempts.get(source) ?? 0;
+    const delay = mediaRetryDelaysMs[attempt];
+    if (delay !== undefined) this.#attempts.set(source, attempt + 1);
+    return delay;
   }
   /**
    * A picture of `source` arrived by `path` (`channelPath`, or a media connection): it stamped
@@ -175,7 +234,7 @@ export class MediaSubscriptions {
    * waits for its reply (it is held as a candidate, released by `subscribed`), and when it didn't
    * come the way the current subscribe expects (it belongs to an earlier one: dropped).
    */
-  arrive(source: string, path: string, frame: PictureChunk): Stamped | undefined {
+  arrive(source: string, path: string, frame: F): Stamped<F> | undefined {
     const delivery = this.#deliveries.get(source);
     // No subscribe of its own (a still, or a stream held before media): the channel's, as ever.
     if (!delivery) return path === channelPath ? { frame, generation: 0 } : undefined;
@@ -183,12 +242,19 @@ export class MediaSubscriptions {
       // Unsettled: it may come either way until the reply says which. Held, not shown yet.
       if (path === delivery.asked || path === channelPath) {
         let held = this.#candidates.get(source);
-        if (!held) this.#candidates.set(source, (held = new DeliveryCandidates()));
+        if (!held) this.#candidates.set(source, (held = new DeliveryCandidates<F>()));
         held.hold(path, frame);
       }
       return undefined;
     }
     return expected(delivery) === path ? { frame, generation: delivery.generation } : undefined;
+  }
+  /** Whether what comes by `path` for `source` (sound, say) is its current delivery's. */
+  expects(source: string, path: string): boolean {
+    const delivery = this.#deliveries.get(source);
+    if (!delivery) return path === channelPath;
+    if (delivery.via === undefined && delivery.asked !== undefined) return false;
+    return expected(delivery) === path;
   }
   /** Whether a picture stamped `generation` is still `source`'s; unstamped counts as current. */
   current(source: string, generation: number | undefined): boolean {
@@ -209,14 +275,25 @@ export class MediaSubscriptions {
   poster(source: string): MediaPoster | undefined {
     return this.#posters.get(source);
   }
-  forget(source: string): void {
+  /**
+   * `source`'s delivery ends (its stream invalidated): whatever its pending subscribe still gets
+   * changes nothing, and what was held for it goes. What it refused and its retries stay.
+   */
+  end(source: string): void {
     this.#deliveries.delete(source);
+    this.#previous.delete(source);
     this.#candidates.delete(source);
-    this.#refused.delete(source);
     this.#posters.delete(source);
+  }
+  forget(source: string): void {
+    this.end(source);
+    this.#refused.delete(source);
+    this.#attempts.delete(source);
   }
   reset(): void {
     this.#deliveries.clear();
+    this.#previous.clear();
+    this.#attempts.clear();
     this.#candidates.clear();
     this.#refused.clear();
     this.#posters.clear();
@@ -231,14 +308,14 @@ export class MediaSubscriptions {
  * What a reply settles: the pictures held for it, to show now, and, when the buffer overflowed,
  * the keyframe to ask a fresh one in the name of (on the settled way).
  */
-export interface Settled {
-  pictures: Stamped[];
-  ask?: Stamped;
+export interface Settled<F = PictureChunk> {
+  pictures: Stamped<F>[];
+  ask?: Stamped<F>;
 }
 
 /** A picture to show, with the generation of the subscribe it was delivered for. */
-export interface Stamped {
-  frame: PictureChunk;
+export interface Stamped<F = PictureChunk> {
+  frame: F;
   generation: number;
 }
 

@@ -255,7 +255,13 @@ export function DeviceScreen(props: {
     const unwatch = session.client.watch((snapshot) => {
       // The subscribe's still shows until the first live picture (ADR 0149).
       const still = session.client.poster(deviceId);
-      if (still && still !== poster) void drawPoster(element, context, still);
+      if (still && still !== poster)
+        void drawPoster(
+          element,
+          context,
+          still,
+          () => !disposed && session.client.poster(deviceId) === still,
+        );
       poster = still;
       const state = snapshot.states.find((candidate) => candidate.device.id === deviceId);
       const next: Touch =

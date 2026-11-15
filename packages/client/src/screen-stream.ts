@@ -293,14 +293,30 @@ export class ScreenStreamClient {
   current(picture: SourcePicture): boolean {
     return this.media.current(picture.sourceId, picture.generation);
   }
+  /**
+   * A subscribe of `sessionId` failed: try again after the bounded backoff, unless the channel
+   * closed, nothing holds the stream any more or another subscribe went out meanwhile.
+   */
+  private retryLater(sessionId: string): void {
+    const delay = this.media.retryDelay(sessionId);
+    if (delay === undefined) return;
+    const epoch = this.epoch;
+    const generation = this.media.generation(sessionId);
+    this.options.schedule(() => {
+      if (this.epoch !== epoch || this.media.generation(sessionId) !== generation) return;
+      if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+    }, delay);
+  }
   private subscribe(sessionId: string): void {
     const { generation, fields } = this.media.begin(sessionId);
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(sessionId);
     void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
       (error: unknown) => {
+        const next = this.media.failed(sessionId, generation, error);
         // A connection the daemon won't bind here: the stream goes on this channel instead.
-        if (this.media.refused(sessionId, generation, error)) this.subscribe(sessionId);
+        if (next === "resubscribe") return this.subscribe(sessionId);
+        if (next === "retry") this.retryLater(sessionId);
       },
     );
   }

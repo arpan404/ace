@@ -150,7 +150,13 @@ export function LiveView(props: {
     let poster: ReturnType<ScreenSession["poster"]>;
     const showPoster = () => {
       const next = session.poster(sessionId);
-      if (next && next !== poster && !disposed) void drawPoster(element, context, next);
+      if (next && next !== poster && !disposed)
+        void drawPoster(
+          element,
+          context,
+          next,
+          () => !disposed && session.poster(sessionId) === next,
+        );
       poster = next;
     };
     const stopPoster = session.subscribe(showPoster);
