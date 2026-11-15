@@ -393,6 +393,15 @@ struct ConversationFeed: View {
         }
         // A turn's reply names its focus after its rows may have landed: aim at it now.
         .onChange(of: reading.landing.target) { _, _ in landFocus(proxy) }
+        // The landing's deadline, ticked when nothing else lays out: a row that never lands
+        // or a scroll that changes nothing must not hold paging and the end's reads for good.
+        .task(id: reading.landing.deadline) {
+            guard let deadline = reading.landing.deadline else { return }
+            try? await Task.sleep(for: .milliseconds(max(0, deadline - model.now())))
+            guard !Task.isCancelled else { return }
+            reading.landing.expire(now: model.now())
+            if !reading.landing.holdsPlace { pageIfNeeded(proxy) }
+        }
         .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
         .onChange(of: thread.loaded) { _, loaded in
             guard loaded else { focusRequested(); return }
@@ -579,16 +588,20 @@ struct ConversationFeed: View {
         guard let focus = reading.landing.target else { return }
         let row = reading.shown.flatMap { TranscriptFeedRow.rows($0).first { $0.block.row.items.contains(focus) } }
         let metrics = intent.metrics
-        // Under the header and above the composer floating over the feed's bottom edge.
-        let band = TranscriptFocusLanding.Band(top: Double(metrics.topInset),
-            bottom: Double(metrics.viewport - metrics.bottomInset - barHeight - keyboardLift))
+        // The composer and keyboard float over the feed's bottom edge, inside its insets.
+        let geometry = TranscriptFocusLanding.Geometry(viewport: Double(metrics.viewport),
+            topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
+            covered: Double(barHeight + keyboardLift))
         let frame = row.flatMap { anchor.frames[$0.id] }.map { TranscriptFocusLanding.Span(top: Double($0.minY), bottom: Double($0.maxY)) }
-        switch reading.landing.step(row: row?.id, frame: frame, band: band) {
-        case .scroll(let id): proxy.scrollTo(id, anchor: .center)
+        switch reading.landing.step(row: row?.id, frame: frame, in: geometry, now: model.now()) {
+        case .scroll(let id, let fraction):
+            proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
         case .landed(let id):
             viewport.noteCaptured(rowID: id, itemID: focus, top: rowTop(id))
             pageIfNeeded(proxy)
-        case .wait, .none: break
+        // Released by its deadline or budget: what waited for the focus may run.
+        case .none: pageIfNeeded(proxy)
+        case .wait: break
         }
     }
     /// Retry stale history: re-ask the bridge around the reader's anchor item

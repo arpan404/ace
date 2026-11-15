@@ -168,11 +168,11 @@ struct ThreadFocus: Equatable {
     /// Fold a service reply into window state. The production path called by
     /// every read's task; directly testable without the bridge by decoding a
     /// reply and applying it here.
-    func applyReply(_ reply: TranscriptReadingReply, operation: String) {
+    func applyReply(_ reply: TranscriptReadingReply, operation: String, now: Double) {
         hasOlder = reply.hasOlder
         hasNewer = reply.hasNewer
         joined = reply.joined
-        if operation == "item" || operation == "turn" { landing.replied(focus: reply.focus) }
+        if operation == "item" || operation == "turn" { landing.replied(focus: reply.focus, now: now) }
         if operation != "hold", operation != "follow" { paged = true }
         lastWindow = ReadingWindowMetadata(
             evictedLeading: reply.evictedLeading,
@@ -225,12 +225,14 @@ struct ThreadFocus: Equatable {
             do {
                 let reply = try await model.service(payload, as: TranscriptReadingReply.self)
                 guard !Task.isCancelled, generation == version else { return }
-                guard reply.active else { close(model: model); isStale = false; revision += 1; return }
-                applyReply(reply, operation: operation)
+                guard reply.active else { close(model: model); landing.readFailed(); isStale = false; revision += 1; return }
+                applyReply(reply, operation: operation, now: model.now())
                 ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
             } catch {
                 guard !Task.isCancelled, generation == version else { return }
                 model.releaseReading()
+                // Nothing is coming to land: paging and the end's reads may go again.
+                landing.readFailed()
                 problem = error.localizedDescription
             }
         }
@@ -251,7 +253,7 @@ struct ThreadFocus: Equatable {
     /// Open a window around `item` (a search hit) and bring it into view.
     func jump(to item: String, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
-        landing.jumped(to: item)
+        landing.jumped(to: item, now: model.now())
         read("item", model: model, live: live, item: item)
     }
     /// Reopen the window around `item` (a saved session) without bringing it into view: the
@@ -263,7 +265,7 @@ struct ThreadFocus: Equatable {
     /// Open a window at turn `ordinal` (the turn list) and bring its ask into view.
     func jump(toTurn ordinal: Int, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
-        landing.jumped(to: nil)
+        landing.jumped(to: nil, now: model.now())
         read("turn", model: model, live: live, turn: ordinal)
     }
     func cancel(model: ClientModel) {
