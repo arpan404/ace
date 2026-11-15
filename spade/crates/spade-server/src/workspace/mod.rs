@@ -9,6 +9,7 @@
 
 mod files;
 mod identity;
+mod installed;
 mod person;
 pub mod place;
 #[cfg(unix)]
@@ -20,6 +21,7 @@ mod tools;
 pub mod trust;
 
 pub use identity::Identity;
+pub use installed::SKILLS_FOLDER;
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};

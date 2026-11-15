@@ -9,7 +9,7 @@ use spade_ace::{
     AceSkills, LoopbackUrl, Secret, Skill, SkillErrorCode, SkillScope, SkillsConfig, SkillsError,
 };
 use support::fake_daemon::{
-    DEPLOY, FUTURE, FakeDaemon, LOCAL_TOKEN, REVIEW, SILENT, STALE_WORKSPACE, text_of,
+    DEPLOY, FUTURE, FakeDaemon, LOCAL_TOKEN, REVIEW, SCRIPT, SILENT, STALE_WORKSPACE, text_of,
 };
 
 fn config(url: &str, token: &str, timeout: Duration) -> SkillsConfig {
@@ -345,4 +345,66 @@ async fn a_name_already_taken_is_refused_as_existing() {
         ),
         "{taken:?}"
     );
+}
+
+#[tokio::test]
+async fn a_skills_files_are_listed_and_one_is_read_with_its_bytes() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let listed = skills.files(REVIEW).await.unwrap_or_else(|e| panic!("{e}"));
+    let paths: Vec<&str> = listed.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["references/guide.md", "scripts/run.sh"]);
+    assert!(listed.files[1].executable);
+    assert_eq!(listed.omitted[0]["reason"], json!("too_large"));
+
+    let read = skills
+        .file(REVIEW, "scripts/run.sh")
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(read.bytes, SCRIPT.as_bytes());
+    assert_eq!(read.file.size, SCRIPT.len() as u64);
+    let missing = skills.file(REVIEW, "nope.md").await;
+    assert!(
+        matches!(
+            missing,
+            Err(SkillsError::Daemon {
+                code: SkillErrorCode::NotFound,
+                ..
+            })
+        ),
+        "{missing:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_watched_list_subscribes_once_per_socket_and_hears_changes_and_a_lost_socket() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let wait = Duration::from_secs(2);
+    skills
+        .list_watched()
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    skills
+        .list_watched()
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(daemon.subscriptions(), 1, "one subscription per socket");
+
+    daemon.push_change();
+    assert!(
+        tokio::time::timeout(wait, skills.changed()).await.is_ok(),
+        "a pushed change wakes the watcher"
+    );
+
+    daemon.drop_connections();
+    assert!(
+        tokio::time::timeout(wait, skills.changed()).await.is_ok(),
+        "a lost socket wakes the watcher to list again"
+    );
+    skills
+        .list_watched()
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(daemon.subscriptions(), 2, "a new socket subscribes again");
 }

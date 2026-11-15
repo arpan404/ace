@@ -8,6 +8,7 @@ mod cloud_account;
 mod connectors;
 mod helper;
 mod memory;
+mod skill_tools;
 mod skills;
 mod task;
 mod todo;
@@ -29,9 +30,10 @@ pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
 pub use helper::HelperTool;
 pub use memory::{AskUser, MemoryTool};
+pub use skill_tools::{SkillLoad, SkillSearch};
 pub use skills::{
-    AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch, SkillSource, WriteError,
-    WriteFuture, body_of,
+    AceLibrary, LibraryFuture, SkillFileData, SkillLibrary, SkillSource, WriteError, WriteFuture,
+    body_of,
 };
 pub use task::TaskStatus;
 pub use todo::Todo;

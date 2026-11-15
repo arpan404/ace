@@ -13,6 +13,7 @@ mod memory;
 mod oversight;
 mod routines;
 mod search;
+mod skills;
 mod teams;
 mod workspace;
 
@@ -55,6 +56,8 @@ pub struct AppState {
     pub workspaces: Option<crate::workspace::Workspaces>,
     /// Skill proposals and notes, when Spade has a skill library.
     pub learning: Option<Arc<crate::learning::Learning>>,
+    /// Spade's own skill store (ADR 0151).
+    pub skill_store: Option<Arc<crate::skill_store::SkillStore>>,
     /// The person's connected apps (ADR 0131).
     pub connectors: Option<Arc<spade_connect::Connectors>>,
     /// Web search's backends, whose settings the person changes (docs/design.md, Web search).
@@ -130,6 +133,7 @@ pub fn router(state: AppState) -> Router {
         .merge(memory::routes())
         .merge(oversight::routes())
         .merge(workspace::routes())
+        .merge(skills::routes())
         .merge(computer::routes())
         .merge(files::routes())
         .merge(media::routes())

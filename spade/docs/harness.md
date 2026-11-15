@@ -83,9 +83,11 @@ Spade's own tools are always offered in full, in name order: `web_search` (SearX
 `todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
 reply, [autonomy.md](autonomy.md)), `research` (a background job that reads many sources and writes a cited report,
 [oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
-short-lived helper with a fresh context, in a hidden conversation of its own, [helpers.md](helpers.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and, when Spade knows where
-ace is (`SPADE_ACE_HOME`), `skill_search`, `skill_load`, `skill_propose` and `skill_feedback`
-(they say ace is away while it is). Output from `web_search`,
+short-lived helper with a fresh context, in a hidden conversation of its own,
+[helpers.md](helpers.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and `skill_search`,
+`skill_load`, `skill_propose` and `skill_feedback`, over Spade's own skill store, which mirrors
+ace's library while ace is there and works without it (workspace.md, "Spade's skill store").
+Output from `web_search`,
 `web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
 
 ace's tools (threads, agents, browser, screen, automations) come from the daemon's MCP endpoint
@@ -99,8 +101,11 @@ Connectors (the person's apps through their own remote MCP servers, [connectors.
 are offered the same way: deferred, named `<connector>__<tool>`, risk from their annotations,
 output untrusted, and only to bots the person allowed them.
 
-Each conversation gets a skill index (up to 40 skills by name, manual ones left out) frozen into
-its instructions before its first model call; skills added later are found with `skill_search`.
+Each conversation gets a skill index frozen into its instructions before its first model call:
+the 40 skills its bot loaded most, then by name, manual ones left out. The bytes are fixed when
+the conversation starts; skills added later are found with `skill_search`, which ranks by text
+and then by the bot's use (workspace.md, "Ranking"). `skill_load` puts a skill's other files in
+the bot's workspace at `skills/<name>/`.
 
 ## Compaction
 

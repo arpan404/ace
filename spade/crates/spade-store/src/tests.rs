@@ -473,14 +473,15 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
             "UPDATE agents SET avatar = ?1 WHERE id = 'a_two'",
             [&picture],
         )?;
-        // Back to before the faces migration; the ones after it (routines' `untrusted`, then
-        // helpers) are undone so they can run again.
+        // Back to before the faces migration; the ones after it (routines' `untrusted`, the
+        // skill store, helpers) are undone so they can run again.
         connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
+        connection.execute_batch("DROP TABLE skill_uses; DROP TABLE skills;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 3,
+            crate::schema::current_version() as i64 - 4,
         )?;
     }
     let store = Store::open(&path)?;
@@ -500,5 +501,76 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         store.agent("a_one")?.map(|a| a.avatar).unwrap_or_default(),
         one
     );
+    Ok(())
+}
+
+fn stored_skill(id: &str, origin: SkillOrigin, name: &str) -> StoredSkill {
+    StoredSkill {
+        id: id.into(),
+        origin,
+        name: name.into(),
+        description: format!("The {name} skill"),
+        manual: false,
+        body: "Do it.\n".into(),
+        hash: "a".repeat(64),
+        files: "[]".into(),
+        source: None,
+        updated_ms: 5,
+    }
+}
+
+#[test]
+fn stored_skills_survive_reopening_and_a_replaced_one_is_kept_once() -> Result<()> {
+    let (_dir, path) = temp();
+    {
+        let store = Store::open(&path)?;
+        store.put_skill(&stored_skill("skl_1", SkillOrigin::Ace, "review"))?;
+        store.put_skill(&stored_skill("sks_1", SkillOrigin::Spade, "notes"))?;
+        let mut changed = stored_skill("skl_1", SkillOrigin::Ace, "review");
+        changed.description = "Review, tests first".into();
+        store.put_skill(&changed)?;
+    }
+    let store = Store::open(&path)?;
+    let all = store.skills()?;
+    let names: Vec<(&str, SkillOrigin)> = all.iter().map(|s| (s.name.as_str(), s.origin)).collect();
+    assert_eq!(
+        names,
+        [("notes", SkillOrigin::Spade), ("review", SkillOrigin::Ace)]
+    );
+    assert_eq!(
+        store.skill("skl_1")?.map(|s| s.description),
+        Some("Review, tests first".into())
+    );
+    assert!(store.remove_skill("sks_1")?);
+    assert!(!store.remove_skill("sks_1")?);
+    Ok(())
+}
+
+#[test]
+fn each_bot_keeps_its_own_skill_use_and_loses_it_with_the_bot() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
+    store.create_agent(bot("a2", "c2", "e/m"), &[], 5)?;
+    store.record_skill_load("a1", "review")?;
+    store.record_skill_load("a1", "review")?;
+    store.record_skill_verdict("a1", "review", true)?;
+    store.record_skill_verdict("a2", "deploy", false)?;
+    assert_eq!(
+        store.skill_uses("a1")?.get("review"),
+        Some(&SkillUse {
+            loads: 2,
+            helpful: true
+        })
+    );
+    assert_eq!(
+        store.skill_uses("a2")?.get("deploy"),
+        Some(&SkillUse {
+            loads: 0,
+            helpful: false
+        })
+    );
+    assert!(store.delete_agent("a1")?);
+    assert!(store.skill_uses("a1")?.is_empty());
     Ok(())
 }

@@ -1,8 +1,10 @@
 # Workspaces and skills a bot writes
 
-Date: 2026-11-12. As built for [ADR 0130](../../docs/adr/0130-spade-skills-and-workspace.md), in
-`spade-server` (`workspace/`, `learning/`, `api/workspace.rs`). Extends [harness.md](harness.md)
-and [agents.md](agents.md).
+Date: 2026-11-12, the skill store 2026-11-14. As built for
+[ADR 0130](../../docs/adr/0130-spade-skills-and-workspace.md) and points 1–7 of
+[ADR 0151](../../docs/adr/0151-spade-skills-and-plugins.md), in `spade-server` (`workspace/`,
+`learning/`, `skill_store/`, `api/workspace.rs`, `api/skills.rs`). Extends
+[harness.md](harness.md) and [agents.md](agents.md).
 
 ## The workspace
 
@@ -109,10 +111,80 @@ A shell or search result over 16,000 characters is written to
 6,000 characters, how many were left out, and the file's path, to page through with
 `workspace_read`.
 
+## Spade's skill store
+
+Every Spade keeps its own skills (`skill_store/`), so its bots have skills with ace away and on
+Spade Cloud. Each skill is a folder, `<data folder>/skills/<id>/`, holding `SKILL.md` and the
+skill's other files, and a row in Spade's SQLite (`skills`: id, origin, name, description,
+manual, body, SKILL.md hash, the other files as `[{path, size, hash, executable}]`, source,
+updated). Origins:
+
+| Origin   | Id                    | What it is                                                                                  |
+| -------- | --------------------- | ------------------------------------------------------------------------------------------- |
+| `ace`    | the library's `skl_…` | A copy of a skill in ace's library; `source` is its scope; read only                        |
+| `spade`  | `sks_` + 20 hex       | Written in Spade while ace was away, from a bot's saved proposal                            |
+| `plugin` | (the plugin work's)   | A plugin's skill; listed and loaded like the rest, read only. Nothing writes these rows yet |
+
+A folder is always replaced whole: written as `.stage-<id>-<random>`, the old one moved to
+`.old-<id>-<random>`, the new one renamed into place, the old one removed. On start, a
+moved-aside folder whose skill has no folder is put back and everything else staged or aside is
+removed.
+
+**Mirroring ace's library.** While Spade is connected to ace, a background task lists the
+library with `subscribe: true` (once per socket) and copies each skill whose SKILL.md hash
+differs from its copy: `read` for SKILL.md, then `files` and each file by path; a file whose
+bytes don't match the listed hash fails that copy and the old one stays. On a new connection it
+also compares every skill's file list with its copy, since a file can change without SKILL.md;
+the daemon's change notices only follow SKILL.md. It runs again on each `skills.changed`, when
+the socket ends or Spade connects to another daemon, and every ten minutes. A skill the library
+no longer lists is dropped, unless the listing was stale. Plugin-scope entries are skipped (their
+files are the plugin's). With ace away the last copies are used, and nothing says so.
+
+**Several skills with one name** are offered once: ace's personal copy, then ace's other copies,
+then a `spade` skill, then a plugin's.
+
+**Saving goes to ace when ace is there.** A new skill (a saved proposal) is created in ace's
+library while connected, then mirrored at once; with ace away (always on Cloud) it is written to
+the store as a `spade` skill, refused when the store already has the name. An edit of a `spade`
+skill stays in the store, checked against its SKILL.md hash. An edit of an ace skill goes to ace;
+with ace away it is refused as unavailable and the proposal stays open. Spade never sends a
+`spade` skill to ace on its own.
+
+**Add to ace's library** (Settings › Spade › Skills, `POST /v1/skills/{id}/add-to-ace`) creates
+a `spade` skill in ace's library for every agent, marks the row `added:<library id>`, and the
+next mirror (run at once) drops the row once the library lists that id. A retry after a lost
+answer only waits for that drop and never creates twice.
+
+## Loading a skill brings its files
+
+`skill_load` answers with SKILL.md, then, when the skill has other files, the folder they are in
+and each path with its size (and "runnable" for an executable one). The files are written into
+the bot's workspace at `skills/<name>/` when the skill is loaded: kept as they are when every
+file is there with the same content and still trusted, otherwise the folder is deleted and
+written again, so nothing of an older version stays. Each file is written through the workspace
+handle like any write, then made read only (`0444`, or `0555` for an executable one) through a
+handle that does not follow links; on Windows files stay writable, since a read-only file there
+could not be replaced or deleted when the skill changes. Each is recorded in the trust record
+with its hash (`Trust::record_installed`): the person installed the skill, so `workspace_read`
+of one answers trusted. A command that rewrites one changes its hash, and it reads as untrusted
+like any other file a command changed. Scripts run with `shell`, under the same gate as any
+command.
+
+## Ranking
+
+`spade_core::skills` is pure. `skill_search` scores each word of the query (two letters or
+more) that begins a word of a skill's name (4), description (2) or body (1), the first place it
+is found, times `ln(1 + skills / (1 + skills having the word))`, so a rare word counts more.
+Equal scores (in thousandths) go to the skill the calling bot last marked helpful, then the one
+it loaded more, then by name. Each bot's use is kept in `skill_uses` (loads, helpful), counted by
+`skill_load` and set by `skill_feedback`, and deleted with the bot. The index frozen into a
+conversation lists the 40 skills its bot loaded most, then by name.
+
 ## Skills a bot writes
 
-Offered when Spade has a skill library (ace is configured), beside `skill_search` and
-`skill_load`. Neither tool changes anything outside Spade, so neither asks.
+Offered by every Spade, beside `skill_search` and `skill_load`, whether or not ace is there;
+proposals are saved through the skill store above. Neither tool changes anything outside Spade,
+so neither asks.
 
 - `skill_propose {name, description, body, why?}`. `name` is a slug (`^[a-z0-9]+(-[a-z0-9]+)*$`,
   at most 64), `description` 1 to 1,024 characters, `body` (SKILL.md without frontmatter) at most
@@ -133,10 +205,11 @@ folder, each written whole through a temporary file. A bot's proposals and notes
 with it.
 
 **Answering** claims the proposal (one answer at a time; another gets `409`) before reading its
-state. **Saving** records an `attempt` in the proposal file, then sends `skills.request` to the
-daemon over the socket Spade already reads skills on: `create` with scope personal, every agent
-(`claude`, `codex`, `opencode`, `cursor`, `pi`) and `manual: false`, or `edit` with
-`expectedHash` from `base` and its `manual`. Neither is resent after a dropped socket. A refusal
+state. **Saving** records an `attempt` in the proposal file, then saves through the skill store:
+with ace there it sends `skills.request` to the daemon over the socket Spade already reads skills
+on: `create` with scope personal, every agent (`claude`, `codex`, `opencode`, `cursor`, `pi`) and
+`manual: false`, or `edit` with `expectedHash` from `base` and its `manual`. Neither is resent
+after a dropped socket. With ace away a new skill is written to the store instead. A refusal
 (`conflict`, `exists`, any other typed error) clears the attempt and leaves the proposal open. No
 answer (unreachable, timed out) leaves the attempt: the next Save or Discard first lists the
 library and, when a skill of that name holds the proposal's description and body (compared
@@ -165,6 +238,9 @@ for folders and links). **Proposal** = `{"id", "agent", "call_id", "name", "desc
 | `DELETE /agents/{id}/workspace`                | `?path=`         | `204`; a folder goes with what is in it; `422` for the workspace itself                                              |
 | `GET /agents/{id}/skill-proposals`             |                  | `{"proposals": [Proposal]}`, oldest first, every state                                                               |
 | `POST /agents/{id}/skill-proposals/{proposal}` | `{"save": bool}` | `200 {"proposal"}`; `409` answered already, being answered, or the skill changed or exists since; `503` library away |
+
+| `GET /skills` | | `{"skills": [{"id", "name", "description", "origin", "manual", "files", "updated_at"}], "ace": bool}`; `ace` is whether Spade is connected now |
+| `POST /skills/{id}/add-to-ace` | | `200 {"skill_id"}`; `404` unknown; `422` not a `spade` skill; `409` ace has the name; `503` ace away |
 
 Workspace errors: `404` for an unknown agent or a missing path, `400` for a path that is absolute,
 uses `..` or leads outside, `422` for a folder where a file is wanted and similar. The app places

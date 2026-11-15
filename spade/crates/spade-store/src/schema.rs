@@ -139,6 +139,11 @@ const MIGRATIONS: &[Migration] = &[
         backfill: None,
     },
     Migration {
+        // ADR 0151: Spade's own skill store, and how each bot used each skill.
+        sql: crate::skills::SCHEMA,
+        backfill: None,
+    },
+    Migration {
         // ADR 0152: helpers' hidden conversations.
         sql: crate::helpers::SCHEMA,
         backfill: None,
