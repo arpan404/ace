@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, type ReactNode, type TransitionEventHandler } 
 import { AceLogo } from "@/components/ace-logo.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * The startup screen's frame: the ace mark centred on the theme's background, exactly where
@@ -28,6 +29,8 @@ export function StartupLayout(props: {
     <div
       ref={frame}
       data-slot="startup-screen"
+      {...part("page", props.busy && "working", "startup")}
+      data-page="connect"
       data-leaving={props.leaving ? "" : undefined}
       aria-busy={props.busy}
       onTransitionEnd={ended}
@@ -45,7 +48,10 @@ export function StartupLayout(props: {
               props.busy && "fx-breathe",
             )}
           />
-          <div className="absolute inset-x-0 top-[calc(50%+44px)] flex flex-col items-center gap-4 px-6 text-center">
+          <div
+            {...part("page-body")}
+            className="absolute inset-x-0 top-[calc(50%+44px)] flex flex-col items-center gap-4 px-6 text-center"
+          >
             {props.children}
           </div>
         </>

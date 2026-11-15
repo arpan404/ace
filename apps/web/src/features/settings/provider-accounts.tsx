@@ -35,6 +35,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import { AccountWindows } from "./account-windows.tsx";
 import { accountFix, accountSignInTarget, agentProvider } from "./provider-problem.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
@@ -106,6 +107,14 @@ export function ProviderAccounts(props: {
   );
 }
 
+/** An account row's `data-state` for Suits: waiting when it needs the person, failed on a problem. */
+const accountRowState = {
+  ready: undefined,
+  action: "waiting",
+  problem: "failed",
+  idle: "disabled",
+} as const satisfies Record<keyof typeof toneOf, SuitPartState | undefined>;
+
 /** A status in its tone's colour, words only: an account's sub line. */
 const toneOf = { ready: "done", action: "needs-you", problem: "failed", idle: "idle" } as const;
 
@@ -157,6 +166,7 @@ function AccountItem(props: {
     <SettingListItem
       id={`account-${account.id}`}
       tabIndex={-1}
+      {...part("list-row", accountRowState[state.tone], "account")}
       className="flex-wrap gap-x-3 gap-y-2 py-2 focus-ring-inset"
     >
       <AccountBadge account={account} tooltip={false} />
@@ -170,7 +180,10 @@ function AccountItem(props: {
           </Tip>
           <AccountKeyMark method={account.authMethod} />
           {account.isDefault && (
-            <span className="shrink-0 rounded-full bg-accent px-1.5 text-xs leading-[18px] font-medium text-muted-foreground">
+            <span
+              {...part("label-chip", undefined, "default")}
+              className="shrink-0 rounded-full bg-accent px-1.5 text-xs leading-[18px] font-medium text-muted-foreground"
+            >
               Default
             </span>
           )}

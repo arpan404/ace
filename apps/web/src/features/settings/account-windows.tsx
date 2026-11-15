@@ -1,7 +1,8 @@
 import { quotaWindowShort, type QuotaWindowView } from "@ace/ui-core";
 import { Fragment } from "react";
-import { formatResetCountdown, windowTone } from "@/features/accounts/index.ts";
+import { formatResetCountdown, windowLevel, windowTone } from "@/features/accounts/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * An account's headline usage windows at the end of its row, one line each: the window's short
@@ -38,6 +39,7 @@ export function AccountWindows(props: { windows: readonly QuotaWindowView[]; now
               aria-valuenow={left}
               aria-valuetext={`${left}% left, ${resets}`}
               title={resets}
+              {...part("progress", undefined, windowLevel(window.usedPercent))}
               className="h-1 overflow-hidden rounded-full bg-secondary"
             >
               <span

@@ -57,6 +57,8 @@ function SuitRow(props: { summary: SuitSummary }) {
     .join(" · ");
   return (
     <SettingRow
+      variant="suit"
+      state={picked ? "selected" : ready ? undefined : "failed"}
       title={
         <span className="flex items-center gap-2">
           <Swatch summary={summary} scheme={resolved.scheme} />

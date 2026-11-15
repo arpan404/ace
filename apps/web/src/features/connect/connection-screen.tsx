@@ -15,6 +15,7 @@ import { ConnectCard } from "./connect-card.tsx";
 import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
 import { AccountMachineScreen } from "./account-machine-screen.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
   auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
@@ -61,8 +62,12 @@ export function ConnectionScreen() {
   const status = connection.status;
   const trying = status.kind === "connecting" || status.kind === "unreachable";
   return (
-    <ConnectCard labelledBy="connect-title">
-      <h1 id="connect-title" className="mt-4 text-xl font-semibold tracking-title">
+    <ConnectCard page="connect" variant="connect" labelledBy="connect-title">
+      <h1
+        id="connect-title"
+        {...part("page-title")}
+        className="mt-4 text-xl font-semibold tracking-title"
+      >
         {pairing ? "Pair this device" : "Connect to ace"}
       </h1>
       <p className="mt-1.5 mb-6 text-ui leading-normal text-muted-foreground">

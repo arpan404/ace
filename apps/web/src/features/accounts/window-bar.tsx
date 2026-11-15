@@ -1,14 +1,18 @@
 import { nearLimitPercent, quotaWindowShort, type QuotaWindowView } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { formatResetCountdown } from "./format.ts";
+
+/** How full a window is: `ok`, `low` from `nearLimitPercent`, `out` when it is full. */
+export function windowLevel(used: number): "ok" | "low" | "out" {
+  return used >= 100 ? "out" : used >= nearLimitPercent ? "low" : "ok";
+}
+
+const levelTone = { ok: "bg-foreground", low: "bg-status-needs-you", out: "bg-status-failed" };
 
 /** Ink normally, amber from `nearLimitPercent`, red when the window is full: the rings' tones. */
 export function windowTone(used: number): string {
-  return used >= 100
-    ? "bg-status-failed"
-    : used >= nearLimitPercent
-      ? "bg-status-needs-you"
-      : "bg-foreground";
+  return levelTone[windowLevel(used)];
 }
 
 /**
@@ -42,6 +46,7 @@ export function WindowBar(props: { window: QuotaWindowView; now: number }) {
         aria-valuemax={100}
         aria-valuenow={used}
         aria-valuetext={`${used}% used, ${resets}`}
+        {...part("progress", undefined, windowLevel(used))}
         className="block h-1 overflow-hidden rounded-full bg-secondary"
       >
         <span
@@ -79,6 +84,7 @@ export function CompactWindow(props: { window: QuotaWindowView; now: number }) {
         aria-valuemax={100}
         aria-valuenow={window.usedPercent}
         aria-valuetext={`${window.usedPercent}% used, ${formatResetCountdown(window.resetsAt, props.now)}`}
+        {...part("progress", undefined, windowLevel(window.usedPercent))}
         className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-secondary"
       >
         <span

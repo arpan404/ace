@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { ProgressBar } from "@/components/ui/progress-bar.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -87,8 +88,12 @@ export function SetupScreen() {
   const current = steps[step];
   return (
     <Screen title="Set up">
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-10 sm:px-10">
+      <div
+        {...part("page", undefined, step === 0 ? "providers" : "project")}
+        data-page="setup"
+        className="flex h-full min-h-0 flex-col"
+      >
+        <div {...part("page-body")} className="min-h-0 flex-1 overflow-y-auto px-6 py-10 sm:px-10">
           <div
             key={step}
             className="fx-view-in mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-7"
@@ -96,8 +101,10 @@ export function SetupScreen() {
             <div className="grid size-12 shrink-0 place-items-center">
               <current.icon aria-hidden size={36} />
             </div>
-            <div className="flex flex-col items-center gap-3 text-center">
-              <h2 className="text-2xl font-semibold tracking-title">{current.heading}</h2>
+            <div {...part("page-header")} className="flex flex-col items-center gap-3 text-center">
+              <h2 {...part("page-title")} className="text-2xl font-semibold tracking-title">
+                {current.heading}
+              </h2>
               <p className="max-w-[44ch] text-base leading-normal text-muted-foreground">
                 {current.lede}
               </p>
@@ -128,7 +135,11 @@ export function SetupScreen() {
                       />
                     </div>
                     {installed.length > 0 && (
-                      <ul aria-label="Providers on this computer" className="divide-y">
+                      <ul
+                        aria-label="Providers on this computer"
+                        {...part("list", undefined, "providers")}
+                        className="divide-y"
+                      >
                         {installed.map(({ row, view }) => (
                           <ProviderRow
                             key={row.provider}
@@ -140,11 +151,15 @@ export function SetupScreen() {
                       </ul>
                     )}
                     {missing.length > 0 && (
-                      <section aria-label="Not installed" className="flex flex-col gap-2">
+                      <section
+                        aria-label="Not installed"
+                        {...part("page-section", undefined, "not-installed")}
+                        className="flex flex-col gap-2"
+                      >
                         <h3 className="text-sm font-medium text-muted-foreground">
                           {installed.length ? "More agents" : "Install an agent"}
                         </h3>
-                        <ul className="divide-y">
+                        <ul {...part("list", undefined, "providers")} className="divide-y">
                           {missing.map(({ row, view }) => (
                             <ProviderRow key={row.provider} row={row} view={view} />
                           ))}
@@ -158,7 +173,7 @@ export function SetupScreen() {
           </div>
         </div>
         {/* Skip stays in one place on every step; Back sits beside the step's own action. */}
-        <div className="shrink-0 px-6 py-5 sm:px-10">
+        <div {...part("page-toolbar")} className="shrink-0 px-6 py-5 sm:px-10">
           <div className="mx-auto grid w-full max-w-xl grid-cols-[1fr_auto_1fr] items-center gap-4">
             <div>
               <Button variant="secondary" onClick={leave}>
@@ -167,6 +182,7 @@ export function SetupScreen() {
             </div>
             <ol
               aria-label={`Step ${step + 1} of ${steps.length}`}
+              {...part("progress", undefined, "steps")}
               className="flex items-center gap-2"
             >
               {steps.map((each, index) => (
