@@ -5,8 +5,7 @@ import { HairlineList, HairlineRow, RowAction, StateWords } from "@/components/h
 import { SettingDisclosure } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { addressWords } from "./data/fleet-words.ts";
-import { listNames } from "./data/list-names.ts";
+import { addressWords, remoteAccessOffQuestion, type Dependents } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
@@ -18,7 +17,7 @@ const inside = new Set(["remote.relay", "remote.enabled", "remote.hostedPairingL
  * The rarer choices for this computer, folded away: a relay of the person's own, turning remote
  * access off (asking first while devices or machines reach it), and where pairing links open.
  */
-export function MoreOptions(props: { dependents: readonly string[] }) {
+export function MoreOptions(props: { dependents: Dependents }) {
   const hash = useLocation({ select: (location) => location.hash });
   return (
     <SettingDisclosure title="More options" open={inside.has(hash) || undefined} className="mt-7">
@@ -119,18 +118,14 @@ function OwnRelay() {
   );
 }
 
-function RemoteAccessSwitch(props: { dependents: readonly string[] }) {
+function RemoteAccessSwitch(props: { dependents: Dependents }) {
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
   const [risky, setRisky] = useState<Confirming>();
-  const turnOff = () =>
-    props.dependents.length
-      ? setRisky({
-          title: "Turn off remote access?",
-          body: `${listNames(props.dependents)} reach this computer through remote access. They disconnect until it's turned on again.`,
-          confirm: "Turn off",
-          run: () => void enabled.set(false),
-        })
-      : void enabled.set(false);
+  const turnOff = () => {
+    const question = remoteAccessOffQuestion(props.dependents);
+    if (question) setRisky({ ...question, run: () => void enabled.set(false) });
+    else void enabled.set(false);
+  };
   return (
     <>
       <HairlineRow

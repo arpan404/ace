@@ -492,6 +492,12 @@ const entries = [
     title: "Quiet hours",
     keywords: ["do not disturb", "mute", "night"],
   },
+  {
+    id: "notifications.remotePush",
+    page: "/settings/notifications",
+    title: "Push when the app is closed",
+    keywords: ["phone", "iphone", "ios", "push", "apns", "background"],
+  },
   // Keyboard
   {
     id: "keyboard.shortcuts",
@@ -716,6 +722,13 @@ const entries = [
     page: "/settings/advanced",
     title: "Reset all settings",
     keywords: ["defaults", "restore"],
+  },
+  // Beta
+  {
+    id: "beta.mediaPipeline",
+    page: "/settings/beta",
+    title: "New media pipeline",
+    keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
   },
 ] as const satisfies readonly SettingEntry[];
 

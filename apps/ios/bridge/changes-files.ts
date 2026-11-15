@@ -19,6 +19,8 @@ import { sectionDiff, type FileSource, type Sourced, type TurnDiffs } from "./ch
  * read alone from the daemon, one 256 KiB page at a time, as far as the pages asked for reach:
  * each page is parsed once as it arrives, and every page is read at the version (the daemon's
  * validator) its first page named. A file that changed mid-read starts again at page one.
+ * A file longer than the bridge holds is read in parts: Read on lets go of the part shown and
+ * reads the next from where it stopped, so a huge diff never costs more than one part.
  */
 
 export interface OpenFilesLimits extends PageLimits {
@@ -26,14 +28,18 @@ export interface OpenFilesLimits extends PageLimits {
   open: number;
   /** Code units of a whole line asked for on its own. */
   wholeLine: number;
-  /** Code units of one file's patch held from the daemon's pages. */
+  /**
+   * Code units of one file's patch held from the daemon's pages, per part. Rows cost the
+   * bridge about 3 bytes of heap per code unit (4 Mi ≈ 12 MB, measured in Bun on a JSONL
+   * patch), and the phone holds about as much again once a whole part is shown.
+   */
   heldText: number;
 }
 export const openFilesLimits: OpenFilesLimits = {
   ...mobilePageLimits,
   open: 30,
   wholeLine: 100_000,
-  heldText: 16 * 1024 * 1024,
+  heldText: 4 * 1024 * 1024,
 };
 
 /** One page of one file's patch from the daemon (`git.diff` with `path`). */
@@ -66,6 +72,10 @@ interface Open {
   complete: boolean;
   /** The daemon's pages stopped before the file's end (past what the bridge holds). */
   cut: boolean;
+  /** Which part of a file read in parts this is, from 0. */
+  part: number;
+  /** Where the next part starts, when this one stopped at what the bridge holds. */
+  resume: number | undefined;
   /** Where each page sent so far ends. */
   ends: number[];
   /** Pages asked for. */
@@ -194,6 +204,37 @@ export class OpenFiles {
     return true;
   }
 
+  /**
+   * The next part of a file cut at what the bridge holds: the rows shown go, and its pages start
+   * again from where the last part stopped, at the same version.
+   */
+  onward(path: string): boolean {
+    const file = this.#open.get(path);
+    if (!file?.reader || file.resume === undefined) return false;
+    this.#deps.sink.clear(`changes:page:${file.id}:`);
+    file.reader.release();
+    file.rows = file.reader.rows;
+    file.next = file.resume;
+    file.resume = undefined;
+    file.part++;
+    file.generation++;
+    file.held = 0;
+    file.cut = false;
+    file.complete = false;
+    file.ends = [];
+    file.wanted = 1;
+    this.#emit(file);
+    return true;
+  }
+
+  /** A file read in parts goes back to its first part. */
+  rewind(path: string): boolean {
+    const file = this.#open.get(path);
+    if (!file || file.part === 0) return false;
+    this.#restart(file, { source: file.source, version: "" });
+    return true;
+  }
+
   /** One line whole (up to `wholeLine` code units), for a line a page clipped. */
   line(path: string, index: number): boolean {
     const file = this.#open.get(path);
@@ -232,6 +273,8 @@ export class OpenFiles {
       rows: [],
       complete: false,
       cut: false,
+      part: 0,
+      resume: undefined,
       ends: [],
       wanted: 1,
       reader: sourced?.source.kind === "daemon" ? this.#newReader() : undefined,
@@ -308,6 +351,7 @@ export class OpenFiles {
         path: preview(file.path, 1024),
         version: file.version,
         index,
+        part: file.part,
         layout: split ? "split" : "unified",
         ...(split
           ? { pairs: splitPage(file.rows, start, end, this.#limits, preview) }
@@ -336,6 +380,8 @@ export class OpenFiles {
         remaining: file.complete ? Math.max(0, file.rows.length - sent) : null,
         complete: file.complete,
         cut: file.cut,
+        part: file.part,
+        onward: file.resume !== undefined,
         empty: file.complete && !file.rows.some((row) => row.kind !== "fold"),
         viewed: viewed(file.path, file.version),
       };
@@ -404,12 +450,14 @@ export class OpenFiles {
     file.held += page.patch.length;
     file.next = page.truncated ? page.nextOffset : undefined;
     if (file.held >= this.#limits.heldText && file.next !== undefined) {
+      // This part is full: the line it ends inside stays with the reader for the next one.
+      file.resume = file.next;
       file.next = undefined;
       file.cut = true;
     }
     if (page.truncated && page.nextOffset === undefined) file.cut = true;
     if (file.next === undefined) {
-      file.reader?.end();
+      if (file.resume === undefined) file.reader?.end();
       file.complete = true;
     }
     file.rows = file.reader?.rows ?? [];

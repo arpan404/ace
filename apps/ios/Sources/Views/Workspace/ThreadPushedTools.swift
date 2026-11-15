@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The thread's screens a phone pushes over it from ⋯: Terminal, Browser and Agents (Files is
+/// The thread's screens a phone pushes over it from ⋯: Terminal, Browser, Agents and Summary (Files is
 /// pushed by `ThreadFileRoutes`, which owns the file links too). Each is the full screen with
 /// its own title and bar; back returns to the thread, on the page it left.
 struct ThreadPushedTools: ViewModifier {
@@ -9,6 +9,8 @@ struct ThreadPushedTools: ViewModifier {
     @Binding var pushed: ThreadPushedTool?
     let openThread: (String) -> Void
     let openAgent: (SubagentRoute) -> Void
+    /// Back to the thread on its Changes page, showing This thread (the Summary's count).
+    var openChanges: (() -> Void)? = nil
     /// Puts a page into the composer; nil when this phone can't send.
     let mention: ((ComposerMention) -> Void)?
 
@@ -29,6 +31,12 @@ struct ThreadPushedTools: ViewModifier {
                 AgentTreePage(model: model, thread: thread, openAgent: openAgent, openThread: openThread,
                               openChat: { pushed = nil })
                     .navigationTitle("Agents")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+            .navigationDestination(isPresented: showing(.summary)) {
+                ThreadSummaryPage(model: model, thread: thread, openThread: openThread,
+                                  openAgents: { pushed = .agents }, openChanges: openChanges, openAgent: openAgent)
+                    .navigationTitle("Summary")
                     .navigationBarTitleDisplayMode(.inline)
             }
     }

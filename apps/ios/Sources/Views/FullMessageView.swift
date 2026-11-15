@@ -6,6 +6,7 @@ struct FullMessageView: View {
     let threadId: String
     let item: TranscriptRow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
     @State private var text: String?
     @State private var problem: String?
     private struct Reply: Decodable { let text: String }
@@ -15,7 +16,8 @@ struct FullMessageView: View {
                 VStack(alignment: .leading, spacing: AceDesign.Space.row) {
                     // The row's own text shows at once; the whole text replaces it when it arrives.
                     AceMarkdown(text: text ?? item.text, streaming: text == nil && !item.complete,
-                                tone: item.type == "reasoning" ? .muted : .body).onAppear { DisclosureTrace.shared.shown(item.id) }
+                                tone: item.type == "reasoning" ? .muted : .body, flavor: AnswerMarkdown.flavor,
+                                renderDiagram: AnswerMarkdown.renderDiagram(dark: scheme == .dark)).onAppear { DisclosureTrace.shared.shown(item.id) }
                     if text == nil && problem == nil {
                         Text("Reading the rest…").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.subtleForeground)

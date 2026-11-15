@@ -1,5 +1,12 @@
 import type { InteractionRequest, LinkedPullRequest, ThreadStatus } from "@ace/protocol";
-import { forestTally, type AgentForest, type ForestTally } from "./agent-forest.ts";
+import {
+  forestAsker,
+  forestTally,
+  type AgentForest,
+  type AgentForestNode,
+  type ForestTally,
+  type ThreadWork,
+} from "./agent-forest.ts";
 import { pluralCount } from "./counts.ts";
 import { firstLine } from "./line-text.ts";
 import { formatSpan } from "./time.ts";
@@ -235,4 +242,60 @@ export function forestNow(
     live: forest.roots.some((root) => root.live),
     confirmed: forest.confirmed,
   };
+}
+
+/** Where Open goes for an asker: its row in its own thread, and the thread it delegated to. */
+export interface AskerTarget {
+  threadId: string;
+  agentId: string;
+  childThreadId: string | undefined;
+}
+
+/**
+ * Who Now names as needing the person: the deepest agent on the first branch that waits, what it
+ * asks (its own request or, for a delegate, its thread's main agent's), whether it is the viewed
+ * thread's own main agent, and where Open goes when it isn't.
+ */
+export function summaryAsker(
+  threadId: string,
+  forest: Pick<AgentForest, "roots">,
+  works: ReadonlyMap<string, Pick<ThreadWork, "interactions">>,
+):
+  | {
+      node: AgentForestNode;
+      root: boolean;
+      request: InteractionRequest | undefined;
+      open: AskerTarget | undefined;
+    }
+  | undefined {
+  const node = forestAsker(forest.roots);
+  if (!node) return undefined;
+  const pending = (thread: string, agent: string) =>
+    works.get(thread)?.interactions.find((interaction) => interaction.agentId === agent);
+  const own = pending(node.threadId, node.agent.id);
+  const delegated =
+    own || !node.childThread || !node.childRoot
+      ? undefined
+      : pending(node.childThread, node.childRoot.id);
+  const root = node.agent.origin === "root" && node.threadId === threadId;
+  return {
+    node,
+    root,
+    request: (own ?? delegated)?.request,
+    open: root
+      ? undefined
+      : {
+          threadId: node.threadId,
+          agentId: node.agent.id,
+          childThreadId: node.agent.machine ? undefined : node.agent.childThreadId,
+        },
+  };
+}
+
+/** The main agent's error, once it failed: what Now says under "Failed". */
+export function mainAgentError(forest: Pick<AgentForest, "roots">): string | undefined {
+  const main = forest.roots[0];
+  return main?.kind === "agent" && main.agent.status.state === "failed"
+    ? main.agent.status.error.message
+    : undefined;
 }

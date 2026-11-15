@@ -75,7 +75,10 @@ test("a goal shows on the pill between turns, and its sheet pauses and clears it
     () => pill()?.segments.length && pill()?.segments,
     "the goal on the pill",
   );
-  expect(segments).toEqual([{ kind: "goal", label: "Pursuing goal", opens: "goal", live: false }]);
+  // Its progress rides on the pill, as the web's goal strip shows it beside the status.
+  expect(segments).toEqual([
+    { kind: "goal", label: "Pursuing goal", detail: "2 checks", opens: "goal", live: false },
+  ]);
   expect(goal()).toMatchObject({
     title: "Pursuing goal",
     objective: "all tests pass",

@@ -146,3 +146,50 @@ test("a tool the app can't draw is never offered, opened or brought back", () =>
   panels.setAvailable(["changes", "files", "preview"]);
   expect(panels.view("t1").tools.map((tool) => tool.label)).toContain("Run and preview");
 });
+
+const withPages = { available: ["changes", "files", "terminal", "visualization"] };
+
+test("a visualization opens as its own titled tab, one per page, and never from the + menu", () => {
+  const panels = new TabletWorkspaces(withPages);
+  panels.apply("t1", {
+    op: "open",
+    kind: "visualization",
+    id: "page-1",
+    title: "Revenue by month",
+  });
+  panels.apply("t1", { op: "open", kind: "visualization", id: "page-2", title: "Latency" });
+  expect(titles(panels.view("t1"))).toEqual(["Revenue by month", "Latency"]);
+  expect(showing(panels.view("t1"))).toBe("Latency");
+  // Expanding the same page again shows the tab already open.
+  panels.apply("t1", {
+    op: "open",
+    kind: "visualization",
+    id: "page-1",
+    title: "Revenue by month",
+  });
+  const view = panels.view("t1");
+  expect(titles(view)).toEqual(["Revenue by month", "Latency"]);
+  expect(showing(view)).toBe("Revenue by month");
+  expect(view.tabs.map((tab) => tab.id)).toEqual(["page-1", "page-2"]);
+  expect(view.tools.map((tool) => tool.kind)).not.toContain("visualization");
+});
+
+test("a visualization needs its page, and a tool never takes one", () => {
+  const panels = new TabletWorkspaces(withPages);
+  expect(panels.apply("t1", { op: "open", kind: "visualization" })).toBe(false);
+  expect(panels.apply("t1", { op: "toggle", kind: "visualization" })).toBe(false);
+  expect(panels.apply("t1", { op: "open", kind: "terminal", id: "second" })).toBe(false);
+  expect(panels.view("t1").tabs).toEqual([]);
+});
+
+test("a visualization tab keeps its page and title across a relaunch", () => {
+  const storage = memory();
+  new TabletWorkspaces({ ...withPages, storage }).apply("t1", {
+    op: "open",
+    kind: "visualization",
+    id: "page-1",
+    title: "Revenue by month",
+  });
+  const again = new TabletWorkspaces({ ...withPages, storage }).view("t1");
+  expect(again.tabs.map((tab) => [tab.id, tab.title])).toEqual([["page-1", "Revenue by month"]]);
+});

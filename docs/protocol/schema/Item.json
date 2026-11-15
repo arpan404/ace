@@ -34,6 +34,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -88,6 +92,10 @@
             "$ref": "https://ace.local/protocol/v1/RawPayload.json"
           },
           "type": "array"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
         },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
@@ -160,6 +168,10 @@
             "$ref": "https://ace.local/protocol/v1/RawPayload.json"
           },
           "type": "array"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
         },
         "role": {
           "enum": [
@@ -270,6 +282,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "role": {
           "maxLength": 1024,
           "type": "string"
@@ -352,6 +368,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "results": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
@@ -411,6 +431,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -468,6 +492,10 @@
         "nativeId": {
           "maxLength": 256,
           "type": "string"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
         },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
@@ -547,6 +575,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -609,6 +641,10 @@
           },
           "type": "array"
         },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -670,6 +706,10 @@
             "$ref": "https://ace.local/protocol/v1/RawPayload.json"
           },
           "type": "array"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
         },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
@@ -742,6 +782,10 @@
         },
         "path": {
           "type": "string"
+        },
+        "rawOmitted": {
+          "const": true,
+          "type": "boolean"
         },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"

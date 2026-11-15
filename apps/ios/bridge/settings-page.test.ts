@@ -11,6 +11,7 @@ import {
   type PagePorts,
 } from "./settings-page.ts";
 import type { PageRow, SettingsPage } from "./settings-page-wire.ts";
+import { settingsIndex } from "./settings-index.ts";
 
 /*
  * Native settings pages over the real SDK and an in-process fake daemon: the Agents page in the
@@ -66,6 +67,26 @@ function row(shown: SettingsPage, id: string): PageRow {
 const labels = (entry: PageRow) =>
   entry.control.kind === "choice" ? entry.control.choices.map((choice) => choice.label) : [];
 
+test("Settings' search index names every row each page draws, under its page and section", async () => {
+  const p = await ports();
+  const { entries } = settingsIndex();
+  const pages = [...new Set(entries.map((entry) => entry.page))];
+  expect(pages).toEqual(expect.arrayContaining(["agents", "remote", "browser", "notifications"]));
+  for (const id of pages) {
+    const shown = await page(p, id);
+    const drawn = shown.sections.flatMap((section) =>
+      section.rows.map((entry) => ({
+        page: id,
+        pageTitle: shown.title,
+        section: section.title,
+        row: entry.id,
+        title: entry.title,
+      })),
+    );
+    expect(entries.filter((entry) => entry.page === id)).toEqual(drawn);
+  }
+});
+
 test("the Agents page names its sections and choices in the web's words", async () => {
   const p = await ports();
   const shown = await page(p, "agents");
@@ -113,6 +134,40 @@ test("a usage-limit choice is saved on the machine and the page says so", async 
   expect(limit.value).toBe("resume_at_reset");
   expect(limit.note).toBe("At the limit it waits and resumes when the window resets.");
   expect(limit.source?.label).toBe("This machine");
+});
+
+test("a machine's icon is picked from the web's set, kept in its colour, and saved on the machine", async () => {
+  const p = await ports();
+  await p.owner.request({
+    type: "settings.set",
+    key: "host.icon",
+    value: { kind: "laptop", color: "green" },
+    layer: { kind: "global" },
+  });
+  const icon = row(await page(p, "remote"), "host.icon");
+  expect(labels(icon)).toEqual([
+    "Laptop",
+    "Desktop",
+    "Monitor",
+    "Server",
+    "Cloud",
+    "CPU",
+    "Terminal",
+    "Phone",
+  ]);
+  const server =
+    icon.control.kind === "choice"
+      ? icon.control.choices.find((choice) => choice.label === "Server")
+      : undefined;
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "remote",
+    row: "host.icon",
+    value: server?.id,
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("host.icon")).toEqual({ kind: "server", color: "green" });
+  expect(row(written.page!, "host.icon").value).toBe(server?.id);
 });
 
 test("the child limit saves a count and No limit saves none", async () => {
@@ -339,6 +394,31 @@ test("the machine's other pages save lists and text, refusing what the setting w
   });
 });
 
+test("the Simulators page asks before turning a machine's simulators off, then saves it there", async () => {
+  const p = await ports();
+  const shown = await page(p, "simulators");
+  const enabled = row(shown, "devices.enabled");
+  // On until turned off, as on the web, and only turning it off asks first.
+  expect(enabled).toMatchObject({ title: "Use simulators and emulators", value: true });
+  expect(enabled.control).toEqual({
+    kind: "toggle",
+    askOff: {
+      title: "Turn off simulators and emulators?",
+      message: expect.stringContaining("Agents lose the devices they are using"),
+      confirm: "Turn off",
+    },
+  });
+  expect(row(shown, "devices.emulatorWindow").control).toEqual({ kind: "toggle" });
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "simulators",
+    row: "devices.enabled",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(p.daemon.services.settings.get("devices.enabled")).toBe(false);
+});
+
 /** A write that names the Build role's provider, sent alone or in a batch. */
 const touchesProvider = (message: { type: string; key?: string; entries?: { key: string }[] }) =>
   message.key === "providers.coder.provider" ||
@@ -399,4 +479,81 @@ test("the scope control never sends a change to a machine this phone may only vi
     send: ["studio"],
     footer: "Saved on studio. shared is view-only from this phone.",
   });
+});
+
+test("the Notifications page shows a machine's phone push as saved, and turning it off saves it there", async () => {
+  const daemon = fixture();
+  const p = await ports(daemon);
+  const shown = await page(p, "notifications");
+  const push = row(shown, "notifications.remotePush");
+  // On until turned off, with the line that says where the push goes.
+  expect(push).toMatchObject({ title: "Push when the app is closed", value: true });
+  expect(push.control).toEqual({ kind: "toggle" });
+  expect(shown.sections[0]?.footer).toContain("sees only encrypted data");
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "notifications",
+    row: "notifications.remotePush",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(daemon.services.settings.get("notifications.remotePush")).toBe(false);
+  expect(row(await page(p, "notifications"), "notifications.remotePush").value).toBe(false);
+});
+
+test("the Browser page reads ace's Chrome in the web's words and saves each choice", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("browser.downloadDefault", "/Users/ada/Downloads");
+  const shown = await page(p, "browser");
+  expect(shown.title).toBe("Browser");
+  expect(shown.sections.map((section) => section.title)).toEqual(["ace's Chrome", "Use my Chrome"]);
+  expect(labels(row(shown, "browser.backend"))).toEqual([
+    "App, then ace's Chrome",
+    "Desktop app only",
+    "ace's Chrome only",
+  ]);
+  expect(labels(row(shown, "browser.profile"))).toEqual(["Keep sign-ins", "Private"]);
+  expect(labels(row(shown, "browser.profileScope"))).toEqual([
+    "Global",
+    "Each project",
+    "Each thread",
+  ]);
+  expect(labels(row(shown, "browser.backendLoss"))).toEqual(["Pause", "Use ace's Chrome"]);
+  expect(row(shown, "browser.downloadDir").note).toBe(
+    "Empty uses this machine's Downloads folder.",
+  );
+
+  const engine = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.backend",
+    value: "headless",
+  });
+  expect(engine.ok).toBe(true);
+  expect(p.daemon.services.settings.get("browser.backend")).toBe("headless");
+  expect(row(engine.page!, "browser.backend").value).toBe("headless");
+  const scope = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.profileScope",
+    value: "thread",
+  });
+  expect(p.daemon.services.settings.get("browser.profileScope")).toBe("thread");
+  expect(row(scope.page!, "browser.profileScope").value).toBe("thread");
+  await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "browser",
+    row: "browser.userChrome.storageReads",
+    value: true,
+  });
+  expect(p.daemon.services.settings.get("browser.userChrome.storageReads")).toBe(true);
+});
+
+test("without a Downloads folder on the machine, the Browser page says downloads stay with each thread", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("browser.downloadDefault", "");
+  const shown = await page(p, "browser");
+  expect(row(shown, "browser.downloadDir").note).toBe(
+    "No usable Downloads folder here; empty keeps them with each thread.",
+  );
 });

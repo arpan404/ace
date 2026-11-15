@@ -15,7 +15,7 @@ import type { ChangesScope, Reads } from "./changes-scope.ts";
 
 /*
  * The Changes sheet's list patches: `changes.summary` (the scope's files with their counts and
- * viewed marks, the scopes on offer, what is open, the next git step) and `changes.tree` (the
+ * viewed marks, how many are viewed, the scopes on offer, what is open, the next git step) and `changes.tree` (the
  * same files as folder rows). Built when the pump reads them.
  */
 
@@ -59,6 +59,24 @@ function turnSummary(files: readonly ScopeFile[], listed: number) {
   };
 }
 
+/**
+ * How far the review has got: files viewed at their current diff, of every file in the scope
+ * (listed or not) that has a diff to read. A binary file has nothing to review.
+ */
+function progressOf(
+  files: readonly { path: string; binary: boolean }[],
+  viewed: (path: string) => boolean,
+) {
+  let reviewable = 0;
+  let seen = 0;
+  for (const file of files) {
+    if (file.binary) continue;
+    reviewable += 1;
+    if (viewed(file.path)) seen += 1;
+  }
+  return { viewed: seen, files: reviewable };
+}
+
 export function summaryPatch(input: SummaryInput): Record<string, unknown> {
   const { reads, preview, scope } = input;
   const limit = input.listLimit ?? defaultListed;
@@ -99,6 +117,7 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
     hidden: shown?.hidden ?? 0,
     partial: shown?.partial ?? false,
     totals: shown?.totals ?? { files: 0, additions: 0, deletions: 0 },
+    progress: progressOf(input.turnFiles ?? reads?.files ?? [], input.viewed),
     patchTruncated: scope.workingTree ? (reads?.patchTruncated ?? false) : false,
     open: input.open.map((path) => preview(path, 1024)),
     openLimit: input.openLimit,

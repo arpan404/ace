@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The places outside the thread lists, as the web's rail lists them: Pull requests, Issues,
-/// Automations, Skills, Usage, Machines and Settings. Search shows them before a query; the iPad
+/// Automations, Skills, Usage, History, Archived, Machines and Settings. Search shows them before a query; the iPad
 /// sidebar's rail shows the same places as glyphs. Spade stays out until it launches
 /// (`HomeTabs.showsSpade`): it comes back as a tab, not a place.
 enum SearchPlace: String, CaseIterable, Identifiable {
-    case pulls, issues, automations, skills, usage, machines, settings
+    case pulls, issues, automations, skills, usage, history, archived, machines, settings
 
     var id: String { rawValue }
 
@@ -16,6 +16,8 @@ enum SearchPlace: String, CaseIterable, Identifiable {
         case .automations: "Automations"
         case .skills: "Skills"
         case .usage: "Usage"
+        case .history: "History"
+        case .archived: "Archived"
         case .machines: "Machines"
         case .settings: "Settings"
         }
@@ -28,6 +30,8 @@ enum SearchPlace: String, CaseIterable, Identifiable {
         case .automations: SettingsTool.automations.icon
         case .skills: SettingsTool.skills.icon
         case .usage: SettingsTool.usage.icon
+        case .history: .clockCounterClockwise
+        case .archived: .archive
         case .machines: .desktop
         case .settings: .gearSix
         }
@@ -43,9 +47,12 @@ enum SearchPlace: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The places the app can open with the machines it has: a tool needs one paired.
+    /// Machines and Settings open with no machine paired; the rest read one.
+    var needsMachine: Bool { self != .machines && self != .settings }
+
+    /// The places the app can open with the machines it has.
     static func offered(paired: Bool) -> [SearchPlace] {
-        allCases.filter { paired || ($0.tool == nil && $0 != .pulls && $0 != .issues) }
+        allCases.filter { paired || !$0.needsMachine }
     }
 }
 

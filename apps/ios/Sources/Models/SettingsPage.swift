@@ -26,7 +26,8 @@ struct SettingsPageData: Decodable, Sendable, Equatable {
     }
 
     enum Control: Decodable, Sendable, Equatable {
-        case toggle
+        /// `askOff`: asked before turning it off, when that stops work in progress.
+        case toggle(askOff: Clear.Ask?)
         case choice(segmented: Bool, choices: [Choice])
         case text(placeholder: String)
         case number
@@ -34,11 +35,11 @@ struct SettingsPageData: Decodable, Sendable, Equatable {
         case model(picker: String, provider: String?, label: String, account: String?, clear: Clear?)
         case link(page: String, provider: String?, label: String)
 
-        private enum Keys: String, CodingKey { case kind, style, choices, placeholder, add, picker, provider, label, account, clear, page }
+        private enum Keys: String, CodingKey { case kind, style, choices, placeholder, add, picker, provider, label, account, clear, page, askOff }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
             switch try box.decode(String.self, forKey: .kind) {
-            case "toggle": self = .toggle
+            case "toggle": self = .toggle(askOff: try box.decodeIfPresent(Clear.Ask.self, forKey: .askOff))
             case "choice":
                 self = .choice(segmented: try box.decode(String.self, forKey: .style) == "segmented",
                                choices: try box.decode([Choice].self, forKey: .choices))

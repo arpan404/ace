@@ -228,3 +228,61 @@ it("daemon composition applies a fork's patch through git and supplies browser M
     lease.end();
   }
 });
+
+it("agent control failing at startup leaves transfers and machine links off, saying why", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-agent-control-off-"));
+  prepareDaemonHome(home);
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
+  vi.stubEnv("ACE_MAINTENANCE", "0");
+  const registry = new AdapterRegistry();
+  cleanups.push(() => registry.close());
+  let stuck = false;
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    history: { instances: [] },
+    modelInstances: [],
+    engine: { registry, clock: new ManualClock() },
+    startup: {
+      // Agent control's start runs past its deadline at once, as a stuck start would; its
+      // cleanup at shutdown keeps the real deadline.
+      schedule(name, expire, milliseconds) {
+        if (name === "agentControl" && !stuck) {
+          stuck = true;
+          queueMicrotask(expire);
+          return () => {};
+        }
+        const timer = setTimeout(expire, milliseconds);
+        return () => clearTimeout(timer);
+      },
+    },
+  });
+  cleanups.push(() => daemon.close());
+  const client = new Client(daemon.url);
+  cleanups.push(() => client.close());
+  await once(client.socket, "open");
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("agent-control-off"),
+    token: await readFile(daemon.tokenPath, "utf8"),
+  });
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  const reason = "agent control couldn't start. Restart ace to try again.";
+  client.send({ type: "transfers.request", requestId: "transfers", operation: { op: "list" } });
+  expect(await until(client, (message) => message.type === "transfers.result")).toMatchObject({
+    result: {
+      kind: "error",
+      code: "unavailable",
+      message: `Transfers are off on this machine: ${reason}`,
+    },
+  });
+  client.send({ type: "fleet.request", requestId: "links", operation: { op: "links" } });
+  expect(
+    await until(
+      client,
+      (message) =>
+        message.type === "error" && "requestId" in message && message.requestId === "links",
+    ),
+  ).toMatchObject({ code: "refused", message: `Machine links are off on this machine: ${reason}` });
+});

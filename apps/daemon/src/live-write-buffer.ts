@@ -1,5 +1,6 @@
 import type { Event, ThreadId } from "@ace/protocol";
 import { liveWriteRetryDelay } from "./live-write-retry.ts";
+import { EventEncodings } from "./event-encodings.ts";
 
 export interface BufferedSnapshot {
   persist(): void;
@@ -16,9 +17,7 @@ export const bufferScheduler: BufferScheduler = {
   },
 };
 
-const encodedBytes = (event: Event) => Buffer.byteLength(JSON.stringify(event));
 const weightOfBytes = (bytes: number) => bytes * 8 + 512;
-const weightOf = (event: Event) => weightOfBytes(encodedBytes(event));
 /** Rows a subscriber may already hold are written within this bound. */
 const eventDelayMs = 75;
 /** A batch without events (an agent's transport signals) carries only liveness times. Nobody has
@@ -36,9 +35,16 @@ export class LiveWriteBuffer {
   /** Consecutive failed attempts at the pinned batch; zero while healthy. */
   private failures = 0;
   readonly metrics = { flushes: 0, rows: 0, failures: 0, liveBytes: 0, peakBytes: 0 };
-  constructor(privateOptions: { scheduler: BufferScheduler; attempt(): void }) {
+  /** `encodings` is shared with the wire encoder, which sends these same events. */
+  constructor(privateOptions: {
+    scheduler: BufferScheduler;
+    attempt(): void;
+    encodings?: EventEncodings;
+  }) {
     this.options = privateOptions;
+    this.encodings = privateOptions.encodings ?? new EventEncodings();
   }
+  private readonly encodings: EventEncodings;
   private readonly options;
   get failed(): boolean {
     return this.failures > 0;
@@ -85,7 +91,7 @@ export class LiveWriteBuffer {
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
       // One encoding sizes both the weight and the metric.
-      const bytes = encodedBytes(event);
+      const bytes = this.encodings.bytes(event);
       this.weight += weightOfBytes(bytes);
       this.metrics.liveBytes += bytes;
       this.events.push(event);
@@ -158,7 +164,10 @@ export class LiveWriteBuffer {
       const gone = new Set(threads);
       for (const thread of gone) this.snapshots.delete(thread);
       this.events = this.events.filter((event) => !gone.has(event.threadId));
-      this.weight = this.events.reduce((total, event) => total + weightOf(event), 0);
+      this.weight = this.events.reduce(
+        (total, event) => total + weightOfBytes(this.encodings.bytes(event)),
+        0,
+      );
     }
     if (this.size) return;
     this.failures = 0;

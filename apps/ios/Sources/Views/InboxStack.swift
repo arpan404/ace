@@ -53,6 +53,8 @@ struct InboxStack<Destination: View, Side: View>: View {
     @State private var selecting = false
     /// The connection problem once it has lasted a moment, so a blip never flashes in the title.
     @State private var problem: InboxConnectionProblem?
+    /// Chats' filter field.
+    @State private var chatsQuery = ""
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// The scope: a row shows when its machine and project match.
@@ -108,8 +110,9 @@ struct InboxStack<Destination: View, Side: View>: View {
     @ViewBuilder private var listed: some View {
         if chats {
             ChatsList(inbox: inbox, includes: includes, whole: whole, scope: machine.isEmpty ? nil : inbox.name(machine),
-                      empty: chatsTab?.empty ?? "No chats yet", searching: false,
+                      empty: chatsTab?.empty ?? "No chats yet", searching: false, query: chatsQuery,
                       actions: ChatsActions(open: { key in picking.open(key) }, newChat: header.compose, rename: actions.rename))
+                .searchable(text: $chatsQuery, placement: .navigationBarDrawer(displayMode: .automatic), prompt: Text("Filter chats"))
         } else {
             InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
                       pair: header.pair, selection: selecting ? $selection : nil, header: AnyView(tabsBar))

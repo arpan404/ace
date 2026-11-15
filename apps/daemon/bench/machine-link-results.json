@@ -1,0 +1,189 @@
+{
+  "bench": "machine-link",
+  "startedAt": "2026-11-14T21:51:57.058Z",
+  "machine": {
+    "cpus": 16,
+    "loadBefore": [136.9326171875, 263.55322265625, 430.6015625],
+    "loadAfter": [328.06640625, 209.60205078125, 334.43408203125]
+  },
+  "seconds": 60,
+  "runs": [
+    {
+      "profile": "3g-slow",
+      "childState": "done",
+      "delegate": {
+        "ms": 1442,
+        "connections": 1,
+        "roundTrips": 3,
+        "downBytes": 2991,
+        "upBytes": 2185,
+        "stalls": 0
+      },
+      "finishToDoneAnswerMs": 2266,
+      "running": {
+        "seconds": 60,
+        "callsPerMinute": 25,
+        "statusPerMinute": 25,
+        "ops": {
+          "status": 25
+        },
+        "failed": 0,
+        "perCall": {
+          "medianMs": 1361,
+          "statusMedianMs": 1361,
+          "roundTrips": 3,
+          "downBytes": 3121,
+          "upBytes": 2092
+        },
+        "link": {
+          "connections": 25,
+          "roundTrips": 75,
+          "downBytes": 78021,
+          "upBytes": 52300,
+          "stalls": 1
+        }
+      },
+      "settled": {
+        "seconds": 60,
+        "callsPerMinute": 6,
+        "statusPerMinute": 6,
+        "ops": {
+          "status": 6
+        },
+        "failed": 0,
+        "perCall": {
+          "medianMs": 1357,
+          "statusMedianMs": 1357,
+          "roundTrips": 3,
+          "downBytes": 3160,
+          "upBytes": 2092
+        },
+        "link": {
+          "connections": 6,
+          "roundTrips": 18,
+          "downBytes": 18960,
+          "upBytes": 12552,
+          "stalls": 1
+        }
+      }
+    },
+    {
+      "profile": "3g-fast",
+      "childState": "done",
+      "delegate": {
+        "ms": 1060,
+        "connections": 1,
+        "roundTrips": 3,
+        "downBytes": 2991,
+        "upBytes": 2185,
+        "stalls": 0
+      },
+      "finishToDoneAnswerMs": 2030,
+      "running": {
+        "seconds": 60,
+        "callsPerMinute": 29,
+        "statusPerMinute": 29,
+        "ops": {
+          "status": 29
+        },
+        "failed": 0,
+        "perCall": {
+          "medianMs": 958,
+          "statusMedianMs": 958,
+          "roundTrips": 3.1,
+          "downBytes": 3198,
+          "upBytes": 2164
+        },
+        "link": {
+          "connections": 30,
+          "roundTrips": 90,
+          "downBytes": 92734,
+          "upBytes": 62760,
+          "stalls": 1
+        }
+      },
+      "settled": {
+        "seconds": 60,
+        "callsPerMinute": 6,
+        "statusPerMinute": 6,
+        "ops": {
+          "status": 6
+        },
+        "failed": 0,
+        "perCall": {
+          "medianMs": 953,
+          "statusMedianMs": 953,
+          "roundTrips": 3,
+          "downBytes": 3160,
+          "upBytes": 2092
+        },
+        "link": {
+          "connections": 6,
+          "roundTrips": 18,
+          "downBytes": 18960,
+          "upBytes": 12552,
+          "stalls": 0
+        }
+      }
+    },
+    {
+      "profile": "lan",
+      "childState": "done",
+      "delegate": {
+        "ms": 127,
+        "connections": 1,
+        "roundTrips": 3,
+        "downBytes": 2991,
+        "upBytes": 2185,
+        "stalls": 0
+      },
+      "finishToDoneAnswerMs": 149,
+      "running": {
+        "seconds": 60,
+        "callsPerMinute": 58,
+        "statusPerMinute": 58,
+        "ops": {
+          "status": 58
+        },
+        "failed": 0,
+        "perCall": {
+          "medianMs": 10,
+          "statusMedianMs": 10,
+          "roundTrips": 3,
+          "downBytes": 3121,
+          "upBytes": 2092
+        },
+        "link": {
+          "connections": 58,
+          "roundTrips": 174,
+          "downBytes": 181009,
+          "upBytes": 121336,
+          "stalls": 0
+        }
+      },
+      "settled": {
+        "seconds": 60,
+        "callsPerMinute": 6,
+        "statusPerMinute": 6,
+        "ops": {
+          "status": 6
+        },
+        "failed": 0,
+        "perCall": {
+          "medianMs": 14,
+          "statusMedianMs": 14,
+          "roundTrips": 3,
+          "downBytes": 3160,
+          "upBytes": 2092
+        },
+        "link": {
+          "connections": 6,
+          "roundTrips": 18,
+          "downBytes": 18960,
+          "upBytes": 12552,
+          "stalls": 0
+        }
+      }
+    }
+  ]
+}

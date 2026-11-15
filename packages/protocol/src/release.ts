@@ -46,6 +46,8 @@ export const DaemonHealth = z
     // Older daemons omit readiness. New daemons expose startup without declaring
     // themselves ready for managed clients before listener controllers are attached.
     ready: z.literal(true).optional(),
+    /** Admission, for the host token only (the local app's health check). Older daemons omit it. */
+    admission: MaintenanceStatus.optional(),
   })
   .meta({ examples: [{ running: true, version: "development", ready: true }] });
 

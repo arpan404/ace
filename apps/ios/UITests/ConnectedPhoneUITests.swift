@@ -9,7 +9,7 @@ import XCTest
     func testSendingWhileRowsArriveKeepsTheAppOpenAndComposerVisible() {
         let app = XCUIApplication()
         app.launchArguments = ["--chat-render-fixture"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.textViews["composer.input"].waitForExistence(timeout: 20))
         for index in 0..<6 {
             let input = app.textViews["composer.input"]
@@ -27,7 +27,7 @@ import XCTest
     func testLiveWorkShowsItsGroupsInPlaceAndAGroupOpensItsSteps() {
         let app = XCUIApplication()
         app.launchArguments = ["--chat-render-fixture", "--chat-work-fixture"]
-        app.launch()
+        app.launchWithArguments()
         let group = app.buttons["work.group.fixture-tools"]
         XCTAssertTrue(group.waitForExistence(timeout: 20))
         // A running turn has no fold of its own: its live "Working for" line carries the timer.
@@ -126,7 +126,7 @@ import XCTest
     func testOlderMessagesLoadInlineAndKeepTheReadingAnchor() {
         let app = XCUIApplication()
         app.launchArguments = ["--chat-render-fixture"]
-        app.launch()
+        app.launchWithArguments()
         let feed = app.scrollViews["transcript"]
         XCTAssertTrue(feed.waitForExistence(timeout: 20))
         let paging = app.descendants(matching: .any)["transcript.paging"]
@@ -229,9 +229,8 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Accessibility"].exists)
         capture("computer-use", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
-        app.buttons["App access and device preferences"].tap()
+        app.buttons["App access"].tap()
         XCTAssertTrue(app.staticTexts["Apps agents can't use"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.switches["Show emulator window"].waitForExistence(timeout: 30))
         capture("app-access-preferences", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
     }
@@ -271,7 +270,7 @@ import XCTest
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launch()
+        app.launchWithArguments()
         if !app.inboxReady.waitForExistence(timeout: 45) {
             capture("launch-needs-attention", app)
             XCTFail("Unlock ace on the connected iPhone and check its paired-machine connection")

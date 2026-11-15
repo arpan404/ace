@@ -5,6 +5,8 @@ import { relayCompression } from "./inflate.ts";
 import { AceAccountError } from "./ace-account.ts";
 import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
 import { RelayClosedError } from "./relay-closed.ts";
+import { RELAY_EARLY } from "./relay-early.ts";
+export { RELAY_EARLY } from "./relay-early.ts";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
 import { ClientError, type Transport } from "./types.ts";
 
@@ -33,6 +35,15 @@ export interface RelayRouteOptions {
   refused?(reason: MachineCodeRefusal, message: string, lockedUntil?: number): void;
   /** The daemon welcomed this attempt (`machineCodeGate.welcomed`). */
   welcomed?(): void;
+  /**
+   * A grant the relay most likely refused (`ClientOptions.grantRefused`). A browser can't tell a
+   * relay refusing a grant at the WebSocket upgrade from a dropped link, so it is named only
+   * after two attempts in a row that offered that same grant failed before their WebSocket
+   * opened. An attempt whose upgrade succeeded resets the count, however it ends after.
+   */
+  grantRefused?(grant: string): boolean;
+  /** Carry the first handshake message in the upgrade request (ADR 0155, step 3); default on. */
+  inUpgrade?: boolean | undefined;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -57,6 +68,29 @@ export function relayRoute(options: RelayRouteOptions): {
   credential(): Promise<Credential>;
 } {
   let pending: Credential | undefined;
+  /**
+   * This relay said it holds an early frame (ADR 0155, step 1), so a dial without a grant may
+   * offer to send early: memory only, for this route's life.
+   */
+  let earlyKnown = false;
+  /**
+   * An upgrade carrying the first message failed before it opened and the same dial without it
+   * opened (a relay or proxy that won't take the larger header): this route no longer carries it
+   * there, for its life (ADR 0155).
+   */
+  let upgradeRefused = false;
+  /** The grant the last attempt offered, when the relay failed before opening for it. */
+  let unopened: string | undefined;
+  /** An attempt offering `grant` failed before its WebSocket opened: twice in a row names it. */
+  const upgradeFailed = (grant: string | undefined) => {
+    if (grant === undefined) return;
+    if (unopened !== grant) {
+      unopened = grant;
+      return;
+    }
+    unopened = undefined;
+    options.grantRefused?.(grant);
+  };
   return {
     async credential() {
       const credential = pending;
@@ -107,15 +141,70 @@ export function relayRoute(options: RelayRouteOptions): {
             }
             if (stamp !== epoch) return;
             const { connectPortableRelay } = await import("./portable-relay.ts");
-            const opened = await connectPortableRelay({
-              relayUrl: options.relayUrl,
-              pinnedFingerprint: options.hostId,
-              socket: options.socket,
-              grant: relayGrant(credential),
-              keys: options.keys ?? ephemeralRelayKeys,
-              schedule: options.schedule,
-              signal,
-            });
+            const grant = relayGrant(credential);
+            /** The WebSocket upgrade succeeded: what fails after it says nothing of the grant. */
+            let upgraded = false;
+            // Offer to send early only where any relay answers something offered: with a grant
+            // (an older relay echoes it), or to a relay that said it is new.
+            const early = grant !== undefined || earlyKnown;
+            const dial = (sendEarly: boolean, inUpgrade = false) =>
+              connectPortableRelay({
+                relayUrl: options.relayUrl,
+                pinnedFingerprint: options.hostId,
+                socket: (url, protocols) => {
+                  const socket = options.socket(url, protocols);
+                  socket.addEventListener("open", () => {
+                    upgraded = true;
+                    unopened = undefined;
+                  });
+                  return socket;
+                },
+                grant,
+                keys: options.keys ?? ephemeralRelayKeys,
+                schedule: options.schedule,
+                signal,
+                early: sendEarly,
+                inUpgrade,
+              });
+            let opened: PortableRelay;
+            try {
+              // The first message rides in the upgrade wherever early sending is offered: with a
+              // grant, or to a relay that said it is new. Both answer something offered whether
+              // or not they know ace.v2, so the offer can't fail an upgrade they would accept.
+              const inUpgrade = early && !upgradeRefused && options.inUpgrade !== false;
+              try {
+                opened = await dial(early, inUpgrade);
+              } catch (error) {
+                if (stamp !== epoch) throw error;
+                const lost =
+                  error instanceof RelayClosedError && error.code === RELAY_EARLY.lostClose;
+                if (inUpgrade && !upgraded) {
+                  // Refused before it opened, maybe for its header: once more at once without
+                  // the message in it, and not again on this route. This failure doesn't count
+                  // toward naming the grant refused; the retry's does.
+                  upgradeRefused = true;
+                  try {
+                    opened = await dial(early);
+                  } catch (retried) {
+                    // Refused without it too: the header wasn't why. Offer it again next time.
+                    if (!upgraded) upgradeRefused = false;
+                    throw retried;
+                  }
+                } else if (early && lost)
+                  // The hosted relay lost the held frame: once more at once, after the marker.
+                  opened = await dial(false);
+                else throw error;
+              }
+            } catch (error) {
+              // Only an upgrade that failed may be the relay refusing the grant; a failure of
+              // this attempt, not one the connection called off.
+              if (stamp === epoch && !upgraded) upgradeFailed(grant);
+              // A relay that took the early offer before but not now may be an older one again.
+              if (stamp === epoch && !upgraded && grant === undefined) earlyKnown = false;
+              throw error;
+            }
+            earlyKnown = opened.earlyCapable === true;
+            unopened = undefined;
             if (stamp !== epoch) {
               opened.close();
               return;

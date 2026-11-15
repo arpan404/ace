@@ -1,9 +1,11 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThreadMeta, useThreadUnconfirmed } from "@ace/client-react";
+import { useThreadUnconfirmed } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
+import { threadProvider, threadRootAgentId, threadStatus } from "@/lib/thread-fields.ts";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
 import { pauseLabel, providerNames } from "@ace/ui-core";
-import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useStopping } from "../composer/stop-state.ts";
 import { useWatched, type Watched } from "@/lib/use-watched.ts";
 
@@ -28,12 +30,13 @@ const nothing: Watched<TurnActivity | undefined> = { value: undefined, watch: []
  * "done" may be working again, so the transcript never reads as at rest until it is confirmed.
  */
 export function useTurnActivity(threadId: string, enabled = true): TurnActivity | undefined {
-  const live = useLiveConnection();
+  // Behind after a reconnect (`syncing`) counts too: until the replay lands, the copy is old.
+  const live = useThreadFreshness(enabled ? threadId : undefined);
   const unconfirmed = useThreadUnconfirmed(enabled ? threadId : undefined);
   const labels = useStepLabels();
-  const meta = useThreadMeta(threadId);
-  const rootId = meta?.rootAgentId ?? "";
-  const status = meta?.status;
+  const rootId = useThreadField(threadId, threadRootAgentId) ?? "";
+  const status = useThreadField(threadId, threadStatus);
+  const provider = useThreadField(threadId, threadProvider);
   const keys = useMemo<readonly ThreadKey[]>(
     () =>
       enabled
@@ -58,7 +61,7 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
     : activity?.tone === "paused"
       ? {
           ...activity,
-          label: pauseLabel(meta ? providerNames[meta.provider] : undefined, undefined),
+          label: pauseLabel(provider ? providerNames[provider] : undefined, undefined),
         }
       : activity;
 }

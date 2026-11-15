@@ -10,11 +10,14 @@ struct ChangesSheet: View {
     let title: String
     /// A file whose diff opens first (from Files); otherwise the first file's.
     var initial: String?
+    /// The scope to show (the Summary asks for This thread); nil opens on the last turn. It goes
+    /// with the open, or to the open sheet, once: `scopeShown` lets the host forget it.
+    var scope: String? = nil
+    var scopeShown: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.panelHost) private var panelHost
     @State private var open: String?
-    @State private var reviewed: Set<String> = []
     @State private var wrap = true
     @State private var selection: LineSelection?
     /// One layer at a time over the sheet: a comment being written, replies, the review, the tree.
@@ -119,10 +122,19 @@ struct ChangesSheet: View {
         }
         .tint(AceTheme.Colours.foreground)
         .onAppear {
-            model.sheet(["kind": "changes", "open": true])
+            var opening: [String: Any] = ["kind": "changes", "open": true]
+            if let scope { opening["scope"] = scope }
+            model.sheet(opening)
+            if scope != nil { scopeShown?() }
             if let initial { model.sheet(["kind": "changes.scope", "scope": "working-tree"]); open(initial) }
         }
         .onDisappear { model.sheet(["kind": "changes", "open": false]) }
+        // Asked for while the sheet is already open.
+        .onChange(of: scope) { _, asked in
+            guard let asked else { return }
+            model.sheet(["kind": "changes.scope", "scope": asked])
+            scopeShown?()
+        }
         // The first file opens by itself once, as before; after that opening is the person's.
         .onChange(of: summary?.files.first?.path) { _, first in
             guard !opened, initial == nil, let first, summary?.open?.isEmpty ?? true else { return }
@@ -340,23 +352,30 @@ struct ChangedFileHeader: View {
             .frame(minHeight: AceDesign.Size.rowDetail).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // On the button itself, the element a long press lands on.
+        .contextMenu {
+            Button(reviewed ? "Mark as not viewed" : "Mark as viewed", systemImage: reviewed ? "eye.slash" : "eye", action: review)
+        }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .offset(x: drag)
         .background(alignment: drag < 0 ? .trailing : .leading) {
             // What the swipe does, revealed under the row as it moves.
             Text(reviewed ? "Not viewed" : "Viewed")
                 .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                .foregroundStyle(abs(drag) >= Self.reach * 0.8 ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
+                .foregroundStyle(HeaderSwipe.marks(drag, reach: Self.reach) ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
                 .padding(.horizontal, AceDesign.Space.margin)
                 .opacity(drag == 0 ? 0 : 1)
         }
         .background(AceTheme.Colours.background)
         .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
         .opacity(reviewed && !open ? AceDesign.Ink.settledOpacity : 1)
-        .simultaneousGesture(swipe)
-        .contextMenu {
-            Button(reviewed ? "Mark as not viewed" : "Mark as viewed", systemImage: reviewed ? "eye.slash" : "eye", action: review)
-        }
+        .gesture(HeaderSwipeGesture(
+            changed: { drag = HeaderSwipe.offset($0, reach: Self.reach) },
+            ended: { travel in
+                let marks = HeaderSwipe.marks(HeaderSwipe.offset(travel, reach: Self.reach), reach: Self.reach)
+                withAnimation { drag = 0 }
+                if marks { review() }
+            }))
         .sensoryFeedback(.selection, trigger: reviewed)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
@@ -365,19 +384,6 @@ struct ChangedFileHeader: View {
         .accessibilityIdentifier("changes.file.\(file.path)")
     }
 
-    /// A sideways drag on the row marks it; a mostly vertical one is the list scrolling.
-    private var swipe: some Gesture {
-        DragGesture(minimumDistance: AceDesign.Space.group)
-            .onChanged { value in
-                guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
-                drag = max(-Self.reach, min(Self.reach, value.translation.width))
-            }
-            .onEnded { _ in
-                let marks = abs(drag) >= Self.reach * 0.8
-                withAnimation { drag = 0 }
-                if marks { review() }
-            }
-    }
     private var path: some View {
         let folder = (file.path as NSString).deletingLastPathComponent
         let name = (file.path as NSString).lastPathComponent

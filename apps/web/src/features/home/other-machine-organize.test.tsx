@@ -47,7 +47,7 @@ async function twoMachines() {
   return { made, build };
 }
 
-const list = () => screen.getByRole("list", { name: "Threads" });
+const list = () => screen.getByRole("list", { name: "Projects" });
 /** A row's link; the list is looked up on each try, since the sidebar may replace it. */
 const row = (name: RegExp) => waitFor(() => within(list()).getByRole("link", { name }));
 

@@ -1,8 +1,10 @@
 import Foundation
 
-/// Device grants for one account machine's runtime. Every relay connection fetches a fresh one
-/// (`fresh`); the hello on that connection presents the same grant (`current`) unless it is
-/// about to lapse. Grants are never stored: they live five minutes and only in memory.
+/// Device grants for one account machine's runtime. A relay connection and the hello on it
+/// present the kept grant while it has more than `margin` left (`current`), so a reconnect
+/// costs no backend round trip before its socket opens; one the relay or daemon refused is
+/// dropped (`discard`), and an open socket's refresh always fetches anew (`fresh`). Grants are
+/// never stored: they live five minutes and only in memory.
 final class AccountGrants: @unchecked Sendable {
     /// A grant this close to expiry is not offered again.
     static let margin: Double = 60_000
@@ -30,9 +32,18 @@ final class AccountGrants: @unchecked Sendable {
         return grant.token
     }
     func current() async throws(AccountGrantError) -> String {
-        let kept = lock.withLock { latest }
-        if let kept, kept.expiresAt - now() > Self.margin { return kept.token }
+        if let kept = kept() { return kept }
         return try await fresh()
+    }
+    /// The kept grant, if it has more than `margin` left; never fetches.
+    func kept() -> String? {
+        let kept = lock.withLock { latest }
+        guard let kept, kept.expiresAt - now() > Self.margin else { return nil }
+        return kept.token
+    }
+    /// `token` was refused: the next connection fetches a new grant. A newer one is kept.
+    func discard(_ token: String) {
+        lock.withLock { if latest?.token == token { latest = nil } }
     }
 }
 
@@ -80,14 +91,17 @@ struct RelayRoute: Sendable {
     let grants: AccountGrants
 
     var isValid: Bool { clientURL != nil && NoiseFingerprint.isHostId(hostId) }
-    /// `/client?hostId=…` on the relay. WSS, or WS on loopback for development.
-    var clientURL: URL? {
+    var clientURL: URL? { clientURL(purpose: nil) }
+    /// `/client?hostId=…` on the relay, with `&purpose=media` for a media connection's stream.
+    /// WSS, or WS on loopback for development.
+    func clientURL(purpose: String?) -> URL? {
         guard var components = URLComponents(url: relayURL, resolvingAgainstBaseURL: false),
               relayURL.user == nil, relayURL.password == nil, relayURL.query == nil, relayURL.fragment == nil else { return nil }
         let loopback = ["localhost", "127.0.0.1", "::1"].contains(components.host ?? "")
         guard components.scheme == "wss" || (components.scheme == "ws" && loopback) else { return nil }
         components.path = "/client"
         components.queryItems = [URLQueryItem(name: "hostId", value: hostId)]
+            + (purpose.map { [URLQueryItem(name: "purpose", value: $0)] } ?? [])
         return components.url
     }
 }

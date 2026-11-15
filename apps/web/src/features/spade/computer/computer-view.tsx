@@ -11,8 +11,8 @@ import {
   GlobeIcon,
   MonitorIcon,
   TerminalWindowIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -24,7 +24,7 @@ import { FileManager } from "./file-manager.tsx";
 import { SurfacePicture } from "./surface-picture.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
 
-export const surfaceIcons: Record<SpadeSurfaceKind, PhosphorIcon> = {
+export const surfaceIcons: Record<SpadeSurfaceKind, GlyphIcon> = {
   browser: GlobeIcon,
   screen: MonitorIcon,
   terminal: TerminalWindowIcon,

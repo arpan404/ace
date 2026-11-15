@@ -2,6 +2,12 @@
   "$id": "https://ace.local/protocol/v1/ScreenState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "acceleration": {
+      "$ref": "https://ace.local/protocol/v1/MediaAcceleration.json"
+    },
+    "agentPointer": {
+      "$ref": "https://ace.local/protocol/v1/AgentPointer.json"
+    },
     "capabilities": {
       "$ref": "https://ace.local/protocol/v1/ScreenCapabilities.json"
     },
@@ -40,6 +46,9 @@
     "permissions": {
       "$ref": "https://ace.local/protocol/v1/DevicePermissions.json"
     },
+    "personActive": {
+      "type": "boolean"
+    },
     "secureInputAllowed": {
       "default": false,
       "type": "boolean"
@@ -47,8 +56,16 @@
     "sessionId": {
       "$ref": "https://ace.local/protocol/v1/ScreenId.json"
     },
+    "sharing": {
+      "$ref": "https://ace.local/protocol/v1/CoworkSharing.json"
+    },
     "target": {
       "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+    },
+    "threadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     }
   },
   "required": [

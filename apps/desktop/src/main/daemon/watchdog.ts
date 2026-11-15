@@ -1,3 +1,14 @@
+/** The app's main thread coming back from a freeze: when, and after how long. */
+export interface Thaw {
+  at: number;
+  frozenMs: number;
+}
+
+/** Tells when the app's main thread last came back from a freeze (`diagnostics/main-beat.ts`). */
+export interface FreezeSignal {
+  lastThaw(): Thaw | undefined;
+}
+
 export interface WatchdogOptions {
   /** Pause between one check's outcome and the next check. */
   intervalMs: number;
@@ -16,6 +27,11 @@ export interface WatchdogOptions {
    */
   lateToleranceMs?: number;
   log(level: "info" | "warn", message: string, data: Record<string, unknown>): void;
+  /**
+   * The app's one main-thread beat, read on `now`'s clock. Without it the watch beats on its
+   * own every 500 ms to notice the app freezing.
+   */
+  freezes?: FreezeSignal | undefined;
   /** Called once, after `failures` missed checks in a row. The watchdog has stopped by then. */
   onUnresponsive(missed: number): void;
 }
@@ -43,22 +59,20 @@ export function watchHealth(options: WatchdogOptions): () => void {
   let late: Promise<boolean> | undefined;
   let cancel: (() => void) | undefined;
   const tolerance = options.lateToleranceMs ?? 2_000;
-  /** When the app was last seen coming back from a freeze. */
-  let thawedAt: number | undefined;
-  let frozenMs = 0;
+  /** When the app was last seen coming back from a freeze, by its own beat. */
+  let ownThaw: Thaw | undefined;
   let beatAt = options.now();
   let cancelBeat: (() => void) | undefined;
   const beat = () => {
     const now = options.now();
     const gap = now - beatAt - BEAT_MS;
-    if (gap > tolerance) {
-      thawedAt = now;
-      frozenMs = Math.round(gap);
-    }
+    if (gap > tolerance) ownThaw = { at: now, frozenMs: Math.round(gap) };
     beatAt = now;
     if (!stopped) cancelBeat = options.timers.set(BEAT_MS, beat);
   };
-  cancelBeat = options.timers.set(BEAT_MS, beat);
+  const freezes = options.freezes;
+  if (!freezes) cancelBeat = options.timers.set(BEAT_MS, beat);
+  const lastThaw = () => (freezes ? freezes.lastThaw() : ownThaw);
   /** When the in-flight probe was sent. */
   let sentAt = 0;
 
@@ -96,9 +110,10 @@ export function watchHealth(options: WatchdogOptions): () => void {
       cancel = undefined;
       const now = options.now();
       const timeoutLateMs = answer === "timeout" ? now - startedAt - options.timeoutMs : 0;
-      if (answer !== true && (timeoutLateMs > tolerance || (thawedAt ?? -1) >= since)) {
+      const thaw = lastThaw();
+      if (answer !== true && (timeoutLateMs > tolerance || (thaw?.at ?? -1) >= since)) {
         options.log("info", "The app froze during a daemon health check; checking again", {
-          frozenMs: Math.round(Math.max(frozenMs, timeoutLateMs)),
+          frozenMs: Math.round(Math.max(thaw?.frozenMs ?? 0, timeoutLateMs)),
           missed,
         });
         // After the I/O the freeze held back: an answer waiting in the socket counts.

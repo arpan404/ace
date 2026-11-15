@@ -11,6 +11,9 @@ struct AutomationEditor: View {
     let saved: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var form: AutomationFormValues?
+    /// New automation's starting points, kept from the form's opening: a preview of the form
+    /// describes it again without them.
+    @State private var ideas: [AutomationIdea] = []
     @State private var view: AutomationFormView?
     @State private var choices: AutomationFormView.Choices?
     @State private var pick: AutomationPick?
@@ -43,6 +46,7 @@ struct AutomationEditor: View {
         Group {
             if let form = Binding($form) {
                 List {
+                    ideasSection(form.wrappedValue)
                     about(form)
                     agentSection(form)
                     if let view, let choices {
@@ -251,6 +255,34 @@ struct AutomationEditor: View {
         [form?.workspace, pick?.provider, pick?.key, pick?.account, form?.access].map { $0 ?? "" }.joined(separator: "\u{0}")
     }
 
+    /// A new automation's starting points while nothing is written yet: one fills the form.
+    @ViewBuilder private func ideasSection(_ current: AutomationFormValues) -> some View {
+        if editing == nil, current.prompt.isEmpty, !ideas.isEmpty {
+            Section {
+                ForEach(ideas) { idea in
+                    Button {
+                        withAnimation(motion) {
+                            // The idea keeps the project already chosen; a blank one takes the first.
+                            var chosen = idea.form
+                            if let workspace = form?.workspace, !workspace.isEmpty { chosen.workspace = workspace }
+                            else if chosen.workspace.isEmpty, let first = model.compose.projects.first { chosen.workspace = first.path }
+                            form = chosen
+                        }
+                        Task { await preview(nil) }
+                    } label: {
+                        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                            Text(idea.prompt).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                            Text(idea.label).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                        }
+                        .padding(.vertical, AceDesign.Space.tight)
+                    }
+                    .accessibilityIdentifier("automation.idea.\(idea.label)")
+                }
+            } header: { InsetHeader("Start from an idea") }
+            .insetRowBackground()
+        }
+    }
+
     // MARK: Bridge
 
     private func open() async {
@@ -264,6 +296,7 @@ struct AutomationEditor: View {
             guard reply.ok, reply.form != nil else { problem = reply.error ?? "Couldn't open this automation."; return }
             withAnimation(motion) {
                 view = reply
+                ideas = reply.ideas ?? []
                 choices = reply.choices
                 pick = reply.pick
                 form = reply.form

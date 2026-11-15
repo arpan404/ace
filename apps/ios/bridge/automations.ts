@@ -1,4 +1,11 @@
 import type { ClientCore } from "@ace/client";
+import {
+  actionLabel,
+  automationLine,
+  lineText,
+  type LineAction,
+  type ThreadAutomation,
+} from "@ace/ui-core/automations";
 import { Automation, AutomationRequest, AutomationSource, type AutomationRun } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import {
@@ -64,6 +71,12 @@ export const AutomationsRestoreRequest = z.object({
   type: z.literal("automations.restore"),
   automation: Automation,
 });
+/** The one line a thread's automations put above its composer (the web's strip). */
+export const AutomationsThreadLineRequest = z.object({
+  type: z.literal("automations.threadLine"),
+  threadId: id,
+  zone: Zone,
+});
 /** Run now (with a note), Pause or Resume, Retry a stopped trigger, Delete. */
 export const AutomationsWriteRequest = z.object({
   type: z.literal("automations.write"),
@@ -81,6 +94,7 @@ export const NativeAutomationRequest = z.union([
   AutomationsHistoryRequest,
   AutomationsDuplicateRequest,
   AutomationsRestoreRequest,
+  AutomationsThreadLineRequest,
   FormOpen,
   FormPreview,
   FormSave,
@@ -106,6 +120,27 @@ const refused = (code: string | undefined): Reply => ({
   error: automationErrorMessage(code),
 });
 const timeout = { timeoutMs: 20_000 };
+
+/**
+ * One of the line's actions as the phone sends it: Pause and Resume as the automations page's
+ * own write, addressed to the thread's store; Open and Open run by what they open.
+ */
+function lineAction(action: LineAction): Record<string, unknown> {
+  const label = actionLabel(action);
+  if (action.kind === "pause" || action.kind === "resume")
+    return {
+      label,
+      write: {
+        type: "automation.setEnabled",
+        id: action.id,
+        enabled: action.kind === "resume",
+        source: "thread",
+        ...(action.revision === undefined ? {} : { expectedRevision: action.revision }),
+      },
+    };
+  if (action.kind === "open") return { label, automationId: action.automationId ?? null };
+  return { label, threadId: action.threadId };
+}
 
 /** The project's folder name, "ace-next" for "/Users/me/ace-next". */
 const folderName = (path: string) => path.split(/[\\/]/).findLast(Boolean) ?? path;
@@ -229,6 +264,8 @@ export class NativeAutomations {
           ? { ok: true, note: runSummary(reply.run) }
           : { ok: true };
       }
+      case "automations.threadLine":
+        return this.#threadLine(request.threadId, request.zone ?? this.#deps.zone(), signal);
       case "automations.form.open":
         return formOpen(request, this.#deps);
       case "automations.form.preview":
@@ -236,6 +273,38 @@ export class NativeAutomations {
       case "automations.save":
         return formSave(request, this.#deps, (put) => this.#put(put, signal));
     }
+  }
+
+  /**
+   * The thread's automations in the web strip's one sentence, each action named, Pause and
+   * Resume as the write they send (`automations.write`); null when the thread has none.
+   */
+  async #threadLine(threadId: string, zone: string, signal: AbortSignal): Promise<Reply> {
+    const reply = await this.#deps.owner.request(
+      { type: "automation.list", includeThreads: true },
+      { signal, ...timeout },
+    );
+    if (!reply.ok) return refused(reply.error);
+    const entries: ThreadAutomation[] = (reply.threadAutomations ?? [])
+      .filter((entry) => entry.threadId === threadId)
+      .map((entry) => ({
+        automation: entry.automation,
+        threadId: entry.threadId,
+        nextRunAt: entry.nextRunAt ?? undefined,
+        revision: entry.revision,
+        triggerError: entry.triggerError,
+        lastRun: entry.lastRun,
+      }));
+    const line = automationLine(entries, { now: this.#deps.now(), localZone: zone });
+    if (!line) return { ok: true, line: null };
+    return {
+      ok: true,
+      line: {
+        text: lineText(line),
+        segments: line.segments,
+        actions: line.actions.map(lineAction),
+      },
+    };
   }
 
   async #page(zone: string, signal: AbortSignal): Promise<Reply> {

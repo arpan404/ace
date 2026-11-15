@@ -1,6 +1,6 @@
 import type { ProviderGoal } from "@ace/protocol";
 import { pluralCount } from "./counts.ts";
-import { goalTitle } from "./goal.ts";
+import { goalTitle, goalUsage } from "./goal.ts";
 import { timedWords, type TurnActivity } from "./turn-activity.ts";
 import { waitWords } from "./wait-words.ts";
 
@@ -39,6 +39,8 @@ export interface PillSegment {
   opens: PillOpens;
   /** An active goal while the thread works sweeps like the status. */
   live: boolean;
+  /** A goal's progress, "120K / 500K tokens · 14m 2s · 3 checks"; absent when none is reported. */
+  detail?: string | undefined;
 }
 
 export interface LivePill {
@@ -145,13 +147,16 @@ function segmentsOf(facts: LivePillFacts, status: PillStatus | undefined): PillS
     });
   if (queued > 0)
     segments.push({ kind: "queue", label: `${queued} queued`, opens: "queue", live: false });
-  if (goal)
+  if (goal) {
+    const detail = goalUsage(goal);
     segments.push({
       kind: "goal",
       label: goalTitle(goal.status),
       opens: "goal",
       live: goal.status === "active" && status?.live === true,
+      ...(detail ? { detail } : {}),
     });
+  }
   return segments;
 }
 

@@ -50,6 +50,22 @@ import Testing
         #expect(host.snoozes[key] == host.rows[key]?.snoozedUntil)
     }
 
+    @Test func undoOfASettlePutsASnoozeUntilThePRChangesBackWithItsEvent() async {
+        let host = FakeHost()
+        let key = InboxKey(machineId: "mac", id: "a")
+        var row = FakeHost.row("a", snoozedUntil: host.clock() + 30 * 86_400_000)
+        row.snoozeOn = "pr"
+        host.rows[key] = row
+        host.answers = [BulkOutcome(saved: ["a"]), BulkOutcome(saved: ["a"])]
+        let organize = InboxOrganize()
+        await organize.run(.settle, [key], in: host)
+        let undo = try! #require(organize.undo)
+        #expect(await organize.takeBack(undo, in: host))
+        // The backstop alone would wake it in a month; the PR is what it waits for.
+        #expect(host.snoozes[key] == row.snoozedUntil)
+        #expect(host.wakes[key] == "pr")
+    }
+
     @Test func undoOfAMoveSendsEachThreadBackToItsOwnProject() async {
         let host = FakeHost()
         let a = InboxKey(machineId: "mac", id: "a"), b = InboxKey(machineId: "mac", id: "b")
@@ -120,6 +136,92 @@ import Testing
         host.finish("organize-1", BulkOutcome(saved: ["b"], refused: [.init(threadId: "b", message: "Stop its agents first.")]))
         await settle { organize.undo?.keys == [a] }
         #expect(organize.undo?.text == "Moved thread to notes")
+        #expect(organize.problem == "Stop its agents first.")
+    }
+
+    @Test func aSelectionAcrossMachinesMovesEachMachinesThreadsToAProjectOnThatMachine() async {
+        let host = FakeHost()
+        let a = InboxKey(machineId: "studio", id: "a"), b = InboxKey(machineId: "laptop", id: "b"), c = InboxKey(machineId: "studio", id: "c")
+        host.rows[a] = FakeHost.row("a", workspaceId: "ace"); host.rows[b] = FakeHost.row("b", workspaceId: "web")
+        host.rows[c] = FakeHost.row("c", workspaceId: "ace")
+        let organize = InboxOrganize()
+        let ask = MoveAsk(keys: [a, b, c])
+        #expect(ask.machines.map { "\($0.machineId):\($0.ids.joined())" } == ["studio:ac", "laptop:b"])
+        await organize.move([
+            MoveGroup(keys: [a, c], project: ComposeProject(id: "notes", name: "notes", path: "/n", recent: false)),
+            MoveGroup(keys: [b], project: ComposeProject(id: "site", name: "site", path: "/s", recent: false)),
+        ], in: host)
+        #expect(host.sent.map { "\($0.machineId):\($0.ids.joined()):\($0.workspaceId ?? "")" } == ["studio:ac:notes", "laptop:b:site"])
+        // One toast for the whole move, naming no single project, and one Undo back to each.
+        let undo = try! #require(organize.undo)
+        #expect(undo.text == "Moved 3 threads")
+        #expect(Set(undo.keys) == [a, b, c])
+        #expect(await organize.takeBack(undo, in: host))
+        let back = host.sent.dropFirst(2).map { "\($0.machineId):\($0.ids.sorted().joined()):\($0.workspaceId ?? "")" }.sorted()
+        #expect(back == ["laptop:b:web", "studio:ac:ace"])
+    }
+
+    @Test func aMoveAcrossMachinesNamesEachThreadAMachineRefused() async {
+        let host = FakeHost()
+        let a = InboxKey(machineId: "studio", id: "a"), b = InboxKey(machineId: "laptop", id: "b"), c = InboxKey(machineId: "laptop", id: "c")
+        host.rows[a] = FakeHost.row("a", title: "Fix login", workspaceId: "ace")
+        host.rows[b] = FakeHost.row("b", title: "Tidy docs", workspaceId: "web")
+        host.rows[c] = FakeHost.row("c", title: "Ship it", workspaceId: "web")
+        host.answers = [
+            BulkOutcome(refused: [.init(threadId: "a", message: "Stop its agents first.")]),
+            BulkOutcome(saved: ["c"], refused: [.init(threadId: "b", message: "The thread is gone.")]),
+        ]
+        let organize = InboxOrganize()
+        await organize.move([
+            MoveGroup(keys: [a], project: ComposeProject(id: "notes", name: "notes", path: "/n", recent: false)),
+            MoveGroup(keys: [b, c], project: ComposeProject(id: "site", name: "site", path: "/s", recent: false)),
+        ], in: host)
+        let problem = try! #require(organize.problem)
+        #expect(problem.hasPrefix("Couldn't move 2 threads:"))
+        #expect(problem.contains("“Fix login”: Stop its agents first."))
+        #expect(problem.contains("“Tidy docs”: The thread is gone."))
+        // The thread that moved can still be taken back.
+        #expect(organize.undo?.keys == [c])
+        #expect(organize.undo?.text == "Moved thread")
+    }
+
+    /// Studio's move waits on its machine; the laptop is still being asked when studio's last
+    /// answer lands.
+    private func moveWhileAnotherMachineIsAsked(studioFinally final: BulkOutcome) async -> (InboxOrganize, InboxKey, InboxKey) {
+        let host = FakeHost()
+        let a = InboxKey(machineId: "studio", id: "a"), b = InboxKey(machineId: "laptop", id: "b")
+        host.rows[a] = FakeHost.row("a", title: "Fix login", workspaceId: "ace")
+        host.rows[b] = FakeHost.row("b", workspaceId: "web")
+        host.answers = [BulkOutcome(saved: ["a"], waiting: ["a"])]
+        host.held = ["laptop"]
+        let organize = InboxOrganize()
+        let moving = Task {
+            await organize.move([
+                MoveGroup(keys: [a], project: ComposeProject(id: "notes", name: "notes", path: "/n", recent: false)),
+                MoveGroup(keys: [b], project: ComposeProject(id: "site", name: "site", path: "/s", recent: false)),
+            ], in: host)
+        }
+        await settle { host.sent.count == 2 }
+        host.finish("organize-1", final)
+        await settle { organize.pending.isEmpty }
+        host.release("laptop", BulkOutcome(saved: ["b"]))
+        await moving.value
+        return (organize, a, b)
+    }
+
+    @Test func aMachineThatMovesItsThreadWhileAnotherIsAskedCountsInTheToast() async {
+        let (organize, a, b) = await moveWhileAnotherMachineIsAsked(studioFinally: BulkOutcome(saved: ["a"]))
+        let undo = try! #require(organize.undo)
+        #expect(undo.text == "Moved 2 threads", "nothing left waiting")
+        #expect(Set(undo.keys) == [a, b])
+    }
+
+    @Test func aMachineThatRefusesWhileAnotherIsAskedLeavesItsThreadOutOfUndo() async {
+        let (organize, _, b) = await moveWhileAnotherMachineIsAsked(
+            studioFinally: BulkOutcome(saved: ["a"], refused: [.init(threadId: "a", message: "Stop its agents first.")]))
+        let undo = try! #require(organize.undo)
+        #expect(undo.keys == [b], "a refused move is never taken back as if it moved")
+        #expect(undo.text == "Moved thread")
         #expect(organize.problem == "Stop its agents first.")
     }
 
@@ -195,17 +297,26 @@ import Testing
 }
 
 @MainActor private final class FakeHost: OrganizeHost {
-    struct Sent { let action: BulkAction; let ids: [String]; let workspaceId: String?; let ticket: String }
+    struct Sent { let action: BulkAction; let ids: [String]; let workspaceId: String?; let ticket: String; var machineId = "" }
     var answers: [BulkOutcome] = []
     var sent: [Sent] = []
     var rows: [InboxKey: ThreadRow] = [:]
     var snoozes: [InboxKey: Double] = [:]
+    var wakes: [InboxKey: String] = [:]
     private var finals: [String: CheckedContinuation<BulkOutcome?, Never>] = [:]
     private var early: [String: BulkOutcome] = [:]
 
+    /// Machines whose first answer waits until `release`.
+    var held: Set<String> = []
+    private var heldBulks: [String: CheckedContinuation<BulkOutcome, Never>] = [:]
     func bulk(_ machineId: String, _ action: BulkAction, _ ids: [String], workspaceId: String?, force: Bool, ticket: String) async -> BulkOutcome {
-        sent.append(Sent(action: action, ids: ids, workspaceId: workspaceId, ticket: ticket))
+        sent.append(Sent(action: action, ids: ids, workspaceId: workspaceId, ticket: ticket, machineId: machineId))
+        if held.contains(machineId) { return await withCheckedContinuation { heldBulks[machineId] = $0 } }
         return answers.isEmpty ? BulkOutcome(saved: ids) : answers.removeFirst()
+    }
+    func release(_ machineId: String, _ outcome: BulkOutcome) {
+        held.remove(machineId)
+        heldBulks.removeValue(forKey: machineId)?.resume(returning: outcome)
     }
     func final(_ machineId: String, ticket: String) async -> BulkOutcome? {
         if let outcome = early.removeValue(forKey: ticket) { return outcome }
@@ -215,7 +326,9 @@ import Testing
         if let waiting = finals.removeValue(forKey: ticket) { waiting.resume(returning: outcome) } else { early[ticket] = outcome }
     }
     var snoozeRefusal: String?
-    func snooze(_ key: InboxKey, until: Double?) async -> String? { snoozes[key] = until; return snoozeRefusal }
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String? {
+        snoozes[key] = until; wakes[key] = wake; return snoozeRefusal
+    }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? { nil }
     func row(_ key: InboxKey) -> ThreadRow? { rows[key] }
     func clock() -> Double { 1_800_000_000_000 }

@@ -96,6 +96,11 @@ struct AnnotationChip: Codable, Sendable, Equatable, Identifiable {
     /// uploading, ready or failed.
     let state: String
 }
+/// A passage of an agent's message the next message replies to (`bridge/thread-quotes.ts`).
+struct QuoteChip: Codable, Sendable, Equatable, Identifiable {
+    let id: String
+    let text: String
+}
 /// The live pill over the composer (`bridge/thread-pill.ts`, worded by `livePill` in
 /// `@ace/ui-core`): what the thread does now, and what else is live, each part naming the sheet it
 /// opens (`agents`, `queue`, `goal`; empty opens nothing).
@@ -140,6 +145,8 @@ struct PillRow: Codable, Sendable, Equatable {
         let label: String
         let opens: String
         let live: Bool
+        /// A goal's progress ("182K tokens · 32m 0s · 3 checks"); empty or nil when none.
+        var detail: String? = nil
         var id: String { kind }
     }
     let status: Status?
@@ -191,6 +198,9 @@ enum ScreenPatch: Sendable {
     /// `locked`: why no file can be added now (a new thread is starting from this message).
     case attachments([AttachmentFile], locked: String?)
     case annotations([AnnotationChip])
+    /// The passages the next message replies to; `full` once no more fit; `kept`, each whole for
+    /// the draft to keep.
+    case quotes([QuoteChip], full: Bool, kept: [DraftQuote])
     case laneBlock(lane: String, id: String, row: BlockRow?)
     case laneBlockPosition(lane: String, id: String, index: Int?)
     /// What the open lane's subagent is: its prompt, branch state, requests and controls.
@@ -209,8 +219,8 @@ enum ScreenPatch: Sendable {
     /// What bringing this fork back to its parent starts with.
     case mergeDraft(MergeDraftRow)
 
-    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
-    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, leftRunning, opened, draft, items, info }
+    static let types: Set<String> = ["thread.work", "thread.continued", "thread.switchAsk", "thread.steps", "thread.stepsPage", "thread.stepsReleased", "thread.tune", "thread.access", "thread.attachments", "thread.annotations", "thread.quotes", "thread.laneBlock", "thread.laneBlockPosition", "thread.laneInfo", "thread.pill", "thread.transitions", "thread.fork", "thread.mergeDraft"]
+    private enum Keys: String, CodingKey { case type, ordinal, page, rows, files, locked, lane, id, row, index, pill, goal, leftRunning, opened, draft, items, info, full, kept }
     init(type: String, from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         switch type {
@@ -231,6 +241,9 @@ enum ScreenPatch: Sendable {
         case "thread.fork": self = .fork(try box.decodeIfPresent(ForkDraftRow.self, forKey: .draft))
         case "thread.mergeDraft": self = .mergeDraft(try MergeDraftRow(from: decoder))
         case "thread.annotations": self = .annotations(try box.decode([AnnotationChip].self, forKey: .items))
+        case "thread.quotes":
+            self = .quotes(try box.decode([QuoteChip].self, forKey: .items), full: try box.decodeIfPresent(Bool.self, forKey: .full) ?? false,
+                           kept: try box.decodeIfPresent([DraftQuote].self, forKey: .kept) ?? [])
         case "thread.laneInfo":
             self = .laneInfo(lane: try box.decode(String.self, forKey: .lane), info: try box.decodeIfPresent(SubagentInfo.self, forKey: .info))
         case "thread.laneBlock":

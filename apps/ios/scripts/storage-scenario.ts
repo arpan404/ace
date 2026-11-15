@@ -76,3 +76,20 @@ export function seedAppUpdate(daemon: FakeDaemon): void {
     },
   });
 }
+
+/**
+ * ace's own update as the machine page's Software shows it: 0.0.19 on offer, run a step every
+ * second once started, so the phone sees its progress and result.
+ */
+export function seedMachineUpdate(daemon: FakeDaemon): void {
+  daemon.machineUpdate.seed({ state: "available", available: "0.0.19", busy: 0 });
+  daemon.machineUpdate.autoplay(
+    {
+      set: (delay, callback) => {
+        const timer = setTimeout(callback, delay);
+        return () => clearTimeout(timer);
+      },
+    },
+    1000,
+  );
+}

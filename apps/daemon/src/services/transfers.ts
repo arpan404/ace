@@ -1,6 +1,7 @@
 import { TransferCommands as TransferCommandSchemas, type TransfersResult } from "@ace/protocol";
 import { TransferError } from "../transfers/ports.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { featureOff } from "./feature-off.ts";
 
 /** What a person reads when a transfer is refused before it runs. */
 const admissionDetails: Partial<Record<string, string>> = {
@@ -61,7 +62,7 @@ export function createTransfersSession(context: SocketContext): SocketService {
         if (!transfers)
           return refuse(
             "transfers_unavailable",
-            "Transfers aren't ready on this machine yet. Try again in a moment.",
+            featureOff(options.serviceStatus, "transfers", "Transfers"),
           );
         if (command.payload.type === "thread.continueOn") {
           if (!authorize("operate"))
@@ -99,7 +100,7 @@ export function createTransfersSession(context: SocketContext): SocketService {
           code: !allowed() ? "forbidden" : "unavailable",
           message: !allowed()
             ? "This device can't manage projects here."
-            : "Transfers aren't ready on this machine yet.",
+            : featureOff(options.serviceStatus, "transfers", "Transfers"),
         });
         return true;
       }

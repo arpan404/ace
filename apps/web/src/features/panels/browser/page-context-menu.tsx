@@ -13,7 +13,7 @@ import {
   ImageIcon,
   LinkIcon,
   PlusSquareIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ReactElement } from "react";
 import { Icon } from "@/components/icon.tsx";
 import {

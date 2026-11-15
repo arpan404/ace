@@ -40,6 +40,8 @@ export interface StagedSend {
   attachments: (LocalAttachment & { sha256?: string | undefined; at?: number | undefined })[];
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
+  /** The root run a steer is aimed at. */
+  runId?: string | null | undefined;
   /** Why it can't go as it is, in words; undefined while its files upload. */
   failed?: string | undefined;
   /** View-only: a predecessor still owns this submission's place. */

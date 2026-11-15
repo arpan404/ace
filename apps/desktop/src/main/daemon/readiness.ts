@@ -2,9 +2,23 @@ import type { LocalDaemon } from "./probe.ts";
 
 /** How often a start looks for the daemon's endpoint and asks for its admission again. */
 const POLL_MS = 200;
+/**
+ * While the endpoint file is watched, a change wakes the lookup at once; this is only the
+ * fallback, for a change the watch missed.
+ */
+const WATCHED_POLL_MS = 1_000;
+
+/** Changes to the home's `daemon-endpoint`, which a daemon writes once it listens. */
+export interface EndpointWatch {
+  /** Settles on the next change, or at once for one since the last call. */
+  changed(): Promise<void>;
+  close(): void;
+}
 
 export interface ReadinessPorts {
   find(): Promise<LocalDaemon | undefined>;
+  /** Watches the endpoint file while a start waits; undefined where it cannot be watched. */
+  watchEndpoint?: (() => EndpointWatch | undefined) | undefined;
   maintenance(
     daemon: LocalDaemon,
   ): Promise<{ draining: boolean; holds?: readonly string[] | undefined }>;
@@ -16,9 +30,23 @@ export interface ReadinessPorts {
 const pause = (ports: ReadinessPorts) =>
   new Promise<void>((resolve) => ports.timers.set(POLL_MS, resolve));
 
+/** The next endpoint change (true), or the fallback poll (false), whichever comes first. */
+function nextChange(ports: ReadinessPorts, watch: EndpointWatch): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cancel = ports.timers.set(WATCHED_POLL_MS, () => resolve(false));
+    void watch.changed().then(() => {
+      cancel();
+      resolve(true);
+    });
+  });
+}
+
 /**
  * Look for a daemon serving this home until one answers, `live` turns false (the start was
- * superseded, or our child exited) or `timeoutMs` passes.
+ * superseded, or our child exited) or `timeoutMs` passes. Where the endpoint file can be
+ * watched, the lookups wait for the daemon to write it (once it listens), with a slow poll
+ * behind that. From then on they poll every 200 ms as without a watch: a daemon answers its
+ * status before it is ready, and turning ready changes no file.
  */
 export async function waitForDaemon(
   ports: ReadinessPorts,
@@ -26,10 +54,23 @@ export async function waitForDaemon(
   live: () => boolean,
 ): Promise<LocalDaemon | undefined> {
   const deadline = ports.now() + timeoutMs;
-  while (live() && ports.now() < deadline) {
-    const found = await ports.find();
-    if (found) return found;
-    await pause(ports);
+  let watch = ports.watchEndpoint?.();
+  try {
+    while (live() && ports.now() < deadline) {
+      const found = await ports.find();
+      if (found) return found;
+      if (!watch) {
+        await pause(ports);
+        continue;
+      }
+      if (await nextChange(ports, watch)) {
+        // Published: the daemon is coming up, and its readiness is polled for.
+        watch.close();
+        watch = undefined;
+      }
+    }
+  } finally {
+    watch?.close();
   }
   return undefined;
 }

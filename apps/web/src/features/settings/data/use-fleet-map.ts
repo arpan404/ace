@@ -6,10 +6,14 @@ import { hostedRelayUrl } from "@/boot/account-config.ts";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { useNow } from "@/lib/time.ts";
-import { reach } from "./fleet-links.ts";
-import { fleetMapFacts } from "./fleet-map-facts.ts";
-import { hostOf } from "./fleet-map-networks.ts";
-import type { AccountOpening, FleetMap, FleetMapInput } from "./fleet-map-types.ts";
+import {
+  reach,
+  fleetMapFacts,
+  hostOf,
+  type AccountOpening,
+  type FleetMap,
+  type FleetMapInput,
+} from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./setting-keys.ts";
 import { useFleet, type Fleet } from "./use-fleet.ts";
 import { useRemoteStatus, useSettingControl } from "./use-settings.ts";

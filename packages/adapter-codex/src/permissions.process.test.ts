@@ -94,6 +94,15 @@ test("resetting a persisted native thread restores configured defaults before re
     resetPermissions: true,
   });
   try {
+    // The configured defaults are read while the profile catalog is, not after it.
+    const sent = (method: string) =>
+      h.frames.findIndex((f) => f.dir === "send" && obj(f.data).method === method);
+    const catalog = h.frames[sent("permissionProfile/list")];
+    const catalogReply = h.frames.findIndex(
+      (f) => f.dir === "recv" && obj(f.data).id === obj(catalog?.data).id,
+    );
+    expect(sent("config/read")).toBeGreaterThan(-1);
+    expect(sent("config/read")).toBeLessThan(catalogReply);
     const resume = h.frames.find((f) => f.dir === "send" && obj(f.data).method === "thread/resume");
     expect(obj(obj(resume?.data).params)).toMatchObject({
       permissions: ":workspace",

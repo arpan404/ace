@@ -19,7 +19,11 @@ export interface ModelPick {
 }
 
 export type PageControl =
-  | { kind: "toggle" }
+  | {
+      kind: "toggle";
+      /** Asked before turning it off; absent when turning it off is safe. */
+      askOff?: { title: string; message: string; confirm: string };
+    }
   | { kind: "choice"; style: "menu" | "segmented"; choices: PageChoice[] }
   | { kind: "text"; placeholder: string }
   | { kind: "number" }

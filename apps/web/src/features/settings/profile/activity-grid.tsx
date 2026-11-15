@@ -3,7 +3,7 @@ import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useElementWidth } from "@/lib/use-element-width.ts";
 import { monthLabelGap, monthLabelWidth, visibleMonthLabels } from "./month-labels.ts";
-import type { ActivityCell, ProfileStats } from "./stats.ts";
+import type { ActivityCell, ProfileStats } from "@ace/ui-core";
 
 const longDay = new Intl.DateTimeFormat("en-US", {
   month: "short",

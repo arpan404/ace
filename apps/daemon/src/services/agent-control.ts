@@ -1,3 +1,4 @@
+import { freshLimitsWaitMs } from "../account-management.ts";
 import { logError } from "@ace/diagnostics";
 import type { RunRole } from "@ace/protocol";
 import { runRoles } from "@ace/settings/roles";
@@ -7,6 +8,9 @@ import { createAgentOwners } from "../agent-control/owners.ts";
 import { DelegationService } from "../agent-control/delegations.ts";
 import { createAgentControlPort } from "../agent-control/tools.ts";
 import { systemClock } from "../engine/actor.ts";
+import { providerFacts } from "../agent-control/provider-facts.ts";
+import { refreshAcpAgentAuth } from "../acp-agent-status.ts";
+import { probeOutput } from "@ace/provider-kit/process";
 import type { ServiceContext } from "./types.ts";
 import { createWorkspaceDelegations } from "../agent-control/workspaces.ts";
 import { createConversationStarts } from "../agent-control/conversations.ts";
@@ -28,6 +32,8 @@ export function startAgentControl(context: ServiceContext): void {
     providerEnabled: (provider, instance) =>
       services.providerConfigurations?.for(provider, instance).enabled !== false,
     ...(services.modelsReady ? { modelsReady: services.modelsReady } : {}),
+    freshLimits: () =>
+      services.accountManagement?.limits.fresh(freshLimitsWaitMs) ?? Promise.resolve(),
     // A model the person set in Settings → Roles for this provider covers an invalid agent
     // guess; the role the child's name suggests is tried first.
     async configuredModel(_caller, request) {
@@ -49,6 +55,29 @@ export function startAgentControl(context: ServiceContext): void {
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
     maxRunningChildren: () => services.childLimit?.current(),
     admitsWork: () => maintenance?.admit() ?? false,
+    refreshProvider: providerFacts({
+      ensureProvider: (provider) => engine.ensureProvider(provider),
+      async acpLogin(instanceId, signal) {
+        const registry = services.accountRegistry;
+        const agents = services.agentRegistry;
+        if (!registry || !agents) return;
+        await refreshAcpAgentAuth({
+          registry,
+          installed: agents.inventory.all(),
+          env: options.providerStatus?.env ?? process.env,
+          now,
+          probe: probeOutput,
+          signal,
+          only: instanceId,
+        });
+      },
+      now,
+      schedule(run, milliseconds) {
+        const timer = setTimeout(run, milliseconds);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    }),
     onError: (error) => log.log("error", "Agent control failure", logError(error)),
   });
   resources.own(() => delegations.close());

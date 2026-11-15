@@ -86,7 +86,7 @@ private struct LivePillLabel: View {
             case .status(let status):
                 StatusWords(status: status)
             case .segment(let segment):
-                Text(segment.label).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
+                SegmentWords(segment: segment)
             }
         }
         .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
@@ -115,6 +115,21 @@ private struct LivePillLabel: View {
                     .accessibilityHidden(true)
             default: EmptyView()
             }
+        }
+    }
+}
+
+/// A part's words in muted ink; a goal's progress follows its state after a middle dot, quieter
+/// still, as the web's goal strip reads ("Pursuing goal · 182K tokens · 3 checks").
+private struct SegmentWords: View {
+    let segment: PillRow.Segment
+    var body: some View {
+        if let detail = segment.detail, !detail.isEmpty {
+            (Text(segment.label).foregroundStyle(AceDesign.Ink.muted)
+                + Text(verbatim: " · \(detail)").foregroundStyle(AceDesign.Ink.subtle))
+                .monospacedDigit()
+        } else {
+            Text(segment.label).monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
         }
     }
 }

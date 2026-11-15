@@ -22,7 +22,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 bun install --frozen-lockfile
 node tools/release/src/build.ts 1.0.0 linux-arm64 /secure/ace-public.pem
 node tools/release/src/glibc-check.ts tools/release/dist/linux-arm64
-node tools/release/src/smoke.ts tools/release/dist/linux-arm64
+node tools/release/src/smoke.ts tools/release/dist/linux-arm64 --unsigned-archive
 # The desktop release from the same container: AppImage, deb, tar.gz and latest-linux*.yml,
 # staged with SHA256SUMS in dist/releases/v1.0.0 (docs/releasing.md). --with-daemon also
 # builds, signs and stages this host's daemon archive (it needs the private key file).
@@ -92,3 +92,26 @@ Like install.sh, the script pins both Windows archive hashes, then the bundled N
 ## Verification
 
 The repo owner requires workers to use static checks only; tests, probes, benchmarks and mutations are deferred to merge. Use fake service-manager executables only when the merge runner executes the behaviour tests. The non-gating hash benchmark entry point is `bench/hash.ts`. The artifact smoke entry point is `src/smoke.ts`; running it on every target needs run at merge. Packaging smoke checks must run the artifact on each target, open a real PTY, start on an isolated ACE_HOME/port, query status, and terminate it. Do not launch provider CLIs or the recorder. See `verification/report.md` for static review, historical evidence and the cases awaiting merge execution.
+
+## Archive and desktop smoke modes
+
+The pre-signing archive step runs `node tools/release/src/smoke.ts RELEASE_ROOT
+--unsigned-archive`. The original root-only invocation remains equivalent. It checks file
+checksums, media version/exit, the terminal and daemon health/shutdown without requiring a
+desktop package or release authority.
+
+After signing TARGET.json to TARGET.sig, run `node tools/release/src/smoke.ts RELEASE_ROOT
+--signed-archive --manifest TARGET.json --public-key PUBLIC_KEY.pem`. The manifest, signature
+and completed archive must be together. This authenticates the archive before launching its
+packaged code. The local release driver runs the unsigned smoke before signing and this
+signed smoke afterwards. Disabled workflow builds use the unsigned mode explicitly because
+they do not have a private release authority.
+
+Desktop packaging separately captures the staged Mac helper's designated requirement, team
+and bundle id in `apps/desktop/dist/screen-helper-identity.json`, and compares all three after
+packaging. Only production Mac packages also enforce the committed Developer ID baseline.
+To repeat a local desktop smoke, append `--desktop PATH_TO_APP --local --screen-identity
+apps/desktop/dist/screen-helper-identity.json`. Release desktop checks omit `--local`.
+Authenticode verification is independent of archive authentication: add
+`--verify-authenticode` only when the Windows executable has a configured certificate or
+Azure signer. Unsigned Windows desktop builds keep their existing warning and skip it.

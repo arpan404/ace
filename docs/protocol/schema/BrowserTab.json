@@ -2,6 +2,9 @@
   "$id": "https://ace.local/protocol/v1/BrowserTab.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "agentPointer": {
+      "$ref": "https://ace.local/protocol/v1/AgentPointer.json"
+    },
     "audible": {
       "type": "boolean"
     },
@@ -57,6 +60,9 @@
     },
     "pending_dialog": {
       "$ref": "https://ace.local/protocol/v1/BrowserDialog.json"
+    },
+    "personActive": {
+      "type": "boolean"
     },
     "playing": {
       "type": "boolean"

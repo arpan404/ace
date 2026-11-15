@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { formatAgo } from "@ace/ui-core";
-import { CheckCircleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon } from "@ace/icons";
 import { useThreadActions } from "@/features/organize/index.ts";
 import { useNow } from "@/lib/time.ts";
 

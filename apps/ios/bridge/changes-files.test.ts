@@ -106,3 +106,60 @@ test("a cut file's pages parse once each into the rows a one-shot parse of the w
   expect(readers[0]?.lines).toBe(patch.split("\n").length - 1);
   expect(header()).toMatchObject({ version: "v1" });
 });
+
+test("a file longer than the bridge holds reads on in parts, each holding one part, and the parts add up to the whole", async () => {
+  const { patch, readPage } = servedPatch();
+  const sink = new RecordingSink();
+  const files = new OpenFiles({
+    sink,
+    preview: plainPreview,
+    threadId: "t",
+    epoch: 1,
+    diffs: new TurnDiffs(),
+    readPage,
+    layout: () => "unified",
+    viewed: () => false,
+    limits: { rows: 20, lineLength: 2000, runSlack: 5, open: 4, wholeLine: 1000, heldText: 1500 },
+  });
+  const path = "src/long.ts";
+  files.open(path, { source: { kind: "daemon", path, from: null, round: 1 }, version: "" });
+  const header = () => sink.read("changes:file:f00001");
+  const shown: MobileRow[] = [];
+  const parts: number[] = [];
+  for (let part = 0; part < 20; part++) {
+    await until(() => header()?.state === "ready" && header()?.part === part, `part ${part}`);
+    for (let tries = 0; tries < 2000 && header()?.remaining !== 0; tries++) {
+      files.more(path);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    let rows = 0;
+    for (let index = 0; ; index++) {
+      const page = sink.read(`changes:page:f00001:${index}`);
+      if (!page) break;
+      expect(page.part).toBe(part);
+      rows += (page.lines as MobileRow[]).length;
+      shown.push(...(page.lines as MobileRow[]));
+    }
+    parts.push(rows);
+    if (!header()?.onward) break;
+    expect(header()).toMatchObject({ cut: true, complete: true });
+    expect(files.onward(path)).toBe(true);
+  }
+  const whole: DiffRow[] = gitPatchFiles(patch)[0]?.rows ?? [];
+  expect(parts.length).toBeGreaterThan(2);
+  // No part holds the whole file: each stops near what the bridge holds.
+  expect(Math.max(...parts)).toBeLessThan(whole.length / 2);
+  expect(header()).toMatchObject({ onward: false, cut: false, complete: true });
+  expect(shown.map(({ kind, old, new: next, text }) => ({ kind, old, next, text }))).toEqual(
+    whole.map((row) =>
+      row.kind === "fold"
+        ? { kind: "fold", old: null, next: null, text: "" }
+        : { kind: row.kind, old: row.old ?? null, next: row.new ?? null, text: row.text },
+    ),
+  );
+
+  expect(files.rewind(path)).toBe(true);
+  await until(() => header()?.state === "ready" && header()?.part === 0, "back to the first part");
+  expect(sink.read("changes:page:f00001:0")?.part).toBe(0);
+  expect(files.onward(path)).toBe(false);
+});

@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
+import { ThreadId } from "@ace/protocol";
 import type { AgentSheet } from "@ace/ui-core/mobile";
+import "./test-host.ts";
 import { followAgents } from "./agents.ts";
-import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
+import { dispatchCommand } from "./commands.ts";
+import { lostChild, plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -18,7 +21,7 @@ async function opened(threadId: string, seed: Fact[]) {
   await client.start();
   const lease = client.thread(threadId);
   await until(() => lease.store.thread !== undefined, "thread snapshot");
-  return { daemon, store: lease.store };
+  return { daemon, client, store: lease.store };
 }
 function sheet(sink: RecordingSink): AgentSheet {
   const patch = sink.read("thread:agents");
@@ -348,5 +351,58 @@ describe("Agents sheet", () => {
     expect(held?.reason).toMatch(/^out of usage until \d{1,2}:23/);
     // One subagent is still held at its limit, so the tree is not finished.
     expect(sheet(sink).summary.token).not.toBe("done");
+  });
+
+  test("a lost child on another machine offers Stop tracking, which answers its parent and leaves the row", async () => {
+    const child = "child-a";
+    const { agent, facts: lost } = lostChild(child);
+    const { daemon, client, store } = await opened("parent", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      ...lost,
+    ]);
+    // The daemon settles a child the person stopped tracking, as cancelled.
+    daemon.onResolved((threadId, key) => {
+      if (threadId === "parent" && key === "lost")
+        daemon.apply("parent", [
+          {
+            type: "agent.external",
+            agent,
+            threadId: ThreadId.parse(child),
+            status: { state: "done" },
+          },
+        ]);
+    });
+    const sink = new RecordingSink();
+    followAgents(store, "parent", 1, sink, plainPreview);
+    const row = () => sheet(sink).rows.find((candidate) => candidate.childThreadId === child);
+    await until(() => row()?.lost != null, "the lost child's action");
+    expect(row()?.needsYou).toBe(true);
+    const offer = row()?.lost;
+    expect(offer).toMatchObject({
+      sentence: "Lost: Studio is no longer paired; its work there may still be running.",
+      action: "Stop tracking",
+      label: "Stop tracking; its work on Studio may still be running",
+    });
+    // Only the lost child offers it; the root, which waits on it, doesn't.
+    expect(sheet(sink).rows.filter((candidate) => candidate.lost !== null)).toHaveLength(1);
+    // Stop tracking goes out as Swift sends it: the parent's request, answered with its option.
+    await dispatchCommand(
+      client,
+      {
+        type: "interaction.resolve",
+        interactionId: offer?.interactionId,
+        resolution: { kind: "approval", optionId: offer?.optionId },
+      },
+      "stop",
+      sink,
+    );
+    await until(() => daemon.resolution("parent", "lost") !== undefined, "the answer");
+    expect(daemon.resolution("parent", "lost")).toEqual({
+      kind: "approval",
+      optionId: "stop-tracking",
+    });
+    await until(() => row()?.lost === null && !row()?.needsYou, "the row settles");
+    expect(row()?.requests).toEqual([]);
   });
 });

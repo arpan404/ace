@@ -1,4 +1,4 @@
-import { repositoryLabel } from "@ace/ui-core";
+import { milestoneDue, repositoryLabel } from "@ace/ui-core";
 import { useReviewSources } from "./review-sources.ts";
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -374,9 +374,7 @@ function NewPrForm(props: {
               ...milestones.map((each) => ({
                 value: String(each.number),
                 label: each.title,
-                hint: each.dueOn
-                  ? `Due ${new Date(each.dueOn).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`
-                  : undefined,
+                hint: milestoneDue(each.dueOn) ?? undefined,
               })),
             ]}
             picked={[milestone ? String(milestone) : ""]}

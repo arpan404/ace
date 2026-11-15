@@ -14,10 +14,15 @@ import {
   linkDeviceIds,
   linkGaps,
   type FleetMachineFacts,
+  type FleetReads,
   type LinkGap,
-} from "./fleet-links.ts";
+} from "@ace/ui-core/fleet-map";
 import type { PairedDevice } from "./fleet.ts";
 import { useFleetUpdate } from "./use-fleet-update.ts";
+
+/** Read only when the latest fetch returned: data kept from before a failed refetch is stale. */
+const latest = (query: { data?: unknown; isError: boolean } | undefined) =>
+  query?.data !== undefined && !query.isError;
 
 /**
  * Everything the Fleet pages read, from every machine at once: their links, devices, open
@@ -47,6 +52,15 @@ export function useFleet() {
     if (list) deviceLists.set(machine.id, list);
   }
   const joined = fleetDevices(deviceLists, linkIds);
+  /** The machines whose devices and links the latest read returned; the rest are unknown. */
+  const reads: FleetReads = {
+    devices: new Set(
+      machines.filter((machine) => latest(devices.get(machine.id))).map((machine) => machine.id),
+    ),
+    links: new Set(
+      machines.filter((machine) => latest(links.get(machine.id))).map((machine) => machine.id),
+    ),
+  };
 
   const byId = (id: string) => machines.find((machine) => machine.id === id);
   const refresh = (ids: readonly string[]) =>
@@ -112,6 +126,7 @@ export function useFleet() {
     update,
     gaps,
     joined,
+    reads,
     link,
     unlink,
     refresh,

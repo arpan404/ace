@@ -1,4 +1,5 @@
 import type {
+  ForgeRepository,
   ForgeIssueList,
   ForgeIssueRow,
   ForgePrList,
@@ -31,6 +32,7 @@ import {
   readEach,
   type ListSource,
 } from "./forge-list-sources.ts";
+import type { MergePick } from "./forge-merge-run.ts";
 import type { ForgeReads } from "./forge-reads.ts";
 import {
   filterChoices,
@@ -90,13 +92,17 @@ const screenful = 25;
 interface Labelled {
   repositoryLabel: string | null;
 }
+/** A ready row can be picked for one verified merge (`forge-merge-run.ts`), pinned to its head. */
+interface Pickable {
+  mergePick: MergePick | null;
+}
 
 export interface PullsReply {
   type: "forge.pulls";
   repository: string;
   /** Each state's count for the State choice: open includes drafts. */
   counts: { open: number; merged: number; closed: number } | null;
-  groups: ForgeGroupView<PrRowView & Labelled>[];
+  groups: ForgeGroupView<PrRowView & Labelled & Pickable>[];
   more: boolean;
   /** One sentence per repository that couldn't be read; the others' rows still show. */
   failed: string[];
@@ -113,6 +119,8 @@ export interface IssuesReply {
   authors: string[];
   labels: string[];
   canCreate: boolean;
+  /** The repository New issue opens on (the primary, as the web's): null where it can't. */
+  createOn: ForgeRepository | null;
 }
 
 const identity = (row: ForgePrRow) => keyOf(row);
@@ -248,16 +256,29 @@ export async function readPulls(
       id: group.id,
       label: group.label,
       count: byReadiness ? (more || !complete ? null : group.rows.length) : total,
-      rows: group.rows.map((row) => ({
-        ...prRowView(
-          row,
-          stepOf(row),
-          linked,
-          preview,
-          repositoryCapabilities(row.ref.repository, entries),
-        ),
-        repositoryLabel: labelled ? repositoryLabel(row.ref.repository) : null,
-      })),
+      rows: group.rows.map((row) => {
+        const source = repositoryCapabilities(row.ref.repository, entries);
+        return {
+          ...prRowView(row, stepOf(row), linked, preview, source),
+          repositoryLabel: labelled ? repositoryLabel(row.ref.repository) : null,
+          // As the web's list: by next step, a ready row with a known head merges verified.
+          mergePick:
+            byReadiness &&
+            stepOf(row).step === "merge" &&
+            can(source, "reviews.merge") &&
+            row.headSha &&
+            row.baseBranch
+              ? {
+                  key: identity(row),
+                  repository: row.ref.repository,
+                  number: row.ref.number,
+                  headSha: row.headSha,
+                  base: row.baseBranch,
+                  title: preview(row.title, 512),
+                }
+              : null,
+        };
+      }),
     })),
     more,
     failed: unlisted ? [unlisted, ...failed] : failed,
@@ -292,6 +313,9 @@ export async function readIssues(
   const first = lists[0]?.first;
   const complete = answeredInFull(sources, lists, unlisted);
   const primary = answers.find((answer) => answer.source.repository === undefined);
+  const creatable =
+    !!primary?.value.first.canCreate &&
+    can(primary.source.capabilitySource ?? primary.value.first.repository, "issues.write");
   return {
     type: "forge.issues",
     repository: first ? `${first.repository.owner}/${first.repository.name}` : "",
@@ -319,9 +343,8 @@ export async function readIssues(
       search,
     ),
     // New issues open on the primary, which is read without naming it.
-    canCreate:
-      !!primary?.value.first.canCreate &&
-      can(primary.source.capabilitySource ?? primary.value.first.repository, "issues.write"),
+    canCreate: creatable,
+    createOn: creatable && primary ? primary.value.first.repository : null,
   };
 }
 

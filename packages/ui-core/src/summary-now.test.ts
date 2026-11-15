@@ -1,6 +1,6 @@
-import { Agent, type AgentStatus } from "@ace/protocol";
+import { Agent, Interaction, type AgentStatus } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { agentForest, forestNow, nowLine, type ThreadWork } from "./index.ts";
+import { agentForest, forestNow, nowLine, summaryAsker, type ThreadWork } from "./index.ts";
 
 const idle: AgentStatus = { state: "idle" };
 const working: AgentStatus = { state: "working", activity: "tool" };
@@ -113,4 +113,54 @@ test("a working thread reads its time after a middle dot, with the full phrase f
   expect(line.span).toBe("17m");
   expect(line.speak).toBe("working for 17 minutes");
   expect(line.sub).toBe("2 agents working · 1 command running");
+});
+
+const question = (threadId: string, agentId: string, text: string) =>
+  Interaction.parse({
+    id: `${threadId}-${agentId}-ask`,
+    agentId,
+    threadId,
+    blocking: true,
+    state: "pending",
+    request: { kind: "question", questions: [{ id: "q", text, options: [] }] },
+    createdAt: 0,
+  });
+const waiting = idle;
+
+test("a delegated thread's main agent asking is named by its delegate, which Open goes to", () => {
+  const works = new Map([
+    ["t1", work([agent("t1", "root", idle), agent("t1", "a", working, "root", "t2")])],
+    [
+      "t2",
+      work([agent("t2", "root", waiting)], {
+        interactions: [question("t2", "root", "Which branch?")],
+      }),
+    ],
+  ]);
+  const asker = summaryAsker("t1", agentForest("t1", works), works);
+  expect(asker?.root).toBe(false);
+  expect(asker?.request?.kind).toBe("question");
+  expect(asker?.node.agent.id).toBe("a");
+  expect(asker?.open).toEqual({ threadId: "t1", agentId: "a", childThreadId: "t2" });
+});
+
+test("the viewed thread's own main agent asking is the main agent, with nothing to open", () => {
+  const works = new Map([
+    [
+      "t1",
+      work([agent("t1", "root", waiting)], {
+        interactions: [question("t1", "root", "Ship it?")],
+      }),
+    ],
+  ]);
+  const asker = summaryAsker("t1", agentForest("t1", works), works);
+  expect(asker?.root).toBe(true);
+  expect(asker?.open).toBeUndefined();
+  expect(
+    summaryAsker(
+      "t1",
+      agentForest("t1", new Map([["t1", work([agent("t1", "root", idle)])]])),
+      works,
+    ),
+  ).toBeUndefined();
 });

@@ -36,6 +36,10 @@ struct ChangesFileHeader: Codable, Sendable, Equatable {
     let remaining: Int?
     let complete: Bool
     let cut: Bool
+    /// Which part of a file read in parts this is, from 0; a new part replaces the pages shown.
+    let part: Int
+    /// The file goes on past this part: Read on lets this part go and reads the next.
+    let onward: Bool
     let empty: Bool
     let viewed: Bool
 }
@@ -72,6 +76,7 @@ struct ChangesPage: Codable, Sendable, Equatable {
     let path: String
     let version: String
     let index: Int
+    let part: Int
     let layout: String
     let lines: [ChangesRow]?
     let pairs: [ChangesPair]?

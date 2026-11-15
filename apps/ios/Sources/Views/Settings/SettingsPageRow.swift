@@ -20,6 +20,8 @@ struct SettingsPageRowView: View {
 
     @State private var words = ""
     @State private var entries: [String] = []
+    /// A switch that asks before turning off is asking.
+    @State private var askingOff = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -45,9 +47,14 @@ struct SettingsPageRowView: View {
 
     @ViewBuilder private var control: some View {
         switch row.control {
-        case .toggle:
-            Toggle(isOn: Binding(get: { if case .bool(let on)? = pending { on } else { row.value.bool } }, set: { change(.bool($0)) })) { label }
+        case .toggle(let askOff):
+            Toggle(isOn: Binding(get: { if case .bool(let on)? = pending { on } else { row.value.bool } },
+                                 set: { on in if !on, askOff != nil { askingOff = true } else { change(.bool(on)) } })) { label }
                 .accessibilityIdentifier("setting.\(row.id)")
+                .confirmationDialog(askOff?.title ?? "", isPresented: $askingOff, titleVisibility: .visible) {
+                    Button(askOff?.confirm ?? "Turn off", role: .destructive) { change(.bool(false)) }
+                    Button("Cancel", role: .cancel) {}
+                } message: { if let message = askOff?.message { Text(message) } }
         case .choice(let segmented, let choices):
             if let empty = row.empty {
                 HStack { label; Spacer(); caption(empty) }

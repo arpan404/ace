@@ -73,6 +73,10 @@ export {
 export * from "./agent-registry.ts";
 export * from "./command-library.ts";
 export * from "./screen-v2.ts";
+export * from "./media-acceleration.ts";
+export * from "./media-link.ts";
+export * from "./media-connection.ts";
+export * from "./media-stream.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./cursor-auth.ts";
@@ -152,6 +156,7 @@ export * from "./project-commands.ts";
 export * from "./project-requests.ts";
 export * from "./long-thread.ts";
 export * from "./turn-steps.ts";
+export * from "./item-raw.ts";
 export * from "./avatars.ts";
 
 export * from "./cli-version.ts";

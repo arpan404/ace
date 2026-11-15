@@ -21,7 +21,12 @@ final class BrowserAcks: @unchecked Sendable {
         lock.withLock {
             guard !closed else { return }
             guard visible else {
-                owed = owed.map { BrowserAck(sequence: max($0.sequence, value.sequence), keyframe: $0.keyframe || value.keyframe, fallback: $0.fallback || value.fallback) } ?? value
+                // One owed ack per decoder: a newer generation's replaces an older one's.
+                owed = owed.flatMap { held in
+                    guard held.generation == value.generation else { return nil }
+                    return BrowserAck(sequence: max(held.sequence, value.sequence), generation: value.generation,
+                                      keyframe: held.keyframe || value.keyframe, fallback: held.fallback || value.fallback)
+                } ?? value
                 return
             }
             send(value)

@@ -30,12 +30,17 @@ it("prefers the socket desktop while a per-thread override routes another thread
   expect(f.headless.pages.map((page) => page.url)).toEqual(["http://localhost:3000/headless"]);
   expect(f.headless.opens[0]?.profileDir).toContain(f.home);
 });
-it("selects headless after desktop disconnect and rejects an explicit missing embedded backend", async () => {
+it("selects headless after desktop disconnect, says the desktop engine is gone, and rejects an explicit missing embedded backend", async () => {
   const f = await backendFixture({
     backendPreference: (options) => (options.threadId === "explicit" ? "embedded" : "auto"),
   });
+  expect((await f.open()).features).toEqual(expect.arrayContaining(["engines", "embedded-engine"]));
   await f.disconnect();
-  expect(await f.open()).toMatchObject({ backend: "headless" });
+  const after = await f.open("after");
+  expect(after).toMatchObject({ backend: "headless" });
+  // Clients read that "Desktop app only" can't open now, before moving a browser there.
+  expect(after.features).toContain("engines");
+  expect(after.features).not.toContain("embedded-engine");
   await expect(f.open("explicit")).rejects.toThrow("unavailable");
 });
 it("a desktop that opens a view but never draws it hands the session to ace's Chromium", async () => {
@@ -98,6 +103,41 @@ it("a desktop page moves to ace's Chromium when the desktop's screen locks and s
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/after" });
   expect(f.service.state("thread")).toMatchObject({ backend: "headless", closed: false });
   expect(states.some((state) => state.closed)).toBe(false);
+});
+it("a page that cannot move off a locked desktop is tried again less and less often", async () => {
+  const clock = new TestNavigationClock();
+  const errors: unknown[] = [];
+  const f = await backendFixture({
+    navigationClock: clock,
+    onError: (error) => errors.push(error),
+  });
+  expect(await f.open()).toMatchObject({ backend: "embedded" });
+  let attempts = 0;
+  // ace's Chromium cannot take the page (its reopened address refuses connections).
+  f.headless.open = async () => {
+    attempts++;
+    throw new Error("net::ERR_CONNECTION_REFUSED");
+  };
+  const tried = (count: number) => expect.poll(() => attempts).toBe(count);
+  f.service.desktopDrawable(false);
+  await tried(1);
+  // Each wait is twice the last: 1 s, 2 s, 4 s, then 8 s.
+  for (const wait of [1_000, 2_000, 4_000, 8_000]) {
+    await setImmediate();
+    const before = attempts;
+    clock.advance(wait - 1);
+    await setImmediate();
+    expect(attempts).toBe(before);
+    clock.advance(1);
+    await tried(before + 1);
+  }
+  // A minute of failing costs a handful of tries, never one every few seconds.
+  await setImmediate();
+  clock.advance(60_000);
+  await tried(6);
+  expect(errors).toHaveLength(6);
+  // The desktop's view stays meanwhile.
+  expect(f.service.state("thread")).toMatchObject({ backend: "embedded", closed: false });
 });
 /** Locks the desktop's screen and waits for the thread's page to land in ace's Chromium. */
 async function lockAndMove(f: Awaited<ReturnType<typeof backendFixture>>, threadId = "thread") {

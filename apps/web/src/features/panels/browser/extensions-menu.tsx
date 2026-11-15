@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon, PushPinSlashIcon, PuzzlePieceIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, PushPinSlashIcon, PuzzlePieceIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";

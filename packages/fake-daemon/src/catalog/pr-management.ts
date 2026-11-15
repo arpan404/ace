@@ -14,6 +14,12 @@ import {
 
 type Snapshot = ForgeLifecycleSnapshot;
 const managed = new Set<string>([
+  "ready",
+  "draft",
+  "close",
+  "reopen",
+  "update.merge",
+  "update.rebase",
   "lock",
   "unlock",
   "branch.delete",
@@ -63,6 +69,10 @@ export function closingIssue(
 function capabilities(snapshot: Snapshot, canPush: boolean): Pick<Snapshot, "actions"> {
   const active = snapshot.state === "open" || snapshot.state === "draft";
   const actions = snapshot.actions.filter((kind) => !managed.has(kind));
+  // Where the PR can go from its state, as GitHub offers it to someone who can triage.
+  if (snapshot.state === "open") actions.push("draft", "close", "update.merge", "update.rebase");
+  if (snapshot.state === "draft") actions.push("ready", "close");
+  if (snapshot.state === "closed") actions.push("reopen");
   if (snapshot.conversation) actions.push(snapshot.conversation.locked ? "unlock" : "lock");
   const branch = snapshot.headBranch;
   if (!active && branch?.sameRepository && canPush) {
@@ -153,6 +163,15 @@ export function applyManagement(
       },
       milestone: picked,
     };
+  } else if (action.kind === "ready" || action.kind === "reopen") {
+    next = { ...snapshot, state: "open" };
+  } else if (action.kind === "draft") {
+    next = { ...snapshot, state: "draft" };
+  } else if (action.kind === "close") {
+    next = { ...snapshot, state: "closed" };
+  } else if (action.kind === "update.merge" || action.kind === "update.rebase") {
+    // The branch takes the base's new commits; the PR's state and metadata stay as they were.
+    next = snapshot;
   } else if (action.kind === "lock" || action.kind === "unlock") {
     const locked = action.kind === "lock";
     next = {

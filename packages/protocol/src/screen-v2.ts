@@ -1,5 +1,12 @@
-import { ScreenId, ScreenTarget, ScreenAction, ScreenBundle } from "./screen-base.ts";
+import {
+  ScreenId,
+  ScreenTarget,
+  ScreenAction,
+  ScreenBundle,
+  ScreenStreamSettings,
+} from "./screen-base.ts";
 import { z } from "zod";
+import { MediaCapability } from "./media-acceleration.ts";
 import { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 export { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 
@@ -119,6 +126,8 @@ export const ScreenCapabilities = z
      * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's).
      */
     watchOnly: z.string().min(1).max(500).optional(),
+    /** Capture → encode, from a trial at helper start (ADR 0148). Absent from older helpers. */
+    encoders: z.array(MediaCapability).max(16).optional(),
   })
   .passthrough();
 export type ScreenCapabilities = z.infer<typeof ScreenCapabilities>;
@@ -308,6 +317,16 @@ export const ScreenInput = z.discriminatedUnion("kind", [
 ]);
 export type ScreenInput = z.infer<typeof ScreenInput>;
 
+/** ace-media's ingest socket (a Unix socket, or a named pipe on Windows) and the source's
+ * single-use token, base64 of 32 bytes. */
+export const ScreenStreamIngest = z.object({
+  socket: z.string().min(1).max(1024),
+  token: z.string().length(44),
+  /** The ace-media process serving `socket`: the Windows helper refuses a pipe any other
+   * process serves, before the token is sent. */
+  pid: z.number().int().positive().max(0xffffffff).optional(),
+});
+export type ScreenStreamIngest = z.infer<typeof ScreenStreamIngest>;
 const Envelope = z.object({
   version: z.literal(2),
   id: ScreenId,
@@ -316,6 +335,20 @@ const Envelope = z.object({
 });
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
+  /** Windows: live video (Media Foundation H.264) or JPEG stills; with `ingest`, video goes to
+   * ace-media. Each request carries the whole state. */
+  Envelope.extend({
+    op: z.literal("stream.configure"),
+    settings: ScreenStreamSettings,
+    ingest: ScreenStreamIngest.optional(),
+    epoch: z.number().int().nonnegative().max(0xffffffff).optional(),
+    /** Whether pictures under `epoch` are private. One it isn't said of counts as private, so
+     * a picture captured at the switch from it is labelled private. */
+    epochPrivate: z.boolean().optional(),
+  }),
+  Envelope.extend({ op: z.literal("stream.keyframe") }),
+  /** One JPEG still of the current picture while video streams. */
+  Envelope.extend({ op: z.literal("stream.image") }),
   Envelope.extend({ op: z.literal("permissions") }),
   Envelope.extend({
     op: z.literal("permissions.request"),

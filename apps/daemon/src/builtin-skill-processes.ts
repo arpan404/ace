@@ -174,7 +174,9 @@ export function builtinSkillProcessLease(
       writeLease(root, record);
     },
     spare() {
-      if (record.closed) return 0;
+      // Launches record synchronously around the spawn, so a launch still unresolved between
+      // calls failed before its pid was known. The lease can record nothing more.
+      if (record.closed || record.launching) return 0;
       return 64 - record.processes.length - (record.launching ? 1 : 0);
     },
   };

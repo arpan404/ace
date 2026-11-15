@@ -79,6 +79,7 @@ The scope's file list, what is open, and the next git step. Existing fields keep
 | `hidden`                            | number                                                                      | Files beyond the 200.                                                                                                                                                                                                 |
 | `partial`                           | boolean                                                                     | Working tree: the daemon reported more files than one read returns. Turn scopes: some row isn't counted yet.                                                                                                          |
 | `totals`                            | `{ files, additions, deletions }`                                           | Over the whole scope (counted rows only, for turns).                                                                                                                                                                  |
+| `progress` _new_                    | `{ viewed, files }`                                                         | Files viewed at their current diff, of every non-binary file in the scope (listed or not).                                                                                                                            |
 | `patchTruncated`                    | boolean                                                                     | Working tree only: the checkout's 256 KiB patch was cut. Cut files are now read alone, so this is informational. Always false for turn scopes.                                                                        |
 | `open` _new_                        | string[]                                                                    | Paths open now, in opening order.                                                                                                                                                                                     |
 | `openLimit` _new_                   | number                                                                      | Most files open at once (30).                                                                                                                                                                                         |
@@ -124,15 +125,17 @@ One header per open file. The key used to be the single `changes:file`. It is no
 | `rows`      | number                            | Rows the bridge holds for the file so far.                                                                                                                                              |
 | `remaining` | number \| null                    | Rows not yet sent. Null while the file isn't fully read from the daemon (more may come).                                                                                                |
 | `complete`  | boolean                           | Every row of the file is known.                                                                                                                                                         |
-| `cut`       | boolean                           | The daemon's pages stopped before the file's end: past 16 MiB held, or past the daemon's 32 Mi offset limit. The rest is only on the computer.                                          |
+| `cut`       | boolean                           | The daemon's pages stopped before the file's end: past 4 Mi code units held in this part (then `onward`), or past the daemon's 32 Mi offset limit (git's output ends there for ace).    |
+| `part`      | number                            | Which part of a file read in parts this is, from 0. A new part, like a new version, clears the pages shown, and page 0 comes again.                                                     |
+| `onward`    | boolean                           | This part stopped at what the bridge holds and the file goes on: `changes.onward` lets this part go and reads the next. `changes.rewind` goes back to part 0.                           |
 | `empty`     | boolean                           | Complete and no line rows: a mode change, an empty file.                                                                                                                                |
 | `viewed`    | boolean                           | As the summary row.                                                                                                                                                                     |
 
-Show "Show more" while `remaining !== 0`, then send `changes.more`. When `remaining` is null and no page arrives yet, the next daemon page is being read.
+Show "Show more" while `remaining !== 0`, then send `changes.more`. Once `remaining` is 0 and `onward` is true, offer reading on. When `remaining` is null and no page arrives yet, the next daemon page is being read.
 
 ### `changes:page:<id>:<index>` → `type: "changes.page"` _new_
 
-Fields: `file`, `path`, `version` and `index` (0-based). `layout` is `"unified"` or `"split"`, plus one of:
+Fields: `file`, `path`, `version`, `part` (the header's part it belongs to; a page of another part is dropped) and `index` (0-based). `layout` is `"unified"` or `"split"`, plus one of:
 
 - `lines: Row[]` when `layout` is unified;
 - `pairs: Pair[]` when `layout` is split.

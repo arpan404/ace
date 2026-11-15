@@ -1,5 +1,5 @@
 import type { ParsedBrowserAnnotations } from "@ace/ui-core";
-import { ChatTeardropTextIcon } from "@phosphor-icons/react";
+import { ChatTeardropTextIcon } from "@ace/icons";
 import { displayAddress } from "@ace/ui-core";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { annotationCount, changeSummary } from "./annotation-words.ts";

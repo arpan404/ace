@@ -1,6 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { createQueryClient } from "@/app.tsx";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -154,6 +155,55 @@ test("each network turns on and off on this computer, asking before one that dev
     await within(reached).findByText(/^Off\. Turn it on to reach this computer over your tailnet/),
   ).toBeTruthy();
 }, 30_000);
+
+test("on this computer's page, turning a network off still asks while its devices couldn't be read", async () => {
+  const app = harness();
+  // Devices, links and network status all fail, so nothing says what reaches this computer.
+  app.daemon.failRequests("fleet.request");
+  await app.open("/settings/remote/primary");
+  const reached = await region("How it's reached");
+  await userEvent.click(await ready(reached, "Turn off Tailscale"));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Turn off Tailscale on this computer?",
+  });
+  expect(within(dialog).getByText(/^Couldn't check what reaches this computer\./)).toBeTruthy();
+  expect(app.daemon.services.settings.get("remote.tailscale")).toBe(true);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Turn off" }));
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.tailscale")).toBe(false));
+}, 30_000);
+
+test("on this computer's page, a failed refetch of its devices and links means turning a network off still asks", async () => {
+  const queries = createQueryClient();
+  const app = harness({ queryClient: queries });
+  await app.open("/settings/remote/primary");
+  const reached = await region("How it's reached");
+  await ready(reached, "Turn off Tailscale");
+  // Read once; then the machine stops answering fleet requests and they're read again.
+  const fleetReads = () =>
+    queries
+      .getQueryCache()
+      .findAll({ queryKey: ["fleet"] })
+      .filter((query) => {
+        const kind = query.queryKey[1];
+        return kind === "devices" || kind === "links";
+      });
+  await waitFor(() =>
+    expect(fleetReads().every((query) => query.state.status === "success")).toBe(true),
+  );
+  app.daemon.failRequests("fleet.request");
+  await queries.refetchQueries({ queryKey: ["fleet"] }).catch(() => {});
+  await waitFor(
+    () => expect(fleetReads().every((query) => query.state.status === "error")).toBe(true),
+    { timeout: 20_000 },
+  );
+  // What the last good read said is kept on screen, but it no longer says what depends on it.
+  await userEvent.click(await ready(reached, "Turn off Tailscale"));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Turn off Tailscale on this computer?",
+  });
+  expect(within(dialog).getByText(/^Couldn't check what reaches this computer\./)).toBeTruthy();
+  expect(app.daemon.services.settings.get("remote.tailscale")).toBe(true);
+}, 45_000);
 
 test("a relay of your own is added under More options and named once it serves", async () => {
   const app = harness();

@@ -1,5 +1,5 @@
 import { displayPath } from "@ace/ui-core";
-import { CheckIcon, CopyIcon, FolderOpenIcon } from "@phosphor-icons/react";
+import { CheckIcon, CopyIcon, FolderOpenIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";

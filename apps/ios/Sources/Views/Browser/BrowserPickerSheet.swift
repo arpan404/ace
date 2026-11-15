@@ -3,16 +3,20 @@ import UIKit
 
 /// The page opened a picker (a `<select>`, a date, time or colour input): the person picks with
 /// the phone's own controls and the choice goes back to the page as a `pick`. Cancel dismisses
-/// the page's picker without changing the value.
+/// the page's picker without changing the value. A kind the phone has no control for is typed in
+/// the page's own format instead.
 struct BrowserPickerSheet: View {
     let picker: BrowserPageInfo.Picker
     let choose: ([String]?) -> Void
     @State private var date: Date
     @State private var colour: Color
+    @State private var typed: String
+    @FocusState private var typing: Bool
 
     init(picker: BrowserPageInfo.Picker, choose: @escaping ([String]?) -> Void) {
         self.picker = picker
         self.choose = choose
+        _typed = State(initialValue: picker.value)
         _date = State(initialValue: PickerValues.date(picker.value, kind: picker.kind) ?? Date())
         let rgb = PickerValues.rgb(picker.value) ?? (0, 0, 0)
         _colour = State(initialValue: Color(red: Double(rgb.red) / 255, green: Double(rgb.green) / 255, blue: Double(rgb.blue) / 255))
@@ -38,8 +42,8 @@ struct BrowserPickerSheet: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch picker.kind {
-        case "select":
+        switch PickerValues.control(picker.kind) {
+        case .options:
             ScrollView {
                 VStack(spacing: AceDesign.Space.group) {
                 ForEach(groups, id: \.offset) { group in
@@ -61,22 +65,36 @@ struct BrowserPickerSheet: View {
                 }.padding(.vertical, AceDesign.Space.related)
             }
             .buttonStyle(.plain)
-        case "color":
+        case .colour:
             ScrollView { QuietSectionRow { ColorPicker("Colour", selection: $colour, supportsOpacity: false) } }
-        default:
-            if PickerValues.dateKinds.contains(picker.kind) {
-                ScrollView {
-                    if picker.kind == "time" { datePicker.datePickerStyle(.wheel) }
-                    else { datePicker.datePickerStyle(.graphical) }
-                }
-                    .environment(\.timeZone, .gmt)
-                    .environment(\.calendar, Self.calendar)
-            } else {
-                Text("This picker isn't supported on the phone. Finish it on your computer.")
-                    .font(AceDesign.Typeface.title)
-                    .foregroundStyle(AceDesign.Ink.muted)
-                    .padding(AceDesign.Space.margin)
+        case .date:
+            ScrollView {
+                if picker.kind == "time" { datePicker.datePickerStyle(.wheel) }
+                else { datePicker.datePickerStyle(.graphical) }
             }
+                .environment(\.timeZone, .gmt)
+                .environment(\.calendar, Self.calendar)
+        case .typed:
+            ScrollView {
+                QuietSection {
+                    QuietSectionRow {
+                        TextField("Value", text: $typed)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($typing)
+                            .submitLabel(.done)
+                            .onSubmit { choose([typed]) }
+                            .accessibilityIdentifier("browser.picker.typed")
+                    }
+                }
+                Text("The phone has no picker for a \(picker.kind.isEmpty ? "field like this" : "“\(picker.kind)” field"). Type the value the way the page expects it.")
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                .padding(.vertical, AceDesign.Space.related)
+            }
+            .onAppear { typing = true }
         }
     }
 
@@ -103,13 +121,14 @@ struct BrowserPickerSheet: View {
 
     /// The value the page's input takes, in its own format.
     private var chosen: String? {
-        switch picker.kind {
-        case "color":
+        switch PickerValues.control(picker.kind) {
+        case .typed: return typed
+        case .colour:
             let resolved = UIColor(colour)
             var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
             guard resolved.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return nil }
             return PickerValues.hex(red: red, green: green, blue: blue)
-        default: return PickerValues.string(date, kind: picker.kind)
+        case .options, .date: return PickerValues.string(date, kind: picker.kind)
         }
     }
     private var title: String {
@@ -119,7 +138,7 @@ struct BrowserPickerSheet: View {
         case "time": "Time"
         case "month": "Month"
         case "week": "Week"
-        default: "Date"
+        default: PickerValues.control(picker.kind) == .typed ? "Value" : "Date"
         }
     }
     /// Options in order, grouped under their `<optgroup>` labels.

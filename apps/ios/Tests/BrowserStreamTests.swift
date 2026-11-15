@@ -66,6 +66,20 @@ import Testing
         #expect(chunk.sequence == 9)
     }
 
+    @Test func relaySizedPiecesReassembleA300KBChunkWithoutChangingItsHeaderOrPayload() throws {
+        let meta = try keyframeMeta()
+        let payload = Data((0..<300_000).map { UInt8($0 % 251) })
+        let pieces = Self.pieces(kind: 2, id: 17, meta: meta, payload: payload, pieceBytes: 65_518)
+        #expect(pieces.count == (meta.count + payload.count + 65_497) / 65_498)
+        #expect(pieces.dropLast().allSatisfy { $0.count == 65_518 })
+        var router = BinaryRouter()
+        for piece in pieces.dropLast() { #expect(router.route(piece) == BinaryRouter.Outcome.none) }
+        guard case .stream(let chunk) = router.route(try #require(pieces.last)) else { Issue.record("no video"); return }
+        #expect(chunk.bytes == payload)
+        #expect(chunk.sequence == 9 && chunk.codec == "avc1.42E033")
+        #expect(chunk.codedWidth == 1170 && chunk.codedHeight == 2532)
+    }
+
     @Test func aNewMessageReplacesOneItsSenderGaveUpOn() throws {
         let first = Self.pieces(kind: 2, id: 1, meta: try keyframeMeta(), payload: Data(repeating: 1, count: 100_000))
         var router = BinaryRouter()
@@ -151,9 +165,9 @@ import Testing
         return keyframe.subdata(in: 20..<(20 + 77))
     }
     /// A message cut into socket-sized pieces as the envelope's spec describes.
-    static func pieces(kind: UInt8, id: UInt32, meta: Data, payload: Data) -> [Data] {
+    static func pieces(kind: UInt8, id: UInt32, meta: Data, payload: Data, pieceBytes: Int = StreamWire.pieceBytes) -> [Data] {
         let body = meta + payload
-        let room = StreamWire.pieceBytes - StreamWire.prefixBytes
+        let room = pieceBytes - StreamWire.prefixBytes
         var pieces: [Data] = []
         var offset = 0
         repeat {

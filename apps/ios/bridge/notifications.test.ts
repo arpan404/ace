@@ -1,29 +1,8 @@
-import "./test-host.ts";
-import { ClientCore } from "@ace/client";
-import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, Notification, ThreadId } from "@ace/protocol";
+import type { KeptValue } from "./kept-value.ts";
 import { afterEach, expect, it, vi } from "vitest";
-import { NotificationAction, NotificationBridge } from "./notifications.ts";
+import { alert, closePhones, phone } from "./notifications-fixture.ts";
 
-const closers: (() => Promise<void>)[] = [];
-afterEach(async () => {
-  for (const close of closers.splice(0)) await close();
-});
-const threadId = ThreadId.parse("approval");
-function schedule(delay: number, run: () => void) {
-  const timer = setTimeout(run, delay);
-  return () => clearTimeout(timer);
-}
-const alert = (id: string) =>
-  Notification.parse({
-    id,
-    threadId,
-    title: "Fix the flaky queue test",
-    status: "done",
-    backgroundCount: 0,
-    actions: [],
-  });
-
+afterEach(closePhones);
 const categories = (failures: boolean) => ({
   needsYou: true,
   failures,
@@ -31,87 +10,19 @@ const categories = (failures: boolean) => ({
   agentSays: true,
 });
 
-/** The real SDK against the fixture daemon; patches are what Swift would receive. */
-async function phone() {
-  const daemon = new FakeDaemon({ clock: () => 1000 });
-  daemon.createThread({
-    id: threadId,
-    workspaceId: "ace",
-    title: "Fix the flaky queue test",
-    provider: "codex",
-    access: "ask",
-  });
-  daemon.apply(threadId, [
-    facts.rootAgent("codex"),
-    facts.turn("root"),
-    {
-      type: "interaction.opened",
-      agent: "root",
-      interaction: "push",
-      blocking: true,
-      request: {
-        kind: "approval",
-        title: "Codex wants to run a command",
-        options: [
-          { id: "deny", label: "Deny", kind: "deny" },
-          { id: "allow", label: "Allow", kind: "allow_once" },
-        ],
-      },
-    },
-  ]);
-  const interactions = () => {
-    const view = daemon.snapshot({ kind: "thread", threadId });
-    return view?.kind === "thread" ? Object.values(view.interactions) : [];
-  };
-  const interactionId = interactions()[0]?.id ?? "";
-  let saved: string | null = null;
-  let sequence = 0;
-  const client = new ClientCore({
-    deviceId: DeviceId.parse("phone"),
-    transport: () => fakeTransport(daemon),
-    storage: {
-      load: async () => saved,
-      save: async (value) => {
-        saved = value;
-      },
-    },
-    credential: async () => daemon.token,
-    scheduler: { set: schedule },
-    random: () => 0,
-    id: () => `id-${++sequence}`,
-  });
-  const patches: Record<string, unknown>[] = [];
-  const bridge = new NotificationBridge(
-    client,
-    (_key, read) => {
-      const patch = read();
-      if (patch) patches.push(patch);
-    },
-    schedule,
-    () => 23 * 60,
-    200,
-  );
-  closers.push(async () => {
-    bridge.close();
-    await client.close();
-  });
-  await client.start();
-  await vi.waitFor(() => expect(client.state).toBe("ready"));
-  const act = (action: unknown) => bridge.handle(NotificationAction.parse(action));
-  const sync = (enabled: boolean, cursor = 0) =>
-    act({ type: "notifications.sync", enabled, appState: "foreground", cursor });
-  const resolve = (requestId: string, optionId: string) =>
-    act({ type: "notifications.resolve", requestId, threadId, interactionId, optionId });
-  /** Frames are ordered: once this round trip returns, earlier pushes have been handled. */
-  const barrier = () => client.request({ type: "notification.config" });
-  const of = (type: string) => patches.filter((patch) => patch.type === type);
-  /** Lets queued register/unregister requests go out, then waits for the daemon to answer. */
-  const settle = async () => {
-    await new Promise((done) => setTimeout(done, 10));
-    await barrier();
-  };
-  return { daemon, act, sync, resolve, barrier, settle, of, interactions };
-}
+const finishedRun = (id: string, finishedAt: number) => ({
+  id,
+  automationId: "nightly",
+  title: "Nightly audit",
+  eventKey: id,
+  trigger: "schedule" as const,
+  status: "succeeded" as const,
+  startedAt: 100,
+  finishedAt,
+  threadId: `t-${id}`,
+  result: "all green",
+});
+const runCategories = (automations: boolean) => ({ ...categories(true), automations });
 
 const lastFeed = (of: (type: string) => Record<string, unknown>[]) =>
   of("notifications.feed").at(-1);
@@ -193,6 +104,66 @@ it("each alert says how this phone shows it, by the categories and quiet hours S
   });
 });
 
+it("a finished automation run is posted once, when run alerts are on, by the phone's choice", async () => {
+  // The phone started watching at 500; the machine's inbox holds one run from before and one after.
+  const { daemon, act, settle, of } = await phone(() => 500);
+  daemon.seedServices({
+    settings: { "automations.enabled": true },
+    runs: [finishedRun("old", 400), finishedRun("new", 700)],
+  });
+  const sync = (automations: boolean) =>
+    act({
+      type: "notifications.sync",
+      enabled: true,
+      appState: "background",
+      cursor: 0,
+      phone: {
+        inApp: runCategories(automations),
+        system: runCategories(automations),
+        quietHours: null,
+      },
+    });
+  sync(false);
+  await settle();
+  expect(of("notifications.run")).toEqual([]);
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.run")).toHaveLength(1));
+  expect(of("notifications.run")[0]).toEqual({
+    type: "notifications.run",
+    key: "new",
+    title: "Nightly audit finished",
+    body: "The automation run finished",
+    threadId: "t-new",
+    automationId: "nightly",
+    delivery: { post: true, interrupt: true, banner: false },
+  });
+});
+
+it("a run that finished while ace was closed is posted once the phone says run alerts are on", async () => {
+  // The last launch had said this machine's runs up to 400; one finished at 450, while closed.
+  let kept: unknown = { since: 400 };
+  const progress: KeptValue = {
+    load: async () => kept,
+    save: async (value) => {
+      kept = value;
+    },
+  };
+  const { daemon, act, of } = await phone(() => 500, progress);
+  daemon.seedServices({
+    settings: { "automations.enabled": true },
+    runs: [finishedRun("closed", 450)],
+  });
+  act({
+    type: "notifications.sync",
+    enabled: true,
+    appState: "background",
+    cursor: 0,
+    phone: { inApp: runCategories(true), system: runCategories(true), quietHours: null },
+  });
+  await vi.waitFor(() => expect(of("notifications.run")).toHaveLength(1));
+  expect(of("notifications.run")[0]).toMatchObject({ key: "closed" });
+});
+
 it("catches up on what the daemon sent while the app wasn't listening, once per cursor", async () => {
   const { daemon, sync, of } = await phone();
   daemon.notify(alert("n:1"));
@@ -200,7 +171,8 @@ it("catches up on what the daemon sent while the app wasn't listening, once per 
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
   expect(of("notifications.feed")[0]).toMatchObject({
     cursor: 1,
-    entries: [{ id: "n:1" }],
+    // Each entry keeps its feed position, which Swift compares with live alerts' cursors.
+    entries: [{ id: "n:1", cursor: 1 }],
     retracted: [],
   });
   daemon.retractNotification("n:1");

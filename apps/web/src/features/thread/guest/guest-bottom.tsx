@@ -1,5 +1,5 @@
 import type { Thread, ThreadStatus } from "@ace/protocol";
-import { threadIsRunning } from "@ace/ui-core";
+import { guestSession, type GuestSession as Guest } from "@ace/ui-core";
 import { Suspense, type ReactNode } from "react";
 import { FloatingContents } from "@/components/ui/floating-material.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -22,13 +22,13 @@ export function GuestBottom(props: {
   requestTarget?: string | undefined;
   children: ReactNode;
 }) {
-  const guest = props.thread.details?.guest;
+  const guest = guestSession(props.thread);
   if (!guest) return props.children;
   return (
     <GuestSession
       threadId={props.thread.id}
       status={props.thread.status}
-      machine={guest.name || guest.host}
+      guest={guest}
       requestTarget={props.requestTarget}
     />
   );
@@ -37,11 +37,10 @@ export function GuestBottom(props: {
 function GuestSession(props: {
   threadId: string;
   status: ThreadStatus | undefined;
-  machine: string;
+  guest: Guest;
   requestTarget: string | undefined;
 }) {
-  // Each call from there is a background row here: the thread waits on it while it runs.
-  const working = props.status?.state === "waiting" || threadIsRunning(props.status);
+  const { working } = props.guest;
   const { stop, stopping } = useThreadStop(props.threadId, working);
   return (
     <ComposerDock>
@@ -64,9 +63,7 @@ function GuestSession(props: {
             "relative z-10 flex h-12 min-w-0 items-center gap-2 rounded-xl pr-2 pl-4 text-ui",
           )}
         >
-          <p className="min-w-0 flex-1 truncate text-muted-foreground">
-            Used by agents on {props.machine}.{working ? " Stop to end their work." : ""}
-          </p>
+          <p className="min-w-0 flex-1 truncate text-muted-foreground">{props.guest.line}</p>
           {working && (
             <button type="button" onClick={stop} disabled={stopping} className={barAction}>
               {stopping ? "Stopping…" : "Stop"}

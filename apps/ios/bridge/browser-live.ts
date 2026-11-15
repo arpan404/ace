@@ -1,6 +1,13 @@
 import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
 import {
+  MediaSubscriptions,
+  mediaSubscribeDeadlineMs,
+  SubscribeRetry,
+  type DeliveryState,
+  type MediaRoute,
+} from "@ace/browser/live-view";
+import {
   BrowserCaptureViewport,
   BrowserInput,
   BrowserTabList,
@@ -10,11 +17,13 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { z } from "zod";
-import type { KeyValueStorage } from "@ace/ui-core";
+import { nextLatency, type KeyValueStorage } from "@ace/ui-core";
 import type { PatchSink, Preview } from "./agents.ts";
 import { DeviceAction, devicePresetRows, PhoneDevices } from "./browser-device.ts";
 import { browserViewState } from "./browser-view.ts";
 import { BrowserToolAction, BrowserTools } from "./browser-tools.ts";
+import { BrowserEngineTool, EngineAction } from "./browser-engine.ts";
+import { BrowserWatch, WatchAction } from "./browser-watch.ts";
 import { BrowserPageAction, BrowserPageTools, type PhoneFiles } from "./browser-page-tools.ts";
 import { AnnotateAction, BrowserAnnotate, type ImageStager } from "./browser-annotate.ts";
 import type { ThreadAnnotations } from "./thread-annotations.ts";
@@ -66,6 +75,8 @@ const BrowserAction = z.discriminatedUnion("kind", [
     sequence: z.number().int().nonnegative(),
     keyframe: z.boolean().optional(),
     fallback: z.boolean().optional(),
+    /** The delivery generation the picture came for (`media.delivery`), as Swift stamped it. */
+    generation: z.number().int().nonnegative().optional(),
   }),
 ]);
 export type BrowserAction = z.infer<typeof BrowserAction>;
@@ -107,6 +118,10 @@ export interface BrowserThreadContext {
   stage?: ImageStager;
   /** The open thread's next-message annotations. */
   annotations?(threadId: string): ThreadAnnotations | undefined;
+  /** The thread's status state ("working", "waiting"…), for watch mode. */
+  threadState?(threadId: string): string | undefined;
+  /** Hears every change to the threads' statuses; call the result to stop. */
+  observeThreads?(listener: () => void): () => void;
 }
 const noContext: BrowserThreadContext = {
   agentName: () => "An agent",
@@ -128,6 +143,8 @@ interface Watch {
   picture: { width: number; height: number } | undefined;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
+  /** A failed subscribe's retry on the shared ladder and cooldown. */
+  ladder: SubscribeRetry;
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
@@ -138,6 +155,10 @@ interface Watch {
 
 export class BrowserLive {
   #h264Only = false;
+  /** Whether the view's pictures come by the media connection, and so where its acks go. */
+  readonly #media = new MediaSubscriptions();
+  #stopMedia: (() => void) | undefined;
+  #stopDeliveries: (() => void) | undefined;
   #owner: BrowserOwner;
   #sink: PatchSink;
   #preview: Preview;
@@ -150,6 +171,12 @@ export class BrowserLive {
   #tools: BrowserTools;
   #page: BrowserPageTools;
   #annotate: BrowserAnnotate;
+  #engine: BrowserEngineTool;
+  #following = new BrowserWatch();
+  /** Each thread's input round trip in milliseconds, once the person has used its page. */
+  #latency = new Map<string, number>();
+  /** Stops hearing the threads' statuses; set while watch mode is on. */
+  #unobserve: (() => void) | undefined;
   #devices: PhoneDevices;
   constructor(
     owner: BrowserOwner,
@@ -219,7 +246,25 @@ export class BrowserLive {
       now: () => context.now(),
       changed,
     });
+    this.#engine = new BrowserEngineTool({
+      owner,
+      sink,
+      preview,
+      now: () => context.now(),
+      current,
+      workspaceId: (threadId) => context.workspaceId(threadId),
+      changed,
+      opened: () => {
+        const watch = this.#watch;
+        if (!watch) return;
+        // A new engine streams its own pictures: Swift starts its decoder again.
+        watch.subscribed = false;
+        this.#restart(watch);
+        this.#subscribe(watch);
+      },
+    });
     this.#stops.push(owner.onMessage((message) => this.#receive(message)));
+
     const connection = owner.connectionState();
     this.#stops.push(
       connection.subscribe(() => {
@@ -241,8 +286,34 @@ export class BrowserLive {
       }),
     );
   }
+  /**
+   * Take the view's pictures by this media connection while it has a binding (ADR 0147 §4):
+   * whenever the binding changes, the view subscribes again and Swift starts a new decoder.
+   */
+  useMedia(
+    route: MediaRoute | undefined,
+    deliver?: (view: "browser", state: DeliveryState) => void,
+  ): void {
+    this.#stopMedia?.();
+    this.#stopDeliveries?.();
+    this.#media.use(route);
+    // Swift draws and acknowledges the thread's pictures by the delivery set here.
+    this.#stopDeliveries = deliver
+      ? this.#media.watchDeliveries((state) => deliver("browser", state))
+      : undefined;
+    this.#stopMedia = route?.watch(() => {
+      const watch = this.#watch;
+      if (!watch || !watch.subscribed) return;
+      watch.subscribed = false;
+      this.#restart(watch);
+      this.#subscribe(watch);
+    });
+  }
   dispose(): void {
+    this.#stopMedia?.();
+    this.#stopDeliveries?.();
     this.close();
+    this.#endFollowing();
     for (const stop of this.#stops.splice(0)) stop();
   }
   /**
@@ -298,6 +369,23 @@ export class BrowserLive {
         this.#page.handle(page.data);
         return true;
       }
+      const following = WatchAction.safeParse(raw);
+      if (following.success) {
+        const watch = this.#watch;
+        if (!watch) return false;
+        const status = this.#context.threadState?.(watch.threadId);
+        const tabId = this.#following.set(watch.threadId, watch.state, following.data.on, status);
+        if (tabId) this.#show(watch, tabId);
+        if (this.#following.view(watch.threadId, watch.state, status)?.on) this.#observe(watch);
+        else this.#endFollowing();
+        this.#putView(watch);
+        return true;
+      }
+      const engine = EngineAction.safeParse(raw);
+      if (engine.success) {
+        this.#engine.handle(engine.data);
+        return true;
+      }
       const annotate = AnnotateAction.safeParse(raw);
       if (!annotate.success) return false;
       this.#annotate.handle(annotate.data);
@@ -321,6 +409,9 @@ export class BrowserLive {
         error: undefined,
         pages: new Map(),
         retry: undefined,
+        ladder: new SubscribeRetry(this.#media, action.threadId, (run, ms) =>
+          this.#schedule(ms, run),
+        ),
       };
       this.#watch = watch;
       // Each watch starts on the first page of tabs, whatever an earlier one had shown.
@@ -331,6 +422,15 @@ export class BrowserLive {
         presets: devicePresetRows,
       }));
       this.#subscribe(watch);
+      const latency = this.#latency.get(action.threadId);
+      if (latency !== undefined) {
+        const ms = Math.round(latency);
+        this.#sink.put("browser:latency", () => ({
+          type: "browser.latency",
+          threadId: action.threadId,
+          ms,
+        }));
+      }
       return true;
     }
     if (action.kind === "close") {
@@ -372,6 +472,7 @@ export class BrowserLive {
         const input = BrowserInput.safeParse(action.input);
         if (!input.success) return false;
         const tabId = watch.state?.activeTabId;
+        const started = this.#context.now();
         void this.#owner
           .request({
             type: "browser.input",
@@ -379,22 +480,31 @@ export class BrowserLive {
             input: input.data,
             ...(tabId ? { tabId } : {}),
           })
+          .then(() => this.#timed(watch.threadId, this.#context.now() - started))
           .catch(() => {});
         return true;
       }
-      case "ack":
-        try {
-          this.#owner.send({
-            type: "browser.ack",
-            requestId: this.#requestId(),
-            threadId: watch.threadId,
-            sequence: action.sequence,
-            video: true,
-            ...(action.keyframe ? { keyframe: true } : {}),
-          });
-        } catch {
-          // Offline: the subscription ended with the connection.
-        }
+      case "ack": {
+        const ack = {
+          type: "browser.ack" as const,
+          threadId: watch.threadId,
+          sequence: action.sequence,
+          video: true as const,
+          ...(action.keyframe ? { keyframe: true as const } : {}),
+        };
+        // Each ack goes the way its picture's delivery came (Swift stamps the generation it was
+        // delivered for): the media connection, the main socket, or nowhere once it is stale.
+        const way = this.#media.way(watch.threadId, action.generation);
+        // A picture of an earlier subscribe (another thread's, or this one's before it subscribed
+        // again): neither its ack nor its decoder's failure says anything about this view now.
+        if (way === "stale") return true;
+        if (way === "media") this.#media.route?.ack(ack);
+        else if (way === "channel")
+          try {
+            this.#owner.send({ ...ack, requestId: this.#requestId() });
+          } catch {
+            // Offline: the subscription ended with the connection.
+          }
         if (action.fallback && !this.#h264Only) {
           this.#h264Only = true;
           watch.subscribed = false;
@@ -402,6 +512,7 @@ export class BrowserLive {
           this.#subscribe(watch);
         }
         return true;
+      }
     }
   }
   /** Stop watching: the daemon stops this viewer's pictures. */
@@ -410,10 +521,14 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    watch.ladder.stop();
+    this.#media.forget(watch.threadId);
+    this.#endFollowing();
     this.#annotate.close();
     this.#tools.close();
     this.#page.close();
     this.#sink.clear("browser:view");
+    this.#sink.clear("browser:latency");
     this.#sink.clear("browser:presets");
     this.#sink.clear("browser:page");
     if (this.#owner.state !== "ready") return;
@@ -424,17 +539,47 @@ export class BrowserLive {
   #requestId(): string {
     return `ios-browser-${++this.#requests}`;
   }
-  #subscribe(watch: Watch): void {
+  /**
+   * Subscribes the view, unless it is subscribed or one is on its way. After a failed subscribe it
+   * waits on the shared ladder and cooldown (`SubscribeRetry`): the view's own poll waits with
+   * it, and an event (an engine opened, the state changed, a new session) may skip one step's
+   * wait, never the cooldown.
+   */
+  #subscribe(watch: Watch, cause: "event" | "poll" = "event"): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
+    if (watch.ladder.waiting && (cause === "poll" || !watch.ladder.event())) return;
     watch.retry?.();
     watch.retry = this.#schedule(retryMs, () => {
       watch.retry = undefined;
-      this.#subscribe(watch);
+      this.#subscribe(watch, "poll");
     });
     if (this.#owner.state !== "ready") return;
     watch.subscribing = true;
     const generation = watch.generation;
     const h264Only = this.#h264Only;
+    const binding = this.#media.route?.binding()?.connection;
+    const begun = this.#media.begin(watch.threadId);
+    const { media } = begun.fields;
+    let refused = false;
+    /** The request failed while it was still the view's latest, however its delivery settled. */
+    let lost = false;
+    const failed = (error: unknown) => {
+      const next = this.#media.failed(watch.threadId, begun.generation, error);
+      if (next === "resubscribe") refused = true;
+      // To be tried again (its delivery settled on the channel, or the one it replaced restored,
+      // whose generation is then the source's again): it climbs the ladder.
+      else if (next === "retry") lost = true;
+      // `ignore` after the deadline settled its delivery, while it is still the latest: the
+      // request failed all the same. One a later subscribe superseded leaves that one to it.
+      else if (this.#media.generation(watch.threadId) === begun.generation) lost = true;
+    };
+    // No answer in time: the thread stops waiting on the media connection (a late reply still
+    // settles it), so Swift stops holding its pictures.
+    const deadline = media
+      ? this.#schedule(mediaSubscribeDeadlineMs, () =>
+          this.#media.abandon(watch.threadId, begun.generation),
+        )
+      : undefined;
     void this.#owner
       .request({
         type: "browser.subscribe",
@@ -443,33 +588,93 @@ export class BrowserLive {
         binaryFrames: true,
         viewport: captureFor(watch),
         video: { codecs: this.#h264Only ? ["avc1.42E033"] : nativeVideoCodecs() },
+        ...(media ? { media } : {}),
       })
       .then(
         (reply) => {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
+            // A connection the daemon won't bind for this view goes on the main socket; any other
+            // failure falls back as the shared client says, and is asked again on its ladder.
+            failed(new Error(reply.error ?? ""));
+            if (refused) return;
             watch.error = reply.error ?? "browser_failed";
             this.#putView(watch);
             return;
           }
           watch.error = undefined;
           watch.subscribed = true;
+          // Delivery by the media connection only when the daemon's answer says so.
+          this.#media.subscribed(watch.threadId, begun.generation, reply.media);
+          // The menu's note names the machine's default; read again on each new subscription.
+          void this.#engine.readDefault();
           watch.retry?.();
           watch.retry = undefined;
           // A size reported while the subscribe was on its way.
           if (generation === watch.generation) this.#putView(watch);
         },
-        () => {},
+        // Lost on its way (offline, timed out): settled or restored as the shared client says.
+        (error: unknown) => {
+          if (this.#watch === watch) failed(error);
+        },
       )
       .finally(() => {
+        deadline?.();
         watch.subscribing = false;
-        if (h264Only !== this.#h264Only) {
+        // The binding moved while this subscribe was on its way, or the daemon refused it.
+        const moved = binding !== this.#media.route?.binding()?.connection;
+        if (h264Only !== this.#h264Only || ((moved || refused) && this.#watch === watch)) {
           watch.subscribed = false;
           this.#subscribe(watch);
+        } else if (this.#watch === watch && lost) {
+          // Asked again on the shared ladder; the view's own poll waits with it.
+          watch.retry?.();
+          watch.retry = undefined;
+          watch.ladder.failed(() => this.#subscribe(watch, "poll"));
+        } else if (this.#watch === watch && !watch.subscribed && !watch.retry) {
+          // Not subscribed and nothing else on its way (the view's own poll may have fired while
+          // this one was out): it asks again at its usual pace.
+          watch.retry = this.#schedule(retryMs, () => {
+            watch.retry = undefined;
+            this.#subscribe(watch, "poll");
+          });
         }
       });
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */
+  /**
+   * The person's input round trip, sent to answered, for the ⋯ menu's connection stats: a
+   * moving average per thread, sent only when its whole milliseconds change.
+   */
+  #timed(threadId: string, sample: number): void {
+    const before = this.#latency.get(threadId);
+    const next = nextLatency(before, sample);
+    this.#latency.set(threadId, next);
+    const ms = Math.round(next);
+    if (before !== undefined && Math.round(before) === ms) return;
+    this.#sink.put("browser:latency", () => ({ type: "browser.latency", threadId, ms }));
+  }
+  /** Watch mode hears the thread's status, to end once its agents stop working. */
+  #observe(watch: Watch): void {
+    if (this.#unobserve) return;
+    this.#unobserve = this.#context.observeThreads?.(() => {
+      const status = this.#context.threadState?.(watch.threadId);
+      if (this.#watch !== watch || !this.#following.status(watch.threadId, status)) return;
+      this.#endFollowing();
+      this.#putView(watch);
+    });
+  }
+  #endFollowing(): void {
+    this.#following.stop();
+    this.#unobserve?.();
+    this.#unobserve = undefined;
+  }
+  /** Watch mode shows the agent's tab. */
+  #show(watch: Watch, tabId: string): void {
+    void this.#owner
+      .request({ type: "browser.tabs.select", threadId: watch.threadId, tabId })
+      .catch(() => {});
+  }
   #restart(watch: Watch): void {
     watch.generation++;
     watch.pages.clear();
@@ -490,6 +695,8 @@ export class BrowserLive {
       watch.state = state;
       this.#tools.observe(state);
       this.#page.observe(state);
+      const follow = this.#following.follow(watch.threadId, state);
+      if (follow) this.#show(watch, follow);
       // A tab shown for the first time gets its device (`browser-device.ts`).
       this.#devices.observe(watch);
       if (
@@ -530,6 +737,12 @@ export class BrowserLive {
         generation: watch.generation,
         error: watch.error ?? null,
         device: this.#devices.view(watch),
+        engine: state ? this.#engine.view(state, watch.threadId) : null,
+        watch: this.#following.view(
+          watch.threadId,
+          state,
+          this.#context.threadState?.(watch.threadId),
+        ),
         state: state
           ? browserViewState(state, {
               tabsLimit: this.#tabsLimit,

@@ -1,4 +1,4 @@
-import type { BrowserVideoStatus } from "@ace/protocol";
+import type { BrowserVideoStatus, MediaAcceleration } from "@ace/protocol";
 import { AudioFanout, listens, type AudioSink } from "./audio-fanout.ts";
 import type {
   BrowserCdp,
@@ -55,7 +55,10 @@ const initialBitrate = 1_500_000;
  * on screen for as long as the page stays still. It still falls if the viewer falls behind.
  */
 const localBitrate = maxBitrate;
-/** An encode's bit rate changes in place when it moves this much, at most this often. */
+/**
+ * An encode's bit rate changes in place when it moves this much, at most this often; a new
+ * frame rate goes in place at once.
+ */
 const bitrateChange = 0.1;
 const bitrateEveryMs = 400;
 
@@ -85,8 +88,10 @@ export class LiveVideo {
   private retryAt = -Infinity;
   private wanted: { width: number; height: number; since: number } | undefined;
   private encodes = "";
-  /** The bit rate each running encode was last given. */
-  private bitrates = new Map<string, number>();
+  /** ace-media's plan for the views it delivers (D1), from the open capture; none yet. */
+  private mediaWanted: VideoEncode[] | undefined;
+  /** The bit and frame rates each running encode was last given. */
+  private bitrates = new Map<string, { bitrate: number; fps: number }>();
   private bitratesAt = -Infinity;
   private owedKeys = new Set<string>();
   private sequence = 0;
@@ -113,19 +118,32 @@ export class LiveVideo {
       keyframe: (encode) => this.owedKeys.add(encode),
       playing: options.playing,
       sent: (id, sequence, bytes) => this.viewers.get(id)?.link.sent(sequence, bytes, this.now()),
-      dropped: (id) => this.viewers.get(id)?.link.dropped(this.now()),
+      dropped: (id) => {
+        const link = this.viewers.get(id)?.link;
+        if (!link) return;
+        link.dropped(this.now());
+        this.fanout.bound(id, link.backlogBytes);
+      },
+      lost: (id) => {
+        const link = this.viewers.get(id)?.link;
+        if (!link) return;
+        link.lost(this.now());
+        this.fanout.bound(id, link.backlogBytes);
+      },
+      now: () => this.now(),
     });
   }
   /**
    * A viewer that asked for video, or its new pane; `audio` takes the sound once it unmutes.
-   * `local`: the viewer is on this machine, so its link starts at the top rate.
+   * `local`: the viewer is on this machine, so its link starts at the top rate. Otherwise its
+   * client's link hint may start it lower (`link-start.ts`), and only while its link is new.
    */
   add(
     id: string,
     sink: VideoSink<BrowserVideoChunk>,
     capture: CaptureViewer,
     audio?: AudioSink<BrowserAudioChunk>,
-    local = false,
+    link: { local?: boolean } = {},
   ): void {
     if (!capture.video) return;
     if (!this.fanout.has(id)) this.fanout.add(id, sink);
@@ -136,19 +154,27 @@ export class LiveVideo {
       capture,
       link:
         existing?.link ??
-        new LinkRate({
-          min: minBitrate,
-          max: maxBitrate,
-          initial: local ? localBitrate : initialBitrate,
-        }),
+        new LinkRate(
+          {
+            min: minBitrate,
+            max: maxBitrate,
+            initial: link.local === true ? localBitrate : initialBitrate,
+          },
+          link.local === true ? undefined : capture.viewport.link,
+        ),
       scale: existing?.scale ?? new PictureScale(),
     });
+    // Bounded from the start, before any round trip is measured (ADR 0150 at a 1 s default).
+    const rate = this.viewers.get(id)?.link;
+    if (rate && !existing) this.fanout.bound(id, rate.backlogBytes);
   }
   configure(id: string, capture: CaptureViewer): void {
     const viewer = this.viewers.get(id);
     if (!viewer) return;
     viewer.capture = capture;
     this.listen(id, capture);
+    // A hidden view stops at once; the next tick gives it its encode again, at a keyframe.
+    if (paused(capture)) this.fanout.assign(id, undefined);
   }
   remove(id: string): void {
     this.viewers.delete(id);
@@ -158,10 +184,17 @@ export class LiveVideo {
   }
   private listen(id: string, capture: CaptureViewer): void {
     const sink = this.soundSinks.get(id);
-    this.sound.set(id, sink && listens(capture) ? sink : undefined);
+    this.sound.set(id, sink && listens(capture) && !paused(capture) ? sink : undefined);
   }
   has(id: string): boolean {
     return this.viewers.has(id);
+  }
+  /** Someone is shown this video now: a paused (hidden) view doesn't count. */
+  watched(): boolean {
+    return this.showing().length > 0;
+  }
+  private showing(): [string, Viewer][] {
+    return [...this.viewers].filter(([, viewer]) => !paused(viewer.capture));
   }
   /** The screencast size an open capture fed by pictures needs; undefined: none needed. */
   pictures(): { width: number; height: number } | undefined {
@@ -173,8 +206,16 @@ export class LiveVideo {
     this.capture?.handle.pictures?.push(base64);
   }
   acknowledge(id: string, sequence: number): void {
-    this.viewers.get(id)?.link.acknowledged(sequence, this.now());
-    this.fanout.acknowledge(id, sequence);
+    const link = this.viewers.get(id)?.link;
+    if (link) {
+      link.acknowledged(sequence, this.now());
+      // In flight is bounded by what the link carries in time, not only by the window; chunks
+      // sent from now are due by its round trip.
+      this.fanout.bound(id, link.backlogBytes);
+      this.fanout.roundTrip(id, link.rtt);
+    }
+    // Sequences only increase here, across encodes and pauses: an ack covers everything before.
+    this.fanout.acknowledgeThrough(id, sequence);
   }
   keyframe(id: string): void {
     this.fanout.keyframe(id);
@@ -198,6 +239,10 @@ export class LiveVideo {
     if (!this.failures) return undefined;
     return { status: "retrying", reason: this.failure, attempts: this.failures };
   }
+  /** What ace-media runs the video on while it carries it (`BrowserState.acceleration`). */
+  acceleration(): MediaAcceleration | undefined {
+    return this.capture?.handle.acceleration?.();
+  }
   /** Stops the tab's capture; viewers keep their last picture until the next `attach`. */
   detach(): void {
     this.generation++;
@@ -205,6 +250,7 @@ export class LiveVideo {
     this.capture = undefined;
     this.source = undefined;
     this.encodes = "";
+    this.mediaWanted = undefined;
     this.soundOn = false;
     this.wanted = undefined;
     this.owedKeys.clear();
@@ -218,33 +264,74 @@ export class LiveVideo {
     this.viewers.clear();
   }
   /** Re-plans the encodes from each viewer's pane and link, and applies them. `page` is the page's CSS size now. */
+  /**
+   * The page it shows is being restored (shown again, thawed or reopened): the capture stops,
+   * every viewer's queued chunks go and late ones from that capture are dropped, and no capture
+   * opens or delivers until `resume`. The first chunk after is a keyframe of a new capture.
+   */
+  hold(): void {
+    if (this.held) return;
+    this.held = true;
+    this.close();
+  }
+  /** The page is back: the next tick opens a capture of it. */
+  resume(): void {
+    this.held = false;
+  }
+  private held = false;
   tick(page: { width: number; height: number }): void {
+    if (this.held) return;
     const now = this.now();
     this.fanout.flush();
     this.page = { ...this.page, ...page };
     const source = this.source;
-    if (!source || !this.viewers.size) {
+    const showing = this.showing();
+    if (!source || !showing.length) {
       if (this.capture) this.close();
       return;
     }
     if (this.codecs === undefined) return this.probe(source, now);
-    const plan = planVideo(
+    // Views ace-media delivers take ace-media's plan once it has one; until then the daemon plans
+    // for them too, so the capture opens and ace-media sees the source.
+    const delivered = showing.filter(([, viewer]) => viewer.capture.delivered === true);
+    const wanted = delivered.length ? this.mediaWanted : undefined;
+    const planned = wanted ? showing.filter(([, viewer]) => !viewer.capture.delivered) : showing;
+    const daemonPlan = planVideo(
       {
         ...this.page,
         codecs: this.codecs.filter((codec) => !this.failedCodecs.has(codec)),
       },
-      [...this.viewers].map(([id, viewer]) => {
+      planned.map(([id, viewer]) => {
         const full = viewerPicture(this.page, viewer.capture.viewport);
         const link = viewer.link.rate;
+        const step = viewer.scale.update({
+          link,
+          pixels: full.width * full.height,
+          side: Math.max(full.width, full.height),
+          fps: videoFps,
+          now,
+          probing: viewer.link.probing,
+        });
         return {
           id,
           viewport: viewer.capture.viewport,
           codecs: viewer.capture.video?.codecs ?? [],
           link,
-          scale: viewer.scale.update(link, full.width * full.height, videoFps, now),
+          scale: step.scale,
+          fps: step.fps,
         };
       }),
     );
+    const plan = {
+      ...daemonPlan,
+      encodes: [...daemonPlan.encodes, ...(wanted ?? [])],
+      capture: wanted
+        ? {
+            width: Math.max(daemonPlan.capture.width, ...wanted.map((encode) => encode.width)),
+            height: Math.max(daemonPlan.capture.height, ...wanted.map((encode) => encode.height)),
+          }
+        : daemonPlan.capture,
+    };
     if (!plan.encodes.length) {
       if (this.capture) this.close();
       return;
@@ -258,13 +345,16 @@ export class LiveVideo {
       if (!capture || now - this.wanted.since >= settleMs) this.open(source, size, now);
     }
     const open = this.capture;
-    for (const id of this.viewers.keys())
-      this.fanout.assign(id, open ? plan.viewers.get(id) : undefined);
+    // A paused viewer has no encode, so it is sent nothing; nor is one ace-media delivers.
+    for (const [id, viewer] of this.viewers)
+      this.fanout.assign(id, open && !viewer.capture.delivered ? plan.viewers.get(id) : undefined);
     if (!open) return;
     const encodes = plan.encodes.map((encode) => encode.key).join(",");
     if (encodes !== this.encodes || this.bitratesMoved(plan.encodes, now)) {
       this.encodes = encodes;
-      this.bitrates = new Map(plan.encodes.map((encode) => [encode.key, encode.bitrate]));
+      this.bitrates = new Map(
+        plan.encodes.map((encode) => [encode.key, { bitrate: encode.bitrate, fps: encode.fps }]),
+      );
       this.bitratesAt = now;
       open.handle.encodes(plan.encodes);
     }
@@ -277,12 +367,15 @@ export class LiveVideo {
       open.handle.audio?.(this.soundOn);
     }
   }
-  /** Whether a running encode's bit rate should change in place now. */
+  /** Whether a running encode's bit or frame rate should change in place now. */
   private bitratesMoved(encodes: readonly VideoEncode[], now: number): boolean {
-    if (now - this.bitratesAt < bitrateEveryMs) return false;
     return encodes.some((encode) => {
       const given = this.bitrates.get(encode.key);
-      return given === undefined || Math.abs(encode.bitrate - given) > given * bitrateChange;
+      if (given === undefined || given.fps !== encode.fps) return true;
+      return (
+        now - this.bitratesAt >= bitrateEveryMs &&
+        Math.abs(encode.bitrate - given.bitrate) > given.bitrate * bitrateChange
+      );
     });
   }
   private probe(source: LiveVideoSource, now: number): void {
@@ -327,6 +420,12 @@ export class LiveVideo {
         failed: (encode) => {
           const codec = encode.split("/")[0];
           if (codec && generation === this.generation) this.failedCodecs.add(codec);
+        },
+        want: (encodes) => {
+          if (generation === this.generation) this.mediaWanted = encodes && [...encodes];
+        },
+        accelerated: () => {
+          if (generation === this.generation) this.statusChanged();
         },
         ended: (reason) => {
           if (generation !== this.generation) return;
@@ -373,6 +472,7 @@ export class LiveVideo {
     this.capture?.handle.close();
     this.capture = undefined;
     this.encodes = "";
+    this.mediaWanted = undefined;
     this.soundOn = false;
     this.fanout.stopAll();
   }
@@ -398,4 +498,9 @@ export class LiveVideo {
       ...(tabId ? { tabId } : {}),
     });
   }
+}
+
+/** The view is hidden or backgrounded (ADR 0149): it takes no video and no sound. */
+function paused(capture: CaptureViewer): boolean {
+  return capture.viewport.paused === true;
 }

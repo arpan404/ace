@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { windowsSigning, windowsSigningConfig } from "./release-signing.ts";
+import {
+  windowsSigning,
+  windowsSigningConfig,
+  windowsSigningConfigured,
+} from "./release-signing.ts";
 
 const certificate = {
   WIN_CSC_LINK: "C:\\keys\\ace.pfx",
@@ -7,9 +11,9 @@ const certificate = {
   ACE_WINDOWS_PUBLISHER: "ace",
 };
 
-test("a signed Windows build signs ace's native addons and DLLs as well as its executables", () => {
+test("a signed Windows build signs executables including ace-media, native addons and DLLs", () => {
   const config = windowsSigningConfig(windowsSigning(certificate));
-  expect(config.signExts).toEqual([".node", ".dll"]);
+  expect(config.signExts).toEqual([".exe", ".node", ".dll"]);
   expect(config).toMatchObject({ signtoolOptions: { publisherName: ["ace"] } });
 });
 
@@ -24,7 +28,7 @@ test("Azure Trusted Signing signs the same files under the configured publisher"
       ACE_WINDOWS_PUBLISHER: "ace",
     }),
   );
-  expect(config.signExts).toEqual([".node", ".dll"]);
+  expect(config.signExts).toEqual([".exe", ".node", ".dll"]);
   expect(config).toMatchObject({ azureSignOptions: { publisherName: "ace" } });
 });
 
@@ -34,4 +38,19 @@ test("a half-configured certificate names what is missing, and none builds unsig
     missing: ["WIN_CSC_KEY_PASSWORD", "ACE_WINDOWS_PUBLISHER"],
   });
   expect(windowsSigningConfig(windowsSigning({}))).toEqual({});
+});
+
+test("unsigned Windows packages skip signature verification while configured signers require it", () => {
+  expect(windowsSigningConfigured(windowsSigning({}))).toBe(false);
+  expect(windowsSigningConfigured(undefined)).toBe(false);
+  expect(windowsSigningConfigured(windowsSigning(certificate))).toBe(true);
+  expect(
+    windowsSigningConfigured({
+      kind: "azure",
+      publisherName: "ace",
+      endpoint: "endpoint",
+      codeSigningAccountName: "account",
+      certificateProfileName: "release",
+    }),
+  ).toBe(true);
 });

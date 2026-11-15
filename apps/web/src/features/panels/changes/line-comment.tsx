@@ -1,4 +1,4 @@
-import { CheckCircleIcon, CheckIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, CheckIcon, PencilSimpleIcon } from "@ace/icons";
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/cn.ts";

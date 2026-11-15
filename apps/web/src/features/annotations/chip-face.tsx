@@ -1,4 +1,4 @@
-import { ChatTeardropTextIcon, XIcon } from "@phosphor-icons/react";
+import { ChatTeardropTextIcon, XIcon } from "@ace/icons";
 import type { RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 

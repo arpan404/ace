@@ -19,6 +19,22 @@ export interface ServiceDefinition {
   essential?: boolean;
   start(context: ServiceContext): void | Promise<void>;
 }
+/**
+ * A listener-phase service that only the service list names loads its module when it starts,
+ * after the daemon listens, so its code is not on the path to the first client's welcome.
+ * A start that timed out, or a daemon stopping, while the module loaded never runs it: its
+ * resources are already closed, and anything it installed would outlive them.
+ */
+export function loadOnStart<Name extends string>(
+  load: () => Promise<Record<Name, ServiceDefinition["start"]>>,
+  name: Name,
+): ServiceDefinition["start"] {
+  return async (context) => {
+    const loaded = await load();
+    context.signal.throwIfAborted();
+    return loaded[name](context);
+  };
+}
 /** An essential service failed to start; the daemon must not listen without it. */
 export class EssentialServiceError extends Error {
   readonly service: string;
@@ -106,6 +122,12 @@ function boundedCleanup(
   );
 }
 
+interface ServiceListener {
+  name: string;
+  start: ServiceContext["onListen"][number];
+  disable(): void;
+}
+
 /** Ordered startup with private publication and resource ownership for each attempt. */
 export class ServiceStartup {
   private readonly readiness = new Map<
@@ -113,11 +135,8 @@ export class ServiceStartup {
     () => { state: "starting" | "ready" | "degraded"; error?: string }
   >();
   private readonly statuses = new Map<string, ServiceStatus>();
-  private readonly listeners: {
-    name: string;
-    start: ServiceContext["onListen"][number];
-    disable(): void;
-  }[] = [];
+  /** Core services' listeners, run once the daemon listens. */
+  private readonly listeners: ServiceListener[] = [];
   private readonly runtime: StartupRuntime;
   private deferred: readonly ServiceDefinition[] = [];
   private readonly cleanups = new Map<
@@ -193,7 +212,7 @@ export class ServiceStartup {
     }
     this.deferred = definitions.filter((definition) => definition.phase === "listener");
     for (const definition of definitions.filter((entry) => entry.phase === "core"))
-      await this.startOne(definition);
+      this.listeners.push(...(await this.startOne(definition)));
     for (const definition of definitions) {
       if (!definition.essential) continue;
       const status = this.statuses.get(definition.name);
@@ -201,7 +220,8 @@ export class ServiceStartup {
         throw new EssentialServiceError(definition.name, status.error);
     }
   }
-  private async startOne(definition: ServiceDefinition): Promise<void> {
+  /** Returns the listeners the service registered, to run once the daemon listens. */
+  private async startOne(definition: ServiceDefinition): Promise<ServiceListener[]> {
     this.context.signal.throwIfAborted();
     const { name } = definition;
     const unavailable = definition.requires.find(
@@ -209,7 +229,7 @@ export class ServiceStartup {
     );
     if (unavailable) {
       this.degraded(name, new Error(`Dependency ${unavailable} is unavailable`));
-      return;
+      return [];
     }
     this.record(name, { name, state: "starting" });
     const resources = new Resources();
@@ -294,8 +314,8 @@ export class ServiceStartup {
           this.context.log.log("error", "Degraded service cleanup failed", logError(failure)),
         );
       };
-      this.listeners.push(...onListen.map((start) => ({ name, start, disable })));
       this.record(name, { name, state: onListen.length ? "starting" : "ready" });
+      return onListen.map((start) => ({ name, start, disable }));
     } catch (error) {
       resources.beginShutdown();
       this.degraded(name, error);
@@ -305,37 +325,53 @@ export class ServiceStartup {
       );
       this.context.signal.throwIfAborted();
       stopOnIncompatibleData(error);
+      return [];
     }
   }
+  /**
+   * Starts listener-phase services once the daemon listens. Each one waits only for the
+   * services it names in `requires` and `after` (their start and their listeners), so
+   * independent services start together instead of one after another.
+   */
   async listening(server: Awaited<ReturnType<typeof startServer>>): Promise<void> {
-    let next = 0;
-    const drainListeners = async () => {
-      while (next < this.listeners.length) {
-        const listener = this.listeners[next++];
-        if (!listener) continue;
-        if (this.statuses.get(listener.name)?.state === "degraded") continue;
-        try {
-          await bounded(
-            listener.name,
-            async () => {
-              await listener.start(server);
-            },
-            this.runtime,
-            this.context.signal,
-          );
-          this.record(listener.name, { name: listener.name, state: "ready" });
-        } catch (error) {
-          listener.disable();
-          this.degraded(listener.name, error);
-          this.context.signal.throwIfAborted();
-          stopOnIncompatibleData(error);
-        }
-      }
-    };
-    await drainListeners();
+    // Core services' listeners first: a listener-phase dependency must find them ready.
+    await this.runListeners(this.listeners.splice(0), server);
+    const settled = new Map<string, Promise<void>>();
     for (const definition of this.deferred) {
-      await this.startOne(definition);
-      await drainListeners();
+      const dependencies = [...definition.requires, ...definition.after].flatMap(
+        (dependency) => settled.get(dependency) ?? [],
+      );
+      settled.set(
+        definition.name,
+        Promise.all(dependencies).then(async () => {
+          await this.runListeners(await this.startOne(definition), server);
+        }),
+      );
+    }
+    await Promise.all(settled.values());
+  }
+  private async runListeners(
+    listeners: readonly ServiceListener[],
+    server: Awaited<ReturnType<typeof startServer>>,
+  ): Promise<void> {
+    for (const listener of listeners) {
+      if (this.statuses.get(listener.name)?.state === "degraded") continue;
+      try {
+        await bounded(
+          listener.name,
+          async () => {
+            await listener.start(server);
+          },
+          this.runtime,
+          this.context.signal,
+        );
+        this.record(listener.name, { name: listener.name, state: "ready" });
+      } catch (error) {
+        listener.disable();
+        this.degraded(listener.name, error);
+        this.context.signal.throwIfAborted();
+        stopOnIncompatibleData(error);
+      }
     }
   }
 }

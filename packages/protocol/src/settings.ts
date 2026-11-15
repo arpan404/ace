@@ -67,6 +67,9 @@ export const SettingsValues = z.object({
     .min(1)
     .max(4096)
     .refine((path) => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path), "Absolute path")
+    .meta({
+      "x-ace-constraint": "An absolute path: starting with / or a drive letter and \\ or /.",
+    })
     .nullable(),
   /**
    * Whether Claude Code starts with Claude in Chrome (`--chrome`): `auto` follows
@@ -125,6 +128,23 @@ export const SettingsValues = z.object({
    * started themselves are never changed.
    */
   "devices.emulatorWindow": z.boolean(),
+  /**
+   * Who encodes live video (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps today's
+   * encoders (the browser's WebCodecs over its CDP binding, the daemon's encoder Chrome for
+   * pictures, the Mac screen helper's own socket); `auto` streams through ace-media, which
+   * encodes picture-only sources on this computer's hardware encoder and hands every unit back
+   * to the daemon's legacy viewers, recordings and stills while those stay legacy. It falls
+   * back to `legacy` whenever ace-media isn't healthy.
+   * Global only; read live, so a change moves running producers at their next keyframe.
+   */
+  "media.encode": z.enum(["auto", "legacy"]),
+  /**
+   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps
+   * the daemon's own fanout on each client's main socket; `auto` lets clients open a media
+   * connection to ace-media, which paces, scales and sends every viewer's pictures itself. It
+   * falls back to `legacy` whenever ace-media isn't healthy. Global only; read live.
+   */
+  "media.delivery": z.enum(["auto", "legacy"]),
   /**
    * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
    * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off

@@ -16,6 +16,25 @@ struct ConversationHit: Decodable, Identifiable, Sendable {
     var workspaceId: String? = nil
     var id: String { "\(threadId):\(itemId ?? "title"):\(kind)" }
     var excerpt: String { kind == "thread" ? title.text : snippet.text }
+    /// A hit within one thread leads with what matched, as the thread's own title would repeat
+    /// on every row: its kind, and a tool's or visualization's title when it has one.
+    var inThreadLead: String {
+        let label = switch kind {
+        case "thread": "Thread title"
+        case "message": "Message"
+        case "reasoning": "Reasoning"
+        case "tool_call": "Tool"
+        case "notice": "Notice"
+        case "compaction": "Compaction"
+        case "delegation.started": "Subagent started"
+        case "delegation.settled": "Subagent finished"
+        case "artifact": "File"
+        case "html": "Visualization"
+        default: kind.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+        let named = kind == "thread" ? "" : title.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return named.isEmpty ? label : "\(label) · \(named)"
+    }
 }
 struct ConversationSearchReply: Decodable {
     let type: String
@@ -26,6 +45,16 @@ struct ConversationSearchReply: Decodable {
 
 /// One machine and query at a time. Late replies cannot replace a newer query or append its pages.
 @MainActor @Observable final class ConversationSearch {
+    /// The search's own filters, as Home's search sends them: the project in scope and, for the
+    /// last `days` days (0: any time), `after`. The protocol's Timestamp is whole milliseconds,
+    /// and the phone's clock (`timeIntervalSince1970 * 1000`) counts fractions.
+    nonisolated static func filters(workspaceId: String?, days: Int, now: Double) -> [String: Any] {
+        var filters: [String: Any] = [:]
+        if let workspaceId { filters["workspaceId"] = workspaceId }
+        if days > 0 { filters["after"] = Int((now - Double(days) * 86_400_000).rounded(.down)) }
+        return filters
+    }
+
     private(set) var hits: [ConversationHit] = []
     private(set) var cursor: String?
     private(set) var loading = false

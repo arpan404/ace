@@ -1,6 +1,6 @@
 import { ciLine } from "@ace/ui-core";
 import type { ForgePrStatus } from "@ace/protocol";
-import { CheckCircleIcon, CircleIcon, WarningCircleIcon, ClockIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, CircleIcon, WarningCircleIcon, ClockIcon } from "@ace/icons";
 
 /** The PR view's names for the shared avatar and relative time. */
 export { PersonAvatar as PrAvatar, RelativeTime as PrTime } from "@/components/person-avatar.tsx";

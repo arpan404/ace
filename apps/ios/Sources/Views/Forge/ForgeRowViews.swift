@@ -40,6 +40,31 @@ struct ForgePullRowView: View {
     }
 }
 
+/// A ready row's place in the verified merge: a round check at the row's end, filled once picked.
+/// A row that can't join now (another base, ten already) is dimmed and says why.
+struct ForgeMergePickButton: View {
+    let number: Int
+    let picked: Bool
+    let blocked: String?
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+                .font(AceDesign.Typeface.body)
+                .foregroundStyle(picked ? AceDesign.Ink.primary : AceDesign.Ink.faint)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(blocked != nil)
+        .accessibilityLabel(picked ? "Picked to merge #\(number)" : "Pick #\(number) to merge")
+        .accessibilityHint(blocked ?? "Verify and merge it with the others picked.")
+        .accessibilityAddTraits(picked ? .isSelected : [])
+        .accessibilityIdentifier("forge.mergePick.\(number)")
+    }
+}
+
 /// One issue, in the same shape: glyph, title and age, then the number, the author and its
 /// milestone.
 struct ForgeIssueRowView: View {

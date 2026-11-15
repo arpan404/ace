@@ -1,4 +1,4 @@
-import type { MapArt, MapTone } from "./data/fleet-map-types.ts";
+import type { MapArt, MapTone } from "@ace/ui-core/fleet-map";
 
 /*
  * The Fleet map's drawings: each kind of machine or device as line artwork about 44 wide around

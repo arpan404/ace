@@ -66,6 +66,27 @@ import Testing
         for session in fixture.sessions.started { session.finishShutdown() }
     }
 
+    @Test func aMachineRowCountsOnlyTheWorkItsMachineHasConfirmed() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let studio = try #require(fixture.sessions.started.first)
+        func thread(_ id: String, working: Bool, confirmed: Bool) -> String {
+            #"{"type":"inbox.row","id":"\#(id)","row":{"id":"\#(id)","title":"Thread","state":"working","project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"updatedAt":1,"canSteer":false,"status":{"label":"Working","token":"working"},"confirmed":\#(confirmed),"generation":1\#(working ? #","workingSince":1"# : "")}}"#
+        }
+        // One thread working as the machine says now, one working only in a copy from disk, one done.
+        studio.emit("[" + [#"{"type":"connection","state":"ready"}"#, #"{"type":"inbox.reset"}"#,
+                           thread("live", working: true, confirmed: true),
+                           thread("kept", working: true, confirmed: false),
+                           thread("done", working: false, confirmed: true)].joined(separator: ",") + "]")
+        let inbox = fixture.model.inbox
+        await settle { inbox.client("studio")?.inbox.count == 3 }
+        let facts = MachineFacts(inbox: inbox, machines: fixture.model, hostId: "studio")
+        #expect(facts.working == 1)
+        for session in fixture.model.inbox.sessions { session.client.disconnect() }
+        for session in fixture.sessions.started { session.finishShutdown() }
+    }
+
     @Test func aRowsCommandsGoOnlyToTheRuntimeOfItsMachine() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { fixture.cleanUp() }
@@ -91,6 +112,35 @@ import Testing
         #expect(fixture.sessions.started.allSatisfy { !$0.invoked.joined().contains(#""type":"wake""#) })
         fixture.model.wake()
         #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
+    }
+
+    @Test func aNewNetworkInterfaceAsksEveryMachineToCheckItsSocketNow() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        // The same network coming back says only that it is online.
+        fixture.model.network(online: true, interfaceChanged: false)
+        #expect(fixture.sessions.started.allSatisfy { !$0.invoked.joined().contains(#""type":"wake""#) })
+        // Wi-Fi to cellular: a socket still marked ready on Wi-Fi must prove itself now.
+        fixture.model.network(online: true, interfaceChanged: true)
+        #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
+    }
+
+    @Test func everyInterfaceChangeWakesEveryMachineAtOnceHoweverOftenTheyCome() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let wakes = { fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count } }
+        // Wi-Fi and cellular trading places every second: the shared client joins wakes close
+        // together into one ping and never moves an earlier deadline, so each change goes
+        // straight through and none waits for another.
+        for step in 1...4 {
+            fixture.model.network(online: true, interfaceChanged: true)
+            #expect(wakes() == [step, step])
+            fixture.scheduler.advance(1_000)
+        }
+        fixture.model.wake()
+        #expect(wakes() == [5, 5])
     }
 
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {
@@ -351,6 +401,28 @@ import Testing
                          problem: String = "null") -> String {
         let thread = #"{"id":"\#(row.id)","title":"Thread","state":"done","project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"updatedAt":1,"canSteer":false,"status":{"label":"\#(row.label)","token":"\#(row.token)"}}"#
         return #"[{"type":"connection","state":"\#(connection)"},{"type":"connection.problem","problem":\#(problem)},{"type":"inbox.reset"},{"type":"inbox.row","id":"\#(row.id)","row":\#(thread)},{"type":"inbox.sections","sections":[{"key":"\#(row.section)","label":"\#(row.label)","ids":["\#(row.id)"],"ranks":["\#(rank)"],"order":0}],"more":false,"snooze":[]}]"#
+    }
+
+    @Test func aSenderOnAnotherMachineOpensOnlyWhileThatMachineIsConnected() throws {
+        let inbox = MachineInbox(defaults: try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")), now: { 0 })
+        let studio = ClientModel(now: { 0 })
+        inbox.attach("studio", name: "Studio", client: studio)
+        var opened: [String] = []
+        let remote = RemoteThreads.on(inbox) { client, host, id in
+            #expect(client === studio)
+            opened.append("\(host)/\(id)")
+        }
+        // Kept but not connected yet: the line opens nothing.
+        #expect(remote.on("studio") == nil)
+        studio.connection = "ready"
+        remote.on("studio")?("far-parent")
+        #expect(opened == ["studio/far-parent"])
+        studio.connection = "offline"
+        #expect(remote.on("studio") == nil)
+        studio.connection = "ready"
+        #expect(remote.on("studio") != nil)
+        // A machine this phone doesn't keep never opens.
+        #expect(remote.on("elsewhere") == nil)
     }
 }
 

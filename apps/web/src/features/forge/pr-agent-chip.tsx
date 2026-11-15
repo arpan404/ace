@@ -1,11 +1,14 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useSidebarAll } from "@ace/client-react";
+import { arrayEqual, useSidebar } from "@ace/client-react";
+import { useCallback, useMemo } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
+import type { SidebarReader } from "@ace/client";
 import { formatSpan, providerDisplayName, threadCard, type ThreadCard } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { useNow } from "@/lib/time.ts";
+import { useLiveList } from "@/lib/live-connection.ts";
 import { cn } from "@/lib/cn.ts";
 import type { ForgePrDetail } from "@ace/protocol";
 import { presenceLead, presenceWords } from "./pr-presence.ts";
@@ -35,17 +38,31 @@ function Marks(props: { cards: readonly ThreadCard[] }) {
   );
 }
 
-/** The tasks linked to this PR as live cards, and the loudest of them with its words. */
-export function useLinkedTasks(detail: ForgePrDetail) {
+/**
+ * The tasks linked to this PR as live cards, and the loudest of them with its words. None while
+ * the thread list isn't confirmed (`useLiveList`): a saved "working" or "done" may be stale, so
+ * nothing here claims one, as the sidebar's rows don't.
+ */
+export function useLinkedTasks(detail: Pick<ForgePrDetail, "relatedThreads">) {
   const now = useNow();
-  const ids = detail.relatedThreads.filter((t) => !t.archived).map((t) => t.id);
-  const entries =
-    useSidebarAll((reader) =>
+  const live = useLiveList();
+  const key = detail.relatedThreads
+    .filter((t) => !t.archived)
+    .map((t) => t.id)
+    .join("\u0000");
+  const ids = useMemo(() => (key ? key.split("\u0000") : []), [key]);
+  // Only the linked threads' entries: a step in any other thread re-renders nothing here.
+  const keys = useMemo(() => ids.map((id) => `thread:${id}` as const), [ids]);
+  const select = useCallback(
+    (reader: SidebarReader) =>
       ids.flatMap((id) => {
         const entry = reader.thread(id);
         return entry ? [entry] : [];
       }),
-    ) ?? [];
+    [ids],
+  );
+  const listed = useSidebar(keys, select, arrayEqual) ?? noEntries;
+  const entries = live ? listed : noEntries;
   const cards = entries.map((entry: ThreadListEntry) =>
     threadCard({ entry, baseline: 0, settled: false, now }),
   );
@@ -140,3 +157,5 @@ export function PrAgentChip(props: { detail: ForgePrDetail; compact?: boolean })
     </Menu>
   );
 }
+
+const noEntries: readonly ThreadListEntry[] = [];

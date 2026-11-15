@@ -38,6 +38,18 @@ export const FilesOperation = z.discriminatedUnion("op", [
     text: z.string().max(checkoutEditLimit),
     expected: z.string().min(1).max(256),
   }),
+  /**
+   * One part of a file too large to edit whole, saved over the bytes it was read from
+   * (`checkout-part-write.ts`): `offset` and `length` in bytes, at the part's `version`.
+   */
+  z.object({
+    op: z.literal("part.write"),
+    path,
+    offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    length: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    text: z.string().max(checkoutEditLimit),
+    version: z.string().min(1).max(256),
+  }),
   z.object({ op: z.enum(["create", "mkdir", "delete"]), path }),
   z.object({ op: z.enum(["rename", "move"]), path, destination: path }),
   z.object({ op: z.literal("restore"), trashId: z.string().min(1).max(128), path }),

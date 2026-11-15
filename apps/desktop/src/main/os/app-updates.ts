@@ -3,13 +3,12 @@ import { join } from "node:path";
 import type { UpdateStatus } from "../../shared/contract.ts";
 import { repositoryUrl } from "../links.ts";
 import {
-  scheduleChecks,
   UpdateController,
   type CheckOrigin,
-  type CheckSchedule,
   type RemoteInstruction,
   type UpdateEngine,
 } from "./update-controller.ts";
+import { scheduleChecks, type CheckSchedule } from "./update-schedule.ts";
 
 /** How long `ace update apply` waits for running agents before the update stays ready (ADR 0041). */
 export const updateDrainMs = 5 * 60_000;
@@ -26,6 +25,10 @@ export interface AppUpdatesOptions {
   random(): number;
   /** The clock, in milliseconds. */
   now(): number;
+  /** True while the window is on screen and the computer runs on mains power. */
+  active(): boolean;
+  /** Settles once the daemon first runs: the launch check waits for it. */
+  daemonRunning: Promise<unknown>;
   report(status: UpdateStatus): void;
   drain(deadlineMs: number, waiting: (count: number) => void): Promise<boolean>;
   /** Threads still at work in the daemon this app started; 0 when it runs none. */
@@ -48,7 +51,7 @@ export interface AppUpdates {
   busy(): Promise<number | undefined>;
   /** Background checks, for a build that has a feed. */
   start(): void;
-  /** The app's window opened: check now, unless a check just started. */
+  /** The app's window opened or was focused, or the computer woke: check now after a gap. */
   opened(): void;
 }
 
@@ -105,7 +108,13 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     busy: () => controller.busy(),
     start() {
       if (enabled && !schedule)
-        schedule = scheduleChecks(controller, options.timers, options.random, options.now);
+        schedule = scheduleChecks(controller, {
+          timers: options.timers,
+          random: options.random,
+          now: options.now,
+          active: options.active,
+          daemonRunning: options.daemonRunning,
+        });
     },
     opened: () => schedule?.opened(),
   };

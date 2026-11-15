@@ -3,12 +3,15 @@ import UIKit
 import WebKit
 
 /// A published page as the transcript draws it: the outer document and its content hash, which
-/// keys what the thread keeps of it (its height, its loaded web view).
+/// keys what the thread keeps of it (its height, its loaded web view), and the page as the agent
+/// wrote it, for Copy source.
 struct CanvasPage: Equatable {
     let document: String
+    let source: String
     let id: String
-    init(document: String) {
+    init(document: String, source: String = "") {
         self.document = document
+        self.source = source
         id = contentKey(document)
     }
 }

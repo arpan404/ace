@@ -203,9 +203,10 @@ export class StatusStore {
     collection: import("@ace/protocol").EntityCollection,
     before: number,
     limit: number,
+    maxBytes: number,
   ) {
     if (!this.window) throw new Error("Entity windows not initialized");
-    return this.window.page(thread, collection, before, limit);
+    return this.window.page(thread, collection, before, limit, maxBytes);
   }
   retainItemAgents(view: ThreadView): void {
     this.window?.retainAgents(view);
@@ -328,11 +329,12 @@ export class StatusStore {
     return this.invalidated.has(view);
   }
   replaceCache(view: ThreadView, source: ThreadView): void {
-    this.invalidated.delete(view);
     Object.assign(view, source);
     const policy = this.retention.get(source);
     if (policy) this.retention.set(view, policy);
     else this.seedRetention(view);
+    // Only once the view holds the new contents: a failure above leaves it marked stale.
+    this.invalidated.delete(view);
   }
   snapshot(thread: Thread | undefined, seq: number): ThreadView {
     if (!thread) throw new Error("Unknown thread");

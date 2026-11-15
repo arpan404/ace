@@ -66,14 +66,29 @@ struct FileContent: Decodable, Sendable {
     let data: String?
     let markdown: Bool?
     let editable: Bool?
+    /// Too large to edit whole, so a thread's file is edited a part at a time (`LargeFileView`).
+    var parts: Bool? = nil
     /// The language markit colours the text in; nil shows it plain.
     let language: String?
     let marks: [LineMark]?
+    /// The marks by 1-based line, for a gutter to look each line up.
+    var markedLines: [Int: String] {
+        Dictionary((marks ?? []).map { ($0.line, $0.kind) }, uniquingKeysWith: { first, _ in first })
+    }
 }
 /// A line changed since the last commit: "added", "modified" or "removed" (lines gone above it).
 struct LineMark: Decodable, Sendable, Hashable {
     let line: Int
     let kind: String
+    /// What a mark says to VoiceOver, as web's gutter titles it.
+    static func words(_ kind: String) -> String? {
+        switch kind {
+        case "added": "Added since the last commit"
+        case "modified": "Changed since the last commit"
+        case "removed": "Lines removed above"
+        default: nil
+        }
+    }
     init(from decoder: any Decoder) throws {
         var pair = try decoder.unkeyedContainer()
         line = try pair.decode(Int.self)

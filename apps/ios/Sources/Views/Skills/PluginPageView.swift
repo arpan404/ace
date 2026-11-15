@@ -34,6 +34,9 @@ struct PluginPageView: View {
                     QuietSectionRow {
                         QuietRowText(title: "Version", detail: plugin.version, mono: true)
                     }
+                    if let source = plugin.source {
+                        QuietSectionRow { QuietRowText(title: "Source", detail: source) }
+                    }
                 }
                 QuietSection("Agents") {
                     ForEach(plugin.agents) { agent in
@@ -109,12 +112,12 @@ struct PluginPageView: View {
 
     private func switchPlugin(_ enabled: Bool) {
         change(["op": "switch", "name": plugin.name, "enabled": enabled]) {
-            PluginAgents(name: $0.name, version: $0.version, on: $0.on, enabled: enabled, summary: $0.summary, agents: $0.agents)
+            PluginAgents(name: $0.name, version: $0.version, source: $0.source, on: $0.on, enabled: enabled, summary: $0.summary, agents: $0.agents)
         }
     }
     private func setAgent(_ id: String, on: Bool) {
         change(["op": "agent", "name": plugin.name, "provider": id, "on": on]) {
-            PluginAgents(name: $0.name, version: $0.version, on: $0.on, enabled: $0.enabled, summary: $0.summary,
+            PluginAgents(name: $0.name, version: $0.version, source: $0.source, on: $0.on, enabled: $0.enabled, summary: $0.summary,
                          agents: $0.agents.map { $0.id == id ? .init(id: $0.id, name: $0.name, on: on) : $0 })
         }
     }

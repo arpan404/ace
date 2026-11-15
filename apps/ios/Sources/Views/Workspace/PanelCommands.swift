@@ -18,18 +18,24 @@ struct PanelCommands {
         let modifiers: EventModifiers
         let run: (() -> Void)?
         var id: String { title }
+        /// A key the shared table already names (`PhoneKeymapTable`), so the menu and the ⌘ overlay
+        /// say the same keys the rest of the app binds.
+        static func table(_ title: String, _ id: String, run: (() -> Void)?) -> Key? {
+            guard let shortcut = PhoneKeymap(stored: "").shortcut(id) else { return nil }
+            return Key(title: title, key: shortcut.key, modifiers: shortcut.modifiers, run: run)
+        }
     }
     var keys: [[Key]] {
         let tool = { (kind: PanelTool) in { act(["op": "toggle", "kind": kind.rawValue]) } }
         return [
             [Key(title: "Show or Hide Panel", key: "b", modifiers: [.command, .shift], run: { act(["op": "togglePanel"]) })],
             [
-                Key(title: "Changes", key: "d", modifiers: [.command, .shift], run: tool(.changes)),
-                Key(title: "Files", key: "p", modifiers: .command, run: tool(.files)),
-                Key(title: "Terminal", key: "`", modifiers: .control, run: tool(.terminal)),
-                Key(title: "Browser", key: "b", modifiers: [.control, .shift], run: tool(.browser)),
-                Key(title: "Agents", key: "a", modifiers: [.control, .shift], run: tool(.agents)),
-            ],
+                Key.table("Changes", "showChanges", run: tool(.changes)),
+                Key.table("Files", "openFile", run: tool(.files)),
+                Key.table("Terminal", "terminal", run: tool(.terminal)),
+                Key.table("Browser", "browser", run: tool(.browser)),
+                Key.table("Agents", "agentTree", run: tool(.agents)),
+            ].compactMap(\.self),
             [
                 Key(title: "Next Tab", key: "]", modifiers: [.command, .shift], run: hasTab ? { act(["op": "cycle", "delta": 1]) } : nil),
                 Key(title: "Previous Tab", key: "[", modifiers: [.command, .shift], run: hasTab ? { act(["op": "cycle", "delta": -1]) } : nil),

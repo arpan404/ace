@@ -3,7 +3,8 @@ import Foundation
 /// The threads this phone showed most recently, kept whole after the person leaves them, as the
 /// web keeps its thread stores warm. Reopening one shows it at once and tells the bridge so; the
 /// bridge then sends only what changed since (`bridge/native-ledger.ts`, which keeps as many).
-/// Kept threads take no updates while they are not open.
+/// Kept threads take no updates here while they are not open; the bridge keeps the ones left in
+/// the last five minutes followed (ADR 0146), so reopening one sends what changed at once.
 ///
 /// Reading sessions (where the reader was in each thread) are kept alongside,
 /// bounded independently like the web scroll memory: a thread evicted from the

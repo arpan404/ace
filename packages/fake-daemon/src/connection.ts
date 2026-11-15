@@ -1,7 +1,7 @@
 import { sidebarPage, isSidebarEvent } from "@ace/projection";
 import { isChatEntry } from "@ace/ui-core/chat-list";
 import { placeWindow, type PlaceInput } from "@ace/ui-core/thread-place";
-import { WireTrimmer } from "@ace/projection/wire-trim";
+import { omitRaw, wireTrims, WireTrimmer } from "@ace/projection/wire-trim";
 import {
   ThreadId,
   ClientMessage,
@@ -43,11 +43,13 @@ export interface Host {
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
-  /** One thread's agents, runs, interactions or background tasks, newest last, one page. */
+  /** One thread's agents, runs, interactions or background tasks: one page before `before`. */
   entities?(
     threadId: string,
     collection: import("@ace/protocol").EntityCollection,
+    before: number,
     limit: number,
+    maxBytes?: number,
   ): import("@ace/protocol").EntitiesPage | undefined;
   /** Full shell output for `output.read`; a host without a stream store answers not_found. */
   output?(
@@ -107,6 +109,8 @@ export class Connection {
   private ready = false;
   /** Leaves out what this client's hello said it can put back, as the daemon does. */
   private trimmer = new WireTrimmer(undefined);
+  /** Live item events leave out shown-only raw too (`raw-on-demand`), as the daemon's do. */
+  private rawOnDemand = false;
   /** Past `hello`: the daemon's broadcasts reach it. */
   get authenticated(): boolean {
     return this.ready;
@@ -152,6 +156,7 @@ export class Connection {
       }
       this.ready = true;
       this.trimmer = new WireTrimmer(message.trims);
+      this.rawOnDemand = message.trims?.includes(wireTrims.rawOnDemand) === true;
       this.device = message.deviceId;
       this.session.authenticated?.(this.device);
       this.send({
@@ -250,7 +255,13 @@ export class Connection {
         this.subscriptions.delete(message.subscriptionId);
         return;
       case "entities.page": {
-        const page = this.host.entities?.(message.threadId, message.collection, message.limit);
+        const page = this.host.entities?.(
+          message.threadId,
+          message.collection,
+          message.before,
+          message.limit,
+          message.maxBytes,
+        );
         if (page) this.send({ type: "entities.page", requestId: message.requestId, page });
         else this.error("not_found", { requestId: message.requestId });
         return;
@@ -482,6 +493,15 @@ export class Connection {
   }
   private send(message: ServerMessage): void {
     if (this.closed) return;
+    if (this.rawOnDemand && message.type === "events")
+      message = {
+        ...message,
+        events: message.events.map((event) =>
+          event.payload.type === "item.created" || event.payload.type === "item.updated"
+            ? { ...event, payload: { ...event.payload, item: omitRaw(event.payload.item) } }
+            : event,
+        ),
+      };
     for (const frame of this.trimmer.outgoing(message)) this.wire.send(JSON.stringify(frame));
   }
   close(code = 1000): void {

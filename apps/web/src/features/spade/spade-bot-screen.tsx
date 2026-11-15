@@ -1,6 +1,6 @@
 import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";

@@ -4,10 +4,13 @@ import {
   describeBrowserFailure,
   displayAddress,
   downloadStateLabels,
+  pageConnection,
+  pageConnectionLabels,
   sitePermissionLabel,
   zoomLabel,
   type BrowserFailure,
 } from "@ace/ui-core";
+import { degradedSentence } from "./video-degraded.ts";
 import type { Preview } from "./agents.ts";
 
 /*
@@ -99,6 +102,8 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
     closed: state.closed,
     status: state.status ?? "ready",
     reason: state.reason ? preview(state.reason, 512) : null,
+    /** One sentence while the tab's video runs degraded on the processor; empty otherwise. */
+    degraded: degradedSentence(state.acceleration),
     loading:
       state.loading === true ||
       shown?.loading === true ||
@@ -124,6 +129,11 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
     /** The bar at rest shows the site alone, as Safari's does. */
     addressHost: preview(addressHost(url) ?? "", 256),
     blank: !state.closed && blank(url),
+    /** The page's security mark at the address's start: secure, insecure or local, in words too. */
+    connection: (() => {
+      const kind = pageConnection(blank(url) ? undefined : url);
+      return { kind, label: pageConnectionLabels[kind] };
+    })(),
     shown: shown
       ? {
           canGoBack: shown.canGoBack === true,

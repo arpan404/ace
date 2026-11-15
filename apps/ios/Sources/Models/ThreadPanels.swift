@@ -5,9 +5,11 @@ import SwiftUI
 /// A tool the iPad's side panel can hold. Each is an existing screen of the app, shown in the
 /// panel instead of over the thread (`Views/Workspace/PanelContent.swift`).
 enum PanelTool: String, CaseIterable, Sendable {
-    case changes, files, terminal, browser, agents
+    case changes, files, terminal, browser, summary, agents
     /// Run and preview (`ProjectScriptsView`), as the shared rules name it.
     case preview
+    /// A published visualization, one tab per page, opened only from the transcript.
+    case visualization
 
     /// What this build can draw; the bridge offers and opens nothing else.
     static let available = allCases.map(\.rawValue)
@@ -18,10 +20,13 @@ struct PanelView: Decodable, Equatable, Sendable {
     struct Tab: Decodable, Equatable, Identifiable, Sendable {
         let key: String
         let kind: String
+        /// What a page shows (a visualization's item id); a tool's own kind.
+        let resource: String?
         let title: String
         let pinned: Bool
         var id: String { key }
         var tool: PanelTool? { PanelTool(rawValue: kind) }
+        private enum CodingKeys: String, CodingKey { case key, kind, resource = "id", title, pinned }
     }
     struct Tool: Decodable, Equatable, Identifiable, Sendable {
         let kind: String

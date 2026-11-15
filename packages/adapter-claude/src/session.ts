@@ -6,6 +6,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { randomUUID } from "node:crypto";
 import {
+  assertSteerTarget,
   InputRejected,
   type Frame,
   type ProviderSession,
@@ -31,6 +32,7 @@ import { spawnSdkProcess } from "./sdk-process.ts";
 import { AceListing } from "./ace-listing.ts";
 import { claudeToolSearchFacts } from "./tool-search-facts.ts";
 import { readClaudeUsage } from "./usage-read.ts";
+import { CliVersions } from "./cli-versions.ts";
 export interface ClaudeOptions {
   executable?: string;
   env?: NodeJS.ProcessEnv;
@@ -47,6 +49,7 @@ function nativeKey(key: string, kind: string): string {
 export async function openSession(
   ctx: SessionContext,
   options: ClaudeOptions = {},
+  versions: CliVersions = new CliVersions(),
 ): Promise<ProviderSession> {
   const selectedOptions = ClaudeSelectionOptions.parse(ctx.options ?? {});
   const configuration = configurationOptions(options.configuration ?? codingConfiguration);
@@ -56,10 +59,13 @@ export async function openSession(
   const env = { ...process.env, ...options.env, ...ctx.env };
   const executable = await findExecutable(ctx.executable ?? options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
-  const versionProbe = await probeOutput(executable, ["--version"], { env });
-  if (versionProbe.code !== 0) throw new Error("Claude version probe failed");
+  const version = await versions.read(executable, async () => {
+    const probe = await probeOutput(executable, ["--version"], { env });
+    if (probe.code !== 0) throw new Error("Claude version probe failed");
+    return probe.stdout;
+  });
   // Steer binding (user_message_uuids) and the tree contract need the minimum; never run older.
-  requireReadableMinimum("claude", versionProbe.stdout);
+  requireReadableMinimum("claude", version);
   ctx.signal.throwIfAborted();
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();
@@ -375,7 +381,7 @@ export async function openSession(
         await q.setPermissionMode(ClaudePermissionMode.parse(ctx.permissionMode));
       await q.applyFlagSettings(claudeSelectionFlags(executionOptions));
     },
-    async send(parts, delivery, commandId, origin) {
+    async send(parts, delivery, commandId, origin, fence) {
       // Nothing reaches the CLI before the first push to the SDK's input stream, so a send that
       // fails earlier (closed session, invalid input, full stream) provably took none of it.
       let pushed = 0;
@@ -401,6 +407,9 @@ export async function openSession(
         });
         // Encode every frame first: once a message reaches the harness, recording it cannot fail.
         const frames = messages.map((message) => ({ message, payload: encode(message) }));
+        // After the last await (the listing settle) and before the first push: a fenced steer
+        // whose turn ended meanwhile goes no further.
+        assertSteerTarget(delivery, fence);
         for (const { message, payload } of frames) {
           if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
           input.push(message);
@@ -408,7 +417,7 @@ export async function openSession(
           record("send", "sdk", payload);
         }
       } catch (error) {
-        if (pushed > 0) throw error;
+        if (pushed > 0 || error instanceof InputRejected) throw error;
         throw new InputRejected(error instanceof Error ? error.message : String(error), {
           cause: error,
         });

@@ -9,7 +9,7 @@ import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const titles = [...workbench().map((scenario) => scenario.thread.title), "Write the release notes"];
 /** Thread titles in the order the Home list shows them. */
 const order = () =>
@@ -59,7 +59,7 @@ const before = (a: string, b: string) => order().indexOf(a) < order().indexOf(b)
 /** Open the app and wait for the list to arrive. */
 async function openHome(app: ReturnType<typeof harness>, path = "/") {
   const view = await app.open(path);
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
+  const nav = await screen.findByRole("navigation", { name: "Projects" });
   // The list has arrived once its first stop (a row, or a heading) is drawn.
   await waitFor(() =>
     expect(nav.querySelector("[data-row-focus], [data-section-toggle]")).not.toBeNull(),
@@ -234,7 +234,7 @@ test("in the Inbox an approval, a failure, a working thread, unseen finished wor
   );
   // One flat list: no Active, Projects or project headings between the rows, and each row
   // names its own project.
-  const list = screen.getByRole("list", { name: "Threads" });
+  const list = screen.getByRole("list", { name: "Projects" });
   expect(within(list).queryAllByRole("heading")).toEqual([]);
   expect(list.querySelector("[data-section-toggle]")).toBeNull();
   expect(within(list).queryAllByText(/^(Active|Projects)$/)).toEqual([]);

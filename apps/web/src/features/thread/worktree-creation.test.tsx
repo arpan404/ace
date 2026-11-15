@@ -282,7 +282,7 @@ test("Don't use worktree starts the thread on the local checkout and sends the m
 test("a worktree that fails comes back to New thread with its message, and starts on the local checkout from there", async () => {
   const made = app();
   await made.open("/");
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   // A base the project doesn't have: the daemon can't make the worktree.
   await act(() =>
     made.client.enqueue(

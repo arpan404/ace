@@ -1,6 +1,13 @@
 import { expect, test } from "vitest";
 import { Client } from "@ace/client";
-import { DeviceId, WorkspaceId, type ServerMessage, type SkillResult } from "@ace/protocol";
+import {
+  DeviceId,
+  WorkspaceId,
+  type ServerMessage,
+  type SkillOperation,
+  type SkillResult,
+} from "@ace/protocol";
+import type { z } from "zod";
 import { FakeDaemon, fakeTransport } from "./index.ts";
 
 async function connect(daemon: FakeDaemon) {
@@ -127,6 +134,87 @@ test("fake setAgents keeps copies and the canonical folder's agents", async () =
       operation: { op: "delete", id: builtin.id, expectedHash: builtin.hash },
     });
     expect(refused.result).toMatchObject({ kind: "error", code: "read_only" });
+  } finally {
+    await client.close();
+  }
+});
+
+test("a fake skill reads as up to date once its update is applied, and not before", async () => {
+  const client = await connect(new FakeDaemon({ clock: () => 1000 }));
+  const ask = async (operation: z.input<typeof SkillOperation>) =>
+    (await client.request({ type: "skills.request", operation })).result;
+  try {
+    const listed = await ask({ op: "list" });
+    if (listed.kind !== "list") throw new Error(listed.kind);
+    const entry = listed.entries.find((each) => each.source);
+    if (!entry) throw new Error("No skill from a source");
+    expect(await ask({ op: "checkUpdate", id: entry.id })).toMatchObject({ status: "available" });
+    const prepared = await ask({ op: "prepareUpdate", id: entry.id });
+    if (prepared.kind !== "updateReview") throw new Error(prepared.kind);
+    const applied = skill(
+      await ask({
+        op: "applyUpdate",
+        id: entry.id,
+        reviewId: prepared.review.id,
+        expectedHash: prepared.review.baseHash,
+      }),
+    );
+    expect(applied.entry.source?.folderHash).toBe(prepared.review.folderHash);
+    expect(await ask({ op: "checkUpdate", id: entry.id })).toMatchObject({ status: "current" });
+  } finally {
+    await client.close();
+  }
+});
+
+test("the fake holds eight update reviews at once, as the daemon does, until one is let go", async () => {
+  const client = await connect(new FakeDaemon({ clock: () => 1000 }));
+  const ask = async (operation: z.input<typeof SkillOperation>) =>
+    (await client.request({ type: "skills.request", operation })).result;
+  try {
+    const listed = await ask({ op: "list" });
+    if (listed.kind !== "list") throw new Error(listed.kind);
+    const entry = listed.entries.find((each) => each.source);
+    if (!entry) throw new Error("No skill from a source");
+    const reviews: string[] = [];
+    for (let made = 0; made < 8; made++) {
+      const prepared = await ask({ op: "prepareUpdate", id: entry.id });
+      if (prepared.kind !== "updateReview") throw new Error(prepared.kind);
+      reviews.push(prepared.review.id);
+    }
+    expect(await ask({ op: "prepareUpdate", id: entry.id })).toMatchObject({
+      kind: "error",
+      code: "limit",
+    });
+    await ask({ op: "cancelUpdate", reviewId: reviews[0] ?? "" });
+    expect(await ask({ op: "prepareUpdate", id: entry.id })).toMatchObject({
+      kind: "updateReview",
+    });
+  } finally {
+    await client.close();
+  }
+});
+
+test("a held fake update preparation answers once released, other skill requests meanwhile", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const client = await connect(daemon);
+  const ask = async (operation: z.input<typeof SkillOperation>) =>
+    (await client.request({ type: "skills.request", operation })).result;
+  try {
+    const listed = await ask({ op: "list" });
+    if (listed.kind !== "list") throw new Error(listed.kind);
+    const entry = listed.entries.find((each) => each.source);
+    if (!entry) throw new Error("No skill from a source");
+    const hold = daemon.skills.holdUpdatePreparations();
+    let answered = false;
+    const prepared = ask({ op: "prepareUpdate", id: entry.id }).then((result) => {
+      answered = true;
+      return result;
+    });
+    while (hold.waiting() === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(await ask({ op: "read", id: entry.id })).toMatchObject({ kind: "skill" });
+    expect(answered).toBe(false);
+    hold.release();
+    expect(await prepared).toMatchObject({ kind: "updateReview" });
   } finally {
     await client.close();
   }

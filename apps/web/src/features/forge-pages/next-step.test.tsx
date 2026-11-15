@@ -109,6 +109,34 @@ test("selecting two ready pull requests and pressing Start sends one merge run w
   expect(strip().getByRole("button", { name: "Stop" })).toBeTruthy();
 });
 
+test("a picked pull request filtered out of the list stays unpicked when the filter is cleared", async () => {
+  const app = withRepository();
+  app.daemon.services.verify.paused = true;
+  await app.open("/pulls?project=ace");
+  const ready = await rows();
+  await userEvent.click(await ready.findByRole("button", { name: /^Merge: #224 / }));
+  expect(strip().getByText("Verify and merge 1 pull request into main")).toBeTruthy();
+  // Needs you hides the ready rows; All brings #224's row back, not its pick.
+  // The menu opens with a transition that holds pointer events back for a frame.
+  const user = userEvent.setup({ pointerEventsCheck: 0 });
+  const view = async (name: RegExp) => {
+    await user.click(screen.getByRole("button", { name: /^Views:/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name }));
+    // A choice leaves the menu open; Escape closes it for the next one.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0));
+  };
+  await view(/^Needs you/);
+  await waitFor(async () =>
+    expect((await rows()).queryByRole("button", { name: /#224/ })).toBeNull(),
+  );
+  await view(/^All pull requests/);
+  const back = await (await rows()).findByRole("button", { name: /#224 / });
+  // The row offers Merge again rather than reading as Selected.
+  expect(back.getAttribute("aria-label") ?? back.textContent).toMatch(/^Merge: #224 /);
+  expect(screen.queryByRole("status", { name: "Merge" })).toBeNull();
+});
+
 test("a conflict names both pull requests, and retrying without one merges the other", async () => {
   const app = withRepository();
   app.daemon.services.verify.outcome = () => ({ code: "conflict", pr: 224, with: 233 });

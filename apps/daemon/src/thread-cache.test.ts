@@ -124,3 +124,18 @@ test("through random writes, the threads the cache serves stay within its byte b
     }
   }
 });
+
+test("a checkout's copy is the caller's own and keeps its changes, while the shared thread stays", () => {
+  const store = source();
+  const cache = store.cache(64 * 1024);
+  store.write(row("own", "first"));
+  const checkout = cache.checkout("own");
+  if (!checkout) throw new Error("missing checkout");
+  checkout.thread.title = "Changed";
+  expect(checkout.thread.title).toBe("Changed");
+  expect(checkout.base.title).toBe("Task");
+  expect(cache.read("own")?.title).toBe("Task");
+  expect(() => {
+    (checkout.base as { title: string }).title = "Shared";
+  }).toThrow(TypeError);
+});

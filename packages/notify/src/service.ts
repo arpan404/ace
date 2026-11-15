@@ -260,10 +260,14 @@ export class NotificationService {
             device.preferences.includePreview && !catchUp
               ? this.options.preview?.(notice.threadId)?.slice(0, 300)
               : undefined;
-          const notification = preview ? { ...notice, preview } : notice;
-          // A phone can be suspended with its socket open; its app catches up from this record.
-          if (device.address.platform === "phone")
-            this.database.inbox.record(device.id, notification, job.generation, job.expires);
+          const shown = preview ? { ...notice, preview } : notice;
+          // A phone can be suspended with its socket open; its app catches up from this record,
+          // and the live alert carries its cursor so the app can order the two.
+          const cursor =
+            device.address.platform === "phone"
+              ? this.database.inbox.record(device.id, shown, job.generation, job.expires)
+              : undefined;
+          const notification = cursor === undefined ? shown : { ...shown, cursor };
           result = await this.options.transport.send(
             device,
             notification,

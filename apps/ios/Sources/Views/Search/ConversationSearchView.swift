@@ -102,7 +102,7 @@ struct ConversationSearchView: View {
                     Button {
                         if let itemId = hit.itemId { model.focusOnOpen = ThreadFocus(thread: hit.threadId, item: itemId) }
                         openThread(hit.threadId)
-                    } label: { SearchHitLabel(hit: hit) }
+                    } label: { SearchHitLabel(hit: hit, inThread: threadId != nil) }
                         .buttonStyle(.row)
                         .accessibilityIdentifier("search.hit.\(hit.id)")
                 }
@@ -125,18 +125,22 @@ struct ConversationSearchView: View {
     private func run() async { await search.search(model: model, text: text, kind: kind, threadId: threadId) }
 }
 
+/// Across conversations a hit leads with its thread; within one thread, with what matched.
 private struct SearchHitLabel: View {
     let hit: ConversationHit
+    let inThread: Bool
     var body: some View {
         QuietSectionRow {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text(hit.threadTitle).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(inThread ? hit.inThreadLead : hit.threadTitle).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                     .foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
                 Text(hit.excerpt).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(3)
-                Text("\(hit.provider.capitalized) · \(hit.kind.replacingOccurrences(of: "_", with: " "))")
-                    .aceFont(AceDesign.TextRole.caption, relativeTo: .caption2)
-                    .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+                if !inThread {
+                    Text("\(hit.provider.capitalized) · \(hit.kind.replacingOccurrences(of: "_", with: " "))")
+                        .aceFont(AceDesign.TextRole.caption, relativeTo: .caption2)
+                        .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

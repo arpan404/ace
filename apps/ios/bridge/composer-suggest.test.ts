@@ -2,6 +2,8 @@ import "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { ClientCore } from "@ace/client";
+import { ThreadId } from "@ace/protocol";
+import { CatalogPage } from "./catalog-page.ts";
 import { ComposeSearch } from "./compose-search.ts";
 import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
 import {
@@ -255,4 +257,65 @@ test("a query whose held references can't be read still answers", async () => {
   ).toBe(true);
   const shown = await settled(7);
   expect(shown.rows.some((row) => row.group === "Files")).toBe(true);
+});
+
+/** The composer and a Skills page on one reader, the reader's pauses held until released. */
+async function sharedReader(fake: FakeDaemon) {
+  const client = await ready(fake);
+  const held: (() => void)[] = [];
+  const lists = new ComposerSuggest({
+    owner: client,
+    sink: pump,
+    preview: (text) => text,
+    schedule: (_delay, run) => {
+      held.push(run);
+      return () => {};
+    },
+    now: () => Date.now(),
+    thread: () => ({ threadId: "here", workspaceId: "ace", provider: "claude" }),
+    threads: () => sidebarThreads(client),
+    draft: new ComposeSearch(client, pump, (text) => text),
+  });
+  const skill = (
+    await client.request({ type: "catalog.list", threadId: ThreadId.parse("here"), limit: 512 })
+  ).entries.find((entry) => entry.kind === "skill");
+  if (!skill) throw new Error("The fake catalog has no skill");
+  // Discovery ends with a skill the cached answer didn't have.
+  const discovered = () =>
+    fake.seedServices({
+      extensionCatalogs: { claude: [{ ...skill, id: "fresh-skill", name: "fresh-skill" }] },
+    });
+  return { lists, page: new CatalogPage(lists.catalogs), held, discovered };
+}
+const settling = { type: "catalog.page", threadId: "here", settle: true } as const;
+const freshShown = (seq: number) =>
+  until(() => {
+    const shown = list();
+    return shown?.seq === seq && shown.rows.some((row) => row.id === "entry:fresh-skill");
+  }, "the discovered skill");
+
+test("/ opened while a Skills page's first catalog read is out shows that read's fresh skills", async () => {
+  const fake = daemon();
+  fake.seedServices({ extensionCatalogs: {}, catalogLoading: ["claude"] });
+  const { lists, page, discovered } = await sharedReader(fake);
+  discovered();
+  const answered = page.answer(settling, new AbortController().signal);
+  // The page's loop has its first read out; the composer joins it.
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1 });
+  await freshShown(1);
+  await expect(answered).resolves.toMatchObject({ stale: false });
+});
+
+test("/ opened between a Skills page's stale reads redraws when the next read is fresh", async () => {
+  const fake = daemon();
+  fake.seedServices({ extensionCatalogs: {}, catalogLoading: ["claude"] });
+  const { lists, page, held, discovered } = await sharedReader(fake);
+  const answered = page.answer(settling, new AbortController().signal);
+  await until(() => held.length === 1, "the loop's first pause");
+  lists.handle({ kind: "query", scope: thread, list: "command", query: "", seq: 1 });
+  await settled(1);
+  discovered();
+  held.shift()?.();
+  await freshShown(1);
+  await expect(answered).resolves.toMatchObject({ stale: false });
 });

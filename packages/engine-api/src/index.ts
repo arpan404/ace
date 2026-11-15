@@ -70,6 +70,34 @@ export const adapterWarning = "adapter.warning";
  */
 export class InputRejected extends Error {}
 
+/**
+ * A person's steer aimed at one turn. The adapter checks it synchronously after its last await,
+ * immediately before writing the steer: if `current()` says no (or, where the provider names its
+ * turns, the turn running isn't `turn`), the steer is refused unread with `SteerTargetLost` and
+ * never retried into another turn. A steer with no fence behaves as it always has.
+ */
+export interface SteerFence {
+  /** The provider's own id for the turn the steer is aimed at, when it has one. */
+  readonly turn?: string | undefined;
+  /** Whether that turn is still the one running, read now. */
+  current(): boolean;
+}
+
+/** A fenced steer whose turn ended (or was replaced) before the provider read it: unread. */
+export class SteerTargetLost extends InputRejected {
+  constructor(message = "The turn this message was meant to join has ended") {
+    super(message);
+  }
+}
+
+/**
+ * Throws `SteerTargetLost` when a fenced steer's turn is no longer current. Call synchronously
+ * right before the write; an adapter that names its turns also compares `fence.turn` itself.
+ */
+export function assertSteerTarget(delivery: "steer" | "queue", fence: SteerFence | undefined) {
+  if (delivery === "steer" && fence && !fence.current()) throw new SteerTargetLost();
+}
+
 export interface Translator {
   /** Native debug evidence kept outside the transcript. Drain after each translation. */
   takeDiagnostics?(): import("@ace/protocol").RawPayload[];
@@ -217,12 +245,16 @@ export interface ProviderSession {
   /** Set, pause or resume the provider's native goal. Providers without goals omit it. */
   setGoal?(change: import("@ace/protocol").GoalChange): Promise<void>;
   clearGoal?(): Promise<void>;
-  /** Optional engine command correlation for providers with durable admission. */
+  /**
+   * Optional engine command correlation for providers with durable admission. `fence` (a
+   * person's steer aimed at one turn) is checked right before the write: see `SteerFence`.
+   */
   send(
     input: ContentPart[],
     delivery: "steer" | "queue",
     commandId?: string,
     origin?: "ace",
+    fence?: SteerFence,
   ): Promise<void>;
   /**
    * Moves the root's running foreground tools (shell commands, subagents) to the background

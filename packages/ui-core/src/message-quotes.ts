@@ -34,6 +34,34 @@ export function passageText(selected: string): string | undefined {
   return text || undefined;
 }
 
+/** Whether `at` falls between the two halves of a surrogate pair. */
+const splitsPair = (text: string, at: number) =>
+  at > 0 && at < text.length && /[\uDC00-\uDFFF]/.test(text[at] ?? "");
+
+/**
+ * A selection in a message's plain text (UTF-16 offsets, as a native text view gives them) as a
+ * quote: its words, and up to `quoteContextChars` of the message on each side. Spaces at the
+ * selection's ends go to the sides, and neither side ends halfway through a character.
+ * Undefined when the selection holds no words.
+ */
+export function quoteIn(
+  message: string,
+  start: number,
+  end: number,
+): Omit<MessageQuote, "id"> | undefined {
+  let from = Math.max(0, Math.min(start, message.length));
+  let to = Math.max(0, Math.min(end, message.length));
+  while (from < to && /\s/.test(message[from] ?? "")) from += 1;
+  while (to > from && /\s/.test(message[to - 1] ?? "")) to -= 1;
+  const text = from < to ? passageText(message.slice(from, to)) : undefined;
+  if (!text) return undefined;
+  let head = Math.max(0, from - quoteContextChars);
+  let tail = Math.min(message.length, to + quoteContextChars);
+  if (splitsPair(message, head)) head += 1;
+  if (splitsPair(message, tail)) tail -= 1;
+  return { text, before: message.slice(head, from), after: message.slice(to, tail) };
+}
+
 const open = '<replying_to version="1">';
 const close = "</replying_to>";
 const preamble = (count: number) =>

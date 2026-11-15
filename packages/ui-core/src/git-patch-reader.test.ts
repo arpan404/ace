@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { gitPatchFiles } from "./git-patch.ts";
 import { PatchFileReader } from "./git-patch-reader.ts";
+import type { DiffRow } from "./diff.ts";
 
 const section = [
   "diff --git a/src/a.ts b/src/a.ts",
@@ -38,4 +39,18 @@ test("a section cut short ends with its last partial line, and the next file's s
   cut.push(section.slice(0, section.indexOf("two changed") + 3));
   cut.end();
   expect(cut.rows.at(-1)).toEqual({ kind: "add", new: 2, text: "two" });
+});
+
+test("a section read in parts and let go of between them makes the rows of reading it whole", () => {
+  const whole = gitPatchFiles(`${section}\n`)[0]?.rows ?? [];
+  const reader = new PatchFileReader();
+  const shown: DiffRow[] = [];
+  for (let at = 0; at < section.length; at += 40) {
+    reader.push(section.slice(at, at + 40));
+    shown.push(...reader.rows);
+    reader.release();
+  }
+  reader.end();
+  shown.push(...reader.rows);
+  expect(shown).toEqual(whole);
 });

@@ -5,8 +5,9 @@ import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
+import type { FakeNotificationControls } from "./notification-feed.ts";
 import type { FakeMachineUpdate } from "./machine-update-wire.ts";
-import { MachineIcon } from "@ace/protocol";
+import { EntitiesPage, ItemId, MachineIcon, type EntityCollection } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
 import { markUncertainInput, restoreInput, repeatInput, waitingSteer } from "./queue-fixtures.ts";
 import { authTerminalOutput } from "./auth-terminal-output.ts";
@@ -18,8 +19,6 @@ import { providerCommandDisabled } from "@ace/core";
 import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
 import { stricterOffer } from "@ace/provider-kit/access-modes";
-import { ItemId } from "@ace/protocol";
-import { EntitiesPage, type EntityCollection } from "@ace/protocol";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
 import {
   fakePermissionCapabilities,
@@ -69,10 +68,15 @@ import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { fencedDelivery, listActionChanged, staleInterrupt } from "./command-fences.ts";
+import { createdThreadInit, preparedThreadInit } from "./created-threads.ts";
+import { permissionUpdate, switchUpdate } from "./thread-updates.ts";
+import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
+import { entityPage } from "./entity-pages.ts";
 import { piControlResult } from "./pi-control.ts";
 import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
@@ -93,9 +97,10 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
+import type { FakeSkillLibrary } from "./skill-library.ts";
 import { limitSwitchEvents, switchEvents } from "./transitions.ts";
 import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
-import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
+import { fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
@@ -201,7 +206,7 @@ export class FakeDaemon implements Host {
             options.clock(),
           );
       },
-      (command) => this.servicesWire.workspace.git.creationFailure(command.payload),
+      (command) => this.servicesWire.workspace.git.creationRules(command.payload),
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
     this.databaseId = options.databaseId ?? globalThis.crypto.randomUUID();
@@ -351,8 +356,11 @@ export class FakeDaemon implements Host {
   get terminals(): FakeTerminals {
     return this.servicesWire.workspace.terminals;
   }
-  /** Past-session requests clients made: lists read provider history, releases end it. */
-  get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
+  /**
+   * Past-session requests clients made: lists read provider history, releases end it, and each
+   * continue carried out.
+   */
+  get pastSessions(): Pick<FakeHistory, "lists" | "releases" | "continued"> {
     return this.servicesWire.history;
   }
   /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */
@@ -378,8 +386,8 @@ export class FakeDaemon implements Host {
   > {
     return this.servicesWire.files;
   }
-  /** The skill library behind `skills.request`, for seeding skills. */
-  get skills(): Pick<import("./skill-library.ts").FakeSkillLibrary, "seed"> {
+  /** The skill library behind `skills.request`, for seeding skills and slowing updates. */
+  get skills(): Pick<FakeSkillLibrary, "seed" | "holdUpdatePreparations"> {
     return this.servicesWire.skills;
   }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
@@ -402,16 +410,15 @@ export class FakeDaemon implements Host {
   get checks(): Pick<import("./checks-wire.ts").FakeChecks, "hold" | "starts"> {
     return this.servicesWire.checks;
   }
-  /**
-   * Seed what a long-running daemon's services hold: decks, automations and their runs,
-   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
-   */
   /** Push an accepted notification and keep it in the catch-up feed (`notification.feed`). */
   notify(notification: Notification): void {
     const message = NotificationMessage.parse({ type: "notification", notification });
     this.servicesWire.notificationFeed.record(message.notification);
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
+  }
+  get notifications(): FakeNotificationControls {
+    return this.servicesWire.notificationFeed;
   }
   /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
   retractNotification(id: string): void {
@@ -475,6 +482,10 @@ export class FakeDaemon implements Host {
     this.afterChange(host, this.options.clock());
   }
 
+  /**
+   * Seed what a long-running daemon's services hold: decks, automations and their runs,
+   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
+   */
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }
@@ -516,9 +527,12 @@ export class FakeDaemon implements Host {
       },
     };
   }
-  /** A page of a shell's full output (`output.read`), or undefined for an unknown stream. */
+  /** A page of a shell's output or a clipped text (`output.read`); undefined for an unknown stream. */
   output(streamId: string, offset: number, limit: number) {
-    return this.outputs.read(streamId, offset, limit);
+    const views = Array.from(this.threads.values(), (host) => host.view);
+    return (
+      this.outputs.read(streamId, offset, limit) ?? readTextSource(views, streamId, offset, limit)
+    );
   }
   get head(): number {
     return this.seq;
@@ -984,21 +998,29 @@ export class FakeDaemon implements Host {
     const host = this.threads.get(threadId);
     return host ? historyPage(host.view, host.creation, before, limit, this.seq) : undefined;
   }
+  /** A page of `collection`'s entities created before `before`, as the daemon pages them. */
   entities(
     threadId: string,
     collection: EntityCollection,
+    before: number,
     limit: number,
+    maxBytes = 128 * 1024,
   ): EntitiesPage | undefined {
     const host = this.threads.get(threadId);
     if (!host) return undefined;
-    const all: { createdAt?: number }[] = Object.values(host.view[collection]);
-    const entries = all.toSorted((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).slice(-limit);
     return EntitiesPage.parse({
       collection,
-      entries,
       seq: this.seq,
       threadId,
-      entitiesBefore: entries.length < all.length ? 1 : null,
+      ...entityPage(
+        Object.values(host.view[collection] as Record<string, unknown>),
+        collection,
+        before,
+        limit,
+        maxBytes,
+        this.options.entityPages ?? "active-first",
+        this.options.largestEntity,
+      ),
     });
   }
   private canManageProjects(device: string): boolean {
@@ -1188,6 +1210,9 @@ export class FakeDaemon implements Host {
       const host = this.threads.get(payload.threadId);
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
+      // As the daemon does: an archive or delete decided before newer work started is refused.
+      if (listActionChanged(host, payload))
+        return { commandId, ok: false, error: "thread_changed" };
       if (payload.type === "thread.delete") {
         const alive = prepareFakeDelete(
           host,
@@ -1269,21 +1294,7 @@ export class FakeDaemon implements Host {
         if (!host || host.view.thread.deletedAt !== undefined)
           return { commandId, ok: false, error: "thread_not_found" };
         const at = this.options.clock();
-        this.append(
-          host,
-          [
-            {
-              type: "thread.updated",
-              switch: {
-                selection: { ...payload.selection, options: payload.selection.options ?? {} },
-                state: "queued",
-                lossy: payload.selection.provider !== host.view.thread.provider,
-                at,
-              },
-            },
-          ],
-          at,
-        );
+        this.append(host, [switchUpdate(host, payload, at)], at);
         this.afterChange(host, at);
         return { commandId, ok: true };
       }
@@ -1314,24 +1325,9 @@ export class FakeDaemon implements Host {
       case "thread.permission.set": {
         const host = this.threads.get(payload.threadId);
         if (!host) return { commandId, ok: false, error: "thread_not_found" };
-        const offers =
-          host.view.thread.capabilities?.accessModes ?? fakeAccessModes(host.view.thread.provider);
-        if (payload.access && !offers.some((offer) => offer.mode === payload.access))
-          return { commandId, ok: false, error: "permission_mode_unsupported" };
-        this.append(
-          host,
-          [
-            {
-              type: "thread.updated",
-              permission: {
-                override: payload.access,
-                effective: host.view.thread.permission?.effective ?? null,
-                pending: true,
-              },
-            },
-          ],
-          this.options.clock(),
-        );
+        const update = permissionUpdate(host, payload);
+        if ("error" in update) return { commandId, ok: false, error: update.error };
+        this.append(host, [update.event], this.options.clock());
         return { commandId, ok: true };
       }
       case "thread.prepare": {
@@ -1339,18 +1335,7 @@ export class FakeDaemon implements Host {
           return { commandId, ok: false, error: "thread_exists" };
         const base = fakeWorktreeBase(payload, payload.title, this.remoteReachable);
         if (!base.ok) return { commandId, ok: false, error: base.error };
-        this.createThread({
-          id: payload.threadId,
-          workspaceId: payload.workspaceId,
-          title: payload.title,
-          provider: payload.provider,
-          ...(payload.access && payload.access !== "inherit" ? { access: payload.access } : {}),
-          details: {
-            mode: payload.mode ?? "local",
-            worktree: fakeCheckoutPath(payload.mode, payload.threadId, payload.workspaceId),
-            ...base.fields,
-          },
-        });
+        this.createThread(preparedThreadInit(payload, base.fields));
         return { commandId, ok: true, threadId: payload.threadId };
       }
       case "thread.create": {
@@ -1367,34 +1352,13 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        this.createThread({
-          ...started.thread,
-          ...(payload.access ? { access: payload.access } : {}),
-          details: {
-            workspace: {
-              id: payload.workspaceId,
-              name: payload.workspaceId,
-              path: `/fake/${payload.workspaceId}`,
-              ...(this.projects.get(payload.workspaceId)?.kind === "chat"
-                ? { kind: "chat" as const, name: "Chat" }
-                : {}),
-            },
-            mode: payload.mode ?? "local",
-            worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),
-            ...base.fields,
-            machine: { host: this.hostId, name: this.displayName },
-            diff: { files: 0, additions: 0, deletions: 0 },
-          },
-          live: {
-            ...(payload.model ? { model: payload.model } : {}),
-            ...((payload.accountId ?? payload.account)
-              ? { account: payload.accountId ?? payload.account }
-              : {}),
-            ...(payload.options ? { options: payload.options } : {}),
-            subagentCount: 0,
-            backgroundTaskCount: 0,
-          },
-        });
+        this.createThread(
+          createdThreadInit(id, payload, started.thread, base.fields, {
+            chat: this.projects.get(payload.workspaceId)?.kind === "chat",
+            host: this.hostId,
+            name: this.displayName,
+          }),
+        );
         if (payload.context?.draftId)
           this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
         const attachments = this.servicesWire.context.messageAttachments(
@@ -1426,20 +1390,28 @@ export class FakeDaemon implements Host {
               payload.threadId,
               payload.context?.attachments.map((a) => a.sha256) ?? [],
             ),
-            // An omitted delivery resolves the person's follow-up setting, as the daemon does.
-            delivery:
+            // An omitted delivery resolves the person's follow-up setting, as the daemon does,
+            // and a steer goes in only while the run its sender saw (or none) still holds.
+            delivery: fencedDelivery(
+              host,
               payload.delivery ??
-              (this.services.settings.resolve("threads.followUpBehavior", {
-                threadId: payload.threadId,
-              }) === "steer"
-                ? "steer"
-                : "queue"),
+                (this.services.settings.resolve("threads.followUpBehavior", {
+                  threadId: payload.threadId,
+                }) === "steer"
+                  ? "steer"
+                  : "queue"),
+              payload.runId,
+            ),
           }),
         );
         if (sent.ok) this.markSent(payload.threadId);
         return sent;
       }
       case "thread.interrupt":
+        // As the daemon does: a Stop naming a run that is no longer its agent's active one is
+        // refused, so it never stops a run started after it was pressed.
+        if (staleInterrupt(this.threads.get(payload.threadId), payload))
+          return { commandId, ok: false, error: "stale_interrupt" };
         return this.run(commandId, payload.threadId, (host) =>
           interruptFacts(host, payload.agentId, payload.cascade),
         );

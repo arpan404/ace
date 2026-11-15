@@ -1,4 +1,5 @@
 import { useConnectionState } from "@ace/client-react";
+import { emulatorWindowSwitch } from "@ace/ui-core";
 import { useId } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -17,8 +18,8 @@ export function EmulatorWindowRow() {
   return (
     <SettingRow
       id="devices.emulatorWindow"
-      title="Show emulator window"
-      description="Shows its sensor and camera controls. Applies from the next boot."
+      title={emulatorWindowSwitch.title}
+      description={emulatorWindowSwitch.description}
       htmlFor={id}
       inline
     >
@@ -29,7 +30,7 @@ export function EmulatorWindowRow() {
         onCheckedChange={(next) =>
           void setShown(next).catch((cause: unknown) =>
             toast.error({
-              title: "Couldn't save Show emulator window",
+              title: `Couldn't save ${emulatorWindowSwitch.title}`,
               description: cause instanceof Error ? cause.message : undefined,
             }),
           )

@@ -1,16 +1,113 @@
-import { spawn } from "node:child_process";
+/** Root-only or --unsigned-archive runs pre-signing checks. Signed archives require
+ * --signed-archive --manifest TARGET.json --public-key KEY.pem. Desktop checks are optional:
+ * --desktop APP [--local --screen-identity STAGED.json] [--verify-authenticode].
+ */
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
 import { InstalledRelease, DaemonHealth } from "@ace/protocol";
 import { checked, runProcess } from "@ace/service";
-const artifact = resolve(process.argv[2] ?? "");
+import { smokeMedia, verifyMediaDesktop } from "./media-smoke.ts";
+import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
+import { z } from "zod";
+import { smokeOptions } from "./smoke-options.ts";
+import { ScreenHelperIdentity } from "./screen-identity.ts";
+const options = smokeOptions(process.argv.slice(2));
+const artifact = resolve(options.root);
 const manifest = InstalledRelease.parse(
   JSON.parse(await readFile(join(artifact, "release.json"), "utf8")),
 );
 if (manifest.target !== `${process.platform}-${process.arch}`)
   throw new Error("Smoke check requires the target host");
+// Release mode authenticates the archive before executing any packaged binary.
+if (options.manifestPath && options.keyPath) {
+  const { manifestPath, keyPath } = options;
+  if (!manifestPath || !keyPath)
+    throw new Error("Release smoke needs MANIFEST.json PUBLIC_KEY.pem");
+  const signed = verifyManifest(
+    await readFile(manifestPath),
+    (await readFile(manifestPath.replace(/\.json$/, ".sig"), "utf8")).trim(),
+    await readFile(keyPath, "utf8"),
+  );
+  if (signed.target !== manifest.target || signed.version !== manifest.version)
+    throw new Error("Signed release does not match smoke target");
+  const archive = resolve(manifestPath, "..", signed.archive);
+  if ((await hashFile(archive)) !== signed.sha256)
+    throw new Error("Signed archive checksum mismatch");
+  const extracted = await mkdtemp(join(tmpdir(), "ace-media-signed-"));
+  try {
+    await unpackArchive(archive, join(extracted, "release"));
+    for (const path of [
+      "files.json",
+      manifest.target.startsWith("win32-") ? "media/ace-media.exe" : "media/ace-media",
+    ])
+      if (
+        (await hashFile(join(extracted, "release", path))) !==
+        (await hashFile(join(artifact, path)))
+      )
+        throw new Error(`Smoke input differs from signed archive: ${path}`);
+  } finally {
+    await rm(extracted, { recursive: true, force: true });
+  }
+}
+if (!options.manifestPath)
+  process.stdout.write("Unsigned archive smoke: manifest authentication skipped\n");
+// files.json is inside the archive authenticated by the release manifest.
+const files = z
+  .object({ checksums: z.record(z.string(), z.string()) })
+  .parse(JSON.parse(await readFile(join(artifact, "files.json"), "utf8")));
+const mediaPath = manifest.target.startsWith("win32-") ? "media/ace-media.exe" : "media/ace-media";
+if (!files.checksums[mediaPath]) throw new Error("Packaged ace-media checksum is missing");
+for (const [path, expected] of Object.entries(files.checksums)) {
+  if (
+    path.split(/[\\/]/).some((part) => part === "..") ||
+    path.startsWith("/") ||
+    path.includes(":")
+  )
+    throw new Error("Unsafe checksum path");
+  if (expected !== (await hashFile(join(artifact, path))))
+    throw new Error(`Packaged file checksum mismatch: ${path}`);
+}
+if (process.platform === "win32" && options.authenticode)
+  execFileSync("signtool", ["verify", "/pa", join(artifact, mediaPath)], {
+    stdio: "inherit",
+    timeout: 30_000,
+  });
+await smokeMedia(
+  artifact,
+  manifest.target,
+  manifest.version,
+  join(artifact, "bin", process.platform === "win32" ? "node.exe" : "node"),
+);
+const app = options.app;
+if (app) {
+  const resources =
+    process.platform === "darwin" ? join(app, "Contents/Resources") : join(app, "resources");
+  await verifyMediaDesktop(
+    app,
+    manifest.target,
+    resolve(import.meta.dirname, "../../../native/screen-helper/identity.txt"),
+    {
+      production: options.production,
+      authenticode: options.authenticode,
+      ...(options.snapshot
+        ? {
+            screenIdentity: ScreenHelperIdentity.parse(
+              JSON.parse(await readFile(options.snapshot, "utf8")),
+            ),
+          }
+        : {}),
+    },
+  );
+  await smokeMedia(
+    resources,
+    manifest.target,
+    manifest.version,
+    join(resources, "runtime", process.platform === "win32" ? "node.exe" : "bin/node"),
+  );
+}
 if (process.platform === "win32") {
   await smokeWindows(artifact, manifest.version);
   process.exit(0);

@@ -48,4 +48,14 @@ extension ClientModel {
         do { return try await service(["type": "forge.inbox.write", "project": project, "action": action, "id": id], as: ForgeReviewOutcome.self) }
         catch { return ForgeReviewOutcome(ok: false, message: error.localizedDescription, uncertain: false) }
     }
+    /// Mark all read: everything GitHub has up to now in one write, or, when the filters or the
+    /// search narrow the list, each unread row on show (the bridge decides which).
+    func forgeNotificationsReadAll(project: String, filter: NotificationsFilter, searched: Bool, unread: [String]) async -> ForgeReviewOutcome {
+        guard canOperate else { return ForgeReviewOutcome(ok: false, message: "View only. Pair this phone with View and act to change notifications.", uncertain: false) }
+        var request: [String: Any] = ["type": "forge.inbox.write", "project": project, "action": "read-all",
+                                      "participating": filter.participating, "searched": searched, "unread": unread]
+        if let reason = filter.reason { request["reason"] = reason }
+        do { return try await service(request, as: ForgeReviewOutcome.self) }
+        catch { return ForgeReviewOutcome(ok: false, message: error.localizedDescription, uncertain: false) }
+    }
 }

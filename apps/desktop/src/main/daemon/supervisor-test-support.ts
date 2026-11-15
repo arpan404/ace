@@ -1,4 +1,5 @@
 import type { DaemonStatus } from "../../shared/contract.ts";
+import { startMainBeat } from "../diagnostics/main-beat.ts";
 import type { LocalDaemon } from "./probe.ts";
 import type { DaemonProcess, DaemonSupervisor, SupervisorPorts } from "./supervisor.ts";
 
@@ -8,8 +9,11 @@ export const local: LocalDaemon = {
   token: "a".repeat(64),
 };
 
-/** A fake machine: a clock with timers, a process table and a daemon that may answer. */
-export function machine() {
+/**
+ * A fake machine: a clock with timers, a process table and a daemon that may answer. With
+ * `sharedBeat`, health checks read the app's one main-thread beat instead of beating on their own.
+ */
+export function machine(options: { sharedBeat?: boolean } = {}) {
   let now = 0;
   /** While the app is frozen, answers the daemon sent wait unread, as in a socket. */
   let frozen = false;
@@ -30,6 +34,8 @@ export function machine() {
     /** How many of the next update-hold requests land but lose their reply. */
     holdReplyFails: 0,
     admissionAvailable: true,
+    /** Whether the status answer carries admission (older daemons leave it out). */
+    admissionInStatus: true,
     /** How long the daemon takes to answer a health check (a busy event loop). */
     healthDelayMs: 0,
     /** A hung daemon: health requests get no answer and fail at their own timeout. */
@@ -40,6 +46,10 @@ export function machine() {
     sigtermExitMs: 0,
   };
   const later = (delayMs: number, callback: () => void) => ports.timers.set(delayMs, callback);
+  const admission = () => {
+    const holds = [...(state.maintenance ? ["user"] : []), ...(state.updateHold ? ["update"] : [])];
+    return { draining: holds.length > 0, holds };
+  };
   class FakeChild implements DaemonProcess {
     exit:
       | ((code: number | null, signal: NodeJS.Signals | null, error?: string) => void)
@@ -78,12 +88,19 @@ export function machine() {
       return child;
     },
     find: async () => (state.answering ? local : undefined),
-    healthy: (_daemon, timeoutMs) =>
+    health: (_daemon, timeoutMs) =>
       new Promise((resolve) => {
         // The request's own deadline, as `AbortSignal.timeout` gives it.
-        later(timeoutMs, () => resolve(false));
+        later(timeoutMs, () => resolve({ healthy: false }));
         if (state.hung) return;
-        const answer = () => resolve(state.answering && state.healthy);
+        const answer = () =>
+          resolve(
+            !(state.answering && state.healthy)
+              ? { healthy: false }
+              : state.admissionInStatus
+                ? { healthy: true, admission: admission() }
+                : { healthy: true },
+          );
         const arrive = () => (frozen ? unread.push(answer) : answer());
         if (state.healthDelayMs) later(state.healthDelayMs, arrive);
         else answer();
@@ -104,11 +121,7 @@ export function machine() {
     blockers: async () => state.blockers,
     maintenance: async () => {
       if (!state.admissionAvailable) throw new Error("Admission request timed out");
-      const holds = [
-        ...(state.maintenance ? ["user"] : []),
-        ...(state.updateHold ? ["update"] : []),
-      ];
-      return { draining: holds.length > 0, holds };
+      return admission();
     },
     timers: {
       set(delayMs, callback) {
@@ -122,6 +135,20 @@ export function machine() {
     now: () => now,
     log: (level, message, data) => log.push({ level, message, ...(data ? { data } : {}) }),
   };
+  if (options.sharedBeat)
+    ports.freezes = startMainBeat({
+      now: () => now,
+      clock: {
+        every(milliseconds, tick) {
+          const beat = () => {
+            tick();
+            cancel = ports.timers.set(milliseconds, beat);
+          };
+          let cancel = ports.timers.set(milliseconds, beat);
+          return () => cancel();
+        },
+      },
+    });
   async function advance(ms: number) {
     const until = now + ms;
     for (;;) {

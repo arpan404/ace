@@ -98,3 +98,16 @@ it("deflated and plain messages interleave in order", async () => {
   await Promise.all(sends.map((message) => server.send(message)));
   for (const message of sends) expect(await client.receive()).toEqual(message);
 });
+
+it("binary sends preserve a shared frame for the next viewer", async () => {
+  const { client, server } = await connected();
+  const backing = new Uint8Array(65_520).fill(91);
+  const piece = backing.subarray(1, 65_519);
+  const expected = piece.slice();
+  await server.sendBinary(piece);
+  expect(await client.receiveBinary()).toEqual(expected);
+  expect(piece).toEqual(expected);
+  await server.sendBinary(piece);
+  expect(await client.receiveBinary()).toEqual(expected);
+  expect(backing[0]).toBe(91);
+});

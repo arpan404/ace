@@ -1,4 +1,5 @@
 import { fileExportSource } from "../file-export-source.ts";
+import type { MediaAdmission, MediaOwner } from "@ace/media/media-connections";
 import { projectFilesBinding } from "../project-files-binding.ts";
 import { providerAuthRelay } from "./provider-auth-relay.ts";
 import { connectBrowser, type BrowserService } from "@ace/browser";
@@ -41,10 +42,13 @@ export interface RelayServices {
     | undefined;
   browser?: BrowserService | undefined;
   screen?: ScreenManager | undefined;
+  mediaAcceleration?: import("@ace/media/acceleration").MediaAccelerationStore | undefined;
   store?: Store | undefined;
   canReadThread?: ((device: DeviceId, thread: ThreadId) => boolean) | undefined;
   /** Warn-level daemon log for refused requests. */
   warn?: ((message: string, fields: object) => void) | undefined;
+  /** Delivery by ace-media (D1), for subscribes on this channel that name a media connection. */
+  mediaDelivery?: import("../server-options.ts").ServerOptions["mediaDelivery"] | undefined;
 }
 /** A dedicated authenticated relay channel never mixes file packets and media stream pieces. */
 export function attachRelayService(
@@ -54,10 +58,18 @@ export function attachRelayService(
     kind: "files" | "devices" | "browser" | "screen" | "provider_auth";
     device: DeviceId;
     sessionId: string;
+    /** How the device was admitted: a channel owns that device's media connections (D1). */
+    admission?: MediaAdmission | undefined;
     authorize(scope: "read" | "operate" | "admin"): boolean;
   },
 ) {
   const { channel, device, authorize, sessionId } = connection;
+  // A channel of its own binds views on its device's media connections, admitted the same way.
+  const mediaOwner = (): MediaOwner | undefined =>
+    connection.admission
+      ? { session: sessionId, device, admission: connection.admission }
+      : undefined;
+  const mediaDelivery = { owner: mediaOwner, port: () => options.mediaDelivery?.() };
   if (connection.kind === "provider_auth")
     return providerAuthRelay({
       channel,
@@ -99,6 +111,8 @@ export function attachRelayService(
       if (closed) return undefined;
       endpoint = connectDevices(service, sessionId, {
         authorize: () => authorize("admin"),
+        delivery: mediaDelivery,
+        acceleration: options.mediaAcceleration,
         canReadThread: threadAccess,
         agentExists: (threadId, agentId) =>
           options.store?.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
@@ -137,6 +151,7 @@ export function attachRelayService(
     if (!options.browser) throw new Error("Browser relay unavailable");
     const endpoint = connectBrowser(options.browser, {
       connectionId: sessionId,
+      media: { owner: mediaOwner, delivery: () => options.mediaDelivery?.() },
       authorize: (threadId, workspaceId, access) =>
         authorize(access) &&
         threadAccess(threadId) &&
@@ -172,6 +187,8 @@ export function attachRelayService(
       throw new Error("Screen relay requires admin access");
     const endpoint = screenConnection(options.screen, new Simulators(process.platform), sessionId, {
       pictureEncoder: () => options.browser?.videoEncoder(),
+      delivery: mediaDelivery,
+      acceleration: options.mediaAcceleration,
       send(message) {
         void send(message).catch(() => channel.close());
       },

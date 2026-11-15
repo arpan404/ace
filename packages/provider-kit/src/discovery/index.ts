@@ -183,6 +183,7 @@ export async function discoverAntigravity(
 }
 
 export { discoverPi } from "./pi.ts";
+export { startupProbes, type StartupProbes } from "./startup-probes.ts";
 export { discoverPiStatus } from "./pi-status.ts";
 export { piSdkEntry, piCredentialProviders, PiProviderId } from "./pi-sdk.ts";
 export {

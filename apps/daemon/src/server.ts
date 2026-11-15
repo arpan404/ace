@@ -35,7 +35,8 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { orderedSocket } from "./ordered-socket.ts";
-import { WireTrimmer } from "@ace/projection/wire-trim";
+import { WireTrimmer, wireTrims } from "@ace/projection/wire-trim";
+import { shortDeltasFraming } from "@ace/projection/short-deltas";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
@@ -277,7 +278,8 @@ export async function startServer(options: ServerOptions): Promise<{
   const receivers = new Map<DeviceId, Map<MainSocket, (message: ServerMessage) => void>>();
   // A suspended phone can keep its socket open, so a frame sent there is not a delivery.
   const backgrounded = new WeakSet<MainSocket>();
-  const encoder = new WireEncoder();
+  // Shares the store's encodings: a live event its buffer weighed is not serialised again.
+  const encoder = new WireEncoder(options.store.encodings);
   const ticks = new Map<MainSocket, () => void>();
   /** Main channels that came through the relay: no listener owns them, so shutdown closes them. */
   const relaySockets = new Set<MainSocket>();
@@ -538,7 +540,11 @@ export async function startServer(options: ServerOptions): Promise<{
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
-          outbox.packFrames();
+          outbox.packFrames(peer.remote);
+        outbox.shapeEvents({
+          rawOnDemand: message.trims?.includes(wireTrims.rawOnDemand) === true,
+          shortDeltas: message.framing?.includes(shortDeltasFraming) === true,
+        });
         peer.access =
           relayed || accountAdmitted
             ? "paired"
@@ -593,6 +599,12 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         welcomed = true;
+        // A paired device that opened with a ticket and asked gets its next one here, so its
+        // next connection skips the exchange (ADR 0150). Only clients that keep it ask.
+        const next =
+          message.nextTicket && message.ticket !== undefined && !relayed
+            ? auth.handOver(actor)
+            : undefined;
         send({
           type: "welcome",
           hostId,
@@ -600,6 +612,7 @@ export async function startServer(options: ServerOptions): Promise<{
           headSeq: options.store.headSeq(),
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
+          ...(next ? { ticket: next } : {}),
         });
         for (const service of sessions) service.welcomed?.();
         return;

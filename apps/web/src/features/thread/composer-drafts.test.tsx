@@ -44,7 +44,7 @@ function app(storage = memoryKeyValue()) {
   return made;
 }
 const message = () => screen.findByRole("combobox", { name: "Message" });
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 
 test("an unsent draft is still there after visiting another thread", async () => {
   await app().open("/t/thread-router");

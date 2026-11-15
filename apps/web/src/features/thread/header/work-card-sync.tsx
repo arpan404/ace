@@ -1,5 +1,5 @@
 import { syncWords, uncommittedWords, type Checkout } from "@ace/ui-core";
-import { CloudArrowUpIcon } from "@phosphor-icons/react";
+import { CloudArrowUpIcon } from "@ace/icons";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";

@@ -1,4 +1,4 @@
-import { CaretDownIcon, DesktopTowerIcon, DeviceMobileIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, DesktopTowerIcon, DeviceMobileIcon } from "@ace/icons";
 import { useLocation } from "@tanstack/react-router";
 import { createContext, use, useMemo, useRef, useState, type ReactNode } from "react";
 import { useHashFlash } from "@/components/setting-row.tsx";
@@ -6,7 +6,7 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
 import { AddMachine } from "./add-machine.tsx";
-import { fleetWarning } from "./data/fleet-words.ts";
+import { fleetWarning } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { FleetTabs } from "./fleet-tabs.tsx";

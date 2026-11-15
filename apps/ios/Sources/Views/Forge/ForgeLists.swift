@@ -2,15 +2,21 @@ import SwiftUI
 
 /// The Pull requests list: the web's groups (by next step, or by who it concerns) as quiet
 /// headings over rows; a row opens its page, swipes to GitHub, and its menu copies the link or
-/// opens the thread working on it.
+/// opens the thread working on it. Ready rows can be picked for one verified merge, which the
+/// strip at the foot starts and follows.
 struct ForgePullsList: View {
     /// The page open beside the list, whose row reads as selected.
     @Environment(\.openForgeRow) private var openRow
+    let client: ClientModel
     let model: ForgeListModel<ForgePullList>
     let open: (ForgeRoute) -> Void
     let openThread: (InboxKey) -> Void
     let refresh: () async -> Void
     let more: () async -> Void
+    @State private var merge = ForgeMergeRunModel()
+
+    /// The ready rows on show, in list order: the ones a verified merge can take.
+    private var ready: [ForgeMergePick] { (model.list?.groups ?? []).flatMap { $0.rows.compactMap(\.mergePick) } }
 
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
@@ -23,15 +29,41 @@ struct ForgePullsList: View {
                     // The full identity (provider, host, owner, name, number): a GitLab or Origin row opens
                     // its own read-only page, never a same-numbered review elsewhere.
                     let route = ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number, repository: row.repository)
-                    Button { open(route) } label: { ForgePullRowView(row: row) }
-                        .buttonStyle(RowPressStyle(selected: openRow == route))
-                        .accessibilityAddTraits(openRow == route ? .isSelected : [])
-                    .accessibilityIdentifier("forge.pull.\(row.number)")
+                    HStack(spacing: AceTheme.Spacing.none) {
+                        Button { open(route) } label: { ForgePullRowView(row: row) }
+                            .buttonStyle(RowPressStyle(selected: openRow == route))
+                            .accessibilityAddTraits(openRow == route ? .isSelected : [])
+                            .accessibilityIdentifier("forge.pull.\(row.number)")
+                        if let pick = row.mergePick, client.canOperate {
+                            ForgeMergePickButton(number: row.number, picked: merge.isPicked(pick), blocked: merge.blocked(pick)) {
+                                merge.toggle(client, project: scope.project, pick)
+                            }
+                        }
+                    }
                     .forgeRowChrome()
                     .forgeRowActions(url: row.url, host: row.host, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
             } }
         }
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+            if let scope = model.scope {
+                ForgeMergeRunStrip(client: client, scope: scope, model: merge, ready: ready, open: open)
+            }
+        }
+        // Read again as picks change, as the rows move, and whenever a Verify run moves.
+        .task(id: mergeKey) {
+            guard let scope = model.scope else { return }
+            await merge.read(client, project: scope.project, ready: ready) { await refresh() }
+        }
+        .onChange(of: model.scope) { merge.clear() }
+    }
+
+    private var mergeKey: String {
+        guard let scope = model.scope else { return "" }
+        let request = ForgeMergeRunModel.request(project: scope.project, picked: merge.picks, ready: ready)
+        // A ready row's new head reads the strip again: a pick made at the old one leaves.
+        let rows = ready.map { "\($0.key)@\($0.headSha)" }
+        return "\(scope.project)|\(merge.picks.map { "\($0.key)@\($0.headSha)" })|\(rows)|\(client.readGeneration(request))"
     }
 }
 

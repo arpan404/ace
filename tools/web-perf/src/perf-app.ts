@@ -21,6 +21,10 @@ const web = new URL("../../../apps/web/", import.meta.url).pathname;
  */
 let build: Promise<string> | undefined;
 function perfBuild(): Promise<string> {
+  // A build made already (`vite build --mode perf --outDir <dir>`), to compare two builds
+  // without rebuilding either.
+  const prebuilt = process.env.ACE_PERF_BUILD;
+  if (prebuilt) return Promise.resolve(prebuilt);
   build ??= (async () => {
     const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
     process.once("exit", () => rmSync(out, { recursive: true, force: true }));

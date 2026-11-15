@@ -1,4 +1,4 @@
-import { GlobeSimpleIcon } from "@phosphor-icons/react";
+import { GlobeSimpleIcon } from "@ace/icons";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";

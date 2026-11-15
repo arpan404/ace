@@ -1,5 +1,5 @@
 import type { ProviderLoginProgress } from "@ace/protocol";
-import { ArrowSquareOutIcon, CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, CheckIcon, CopyIcon } from "@ace/icons";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { openExternal, opensWithoutClick } from "@/boot/open-external.ts";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";

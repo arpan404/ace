@@ -58,6 +58,7 @@ function inflateMessage(deflated: Uint8Array): Uint8Array {
   return inflateRawSync(deflated, { maxOutputLength: LOGICAL_MESSAGE_LIMIT });
 }
 export interface BinaryChannel {
+  /** Borrows immutable bytes until the returned promise settles; never clears them. */
   sendBinary(frame: Uint8Array): Promise<void>;
   receiveBinary(): Promise<Uint8Array>;
   close(): void;
@@ -262,7 +263,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       throw error;
     } finally {
       pendingBytes -= data.length;
-      data.fill(0);
+      if (kind !== fragmentKinds.binary) data.fill(0);
     }
   };
   /** One whole message: binary bytes, or its JSON text (inflated and UTF-8 checked). */
@@ -365,8 +366,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
       const data = z.instanceof(Uint8Array).parse(bytes);
       if (!data.length || data.length > BINARY_MESSAGE_LIMIT)
         return Promise.reject(new Error("Binary message too large"));
-      // Retain immutable admitted bytes while earlier sends drain.
-      return sendData(Uint8Array.from(data), fragmentKinds.binary);
+      // The caller keeps these bytes immutable until the send completes.
+      return sendData(data, fragmentKinds.binary);
     },
     async receiveBinary() {
       const frame = await channel.receiveFrame();

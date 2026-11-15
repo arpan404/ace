@@ -124,7 +124,7 @@ struct UseMyChromeView: View {
                         } header: { InsetHeader("Connected browsers") }
                         Section {
                             NavigationLink {
-                                // The Browser and computer page holds the Chrome storage switch.
+                                // The Browser page holds the Chrome storage switch.
                                 RemoteSettingsView(model: model, category: .browser)
                             } label: { InsetRow("Cookies and site storage", systemImage: nil) }
                             .insetRowBackground()

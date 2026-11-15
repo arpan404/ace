@@ -22,6 +22,7 @@ import { dispatchCommand, type Receipt } from "./commands.ts";
 import type { InboxOrganizer } from "./inbox-organize.ts";
 import type { InboxClock } from "./inbox-rows.ts";
 import { preview } from "./presentation.ts";
+import { answerHistory, HistoryRequest, type HistoryPorts } from "./history.ts";
 import { answerPalette, PaletteRequest } from "./palette.ts";
 
 /*
@@ -40,11 +41,15 @@ export const ManageAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ kind: z.literal("autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ kind: z.literal("move"), threadId: ThreadId, workspaceId: WorkspaceId }),
-  /** Put a snooze back as it was (Undo of a settle, which clears it), or wake (`null`). */
+  /**
+   * Put a snooze back as it was (Undo of a settle, which clears it), or wake (`null`). `wake` is
+   * the event it slept until, the row's `snoozeOn`, with `until` as its backstop.
+   */
   z.object({
     kind: z.literal("snoozeAt"),
     threadId: ThreadId,
     until: z.number().finite().nullable(),
+    wake: z.enum(["needs_you", "pr"]).optional(),
   }),
 ]);
 export type ManageAction = z.infer<typeof ManageAction>;
@@ -120,7 +125,12 @@ function patchOf(action: ManageAction): { patch: OrganizePatch; payload: Command
     case "snoozeAt":
       return {
         patch: { snoozedUntil: action.until },
-        payload: { type: "thread.snooze", threadId: action.threadId, until: action.until },
+        payload: {
+          type: "thread.snooze",
+          threadId: action.threadId,
+          until: action.until,
+          ...(action.wake && action.until !== null ? { wake: action.wake } : {}),
+        },
       };
     case "move":
       return {
@@ -382,8 +392,47 @@ export function readDeleteQuestion(
   return deleteQuestion(threads.length ? threads : [{ title: "", status: { state: "done" } }]);
 }
 
+/** History's reads on this machine: its list, its search and the list's older pages. */
+function historyPorts(
+  owner: ClientCore,
+  organizer: InboxOrganizer,
+  clock: InboxClock,
+  requestId: string,
+): HistoryPorts {
+  return {
+    entries: () => organizer.entries(),
+    search: async (text, signal) => {
+      const reply = await owner.request(
+        {
+          type: "search.query",
+          requestId: `${requestId}.history`,
+          text,
+          scope: "threads",
+          limit: 50,
+        },
+        { timeoutMs: 8_000, ...(signal ? { signal } : {}) },
+      );
+      return reply.type === "search.results" ? reply.hits : [];
+    },
+    holdsOlder: () => {
+      const { store, release } = owner.threads();
+      try {
+        return (store.homeWindow ?? store.window)?.before != null;
+      } finally {
+        release();
+      }
+    },
+    loadOlder: (signal) => owner.threadsMore({ timeoutMs: 8_000, ...(signal ? { signal } : {}) }),
+    now: () => clock.now(),
+  };
+}
+
 /** The inbox's own requests, answered by `NativeServices`; undefined for any other request. */
-export type InboxRequests = (raw: unknown, requestId: string) => Promise<unknown> | undefined;
+export type InboxRequests = (
+  raw: unknown,
+  requestId: string,
+  signal?: AbortSignal,
+) => Promise<unknown> | undefined;
 
 export function inboxRequests(
   owner: ClientCore,
@@ -391,11 +440,14 @@ export function inboxRequests(
   clock: InboxClock,
   pump: PatchSink,
 ): InboxRequests {
-  return (raw, requestId) => {
+  return (raw, requestId, signal) => {
     const bulk = InboxBulkRequest.safeParse(raw);
     if (bulk.success) return runBulk(owner, organizer, clock, bulk.data, requestId, pump);
     const palette = PaletteRequest.safeParse(raw);
     if (palette.success) return answerPalette(owner, organizer.entries(), palette.data, requestId);
+    const history = HistoryRequest.safeParse(raw);
+    if (history.success)
+      return answerHistory(historyPorts(owner, organizer, clock, requestId), history.data, signal);
     const link = AceLinkRequest.safeParse(raw);
     if (link.success) return Promise.resolve({ link: readAceLink(link.data.url) ?? null });
     const question = InboxDeleteQuestionRequest.safeParse(raw);

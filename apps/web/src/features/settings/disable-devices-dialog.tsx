@@ -1,3 +1,4 @@
+import { devicesSwitch } from "@ace/ui-core";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -20,11 +21,8 @@ export function DisableDevicesDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent initialFocus={cancel}>
         <DialogHeader>
-          <DialogTitle>Turn off simulators and emulators?</DialogTitle>
-          <DialogDescription>
-            This turns them off for every thread on this machine. Agents lose the devices they are
-            using, and live views stop. They stay off until you turn them on here.
-          </DialogDescription>
+          <DialogTitle>{devicesSwitch.askOff.title}</DialogTitle>
+          <DialogDescription>{devicesSwitch.askOff.message}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button
@@ -43,7 +41,7 @@ export function DisableDevicesDialog(props: {
               props.onDisable();
             }}
           >
-            Turn off
+            {devicesSwitch.askOff.confirm}
           </Button>
         </DialogFooter>
       </DialogContent>

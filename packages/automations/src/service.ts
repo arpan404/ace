@@ -423,8 +423,8 @@ export class AutomationService {
   catalog(provider: Automation["provider"], workspace: string): { id: string; title: string }[] {
     return this.store.catalog(provider, workspace);
   }
-  inbox(limit = 50, before?: number, automationId?: string) {
-    return this.store.inbox(limit, before, automationId);
+  inbox(limit = 50, before?: number, automationId?: string, finishedAfter?: number) {
+    return this.store.inbox(limit, before, automationId, finishedAfter);
   }
   /**
    * Admit one run. `note` is the person's extra instruction for a manual run, added after the
@@ -816,7 +816,12 @@ export class AutomationService {
         case "automation.inbox":
           return {
             ...base,
-            inbox: this.inbox(request.limit, request.before, request.automationId),
+            inbox: this.inbox(
+              request.limit,
+              request.before,
+              request.automationId,
+              request.finishedAfter,
+            ),
           };
       }
     } catch (error) {

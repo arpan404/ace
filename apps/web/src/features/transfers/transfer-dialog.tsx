@@ -6,7 +6,7 @@ import {
   useTransfers,
   useTransfersSeeded,
 } from "@ace/client-react";
-import { DesktopIcon } from "@phosphor-icons/react";
+import { DesktopIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useMemo, useState } from "react";

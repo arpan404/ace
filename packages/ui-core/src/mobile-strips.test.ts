@@ -3,6 +3,7 @@ import {
   approvalStripLine,
   holdStripLead,
   leftRunningStripLine,
+  lostChildStripLine,
   notSentStripLine,
   questionStripLine,
 } from "./mobile-strips.ts";
@@ -83,4 +84,19 @@ test("commands a stopped turn left running show with their command, only once no
   );
   expect(leftRunningStripLine({ over: false, subagents: 0, commands: ["a"] })).toBeUndefined();
   expect(leftRunningStripLine({ over: true, subagents: 1, commands: ["a"] })).toBeUndefined();
+});
+
+test("the request about a lost child leads with the daemon's sentence, not an approval", () => {
+  expect(
+    lostChildStripLine(
+      { sentence: "Lost: Studio is no longer paired; its work there may still be running." },
+      "Pair Studio again to keep tracking reviewer, or stop tracking it here.",
+      "claude",
+    ),
+  ).toEqual({
+    lead: { provider: "claude" },
+    sentence: "Lost: Studio is no longer paired; its work there may still be running.",
+    payload: "",
+    detail: "Pair Studio again to keep tracking reviewer, or stop tracking it here.",
+  });
 });

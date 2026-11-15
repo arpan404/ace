@@ -42,14 +42,28 @@ describe("video encodes for a tab's viewers", () => {
     expect(plan.viewers.get("small")).not.toBe(plan.viewers.get("laptop"));
   });
 
-  it("a slow link costs bit rate, never frames", () => {
+  it("a slow link costs bit rate down to the 3G floor, and no lower", () => {
     const fast = planVideo(page, [viewer("fiber")]).encodes[0];
     const slow = planVideo(page, [viewer("phone", {}, 2_000_000)]).encodes[0];
     expect(fast?.fps).toBe(60);
-    expect(slow?.fps).toBe(60);
     expect(slow?.bitrate).toBe(2_000_000);
     expect(fast?.bitrate).toBeGreaterThan(2_000_000);
+    expect(planVideo(page, [viewer("3g", {}, 300_000)]).encodes[0]?.bitrate).toBe(300_000);
+    expect(minBitrate).toBe(150_000);
     expect(planVideo(page, [viewer("dial-up", {}, 1_000)]).encodes[0]?.bitrate).toBe(minBitrate);
+  });
+
+  it("a viewer's frame rate step sets its encode's, and a shared encode runs at the slowest", () => {
+    const thin = planVideo(page, [{ ...viewer("3g", {}, 400_000), fps: 8 }]).encodes[0];
+    expect(thin?.fps).toBe(8);
+    const shared = planVideo(page, [
+      viewer("fiber"),
+      { ...viewer("phone", {}, 3_000_000), fps: 30 },
+    ]);
+    expect(shared.encodes).toHaveLength(1);
+    expect(shared.encodes[0]?.fps).toBe(30);
+    // A new frame rate is applied in place, not as a new encoder.
+    expect(shared.encodes[0]?.key).toBe(planVideo(page, [viewer("fiber")]).encodes[0]?.key);
   });
 
   it("a shared encode runs at the slowest member's link, under the same key", () => {
@@ -118,5 +132,21 @@ describe("video encodes for a tab's viewers", () => {
     const backward = planVideo(page, viewers.toReversed());
     expect(backward.encodes).toEqual(forward.encodes);
     expect([...backward.viewers].toSorted()).toEqual([...forward.viewers].toSorted());
+  });
+});
+
+describe("ties between equal viewers", () => {
+  it("are broken by code-unit order, never locale order, as media-core does", () => {
+    // Five equal panes, each wanting its own codec: four encoders, so one is left out. In
+    // code-unit order `Z` sorts before `a`, so `d` is the one; locale order would drop `Z`.
+    const codecs = ["c1", "c2", "c3", "c4", "c5"];
+    const plan = planVideo(
+      { ...page, codecs },
+      ["Z", "a", "b", "c", "d"].map((id, index) =>
+        viewer(id, {}, 20_000_000, [codecs[index] ?? ""]),
+      ),
+    );
+    expect(plan.encodes).toHaveLength(maxEncodes);
+    expect([...plan.viewers.keys()].toSorted()).toEqual(["Z", "a", "b", "c"]);
   });
 });

@@ -149,6 +149,7 @@ private final class RecordingCenter: NotificationCenterPort, @unchecked Sendable
     var posted: [String] = []
     func post(_ content: AlertContent) async { posted.append(content.identifier) }
     func withdraw(_ identifiers: [String]) {}
+    func withdrawPushed(standingFor thread: String) {}
 }
 @MainActor private final class Sessions {
     var byHost: [String: FakeSession] = [:]

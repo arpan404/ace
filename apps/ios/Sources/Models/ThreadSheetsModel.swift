@@ -5,6 +5,7 @@ import Observation
 /// rows arrive shaped, and git outcomes are correlated by request id.
 @MainActor @Observable final class ThreadSheetsModel {
     var agents: AgentSheet?
+    var summary: ThreadSummarySheet?
     var logs: LogsSheet?
     /// Logs Copy answers, by request.
     var copies: [String: String] = [:]
@@ -34,11 +35,26 @@ import Observation
     /// Work writes' outcomes and stale-lock clears, by request id.
     var workResults: [String: WorkResult] = [:]
 
+    /// Another machine, or no thread: nothing kept here applies any more.
     func reset() {
+        forgetFollowed()
+        notices = [:]; awaitingNotices = []; replyTexts = [:]
+    }
+
+    /// Another route to the same machine: the new runtime sends every sheet again, but what the
+    /// person typed stays, and sends the old route never answered read as uncertain.
+    func routeChanged() {
+        connectionLost()
+        forgetFollowed()
+    }
+
+    /// What the bridge sends while a sheet is followed. Visiting the thread already on screen
+    /// again drops only this: the bridge sends it again, and replies typed there stay.
+    func forgetFollowed() {
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
-        review = nil; replies = nil; notices = [:]; awaitingNotices = []; replyTexts = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
+        review = nil; replies = nil; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
-        logs = nil; copies = [:]
+        logs = nil; copies = [:]; summary = nil
     }
 
     /// A review request went out; its notice answers it.
@@ -69,13 +85,13 @@ import Observation
         switch patch {
         case .tree(let rows): tree = rows
         case .file(let header):
-            if let old = files[header.path], old.version != header.version || old.file != header.file {
+            if let old = files[header.path], old.version != header.version || old.file != header.file || old.part != header.part {
                 pages[old.file] = nil
                 wholeLines[old.file] = nil
             }
             files[header.path] = header
         case .page(let page):
-            guard files[page.path]?.version == page.version else { return }
+            guard let header = files[page.path], header.version == page.version, header.part == page.part else { return }
             pages[page.file, default: [:]][page.index] = page
         case .line(let line):
             guard files[line.path]?.version == line.version else { return }

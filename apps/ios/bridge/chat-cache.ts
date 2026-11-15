@@ -28,6 +28,8 @@ export interface ChatCacheHost {
   leave(): void;
   /** Open `threadId` cold, as native asked by `cache.reload`. */
   reopen(threadId: string): void;
+  /** Stop following `threadId` if it lingers after the person left it (ADR 0146). */
+  letGo?(threadId: string): void;
   /** Drop persisted tool logs when forcing a fresh read of this thread. */
   forgetSteps?(threadId: string): Promise<void>;
 }
@@ -42,6 +44,8 @@ export async function handleCacheAction(action: CacheAction, host: ChatCacheHost
         await host.client.clearReadSnapshots();
         break;
       case "cache.reload": {
+        // A lingering hold would keep the old copy; the reload reads it afresh.
+        host.letGo?.(action.threadId);
         const open = host.openThread() === action.threadId;
         if (open) host.leave();
         try {

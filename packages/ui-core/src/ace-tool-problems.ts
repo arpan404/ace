@@ -207,6 +207,10 @@ const browser: Record<string, Wording> = {
     hint: "Close the ones you no longer need.",
   }),
   tab_crashed: () => ({ title: "The page crashed", hint: "Reload it to bring it back." }),
+  tab_unavailable: () => ({
+    title: "The tab couldn't be shown",
+    hint: "It was idle and didn't come back this time. Other tabs still work.",
+  }),
   not_hittable: () => ({
     title: "That element couldn't take the click",
     hint: "It was out of view or kept moving.",

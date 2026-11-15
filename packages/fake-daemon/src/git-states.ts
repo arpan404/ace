@@ -2,6 +2,12 @@ import type { CommandPayload, WorkspaceActionResult } from "@ace/protocol";
 import { fakeBranchRefs } from "./worktree-base.ts";
 
 /** How a worktree start fails, as the daemon reports it on the progress and the receipt. */
+/** A project's rules for its worktree starts: why one fails, and a step's own time. */
+export interface FakeCreationRules {
+  failure: FakeCreationFailure | undefined;
+  pace: number | undefined;
+}
+
 export interface FakeCreationFailure {
   error: string;
   title: string;
@@ -25,10 +31,12 @@ export class FakeGitStates {
   private kinds = new Map<string, "none" | "empty" | "detached">();
   private locks = new Map<string, string>();
   private setups = new Map<string, readonly string[]>();
+  private paces = new Map<string, number>();
   /** Per thread, the remote branch's revision when it has commits the checkout doesn't. */
   private diverged = new Map<string, string>();
   private hooksSkipped = new Set<string>();
   private defaults = new Map<string, string>();
+  private extraBranches = new Map<string, readonly string[]>();
 
   /**
    * The remote branch has commits the thread's checkout lacks (after a rebase or amend): a plain
@@ -74,10 +82,30 @@ export class FakeGitStates {
   setDefaultBranch(workspaceId: string, name: string): void {
     this.defaults.set(workspaceId, name);
   }
+  /** More local branches the project lists after main and develop (a long branch list). */
+  addBranches(workspaceId: string, names: readonly string[]): void {
+    this.extraBranches.set(workspaceId, names);
+  }
   /** Every worktree start in the project fails its setup script with `output`, or no longer. */
   failSetup(workspaceId: string, output: readonly string[] | undefined): void {
     if (output) this.setups.set(workspaceId, output);
     else this.setups.delete(workspaceId);
+  }
+  /**
+   * Each step of a worktree start in the project takes `ms` (or the daemon's usual pace again),
+   * so a person, or a UI test, sees each state the card goes through.
+   */
+  paceCreation(workspaceId: string, ms: number | undefined): void {
+    if (ms === undefined) this.paces.delete(workspaceId);
+    else this.paces.set(workspaceId, ms);
+  }
+  /** How a worktree start in the payload's project goes: how it fails, and each step's time. */
+  creationRules(payload: CommandPayload): FakeCreationRules {
+    const pace =
+      payload.type === "thread.create" || payload.type === "thread.prepare"
+        ? this.paces.get(payload.workspaceId)
+        : undefined;
+    return { failure: this.creationFailure(payload), pace };
   }
   /** `workspace.git.lock.clear`: the lock's owner is gone in the fixture, so it clears. */
   clearLock(workspaceId: string): boolean {
@@ -101,7 +129,7 @@ export class FakeGitStates {
       return { kind: "branches", branches: [], truncated: false, refs: [], unbornHead: false };
     return {
       kind: "branches",
-      branches: ["main", "develop"],
+      branches: ["main", "develop", ...(this.extraBranches.get(workspaceId) ?? [])],
       truncated: false,
       refs: [...fakeBranchRefs],
       defaultBranch: this.defaults.get(workspaceId) ?? "main",

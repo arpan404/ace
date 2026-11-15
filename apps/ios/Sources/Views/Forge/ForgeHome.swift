@@ -37,6 +37,8 @@ struct ForgeHome: View {
     @State private var issuesFilter = IssuesFilter()
     @State private var notificationsFilter = NotificationsFilter()
     @State private var creating = false
+    /// New issue's place, captured with the list that named its repository.
+    @State private var creatingIssue: ForgeNewIssueTarget?
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
@@ -91,6 +93,14 @@ struct ForgeHome: View {
                 features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
                 if kind == .issues && features?.issues == false || kind == .inbox && features?.inbox == false { kind = .pulls }
             }
+            .sheet(item: $creatingIssue) { target in
+                if let client = inbox.client(target.scope.machineId) {
+                    ForgeNewIssueSheet(client: client, project: target.scope.project, repository: target.repository) { number in
+                        actions.open(ForgeRoute(kind: .issue, machineId: target.scope.machineId, project: target.scope.project,
+                                                number: number, repository: target.repository))
+                    }
+                }
+            }
             .sheet(isPresented: $creating) {
                 if let session, let chosen {
                     ForgeNewPullSheet(client: session.client, project: chosen) { number in
@@ -119,7 +129,7 @@ struct ForgeHome: View {
         if let session, let chosen {
             switch kind {
             case .pulls:
-                ForgePullsList(model: pulls,
+                ForgePullsList(client: session.client, model: pulls,
                                open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             case .issues:
                 ForgeIssuesList(model: issues,
@@ -151,6 +161,14 @@ struct ForgeHome: View {
         }
     }
 
+    /// Where New issue opens: only from a list read for the machine and project now chosen (a list
+    /// kept from the last project while the next one loads names another repository).
+    private var newIssueTarget: ForgeNewIssueTarget? {
+        guard let scope = issues.scope, let repository = issues.list?.createOn,
+              scope.machineId == session?.hostId, scope.project == chosen else { return nil }
+        return ForgeNewIssueTarget(scope: scope, repository: repository)
+    }
+
     /// The heading names the list showing, as the tab bar and the switch below it do.
     private var headingTitle: String {
         switch kind {
@@ -175,6 +193,10 @@ struct ForgeHome: View {
                 Button("New pull request") { creating = true }.buttonStyle(.forgeWord)
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
+            }
+            if kind == .issues, session?.client.canOperate == true, let target = newIssueTarget {
+                Button("New issue") { creatingIssue = target }.buttonStyle(.forgeWord)
+                    .accessibilityIdentifier("forge.newissue")
             }
             if kind == .inbox {
                 ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)

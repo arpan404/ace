@@ -99,3 +99,25 @@ test("snapshot begins lead rows and block later content from starving them", asy
     before: 10,
   });
 });
+
+test("a ready fence follows the thread's status patches even while inbox rows fill the frame", async () => {
+  const queue = pump();
+  // Opening a thread just after connecting: the inbox's first rows are queued ahead of it, more
+  // than the status share of two frames.
+  for (let n = 0; n < 72; n++)
+    queue.put(`inbox:t${n}`, () => ({ type: "inbox.row", id: `t${n}`, text: "x".repeat(200) }));
+  queue.put("thread:item:a", () => ({ type: "thread.item", threadId: "t", epoch: 1, id: "a" }));
+  queue.put("thread:ready", () => ({ type: "thread.ready", threadId: "t", epoch: 1, count: 1 }));
+  queue.put("thread:metadata", () => ({ type: "thread.metadata", threadId: "t", epoch: 1 }));
+  queue.put("thread:interaction:i", () => ({
+    type: "thread.interaction",
+    threadId: "t",
+    epoch: 1,
+    id: "i",
+  }));
+  for (let turn = 0; turn < 40; turn++) await vi.advanceTimersByTimeAsync(1);
+  const order = native.frames.map((frame) => frame.type);
+  expect(order).toContain("thread.ready");
+  expect(order.indexOf("thread.ready")).toBeGreaterThan(order.indexOf("thread.metadata"));
+  expect(order.indexOf("thread.ready")).toBeGreaterThan(order.indexOf("thread.interaction"));
+});

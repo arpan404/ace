@@ -6,7 +6,7 @@ import {
   SquareSplitHorizontalIcon,
   SquareSplitVerticalIcon,
   TrashIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import {
   bottomOf,

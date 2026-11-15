@@ -16,6 +16,8 @@ struct PlaceSheet: Identifiable {
         case .issues: return PlaceSheet(id: id, root: .pulls, forge: .issues)
         case .machines: return PlaceSheet(id: id, root: .machines)
         case .settings: return PlaceSheet(id: id, root: .settings)
+        case .history: return PlaceSheet(id: id, root: .history)
+        case .archived: return PlaceSheet(id: id, root: .archive)
         case .automations, .skills, .usage:
             guard let machine, let tool = place.tool else { return nil }
             return PlaceSheet(id: id, root: .tool(tool, machine: machine))
@@ -33,6 +35,35 @@ struct PlaceSheet: Identifiable {
             return PlaceSheet(id: serial, root: .settings, start: [.tool(tool, machine: machine)])
         }
         return nil
+    }
+}
+
+/// What a palette command (`bridge/palette.ts`) does on the home screen, by its id.
+enum HomeCommand: Equatable {
+    case newThread, newChat, select
+    /// One of the places outside the lists: Pull requests, Issues, History, Archived.
+    case place(SearchPlace)
+    /// Show only this machine's threads; empty for every machine.
+    case machine(String)
+    /// One of the open thread's places.
+    case thread(ThreadDestination)
+    /// A settings page or machine tool, opened inside Settings (`PlaceSheet.of(command:)`).
+    case settings(String)
+
+    init(id: String) {
+        switch id {
+        case "new-thread": self = .newThread
+        case "new-chat": self = .newChat
+        case "select": self = .select
+        case "pulls": self = .place(.pulls)
+        case "issues": self = .place(.issues)
+        case "history": self = .place(.history)
+        case "archived": self = .place(.archived)
+        default:
+            if id.hasPrefix("machine:") { self = .machine(String(id.dropFirst(8))) }
+            else if id.hasPrefix("thread:"), let destination = ThreadDestination(command: String(id.dropFirst(7))) { self = .thread(destination) }
+            else { self = .settings(id) }
+        }
     }
 }
 

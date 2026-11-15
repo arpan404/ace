@@ -76,7 +76,8 @@ export function encodeStream(
   if (meta.length > 0xffff) throw new StreamEnvelopeError("Stream meta too large");
   const total = meta.length + payload.length;
   if (total > streamMaxBytes) throw new StreamEnvelopeError("Stream message too large");
-  const room = streamPieceBytes - streamPrefixBytes;
+  // Noise: 65,535 bytes minus its 16-byte tag and one-byte fragment flag.
+  const room = 65_518 - streamPrefixBytes;
   const pieces: Uint8Array[] = [];
   let offset = 0;
   do {

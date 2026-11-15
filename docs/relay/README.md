@@ -37,11 +37,43 @@ The host connects outbound to `/host` as Noise XX initiator using its persisted 
 
 Registration uses Noise instead of an Ed25519 challenge to prove possession of the exact X25519 key defining the host id, without another identity key or signature binding. The control session carries encrypted registration confirmations, client offers and host busy rejections. It is separate from daemon traffic. Hosts do not pin the relay because it supplies routing, while clients pin the daemon endpoint.
 
-A client connects outbound to `/client?hostId=...`. The relay creates a single-use, random 256-bit ticket valid for 10 seconds and offers it over the encrypted control session. The host opens an outbound `/join?ticket=...` socket. Expiry or rejection closes the waiting client. Once paired, the relay sends a one-byte readiness marker and forwards binary messages. Premature client data and text messages are rejected.
+A client connects outbound to `/client?hostId=...`. The relay creates a single-use, random 256-bit ticket valid for 10 seconds and offers it over the encrypted control session. The host opens an outbound `/join?ticket=...` socket. Expiry or rejection closes the waiting client. Once paired, the relay sends a one-byte readiness marker and forwards binary messages. Premature client data and text messages are rejected, with one exception, below.
+
+### One early client frame
+
+A client may send its first frame (its first Noise message) as soon as its socket opens instead of waiting for the marker, when the relay allows it (ADR 0155, step 1, proposed in #2092). Both relays implement it the same way:
+
+- A client asks by offering the `ace.early.1` subprotocol. Before it accepts the upgrade, the relay reserves room for one frame of at most 65,535 bytes, within budgets of 16 frames and 1 MiB per host and 256 frames and 16 MiB per relay. With room reserved it echoes `ace.early.1`; without, it echoes the grant or nothing, as before. A server echoes only one subprotocol, so the echo is the client's permission: the client learns it from the upgrade answer, at the moment its socket opens.
+- A client that offers a subprotocol fails an upgrade answered with none, and an older relay echoes only a grant. So a client offers `ace.early.1` only beside a grant, or to a relay it knows is new; then it also offers `ace.relay.1`, which a new relay echoes when it has no room and no grant to echo. A new client learns that a relay is new by adding `early=1` to its `/client` address: a new relay then sends `2` as the marker instead of `1`. Older relays ignore the parameter, and older clients never set it.
+- The relay holds that one frame, bound to the client and the ticket its host was offered, and forwards it to the host that joins with that ticket right after the marker. A second frame before pairing, a larger one, or one the relay didn't allow closes the client (1008), as before. Expiry, a newer registration of the host, a rejection and the client's disconnect each clear the frame and give its room back.
+- ace cloud's object holds the frame in memory and records `reserved` or `held` in the client's socket attachment. An object that wakes from hibernation rebuilds the reservations before it admits anything else and closes a client whose held frame is gone with code `4020` ("Early frame lost"). That client connects again at once without sending early.
+- Nothing about the stream's handshake or what the relay can read changes: the frame is the client's first Noise message, which only the pinned daemon can complete.
+- A client turned away before it is paired, for any reason (expiry, its host leaving, a rejection, a refused frame, a text frame, an over-full queue, a protocol error, an unknown purpose), keeps nothing held. The two relays get there differently:
+  - **Self-hosted relay:** its queued frames are freed at once, it is read no more, and its socket is cut after one second whether or not it answers the close. Its room comes back when the socket is gone, or, once paired, when its frame has been forwarded.
+  - **ace cloud:** closing the client frees its held frame and its reservation at once, in the same step, whether or not it answers the close, and anything it sends afterwards is dropped. The object can't cut the socket itself: after the close, ending the connection is the platform's. A held frame's room also comes back as soon as it is forwarded to the joining daemon.
+
+#### What the budgets bound, and what they don't
+
+The budgets bound the **frames a relay holds to forward**: at most 16 frames of at most 65,535 bytes (just under 1 MiB) per host, and 256 frames (16 MiB) per self-hosted relay. They don't bound the bytes a relay's socket layer buffers before relay code sees a message, which applies to every socket, early or not, reserved or not, paired or waiting:
+
+- **Self-hosted relay.** `ws` reads at most one message of 65,535 bytes (`maxPayload`) per socket before handing it over, and closes a socket that sends more; a client whose early frame is held is read no more until it is paired. So per socket at most one frame is buffered beside at most one held frame, and per relay process the worst case is about 64 KiB for each of its at most 1,024 sockets (about 64 MiB), plus at most 16 MiB of held early frames.
+- **ace cloud.** workerd receives a whole WebSocket message, up to the platform's limit of 32 MiB per message, before the object sees it, and nothing in the Durable Object API lowers that limit for a socket (`acceptWebSocket` takes only tags). The object rejects anything over 65,535 bytes on arrival and keeps none of it, but the platform has buffered it by then. So per object (one host) the held early frames stay under 1 MiB, while inbound bytes in flight can reach 32 MiB per socket for every socket that reaches the object: reserved early clients, clients on the marker path (which the early-frame budgets don't count), paired streams and the daemon's own sockets alike. What bounds that is how many sockets can reach one object (the Worker's per-address upgrade rate limit, the object's admission), and the object's 128 MiB memory limit: past it the platform resets the object and every socket in it closes. This was so before early frames and isn't changed by them.
 
 ace's hosted relay also forwards plain HTTPS requests to a daemon that registered with `features=http`: it sends an `http` ticket over the control session and the daemon opens `/serve?ticket=...` for one request and its response. This relay never sends `http` tickets. See [Public HTTP to a machine](accounts.md#public-http-to-a-machine).
 
 The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. Handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
+
+### The first message in the upgrade request
+
+A client that would offer `ace.early.1` (it has a grant, or this relay's marker said it is new) also offers `ace.v2` and one entry `ace.x1.<message>`. That entry carries its first stream handshake message in unpadded base64url ([ADR 0155](../adr/0155-relay-connect-in-one-round-trip.md), step 3). For Noise XX the message is the 32-byte ephemeral public key with no payload: 43 characters, 50 with the prefix. A relay takes the entry only when it reserved room for an early frame, before it decodes the entry:
+
+- **Room, and a valid entry:** at most 4 KiB, in a `Sec-WebSocket-Protocol` header of at most 8 KiB. The relay holds the message as the client's early frame and echoes `ace.v2`. The message reaches the joining host first and once, and the client never sends it as a frame; a frame it sends before pairing closes it at once.
+- **No room, or an entry it won't take:** the relay reads nothing of the entry and echoes as above (`ace.early.1`, the grant or `ace.relay.1`). The client sends its first message as step 1 sends it.
+- **Older relays:** they ignore both entries and echo what they did before.
+- **A proxy that refuses the larger upgrade:** it costs the client one immediate retry without the entry.
+- **Hosted relay hibernation:** a message lost to it closes the client with 4020, as a held frame does.
+
+The entry is never logged by the relay. A proxy or CDN in front of a self-hosted relay sees it in the request headers. For XX it is a public ephemeral key, sent in the clear today as the stream's first frame and authenticating nothing. A first message with an encrypted payload would put that ciphertext and its metadata in the headers too, so disable header logging in a proxy in front of the relay.
 
 ## Framing, limits and backpressure
 

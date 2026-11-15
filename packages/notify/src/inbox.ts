@@ -32,8 +32,16 @@ export class NotificationInbox {
   constructor(statement: (sql: string) => StatementSync) {
     this.statement = statement;
   }
-  /** A retry of the same alert keeps its first cursor, so a client never sees it twice. */
-  record(device: DeviceId, notification: Notification, generation: number, expires: number): void {
+  /**
+   * A retry of the same alert keeps its first cursor, so a client never sees it twice. Returns
+   * that cursor, which the live alert carries.
+   */
+  record(
+    device: DeviceId,
+    notification: Notification,
+    generation: number,
+    expires: number,
+  ): number | undefined {
     this.statement(
       "INSERT INTO inbox(device,id,body,generation,expires) VALUES(?,?,?,?,?) ON CONFLICT(device,id) DO NOTHING",
     ).run(device, notification.id, JSON.stringify(notification), generation, expires);
@@ -41,6 +49,11 @@ export class NotificationInbox {
       `DELETE FROM inbox WHERE device=? AND cursor NOT IN
         (SELECT cursor FROM inbox WHERE device=? ORDER BY cursor DESC LIMIT ${LIMIT})`,
     ).run(device, device);
+    const row = this.statement("SELECT cursor FROM inbox WHERE device=? AND id=?").get(
+      device,
+      notification.id,
+    );
+    return Row.shape.cursor.safeParse(row?.cursor).data;
   }
   /**
    * Alerts after `afterCursor` that still describe canonical state. Anything recent that no

@@ -86,13 +86,19 @@ function onCurrentHost(value: string): string {
  * An account origin read back from storage (a session file, a saved session's key): a former
  * address of ace's backend reads as the current one, so nobody looks signed out after a move.
  */
-export const StoredAceAccountOrigin = AceAccountOrigin.transform(onCurrentHost);
+export const StoredAceAccountOrigin = AceAccountOrigin.transform(onCurrentHost).meta({
+  "x-ace-json-input": AceAccountOrigin,
+  "x-ace-constraint": "A former address of ace's backend is decoded as the current one.",
+});
 /**
  * An `https://` or `wss://` address that may be on a former host of ace's backend (a saved
  * machine's relay, a relay setting), read as the same address on the current host. Any other
  * address is returned unchanged.
  */
-export const HostedAddress = z.string().transform(onCurrentHost);
+export const HostedAddress = z.string().transform(onCurrentHost).meta({
+  "x-ace-json-input": z.string(),
+  "x-ace-constraint": "A former address of ace's backend is decoded as the current one.",
+});
 export const ACE_WEB_SIGN_IN_PATH = "/account/signed-in";
 
 /** `POST /v1/account/login`; the body is optional. */

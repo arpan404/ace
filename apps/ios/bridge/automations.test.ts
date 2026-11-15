@@ -557,3 +557,47 @@ test("Undo after Delete brings the automation back under its own id", async () =
     title: "Nightly dependency check",
   });
 });
+
+test("an automation an agent made from a thread puts one line above that thread's composer, with Pause", async () => {
+  const { ask, daemon } = await fixture();
+  // The fake keeps an agent's automation only while the thread that made it exists.
+  daemon.createThread({ id: "planner", workspaceId: "ace", title: "Planner", provider: "claude" });
+  daemon.seedServices({ threadAutomations: [{ threadId: "planner", automation: base }] });
+  const reply = await ask({ type: "automations.threadLine", threadId: "planner" });
+  const line = reply.line as {
+    text: string;
+    actions: { label: string; write?: Record<string, unknown> }[];
+  } | null;
+  expect(line?.text).toContain("Nightly dependency check");
+  expect(line?.text).toContain("runs every day at");
+  const pause = line?.actions.find((action) => action.label === "Pause");
+  // Pause is the automations page's own write, addressed to the thread's store.
+  expect(pause?.write).toMatchObject({
+    type: "automation.setEnabled",
+    id: "nightly",
+    enabled: false,
+    source: "thread",
+  });
+  // Another thread has none: no line at all.
+  expect((await ask({ type: "automations.threadLine", threadId: "other" })).line).toBeNull();
+});
+
+test("a new automation offers the web's ideas as whole starting forms", async () => {
+  const { ask } = await fixture();
+  const opened = await ask({ type: "automations.form.open", workspace: "/w", zone });
+  const ideas = opened.ideas as { label: string; prompt: string; form: Record<string, unknown> }[];
+  expect(ideas.map((idea) => idea.label)).toEqual([
+    "When a pull request opens",
+    "Every night",
+    "Fridays",
+  ]);
+  // Each starts from the new form (its project and agent) with the idea's words and timing.
+  expect(ideas[1]?.form).toMatchObject({
+    workspace: "/w",
+    prompt: ideas[1]?.prompt,
+    trigger: "schedule",
+    cadence: "daily",
+    time: "02:00",
+  });
+  expect(ideas[0]?.form).toMatchObject({ trigger: "github", event: "pr_changed" });
+});

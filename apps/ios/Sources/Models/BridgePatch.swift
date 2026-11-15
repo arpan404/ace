@@ -56,6 +56,13 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var group: String? = nil
     /// Inbox rows only: false when the thread never settles by itself.
     var autoSettle: Bool? = nil
+    /// Inbox rows only: the snoozes that end on an event and fit the thread now ("Until it
+    /// needs you", "Until the PR changes"), beside the layout's times. Nil from older bridges.
+    var snoozeEvents: [SnoozeEvent]? = nil
+    /// Inbox rows only: what an event snooze waits for ("until it needs you"); nil for a timed one.
+    var snoozeWake: String? = nil
+    /// Inbox rows only: that event's id ("needs_you", "pr"), so Undo of a settle puts it back.
+    var snoozeOn: String? = nil
     /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
     /// the words are the layout's `menuLabels`. Nil from older bridges.
     var menu: [String]? = nil
@@ -76,6 +83,7 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var startedBy: String? = nil
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
+    struct SnoozeEvent: Codable, Sendable, Equatable, Identifiable { let id: String; let label: String; let detail: String }
     struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
     /// The preview's first line: the sentence, what it is about, and its ink ("warning",
     /// "destructive" or "muted").
@@ -176,9 +184,23 @@ struct BubbleLine: Codable, Sendable, Equatable {
         /// A mention's catalog kind; empty for words and code.
         let mention: String
     }
+    /// A passage of an agent's message this one replies to, drawn above the words.
+    struct Quote: Codable, Sendable, Equatable { let text: String }
     let segments: [Segment]
+    /// Absent from older bridges.
+    var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
+    /// How many lines a long bubble shows folded; absent from older bridges (ten).
+    var fold: Int? = nil
+    /// The markdown the bubble renders instead of its runs, every line break kept as a hard
+    /// break; empty (or absent from older bridges) when it draws its runs.
+    var markdown: String? = nil
+    /// The words as written, for Copy, Select text and Share; empty for a message with mentions
+    /// (it copies its runs) and absent from older bridges.
+    var source: String? = nil
+    /// The words ran past what the row carries: the menu reads them whole (`readBubble`).
+    var cut: Bool? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
@@ -315,7 +337,7 @@ enum BridgePatch: Decodable, Sendable {
     case item(String, Int, String, TranscriptRow?, ItemRemoval?)
     /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
     /// every other field, its text empty until `ClientModel` applies the edit.
-    case itemText(String, Int, String, TextEdit, TranscriptRow)
+    case itemText(String, Int, String, TextEdit, TranscriptRow?)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
@@ -361,6 +383,8 @@ enum BridgePatch: Decodable, Sendable {
     case machineCode(String?, lockedUntil: Double?)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
+    /// The thread's Summary (`bridge/thread-summary.ts`).
+    case summary(String, Int, ThreadSummarySheet)
     /// The thread's Logs (`bridge/logs.ts`) and a Copy's text.
     case logs(String, Int, LogsSheet)
     case logsCopy(String, String)
@@ -434,7 +458,7 @@ enum BridgePatch: Decodable, Sendable {
             let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
                                 append: try box.decode(String.self, forKey: .append))
             guard edit.cut >= 0, edit.cut <= edit.base else { throw DecodingError.dataCorruptedError(forKey: .cut, in: box, debugDescription: "cut past base") }
-            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decode(TranscriptRow.self, forKey: .row))
+            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
         case "thread.metadata": let (id, epoch) = try scope(); self = .metadata(id, epoch, try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.interaction":
             let (id, epoch) = try scope()
@@ -492,6 +516,7 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where kind.hasPrefix("files."): self = .files(try FilesPatch(from: decoder))
         case let kind where kind.hasPrefix("transfers."): self = .transfers(try TransfersPatch(from: decoder))
         case "agents.sheet": let (id, epoch) = try scope(); self = .agents(id, epoch, try box.decode(AgentSheet.self, forKey: .sheet))
+        case "thread.summary": let (id, epoch) = try scope(); self = .summary(id, epoch, try box.decode(ThreadSummarySheet.self, forKey: .sheet))
         case "logs.sheet": let (id, epoch) = try scope(); self = .logs(id, epoch, try LogsSheet(from: decoder))
         case "logs.copy": self = .logsCopy(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .text))
         case "changes.summary": let (id, epoch) = try scope(); self = .changesSummary(id, epoch, try ChangesSummary(from: decoder))
@@ -518,17 +543,22 @@ enum BridgePatch: Decodable, Sendable {
 }
 
 /// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
-/// own id, and the paths it serves (absent from older daemons and bridges).
+/// own id, the paths it serves and its own name (absent from older daemons and bridges).
 struct MachineIdentityPatch: Decodable, Equatable, Sendable {
     let glyph: String
     let hostId: String?
     let paths: [MachinePath]?
-    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil) { self.glyph = glyph; self.hostId = hostId; self.paths = paths }
+    /// The name the machine gives itself (`host.displayName`), set from any device.
+    let name: String?
+    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil, name: String? = nil) {
+        self.glyph = glyph; self.hostId = hostId; self.paths = paths; self.name = name
+    }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         glyph = try box.decode(String.self, forKey: .glyph)
         hostId = try? box.decodeIfPresent(String.self, forKey: .hostId)
         paths = MachinePath.lenient(box, forKey: .paths)
+        name = (try? box.decodeIfPresent(String.self, forKey: .name)).flatMap { $0 }
     }
-    private enum Keys: String, CodingKey { case glyph, hostId, paths }
+    private enum Keys: String, CodingKey { case glyph, hostId, paths, name }
 }

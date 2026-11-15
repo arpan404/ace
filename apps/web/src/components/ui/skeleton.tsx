@@ -35,11 +35,18 @@ function SkeletonText(props: { lines?: number; className?: string }) {
 
 /**
  * A region that is loading: announces "Loading <label>" once and shows the skeleton.
- * Use in place of a spinner wherever the shape of the content is known. At boot it keeps the
- * startup screen up instead, so the first thing the app shows is its data, not placeholders.
+ * Use in place of a spinner wherever the shape of the content is known. With `holdsStartup`
+ * (the sidebar's lists; the thread view holds on its own) it keeps the startup screen up at
+ * boot instead, so the first screen shows its data, not placeholders. Other regions show their
+ * skeleton: one slow panel must not keep the whole window behind the startup screen.
  */
-function LoadingRegion(props: { label: string; className?: string; children: React.ReactNode }) {
-  useStartupHold();
+function LoadingRegion(props: {
+  label: string;
+  className?: string;
+  holdsStartup?: boolean;
+  children: React.ReactNode;
+}) {
+  useStartupHold(props.holdsStartup === true);
   return (
     <div
       role="status"
@@ -56,8 +63,8 @@ function LoadingRegion(props: { label: string; className?: string; children: Rea
 function ListSkeleton(props: {
   label: string;
   /**
-   * `card`: an approval card; `thread`: a Home thread row, its project's tile and title; `row`:
-   * a one-line list or settings row.
+   * `card`: an approval card; `thread`: a sidebar thread row, its project's tile and title, which
+   * keeps the startup screen up at boot; `row`: a one-line list or settings row.
    */
   shape: "card" | "thread" | "row";
   rows?: number;
@@ -65,7 +72,12 @@ function ListSkeleton(props: {
 }) {
   const rows = props.rows ?? (props.shape === "card" ? 6 : props.shape === "thread" ? 8 : 4);
   return (
-    <LoadingRegion label={props.label} className={cn("flex flex-col", props.className)}>
+    <LoadingRegion
+      label={props.label}
+      className={cn("flex flex-col", props.className)}
+      // Thread rows are the sidebar's lists, part of the first screen.
+      holdsStartup={props.shape === "thread"}
+    >
       {Array.from({ length: rows }, (_, index) => {
         const style = { animationDelay: `${index * 70}ms` };
         // Vary the widths a little so the placeholder reads as content, not a grid.

@@ -1,5 +1,6 @@
 import type { DeviceClientSnapshot } from "@ace/client/devices";
 import type { AppDevice, DeviceState } from "@ace/protocol";
+import { degradedSentence } from "./video-degraded.ts";
 import {
   activityCaption,
   deviceButtons,
@@ -10,6 +11,7 @@ import {
   inventoryNotes,
   deviceRows,
   deviceScreen,
+  deviceUnavailableHint,
   frameGeometry,
   type DeviceProblem,
   type DeviceRow,
@@ -72,6 +74,10 @@ export interface DeviceTile {
   live: boolean;
   /** "Claude is using it", "You're in control"; empty while nobody is. */
   control: string;
+  /** Boot can start it: shut down and not already booting (`deviceRows`). */
+  bootable: boolean;
+  /** What a device that can't run yet needs (offline, not authorized); null otherwise. */
+  hint: string | null;
 }
 
 export interface DeviceControlLine {
@@ -112,6 +118,8 @@ export interface DeviceScreenView {
   chrome: string | null;
   activity: { sequence: number; caption: string; provider: string; x?: number; y?: number } | null;
   problem: DeviceProblem | null;
+  /** One sentence while the picture runs degraded on the processor; empty otherwise. */
+  degraded: string;
   touch: string;
   /** A foldable device's posture (closed, partiallyOpen or open); null when it doesn't fold. */
   posture: string | null;
@@ -123,6 +131,8 @@ export interface PhoneDevicesView {
   connected: boolean;
   loading: boolean;
   enabled: boolean;
+  /** While devices are turned off on the machine: what the list says, with Turn on beside it. */
+  off: { title: string; line: string } | null;
   /** Why the channel is down, once it failed or closed. */
   offline: DeviceProblem | null;
   running: DeviceTile[];
@@ -188,6 +198,8 @@ function tile(input: DevicesViewInput, row: DeviceRow, state: DeviceState | unde
     running: row.running,
     live: row.live,
     control: tileControl(input, state),
+    bootable: row.bootable,
+    hint: deviceUnavailableHint(row) ?? null,
   };
 }
 
@@ -249,9 +261,20 @@ function screen(
         }
       : null,
     problem: controls.error ?? null,
+    /** One sentence while the device's picture runs degraded on the processor; empty otherwise. */
+    degraded: degradedSentence(state?.acceleration),
     touch: state?.touch ?? "gestures",
     posture: state?.posture ?? null,
     framed: controls.framed,
+  };
+}
+
+/** Devices turned off for the whole machine, in web's words; Settings › Tools has no thread. */
+function devicesOff(threadId: string | undefined): { title: string; line: string } {
+  const agents = threadId ? "this thread's agents" : "agents";
+  return {
+    title: "Simulators and emulators are off",
+    line: `They're turned off for this machine. Turn them on to watch and drive them here and let ${agents} use them.`,
   };
 }
 
@@ -301,12 +324,14 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
               hint: "ace keeps trying.",
             }
           : null;
+  const enabled =
+    snapshot.enabled ??
+    (snapshot.states.length ? snapshot.states.some((state) => state.enabled) : false);
   return {
     connected: snapshot.connected,
     loading: !snapshot.inventoryLoaded,
-    enabled:
-      snapshot.enabled ??
-      (snapshot.states.length ? snapshot.states.some((state) => state.enabled) : false),
+    enabled,
+    off: enabled ? null : devicesOff(input.threadId),
     offline,
     running,
     groups,

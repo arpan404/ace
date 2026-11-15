@@ -510,3 +510,35 @@ it("incremental sidebar membership and payloads share a snapshot during an exter
     statements.mockRestore();
   }
 });
+
+it("text deltas leave the thread as it was while the next thread change still lands", () => {
+  const h = setup();
+  const { store, thread } = h;
+  store.appendEvents(thread.id, [{ type: "item.created", item: message("m1", "Hello") }], 5);
+  const before = store.readThread(thread.id);
+  store.appendEvents(
+    thread.id,
+    [
+      {
+        type: "item.delta",
+        itemId: message("m1").id,
+        agentId: message("m1").agentId,
+        field: "text",
+        append: " there",
+      },
+      {
+        type: "item.delta",
+        itemId: message("m1").id,
+        agentId: message("m1").agentId,
+        field: "text",
+        append: "!",
+      },
+    ],
+    9,
+  );
+  expect(store.readThread(thread.id)).toEqual(before);
+  store.appendEvents(thread.id, [{ type: "thread.updated", title: "Renamed" }], 12);
+  expect(store.readThread(thread.id)).toMatchObject({ title: "Renamed", updatedAt: 12 });
+  h.reopen();
+  expect(h.store.readThread(thread.id)).toMatchObject({ title: "Renamed", updatedAt: 12 });
+});

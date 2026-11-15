@@ -2,21 +2,14 @@ import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
 import { can } from "@ace/ui-core";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { WorkspaceId, type ForgeInboxList, type ForgeInboxWrite } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, afterWrite, readAllApplying } from "@ace/ui-core";
 import { keepPreviousData, useQueries, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import { useClock } from "@/lib/time.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, runCommand } from "@/lib/daemon-command.ts";
 import { failureCode, readForge } from "@/lib/forge-read.ts";
-import { repositoryFromParam } from "@/lib/pull-request-route.ts";
-import {
-  afterWrite,
-  inboxPollMs,
-  inboxQuery,
-  visibleRows,
-  type InboxSearch,
-} from "./inbox-model.ts";
+import { inboxPollMs, inboxQuery, visibleRows, type InboxSearch } from "./inbox-model.ts";
 
 /** Every inbox page of a project, whatever its filters: a write changes them all. */
 export const inboxKey = (project: string | undefined) => ["forge", project, "inbox"] as const;
@@ -107,10 +100,10 @@ export function useInboxWrites(project: string | undefined) {
   /** When Mark all read last went out: GitHub may still be applying it. */
   const readAllAt = useRef<number | undefined>(undefined);
   /** GitHub's poll interval, as the inbox last heard it. */
-  const pollMs = () =>
-    (cache
+  const pollSeconds = () =>
+    cache
       .getQueriesData<ForgeInboxList>({ queryKey: inboxKey(project) })
-      .find(([, page]) => page)?.[1]?.pollSeconds ?? 60) * 1_000;
+      .find(([, page]) => page)?.[1]?.pollSeconds ?? 60;
   const change = (input: ForgeInboxWrite) =>
     cache.setQueriesData<ForgeInboxList>({ queryKey: inboxKey(project) }, (page) =>
       !page
@@ -119,11 +112,7 @@ export function useInboxWrites(project: string | undefined) {
           ? afterWrite(page, {
               kind: "read-all",
               before: Date.parse(input.before),
-              ...(input.repository
-                ? {
-                    repo: `${input.repository.host}/${input.repository.owner}/${input.repository.name}`,
-                  }
-                : {}),
+              repository: input.repository,
             })
           : input.action === "unsubscribe"
             ? page
@@ -147,7 +136,7 @@ export function useInboxWrites(project: string | undefined) {
       // bold; the next poll catches up instead.
       // Within a poll interval of Mark all read, a read could still show those rows bold, so the
       // done row's removal stands on its own until the next poll.
-      const applying = readAllAt.current !== undefined && clock() - readAllAt.current < pollMs();
+      const applying = readAllApplying(readAllAt.current, clock(), pollSeconds());
       if ((input.action === "done" || input.action === "unsubscribe") && !applying)
         await cache.invalidateQueries({ queryKey: inboxKey(project) });
       return true;
@@ -172,14 +161,5 @@ export function useInboxWrites(project: string | undefined) {
       return false;
     }
   };
-  /** Mark everything read up to `now` (read at the click), in one repository or everywhere. */
-  const readAll = (repo: string | undefined, now: number) => {
-    const repository = repositoryFromParam(repo);
-    return write({
-      action: "read-all",
-      before: new Date(now).toISOString(),
-      ...(repository ? { repository } : {}),
-    });
-  };
-  return { ready: ready && !!project, write, readAll };
+  return { ready: ready && !!project, write };
 }

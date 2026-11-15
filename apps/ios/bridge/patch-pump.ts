@@ -192,13 +192,16 @@ export class PatchPump {
   }
   #blocked(task: Task): boolean {
     // Rows may join behind an already queued fence while a snapshot streams.
-    // Readiness describes the current store, so every queued content patch in
-    // its scope must be acknowledged before that fence can describe native.
+    // Readiness describes the current store, so every queued patch in its scope,
+    // status (metadata, interactions) as well as content, must be acknowledged
+    // before that fence can describe native. Status leads each frame only up to
+    // its share, so a full inbox would otherwise let the fence pass the thread's
+    // own status and native would commit the snapshot without it.
     if (task.key === "thread:ready" || task.key === "reading:settled") {
       const prefix = task.key.startsWith("thread:") ? "thread:" : "reading:";
-      for (const sibling of this.#queues[2].values()) {
-        if (sibling !== task && !sibling.settled && sibling.key.startsWith(prefix)) return true;
-      }
+      for (const queue of [this.#queues[1], this.#queues[2]])
+        for (const sibling of queue.values())
+          if (sibling !== task && !sibling.settled && sibling.key.startsWith(prefix)) return true;
     }
     // A delayed reset must not erase already-confirmed rows from its own scope.
     // A warm begin likewise precedes its rows.
@@ -274,6 +277,8 @@ export class PatchPump {
     let bytes = 2;
     const now = host.now();
     const tracing = host.tracing === true;
+    // Spans are timed on the monotonic clock: a flush often takes under a millisecond.
+    const flushAt = tracing ? host.monotonicMs() : 0;
     let reading = 0;
     let serializing = 0;
     const contentWaits = this.#waiting(2, now);
@@ -287,9 +292,9 @@ export class PatchPump {
         // Isolate a rejected row so its next attempt cannot reject unrelated valid updates.
         if (task.failures && frame.length) break outer;
         const read = task.read;
-        const readAt = tracing ? host.now() : 0;
+        const readAt = tracing ? host.monotonicMs() : 0;
         const original = read();
-        if (tracing) reading += host.now() - readAt;
+        if (tracing) reading += host.monotonicMs() - readAt;
         if (original === undefined) {
           queue.delete(task.key);
           continue;
@@ -301,7 +306,7 @@ export class PatchPump {
           queue.delete(task.key); // Native already shows exactly this.
           continue;
         }
-        const serializeAt = tracing ? host.now() : 0;
+        const serializeAt = tracing ? host.monotonicMs() : 0;
         // Streaming text crosses as an edit of what native confirmed holding (`text-edit.ts`).
         const sent = record
           ? itemPatch(patch, record.ledger.streaming(task.key), host.utf8Length)
@@ -311,7 +316,7 @@ export class PatchPump {
         else if (sent.type === "thread.ready") this.#stampedReady(sent, task);
         const json = JSON.stringify(sent);
         const size = host.utf8Length(json);
-        if (tracing) serializing += host.now() - serializeAt;
+        if (tracing) serializing += host.monotonicMs() - serializeAt;
         if (size > 32760) {
           if (frame.length) break outer;
           this.#fragment = {
@@ -347,13 +352,13 @@ export class PatchPump {
           for (const entry of delivered) this.#confirm(entry);
         },
       };
-      const emitAt = tracing ? host.now() : 0;
+      const emitAt = tracing ? host.monotonicMs() : 0;
       host.emit(`[${texts.join(",")}]`);
       if (tracing) {
         host.trace?.("pump.read", reading, 0);
         host.trace?.("pump.serialize", serializing, bytes);
-        host.trace?.("pump.emit", host.now() - emitAt, 0);
-        host.trace?.("pump.flush", host.now() - now, frame.length);
+        host.trace?.("pump.emit", host.monotonicMs() - emitAt, 0);
+        host.trace?.("pump.flush", host.monotonicMs() - flushAt, frame.length);
       }
     } else this.#schedule();
   }

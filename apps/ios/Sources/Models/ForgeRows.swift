@@ -54,7 +54,22 @@ struct ForgePullRow: Decodable, Sendable, Equatable, Identifiable {
     let updatedAt: Double?
     /// "GitLab · acme/ace", only when the project lists more than one repository.
     var repositoryLabel: String? = nil
+    /// A ready row's place in a verified merge of several, pinned to the head the list read.
+    var mergePick: ForgeMergePick? = nil
     var id: String { key }
+}
+
+/// A ready pull request as a merge run takes it (`bridge/forge-merge-run.ts` `MergePick`).
+struct ForgeMergePick: Decodable, Sendable, Equatable, Hashable {
+    let key: String
+    let repository: ForgeRepository
+    let number: Int
+    let headSha: String
+    let base: String
+    let title: String
+    var json: [String: Any] {
+        ["key": key, "repository": repository.json, "number": number, "headSha": headSha, "base": base, "title": title]
+    }
 }
 
 struct ForgeIssueRow: Decodable, Sendable, Equatable, Identifiable {
@@ -109,6 +124,8 @@ struct ForgeIssueList: Decodable, Sendable, Equatable {
     let labels: [String]
     var failed: [String]? = nil
     let canCreate: Bool
+    /// The repository New issue opens on; nil where this account can't open one.
+    var createOn: ForgeRepository? = nil
 }
 
 struct ForgeProject: Decodable, Sendable, Equatable, Identifiable { let id: String; let name: String }

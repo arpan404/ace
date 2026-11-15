@@ -94,9 +94,12 @@ test("removing a project keeps its files, deletes its threads and stops listing 
   await userEvent.click(remove);
 
   // With the last project gone, the empty panel offers Add project.
-  await within(await screen.findByRole("complementary", { name: "Threads" })).findByRole("button", {
-    name: "Add project",
-  });
+  await within(await screen.findByRole("complementary", { name: "Projects" })).findByRole(
+    "button",
+    {
+      name: "Add project",
+    },
+  );
   expect(listed(made)).not.toContain("docs");
 });
 

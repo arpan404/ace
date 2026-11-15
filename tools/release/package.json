@@ -9,7 +9,10 @@
     "./native-arch": "./src/native-arch.ts",
     "./glibc": "./src/glibc.ts",
     "./runtime-package": "./src/copy-runtime-package.ts",
-    "./spade-server": "./src/spade-server.ts"
+    "./spade-server": "./src/spade-server.ts",
+    "./ace-media": "./src/ace-media.ts",
+    "./media-smoke": "./src/media-smoke.ts",
+    "./screen-identity": "./src/screen-identity.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

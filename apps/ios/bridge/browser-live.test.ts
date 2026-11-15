@@ -28,6 +28,7 @@ describe("Live browser view", () => {
       }),
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
+    // No delivery was sent to Swift here, so its acks carry no generation.
     view.action({ kind: "ack", sequence: 1, keyframe: true, fallback: true });
     await until(
       () =>
@@ -106,6 +107,7 @@ describe("Live browser view", () => {
     const { sink, view, sent } = await live();
     view.action({ kind: "open", threadId: "web", viewport });
     await until(() => state(sink) != null, "browser state");
+    // No delivery was sent to Swift here (no media route), so its acks carry no generation.
     view.action({ kind: "ack", sequence: 4 });
     view.action({ kind: "ack", sequence: 9, keyframe: true });
     expect(sent).toEqual([
@@ -167,6 +169,26 @@ describe("Live browser view", () => {
     });
     push({ type: "browser.page", threadId: "web", tabId: first, page: { cursor: "text" } });
     expect(sink.read("browser:page")).toMatchObject({ tabId: opened });
+  });
+
+  test("the person's input round trip is measured, and kept when the browser opens again", async () => {
+    const { sink, view } = await live();
+    view.action({ kind: "open", threadId: "web", viewport });
+    await until(() => state(sink)?.activeTabId != null, "browser state");
+    expect(sink.read("browser:latency")).toBeUndefined();
+    const touch = { kind: "touch", event: "touchStart", points: [{ x: 1, y: 1, id: 0 }] };
+    view.action({ kind: "input", input: touch });
+    await until(() => sink.read("browser:latency") !== undefined, "latency");
+    // The fixture's clock moves one millisecond for each reading.
+    expect(sink.read("browser:latency")).toEqual({
+      type: "browser.latency",
+      threadId: "web",
+      ms: 1,
+    });
+    view.close();
+    expect(sink.read("browser:latency")).toBeUndefined();
+    view.action({ kind: "open", threadId: "web", viewport });
+    expect(sink.read("browser:latency")).toMatchObject({ threadId: "web", ms: 1 });
   });
 
   test("closing the view stops its patches; a browser that isn't open yet is asked again", async () => {

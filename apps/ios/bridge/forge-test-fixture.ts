@@ -30,6 +30,7 @@ export async function connected(
   threads?: ThreadListEntry[],
   stamp: () => string = () => "",
   command?: ForgeOwner["command"],
+  now: () => number = () => 0,
 ) {
   const { daemon, client } = sheetFixture();
   seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
@@ -70,7 +71,7 @@ export async function connected(
   const forge = new ForgeService(
     owner,
     plainPreview,
-    () => 0,
+    now,
     stamp,
     () => `draft-${++ids}`,
     (input, signal) => downloadFile(client, input, { signal, timeoutMs: 15_000 }),

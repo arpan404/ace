@@ -17,9 +17,15 @@ import {
 } from "@/features/ace-account/index.ts";
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { fleetProblem } from "./data/fleet.ts";
-import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
-import { summarizeNames } from "./data/list-names.ts";
-import { machineState, pathWordsFor } from "./data/fleet-words.ts";
+import {
+  machineGaps,
+  reach,
+  unlinkedWith,
+  type LinkGap,
+  machineState,
+  pathWordsFor,
+} from "@ace/ui-core/fleet-map";
+import { summarizeNames } from "@ace/ui-core";
 import type { Fleet } from "./data/use-fleet.ts";
 import { UpdateRowAction, UpdateWords } from "./fleet-software.tsx";
 import { useMachineSwitch } from "./machine-on-here.tsx";

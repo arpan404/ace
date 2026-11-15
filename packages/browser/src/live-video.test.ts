@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { BrowserCdp, CaptureEvents, VideoHost } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
 import { LiveVideo } from "./live-video.ts";
+import type { MediaLinkHint } from "@ace/protocol";
 import type { VideoEncode } from "./video-policy.ts";
+import { keyframeBpp } from "./video-scale.ts";
 
 const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} };
 
@@ -26,11 +28,14 @@ const retinaPane: CaptureViewer = {
   video: { codecs: ["avc1.42E033"] },
 };
 
-async function firstEncode(local: boolean): Promise<VideoEncode | undefined> {
+async function firstEncode(local: boolean, hint?: MediaLinkHint): Promise<VideoEncode | undefined> {
   const encoder = fakeHost();
   const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
   video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
-  video.add("viewer", { send: () => true }, retinaPane, undefined, local);
+  const pane = hint
+    ? { ...retinaPane, viewport: { ...retinaPane.viewport, link: hint } }
+    : retinaPane;
+  video.add("viewer", { send: () => true }, pane, undefined, { local });
   for (let index = 0; index < 4; index++) {
     video.tick({ width: 659, height: 825 });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -49,7 +54,17 @@ describe("the first picture a viewer gets", () => {
   it("a viewer elsewhere starts with a smaller picture its unproven link can carry", async () => {
     const encode = await firstEncode(false);
     expect(encode?.width).toBeLessThan(1318);
+    expect(encode?.fps).toBe(60);
     expect(encode?.bitrate).toBeLessThanOrEqual(1_500_000);
+  });
+
+  it("a viewer whose client says it is on 3G starts at a low step: 15 fps of a readable picture", async () => {
+    const encode = await firstEncode(false, { effectiveType: "3g" });
+    expect(encode?.fps).toBe(15);
+    expect(encode?.bitrate).toBe(500_000);
+    expect(Math.max(encode?.width ?? 0, encode?.height ?? 0)).toBeGreaterThanOrEqual(1152);
+    // Its keyframe fits half a second of the link: the picture is smaller, not mushy.
+    expect((encode?.width ?? 0) * (encode?.height ?? 0) * keyframeBpp).toBeLessThanOrEqual(250_000);
   });
 });
 
@@ -168,5 +183,203 @@ describe("a tab whose capture keeps ending before its first picture", () => {
     expect(t.video.status()).toBeUndefined();
     await t.run(100);
     expect(t.encoder.opened.length).toBe(opens + 1);
+  });
+});
+
+/** A remote phone viewer, with what its client says about its link. */
+function phone(link?: CaptureViewer["viewport"]["link"]): CaptureViewer {
+  return {
+    viewport: { width: 659, height: 825, devicePixelRatio: 2, ...(link ? { link } : {}) },
+    video: { codecs: ["avc1.42E033"] },
+  };
+}
+
+async function startRate(capture: CaptureViewer, local = false): Promise<number | undefined> {
+  const encoder = fakeHost();
+  const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
+  video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
+  video.add("viewer", { send: () => true }, capture, undefined, { local });
+  for (let index = 0; index < 4; index++) {
+    video.tick({ width: 659, height: 825 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return encoder.encodes[0]?.[0]?.bitrate;
+}
+
+describe("a viewer's link hint", () => {
+  it("starts a viewer on a slow or spared link lower than an unhinted one", async () => {
+    const unhinted = (await startRate(phone())) ?? 0;
+    for (const link of [
+      { effectiveType: "3g" },
+      { effectiveType: "3G" },
+      { effectiveType: "Slow-2G" },
+      { effectiveType: "slow-2g" },
+      { saveData: true },
+      { constrained: true },
+      { rttMs: 450 },
+      { downlinkKbps: 400 },
+    ])
+      expect(await startRate(phone(link))).toBeLessThan(unhinted);
+  });
+
+  it("never starts a viewer higher than it would start without one", async () => {
+    const unhinted = await startRate(phone());
+    expect(
+      await startRate(phone({ effectiveType: "4g", downlinkKbps: 10_000_000, rttMs: 0 })),
+    ).toBe(unhinted);
+  });
+
+  it("leaves a viewer on this machine at loopback's rate", async () => {
+    expect(await startRate(phone({ saveData: true }), true)).toBe(await startRate(phone(), true));
+  });
+
+  it("never moves the rate of a viewer whose link is already running", async () => {
+    let clock = 1_000;
+    const encoder = fakeHost();
+    const video = new LiveVideo({ now: () => clock, playing: () => {} });
+    video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
+    video.add("viewer", { send: () => true }, phone());
+    const run = async () => {
+      for (let index = 0; index < 4; index++, clock += 50) {
+        video.tick({ width: 659, height: 825 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    };
+    await run();
+    const before = encoder.encodes.at(-1)?.[0]?.bitrate;
+    video.add("viewer", { send: () => true }, phone({ saveData: true }));
+    video.configure("viewer", phone({ effectiveType: "slow-2g" }));
+    clock += 1_000;
+    await run();
+    expect(encoder.encodes.at(-1)?.[0]?.bitrate).toBe(before);
+  });
+});
+
+function hidden(): CaptureViewer {
+  const viewer = phone();
+  return { ...viewer, viewport: { ...viewer.viewport, paused: true } };
+}
+
+/** Two viewers of one tab, whose capture the test feeds by hand. */
+async function twoViewers() {
+  let clock = 1_000;
+  const opened: CaptureEvents[] = [];
+  const keyframes: string[] = [];
+  let closed = 0;
+  const host: VideoHost = {
+    supported: async () => ["avc1.42E033"],
+    open: async (_page, _width, _height, events) => {
+      opened.push(events);
+      return {
+        encodes: () => {},
+        keyframe: (encode) => void keyframes.push(encode),
+        close: () => void closed++,
+      };
+    },
+  };
+  const received = { desk: [] as boolean[], phone: [] as boolean[] };
+  const video = new LiveVideo({ now: () => clock, playing: () => {} });
+  video.attach({ host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
+  for (const id of ["desk", "phone"] as const)
+    video.add(
+      id,
+      {
+        send: (chunk) => {
+          received[id].push(chunk.key);
+          // Acknowledged at once, so the window never fills.
+          queueMicrotask(() => video.acknowledge(id, chunk.sequence));
+          return true;
+        },
+      },
+      phone(),
+    );
+  const run = async () => {
+    for (let index = 0; index < 4; index++, clock += 50) {
+      video.tick({ width: 659, height: 825 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
+  /** A chunk of the open capture's encode (the first one a keyframe was asked of). */
+  const live = (key: boolean) =>
+    opened.at(-1)?.chunk({
+      encode: keyframes[0] ?? "",
+      key,
+      codec: "avc1.42E033",
+      codedWidth: 658,
+      codedHeight: 824,
+      bytes: new Uint8Array(100),
+    });
+  return { video, run, live, received, keyframes, closed: () => closed };
+}
+
+describe("a paused viewer", () => {
+  it("is sent no video while hidden, and starts again at a keyframe", async () => {
+    const t = await twoViewers();
+    await t.run();
+    expect(t.keyframes.length).toBeGreaterThan(0);
+    const live = t.live;
+    live(true);
+    live(false);
+    expect(t.received.phone).toEqual([true, false]);
+    t.video.configure("phone", hidden());
+    await t.run();
+    live(false);
+    live(true);
+    live(false);
+    expect(t.received.phone).toEqual([true, false]);
+    expect(t.received.desk).toEqual([true, false, false, true, false]);
+    const asked = t.keyframes.length;
+    t.video.configure("phone", phone());
+    await t.run();
+    expect(t.keyframes.length).toBeGreaterThan(asked);
+    live(false);
+    expect(t.received.phone).toEqual([true, false]);
+    live(true);
+    live(false);
+    expect(t.received.phone).toEqual([true, false, true, false]);
+  });
+
+  it("stops the tab's sound while the only listener is hidden, and starts it on resume", async () => {
+    let clock = 1_000;
+    const sound: boolean[] = [];
+    const host: VideoHost = {
+      supported: async () => ["avc1.42E033"],
+      open: async () => ({
+        encodes: () => {},
+        keyframe: () => {},
+        audio: (on) => void sound.push(on),
+        close: () => {},
+      }),
+    };
+    const video = new LiveVideo({ now: () => clock, playing: () => {} });
+    video.attach({ host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
+    const listening = (paused: boolean): CaptureViewer => {
+      const viewer = phone();
+      return { ...viewer, viewport: { ...viewer.viewport, audio: true, paused } };
+    };
+    video.add("desk", { send: () => true }, phone());
+    video.add("phone", { send: () => true }, listening(false), { send: () => true });
+    const run = async () => {
+      for (let index = 0; index < 4; index++, clock += 50) {
+        video.tick({ width: 659, height: 825 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    };
+    await run();
+    video.configure("phone", listening(true));
+    await run();
+    video.configure("phone", listening(false));
+    await run();
+    expect(sound).toEqual([true, false, true]);
+  });
+
+  it("stops the capture once every viewer is hidden, and nobody counts as watching", async () => {
+    const t = await twoViewers();
+    await t.run();
+    expect(t.video.watched()).toBe(true);
+    for (const id of ["desk", "phone"]) t.video.configure(id, hidden());
+    expect(t.video.watched()).toBe(false);
+    await t.run();
+    expect(t.closed()).toBeGreaterThan(0);
   });
 });

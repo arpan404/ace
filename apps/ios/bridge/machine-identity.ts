@@ -2,6 +2,7 @@ import { knownPaths, type ClientCore } from "@ace/client";
 import { machineGlyph } from "@ace/ui-core";
 import type { PatchSink } from "./agents.ts";
 import { host } from "./host.ts";
+import { preview } from "./presentation.ts";
 
 /*
  * The mark this runtime's machine chose (`host.identity` › `icon`), read on every ready
@@ -9,7 +10,9 @@ import { host } from "./host.ts";
  * machines are paired, with the machine's name as its label. A machine that won't say keeps the
  * mark last sent. Beside it go the machine's own id and the paths it says it serves (ADR 0114),
  * which only this authenticated connection may tell: Swift lists a machine reached both paired
- * and through the account once, and saves a paired machine's paths in its directory entry.
+ * and through the account once, and saves a paired machine's paths in its directory entry. The
+ * machine's own name goes too, so a rename from any device reaches every paired phone the next
+ * time it connects.
  */
 
 export type MachineIdentityOwner = Pick<ClientCore, "request" | "connectionState">;
@@ -27,6 +30,9 @@ export function followMachineIdentity(owner: MachineIdentityOwner, pump: PatchSi
           type: "machine.identity",
           glyph: machineGlyph(reply.identity.icon),
           hostId: reply.identity.hostId,
+          ...(reply.identity.displayName.trim()
+            ? { name: preview(reply.identity.displayName.trim(), 256) }
+            : {}),
           ...(reply.paths ? { paths: knownPaths(reply.paths) } : {}),
         };
         const said = JSON.stringify(patch);

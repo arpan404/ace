@@ -22,8 +22,9 @@ struct AgentTreeRails: View {
 
 /// One agent in the tree: its status icon, its name, and a meta line (its provider's mark, its
 /// role or model, how long it has worked while it works, the machine when it's another one, why
-/// it stopped). One that needs the person offers its answers inline, Deny and Allow in words.
-/// Settled agents step back to the muted ink; every word and state is the bridge's.
+/// it stopped). One that needs the person offers its answers inline, Deny and Allow in words; a
+/// child on another machine whose pairing is gone says so in one sentence and offers Stop
+/// tracking. Settled agents step back to the muted ink; every word and state is the bridge's.
 struct AgentTreeNode: View {
     let row: AgentSheet.Row
     let level: Int
@@ -50,7 +51,8 @@ struct AgentTreeNode: View {
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 // With nothing more to say (no words, no running time) a node keeps to one line.
                 if !metaWords.isEmpty || ticking { meta }
-                if let request { answers(request) }
+                if let lost = row.lost { stopTracking(lost, request.flatMap { $0.id == lost.interactionId ? $0 : nil }) }
+                else if let request { answers(request) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             RowCaret()
@@ -101,8 +103,11 @@ struct AgentTreeNode: View {
         if let role = row.role, !role.isEmpty { parts.append(role.prefix(1).uppercased() + role.dropFirst()) }
         if let label = row.modelLabel, !label.isEmpty { parts.append(label) } else if !row.model.isEmpty { parts.append(row.model) }
         if let machine = row.machine, !machine.isEmpty { parts.append(machine) }
-        if let request { parts.append(request.heading ?? request.title) }
-        else if let reason = row.reason, !reason.isEmpty { parts.append(reason) }
+        // A lost child's sentence reads on its own line, over Stop tracking.
+        if row.lost == nil {
+            if let request { parts.append(request.heading ?? request.title) }
+            else if let reason = row.reason, !reason.isEmpty { parts.append(reason) }
+        }
         if row.background { parts.append("in the background") }
         // A settled agent says how long it ran.
         if !row.running, let ended = row.endedAt, ended > row.createdAt {
@@ -129,6 +134,25 @@ struct AgentTreeNode: View {
         .disabled(!canAnswer)
         // The words line up with the name above them; the first button's own padding is taken back.
         .padding(.leading, -AceDesign.Space.related)
+    }
+
+    /// The daemon's one sentence in the needs-you colour, then Stop tracking in words once the
+    /// parent's request has loaded: it answers that request with its one option (ADR 0099).
+    private func stopTracking(_ lost: AgentSheet.Lost, _ request: ApprovalRow?) -> some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            Text(lost.sentence)
+                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.StatusText.needsYou)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("agents.node.lost")
+            if let request, let option = request.options.first(where: { $0.id == lost.optionId }) {
+                Button(lost.action) { answer(request, option) }
+                    .buttonStyle(.textAction())
+                    .disabled(!canAnswer)
+                    .accessibilityLabel(lost.label)
+                    .accessibilityIdentifier("agents.node.stopTracking")
+            }
+        }
     }
 
     private func denyOption(_ request: ApprovalRow) -> (label: String, option: ApprovalRow.Option)? {

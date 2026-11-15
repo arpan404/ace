@@ -120,6 +120,20 @@
         "logs.maxBytes": {
           "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
         },
+        "media.delivery": {
+          "enum": [
+            "auto",
+            "legacy"
+          ],
+          "type": "string"
+        },
+        "media.encode": {
+          "enum": [
+            "auto",
+            "legacy"
+          ],
+          "type": "string"
+        },
         "notifications.pushGatewayUrl": {
           "examples": [
             "https://push.acehq.dev"
@@ -139,6 +153,14 @@
           },
           "maxItems": 32,
           "type": "array"
+        },
+        "providers.claude.chrome": {
+          "enum": [
+            "auto",
+            "on",
+            "off"
+          ],
+          "type": "string"
         },
         "providers.coder.model": {
           "maxLength": 256,
@@ -177,6 +199,19 @@
             "priority"
           ],
           "type": "string"
+        },
+        "providers.codex.toolSource": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string",
+              "x-ace-constraint": "An absolute path: starting with / or a drive letter and \\ or /."
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "providers.configuration": {
           "$ref": "https://ace.local/protocol/v1/ProviderConfigurations.json"

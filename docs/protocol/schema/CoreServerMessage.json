@@ -209,6 +209,11 @@
     },
     {
       "properties": {
+        "databaseId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "grantTtlMs": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -225,6 +230,24 @@
         "protocolVersion": {
           "const": 1,
           "type": "number"
+        },
+        "ticket": {
+          "properties": {
+            "ticket": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ttlMs": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ticket",
+            "ttlMs"
+          ],
+          "type": "object"
         },
         "type": {
           "const": "welcome",

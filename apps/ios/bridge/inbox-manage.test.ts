@@ -275,6 +275,47 @@ test("search everything ranks commands, projects and threads by the palette's ru
   expect(projects.commands).toEqual([]);
 });
 
+test("the palette switches machines and opens History, Archived and settings pages by name", async () => {
+  const { sink, request } = await following((machine) => finished(machine, "a"));
+  await until(() => ids(sink).length === 1, "the inbox");
+  type Named = { commands: { id: string; label: string; detail: string | null }[] };
+  const ask = async (query: string, extra: Record<string, unknown> = {}) =>
+    ((await request({ type: "palette.query", query, commands: true, ...extra })) as Named).commands;
+  const machines = [
+    { id: "studio", name: "Studio" },
+    { id: "laptop", name: "Laptop" },
+  ];
+  expect((await ask("studio", { machines }))[0]).toMatchObject({
+    id: "machine:studio",
+    label: "Switch to Studio",
+    detail: "Machine",
+  });
+  expect((await ask("switch", { machines })).map((command) => command.id)).toEqual(
+    expect.arrayContaining(["machine:", "machine:studio", "machine:laptop"]),
+  );
+  // One machine has nothing to switch between.
+  const alone = await ask("switch", { machines: machines.slice(0, 1) });
+  expect(alone.some((command) => command.id.startsWith("machine:"))).toBe(false);
+  expect((await ask("history"))[0]).toMatchObject({ id: "history", detail: "Go to" });
+  expect((await ask("archived"))[0]).toMatchObject({ id: "archived", detail: "Go to" });
+  expect((await ask("notification settings"))[0]?.id).toBe("settings:notifications");
+  expect((await ask("keyboard"))[0]?.id).toBe("settings:keyboard");
+  expect((await ask("face id"))[0]?.id).toBe("settings:lock");
+});
+
+test("history answers with the threads settled on the machine, not the ones still open", async () => {
+  const { sink, request } = await following((machine) => {
+    finished(machine, "rested");
+    finished(machine, "open");
+  });
+  await until(() => ids(sink).length === 2, "the inbox");
+  await request({ type: "inbox.bulk", action: "settle", threadIds: ["rested"] });
+  type Answer = { threads: { id: string; label: string; listed: boolean }[] };
+  const answer = (await request({ type: "history.query", query: "" })) as Answer;
+  expect(answer.threads.map((thread) => thread.id)).toEqual(["rested"]);
+  expect(answer.threads[0]).toMatchObject({ label: "This week", listed: true });
+});
+
 test("a delete still waiting on the machine is not done: its answer follows under the ticket", async () => {
   const { daemon, sink, request } = await following((machine) => {
     finished(machine, "a");
@@ -344,6 +385,45 @@ test("taking back a settle restores the thread as it was: auto-settle stays and 
   await until(() => listed(daemon, "a")?.snoozedUntil === until10, "the snooze back");
   expect(listed(daemon, "a")?.settledAt).toBeUndefined();
   expect(listed(daemon, "a")?.autoSettle).not.toBe(false);
+});
+
+test("taking back a settle puts an event snooze back with the event it waits for", async () => {
+  const { daemon, sink, act, request } = await following((machine) => {
+    machine.createThread({
+      id: "shipped",
+      workspaceId: "ace",
+      title: "shipped",
+      provider: "codex",
+      hasSentMessage: true,
+      details: {
+        linkedPrs: [
+          {
+            number: 196,
+            state: "open",
+            url: "https://github.com/acme/ace/pull/196",
+            repo: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
+            updatedAt: 0,
+          },
+        ],
+      },
+    });
+    machine.apply("shipped", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  });
+  await until(() => ids(sink).length === 1, "the inbox");
+  const backstop = Date.now() + 30 * 86_400_000;
+  act({ kind: "snoozeAt", threadId: "shipped", until: backstop, wake: "pr" }, "snooze-pr");
+  await until(() => listed(daemon, "shipped")?.snoozeWake?.on === "pr", "the snooze");
+  // The row says which event, so Undo of a settle can put that back too.
+  const shipped = () =>
+    (sink.read("inbox:shipped") as { row: { snoozeOn: string | null } } | undefined)?.row;
+  await until(() => shipped()?.snoozeOn === "pr", "the row's event");
+  await request({ type: "inbox.bulk", action: "settle", threadIds: ["shipped"] });
+  await until(() => !listed(daemon, "shipped")?.snoozeWake, "the settle clears it");
+
+  await request({ type: "inbox.bulk", action: "undoSettle", threadIds: ["shipped"] });
+  act({ kind: "snoozeAt", threadId: "shipped", until: backstop, wake: "pr" }, "resnooze-pr");
+  await until(() => listed(daemon, "shipped")?.snoozeWake?.on === "pr", "the event back");
+  expect(listed(daemon, "shipped")?.snoozedUntil).toBe(backstop);
 });
 
 test("a project filter keeps other projects' archived threads out of search everything", async () => {

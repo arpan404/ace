@@ -1,6 +1,6 @@
 import { prFromUrl } from "@ace/forge/pr-reference";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { forgeErrorText } from "@ace/ui-core";
+import { forgeErrorText, prSourceText } from "@ace/ui-core";
 import { failureCode, readForge } from "@/lib/forge-read.ts";
 export function usePrSource(workspaceId: string | undefined, url: string | undefined) {
   let pr;
@@ -30,7 +30,14 @@ export function usePrSource(workspaceId: string | undefined, url: string | undef
   return {
     selection: detail ? { ref: detail.status.ref, headSha: detail.status.headSha } : undefined,
     text: detail
-      ? `Work on GitHub PR #${detail.status.ref.number}: ${detail.status.title}\n${detail.status.url}\n\n${detail.headBranch} → ${detail.baseBranch}\n\n${detail.body}`
+      ? prSourceText({
+          number: detail.status.ref.number,
+          title: detail.status.title,
+          url: detail.status.url,
+          headBranch: detail.headBranch,
+          baseBranch: detail.baseBranch,
+          body: detail.body,
+        })
       : undefined,
     problem:
       url && !pr

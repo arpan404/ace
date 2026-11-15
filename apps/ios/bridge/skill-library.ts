@@ -1,4 +1,3 @@
-import type { ClientCore } from "@ace/client";
 import {
   SkillAgent,
   SkillHash,
@@ -6,8 +5,6 @@ import {
   SkillSlug,
   WorkspaceId,
   type SkillEntry,
-  type SkillOperation,
-  type SkillResult,
 } from "@ace/protocol";
 import {
   agentsText,
@@ -30,11 +27,14 @@ import {
   skillAgents,
   skillBody,
   skillNameProblem,
+  sourceLine,
   timesText,
 } from "@ace/ui-core";
 import { z } from "zod";
 import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 import { hostOpenTarget } from "./skill-host-open.ts";
+import { expect, Refused, skills, type SkillOwner } from "./skill-requests.ts";
+import { answerSkillUpdate, isSkillUpdate, NativeSkillUpdateRequest } from "./skill-update.ts";
 
 /*
  * The skill library (ADR 0103) for the phone's Skills screens: the list grouped by where each
@@ -116,33 +116,14 @@ export const NativeSkillsRequest = z.discriminatedUnion("op", [
     ...scope,
     app: HostOpenRequest.options[1].shape.app,
   }),
+  ...NativeSkillUpdateRequest.options,
 ]);
 export type NativeSkillsRequest = z.infer<typeof NativeSkillsRequest>;
 
-type Owner = Pick<ClientCore, "request">;
-type Operation = z.input<typeof SkillOperation>;
+type Owner = SkillOwner;
 const wait = { timeoutMs: 20_000 };
 /** Said when the machine didn't answer: whatever was typed stays on the phone. */
 const unreachable = "Couldn't reach the machine. Your changes are still here; try again.";
-
-class Refused extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-async function skills(owner: Owner, operation: Operation, signal: AbortSignal) {
-  const reply = await owner.request({ type: "skills.request", operation }, { ...wait, signal });
-  return reply.result;
-}
-function expect<K extends SkillResult["kind"]>(result: SkillResult, kind: K) {
-  if (result.kind === "error") throw new Refused(result.code, result.message);
-  if (result.kind !== kind)
-    throw new Refused("unavailable", "The machine answered something else.");
-  return result as Extract<SkillResult, { kind: K }>;
-}
 
 const agentRow = (provider: SkillAgent, on: boolean, locked: boolean) => ({
   id: provider,
@@ -165,6 +146,7 @@ export class NativeSkillLibrary {
   }
 
   async answer(request: NativeSkillsRequest, signal: AbortSignal): Promise<unknown> {
+    if (isSkillUpdate(request)) return answerSkillUpdate(this.#owner, request, signal);
     try {
       return { ok: true, ...(await this.#answer(request, signal)) };
     } catch (error) {
@@ -180,7 +162,10 @@ export class NativeSkillLibrary {
     return listed;
   }
 
-  async #answer(request: NativeSkillsRequest, signal: AbortSignal): Promise<object> {
+  async #answer(
+    request: Exclude<NativeSkillsRequest, NativeSkillUpdateRequest>,
+    signal: AbortSignal,
+  ): Promise<object> {
     const at = request.workspaceId ? { workspaceId: request.workspaceId } : {};
     switch (request.op) {
       case "library": {
@@ -390,6 +375,8 @@ export class NativeSkillLibrary {
       body: skillBody(text),
       deleteMessage: `This deletes ${entry.path} and its files. Agents stop seeing it.`,
       open: hostOpenTarget(entry, workspaceId),
+      /** Where a skill installed from a repository came from; null for one written here. */
+      source: entry.source ? sourceLine(entry.source, this.#now()) : null,
     };
   }
 }

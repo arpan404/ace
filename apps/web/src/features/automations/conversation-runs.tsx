@@ -1,6 +1,6 @@
 import type { AutomationRun } from "@ace/protocol";
 import { runTurn, workingFor } from "@ace/ui-core/automations";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Prose } from "@/components/markdown/prose.tsx";

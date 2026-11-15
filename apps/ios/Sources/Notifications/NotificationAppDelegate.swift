@@ -5,14 +5,37 @@ import BackgroundTasks
 /// Installs the notification delegate, categories and the background refresh task at launch,
 /// which iOS requires before launch finishes.
 final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    let coordinator = NotificationCoordinator(lockScreenEdges: .system)
+    let coordinator = NotificationAppDelegate.makeCoordinator()
+
+    /// The app's notifications. A `--spike-unpaired` launch keeps its settings in scratch defaults
+    /// and touches nothing outside the process: no lock screen or widgets, no app group, no
+    /// background connections.
+    private static func makeCoordinator() -> NotificationCoordinator {
+        guard SpikeConfiguration.unpaired else { return NotificationCoordinator(lockScreenEdges: .system, pushed: .appGroup) }
+        return NotificationCoordinator(defaults: UnpairedScratch.defaults, connectInBackground: { _ in [] }, lockScreenEdges: .inert)
+    }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        // Nothing registered for a fresh-install fixture: categories, background refresh and push
+        // would write the app's real defaults and register with iOS.
+        if SpikeConfiguration.unpaired { return true }
         center.setNotificationCategories(NotificationCategories.remember(nil, defaults: .standard))
         BackgroundRefresh.register(coordinator)
+        coordinator.requestPushToken = { application.registerForRemoteNotifications() }
         return true
+    }
+    // Remote push (ADR 0106). iOS gives a token on every registration and it can change; each
+    // machine's sync carries it with this phone's push key.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        // Without the app group (an unsigned build) the extension couldn't decrypt: no address.
+        guard let key = try? PushKeyStore.appGroup?.loadOrCreate() else { return }
+        coordinator.registeredForPush(PushRegistration(token: deviceToken, environment: .current, key: key))
+    }
+    /// No `aps-environment` (a free team, or `ACE_PUSH` off), or no network: local alerts carry on.
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        coordinator.registeredForPush(nil)
     }
     // The completion-handler forms, called back on the main thread: UIKit's handlers update the
     // app's snapshot and must run there. The async forms are resumed off the main thread when the

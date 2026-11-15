@@ -67,11 +67,15 @@ struct WorkSummary: Codable, Sendable, Equatable {
     let busy: Bool
 }
 
-/// The project's branches for the picker, default first, read when the picker opens.
+/// The project's branches for the picker, default first, read when the picker opens. The bridge
+/// holds them all: `names` is the page matching `query`, `more` how many match past it.
 struct WorkBranches: Codable, Sendable, Equatable {
     /// `loading`, `ready` or `error`.
     let state: String
+    let query: String
     let names: [String]
+    let more: Int
+    /// ace listed only the project's first 1,000 branches.
     let truncated: Bool
 }
 

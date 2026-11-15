@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { matchingServices, serviceLabel } from "@ace/ui-core";
 import type { ProviderLoginProgress } from "@ace/protocol";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";

@@ -28,14 +28,23 @@ export const Attachment = z.discriminatedUnion("kind", [
     receive: Cipher,
     /** It registered with `features=http` and takes forwarded HTTP tickets (ADR 0122). */
     http: z.literal(true).optional(),
+    /** It registered with `features=media` and takes media streams (ADR 0147 §5.2). */
+    media: z.literal(true).optional(),
   }),
-  /** A client waiting for its host to join `ticket`. `owner` is the host socket offered it. */
+  /**
+   * A client waiting for its host to join `ticket`. `owner` is the host socket offered it.
+   * `early` (ADR 0155): room reserved for one early frame, or that frame received and held in
+   * the object's memory, which hibernation loses; `capable`: its marker says the relay holds
+   * early frames.
+   */
   z.object({
     kind: z.literal("waiting"),
     id: z.string(),
     ticket: Ticket,
     owner: z.string(),
     expires: z.number(),
+    early: z.enum(["reserved", "held"]).optional(),
+    capable: z.literal(true).optional(),
   }),
   /** One side of a paired stream; frames go to `peer`. */
   z.object({ kind: z.literal("stream"), id: z.string(), peer: z.string() }),
@@ -44,20 +53,25 @@ export type Attachment = z.infer<typeof Attachment>;
 
 /** Routing facts recorded in attachments, for `RelayRoutes.restore`. */
 export function routeFacts(attachments: readonly Attachment[]): {
-  hosts: { socket: string; hostId: string }[];
+  hosts: { socket: string; hostId: string; media?: boolean }[];
   pending: PendingTicket[];
 } {
-  const hosts: { socket: string; hostId: string }[] = [];
+  const hosts: { socket: string; hostId: string; media?: boolean }[] = [];
   const pending: PendingTicket[] = [];
   for (const attachment of attachments) {
     if (attachment.kind === "host")
-      hosts.push({ socket: attachment.id, hostId: attachment.hostId });
+      hosts.push({
+        socket: attachment.id,
+        hostId: attachment.hostId,
+        ...(attachment.media ? { media: true } : {}),
+      });
     if (attachment.kind === "waiting")
       pending.push({
         ticket: attachment.ticket,
         client: attachment.id,
         owner: attachment.owner,
         expires: attachment.expires,
+        ...(attachment.early ? { early: attachment.early } : {}),
       });
   }
   return { hosts, pending };

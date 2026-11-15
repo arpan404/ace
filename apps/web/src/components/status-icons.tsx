@@ -9,11 +9,11 @@ import {
   TerminalWindowIcon,
   WarningCircleIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { RowStatusIconKind, RowStatusTone } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
-// Typed to the weights the build keeps (icon-weights.ts), so `weight={entry.weight}` is one of them.
-import type { UsedIconWeight } from "../../icon-weights.ts";
+// Typed to the weights the design draws, so `weight={entry.weight}` is one of them.
+import type { UsedIconWeight } from "./icon.tsx";
 import { WaitingCountMark } from "./waiting-count-mark.tsx";
 
 /*

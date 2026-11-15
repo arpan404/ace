@@ -70,6 +70,8 @@ private struct PanelSide: View {
     @Environment(\.panelRoom) private var room
     /// The width let go at, shown until the bridge sends it back, so the edge never snaps back.
     @State private var pending: Double?
+    /// The scope the Changes tab opens on next, when the Summary tab asked for one.
+    @State private var changesScope: String?
 
     private var view: PanelView? { model.panels.views[threadId] }
     /// The thread the panel's screens read: the one the client shows, once it is this one.
@@ -99,6 +101,8 @@ private struct PanelSide: View {
         }
         .animation(motion, value: showing != nil)
         .onChange(of: view?.size) { _, now in if now == pending { pending = nil } }
+        // A scope the Summary tab asked for is this thread's only.
+        .onChange(of: threadId) { _, _ in changesScope = nil }
     }
 
     private func panel(_ view: PanelView, thread: ThreadModel) -> some View {
@@ -109,7 +113,8 @@ private struct PanelSide: View {
             PanelTabStrip(view: view) { op in withAnimation(motion) { model.panel(threadId, op) } }
             Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border)
             if let tab = view.shown, let tool = tab.tool {
-                PanelContent(tool: tool, model: model, thread: thread, title: row?.title ?? "", subtitle: subtitle, openThread: openThread,
+                PanelContent(tab: tab, tool: tool, model: model, thread: thread, title: row?.title ?? "", subtitle: subtitle, openThread: openThread,
+                             changesScope: $changesScope,
                              mention: model.canOperate ? { model.panels.mention(threadId, $0) } : nil)
                     .environment(\.panelHost, PanelHost { withAnimation(motion) { model.panel(threadId, ["op": "panel", "open": false]) } })
                     .id(tab.key)

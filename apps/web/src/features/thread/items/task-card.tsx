@@ -1,7 +1,7 @@
 import { cardEdge } from "@/components/ui/rules.ts";
 import { useSidebarThread } from "@ace/client-react";
 import type { TaskPrompt } from "@ace/ui-core";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";

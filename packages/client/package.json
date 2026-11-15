@@ -10,11 +10,13 @@
     "./attachment-source": "./src/attachment-stream.ts",
     "./devices": "./src/devices.ts",
     "./files": "./src/files.ts",
+    "./sha256": "./src/sha256.ts",
     "./project-calls": "./src/project-calls.ts",
     "./machines": "./src/machines.ts",
     "./screen": "./src/screen.ts",
     "./spade-http": "./src/spade-http.ts",
     "./screen-stream": "./src/screen-stream.ts",
+    "./media": "./src/media.ts",
     "./worktree-creations": "./src/worktree-creations.ts",
     "./access": "./src/access.ts",
     "./access-ticket": "./src/access-ticket.ts",
@@ -47,7 +49,9 @@
     "@ace/adapter-testkit": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/daemon": "workspace:*",
+    "@ace/media": "workspace:*",
     "@ace/relay": "workspace:*",
+    "@ace/screen": "workspace:*",
     "@types/ws": "^8.18.1",
     "ws": "^8.18.3"
   }

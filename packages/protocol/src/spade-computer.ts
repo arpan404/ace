@@ -97,7 +97,8 @@ export const SpadeComputerDrive = z
   })
   .refine((value) => value.driver !== undefined || value.mode !== undefined, {
     message: "driver or mode is required",
-  });
+  })
+  .meta({ "x-ace-constraint": "At least one of driver or mode is required." });
 export const SpadeComputerDriveResult = z.object({
   type: z.literal("spade.computer.drive.result"),
   requestId: z.string(),

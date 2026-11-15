@@ -51,6 +51,8 @@ struct SkillPage: Decodable, Equatable {
     let deleteMessage: String
     /// Where Open on computer opens the skill; null until the host can open it.
     let open: SkillHostTarget?
+    /// Where a skill installed from a repository came from and when; null for one written here.
+    let source: String?
 }
 struct SkillHostTarget: Decodable, Equatable { let workspaceId: String; let path: String }
 struct SkillDraftChoices: Decodable {
@@ -61,6 +63,24 @@ struct SkillNameCheck: Decodable { let problem: String?; let path: String }
 struct SkillCreated: Decodable { let id: String }
 struct SkillSaved: Decodable { let hash: String }
 struct SkillAgentsSaved: Decodable { let hash: String; let note: String? }
+
+/// A skill's update as `bridge/skill-update.ts` sends it: a check's answer, the review of the
+/// newer version, and what applying it said.
+struct SkillUpdateCheck: Decodable, Equatable { let available: Bool; let status: String }
+struct SkillUpdateReview: Decodable, Equatable {
+    struct File: Decodable, Equatable { let path: String; let change: String; let runnable: String? }
+    struct Line: Decodable, Equatable { let kind: String; let number: Int?; let text: String }
+    struct Diff: Decodable, Equatable { let additions: Int; let deletions: Int; let rows: [Line] }
+    let id: String
+    let title: String
+    let summary: String
+    let baseHash: String
+    let folderHash: String
+    let files: [File]
+    let diff: Diff
+}
+struct SkillUpdatePrepared: Decodable { let review: SkillUpdateReview }
+struct SkillUpdateApplied: Decodable { let hash: String; let notice: String }
 
 /// A refusal from the skill library. `unreachable` means the change may or may not have reached
 /// the machine: the next send of it says `retry`, and the bridge recognises its own change.
@@ -73,10 +93,11 @@ struct SkillFailure: LocalizedError {
 private struct SkillOutcome: Decodable { let ok: Bool; let code: String?; let message: String? }
 
 extension ClientModel {
-    /// One `skills.native` request; the reply decoded as `T`, or its refusal thrown.
-    func skills<T: Decodable>(_ operation: [String: Any], as type: T.Type) async throws -> T {
+    /// One `skills.native` request; the reply decoded as `T`, or its refusal thrown. `timeout`
+    /// bounds the wait: longer only where the machine fetches something first.
+    func skills<T: Decodable>(_ operation: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
         do {
-            let value = try await service(operation.merging(["type": "skills.native"]) { $1 }, as: ServiceValue.self)
+            let value = try await service(operation.merging(["type": "skills.native"]) { $1 }, as: ServiceValue.self, timeout: timeout)
             return try skillAnswer(value, as: type)
         } catch let failure as SkillFailure { throw failure }
         catch is CancellationError { throw CancellationError() }
@@ -122,6 +143,8 @@ struct PluginAgents: Decodable, Identifiable, Equatable {
     struct Agent: Decodable, Identifiable, Equatable { let id: String; let name: String; let on: Bool }
     let name: String
     let version: String
+    /// The repository and branch it was installed from, when the machine recorded them.
+    let source: String?
     let on: Bool
     let enabled: Bool
     let summary: String
@@ -130,3 +153,29 @@ struct PluginAgents: Decodable, Identifiable, Equatable {
 }
 struct PluginAgentsList: Decodable { let plugins: [PluginAgents] }
 struct PluginAgentsChanged: Decodable { let plugin: PluginAgents }
+
+/// What a repository's marketplace offers (`bridge/skill-plugins.ts` `find`). `manual`: it
+/// couldn't be read, so the plugin's name is typed, starting from `picked`.
+struct PluginMarketplace: Decodable, Equatable {
+    struct Listing: Decodable, Identifiable, Equatable {
+        let name: String
+        let version: String?
+        let description: String?
+        var id: String { name }
+    }
+    let repository: String
+    let ref: String
+    let from: String
+    let plugins: [Listing]
+    let picked: String?
+    let manual: Bool
+    let note: String?
+}
+/// The chosen plugin, checked and written as `plugins.prepare` takes it.
+struct PluginSourceChecked: Decodable {
+    struct Prepare: Decodable { let type: String; let repository: String; let ref: String; let name: String }
+    let prepare: Prepare
+    var operation: [String: Any] {
+        ["type": prepare.type, "repository": prepare.repository, "ref": prepare.ref, "name": prepare.name]
+    }
+}

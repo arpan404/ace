@@ -163,6 +163,8 @@ struct AutomationFormView: Decodable, Sendable {
     let today: Double?
     let hours: [AutomationChoice]?
     let minutes: [AutomationChoice]?
+    /// A new automation's starting points, each a whole form (the web's ideas); nil when editing.
+    var ideas: [AutomationIdea]? = nil
     let pick: AutomationPick?
     let choices: Choices?
 }
@@ -217,4 +219,12 @@ struct AutomationLinks: ViewModifier {
 
 extension EnvironmentValues {
     @Entry var automationLinks: AutomationLinks? = nil
+}
+
+/// One of New automation's starting points: what it does, when, and the form it fills.
+struct AutomationIdea: Decodable, Sendable, Identifiable {
+    let label: String
+    let prompt: String
+    let form: AutomationFormValues
+    var id: String { prompt }
 }

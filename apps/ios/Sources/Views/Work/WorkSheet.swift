@@ -135,7 +135,16 @@ struct WorkSheet: View {
                 .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
             }
             if work.morePrs > 0 {
-                QuietSectionRow { QuietRowText(title: "\(work.morePrs) more linked on your computer", tone: AceDesign.Ink.muted) }
+                // The bridge sends the next twenty; the whole row answers the tap.
+                Button { model.sheet(["kind": "work.prs.more"]) } label: {
+                    QuietSectionRow {
+                        Text("Show \(min(work.morePrs, 20)) more of \(work.morePrs)")
+                            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.primary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("work.prs.more")
             }
             if work.prs.isEmpty, !model.canOperate {
                 QuietSectionRow { QuietRowText(title: "None linked", tone: AceDesign.Ink.muted) }

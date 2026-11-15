@@ -8,7 +8,7 @@ import {
   FileIcon,
   FolderOpenIcon,
   WarningIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { downloadStateLabels } from "@ace/ui-core";
 import { useLocalReveal } from "@/lib/local-reveal.ts";
 import { formatBytes } from "@/components/format-bytes.ts";

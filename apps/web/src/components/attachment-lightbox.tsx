@@ -6,7 +6,7 @@ import {
   CopyIcon,
   DownloadSimpleIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { buttonVariants, Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

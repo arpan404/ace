@@ -1,0 +1,560 @@
+// SPDX-License-Identifier: Apache-2.0
+//! Media connections, the grants on them and revocations (docs/media/plan.md, "Media
+//! connection authorization" and "Revocation deadline"). Pure: `now` is the daemon's wall
+//! clock in milliseconds, the clock `media.ticket.expiresAt` is written in. Every grant first
+//! passes the [`Ledger`], before any secret is stored or imported for it.
+use super::ledger::{Full, Ledger};
+use super::relay::{Broken, CloseMode, Keyed, Pool, RelayEffect};
+use super::{Effect, log, normal};
+use crate::secret::{SecretId, Vault};
+use media_noise::{FragmentKind, RelayStream};
+use media_wire::control::{Admission, ConnectionKind, FromMedia, Id, Level, Owner, Refusal};
+use media_wire::media_link::ClientMessage;
+use std::collections::HashMap;
+use zeroize::Zeroizing;
+
+/// Connections (with unused tickets), viewers and relay streams held at once. A grant past a
+/// limit is refused and logged.
+pub const MAX_CONNECTIONS: usize = 1024;
+pub const MAX_VIEWERS: usize = 4096;
+pub const MAX_STREAMS: usize = 1024;
+
+enum State {
+    /// A `media.ticket` not yet presented by a client.
+    Ticket {
+        secret: SecretId,
+        expires_at: u64,
+    },
+    Open,
+}
+
+struct Connection {
+    id: Id,
+    owner: Owner,
+    issued: u64,
+    state: State,
+}
+
+/// A granted viewer: delivery to it (D1) runs on its connection.
+struct Viewer {
+    connection: String,
+}
+
+#[derive(Default)]
+pub struct Grants {
+    connections: HashMap<String, Connection>,
+    ledger: Ledger,
+    viewers: HashMap<String, Viewer>,
+    streams: HashMap<String, Keyed>,
+    /// Connections dropped since the engine last asked, with why: delivery closes their sockets.
+    closed: Vec<(String, String)>,
+    /// Keyed streams whose socket is still closing (gracefully), until the shell says it is gone:
+    /// a revocation of their owner forces them, and a later close joins them.
+    closing: HashMap<String, Closing>,
+}
+
+struct Closing {
+    connection: String,
+    owner: Owner,
+    issued: u64,
+}
+
+pub struct Grant<'a> {
+    pub kind: &'static str,
+    pub id: &'a Id,
+    pub connection: &'a Id,
+    pub owner: &'a Owner,
+    pub issued: u64,
+}
+
+fn refuse(out: &mut Vec<Effect>, grant: &Grant<'_>, reason: Refusal) {
+    normal(
+        out,
+        FromMedia::GrantRefused {
+            kind: grant.kind.into(),
+            id: grant.id.clone(),
+            reason,
+        },
+    );
+}
+
+/// Every byte zero (or nothing at all): a wiped buffer, never a ticket. Every byte is read, in
+/// constant time, so how long this takes says nothing about where a presented ticket differs.
+fn is_zero(bytes: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
+    let folded = bytes.iter().fold(0u8, |acc, byte| acc | byte);
+    bool::from(folded.ct_eq(&0))
+}
+
+fn full(out: &mut Vec<Effect>, result: Result<(), Full>) {
+    if result.is_err() {
+        out.push(Effect::Fatal("closed-id bookkeeping is full"));
+    }
+}
+
+impl Grants {
+    pub fn connections(&self) -> usize {
+        self.connections.len()
+    }
+
+    pub fn viewers(&self) -> usize {
+        self.viewers.len()
+    }
+
+    pub fn streams(&self) -> usize {
+        self.streams.len()
+    }
+
+    /// The connections dropped since the last call, with their reasons.
+    pub fn take_closed(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.closed)
+    }
+
+    /// The ledger's verdict, sent as `grant.refused` when it refuses.
+    fn admit(&mut self, grant: &Grant<'_>, stream: Option<&str>, out: &mut Vec<Effect>) -> bool {
+        let verdict = self
+            .ledger
+            .admit(grant.owner, grant.issued, grant.connection.get(), stream);
+        match verdict {
+            Ok(()) => true,
+            Err(reason) => {
+                refuse(out, grant, reason);
+                false
+            }
+        }
+    }
+
+    /// `media.ticket`: a connection a client may open once, before `expires_at`.
+    pub fn ticket(
+        &mut self,
+        grant: Grant<'_>,
+        expires_at: u64,
+        ticket: &[u8],
+        vault: &mut Vault,
+        now: u64,
+        out: &mut Vec<Effect>,
+    ) {
+        if !self.admit(&grant, None, out) {
+            return;
+        }
+        if expires_at <= now {
+            return refuse(out, &grant, Refusal::Expired);
+        }
+        // A wiped buffer is never a ticket: storing it would let anyone present zeros.
+        if is_zero(ticket) {
+            log(
+                out,
+                Level::Warn,
+                "media.ticket refused: an all-zero ticket",
+                grant.connection,
+            );
+            return normal(
+                out,
+                FromMedia::ConnectionClosed {
+                    connection: grant.connection.clone(),
+                    reason: "invalid-ticket".into(),
+                },
+            );
+        }
+        let key = grant.connection.get().to_owned();
+        self.remove(&key, "replaced", vault, out);
+        let stored = (self.connections.len() < MAX_CONNECTIONS)
+            .then(|| vault.store(ticket))
+            .flatten();
+        let Some(secret) = stored else {
+            log(
+                out,
+                Level::Warn,
+                "media.ticket refused: connection limit",
+                grant.connection,
+            );
+            // The daemon counts the connection from its ticket until `connection.closed`.
+            return normal(
+                out,
+                FromMedia::ConnectionClosed {
+                    connection: grant.connection.clone(),
+                    reason: "limit".into(),
+                },
+            );
+        };
+        self.connections.insert(
+            key,
+            Connection {
+                id: grant.connection.clone(),
+                owner: grant.owner.clone(),
+                issued: grant.issued,
+                state: State::Ticket { secret, expires_at },
+            },
+        );
+    }
+
+    /// A client presented a ticket on the direct listener. Each ticket opens its connection
+    /// once, before it expires; the answer is the connection it opened.
+    pub fn claim(
+        &mut self,
+        presented: &[u8],
+        vault: &mut Vault,
+        now: u64,
+        out: &mut Vec<Effect>,
+    ) -> Option<Id> {
+        if is_zero(presented) {
+            return None;
+        }
+        let pending = self
+            .connections
+            .iter()
+            .filter_map(|(key, c)| match c.state {
+                State::Ticket { secret, .. } => Some((key.as_str(), secret)),
+                State::Open => None,
+            });
+        let key = vault.find(pending, presented)?.to_owned();
+        let connection = self.connections.get_mut(&key)?;
+        let State::Ticket { secret, expires_at } = connection.state else {
+            return None;
+        };
+        vault.erase(secret);
+        connection.state = State::Open;
+        let (id, owner) = (connection.id.clone(), connection.owner.clone());
+        if expires_at <= now {
+            self.close(&key, "expired", vault, out);
+            return None;
+        }
+        normal(
+            out,
+            FromMedia::ConnectionOpen {
+                connection: id.clone(),
+                kind: ConnectionKind::Direct,
+                owner,
+            },
+        );
+        Some(id)
+    }
+
+    /// `viewer.open`: only on a known connection, for its own owner, and not revoked.
+    pub fn viewer(&mut self, grant: Grant<'_>, out: &mut Vec<Effect>) -> bool {
+        if !self.admit(&grant, None, out) {
+            return false;
+        }
+        let Some(connection) = self.connections.get(grant.connection.get()) else {
+            refuse(out, &grant, Refusal::UnknownConnection);
+            return false;
+        };
+        if connection.owner != *grant.owner {
+            refuse(out, &grant, Refusal::Owner);
+            return false;
+        }
+        if self.viewers.len() >= MAX_VIEWERS && !self.viewers.contains_key(grant.id.get()) {
+            log(
+                out,
+                Level::Warn,
+                "viewer.open refused: viewer limit",
+                grant.id,
+            );
+            return false;
+        }
+        self.viewers.insert(
+            grant.id.get().to_owned(),
+            Viewer {
+                connection: grant.connection.get().to_owned(),
+            },
+        );
+        true
+    }
+
+    /// Whether a stream was closed for good: it may never be dialed again.
+    pub fn stream_closed(&self, stream: &str) -> bool {
+        self.ledger.stream_closed(stream)
+    }
+
+    /// `relay.keys`: the stream's cipher states, installed for its connection. The payload is
+    /// wiped whatever happens, and nothing is imported for a refused grant. `now` is the daemon's
+    /// wall clock, as for tickets. True when installed.
+    pub fn relay_keys(
+        &mut self,
+        grant: Grant<'_>,
+        keys: Zeroizing<Vec<u8>>,
+        dialed: bool,
+        vault: &mut Vault,
+        now: u64,
+        out: &mut Vec<Effect>,
+    ) -> bool {
+        if !self.admit(&grant, Some(grant.id.get()), out) {
+            return false;
+        }
+        if !dialed {
+            // Keys only for a stream this process dialed; the payload is wiped on return.
+            normal(
+                out,
+                FromMedia::RelayFailed {
+                    stream: grant.id.clone(),
+                    reason: "not-dialed".into(),
+                },
+            );
+            return false;
+        }
+        // A relay stream opens the connection its `media.ticket` named, once: the ticket the
+        // daemon checked in the hello is consumed here, so it can't open a direct one too.
+        let key = grant.connection.get().to_owned();
+        let Some(existing) = self.connections.get(&key) else {
+            refuse(out, &grant, Refusal::UnknownConnection);
+            return false;
+        };
+        if existing.owner != *grant.owner {
+            refuse(out, &grant, Refusal::Owner);
+            return false;
+        }
+        let State::Ticket { secret, expires_at } = existing.state else {
+            refuse(out, &grant, Refusal::UnknownConnection);
+            return false;
+        };
+        if expires_at <= now {
+            refuse(out, &grant, Refusal::Expired);
+            return false;
+        }
+        if self.streams.len() >= MAX_STREAMS {
+            normal(
+                out,
+                FromMedia::RelayFailed {
+                    stream: grant.id.clone(),
+                    reason: "limit".into(),
+                },
+            );
+            return false;
+        }
+        let Ok(transport) = RelayStream::import(keys) else {
+            normal(
+                out,
+                FromMedia::RelayFailed {
+                    stream: grant.id.clone(),
+                    reason: "invalid-keys".into(),
+                },
+            );
+            return false;
+        };
+        vault.erase(secret);
+        if let Some(connection) = self.connections.get_mut(&key) {
+            connection.state = State::Open;
+        }
+        normal(
+            out,
+            FromMedia::ConnectionOpen {
+                connection: grant.connection.clone(),
+                kind: ConnectionKind::Relay,
+                owner: grant.owner.clone(),
+            },
+        );
+        self.streams.insert(
+            grant.id.get().to_owned(),
+            Keyed::new(key, grant.owner.clone(), grant.issued, transport),
+        );
+        true
+    }
+
+    /// The shell closed a stream's socket for good.
+    pub fn relay_closed(&mut self, stream: &str) {
+        self.closing.remove(stream);
+    }
+
+    /// The keyed stream a relay connection runs on.
+    pub fn relay_stream_of(&self, connection: &str) -> Option<&str> {
+        self.streams
+            .iter()
+            .find(|(_, s)| s.connection == connection)
+            .map(|(id, _)| id.as_str())
+    }
+
+    /// The connection a keyed stream carries.
+    pub fn stream_connection(&self, stream: &str) -> Option<&str> {
+        self.streams.get(stream).map(|s| s.connection.as_str())
+    }
+
+    /// One inbound frame on a keyed stream. A client message that breaks the media connection's
+    /// rules (or a frame that doesn't open) closes its connection; an ack comes back for delivery.
+    pub fn relay_frame(
+        &mut self,
+        stream: &str,
+        frame: Vec<u8>,
+        pool: &Pool,
+        vault: &mut Vault,
+        out: &mut Vec<Effect>,
+    ) -> Option<(String, ClientMessage)> {
+        let keyed = self.streams.get_mut(stream)?;
+        match keyed.open(stream, frame, pool, out) {
+            Ok(message) => message.map(|m| (keyed.connection.clone(), m)),
+            Err(broken) => {
+                let connection = keyed.connection.clone();
+                let reason = match broken {
+                    Broken::Transport => "transport",
+                    Broken::Protocol => "protocol",
+                };
+                if let Ok(id) = Id::new(stream.to_owned()) {
+                    log(out, Level::Warn, "relay stream closed", &id);
+                }
+                self.close(&connection, reason, vault, out);
+                None
+            }
+        }
+    }
+
+    /// One message to a relay connection's client: false when it has no keyed stream, or the
+    /// client's flow window can't take the whole message now (the caller drops or waits).
+    pub fn relay_send(
+        &mut self,
+        connection: &str,
+        kind: FragmentKind,
+        data: &[u8],
+        pool: &Pool,
+        out: &mut Vec<Effect>,
+    ) -> bool {
+        let Some((stream, keyed)) = self
+            .streams
+            .iter_mut()
+            .find(|(_, s)| s.connection == connection)
+        else {
+            return false;
+        };
+        keyed.send(stream, kind, data, pool, out).unwrap_or(false)
+    }
+
+    pub fn viewer_close(&mut self, viewer: &str) {
+        self.viewers.remove(viewer);
+    }
+
+    /// `revoke`: shut every connection of the owner it names (all its admissions when none is
+    /// given), wipe their keys, and refuse its grants still on the way.
+    pub fn revoke(
+        &mut self,
+        issued: u64,
+        device: &Id,
+        admission: Option<&Admission>,
+        vault: &mut Vault,
+        out: &mut Vec<Effect>,
+    ) {
+        self.ledger.revoke(issued, device.get(), admission);
+        // Closes in progress for this owner are forced before the answer.
+        let forced: Vec<String> = self
+            .closing
+            .iter()
+            .filter(|(_, c)| self.ledger.latest_covers(&c.owner, c.issued))
+            .map(|(stream, _)| stream.clone())
+            .collect();
+        for stream in forced {
+            out.push(Effect::Relay(RelayEffect::Close {
+                stream,
+                mode: CloseMode::Forced,
+            }));
+        }
+        let covered: Vec<String> = self
+            .connections
+            .iter()
+            .filter(|(_, c)| self.ledger.latest_covers(&c.owner, c.issued))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in covered {
+            self.close(&key, "revoked", vault, out);
+        }
+    }
+
+    /// Closes a connection for good: a grant naming it later is refused. Tells the daemon with
+    /// `connection.closed` when ace-media held it.
+    pub fn close(&mut self, key: &str, reason: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
+        let remembered = self.ledger.close_connection(key);
+        full(out, remembered);
+        let streams: Vec<String> = self
+            .streams
+            .iter()
+            .map(|(id, s)| (id, &s.connection))
+            .chain(self.closing.iter().map(|(id, c)| (id, &c.connection)))
+            .filter(|(_, connection)| *connection == key)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for stream in streams {
+            self.close_stream(&stream, CloseMode::for_reason(reason), out);
+        }
+        self.remove(key, reason, vault, out);
+    }
+
+    /// Drops a connection with everything on it: its viewers, its relay streams and their keys,
+    /// an unused ticket.
+    fn remove(&mut self, key: &str, reason: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
+        let Some(connection) = self.connections.remove(key) else {
+            return;
+        };
+        if let State::Ticket { secret, .. } = connection.state {
+            vault.erase(secret);
+        }
+        self.viewers.retain(|_, v| v.connection != key);
+        self.closed.push((key.to_owned(), reason.to_owned()));
+        let streams: Vec<String> = self
+            .streams
+            .iter()
+            .filter(|(_, s)| s.connection == key)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for stream in streams {
+            self.end_stream(&stream, CloseMode::for_reason(reason), out);
+        }
+        normal(
+            out,
+            FromMedia::ConnectionClosed {
+                connection: connection.id,
+                reason: reason.into(),
+            },
+        );
+    }
+
+    /// `relay.close`: ends one relay stream for good and wipes its cipher states. Its
+    /// connection stays open.
+    pub fn close_stream(&mut self, stream: &str, mode: CloseMode, out: &mut Vec<Effect>) {
+        let remembered = self.ledger.close_stream(stream);
+        full(out, remembered);
+        self.end_stream(stream, mode, out);
+    }
+
+    /// Wipes a keyed stream's cipher states and shuts its socket.
+    fn end_stream(&mut self, stream: &str, mode: CloseMode, out: &mut Vec<Effect>) {
+        if let Some(mut keyed) = self.streams.remove(stream) {
+            keyed.transport.close();
+            if mode == CloseMode::Graceful {
+                self.closing.insert(
+                    stream.to_owned(),
+                    Closing {
+                        connection: keyed.connection,
+                        owner: keyed.owner,
+                        issued: keyed.issued,
+                    },
+                );
+            }
+        }
+        if mode == CloseMode::Forced {
+            self.closing.remove(stream);
+        }
+        out.push(Effect::Relay(RelayEffect::Close {
+            stream: stream.to_owned(),
+            mode,
+        }));
+    }
+
+    /// Tickets nobody presented in time close their connection.
+    pub fn tick(&mut self, vault: &mut Vault, now: u64, out: &mut Vec<Effect>) {
+        let expired: Vec<String> = self
+            .connections
+            .iter()
+            .filter(
+                |(_, c)| matches!(c.state, State::Ticket { expires_at, .. } if expires_at <= now),
+            )
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in expired {
+            self.close(&key, "expired", vault, out);
+        }
+    }
+
+    /// Shutdown: the process is ending, so nothing needs remembering.
+    pub fn close_all(&mut self, reason: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
+        let keys: Vec<String> = self.connections.keys().cloned().collect();
+        for key in keys {
+            self.remove(&key, reason, vault, out);
+        }
+    }
+}

@@ -1,0 +1,17 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "media.ticket",
+    "connection": "source-1",
+    "owner": {
+      "session": "source-1",
+      "device": "source-1",
+      "admission": {
+        "kind": "account",
+        "account": "account-1"
+      }
+    },
+    "issued": 1,
+    "expiresAt": 1
+  }
+}

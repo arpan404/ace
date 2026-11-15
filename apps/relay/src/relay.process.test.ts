@@ -1,3 +1,4 @@
+import { encodeBrowserVideo, StreamAssembler } from "@ace/browser/stream";
 import { afterEach, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { keyPair, hostId, NoiseXX } from "@ace/secure-channel";
@@ -486,4 +487,47 @@ it("a host says when its registration is lost and again when the relay confirms 
   cleanups.push(() => second.close());
   await host.whenRegistered(1);
   expect(events).toEqual([true, false, true]);
+});
+
+it("a 300 KB chunk crosses the relay in exactly one encrypted data frame per smaller piece", async () => {
+  const { relay, connect } = await setup();
+  let counting = false;
+  const encrypted: number[] = [];
+  const via = await proxy(relay.url, (_path, direction, frame) => {
+    // Only this client's socket goes through the proxy. Handshakes end before counting starts;
+    // flow credit is not negotiated, so every subsequent server frame carries binary data.
+    if (counting && direction === "in") encrypted.push(frame.length);
+    return frame;
+  });
+  const { client, server } = await connect(via);
+  const payload = new Uint8Array(300_000).fill(42);
+  const pieces = encodeBrowserVideo(
+    17,
+    "thread-1",
+    {
+      sequence: 9,
+      timestamp: 99,
+      width: 640,
+      height: 400,
+      codedWidth: 640,
+      codedHeight: 400,
+      codec: "avc1.42E033",
+      key: true,
+    },
+    payload,
+  );
+  const first = pieces[0];
+  if (!first) throw new Error("No stream pieces");
+  const metaBytes = new DataView(first.buffer, first.byteOffset).getUint16(6);
+  const assembler = new StreamAssembler();
+  counting = true;
+  let received;
+  for (const piece of pieces) {
+    await server.sendBinary(piece);
+    received = assembler.push(await client.receiveBinary());
+  }
+  expect(received?.meta.length).toBe(metaBytes);
+  expect(received?.payload).toEqual(payload);
+  expect(encrypted).toHaveLength(Math.ceil((metaBytes + payload.length) / 65_498));
+  expect(encrypted.every((length) => length <= 65_535)).toBe(true);
 });

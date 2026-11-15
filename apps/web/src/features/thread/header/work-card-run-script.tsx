@@ -1,6 +1,6 @@
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { scriptChoices } from "@ace/ui-core";
-import { MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@ace/icons";
 import { useState } from "react";
 import {
   Command,

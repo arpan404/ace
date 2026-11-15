@@ -57,6 +57,8 @@ export const defaults: SettingsValues = {
   "computer.lockedUse": false,
   "spade.enabled": false,
   "devices.emulatorWindow": false,
+  "media.encode": "legacy",
+  "media.delivery": "legacy",
   "devices.enabled": true,
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},

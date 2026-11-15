@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings › Notifications on this phone: the four categories as banners while ace is open and
+/// Settings › Notifications on this phone: the categories as banners while ace is open and
 /// as system notifications while it's away, then quiet hours for the locked phone. The same
 /// categories as the desktop; each machine's own quiet hours stay on its own page.
 struct PhoneNotificationSections: View {

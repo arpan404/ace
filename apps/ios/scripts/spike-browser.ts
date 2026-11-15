@@ -124,12 +124,27 @@ const Control = z.object({
   ]),
 });
 
-/** `POST /browser {action}`: the page asks for something, or the agent comes and goes. */
+/**
+ * `POST /browser {action}`: the page asks for something, or the agent comes and goes. `GET
+ * /browser` reads the fixture browser back.
+ */
 export async function browserControl(
   daemon: FakeDaemon,
   request: Request,
 ): Promise<Response | undefined> {
-  if (new URL(request.url).pathname !== "/browser" || request.method !== "POST") return undefined;
+  if (new URL(request.url).pathname !== "/browser") return undefined;
+  // `GET /browser`: the fixture browser's engine and its shown page, for UI tests to check.
+  if (request.method === "GET") {
+    const view = daemon.browser.view(browserThread);
+    const shown = view?.tabs?.find((tab) => tab.tabId === view.activeTabId);
+    return Response.json({
+      backend: view?.backend ?? null,
+      closed: view?.closed ?? true,
+      url: shown?.url ?? null,
+      tabs: view?.tabs?.map((tab) => tab.url) ?? [],
+    });
+  }
+  if (request.method !== "POST") return undefined;
   const { action } = Control.parse(await request.json());
   const browser = daemon.browser;
   const tabId = browser.view(browserThread)?.activeTabId ?? "";
@@ -213,6 +228,8 @@ export function answerScreenshot(
 export function realVideo(
   daemon: FakeDaemon,
   send: (bytes: Uint8Array) => void,
+  /** Where a thread's video goes instead, when it has a media connection (`spike-media.ts`). */
+  route: (threadId: string) => ((bytes: Uint8Array) => void) | undefined = () => undefined,
 ): (bytes: Uint8Array) => void {
   const assembler = new StreamAssembler();
   let streams = 0;
@@ -225,6 +242,7 @@ export function realVideo(
       return;
     }
     const { threadId, chunk } = message;
+    const out = route(threadId) ?? send;
     const video = encoded(chunk.width, chunk.height, title(daemon, threadId));
     for (const piece of encodeBrowserVideo(
       ++streams,
@@ -238,11 +256,11 @@ export function realVideo(
       },
       video.sample,
     ))
-      send(piece);
+      out(piece);
   };
 }
 
-function title(daemon: FakeDaemon, threadId: string): string {
+export function title(daemon: FakeDaemon, threadId: string): string {
   const tab = daemon.browser.tab(threadId);
   return tab?.url.includes("cart") ? "Your cart" : "Checkout";
 }
@@ -303,13 +321,25 @@ function nalUnits(stream: Buffer): Buffer[] {
 
 /** ffmpeg's drawing filters, in CSS pixels drawn at 2×. */
 const font = "/System/Library/Fonts/SFNS.ttf";
+/** Whether this Mac's ffmpeg can draw text: Homebrew's default build has no `drawtext`. */
+const drawsText = /\bdrawtext\b/.test(
+  spawnSync("ffmpeg", ["-hide_banner", "-filters"]).stdout?.toString() ?? "",
+);
+/** A line of the page's text, or nothing where ffmpeg can't draw it (the page keeps its boxes). */
 const text = (value: string, x: number, y: number, size: number, colour: string) =>
-  `drawtext=fontfile=${font}:text='${value}':x=${x * 2}:y=${y * 2}:fontsize=${size * 2}:fontcolor=${colour}`;
+  drawsText
+    ? `drawtext=fontfile=${font}:text='${value}':x=${x * 2}:y=${y * 2}:fontsize=${size * 2}:fontcolor=${colour}`
+    : "";
 const box = (x: number, y: number, bw: number, bh: number, colour: string, fill = true) =>
   `drawbox=x=${x * 2}:y=${y * 2}:w=${bw * 2}:h=${bh * 2}:color=${colour}:t=${fill ? "fill" : 2}`;
 
 /** A shop's checkout page drawn by ffmpeg at twice `width` × `height` CSS pixels. */
-function drawPage(width: number, height: number, format: "h264" | "png", heading: string): Buffer {
+export function drawPage(
+  width: number,
+  height: number,
+  format: "h264" | "png" | "jpeg",
+  heading: string,
+): Buffer {
   const w = even(width * 2);
   const h = even(height * 2);
   const inner = width - 40;
@@ -346,7 +376,7 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
     "-f",
     "lavfi",
     "-i",
-    `color=c=0xF7F7F8:s=${w}x${h}:d=1,format=yuv420p,${filters.join(",")}`,
+    `color=c=0xF7F7F8:s=${w}x${h}:d=1,format=yuv420p,${filters.filter(Boolean).join(",")}`,
     "-frames:v",
     "1",
     ...(format === "h264"
@@ -363,9 +393,36 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
           "h264",
           "-",
         ]
-      : ["-f", "image2", "-c:v", "png", "-"]),
+      : format === "jpeg"
+        ? ["-f", "image2", "-c:v", "mjpeg", "-q:v", "14", "-"]
+        : ["-f", "image2", "-c:v", "png", "-"]),
   ];
   const result = spawnSync("ffmpeg", args, { maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`ffmpeg failed: ${result.stderr.toString()}`);
   return result.stdout;
+}
+
+/**
+ * With `ACE_IOS_SPIKE_DEGRADED=1`, the browser's video says it runs on the processor, as
+ * ace-media reports a source whose encode fell back (`acceleration.degraded`), so the live view's
+ * degraded sentence can be seen. Every other message passes unchanged.
+ */
+export function degradedBrowser(enabled: boolean): (text: string) => string {
+  if (!enabled) return (message) => message;
+  const acceleration = {
+    steps: [{ step: "encode", backend: "cpu", hardware: false, readbacks: 1, uploads: 0 }],
+    degraded: true,
+    reason: "Video runs on the processor here: this computer has no hardware video encoder.",
+  };
+  const mark = (value: unknown) => {
+    if (value && typeof value === "object" && "threadId" in value && "closed" in value)
+      Object.assign(value, { acceleration });
+  };
+  return (frame) => {
+    if (!frame.includes('"type":"browser.')) return frame;
+    const message = JSON.parse(frame) as { state?: unknown; result?: { state?: unknown } };
+    mark(message.state);
+    mark(message.result?.state);
+    return JSON.stringify(message);
+  };
 }

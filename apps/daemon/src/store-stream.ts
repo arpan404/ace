@@ -1,6 +1,7 @@
 import type { Event, EventPayload, ThreadId } from "@ace/protocol";
 import { canonicalEvent } from "./canonical-event.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
+import type { EventEncodings } from "./event-encodings.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
 import {
@@ -49,6 +50,8 @@ export class StoreStream {
     /** Whether this exact envelope (sequence and id) is already stored. */
     stored(event: Event): boolean;
     publish(events: Event[]): void;
+    /** Shared with the server's wire encoder: each published event is serialised once. */
+    encodings?: EventEncodings;
     report(error: unknown): void;
     /** A thread's batch could not be stored and was dropped; its session must stop. */
     quarantined(thread: ThreadId, error: Error): void;
@@ -57,6 +60,7 @@ export class StoreStream {
     this.buffer = new LiveWriteBuffer({
       scheduler: privateOptions.scheduler,
       attempt: () => this.scheduled(),
+      ...(privateOptions.encodings ? { encodings: privateOptions.encodings } : {}),
     });
   }
   private readonly options;

@@ -1,5 +1,5 @@
 import { spadeHostOf, type SpadeAvatar, type SpadeSurface } from "@ace/ui-core/spade-chat";
-import { LockSimpleIcon } from "@phosphor-icons/react";
+import { LockSimpleIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { SurfaceLive } from "./surface-live.tsx";
 

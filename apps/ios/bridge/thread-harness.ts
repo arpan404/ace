@@ -6,6 +6,7 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
 import { ThreadSession } from "./thread-session.ts";
 import type { SubagentRetries } from "./subagent-retries.ts";
+import type { QuoteShelf } from "./thread-quotes.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -101,8 +102,9 @@ function refusal(text: string): string | undefined {
   });
 }
 
-export function fixture(): FakeDaemon {
-  return new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "ios-test-token" });
+/** `clock`: the daemon's time, stamped on every event it sends; the wall clock by default. */
+export function fixture(clock: () => number = Date.now): FakeDaemon {
+  return new FakeDaemon({ clock, hostId: "ios-test-host", token: "ios-test-token" });
 }
 
 /**
@@ -191,6 +193,7 @@ export function open(
   chunks?: ChunkReader,
   retries?: SubagentRetries,
   keptSteps?: TurnStepsStore,
+  quotes?: QuoteShelf,
 ): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
@@ -206,6 +209,7 @@ export function open(
     undefined,
     retries,
     keptSteps,
+    quotes,
   );
   return session;
 }

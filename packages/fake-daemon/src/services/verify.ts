@@ -80,6 +80,8 @@ export class FakeVerify {
   stepMs = 700;
   /** Held: runs move only on `advance()`. */
   paused = false;
+  /** Every request is refused with this code, as a daemon whose Verify is down or forbidden. */
+  refusing: VerifyResult["error"] = undefined;
   /** Each PR a merge run merged on GitHub. */
   onMerged: ((workspaceId: string, number: number) => void) | undefined;
   /** Every start request, in order, as the daemon received it. */
@@ -125,6 +127,7 @@ export class FakeVerify {
       ok: true,
       ...patch,
     });
+    if (this.refusing) return reply({ ok: false, error: this.refusing });
     switch (op.action) {
       case "list":
         return reply({

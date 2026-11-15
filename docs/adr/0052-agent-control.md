@@ -104,6 +104,8 @@ running. Three faults met:
 2. **No proof of life means not live.** Every live state has a lease: an owner that renews it
    with proof, and an expiry. A lapsed lease is **lost contact**: not running, waiting or done,
    and it no longer holds its parent. Proof arriving again resumes it.
+   (Superseded for remote children by [ADR 0153](0153-lost-contact-keeps-the-parent-held.md):
+   lost contact is not knowing, so it keeps holding its parent and asks the person.)
 3. **Priority 1 holds.** Only stopped and lost items stop counting. A needs-you item keeps its
    parent open while it is reachable; a remote one whose machine stopped reporting goes to lost
    after the lease, and can still be stopped.
@@ -150,7 +152,8 @@ Constants:
   never be confirmed: the retries end and the child reads cancelled, saying why.
   Every status reply renews the lease (one write a tenth of a lease at most). A child with no
   reply for `REMOTE_CHILD_LEASE_MS` gets `contact: "lost"`: its hold ends `unknown`, a wait
-  reads it as `failed` and returns, and it resumes (a fresh hold) when it reports. A lost child
+  reads it as `failed` and returns, and it resumes (a fresh hold) when it reports. (Superseded
+  by ADR 0153: the hold stays, the parent asks the person, and a wait reads it `needs_you`.) A lost child
   can still be stopped. At startup leases count from the daemon's own start, as downtime here
   is not silence there; stops pick up from their saved progress.
 - **Remote target** (`machines/target-threads.ts`). A cancel from the parent's machine retires

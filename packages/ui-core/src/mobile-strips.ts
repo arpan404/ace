@@ -1,5 +1,6 @@
 import type { ApprovalTarget } from "@ace/protocol";
 import type { ApprovalCopy } from "./approval-copy.ts";
+import type { LostChildAsk } from "./lost-child.ts";
 import { pluralCount } from "./counts.ts";
 import type { RowStatusIconKind, RowStatusTone } from "./row-status-display.ts";
 import { waitWords } from "./wait-words.ts";
@@ -65,6 +66,18 @@ export function approvalStripLine(
     });
   }
   return line(lead, `${who} wants approval`, { detail: copy.title });
+}
+
+/**
+ * The daemon's request about a lost child (`lostChildAsk`): its own sentence, since no agent
+ * asks it, with what else the person can do under it.
+ */
+export function lostChildStripLine(
+  ask: Pick<LostChildAsk, "sentence">,
+  detail: string,
+  provider: string,
+): StripLine {
+  return line({ provider }, ask.sentence, { detail });
 }
 
 /** "Claude has a question" (or "… 3 questions"), with the first question asked under it. */

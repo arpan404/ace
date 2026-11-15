@@ -20,6 +20,7 @@ export type NodeOperation = (input: unknown, body: string | undefined) => Promis
 
 export interface NodeHostOptions {
   now?: () => number;
+  monotonicMs?: () => number;
   uuid?: () => string;
   random?: () => number;
   randomBytes?: (count: number) => Uint8Array;
@@ -82,6 +83,7 @@ export function createNodeHost(options: NodeHostOptions = {}): NodeHost {
     version: HOST_CONTRACT_VERSION,
     capabilities,
     now: options.now ?? (() => Date.now()),
+    monotonicMs: options.monotonicMs ?? (() => performance.now()),
     uuid: options.uuid ?? (() => `id-${++next}`),
     random: options.random ?? (() => 0.5),
     randomBytes: (count) => {

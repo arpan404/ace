@@ -95,13 +95,15 @@ export interface SuggestPorts {
 
 const pause = 120;
 const fresh = 30_000;
-const staleRetry = 1_500;
-const staleRetries = 6;
 const quiet = { timeoutMs: 15_000 };
 
 export class ComposerSuggest {
   readonly #ports: SuggestPorts;
   readonly #catalogs: CatalogReads;
+  /** The catalog reads, shared with the Skills and commands pages (`catalog-page.ts`). */
+  get catalogs(): CatalogReads {
+    return this.#catalogs;
+  }
   readonly #recent = new Map<string, string[]>();
   #tabs: { threadId: string; at: number; tabs: MentionTab[] } | undefined;
   /** The newest query; anything older is never answered. */
@@ -242,19 +244,10 @@ export class ComposerSuggest {
     };
     show();
     const catalog = this.#catalogs.get(target.key);
+    // Discovery still running reads again shortly, in the one loop the Skills pages share.
     if (!catalog || catalog.failed || catalog.stale || this.#ports.now() - catalog.at > fresh)
-      void this.#catalogs.read(target).then(() => {
-        if (!current()) return;
-        show();
-        const read = this.#catalogs.get(target.key);
-        // Discovery still running: read again shortly while the list stays open.
-        if (read?.stale && read.retries < staleRetries) {
-          read.retries++;
-          const again = this.#ports.schedule(staleRetry, () => {
-            if (current()) this.#query(action);
-          });
-          if (!adding) this.#cancel = again;
-        }
+      void this.#catalogs.settle(target, () => {
+        if (current()) show();
       });
   }
 

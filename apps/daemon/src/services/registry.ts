@@ -18,6 +18,7 @@ import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createTransfersSession } from "./transfers.ts";
 import { createLongThreadSession } from "./long-thread.ts";
+import { createItemRawSession } from "./item-raw.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
 import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
@@ -61,6 +62,7 @@ import { createMachineUpdateSession } from "./machine-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
+import { createMediaConnectSession } from "./media-connect.ts";
 import type { SocketContext } from "./socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
@@ -73,11 +75,13 @@ export const socketServiceFactories = [
   createFleetSession,
   createOutsideClientsSession,
   createLongThreadSession,
+  createItemRawSession,
   createPreviewClientSession,
   createAutomationsSession,
   createActivityReadsSession,
   createVerifySession,
   createIconsSession,
+  createMediaConnectSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,

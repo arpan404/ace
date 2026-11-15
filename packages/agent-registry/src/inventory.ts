@@ -68,6 +68,50 @@ export async function executableDigest(path: string): Promise<string> {
   }
   return hash.digest("hex");
 }
+/**
+ * Coarsest timestamp a filesystem may keep (FAT keeps modification times to 2 s). A file
+ * written this recently can change again without moving its times.
+ */
+const timestampSlackMs = 2000n;
+type FileStats = Awaited<ReturnType<typeof statFile>>;
+const statFile = (path: string) => stat(path, { bigint: true });
+const fileIdentity = (info: FileStats) =>
+  [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+
+/**
+ * The digest a launch checks its approval against, hashed again whenever the file's device,
+ * inode, size, modification or change time differs from when it was last hashed. Any write
+ * moves the change time, and only the kernel sets it, so an unchanged digest needs a file
+ * rewritten in place with all five preserved. A digest is reused only for a file that held
+ * still while it was hashed and whose times are older than the coarsest timestamp, so a
+ * second write in the same tick cannot hide behind the first.
+ */
+export class ExecutableDigests {
+  #known = new Map<string, { file: string; digest: string }>();
+  #now: () => number;
+  constructor(now: () => number = Date.now) {
+    this.#now = now;
+  }
+  async digest(path: string): Promise<string> {
+    const before = await statFile(path);
+    const file = fileIdentity(before);
+    const known = this.#known.get(path);
+    if (known?.file === file) return known.digest;
+    this.#known.delete(path);
+    const started = BigInt(Math.floor(this.#now()));
+    const digest = await executableDigest(path);
+    const settled = (time: bigint) => time / 1_000_000n + timestampSlackMs < started;
+    if (
+      fileIdentity(await statFile(path)) === file &&
+      settled(before.mtimeNs) &&
+      settled(before.ctimeNs)
+    ) {
+      if (this.#known.size >= 256) this.#known.clear();
+      this.#known.set(path, { file, digest });
+    }
+    return digest;
+  }
+}
 /** The approved artifact a launch revalidates: the script behind a Windows node launch. */
 function installationArtifact(entry: Pick<LocalInstallation, "command" | "args">): string {
   const [script] = entry.args;
@@ -145,7 +189,12 @@ export async function bindLocal(
 }
 export class LocalInventory {
   #entries = new Map<string, LocalInstallation>();
-  constructor(entries: readonly LocalInstallation[] = []) {
+  #digests: ExecutableDigests;
+  constructor(
+    entries: readonly LocalInstallation[] = [],
+    digests: ExecutableDigests = new ExecutableDigests(),
+  ) {
+    this.#digests = digests;
     for (const entry of entries) this.add(entry);
   }
   add(input: LocalInstallation): void {
@@ -174,7 +223,7 @@ export class LocalInventory {
     const identity = AcpIdentity.parse(input);
     const entry = this.#entries.get(identity.installationId);
     if (!entry || !this.has(identity)) throw new Error("Approved ACP installation unavailable");
-    if ((await executableDigest(installationArtifact(entry))) !== entry.executableDigest)
+    if ((await this.#digests.digest(installationArtifact(entry))) !== entry.executableDigest)
       throw new Error("ACP artifact changed; new approval required");
     // A reviewed agent older than ace's floor for it is refused before it launches. Agents
     // without a reviewed profile are admitted by ACP protocol version at initialize.
@@ -193,7 +242,7 @@ export class LocalInventory {
     if (bridgeVariable) {
       if (
         !entry.bridgeCommand ||
-        (await executableDigest(entry.bridgeCommand)) !== entry.bridgeDigest
+        (await this.#digests.digest(entry.bridgeCommand)) !== entry.bridgeDigest
       )
         throw new Error("Native bridge CLI changed or unavailable");
       env[bridgeVariable] = entry.bridgeCommand;

@@ -23,22 +23,43 @@ struct ChangesFileBody: View {
                 note("Binary file: no lines to show.")
             } else if header.empty {
                 note("No line changes: only the file's mode or name changed.")
-            } else if split {
-                ForEach(Array(model.sheets.pairs(header).enumerated()), id: \.offset) { _, pair in
-                    ChangesSplitRow(pair: pair, wrap: wrap, selected: { isSelected($0) }, tap: { pick($0) }, wholeLine: { whole($0, header) })
-                    ForEach(drafts(after: pair.right ?? pair.left)) { comment($0) }
-                }
             } else {
-                ForEach(model.sheets.rows(header)) { row in
-                    ChangesLineRow(row: row, wrap: wrap, selected: isSelected(row), tap: { pick(row) }, wholeLine: { whole(row, header) })
-                        .accessibilityIdentifier("diff.line")
-                    ForEach(drafts(after: row)) { comment($0) }
-                }
+                if header.part > 0 { partsHead(header) }
+                rowsBody(header)
             }
             footer(header)
         } else {
             loading
         }
+    }
+
+    @ViewBuilder private func rowsBody(_ header: ChangesFileHeader) -> some View {
+        if split {
+            ForEach(Array(model.sheets.pairs(header).enumerated()), id: \.offset) { _, pair in
+                ChangesSplitRow(pair: pair, wrap: wrap, selected: { isSelected($0) }, tap: { pick($0) }, wholeLine: { whole($0, header) })
+                ForEach(drafts(after: pair.right ?? pair.left)) { comment($0) }
+            }
+        } else {
+            ForEach(model.sheets.rows(header)) { row in
+                ChangesLineRow(row: row, wrap: wrap, selected: isSelected(row), tap: { pick(row) }, wholeLine: { whole(row, header) })
+                    .accessibilityIdentifier("diff.line")
+                ForEach(drafts(after: row)) { comment($0) }
+            }
+        }
+    }
+
+    /// Above a later part: the earlier lines were let go, and the first part is a tap away.
+    private func partsHead(_ header: ChangesFileHeader) -> some View {
+        HStack(spacing: AceDesign.Space.related) {
+            Text("Part \(header.part + 1). Earlier lines were let go to save memory.")
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+            Spacer(minLength: AceDesign.Space.related)
+            Button("Back to start") { model.sheet(["kind": "changes.rewind", "path": path]) }
+                .buttonStyle(.textAction())
+                .accessibilityIdentifier("diff.rewind")
+        }
+        .padding(AceTheme.Spacing.lg)
     }
 
     @ViewBuilder private func footer(_ header: ChangesFileHeader) -> some View {
@@ -54,8 +75,19 @@ struct ChangesFileBody: View {
             .buttonStyle(.plain)
             .foregroundStyle(AceTheme.Colours.foreground)
             .accessibilityIdentifier("diff.more")
+        } else if header.onward {
+            Button {
+                model.sheet(["kind": "changes.onward", "path": path])
+            } label: {
+                Text("Read on: part \(header.part + 2)")
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .accessibilityHint("Lets these lines go and reads the next part of the file")
+            .accessibilityIdentifier("diff.onward")
         } else if header.cut {
-            note("This file is larger than the phone reads. The rest is on your computer.")
+            note("Git's diff of this file is over 32 MB, so ace stops here.")
         }
     }
 

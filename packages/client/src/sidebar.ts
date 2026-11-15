@@ -10,11 +10,25 @@ import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
 import type { SidebarKey, SidebarReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { parseSidebarRecord, sidebarRecord, type SidebarHalf } from "./read-records.ts";
-import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
+import {
+  SnapshotBinding,
+  contentChanges,
+  firstReadMs,
+  type Persistence,
+} from "./read-snapshots.ts";
+import {
+  listStartup,
+  stepStartup,
+  type ListStartup,
+  type StartupInput,
+} from "./sidebar-startup.ts";
 import { FilterMemory, resumeOf, type ProvisionalSource } from "./sidebar-memory.ts";
 import { ClientError, type Limits } from "./types.ts";
 
 export type { SidebarReader } from "./readers.ts";
+
+/** The read cursor of a thread the device never marked read. */
+const unread = { lastSeenSeq: 0, updatedAt: null };
 
 export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   #failure: ClientError | undefined;
@@ -56,9 +70,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     const persistence = this.#persistence;
     if (!persistence) return;
     const half = this.#filter.archived ? "archive" : "home";
+    const key = this.#key();
     this.#binding = new SnapshotBinding(
       persistence,
-      `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`,
+      key,
       contentChanges((tap) => this.observe(tap)),
       // A derived list is part of another filter's: it is never written as this filter's.
       () =>
@@ -67,6 +82,27 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
           : sidebarRecord(half, half === "archive" ? this.#archive : this.#home),
       (value) => this.#restore(value),
     );
+    // While the list starts, its kept list for this filter is what its first subscribe waits
+    // for (`sidebar-startup.ts`): the read settling, found or not, is one of its inputs.
+    if (this.#startup.phase === "waiting")
+      void this.#binding.read.then(() => this.#drive({ type: "read", filter: key }));
+  }
+  /** The key the current filter's kept list is stored under. */
+  #key(): string {
+    return `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`;
+  }
+  /** The list's first subscribe, waiting for its kept list (`sidebar-startup.ts`). */
+  #startup: ListStartup = { phase: "subscribed" };
+  /** Stops the deadline set when the list was first held, before its first subscribe. */
+  #deadline: (() => void) | undefined;
+  #drive(input: StartupInput): void {
+    const step = stepStartup(this.#startup, input);
+    this.#startup = step.state;
+    if (step.subscribe === undefined) return;
+    this.#deadline?.();
+    this.#deadline = undefined;
+    // For the filter current now: the one the machine subscribed for.
+    this.#subscribe();
   }
   #retire(): void {
     const written = this.#binding?.close();
@@ -171,12 +207,18 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#home = undefined;
       this.#confirm(["home"], false);
       this.#adopt("home");
-      if (this.#refs && this.#ready()) this.#subscribe();
-    } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
+    }
+    // While the list starts, no filter change subscribes: the first subscribe goes for the
+    // filter current when it goes (`sidebar-startup.ts`), Home and, if shown, Archive.
+    const starting = this.#startup.phase === "waiting";
+    if (!starting && projectChanged && this.#refs && this.#ready()) this.#subscribe();
+    else if (!starting && input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
     if (this.#provisional.size && !this.#pending.size) this.#pending.add("provisional");
     this.#merge();
     this.#notifications.emitAll();
+    // Made after this change is announced, so the binding takes the filter's record.
     this.#persist();
+    if (starting) this.#drive({ type: "filter", filter: this.#key() });
   }
   /** Remember a half the filter is leaving, unless it was only derived from another's list. */
   #keep(half: SidebarHalf): void {
@@ -223,7 +265,13 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#id = id;
     this.#ready = ready;
     this.#notifications = new Notifications(limits.listeners);
+    this.#startup = listStartup(this.#key(), {
+      kept: persistence !== undefined,
+      welcomed: persistence?.welcomed === undefined,
+      connected: ready(),
+    });
     this.#persist();
+    void persistence?.welcomed?.().then(() => this.#drive({ type: "welcome" }));
   }
   get ids(): readonly string[] {
     return this.#order;
@@ -257,14 +305,25 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     };
   }
   acquire(): { store: Sidebar; release(): void } {
-    if (this.#refs++ === 0 && this.#ready()) this.#subscribe();
+    if (this.#refs++ === 0) {
+      if (this.#startup.phase === "waiting") {
+        // Opened: its one deadline is set now, and never moved by a filter change.
+        if (!this.#deadline && this.#persistence)
+          this.#deadline = this.#persistence.scheduler.set(firstReadMs, () =>
+            this.#drive({ type: "deadline" }),
+          );
+        this.#drive({ type: "held" });
+      } else if (this.#ready()) this.#subscribe();
+    }
     let released = false;
     return {
       store: this,
       release: () => {
         if (released) return;
         released = true;
-        if (--this.#refs === 0 && this.#wire) {
+        if (--this.#refs === 0 && this.#startup.phase === "waiting")
+          this.#drive({ type: "released" });
+        if (this.#refs === 0 && this.#wire) {
           this.#await(["released"]);
           // Kept unfollowed: what a warm view paints from it is no longer confirmed.
           const held = [
@@ -295,6 +354,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return source === "remembered" ? this.#rememberedResume : resumeOf(this.#home);
   }
   #subscribe(): void {
+    // One subscription per window: a new one replaces the one it tracked.
+    if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
     this.#homeSnapshotAllowed = true;
     this.#wire = this.#id();
     this.#await([this.#wire]);
@@ -316,6 +377,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (this.#filter.archived) this.#subscribeArchive();
   }
   #subscribeArchive(): void {
+    if (this.#archiveWire) {
+      this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
+      this.#pending.delete(this.#archiveWire);
+    }
     this.#archiveSnapshotAllowed = true;
     this.#archiveWire = this.#id();
     if (!this.#pending.size) this.#notifications.emit(["sync"]);
@@ -333,10 +398,13 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       },
     });
   }
+  /** Subscribe on a new socket; one already sent with its hello is not sent again. */
   reconnect(): void {
-    if (this.#refs) this.#subscribe();
+    if (this.#startup.phase === "waiting") this.#drive({ type: "connected" });
+    else if (this.#refs && !this.#wire) this.#subscribe();
   }
   disconnect(): void {
+    if (this.#startup.phase === "waiting") this.#drive({ type: "disconnected" });
     if (this.#refs) this.#await(["disconnected"]);
     this.#wire = undefined;
     this.#archiveWire = undefined;
@@ -448,14 +516,18 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
    * placed as they were, and adds the ones that changed. Undefined when a kept one isn't held.
    */
   #resumed(view: ThreadListView, held: ThreadListView | undefined): ThreadListView | undefined {
-    const { keep, ...rest } = view;
+    const { keep, reads, ...rest } = view;
     if (!keep) return view;
     const threads: Record<string, ThreadListEntry> = {};
     for (const id of keep) {
       const entry = held && Object.hasOwn(held.threads, id) ? held.threads[id] : undefined;
       if (!entry) return undefined;
+      // A kept row's read cursor comes on its own: it may have moved while the row did not.
+      const readState = reads
+        ? ((Object.hasOwn(reads, id) ? reads[id] : undefined) ?? unread)
+        : entry.readState;
       Object.defineProperty(threads, id, {
-        value: entry,
+        value: readState === entry.readState ? entry : { ...entry, readState },
         enumerable: true,
         writable: true,
         configurable: true,

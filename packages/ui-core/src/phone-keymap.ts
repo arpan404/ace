@@ -84,6 +84,20 @@ export const phoneKeymap: readonly PhoneKeymapEntry[] = [
     ["archive", "Archive", "shift+mod+a"],
     ["deleteThread", "Delete thread", "mod+backspace"],
   ]),
+  {
+    id: "previousTurn",
+    label: "Previous turn",
+    keys: "shift+alt+mod+arrowup",
+    scope: "global",
+    group: "Thread",
+  },
+  {
+    id: "nextTurn",
+    label: "Next turn",
+    keys: "shift+alt+mod+arrowdown",
+    scope: "global",
+    group: "Thread",
+  },
   { id: "close", label: "Close", keys: "escape", scope: "sheet", group: "Window", fixed: true },
   { id: "send", label: "Send message", keys: "mod+enter", scope: "composer", group: "Composer" },
 ];

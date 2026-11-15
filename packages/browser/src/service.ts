@@ -50,6 +50,7 @@ import {
 import type { BrowserServiceOptions } from "./service-options.ts";
 import type { PersonRequest } from "./person-requests.ts";
 import type { DownloadRead } from "./download-read.ts";
+import { mediaVideoHosts } from "./media-video.ts";
 export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
@@ -252,12 +253,15 @@ export class BrowserService {
     let backendLost = false;
     const loss = new DesktopLoss(this.navigationClock, this.options.desktopReadoptionGraceMs);
     const selfRecovery = new RecoveryRetry(this.navigationClock);
+    /** Moving off a locked desktop that failed tries again, less often each time. */
+    const handOffRetry = new RecoveryRetry(this.navigationClock);
     let opening: BackendOpen | undefined;
     const release = async () => {
       if (released) return;
       released = true;
       loss.finish();
       selfRecovery.stop();
+      handOffRetry.stop();
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -413,13 +417,17 @@ export class BrowserService {
         });
       };
       const moving = move()
-        .catch((error: unknown) => {
-          this.options.onError?.(error);
-          // Still locked: try again shortly; the desktop's frozen view stays meanwhile.
-          if (signal.aborted) return;
-          const retry = setTimeout(() => void handOff(), 5_000);
-          retry.unref();
-        })
+        .then(
+          () => handOffRetry.recovered(),
+          (error: unknown) => {
+            this.options.onError?.(error);
+            // Still locked: try again, waiting longer each time (up to a minute) so a move that
+            // keeps failing neither floods the log nor keeps opening pages; the desktop's
+            // frozen view stays meanwhile.
+            if (signal.aborted) return;
+            handOffRetry.schedule(() => void handOff());
+          },
+        )
         .finally(() => this.recoveries.delete(options.threadId));
       this.recoveries.set(options.threadId, moving);
       return moving;
@@ -510,11 +518,15 @@ export class BrowserService {
       };
       opening = request;
       const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
+      const media = this.options.media;
       const build = (opened: BrowserBackendSession, kind: BrowserBackend["kind"]) =>
         new BrowserSession({
           threadId: options.threadId,
           backend: opened,
           backendKind: kind,
+          ...(media
+            ? { mediaVideo: mediaVideoHosts(media, () => ({ threadId: options.threadId })) }
+            : {}),
           dir,
           now: this.now,
           id: this.id,
@@ -522,6 +534,7 @@ export class BrowserService {
           cancelPolicy: () => {
             if (!retiring) scope.abort();
           },
+          embeddedAvailable: () => this.embedded !== undefined,
           ...(this.options.userChromeStorageReads
             ? {
                 storageReads: () =>

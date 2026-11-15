@@ -282,6 +282,12 @@ export class ChangesSession {
   more(path: string): boolean {
     return this.#files.more(path);
   }
+  onward(path: string): boolean {
+    return this.#files.onward(path);
+  }
+  rewind(path: string): boolean {
+    return this.#files.rewind(path);
+  }
   line(path: string, index: number): boolean {
     return this.#files.line(path, index);
   }

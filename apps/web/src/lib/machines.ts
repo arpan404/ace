@@ -6,6 +6,9 @@ import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/cl
 import { useHostIdentity } from "./host-name.ts";
 import { createContext, use, useMemo } from "react";
 import { useMachinePool } from "./machine-pool.ts";
+import type { MachineStatus, MachineVia } from "@ace/ui-core/fleet-map";
+
+export type { MachineStatus, MachineVia };
 
 /*
  * The machines a picker can target: this window's own daemon first, then every other machine
@@ -13,18 +16,6 @@ import { useMachinePool } from "./machine-pool.ts";
  * client that reaches it. Requests go to the chosen machine's client and never fall back to
  * another one.
  */
-
-/**
- * `machine_code`: an account machine waits for its machine code (ADR 0111). `off`: turned off
- * on this device (ADR 0115); listed, never connected.
- */
-export type MachineStatus =
-  | "online"
-  | "connecting"
-  | "offline"
-  | "auth_failed"
-  | "machine_code"
-  | "off";
 
 export interface Machine {
   /** The daemon's host id; `primaryMachineId` for this window's daemon while it is unnamed. */
@@ -45,11 +36,6 @@ export interface Machine {
   /** The path the connection uses now, when the machine has several (ADR 0114). */
   path?: MachinePathKind | undefined;
 }
-
-export type MachineVia =
-  | { kind: "direct"; url: string }
-  | { kind: "relay"; url: string }
-  | { kind: "account"; url: string };
 
 const viaOf = (target: MachineEntry["target"]): MachineVia =>
   target.kind === "account"

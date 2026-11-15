@@ -40,7 +40,7 @@ function app() {
 
 test("Home's task rows and the thread header name the project, not its id", async () => {
   await app().open("/");
-  const nav = await screen.findByRole("navigation", { name: "Threads" });
+  const nav = await screen.findByRole("navigation", { name: "Projects" });
   const card = await within(nav).findByRole("link", {
     name: /^Rotate the signing keys\..*Project billing/,
   });

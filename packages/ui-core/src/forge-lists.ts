@@ -159,6 +159,19 @@ export function groupIssues(
   ].filter((group) => group.rows.length > 0);
 }
 
+/** The first message of a thread started from a pull request: what to work on, its link,
+ * which branch goes into which, and its body. */
+export function prSourceText(pr: {
+  number: number;
+  title: string;
+  url: string;
+  headBranch: string;
+  baseBranch: string;
+  body: string;
+}): string {
+  return `Work on GitHub PR #${pr.number}: ${pr.title}\n${pr.url}\n\n${pr.headBranch} → ${pr.baseBranch}\n\n${pr.body}`;
+}
+
 /** The first message of a thread started from an issue: what to work on, its link and body. */
 export function issueSourceText(
   issue: Pick<ForgeIssueRow, "ref" | "title" | "url"> & { body: string },

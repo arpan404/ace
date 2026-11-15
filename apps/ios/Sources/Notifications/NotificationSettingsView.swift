@@ -65,6 +65,15 @@ struct MachineNotificationSettings: View {
 
     var body: some View {
         Form {
+            // Whether this machine pushes alerts while ace is closed (ADR 0106): a setting the
+            // machine keeps, on its bridge-described Notifications page.
+            Section {
+                NavigationLink("Push when the app is closed") {
+                    SettingsPageView(model: model, page: "notifications", title: "Notifications")
+                }
+                .accessibilityIdentifier("notifications.machine.push")
+            }
+            .insetRowBackground()
             Section {
                 Toggle("Quiet hours", isOn: Binding(get: { preferences.quietHours != nil }, set: { on in
                     var next = preferences

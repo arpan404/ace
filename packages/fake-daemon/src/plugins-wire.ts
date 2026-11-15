@@ -56,6 +56,8 @@ export interface PluginSeed {
   })[];
   /** Offered by `plugins.prepare` under their name, from any repository. */
   marketplace?: FakePlugin[];
+  /** Repositories git can't fetch: reading their marketplace or a plugin from them fails. */
+  unfetchable?: string[];
 }
 
 export class FakePluginsWire {
@@ -66,6 +68,7 @@ export class FakePluginsWire {
   private policies = new Map<string, PluginAvailability>();
   private skillPolicies = new Map<string, PluginSkillAvailability>();
   private marketplace = new Map<string, FakePlugin>();
+  private unfetchable = new Set<string>();
   /** Where each review's plugin was fetched from, kept for the install it becomes. */
   private sources = new Map<string, { repository: string; ref: string }>();
   /** Where each installed plugin came from (`plugins.origins`). */
@@ -122,6 +125,7 @@ export class FakePluginsWire {
   }
   seed(seed: PluginSeed): void {
     for (const plugin of seed.marketplace ?? []) this.marketplace.set(plugin.name, plugin);
+    for (const repository of seed.unfetchable ?? []) this.unfetchable.add(repository);
     for (const plugin of seed.installed ?? []) {
       const components = built(plugin.components);
       const install = PluginInstall.parse({
@@ -163,6 +167,11 @@ export class FakePluginsWire {
     const request = message.request;
     const reply = (response: unknown) =>
       ServerMessage.parse({ type: "pluginResult", requestId: message.requestId, response });
+    if (
+      (request.type === "plugins.prepare" || request.type === "plugins.marketplace") &&
+      this.unfetchable.has(request.repository)
+    )
+      throw new Error(`git couldn't fetch ${request.repository}.`);
     switch (request.type) {
       case "plugins.prepare": {
         if (this.reviews.size >= 32) throw new Error("review_limit");

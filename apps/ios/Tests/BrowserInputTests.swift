@@ -178,6 +178,14 @@ import UIKit
         #expect(PickerValues.date("2026-10-19", kind: "select") == nil)
     }
 
+    @Test func everyPickerThePageOpensHasAWayToFinishOnThePhone() {
+        #expect(PickerValues.control("select") == .options)
+        #expect(PickerValues.control("color") == .colour)
+        for kind in ["date", "time", "datetime-local", "month", "week"] { #expect(PickerValues.control(kind) == .date, "\(kind)") }
+        // A kind this build has no control for is typed in the page's format, not left as a dead end.
+        for kind in ["range", "file-system", ""] { #expect(PickerValues.control(kind) == .typed, "\(kind)") }
+    }
+
     @Test func coloursTravelAsLowercaseHex() {
         let rgb = PickerValues.rgb("#FF8000")
         #expect(rgb?.red == 255 && rgb?.green == 128 && rgb?.blue == 0)

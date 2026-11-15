@@ -1,4 +1,5 @@
 import type { ScreenState } from "@ace/protocol";
+import { degradedSentence } from "./video-degraded.ts";
 import { chooserWaitingCopy, screenSession, visibleSessions } from "@ace/ui-core/computer-use";
 
 /*
@@ -43,6 +44,8 @@ export function phoneScreenSessions(
       controller: view.controller,
       lifecycle: view.lifecycle,
       error: view.error ?? "",
+      /** One sentence while this app's video runs degraded on the processor; empty otherwise. */
+      degraded: degradedSentence(state.acceleration),
       stoppable: view.stoppable,
       secureInputAllowed: view.secureInputAllowed,
     };

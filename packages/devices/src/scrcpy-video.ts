@@ -10,6 +10,8 @@ export type VideoUnit = {
   height: number;
   /** Encoder timestamp in microseconds. */
   pts: bigint;
+  /** The encode it belongs to: 0 for the source's own stream, else a re-encode ace-media ran. */
+  encode?: number;
 };
 
 /** The `avc1.PPCCLL` codec string from the first SPS in an Annex B buffer. */

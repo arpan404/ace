@@ -1,0 +1,258 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<meta charset="utf-8" />
+<title>ace-media encoder</title>
+<script>
+  "use strict";
+  /*
+   * ace-media's last-resort encoder page (media-chrome, ADR 0148). Pictures arrive as binary
+   * messages on the `in` socket and are encoded with WebCodecs' software H.264 encoder; each
+   * chunk goes back as one binary message on the `out` socket. Control (configure, flush) is
+   * JSON text on `in`; replies are JSON text on `out`. Layouts are in `src/wire.rs`. Messages
+   * are handled strictly in order, one at a time.
+   */
+  const root = `ws://${location.host}${location.pathname}`;
+  const input = new WebSocket(`${root}in`);
+  const output = new WebSocket(`${root}out`);
+  input.binaryType = "arraybuffer";
+  const formats = { 2: "RGBA", 3: "BGRA", 4: "NV12", 5: "RGBX" };
+  /** The encode taking new pictures: { generation, config, encoder, pending: [{ sequence, timestamp }] }. */
+  let current;
+  /** Encodes replaced by a new size, still flushing out their last chunks. */
+  const retiring = new Set();
+  let queue = Promise.resolve();
+
+  const send = (message) => {
+    if (output.readyState === WebSocket.OPEN) output.send(message);
+  };
+  const notice = (message) => send(JSON.stringify(message));
+
+  function configFor(command) {
+    return {
+      codec: command.codec,
+      width: command.width,
+      height: command.height,
+      framerate: command.fps,
+      latencyMode: "realtime",
+      // ace only runs this encoder where there is no hardware one; say so to Chrome too.
+      hardwareAcceleration: "prefer-software",
+      avc: { format: "avc" },
+      ...(command.quantizer
+        ? { bitrateMode: "quantizer" }
+        : { bitrateMode: "variable", bitrate: command.bitrate }),
+    };
+  }
+
+  async function supported(config) {
+    try {
+      return (await VideoEncoder.isConfigSupported(config)).supported === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Pictures that came out of nothing: everything still pending on `state`. */
+  function dropPending(state) {
+    for (const entry of state.pending.splice(0)) notice({ t: "dropped", sequence: entry.sequence });
+  }
+
+  function chunkMessage(state, chunk, metadata) {
+    // Chunks come out in submission order; pictures before this one were skipped.
+    while (state.pending.length > 0 && state.pending[0].timestamp !== chunk.timestamp)
+      notice({ t: "dropped", sequence: state.pending.shift().sequence });
+    const entry = state.pending.shift();
+    const raw = metadata?.decoderConfig?.description;
+    const description = raw
+      ? ArrayBuffer.isView(raw)
+        ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+        : new Uint8Array(raw)
+      : new Uint8Array(0);
+    const message = new Uint8Array(24 + description.byteLength + chunk.byteLength);
+    const view = new DataView(message.buffer);
+    view.setUint8(0, 1);
+    view.setUint8(1, chunk.type === "key" ? 1 : 0);
+    view.setUint32(4, entry ? entry.sequence : 0, true);
+    view.setUint32(8, state.generation, true);
+    view.setUint32(12, description.byteLength, true);
+    view.setBigUint64(16, BigInt(Math.max(0, Math.round(chunk.timestamp))), true);
+    message.set(description, 24);
+    chunk.copyTo(message.subarray(24 + description.byteLength));
+    send(message);
+  }
+
+  function open(command, config) {
+    const state = {
+      generation: command.generation,
+      config,
+      quantizer: command.quantizer,
+      pending: [],
+      encoder: undefined,
+    };
+    state.encoder = new VideoEncoder({
+      output: (chunk, metadata) => chunkMessage(state, chunk, metadata),
+      error: (error) => {
+        dropPending(state);
+        retiring.delete(state);
+        if (current !== state) return;
+        current = undefined;
+        notice({ t: "failed", generation: state.generation, reason: String(error) });
+      },
+    });
+    state.encoder.configure(config);
+    return state;
+  }
+
+  function retire(state) {
+    retiring.add(state);
+    state.encoder
+      .flush()
+      .catch(() => {})
+      .finally(() => {
+        dropPending(state);
+        retiring.delete(state);
+        if (state.encoder.state !== "closed") state.encoder.close();
+      });
+  }
+
+  async function configure(command) {
+    const config = configFor(command);
+    if (!(await supported(config))) {
+      // The running encode, if any, carries on unchanged.
+      notice({
+        t: "configured",
+        generation: command.generation,
+        ok: false,
+        reason: `Chrome's software encoder can't encode ${config.codec} at ${config.width}x${config.height}${command.quantizer ? " in quantizer mode" : ""}`,
+      });
+      return;
+    }
+    const old = current;
+    const sameStream =
+      old &&
+      old.encoder.state === "configured" &&
+      old.config.codec === config.codec &&
+      old.config.width === config.width &&
+      old.config.height === config.height &&
+      old.quantizer === command.quantizer;
+    try {
+      if (sameStream) {
+        // A new rate or frame rate: the same encoder, the same stream.
+        old.encoder.configure(config);
+        old.config = config;
+        old.generation = command.generation;
+      } else {
+        current = open(command, config);
+        if (old) retire(old);
+      }
+      notice({ t: "configured", generation: command.generation, ok: true });
+    } catch (error) {
+      notice({ t: "configured", generation: command.generation, ok: false, reason: String(error) });
+    }
+  }
+
+  async function decodeJpeg(bytes, timestamp) {
+    if (typeof ImageDecoder === "function") {
+      const decoder = new ImageDecoder({ data: bytes, type: "image/jpeg" });
+      try {
+        const { image } = await decoder.decode();
+        try {
+          return new VideoFrame(image, { timestamp });
+        } finally {
+          image.close();
+        }
+      } finally {
+        decoder.close();
+      }
+    }
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
+    try {
+      return new VideoFrame(bitmap, { timestamp });
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  async function picture(buffer) {
+    const view = new DataView(buffer);
+    const format = view.getUint8(1);
+    const key = (view.getUint8(2) & 1) === 1;
+    const quantizer = view.getUint8(3);
+    const sequence = view.getUint32(4, true);
+    const width = view.getUint32(12, true);
+    const height = view.getUint32(16, true);
+    const timestamp = Number(view.getBigUint64(24, true));
+    const state = current;
+    const dropped = () => notice({ t: "dropped", sequence });
+    if (!state || state.encoder.state !== "configured") return dropped();
+    let frame;
+    try {
+      const pixels = new Uint8Array(buffer, 32);
+      frame =
+        format === 1
+          ? await decodeJpeg(pixels, timestamp)
+          : new VideoFrame(pixels, {
+              format: formats[format],
+              codedWidth: width,
+              codedHeight: height,
+              timestamp,
+            });
+    } catch {
+      return dropped();
+    }
+    try {
+      if (current !== state || state.encoder.state !== "configured") return dropped();
+      const options = { keyFrame: key };
+      if (state.quantizer && quantizer > 0) options.avc = { quantizer };
+      state.pending.push({ sequence, timestamp });
+      try {
+        state.encoder.encode(frame, options);
+      } catch {
+        state.pending.pop();
+        dropped();
+      }
+    } finally {
+      frame.close();
+    }
+  }
+
+  async function flush(command) {
+    const states = [...retiring, ...(current ? [current] : [])];
+    await Promise.all(
+      states.map((state) =>
+        state.encoder.state === "configured" ? state.encoder.flush().catch(() => {}) : undefined,
+      ),
+    );
+    for (const state of states) dropPending(state);
+    notice({ t: "flushed", generation: command.generation });
+  }
+
+  async function handle(data) {
+    if (typeof data !== "string") return picture(data);
+    const command = JSON.parse(data);
+    if (command.t === "configure") return configure(command);
+    if (command.t === "flush") return flush(command);
+  }
+
+  let opened = 0;
+  const ready = async () => {
+    if (++opened < 2) return;
+    const quantizer = await supported(
+      configFor({ codec: "avc1.42E01F", width: 1280, height: 720, fps: 30, quantizer: true }),
+    );
+    notice({ t: "hello", quantizer });
+  };
+  input.onopen = ready;
+  output.onopen = ready;
+  input.onmessage = (event) => {
+    queue = queue.then(() => handle(event.data)).catch(() => {});
+  };
+  const shut = () => {
+    for (const state of [...retiring, ...(current ? [current] : [])])
+      if (state.encoder.state !== "closed") state.encoder.close();
+    current = undefined;
+    input.close();
+    output.close();
+  };
+  input.onclose = shut;
+  output.onclose = shut;
+</script>

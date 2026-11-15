@@ -22,6 +22,7 @@ struct AnswerRow: View {
     @Environment(\.readMessage) private var readMessage
     @Environment(\.readImage) private var readImage
     @Environment(\.fileLinks) private var fileLinks
+    @Environment(\.colorScheme) private var scheme
     @State private var full: String?
     @State private var problem: String?
     /// Whole answers past this many characters open in the reader instead of the row.
@@ -32,9 +33,10 @@ struct AnswerRow: View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if !shown.isEmpty {
                 let menu = !between && !live
-                AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id))
+                AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id),
+                            flavor: AnswerMarkdown.flavor, renderDiagram: AnswerMarkdown.renderDiagram(dark: scheme == .dark))
                     .fileLinks(fileLinks, itemId: row.id)
-                    .messageMenu(menu ? shown : "", title: "Answer", row: row)
+                    .messageMenu(menu ? shown : "", title: "Answer", row: row, quotable: true)
             }
             if row.truncated && !live && full == nil { partial }
         }

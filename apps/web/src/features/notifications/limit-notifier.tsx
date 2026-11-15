@@ -1,15 +1,9 @@
 import { useConnectionState } from "@ace/client-react";
-import {
-  accountName,
-  limitChanges,
-  nextLimitReset,
-  type LimitChange,
-  type LimitReading,
-} from "@ace/ui-core";
+import { limitAlertWords, limitChanges, nextLimitReset, type LimitReading } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { formatResetCountdown, useAccountViews } from "@/features/accounts/index.ts";
+import { useAccountViews } from "@/features/accounts/index.ts";
 import { usePageVisible } from "@/lib/page-visibility.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 
@@ -19,27 +13,6 @@ const refreshMs = 60_000;
 const remembered = 256;
 /** A timer longer than this overflows in browsers. */
 const longestTimer = 2 ** 31 - 1;
-
-function words(change: LimitChange, now: number): { title: string; description: string } {
-  const name = accountName(change.account);
-  switch (change.kind) {
-    case "near":
-      return {
-        title: `${name} is near its usage limit`,
-        description: `${change.window.usedPercent}% of the ${change.window.label} window used. ${formatResetCountdown(change.window.resetsAt, now)}.`,
-      };
-    case "reached":
-      return {
-        title: `${name} reached its usage limit`,
-        description:
-          change.resetsAt === undefined
-            ? "The provider didn't say when it resets."
-            : `${formatResetCountdown(change.resetsAt, now)}.`,
-      };
-    case "reset":
-      return { title: `${name} can work again`, description: "Its usage window has reset." };
-  }
-}
 
 /** Wait this long past a reset before reading again, for the provider to catch up. */
 const resetGraceMs = 2_000;
@@ -79,7 +52,7 @@ export default function LimitNotifier() {
       if (said.current.size >= remembered) said.current.clear();
       said.current.add(change.key);
       toasts.add({
-        ...words(change, now),
+        ...limitAlertWords(change, now),
         kind: `account-limit:${change.account.id}`,
         eventId: change.key,
         actionProps: { children: "View usage", onClick: () => void go({ to: "/usage" }) },

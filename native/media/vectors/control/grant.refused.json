@@ -1,0 +1,9 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "grant.refused",
+    "kind": "value",
+    "id": "source-1",
+    "reason": "owner"
+  }
+}

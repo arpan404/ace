@@ -31,6 +31,10 @@ struct DeviceTile: Codable, Sendable, Equatable, Identifiable, Hashable {
     let live: Bool
     /// "Claude is using it"; empty while nobody is.
     let control: String
+    /// Boot can start it: shut down and not already booting. Nil from an older bridge.
+    var bootable: Bool? = nil
+    /// What a device that can't run yet needs ("Pixel 8 is offline. Reconnect it…"); nil otherwise.
+    var hint: String? = nil
 }
 
 /// The drawn hardware around a device's screen, in fractions of the screen's width.
@@ -84,6 +88,8 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     struct Size: Codable, Sendable, Equatable { let width: Double; let height: Double }
     let activity: Activity?
     let problem: DeviceProblem?
+    /// One sentence while the picture runs degraded on the processor; empty otherwise.
+    var degraded: String? = nil
     let touch: String
     /// A foldable device's posture (`closed`, `partiallyOpen` or `open`); nil when it doesn't fold.
     var posture: String? = nil
@@ -94,9 +100,12 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
 /// A thread's Devices screen, whole, as the bridge shapes it.
 struct DevicesView: Codable, Sendable, Equatable {
     struct Group: Codable, Sendable, Equatable, Identifiable { let label: String; let rows: [DeviceTile]; var id: String { label } }
+    struct Off: Codable, Sendable, Equatable { let title: String; let line: String }
     let connected: Bool
     let loading: Bool
     let enabled: Bool
+    /// While devices are off on the machine: what the list says, with Turn on beside it.
+    var off: Off? = nil
     let offline: DeviceProblem?
     let running: [DeviceTile]
     let groups: [Group]

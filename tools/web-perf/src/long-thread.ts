@@ -4,6 +4,7 @@ import { budgets } from "./budgets.ts";
 import { observe, pageMemory, readRecord, report, reportDOM, resetRecord } from "./measure.ts";
 import { scrollTranscript, stepTurn } from "./navigation.ts";
 import { open, withPerfApp } from "./perf-app.ts";
+import { probeRemount } from "./remount.ts";
 
 /*
  * A million-item thread in a real browser (ADR 0056, ADR 0062): the production build in
@@ -192,6 +193,8 @@ async function measureLongThread(): Promise<void> {
     process.stdout.write(
       `  page heap ${warm?.toFixed(1)} → ${last.heapMb.toFixed(1)} MB · ${limits.items.toLocaleString()} items\n`,
     );
+    // Not a timing budget: a finished answer that remounts redrawing itself fails at once.
+    resources.push(await probeRemount(browser, origin));
     if (timing.includes(false)) timingFailed = true;
     if (resources.includes(false)) resourcesFailed = true;
   });

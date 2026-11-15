@@ -73,29 +73,6 @@ export function repositoryCounts(
 }
 
 /**
- * A page as it reads once a write lands: read rows lose their dot, done rows leave. Mark all read
- * covers what GitHub had by `before`; anything newer stays unread, as it does on GitHub.
- */
-export function afterWrite(
-  page: ForgeInboxList,
-  change:
-    | { kind: "read" | "done"; ids: ReadonlySet<string> }
-    | { kind: "read-all"; before: number; repo?: string | undefined },
-): ForgeInboxList {
-  if (change.kind === "done")
-    return { ...page, items: page.items.filter((row) => !change.ids.has(row.id)) };
-  const reads = (row: ForgeInboxRow) =>
-    "ids" in change
-      ? change.ids.has(row.id)
-      : Date.parse(row.updatedAt) <= change.before &&
-        (!change.repo || repositoryParam(row.repository) === change.repo);
-  const items = page.items.map((row) =>
-    row.unread && reads(row) ? { ...row, unread: false } : row,
-  );
-  return { ...page, items };
-}
-
-/**
  * Refusals asking again won't change by themselves: the person fixes them (signs in, adds a
  * remote) and tries again. Asked again only rarely, so a fix also shows up on its own.
  */

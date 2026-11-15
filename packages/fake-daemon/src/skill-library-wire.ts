@@ -17,8 +17,14 @@ export function skillSession(library: FakeSkillLibrary, send: (message: ServerMe
       }
       if (message.type !== "skills.request") return false;
       const operation = message.operation;
-      const result = library.request(operation);
-      send({ type: "skills.result", requestId: message.requestId, result });
+      const answer = () =>
+        send({
+          type: "skills.result",
+          requestId: message.requestId,
+          result: library.request(operation),
+        });
+      if (operation.op === "prepareUpdate") library.prepareLater(answer);
+      else answer();
       if (operation.op === "list" && operation.subscribe && subscriptions.size < 16)
         subscriptions.set(message.requestId, operation.workspaceId);
       return true;

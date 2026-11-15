@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import type { ThreadCatchUpResponse } from "@ace/protocol";
-import { catchUpFacts } from "@ace/ui-core";
+import { catchUpFacts, catchUpLines } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useVisitReadState } from "@/lib/thread-read.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -35,12 +35,7 @@ function useCatchUp(threadId: string): {
  * own line, then the agent's latest words. Clear dismisses it.
  */
 export function SinceYouLooked(props: { catchUp: ThreadCatchUpResponse; onDismiss(): void }) {
-  const facts = catchUpFacts(props.catchUp);
-  const said = props.catchUp.latestAgentMessagePreview.replace(/\s+/g, " ").trim();
-  const lines = [
-    ...facts.slice(0, said ? 3 : 4).map((fact) => ({ text: fact.text, tone: fact.tone })),
-    ...(said ? [{ text: said, tone: undefined }] : []),
-  ];
+  const lines = catchUpLines(props.catchUp);
   return (
     <Section name="Since you looked" aside={<QuietLink onClick={props.onDismiss}>Clear</QuietLink>}>
       <ul className="list-disc space-y-0.5 pl-4 text-ui text-muted-foreground marker:text-subtle-foreground">

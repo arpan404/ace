@@ -1,4 +1,4 @@
-import type { ThreadSource } from "@ace/client";
+import type { Scheduler, ThreadSource } from "@ace/client";
 import { z } from "zod";
 import { followAgents, type AgentsFollow, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesAction, changesAction } from "./changes-actions.ts";
@@ -8,6 +8,7 @@ import { gitAction } from "./git-actions.ts";
 import { followLogs, LogsQuery, type LogsFollow } from "./logs.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
 import { ThreadReview } from "./thread-review.ts";
+import { ThreadSummary, type SummaryReads } from "./thread-summary.ts";
 import { threadSubject, WorkSession, type WorkSubject } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
 
@@ -21,7 +22,12 @@ const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
   /** The next page of the open Agents sheet's agents or background tasks. */
   z.object({ kind: z.literal("agents.more"), list: z.enum(["agents", "tasks"]) }),
-  z.object({ kind: z.literal("changes"), open: z.boolean() }),
+  /** `scope`: the scope this open shows first (`changes.scope`'s), else the last turn. */
+  z.object({
+    kind: z.literal("changes"),
+    open: z.boolean(),
+    scope: z.string().min(1).max(128).optional(),
+  }),
   /** The thread's Logs: opened or closed, or its scope and filter changed while open. */
   z.object({ kind: z.literal("logs"), open: z.boolean(), query: LogsQuery.optional() }),
   z.object({ kind: z.literal("logs.earlier") }),
@@ -33,9 +39,18 @@ const OpenAction = z.discriminatedUnion("kind", [
   /** An AI draft of the commit message or PR title and summary (`git-drafts.ts`). */
   z.object({ kind: z.literal("git.draft"), for: DraftFor, requestId: z.string().min(1).max(64) }),
   z.object({ kind: z.literal("git.draft.cancel"), requestId: z.string().min(1).max(64) }),
+  /** The thread's Summary (`thread-summary.ts`): shown, Clear on Since you looked, closed PRs. */
+  z.object({ kind: z.literal("summary"), open: z.boolean() }),
+  z.object({ kind: z.literal("summary.clear") }),
+  z.object({ kind: z.literal("summary.closed"), shown: z.boolean() }),
   z.object({ kind: z.literal("work"), open: z.boolean() }),
   z.object({ kind: z.literal("work.refresh") }),
   z.object({ kind: z.literal("work.branches") }),
+  /** The branch picker's search, and its next page of matching branches. */
+  z.object({ kind: z.literal("work.branches.find"), query: z.string().max(256) }),
+  z.object({ kind: z.literal("work.branches.more") }),
+  /** The Work sheet's next page of linked pull requests. */
+  z.object({ kind: z.literal("work.prs.more") }),
   z.object({
     kind: z.literal("work.action"),
     action: z.unknown(),
@@ -54,6 +69,8 @@ export interface SheetDeps {
   kept?: ChangesKept;
   now?: () => number;
   id?: () => string;
+  /** The Summary's timers: its turn reads and the time Now counts. */
+  scheduler?: Scheduler;
 }
 
 export interface OpenThread {
@@ -61,6 +78,8 @@ export interface OpenThread {
   store: ThreadSource;
   threadId: string;
   epoch: number;
+  /** The client's reads the Summary needs; without them it can't open. */
+  reads?: SummaryReads;
 }
 
 export class Sheets {
@@ -70,6 +89,9 @@ export class Sheets {
   #logs: LogsFollow | undefined;
   #changes: ChangesSession | undefined;
   #work: WorkSession | undefined;
+  #summary: ThreadSummary | undefined;
+  /** Since you looked, cleared by thread at the cursor it was read from, while the app runs. */
+  #cleared = new Map<string, number>();
   /** The transcript's problem line acts here while Work is closed; kept so one runs at a time. */
   #line: { threadId: string; subject: WorkSubject } | undefined;
   #deps: SheetDeps;
@@ -107,6 +129,8 @@ export class Sheets {
     this.#changes = undefined;
     this.#work?.close();
     this.#work = undefined;
+    this.#summary?.close();
+    this.#summary = undefined;
     this.#line = undefined;
   }
   /**
@@ -173,6 +197,7 @@ export class Sheets {
               this.#deps,
             )
           : undefined;
+        if (action.scope) this.#changes?.scope(action.scope);
         return true;
       case "changes.refresh":
         void this.#changes?.refresh();
@@ -222,11 +247,44 @@ export class Sheets {
             )
           : undefined;
         return true;
+      case "summary": {
+        this.#summary?.close();
+        this.#summary = undefined;
+        const { reads } = thread;
+        const scheduler = this.#deps.scheduler;
+        if (!action.open) return true;
+        if (!reads || !scheduler) return false;
+        this.#summary = new ThreadSummary(
+          reads,
+          thread.store,
+          thread.threadId,
+          thread.epoch,
+          this.#sink,
+          this.#preview,
+          { now: this.#deps.now ?? (() => 0), scheduler, cleared: this.#cleared },
+        );
+        return true;
+      }
+      case "summary.clear":
+        this.#summary?.dismiss();
+        return this.#summary !== undefined;
+      case "summary.closed":
+        this.#summary?.closedPrs(action.shown);
+        return this.#summary !== undefined;
       case "work.refresh":
         void this.#work?.read();
         return this.#work !== undefined;
       case "work.branches":
         void this.#work?.branches();
+        return this.#work !== undefined;
+      case "work.branches.find":
+        this.#work?.findBranches(action.query);
+        return this.#work !== undefined;
+      case "work.branches.more":
+        this.#work?.moreBranches();
+        return this.#work !== undefined;
+      case "work.prs.more":
+        this.#work?.morePrs();
         return this.#work !== undefined;
       case "work.action": {
         // The sheet's own session when Work is shown; else the open thread as it stands.
@@ -274,6 +332,7 @@ function releases(action: SheetAction): boolean {
     action.kind === "agents" ||
     action.kind === "changes" ||
     action.kind === "work" ||
+    action.kind === "summary" ||
     action.kind === "logs"
   )
     return !action.open;

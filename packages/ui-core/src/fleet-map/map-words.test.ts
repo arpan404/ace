@@ -1,0 +1,78 @@
+import { expect, test } from "vitest";
+import {
+  fixLabel,
+  networkOffQuestion,
+  nodeFixes,
+  nodeStateWords,
+  remoteAccessOffQuestion,
+  removeDeviceQuestion,
+} from "./map-words.ts";
+
+const problem = {
+  what: "Mini isn't answering.",
+  why: "It's asleep.",
+  fixes: ["reconnect"] as const,
+};
+
+test("turning a network off asks first only while something reaches the machine", () => {
+  expect(networkOffQuestion({ network: "Tailscale", where: "studio", dependents: [] })).toBe(
+    undefined,
+  );
+  expect(
+    networkOffQuestion({ network: "Tailscale", where: "studio", dependents: ["iPhone", "mini"] }),
+  ).toEqual({
+    title: "Turn off Tailscale on studio?",
+    body: "iPhone and mini may disconnect until they can reach studio another way.",
+    confirm: "Turn off",
+  });
+});
+
+test("a node with a problem offers its fixes, else its offer, else nothing", () => {
+  expect(nodeFixes({ problem, offer: "openAccount" })).toEqual(["reconnect"]);
+  expect(nodeFixes({ problem: undefined, offer: "openAccount" })).toEqual(["openAccount"]);
+  expect(nodeFixes({ problem: undefined, offer: undefined })).toEqual([]);
+});
+
+test("opening an account machine is a retry only once it failed", () => {
+  expect(fixLabel({ problem: undefined }, "openAccount")).toBe("Open");
+  expect(fixLabel({ problem: { ...problem, fixes: ["openAccount"] } }, "openAccount")).toBe(
+    "Try again",
+  );
+});
+
+test("a node's state words follow its tone, and a neutral one says its status", () => {
+  expect(nodeStateWords({ tone: "bad", status: "Offline" })).toBe("Can't connect");
+  expect(nodeStateWords({ tone: "warn", status: "Needs its code" })).toBe("Needs you");
+  expect(nodeStateWords({ tone: "unknown", status: "Connecting" })).toBe("Connecting");
+});
+
+test("removing the device that asks warns that it disconnects itself", () => {
+  expect(removeDeviceQuestion({ name: "iPad", self: false }, "This iPhone").body).toBe(
+    "It disconnects at once and has to be paired again to see or steer threads.",
+  );
+  expect(removeDeviceQuestion({ name: "iPhone", self: true }, "This iPhone")).toEqual({
+    title: "Remove iPhone?",
+    body: "This is the device you're using. This iPhone disconnects at once and has to be paired again.",
+    confirm: "Remove",
+  });
+});
+
+test("turning a network off asks first when what depends on the machine couldn't be checked", () => {
+  expect(
+    networkOffQuestion({ network: "Tailscale", where: "studio", dependents: "unknown" }),
+  ).toEqual({
+    title: "Turn off Tailscale on studio?",
+    body: "Couldn't check what reaches studio. Devices and machines that reach it over Tailscale may disconnect until they can reach it another way.",
+    confirm: "Turn off",
+  });
+});
+
+test("turning remote access off asks first while something reaches this computer, or nothing could be checked", () => {
+  expect(remoteAccessOffQuestion([])).toBe(undefined);
+  expect(remoteAccessOffQuestion(["iPad"])?.body).toBe(
+    "iPad reach this computer through remote access. They disconnect until it's turned on again.",
+  );
+  expect(remoteAccessOffQuestion("unknown")?.body).toBe(
+    "Couldn't check what reaches this computer. Devices and machines that use remote access disconnect until it's turned on again.",
+  );
+});

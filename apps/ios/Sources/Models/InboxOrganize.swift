@@ -3,10 +3,17 @@ import Observation
 
 /// A settle, archive or move the person can take back from the toast, for one thread or several.
 /// Each kind keeps what its action changed, so Undo puts exactly that back.
+/// A snooze as it was: its end, and the event it waits for ("needs_you", "pr") with that end as
+/// its backstop; nil for a timed one.
+struct SavedSnooze: Equatable {
+    let until: Double
+    let wake: String?
+}
+
 struct InboxUndo: Equatable {
     enum Kind: Equatable {
-        /// Settling clears a snooze: each thread's snooze end before it was settled.
-        case settled(snoozes: [InboxKey: Double])
+        /// Settling clears a snooze: each thread's snooze before it was settled.
+        case settled(snoozes: [InboxKey: SavedSnooze])
         case archived
         /// Each thread's project before the move; moving back restores its details there.
         case moved(from: [InboxKey: String])
@@ -38,11 +45,19 @@ struct DeleteAsk: Identifiable, Equatable {
     let question: DeleteQuestion
 }
 
-/// Threads picked for a move: the sheet lists the projects of their one machine.
+/// Threads picked for a move. On one machine the sheet lists its projects; across several, each
+/// machine's threads go to a project on that machine, chosen machine by machine.
 struct MoveAsk: Identifiable, Equatable {
     let id = UUID()
-    let machineId: String
     let keys: [InboxKey]
+    /// Each machine's picks, in the order given.
+    var machines: [(machineId: String, ids: [String])] { InboxOrganize.byMachine(keys) }
+}
+
+/// One machine's share of a move: its picked threads and the project on that machine they go to.
+struct MoveGroup: Equatable {
+    let keys: [InboxKey]
+    let project: ComposeProject
 }
 
 /// What organizing asks of the paired machines: `MachineInbox` in the app, a fake in tests.
@@ -53,7 +68,7 @@ struct MoveAsk: Identifiable, Equatable {
     /// goes away first, and they stay pending.
     func final(_ machineId: String, ticket: String) async -> BulkOutcome?
     /// nil once the machine took it, else its refusal in words.
-    func snooze(_ key: InboxKey, until: Double?) async -> String?
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String?
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion?
     func row(_ key: InboxKey) -> ThreadRow?
     /// The phone's clock (ms).
@@ -82,7 +97,8 @@ struct MoveAsk: Identifiable, Equatable {
     @ObservationIgnored private var landings: [InboxKey: Landing] = [:]
 
     /// Each machine's threads among `keys`, in the order given.
-    static func byMachine(_ keys: [InboxKey]) -> [(machineId: String, ids: [String])] {
+    /// Pure, so a value type off the main actor (`MoveAsk`) can group its picks too.
+    nonisolated static func byMachine(_ keys: [InboxKey]) -> [(machineId: String, ids: [String])] {
         var order: [String] = []
         var groups: [String: [String]] = [:]
         for key in keys {
@@ -199,8 +215,13 @@ struct MoveAsk: Identifiable, Equatable {
         guard !keys.isEmpty else { return }
         if action == .delete { await askDelete(keys, in: host); return }
         // Settling clears a snooze; its Undo puts it back.
-        var snoozes: [InboxKey: Double] = [:]
-        if action == .settle { for key in keys { if let until = host.row(key)?.snoozedUntil { snoozes[key] = until } } }
+        var snoozes: [InboxKey: SavedSnooze] = [:]
+        if action == .settle {
+            for key in keys {
+                guard let row = host.row(key), let until = row.snoozedUntil else { continue }
+                snoozes[key] = SavedSnooze(until: until, wake: row.snoozeOn)
+            }
+        }
         let verb = action == .settle ? "Settled" : "Archived"
         let kind: InboxUndo.Kind? = action == .settle ? .settled(snoozes: snoozes) : action == .archive ? .archived : nil
         let toast = PendingToast(verb: verb)
@@ -218,17 +239,33 @@ struct MoveAsk: Identifiable, Equatable {
 
     /// Move `keys` (all on one machine) to `project`, with Undo back to where each was.
     func move(_ keys: [InboxKey], to project: ComposeProject, in host: any OrganizeHost) async {
+        await move([MoveGroup(keys: keys, project: project)], in: host)
+    }
+
+    /// Move each group's threads to its project (a project on their own machine), as one action
+    /// with one toast and one Undo back to where each was. Refusals are named thread by thread.
+    func move(_ groups: [MoveGroup], in host: any OrganizeHost) async {
         moving = nil
         var from: [InboxKey: String] = [:]
-        for key in keys { if let workspace = host.row(key)?.workspaceId, workspace != project.id { from[key] = workspace } }
-        guard !from.isEmpty else { return }
-        let moving = keys.filter { from[$0] != nil }
-        let toast = PendingToast(verb: "Moved", suffix: " to \(project.name)")
-        let sorted = await send(.move, moving, in: host, workspaceId: project.id) { [weak self] later in
-            self?.report(later.refused.map(\.message), doing: "move")
-            self?.answered(toast, later)
+        for group in groups {
+            for key in group.keys {
+                if let workspace = host.row(key)?.workspaceId, workspace != group.project.id { from[key] = workspace }
+            }
         }
-        report(sorted.refused.map(\.message), doing: "move")
+        guard !from.isEmpty else { return }
+        let going = groups.filter { $0.keys.contains { from[$0] != nil } }
+        let names = Set(going.map(\.project.name))
+        let toast = PendingToast(verb: "Moved", suffix: names.count == 1 ? names.first.map { " to \($0)" } ?? "" : "")
+        var sorted = Sorted("", BulkOutcome(), requested: [])
+        for group in going {
+            let moving = group.keys.filter { from[$0] != nil }
+            let one = await send(.move, moving, in: host, workspaceId: group.project.id) { [weak self] later in
+                self?.reportEach(later.refused, doing: "move", host: host)
+                self?.answered(toast, later)
+            }
+            sorted.taken += one.taken; sorted.waiting += one.waiting; sorted.refused += one.refused
+        }
+        reportEach(sorted.refused, doing: "move", host: host)
         let covered = sorted.taken + sorted.waiting
         guard !covered.isEmpty else { return }
         feedback += 1
@@ -241,6 +278,9 @@ struct MoveAsk: Identifiable, Equatable {
         let suffix: String
         var serial: UUID?
         var waiting: Set<InboxKey> = []
+        /// Late answers that came while another machine was still being asked, before the toast
+        /// showed: applied when it does, so its counts and Undo match what the machines did.
+        var early: [Sorted] = []
         init(verb: String, suffix: String = "") { self.verb = verb; self.suffix = suffix }
         func text(_ count: Int) -> String {
             let words = count == 1 ? "\(verb) thread\(suffix)" : "\(verb) \(count) threads\(suffix)"
@@ -249,12 +289,21 @@ struct MoveAsk: Identifiable, Equatable {
     }
     private func show(_ toast: PendingToast, _ undo: InboxUndo, waiting: [InboxKey]) {
         toast.waiting = Set(waiting)
-        let shown = InboxUndo(keys: undo.keys, kind: undo.kind, text: toast.text(undo.keys.count))
+        var keys = undo.keys
+        for later in toast.early {
+            toast.waiting.subtract(later.taken + later.refused.map(\.key) + later.running)
+            let refused = Set(later.refused.map(\.key) + later.running)
+            keys.removeAll { refused.contains($0) }
+        }
+        toast.early = []
+        guard !keys.isEmpty else { return }
+        let shown = InboxUndo(keys: keys, kind: undo.kind, text: toast.text(keys.count))
         toast.serial = shown.serial
         self.undo = shown
     }
     /// A late answer: refused threads leave the toast's Undo, and its count of waiting ones drops.
     private func answered(_ toast: PendingToast, _ later: Sorted) {
+        guard toast.serial != nil else { toast.early.append(later); return }
         toast.waiting.subtract(later.taken + later.refused.map(\.key) + later.running)
         guard let current = undo, current.serial == toast.serial else { return }
         let refused = Set(later.refused.map(\.key) + later.running)
@@ -329,12 +378,26 @@ struct MoveAsk: Identifiable, Equatable {
     }
 
     /// The snooze a settle cleared comes back, while it still has time to run.
-    private func putSnoozesBack(_ keys: [InboxKey], _ snoozes: [InboxKey: Double], _ outcome: UndoOutcome, host: any OrganizeHost) async {
+    private func putSnoozesBack(_ keys: [InboxKey], _ snoozes: [InboxKey: SavedSnooze], _ outcome: UndoOutcome, host: any OrganizeHost) async {
         let now = host.clock()
         for key in keys {
-            guard let until = snoozes[key], until > now else { continue }
-            if let refusal = await host.snooze(key, until: until) { outcome.fail(key, "Couldn't put its snooze back. \(refusal)") }
+            guard let snooze = snoozes[key], snooze.until > now else { continue }
+            if let refusal = await host.snooze(key, until: snooze.until, wake: snooze.wake) { outcome.fail(key, "Couldn't put its snooze back. \(refusal)") }
         }
+    }
+
+    /// Refusals named thread by thread: one in its machine's words, several as a line each.
+    private func reportEach(_ refused: [(key: InboxKey, message: String)], doing verb: String, host: any OrganizeHost) {
+        guard refused.count > 1 else { return report(refused.map(\.message), doing: verb) }
+        problem = Self.perThread(refused, doing: verb, title: { host.row($0)?.title })
+    }
+
+    /// "Couldn't move 3 threads:" and a line for each, "“Fix login”: Stop its agents first.",
+    /// at most eight, then how many more.
+    static func perThread(_ refused: [(key: InboxKey, message: String)], doing verb: String, title: (InboxKey) -> String?) -> String {
+        let shown = refused.prefix(8).map { "“\(title($0.key) ?? "Thread")”: \($0.message)" }
+        let more = refused.count > shown.count ? ["and \(refused.count - shown.count) more"] : []
+        return (["Couldn't \(verb) \(refused.count) threads:"] + shown + more).joined(separator: "\n")
     }
 
     private func report(_ refused: [String], doing verb: String) {
@@ -362,9 +425,9 @@ extension MachineInbox: OrganizeHost {
     func final(_ machineId: String, ticket: String) async -> BulkOutcome? {
         await client(machineId)?.bulkFinals.wait(ticket)
     }
-    func snooze(_ key: InboxKey, until: Double?) async -> String? {
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String? {
         guard let client = client(key.machineId) else { return "That machine isn't paired any more." }
-        return await client.snooze(key.id, until: until)
+        return await client.snooze(key.id, until: until, wake: wake)
     }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? {
         await client(machineId)?.deleteQuestion(ids)

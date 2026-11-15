@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon } from "@ace/icons";
 import { useConnectionState } from "@ace/client-react";
 import {
   fuzzyPositions,

@@ -87,6 +87,8 @@ struct BlockRow: Codable, Sendable, Equatable {
             var meta: String = ""
             /// The paired machine it runs on, when that is another one.
             var machine: String = ""
+            /// That machine's host id, to open the child there; empty when unknown.
+            var machineHost: String = ""
             /// Its second line: what it does now, waits on, failed with or found.
             var detail: String = ""
             /// "live", "result", "human", "failed" or empty.
@@ -138,6 +140,15 @@ struct BlockRow: Codable, Sendable, Equatable {
     }
     /// Where a fork's own work starts: the thread it was forked from.
     struct Forked: Codable, Sendable, Equatable { let threadId: String }
+    /// The turn's live line while the agent compacts its context (`@ace/ui-core` turn activity).
+    struct Live: Codable, Sendable, Equatable {
+        /// "Compacting context".
+        let label: String
+        /// "Compacting context for", before the time ticking from `since`.
+        let timed: String
+        /// Ms since 1970; nil when no time is shown.
+        let since: Double?
+    }
     let index: Int?
     let kind: String
     let items: [String]
@@ -149,6 +160,8 @@ struct BlockRow: Codable, Sendable, Equatable {
     let started: Started?
     var question: Question? = nil
     var forked: Forked? = nil
+    /// A "live" block's line; nil while the pill alone says what the turn does.
+    var live: Live? = nil
     /// The room it asks for above and below itself: 8, 16 or 24 (`@ace/ui-core` row-room).
     var room: Room? = nil
     struct Room: Codable, Sendable, Equatable { let before: Double; let after: Double }
@@ -187,7 +200,7 @@ struct BlockRow: Codable, Sendable, Equatable {
 /// Something that happened to the thread rather than in the conversation, flattened by the bridge
 /// (`bridge/thread-messages.ts`). `kind` picks the row: "event" and "system" (a muted row with its
 /// time, opening `note` and `detail`), "error", "refusal", "notSent", "notice", "quiet",
-/// "handoff", "user", "none"; others draw the item as it is.
+/// "handoff", "task", "merged", "user", "none"; others draw the item as it is.
 struct EventRow: Codable, Sendable, Equatable {
     let kind: String
     let icon: String
@@ -203,6 +216,22 @@ struct EventRow: Codable, Sendable, Equatable {
     let count: Int
     /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
     var fenced: Bool? = nil
+    /// "task" and "merged": the thread the row's chip opens (a handoff's source, the merged
+    /// fork); empty or nil when there is none.
+    var threadId: String? = nil
+    /// A message another thread's agent sent (`kind` "sent"): who sent it and its bubble.
+    var sent: SentBy? = nil
+    /// The thread that sent a message, as the bridge read it (`@ace/ui-core` `sentBy`).
+    struct SentBy: Codable, Sendable, Equatable {
+        /// Empty when ace doesn't know the sender: the line then opens nothing.
+        let threadId: String
+        /// The sender's machine when it isn't this one; empty for this machine.
+        let hostId: String
+        /// "Sent by <title as recorded>", "Sent from another thread", with " · <machine>" when remote.
+        let line: String
+        /// Its words, without ace's frame, as the person's bubble draws them.
+        let bubble: BubbleLine
+    }
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.
@@ -220,6 +249,13 @@ struct ControlsRow: Codable, Sendable, Equatable {
     var note: String? = nil
     /// The next message starts a new thread on that model.
     var continues: Bool? = nil
+    /// A guest session (ADR 0105): agents on another machine use this one's tools, so there is
+    /// no composer, only whose work it is. Nil for a thread the person talks to.
+    var guest: Guest? = nil
+    struct Guest: Codable, Sendable, Equatable {
+        /// "Used by agents on Linux box. Stop to end their work."
+        let line: String
+    }
 }
 /// The daemon queue's follow-ups for the open thread, with the shared summary line.
 struct QueueRow: Codable, Sendable, Equatable {

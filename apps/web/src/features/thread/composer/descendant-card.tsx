@@ -1,15 +1,32 @@
 import { Link } from "@tanstack/react-router";
-import { childAskingLabel } from "@ace/ui-core";
 import { Suspense, type ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import type { DescendantRequest } from "./descendant-request.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { liveOf, useThreadFreshness, type Live } from "@/lib/live-connection.ts";
+import { childAskingWords } from "./live-words.ts";
 
 /** The strip page a child's request takes: its interaction id, or its thread's when unloaded. */
 export function descendantKey(request: DescendantRequest): string {
   return request.interactionId ?? `thread:${request.threadId}`;
+}
+
+/**
+ * Whether "‹child› needs you" may be said: the hint naming the child comes from the copies it
+ * was found through (`via`, at most three levels), and what the child has open from its own, so
+ * all of them must be current. The first one that isn't says why.
+ */
+function useHintLive(request: DescendantRequest): Live {
+  const copies = [
+    useThreadFreshness(request.via[0]),
+    useThreadFreshness(request.via[1]),
+    useThreadFreshness(request.via[2]),
+    useThreadFreshness(request.threadId),
+  ];
+  const stale = copies.find((copy) => !copy.fresh);
+  return liveOf(stale === undefined, stale?.staleLabel);
 }
 
 /**
@@ -27,6 +44,7 @@ export function DescendantCard(props: {
 }) {
   const { request } = props;
   const machine = useMachineSearch();
+  const asking = childAskingWords(useHintLive(request), request.name);
   return (
     <>
       {request.interactionId ? (
@@ -42,8 +60,8 @@ export function DescendantCard(props: {
         </Suspense>
       ) : (
         <p className="flex min-h-9 items-center gap-[7px] px-4 pt-2 text-ui">
-          <StatusGlyph state="needs-you" />
-          <span className="min-w-0 truncate">{childAskingLabel(request.name)}</span>
+          {asking.needsYou && <StatusGlyph state="needs-you" />}
+          <span className="min-w-0 truncate">{asking.text}</span>
           <Link
             to="/t/$threadId"
             params={{ threadId: request.threadId }}

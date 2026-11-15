@@ -54,3 +54,50 @@ test("a message sent as the thread opens waits for the setting and goes as it sa
   const sent = await until(() => commands("thread.send")[0], "the send");
   expect(sent.delivery).toBe("steer");
 });
+
+test("a guest session's controls say whose work it is, and Stop ends it while it runs", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "guest",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Linux box · Fix the login flow",
+    details: { guest: { host: "linux-box", name: "Linux box" } },
+  });
+  fake.apply("guest", [
+    facts.rootAgent("claude"),
+    {
+      type: "background.started",
+      owner: "ace",
+      agent: "root",
+      task: "ace-guest:1",
+      kind: "other",
+      title: "screen_act from Linux box",
+      stoppable: true,
+    },
+  ]);
+  const session = open(connect(fake), "guest");
+  const controls = await until(
+    () => native.frames.findLast((frame) => frame.type === "thread.controls")?.row,
+    "composer controls",
+  );
+  expect(controls).toMatchObject({
+    guest: { line: "Used by agents on Linux box. Stop to end their work." },
+    canStop: true,
+  });
+  session.handle({ type: "stop", requestId: "stop" });
+  await until(() => commands("thread.interrupt").length === 1, "the stop");
+  expect(commands("thread.interrupt")[0]).toMatchObject({ threadId: "guest", cascade: true });
+});
+
+test("a thread the person talks to has no guest line", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "own", workspaceId: "ace", title: "Own", provider: "codex" });
+  fake.apply("own", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
+  open(connect(fake), "own");
+  const controls = await until(
+    () => native.frames.findLast((frame) => frame.type === "thread.controls")?.row,
+    "composer controls",
+  );
+  expect(controls).toMatchObject({ guest: null });
+});

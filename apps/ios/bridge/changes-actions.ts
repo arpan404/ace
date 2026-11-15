@@ -19,6 +19,9 @@ export const ChangesAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("changes.open"), path, open: z.boolean() }),
   z.object({ kind: z.literal("changes.expand"), open: z.boolean() }),
   z.object({ kind: z.literal("changes.more"), path }),
+  /** A file read in parts: its next part, or back to its first. */
+  z.object({ kind: z.literal("changes.onward"), path }),
+  z.object({ kind: z.literal("changes.rewind"), path }),
   z.object({ kind: z.literal("changes.line"), path, index: z.number().int().min(0) }),
   z.object({ kind: z.literal("changes.layout"), layout: z.enum(["unified", "split"]) }),
   z.object({ kind: z.literal("changes.viewed"), path, viewed: z.boolean() }),
@@ -96,6 +99,10 @@ export function changesAction(
       return true;
     case "changes.more":
       return session.more(action.path);
+    case "changes.onward":
+      return session.onward(action.path);
+    case "changes.rewind":
+      return session.rewind(action.path);
     case "changes.line":
       return session.line(action.path, action.index);
     case "changes.layout":

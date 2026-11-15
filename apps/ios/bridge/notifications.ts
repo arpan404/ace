@@ -1,14 +1,16 @@
 import { z } from "zod";
-import type { ClientCore } from "@ace/client";
+import { ClientError, type ClientCore } from "@ace/client";
 import {
   AppState,
   InteractionId,
   NotificationPreferences,
   ThreadId,
   type Notification,
+  type NotificationAddress,
   type NotificationFeed,
 } from "@ace/protocol";
 import { submitCommand } from "./commands.ts";
+import { PhonePush, phoneAddress, sameAddress } from "./notification-address.ts";
 import {
   alertAnswer,
   alertRequest,
@@ -20,10 +22,20 @@ import {
   PhoneNotificationPrefs,
   alertDelivery,
   defaultPhonePrefs,
+  phoneDelivery,
   type PhoneDelivery,
 } from "./notification-delivery.ts";
+import { accountView } from "@ace/ui-core";
+import { host } from "./host.ts";
+import { LimitWatch, type LimitAlert } from "./limit-alerts.ts";
+import { RunWatch, type RunAlert } from "./run-alerts.ts";
+import type { KeptValue } from "./kept-value.ts";
 
 const boundedId = z.string().min(1).max(200);
+/** Live alerts awaiting Swift's answer at once, the daemon's own cap on ack waiters. */
+const handedOverLimit = 256;
+/** As many recent runs as the web's inbox reads for its toasts. */
+const runInboxLimit = 50;
 export const NotificationAction = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("notifications.sync"),
@@ -32,6 +44,8 @@ export const NotificationAction = z.discriminatedUnion("type", [
     cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     /** This phone's own delivery preferences; older hosts omit them. */
     phone: PhoneNotificationPrefs.optional(),
+    /** This phone's push token and key (`notification-address.ts`); null or absent: none. */
+    push: PhonePush.nullable().optional(),
   }),
   z.object({ type: z.literal("notifications.config") }),
   z.object({ type: z.literal("notifications.preferences"), preferences: NotificationPreferences }),
@@ -63,6 +77,11 @@ export const NotificationAction = z.discriminatedUnion("type", [
     threadId: ThreadId.and(boundedId),
     text: z.string().min(1).max(8192),
   }),
+  /**
+   * Swift handled a live alert (`notifications.alert`): posted it, chose by this phone's own
+   * settings not to, or found it already shown from a push. Only then is it acknowledged.
+   */
+  z.object({ type: z.literal("notifications.delivered"), id: boundedId }),
 ]);
 export type NotificationAction = z.infer<typeof NotificationAction>;
 /** What a notification action ended as. Only `confirmed` means the daemon accepted the answer. */
@@ -93,9 +112,18 @@ export class NotificationBridge {
   #minuteOfDay: MinuteOfDay;
   /** False until Swift reports on/off; the runtime's default must not unregister a device. */
   #synced = false;
+  /** Swift's push token and key; without one the daemon sends alerts on the socket only. */
+  #push: PhonePush | null = null;
   /** What this connection has told the daemon; unknown again after every reconnect. */
-  #daemon: "registered" | "unregistered" | undefined;
+  #daemon: NotificationAddress | "unregistered" | undefined;
+  /**
+   * This connection's daemon refused the push address: it predates ADR 0106, so it gets the
+   * socket address and no acks. A reconnect asks again, in case the machine was updated.
+   */
+  #pushRefused = false;
   #connection = 0;
+  /** Live alerts handed to Swift on this connection and not yet acknowledged. */
+  #handedOver = new Set<string>();
   /** Register/unregister/catch-up run one at a time, each against the latest on/off state. */
   #queue: Promise<void> = Promise.resolve();
   #stop: (() => void)[] = [];
@@ -103,6 +131,10 @@ export class NotificationBridge {
   readonly detailsMs: number;
   /** How long an alert waits to read its request before posting without it. */
   readonly requestMs: number;
+  /** Usage-limit alerts: read while notifications are on, the machine is ready and limits are wanted. */
+  #limits: LimitWatch | undefined;
+  /** Automation-run alerts: read while notifications are on, the machine is ready and runs are wanted. */
+  #runs: RunWatch | undefined;
 
   constructor(
     client: ClientCore,
@@ -111,6 +143,10 @@ export class NotificationBridge {
     minuteOfDay: MinuteOfDay,
     detailsMs = 8000,
     requestMs = 1500,
+    /** The phone's clock in milliseconds, for usage-limit and run alerts; none watched without it. */
+    now?: () => number,
+    /** How far this machine's runs were said, kept between launches (`run-alerts.ts`). */
+    runProgress?: KeptValue,
   ) {
     this.requestMs = requestMs;
     this.#client = client;
@@ -118,21 +154,65 @@ export class NotificationBridge {
     this.#put = put;
     this.#schedule = schedule;
     this.detailsMs = detailsMs;
+    if (now)
+      this.#limits = new LimitWatch(
+        async () =>
+          (
+            await client.request(
+              { type: "accounts.list", requestId: host.uuid() },
+              { timeoutMs: 15_000 },
+            )
+          ).accounts.map(accountView),
+        schedule,
+        now,
+        (alert) => this.#limit(alert),
+      );
+    if (now)
+      this.#runs = new RunWatch(
+        // A page of recent runs, newest first; `before` reads further back.
+        (before, finishedAfter) =>
+          client.request(
+            {
+              type: "automation.inbox",
+              limit: runInboxLimit,
+              ...(before ? { before } : {}),
+              ...(finishedAfter === undefined ? {} : { finishedAfter: Math.max(0, finishedAfter) }),
+            },
+            { timeoutMs: 15_000 },
+          ),
+        schedule,
+        now,
+        (alert) => this.#run(alert),
+        runProgress,
+      );
     const connection = client.connectionState();
     this.#stop.push(
       connection.subscribe(() => {
         if (connection.getSnapshot() === "ready") void this.#connected();
         else {
+          this.#limits?.stop();
+          this.#runs?.stop();
           this.#connection++;
           this.#daemon = undefined;
+          this.#pushRefused = false;
+          // The daemon gave up waiting on that socket's frames; a late ack would mean nothing.
+          this.#handedOver.clear();
         }
       }),
       client.onMessage((message) => {
-        if (message.type === "notification" && this.#enabled) this.#alert(message.notification);
+        if (message.type !== "notification") return;
+        // Before Swift syncs nothing is known: no ack, so the daemon pushes, and catch-up
+        // posts it here later unless the push already showed it (`PushedAlerts`).
+        if (!this.#synced) return;
+        // Off by the phone's own choice: taken and deliberately not shown.
+        if (!this.#enabled) return this.#acknowledge(message.notification.id);
+        this.#alert(message.notification);
       }),
     );
   }
   close(): void {
+    this.#limits?.stop();
+    this.#runs?.stop();
     for (const stop of this.#stop.splice(0)) stop();
   }
   handle(action: NotificationAction): void {
@@ -143,6 +223,9 @@ export class NotificationBridge {
         this.#synced = true;
         this.#appState = action.appState;
         if (action.phone) this.#phone = action.phone;
+        this.#push = action.push ?? null;
+        this.#watchLimits();
+        this.#watchRuns();
         this.#cursor = Math.max(this.#cursor, action.cursor);
         if (this.#client.state === "ready") {
           if (changed) this.#presence();
@@ -168,9 +251,63 @@ export class NotificationBridge {
         return;
       case "notifications.reply":
         void this.#reply(action).catch(() => this.#outcome(action.requestId, "unsaved"));
+        return;
+      case "notifications.delivered":
+        if (this.#handedOver.delete(action.id)) this.#acknowledge(action.id);
     }
   }
+  /** Watches usage limits only while an alert could show: on, ready, and the category wanted. */
+  #watchLimits(): void {
+    const wanted =
+      this.#enabled &&
+      this.#client.state === "ready" &&
+      (this.#phone.inApp.limits || this.#phone.system.limits);
+    if (wanted) this.#limits?.start();
+    else this.#limits?.stop();
+  }
+  /** One usage-limit change, with how this phone shows it now. */
+  #limit(alert: LimitAlert): void {
+    const delivery = phoneDelivery("limits", this.#phone, {
+      foreground: this.#appState === "foreground",
+      minuteOfDay: this.#minuteOfDay(),
+    });
+    this.#put(`notifications:limit:${alert.key}`, () => ({
+      type: "notifications.limit",
+      ...alert,
+      delivery,
+    }));
+  }
+  /**
+   * Watches automation runs only while an alert could show. A dropped connection pauses it, so a
+   * run that finished meanwhile is said on return; turning alerts off forgets where it was.
+   */
+  #watchRuns(): void {
+    // Until Swift says what the person wants, nothing is known to be off: pause, never forget.
+    if (!this.#synced) {
+      this.#runs?.stop();
+      return;
+    }
+    const wanted =
+      this.#enabled && (this.#phone.inApp.automations || this.#phone.system.automations);
+    if (!wanted) this.#runs?.forget();
+    else if (this.#client.state === "ready") this.#runs?.start();
+    else this.#runs?.stop();
+  }
+  /** One finished automation run, with how this phone shows it now. */
+  #run(alert: RunAlert): void {
+    const delivery = phoneDelivery("automations", this.#phone, {
+      foreground: this.#appState === "foreground",
+      minuteOfDay: this.#minuteOfDay(),
+    });
+    this.#put(`notifications:run:${alert.key}`, () => ({
+      type: "notifications.run",
+      ...alert,
+      delivery,
+    }));
+  }
   async #connected(): Promise<void> {
+    this.#watchLimits();
+    this.#watchRuns();
     this.#presence();
     // Native state (on/off, app state, cursor) may postdate this runtime; ask for it again.
     this.#put("notifications:connected", () => ({ type: "notifications.connected" }));
@@ -181,29 +318,54 @@ export class NotificationBridge {
     return this.#queue;
   }
   /**
-   * On: register this phone once per connection, then catch up. Off: unregister once per
-   * connection, so a mute that couldn't be sent, or a registration the daemon kept from an
-   * earlier socket, is undone as soon as the phone reconnects.
+   * On: register this phone's address once per connection, and again when its push token or key
+   * changes, then catch up. Off: unregister once per connection, so a mute that couldn't be sent,
+   * or a registration the daemon kept from an earlier socket, is undone as soon as the phone
+   * reconnects.
    */
   async #reconcile(): Promise<void> {
     if (!this.#synced || this.#client.state !== "ready") return;
-    const want = this.#enabled ? "registered" : "unregistered";
-    if (this.#daemon !== want) {
+    const want = this.#enabled
+      ? phoneAddress(this.#pushRefused ? null : this.#push)
+      : "unregistered";
+    const told = this.#daemon;
+    const current =
+      want === "unregistered" || told === undefined || told === "unregistered"
+        ? want === told
+        : sameAddress(want, told);
+    if (!current) {
       const connection = this.#connection;
       try {
-        if (want === "registered")
-          await this.#client.request({
-            type: "notification.register",
-            device: { channel: "websocket", platform: "phone" },
-          });
-        else await this.#client.request({ type: "notification.unregister" });
-      } catch {
+        if (want === "unregistered")
+          await this.#client.request({ type: "notification.unregister" });
+        else await this.#client.request({ type: "notification.register", device: want });
+      } catch (error) {
+        if (connection !== this.#connection) return;
+        // A daemon older than the push channel can't parse the address and refuses it; alerts
+        // keep working on the socket address. Any other failure, such as a current daemon's
+        // `notification_rejected`, retries the push address on the next sync.
+        if (want !== "unregistered" && want.channel === "push" && unparsable(error)) {
+          this.#pushRefused = true;
+          return this.#reconcile();
+        }
         return; // The next connection retries; catch-up needs a registered device.
       }
       if (connection !== this.#connection) return;
       this.#daemon = want;
     }
-    if (want === "registered") await this.#catchUp();
+    if (want !== "unregistered") await this.#catchUp();
+  }
+  /**
+   * Tells the daemon this phone handled a live alert, so it doesn't push it too (ADR 0106): Swift
+   * posted it, or this phone's settings say not to show it. An app suspended before then sends
+   * nothing and gets the push. The daemon waits 3 s (`ackTimeoutMs` in the daemon's
+   * `notification-ack.ts`); the request read (`requestMs`, 1.5 s at most) plus Swift's post has
+   * to fit inside it, or the push shows too and the app skips its own copy (`PushedAlerts`).
+   */
+  #acknowledge(id: string): void {
+    // A daemon that refused the push address can't read acks either and would answer each one
+    // with an error.
+    if (!this.#pushRefused) this.#send({ type: "notification.ack", id });
   }
   /** The daemon stops counting a backgrounded socket as delivered (it may be suspended). */
   #presence(): void {
@@ -233,8 +395,8 @@ export class NotificationBridge {
     const entries = await Promise.all(
       feed.entries.map((entry) =>
         entry.notification.interactionId && asking++ < enrichLimit
-          ? this.#withRequest(entry.notification)
-          : this.#delivered(entry.notification),
+          ? this.#withRequest({ ...entry.notification, cursor: entry.cursor })
+          : this.#delivered({ ...entry.notification, cursor: entry.cursor }),
       ),
     );
     this.#put("notifications:feed", () => ({
@@ -245,12 +407,22 @@ export class NotificationBridge {
     }));
   }
   #alert(notification: Notification): void {
-    void this.#withRequest(notification).then((delivered) =>
+    const connection = this.#connection;
+    void this.#withRequest(notification).then((delivered) => {
+      // Swift's answer acks it only on the connection whose daemon is still waiting.
+      if (connection === this.#connection) {
+        this.#handedOver.add(notification.id);
+        // As many as the daemon waits on at once; an older one's wait is long over.
+        for (const old of this.#handedOver) {
+          if (this.#handedOver.size <= handedOverLimit) break;
+          this.#handedOver.delete(old);
+        }
+      }
       this.#put(`notifications:alert:${notification.id}`, () => ({
         type: "notifications.alert",
         notification: delivered,
-      })),
-    );
+      }));
+    });
   }
   /** The alert with how this phone shows it now (`notification-delivery.ts`). */
   #delivered(notification: Notification): Delivered {
@@ -381,4 +553,17 @@ export class NotificationBridge {
       },
     );
   }
+}
+
+/**
+ * The daemon couldn't parse the request, as one older than ADR 0106 answers a push address:
+ * `invalid_message`, or `unsupported` from builds of 2026-11-01 to 11-05, which answered any
+ * malformed known request that way. The client keeps the server's code as the error's message.
+ */
+function unparsable(error: unknown): boolean {
+  return (
+    error instanceof ClientError &&
+    error.code === "daemon" &&
+    (error.message === "invalid_message" || error.message === "unsupported")
+  );
 }

@@ -2,7 +2,7 @@ import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import type { MachineCapability, MachineGrantLevel } from "@ace/protocol";
 import type { Machine } from "@/lib/machines.ts";
 import { capabilityRows, grantsKey, machineGrants, setGrant } from "./fleet-grants.ts";
-import { linkersOf } from "./fleet-links.ts";
+import { linkersOf } from "@ace/ui-core/fleet-map";
 import type { Fleet } from "./use-fleet.ts";
 
 /** A capability's level across the links being edited; "mixed" while they disagree. */

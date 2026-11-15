@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Where the New thread sheet pushes; choosing a mention pops back to the start.
-enum NewThreadRoute: Hashable { case mention, instructions }
+enum NewThreadRoute: Hashable { case mention, instructions, startFrom(NewThreadStartFrom.Kind) }
 
 /// New thread: a system sheet with the keyboard up at once. Cancel and its name; the choices as
 /// pills (project, machine when there's more than one, model and effort, where it runs, access);
@@ -13,7 +13,8 @@ struct NewThreadSheet: View {
     /// The draft, opened once for this showing of the sheet (`NewThreadSheetHost`).
     let drafts: NewThreadDraftModel
     /// The start was saved on this phone under this command id on this machine.
-    let saved: (_ machineId: String, _ commandId: String) -> Void
+    /// The start is saved on this phone, with the draft as it was sent.
+    let saved: (_ machineId: String, _ commandId: String, _ sent: NewThreadDraft) -> Void
     var initialProject: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -35,6 +36,8 @@ struct NewThreadSheet: View {
     @State private var remembered = 0
     /// The first message's `@`, `/` and + lists, in the chosen project with the chosen agent.
     @State private var suggester = ComposerSuggester()
+    /// The chosen project's open pull requests and issues to start from.
+    @State private var startFrom: NewThreadStartFrom?
     private var draft: NewThreadDraft { drafts.draft }
     /// The first message's files, in the chosen project's draft scope.
     private var files: [AttachmentFile] {
@@ -81,6 +84,7 @@ struct NewThreadSheet: View {
                         suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
                         suggester.readAhead()
                     }
+                    .task(id: "\(machineId ?? "")|\(draft.projectId ?? "")") { await readStartFrom() }
             }
             .background(AceTheme.Colours.background)
             .onAppear {
@@ -258,9 +262,13 @@ struct NewThreadSheet: View {
         let last = kept.picks(for: draft)
         let sameAsLast = last.map { !$0.matches(draft) } ?? false
         let shot = files.isEmpty && draft.projectId != nil ? screenshot : nil
-        guard NewThreadSuggestions.shows(screenshot: shot, skills: skills, offersSkills: offersSkills, sameAsLast: sameAsLast) else { return nil }
+        // A thread already started from one keeps it: the row offers no other.
+        let starts = draft.issue == nil && draft.pullRequest == nil ? startChips : []
+        guard NewThreadSuggestions.shows(screenshot: shot, skills: skills, offersSkills: offersSkills, sameAsLast: sameAsLast,
+                                         startsFrom: !starts.isEmpty) else { return nil }
         return NewThreadSuggestions(
             screenshot: shot, skills: skills, offersSkills: offersSkills, sameAsLast: sameAsLast,
+            startFrom: starts, openStartFrom: { path.append(.startFrom($0)) },
             attachScreenshot: attach, pickSkill: { skill in
                 memory.used(skill, in: draft); remembered += 1
                 suggester.choose(skill.row, text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }),
@@ -273,6 +281,17 @@ struct NewThreadSheet: View {
             },
             restoreLast: { if let last { drafts.edit { $0 = last.applied(to: $0) } } })
     }
+    /// The open work lists, as chips: each list there is, with its total.
+    private var startChips: [(kind: NewThreadStartFrom.Kind, label: String, total: Int)] {
+        guard let startFrom else { return [] }
+        return NewThreadStartFrom.Kind.allCases.compactMap { kind in startFrom.list(kind).map { (kind, $0.label, $0.total) } }
+    }
+    /// The chosen project's open work; a chat, or a project without a forge, has none.
+    private func readStartFrom() async {
+        guard let client, let project = draft.projectId, !draft.isChat else { startFrom = nil; return }
+        startFrom = try? await client.startFrom(project: project)
+    }
+
     /// The screenshot goes on the message like a photo picked with +.
     private func attach(_ shot: LatestScreenshot) {
         guard let client, let project = draft.projectId else { return }
@@ -328,6 +347,13 @@ struct NewThreadSheet: View {
                 }
             case .instructions:
                 NewThreadInstructionsView(drafts: drafts, profiles: profiles) { profiles = TaskProfileStore(defaults: .standard).load() }
+            case .startFrom(let kind):
+                if let startFrom, let project = draft.projectId {
+                    NewThreadStartFromPage(client: client, project: project, lists: startFrom, kind: kind) { seed in
+                        drafts.edit { $0.start(from: seed) }
+                        path = []
+                    }
+                }
             }
         }
     }
@@ -367,7 +393,7 @@ struct NewThreadSheet: View {
             if admitted {
                 suggester.sent()
                 drafts.admitted()
-                saved(machineId, commandId)
+                saved(machineId, commandId, sending)
                 dismiss()
             } else {
                 // A refused handoff waits for the person: it no longer starts by itself.

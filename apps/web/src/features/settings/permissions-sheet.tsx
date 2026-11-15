@@ -14,7 +14,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import { fleetProblem } from "./data/fleet.ts";
 import { capabilityRows, grantLevels } from "./data/fleet-grants.ts";
-import { grantSummary } from "./data/fleet-words.ts";
+import { grantSummary } from "@ace/ui-core/fleet-map";
 import { useGrants } from "./data/use-grants.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 

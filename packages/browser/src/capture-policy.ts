@@ -11,6 +11,12 @@ export interface CaptureViewer {
   viewport: BrowserCaptureViewport;
   /** The codecs the viewer decodes (ADR 0088); without them it gets no pictures. */
   video?: BrowserVideoRequest;
+  /**
+   * ace-media delivers this view on the client's media connection (D1): it keeps the capture
+   * open, but its encodes are ace-media's plan (`CaptureEvents.want`), not the daemon's, and the
+   * daemon sends it nothing.
+   */
+  delivered?: boolean;
 }
 
 export interface CaptureSettings {

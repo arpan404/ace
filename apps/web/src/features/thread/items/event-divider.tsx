@@ -1,5 +1,6 @@
 import type { ThreadReader } from "@ace/client";
-import { useItem, useThreadMeta, useThread } from "@ace/client-react";
+import { useItem, useThread } from "@ace/client-react";
+import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import type { Item } from "@ace/protocol";
 import {
   eventCounts,
@@ -17,8 +18,8 @@ import {
   LightningIcon,
   TerminalWindowIcon,
   WarningIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { Suspense, useCallback, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { PostedImage } from "@/components/attachment-tiles.tsx";
@@ -36,7 +37,7 @@ import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { VisualizationItem } from "@/features/visualization/index.ts";
 
-const icons: Record<EventIcon, PhosphorIcon> = {
+const icons: Record<EventIcon, GlyphIcon> = {
   restart: ArrowClockwiseIcon,
   resume: ClockCounterClockwiseIcon,
   background: TerminalWindowIcon,
@@ -100,9 +101,17 @@ function useEventCounts(threadId: string, itemId: string): EventCounts | undefin
  * rows and cards, errors as one readable row, notices as one quiet line. A message another
  * thread's agent sent is the one input drawn as a sent bubble, under a line naming its sender.
  */
+/** What an event row reads of its thread: who sent a message, and the provider. */
+const senderFacts = (thread: ThreadRecord) => ({
+  provider: thread.provider,
+  delegatedBy: thread.delegatedBy,
+  startedBy: thread.startedBy,
+  delegatedFrom: thread.delegatedFrom,
+});
+
 export function EventBlock(props: { threadId: string; itemId: string }) {
   const stored = useItem(props.threadId, props.itemId);
-  const thread = useThreadMeta(props.threadId);
+  const thread = useThreadField(props.threadId, senderFacts, shallowEqual);
   const counts = useEventCounts(props.threadId, props.itemId);
   if (!stored || !counts) return null;
   const view = eventView(stored, counts, thread?.provider, thread);

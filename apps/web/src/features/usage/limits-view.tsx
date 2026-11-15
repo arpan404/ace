@@ -1,10 +1,9 @@
-import { PushPinIcon } from "@phosphor-icons/react";
+import { PushPinIcon } from "@ace/icons";
 import {
   limitDetails,
   railBars,
   joinNames,
-  limitTime,
-  roundEstimate,
+  limitLine,
   type AccountLimits,
   type AccountWindow,
   type UsageLimits,
@@ -22,9 +21,9 @@ import { LimitBar } from "./limit-bar.tsx";
 
 /**
  * Limits, one account at a time with each of its windows (a session, a week, a model's own week,
- * whatever its provider reports) as a bar of what is left. A marker shows where the bar will be
- * when it resets if use carries on at this pace; the part between is what that pace will still
- * use (amber). A window that pace runs out before its reset is red, with when it runs out.
+ * whatever its provider reports) as a grey bar of what is left: solid for what the pace leaves at
+ * the reset, faint for what it will use. Every row ends in when it comes back; a window that is
+ * out, or runs out before its reset at this pace, says both times in full ink, never in red.
  * Providers that report nothing, and accounts ace can't tell apart, close it as one footnote.
  */
 export function LimitsView(props: {
@@ -232,43 +231,12 @@ function AccountBlock(props: {
  */
 const rowGrid = cn(
   "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5",
-  "@min-[40rem]/limits:grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)_4rem_minmax(7rem,10rem)]",
+  "@min-[40rem]/limits:grid-cols-[minmax(6rem,9rem)_minmax(0,1fr)_4.25rem_minmax(10rem,14rem)]",
 );
-
-/**
- * What a row says at its right, and the words a screen reader hears. A pace that runs out
- * before the reset is an estimate, so the row keeps it to "Out around Sun 9:00 PM" and the
- * spoken name says the sentence in full.
- */
-function windowWhen(window: AccountWindow, now: number): { text: string; spoken: string } {
-  const time = (at: number) => limitTime(at, now);
-  if (window.stale) {
-    const text = "Not used since its reset";
-    return { text, spoken: text };
-  }
-  if (window.leftPercent <= 0) {
-    const text =
-      window.resetsAt === null ? "Out, reset not reported" : `Out until ${time(window.resetsAt)}`;
-    return { text, spoken: text };
-  }
-  if (window.runsOutAt !== null) {
-    const at = time(roundEstimate(window.runsOutAt, now));
-    return { text: `Out around ${at}`, spoken: `Runs out around ${at}` };
-  }
-  if (window.leftPercent >= 100) return { text: "Fresh", spoken: "Fresh" };
-  if (window.resetsAt === null) {
-    const text = "Reset not reported";
-    return { text, spoken: text };
-  }
-  const text = `Resets ${time(window.resetsAt)}`;
-  return { text, spoken: text };
-}
 
 function WindowRow(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
-  const out = window.leftPercent <= 0;
-  const runsOut = !window.stale && (out || window.runsOutAt !== null);
-  const when = windowWhen(window, now);
+  const when = limitLine(window, now);
   const cells = (
     <>
       <span title={window.label} className="truncate text-ui text-muted-foreground">
@@ -277,7 +245,6 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
       <span
         className={cn(
           "text-right text-md font-semibold tabular-nums @min-[40rem]/limits:order-3",
-          runsOut && "text-status-failed",
           window.stale && "font-normal text-subtle-foreground",
         )}
       >
@@ -285,15 +252,11 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
         {!window.stale && <span className="text-xs font-normal text-subtle-foreground"> left</span>}
       </span>
       <div className="col-span-2 @min-[40rem]/limits:order-2 @min-[40rem]/limits:col-span-1">
-        <LimitBar window={window} runsOut={runsOut} />
+        <LimitBar window={window} />
       </div>
-      <span
-        className={cn(
-          "col-span-2 truncate text-xs tabular-nums @min-[40rem]/limits:order-4 @min-[40rem]/limits:col-span-1 @min-[40rem]/limits:text-right",
-          runsOut ? "text-status-failed" : "text-subtle-foreground",
-        )}
-      >
-        {when.text}
+      <span className="col-span-2 truncate text-xs text-subtle-foreground tabular-nums @min-[40rem]/limits:order-4 @min-[40rem]/limits:col-span-1 @min-[40rem]/limits:text-right">
+        <span className={cn(when.strong && "font-medium text-foreground")}>{when.lead}</span>
+        {when.rest && <span className="ml-1.5">{when.rest}</span>}
       </span>
     </>
   );
@@ -330,7 +293,8 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
                 <dd
                   className={cn(
                     "text-right",
-                    line.tone === "out" ? "text-status-failed" : "text-foreground",
+                    "text-foreground",
+                    line.tone === "out" && "font-medium",
                   )}
                 >
                   {line.value}

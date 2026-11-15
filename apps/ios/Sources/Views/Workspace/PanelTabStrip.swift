@@ -127,6 +127,7 @@ struct PanelTabStrip: View {
 
 /// One tab: its title, and a close button unless it is pinned.
 private struct PanelTabItem: View {
+    static let maxTitle: CGFloat = 180
     let tab: PanelView.Tab
     let shown: Bool
     let dragging: Bool
@@ -140,6 +141,8 @@ private struct PanelTabItem: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
                     .foregroundStyle(shown ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                     .lineLimit(1)
+                    // A page's title can be long; a tool's always fits.
+                    .frame(maxWidth: Self.maxTitle)
                     .padding(.leading, AceTheme.Spacing.md)
                     .padding(.trailing, tab.pinned ? AceTheme.Spacing.md : AceTheme.Spacing.xs)
                     .frame(maxHeight: .infinity)
@@ -148,7 +151,7 @@ private struct PanelTabItem: View {
             .buttonStyle(.plain)
             .accessibilityLabel(tab.title)
             .accessibilityAddTraits(shown ? .isSelected : [])
-            .accessibilityIdentifier("panel.tab.\(tab.kind)")
+            .accessibilityIdentifier("panel.tab.\(tab.key)")
             if !tab.pinned {
                 Button(action: close) {
                     AceIcon(.x, size: AceDesign.Size.caret).foregroundStyle(AceTheme.Colours.subtleForeground)
@@ -158,7 +161,7 @@ private struct PanelTabItem: View {
                 .buttonStyle(.plain)
                 .padding(.trailing, AceTheme.Spacing.xs)
                 .accessibilityLabel("Close \(tab.title)")
-                .accessibilityIdentifier("panel.tab.\(tab.kind).close")
+                .accessibilityIdentifier("panel.tab.\(tab.key).close")
             }
         }
         .frame(height: AceDesign.Size.pill)

@@ -1,8 +1,10 @@
 import { facts, type Scenario } from "@ace/fake-daemon";
 import { screen, waitFor } from "@testing-library/react";
+import { createMemoryHistory } from "@tanstack/react-router";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { componentClient } from "@/test/component-client.tsx";
+import { harness } from "@/test/harness.tsx";
 import { answerStore } from "../interactions/answers.ts";
 import { LostChildAction } from "./lost-child-action.tsx";
 
@@ -71,4 +73,13 @@ test("only the lost child's row offers Stop tracking", async () => {
   );
   await screen.findByText("Lost: Studio is no longer paired; its work there may still be running.");
   expect(screen.getAllByRole("button", { name: /Stop tracking/ })).toHaveLength(1);
+});
+
+test("the parent's request about a lost child offers Stop tracking, not Deny", async () => {
+  const app = harness({ history: createMemoryHistory({ initialEntries: ["/t/parent"] }) });
+  app.play(lostScenario("child-a")).step();
+  await app.open("/t/parent");
+  await screen.findByRole("heading", { level: 1, name: "Parent" });
+  expect(await screen.findByRole("button", { name: "Stop tracking" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
 });

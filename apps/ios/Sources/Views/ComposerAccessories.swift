@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Just above the capsule, on the field's words' left edge: the files on the next message with
-/// their upload progress, then its chips (line comments, drawings) as one row of plain capsules,
-/// then the bridge's notice and a pick that couldn't be read. The capsule's own shape never
-/// changes for any of them. Every check (size, what the agent can read, which levels exist) is
-/// the bridge's; this view draws what the bridge says.
+/// their upload progress, then its chips (what it replies to, line comments, drawings) as one row
+/// of plain capsules, then the bridge's notice and a pick that couldn't be read. The capsule's own
+/// shape never changes for any of them. Every check (size, what the agent can read, which levels
+/// exist) is the bridge's; this view draws what the bridge says.
 struct ComposerAccessories: View {
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
@@ -15,7 +15,7 @@ struct ComposerAccessories: View {
         guard screen.controls?.continues == true, let note = screen.controls?.note, !note.isEmpty else { return nil }
         return note
     }
-    private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty }
+    private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty || !screen.quotes.isEmpty }
     var body: some View {
         if !screen.attachments.isEmpty || hasChips || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -25,6 +25,10 @@ struct ComposerAccessories: View {
                 if hasChips {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: AceDesign.Space.related) {
+                            if !screen.quotes.isEmpty {
+                                QuoteChips(items: screen.quotes, remove: { model.removeQuote($0) }, clear: { model.clearQuotes() })
+                                    .transition(.opacity)
+                            }
                             if let chip = model.sheets.chip {
                                 CommentChip(chip: chip) { model.clearComments() }
                                     .transition(.opacity)

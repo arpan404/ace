@@ -26,6 +26,26 @@ import type { ChangesOwner, ChangesStore } from "./changes.ts";
 
 export type WorkStore = ChangesStore & Pick<ThreadSource, "queue">;
 
+/** Branch names the picker shows per page, and linked pull requests per page. */
+export const branchPage = 200;
+export const prPage = 20;
+
+/**
+ * The branches the picker shows: those matching `query` (any part of the name, any case), the
+ * first `shown` of them, and how many more match past those.
+ */
+export function pickBranches(
+  names: readonly string[],
+  query: string,
+  shown: number,
+): { names: string[]; more: number } {
+  const needle = query.trim().toLocaleLowerCase();
+  const matching = needle
+    ? names.filter((name) => name.toLocaleLowerCase().includes(needle))
+    : names;
+  return { names: matching.slice(0, shown), more: Math.max(0, matching.length - shown) };
+}
+
 /** The words for one of a problem's ways out, and whether it asks before it runs. */
 export function problemAction(action: CheckoutProblemAction): {
   id: string;
@@ -107,6 +127,11 @@ export class WorkSession implements WorkSubject {
   #branches:
     | { state: "loading" | "ready" | "error"; names: string[]; truncated: boolean }
     | undefined;
+  /** The picker's search, and how many matching branches it shows. */
+  #branchQuery = "";
+  #branchShown = branchPage;
+  /** Linked pull requests shown; More shows the next page. */
+  #prsShown = prPage;
   #stop: () => void;
   /** A write is running; the sheet offers none twice. */
   busy = false;
@@ -182,6 +207,8 @@ export class WorkSession implements WorkSubject {
     const workspaceId = this.#store.thread?.workspaceId;
     if (!workspaceId) return;
     this.#branches = { state: "loading", names: this.#branches?.names ?? [], truncated: false };
+    this.#branchQuery = "";
+    this.#branchShown = branchPage;
     this.#putBranches();
     try {
       const reply = await this.#owner.request({
@@ -202,6 +229,25 @@ export class WorkSession implements WorkSubject {
       this.#branches = { state: "error", names: [], truncated: false };
     }
     this.#putBranches();
+  }
+
+  /** The picker's search changed: it shows the first page of the branches matching it. */
+  findBranches(query: string): void {
+    this.#branchQuery = query;
+    this.#branchShown = branchPage;
+    this.#putBranches();
+  }
+
+  /** The next page of the branches the picker matches. */
+  moreBranches(): void {
+    this.#branchShown += branchPage;
+    this.#putBranches();
+  }
+
+  /** The next page of the thread's linked pull requests. */
+  morePrs(): void {
+    this.#prsShown += prPage;
+    this.summary();
   }
 
   close(): void {
@@ -239,7 +285,7 @@ export class WorkSession implements WorkSubject {
         note: text(missingBranch(details)?.where ?? (checkout && checkoutNote(checkout)), 256),
         switchReason: reasons.switchReason ?? null,
         worktreeReason: reasons.worktreeReason ?? null,
-        prs: (details?.linkedPrs ?? []).slice(0, 20).map((pr) => ({
+        prs: (details?.linkedPrs ?? []).slice(0, this.#prsShown).map((pr) => ({
           id: `${pr.repo.host}/${pr.repo.owner}/${pr.repo.name}#${pr.number}`,
           number: pr.number,
           title: text(pr.title, 256),
@@ -252,7 +298,7 @@ export class WorkSession implements WorkSubject {
           name: pr.repo.name,
           repository: pr.repo,
         })),
-        morePrs: Math.max(0, (details?.linkedPrs?.length ?? 0) - 20),
+        morePrs: Math.max(0, (details?.linkedPrs?.length ?? 0) - this.#prsShown),
         problem: problem
           ? {
               kind: problem.kind,
@@ -274,13 +320,17 @@ export class WorkSession implements WorkSubject {
     this.#sink.put("work:branches", () => {
       const branches = this.#branches;
       if (!branches) return undefined;
+      const page = pickBranches(branches.names, this.#branchQuery, this.#branchShown);
       return {
         type: "work.branches",
         threadId: this.threadId,
         epoch: this.epoch,
         state: branches.state,
-        names: branches.names.slice(0, 500).map((name) => this.#preview(name, 256)),
-        truncated: branches.truncated || branches.names.length > 500,
+        query: this.#preview(this.#branchQuery, 256),
+        names: page.names.map((name) => this.#preview(name, 256)),
+        more: page.more,
+        // ace lists a project's first 1,000 branches; past those, search can't reach.
+        truncated: branches.truncated,
       };
     });
   }

@@ -66,8 +66,8 @@ struct InboxView: View {
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
-                ForEach(inbox.merged.snooze) { option in
-                    Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
+                ForEach(SnoozeChoice.list(times: inbox.merged.snooze, row: inbox.row(key))) { choice in
+                    Button(choice.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: choice.id) } }
                 }
             }
             .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }
@@ -135,6 +135,9 @@ struct InboxView: View {
                     SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
                 }
             }
+            Tab(value: InboxTab.review) { review }
+                label: { Label { Text(HomeTabs.title(.review)) } icon: { HomeTabs.tabImage(.review) } }
+                .accessibilityIdentifier("tab.review")
             if HomeTabs.composeTab {
                 Tab(HomeTabs.title(.search), systemImage: HomeTabs.symbol(.search), value: InboxTab.search) { search }
                     .accessibilityIdentifier("tab.search")
@@ -189,10 +192,21 @@ struct InboxView: View {
             .modifier(HomeTabBar(shown: sizeClass != .regular))
     }
 
+    /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
+    private var review: some View {
+        CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
+                      openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
+            .inboxFootBar {
+                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+            }
+            .modifier(HomeTabBar(shown: sizeClass != .regular))
+    }
+
     private var sheets: some View {
         tabs
             .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
-                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }))
+                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
+                                           openUnlisted: { openThread($0, listed: false) }))
             .sheet(isPresented: $pairing) {
                 if let machines {
                     NavigationStack {
@@ -289,6 +303,21 @@ struct InboxView: View {
                 .environment(\.openPullRequest) { project, number, repository in
                     path.wrappedValue.append(.forge(ForgeRoute(kind: .pull, machineId: key.machineId, project: project, number: number, repository: repository)))
                 }
+                // A subagent delegated to another machine opens on that machine's client.
+                .environment(\.openElsewhere) { host, child, name in
+                    let paired = inbox.client(host)
+                    switch DelegatedElsewhere.reach(host: host, name: paired == nil ? name : inbox.name(host), connection: paired?.connection) {
+                    case .open(let machine):
+                        inbox.client(machine)?.open(child)
+                        path.wrappedValue.append(.thread(InboxKey(machineId: machine, id: child)))
+                        return nil
+                    case .away(let words): return words
+                    }
+                }
+                // A thread on another paired machine (who sent a message) opens on that machine.
+                .environment(\.remoteThreads, RemoteThreads.on(inbox) { other, host, id in
+                    other.open(id); path.wrappedValue.append(.thread(InboxKey(machineId: host, id: id)))
+                })
                 // One page per thread on its machine: a stack that swaps its page in place for
                 // another thread starts that page fresh, never with the last one's transcript,
                 // open page, drafts or sheets.
@@ -325,21 +354,20 @@ struct InboxView: View {
     }
     /// A command id from the shared catalog (`bridge/palette.ts`).
     private func runCommand(_ id: String) {
-        switch id {
-        case "new-thread": compose(chat: false)
-        case "new-chat": compose(chat: true)
-        case "select":
+        switch HomeCommand(id: id) {
+        case .newThread: compose(chat: false)
+        case .newChat: compose(chat: true)
+        case .select:
             threadsPath = []
             tab = .threads
             selectAsks += 1
-        case "pulls": open(.pulls)
-        case "issues": open(.issues)
-        default:
-            if id.hasPrefix("thread:"), let destination = ThreadDestination(command: String(id.dropFirst(7))) {
-                openOnThread(destination)
-            } else {
-                present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
-            }
+        case .place(let place): open(place)
+        case .machine(let machine):
+            machineFilter = machine
+            projectFilter = ""
+            tab = .threads
+        case .thread(let destination): openOnThread(destination)
+        case .settings(let id): present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
         }
     }
     /// One of the open thread's places (Changes, Agent tree…): back on its tab, once its page has
@@ -440,7 +468,7 @@ struct InboxView: View {
         switch id {
         case "unread", "read": Task { if await client.markUnread(key.id, id == "unread") { organize.feedback += 1 } }
         case "pin", "unpin": if let row { actions.pin(row, key, id == "pin") }
-        case "move": organize.moving = MoveAsk(machineId: key.machineId, keys: [key])
+        case "move": organize.moving = MoveAsk(keys: [key])
         case "settle": if let row { actions.settle(row, key) }
         case "unsettle": if let row { actions.unsettle(row, key) }
         case "auto-settle-off", "auto-settle-on": Task { _ = await client.setAutoSettle(key.id, id == "auto-settle-on") }

@@ -43,8 +43,8 @@ extension XCUIApplication {
                       "thread.work": "Work", "thread.attachments": "Attachments",
                       "thread.computer": "Computer use", "thread.openIn": "Open in",
                       "thread.turns": "Turns", "thread.logs": "Logs",
-                      "thread.menu.rename": "Rename", "thread.forkLast": "Fork from the last turn",
-                      "thread.merge": "Bring back to parent", "thread.continueOn": "Continue on"]
+                      "thread.menu.rename": "Rename…", "thread.forkLast": "Fork from the last turn",
+                      "thread.merge": "Bring back to parent…", "thread.continueOn": "Continue on"]
         // A menu item with a second line reads both in its label: match its first words.
         let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
                                                 labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
@@ -90,15 +90,61 @@ extension XCUIApplication {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
         back.tap()
     }
-    /// The list's compose button: the round header button (the tab bar's prominent one on iOS 27).
-    var newThreadButton: XCUIElement { buttons["inbox.compose"].firstMatch }
+    /// The list's compose button: the round header button (`inbox.compose`) or, on an iOS 27
+    /// iPhone, the tab bar's prominent one. That one has no identifier of ours, and iOS 27 puts its
+    /// symbol's name on the button in some launches and only on its image in others, so it's found
+    /// as the tab bar's button labelled New thread or New chat. The empty states' text-only New
+    /// chat buttons sit outside the tab bar. Waits up to 25 s for either to show, then returns the
+    /// header's, so a caller's own wait still fails with its message when neither came.
+    var newThreadButton: XCUIElement {
+        let header = buttons["inbox.compose"]
+        let tab = tabBars.buttons.matching(NSPredicate(format: "label IN {'New thread', 'New chat'}")).firstMatch
+        let symbol = buttons.matching(NSPredicate(format: "identifier == 'square.and.pencil'")).firstMatch
+        let deadline = Date().addingTimeInterval(25)
+        while Date() < deadline {
+            if header.exists { return header }
+            if tab.exists { return tab }
+            if symbol.exists { return symbol }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return header
+    }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.
     @MainActor @discardableResult func revealRow(_ identifier: String, timeout: TimeInterval = 30) -> XCUIElement {
-        XCTAssertTrue(inboxReady.waitForExistence(timeout: timeout))
+        XCTAssertTrue(waitForInbox(timeout: timeout), "the Threads list never showed its Inbox control")
         let row = buttons[identifier]
         bringToMiddle(row)
         XCTAssertTrue(row.isHittable, "\(identifier) never showed in the inbox")
         return row
+    }
+    /// Where the Threads list is: the collection holding its rows. Beside an iPad's open thread
+    /// it is the sidebar, not the middle of the window.
+    @MainActor var threadsList: CGRect {
+        let list = collectionViews.containing(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-")).firstMatch
+        if list.exists, list.frame.width > 0 { return list.frame }
+        return inboxReady.exists ? inboxReady.frame : frame
+    }
+    /// Waits for the Threads list. Back from a thread the list keeps its place, so scrolled down
+    /// its first row, the Inbox control, is out of view and unloaded: the list is flung back to
+    /// its top, inside its own frame, as a person would.
+    @MainActor func waitForInbox(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if inboxReady.exists { return true }
+            // On a phone the list fills the window, so its frame can equal the window's; when the
+            // list isn't found, the window is where a person would drag anyway.
+            let list = threadsList
+            guard list.width > 0, list.height > 0, frame.width > 0, frame.height > 0 else {
+                _ = inboxReady.waitForExistence(timeout: 1)
+                continue
+            }
+            let x = list.midX / frame.width
+            let from = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.25) / frame.height))
+            let to = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.9) / frame.height))
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
+            _ = inboxReady.waitForExistence(timeout: 1)
+        }
+        return inboxReady.exists
     }
     /// Taps one of Inbox, Snoozed and Settled. They are the Threads list's first row, so a list
     /// scrolled down has them out of view: it is dragged back to its top first, as a person would.
@@ -120,7 +166,7 @@ extension XCUIApplication {
             // under the Threads list's own Inbox control.
             let exists = element.exists
             let frame = exists ? element.frame : .zero
-            let column = exists ? frame : inboxReady.exists ? inboxReady.frame : self.frame
+            let column = exists ? frame : threadsList
             let x = self.frame.width > 0 ? min(max(column.midX / self.frame.width, 0.05), 0.95) : 0.5
             let lower = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.72))
             let upper = coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.38))
@@ -139,7 +185,7 @@ extension XCUIApplication {
     /// Drags the inbox list one screen further down, in the list's own column: beside an iPad's
     /// open thread the middle of the window is the thread, not the list.
     @MainActor func dragListUp() {
-        let column = inboxReady.exists ? inboxReady.frame : frame
+        let column = threadsList
         let x = frame.width > 0 ? min(max(column.midX / frame.width, 0.05), 0.95) : 0.5
         coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.75))
             .press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: x, dy: 0.3)), withVelocity: .fast, thenHoldForDuration: 0)
@@ -180,6 +226,9 @@ extension XCUIApplication {
             buttons[id].tap()
             return
         }
+        // The shared X (`SheetClose`: Search conversation, Tools, the browser's sheets) has only its label.
+        let shared = navigationBars.buttons.matching(NSPredicate(format: "label == %@", "Close")).firstMatch
+        if shared.exists { shared.tap(); return }
         XCTFail("No sheet to close")
     }
 }

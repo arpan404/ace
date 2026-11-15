@@ -6,7 +6,7 @@ import XCTest
     func testShelvesSwipesAndUndo() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         app.revealRow("thread.ios-tree")
         screenshot("inbox")
         // Snoozed threads wait on the Snoozed tab, out of the Inbox.

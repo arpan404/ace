@@ -1,4 +1,4 @@
-import { FileIcon } from "@phosphor-icons/react";
+import { FileIcon } from "@ace/icons";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
