@@ -126,7 +126,11 @@ test("a request waits in the chat as the bot's bubble, and Allow answers it in p
       { allowed: true, always: false },
     ]),
   );
-  expect(await within(request).findByText("Allowed")).toBeTruthy();
+  // Answered, it stays where it was asked as one line saying so, with nothing left to press.
+  const answered = await screen.findByRole("group", {
+    name: "Inbox wants to send an email. Allowed",
+  });
+  expect(within(answered).queryByRole("button", { name: "Allow" })).toBeNull();
 });
 
 test("with focus on a waiting request, Escape denies it and Enter allows the next", async () => {
@@ -144,7 +148,8 @@ test("with focus on a waiting request, Escape denies it and Enter allows the nex
       { allowed: false, always: false },
     ]),
   );
-  expect(await within(first).findByText("Denied")).toBeTruthy();
+  const denied = await screen.findByRole("group", { name: "Inbox wants to run a command. Denied" });
+  expect(within(denied).queryByRole("button", { name: "Allow" })).toBeNull();
   const inbox = spade.agents.find((agent) => agent.id === "inbox");
   if (!inbox) throw new Error("no Inbox");
   spade.ask(inbox, "k2", "workspace_write", { path: "notes.md", content: "hi" });
