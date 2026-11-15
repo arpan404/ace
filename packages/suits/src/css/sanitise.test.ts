@@ -74,6 +74,11 @@ describe("suit.css rules a Suit may write", () => {
       `[data-suit="neon"] [data-part=transcript]::-webkit-scrollbar-thumb{background:#f0f}`,
     ],
     [
+      "an answer's opening letter, as a drop cap",
+      `[data-part=message-agent]::first-letter { float: left; font-size: 3em }`,
+      `[data-suit="neon"] [data-part=message-agent]::first-letter{float:left;font-size:3em}`,
+    ],
+    [
       "preference and width queries",
       `@media (prefers-color-scheme: dark) and (min-width: 600px) { [data-part=composer] { box-shadow: 0 0 8px #f0f } }`,
       `@media (prefers-color-scheme:dark) and (min-width:600px){[data-suit="neon"] [data-part=composer]{box-shadow:0 0 8px #f0f}}`,
