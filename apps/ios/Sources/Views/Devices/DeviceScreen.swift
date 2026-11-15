@@ -246,6 +246,14 @@ struct DeviceScreen: View {
                     .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
                     .accessibilityIdentifier("devices.problem")
             }
+            if let degraded = info?.degraded, !degraded.isEmpty, info?.live == true {
+                Text(degraded)
+                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
+                    .accessibilityIdentifier("devices.degraded")
+            }
             if let info, !info.control.sentence.isEmpty {
                 // Who controls it: one sentence and its one word, as a request strip reads.
                 HStack(spacing: AceDesign.Space.row) {
