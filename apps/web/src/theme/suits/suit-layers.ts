@@ -40,8 +40,38 @@ export function regionRules(id: string, css: string): string[] {
 }
 
 /**
- * The Suit's stylesheet layer: region backgrounds in a sub-layer the Suit's own rules win over,
- * then suit.css as the daemon sanitised it. Empty without suit.css.
+ * The colour tokens suit.css reads (the make-a-suit skill's table), each naming the variable that
+ * holds it. The app's own `--color-*` names are inlined by Tailwind (`@theme inline`) and never
+ * exist on the page, so the Suit's scope defines them for its CSS.
+ */
+export const suitColourTokens = {
+  "--color-background": "--background",
+  "--color-sidebar": "--sidebar",
+  "--color-surface-1": "--surface-1",
+  "--color-surface-2": "--surface-2",
+  "--color-hover": "--hover",
+  "--color-active": "--active",
+  "--color-code": "--code",
+  "--color-border": "--border",
+  "--color-border-strong": "--border-strong",
+  "--color-foreground": "--foreground",
+  "--color-muted-foreground": "--muted-foreground",
+  "--color-subtle-foreground": "--subtle-foreground",
+  "--color-faint-foreground": "--faint-foreground",
+  "--color-tint": "--ring",
+  "--color-tint-hover": "--ring-hover",
+  "--color-tint-foreground": "--ring-foreground",
+  "--color-link": "--ring-text",
+} as const;
+
+const tokenRule = (id: string) =>
+  `[data-suit="${id}"]{${Object.entries(suitColourTokens)
+    .map(([token, source]) => `${token}:var(${source})`)
+    .join(";")}}`;
+
+/**
+ * The Suit's stylesheet layer: the colour tokens its CSS reads, region backgrounds in a sub-layer
+ * the Suit's own rules win over, then suit.css as the daemon sanitised it. Empty without suit.css.
  */
 export function suitLayerSheet(detail: Pick<SuitDetail, "css" | "manifest">): string {
   const css = detail.css ?? "";
@@ -49,6 +79,7 @@ export function suitLayerSheet(detail: Pick<SuitDetail, "css" | "manifest">): st
   const regions = regionRules(detail.manifest.id, css);
   return [
     suitLayerOrder,
+    `@layer suit.tokens{${tokenRule(detail.manifest.id)}}`,
     regions.length > 0 ? `@layer suit.regions{${regions.join("\n")}}` : "",
     `@layer suit{\n${css}\n}`,
   ]

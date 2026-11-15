@@ -195,6 +195,7 @@ export function StepRow(
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       title={step.ace?.problem?.hint}
       data-part="tool-row"
+      data-variant={step.icon}
       data-state={
         !step.settled
           ? "working"

@@ -27,8 +27,8 @@ const rgb = (hex: string) => {
   return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
 };
 
-function render(css: string) {
-  const suit = { ...fakeSuit({ id: "neon", dark: { canvas: "#101014" } }), css };
+function render(css: string, dark: Record<string, string> = { canvas: "#101014" }) {
+  const suit = { ...fakeSuit({ id: "neon", dark }), css };
   const root = document.documentElement;
   root.setAttribute("data-suit", "neon");
   root.setAttribute("data-scheme", "dark");
@@ -49,7 +49,7 @@ function find(part: string) {
   return getComputedStyle(element);
 }
 
-const layerOrder = ["suit.regions", "suit", "guard"];
+const layerOrder = ["suit.tokens", "suit.regions", "suit", "guard"];
 
 /** The sheet's rules with each `@layer` block unwrapped, in cascade order for normal rules. */
 function flattened(style: HTMLStyleElement): string {
@@ -93,6 +93,45 @@ describe("ace's guard over a Suit's CSS", () => {
     expect([rgb(working), "var(--status-working)"]).toContain(icon.color);
     // The Suit's colour still reaches parts it may restyle.
     expect(find("sidebar").color).toBe("rgb(255, 0, 255)");
+  });
+});
+
+describe("colour tokens suit.css reads", () => {
+  /** A custom property on the root, following `var(--x)` the way a browser would. */
+  const token = (name: string): string => {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const alias = /^var\((--[a-z0-9-]+)\)$/.exec(value)?.[1];
+    return alias ? token(alias) : value;
+  };
+
+  it("resolves every documented --color-* token to the Suit's own colours", () => {
+    render(`[data-suit="neon"] [data-part=sidebar]{color:var(--color-tint)}`, {
+      canvas: "#101014",
+      surface: "#1b1842",
+      text: "#f2efff",
+      accent: "#38e0d4",
+      code: "#0a0920",
+    });
+    expect(token("--color-tint").toLowerCase()).toBe("#38e0d4");
+    expect(token("--color-foreground").toLowerCase()).toBe("#f2efff");
+    expect(token("--color-surface-1").toLowerCase()).toBe("#1b1842");
+    expect(token("--color-background").toLowerCase()).toBe("#101014");
+    expect(token("--color-code").toLowerCase()).toBe("#0a0920");
+    for (const name of [
+      "--color-sidebar",
+      "--color-surface-2",
+      "--color-hover",
+      "--color-active",
+      "--color-border",
+      "--color-border-strong",
+      "--color-muted-foreground",
+      "--color-subtle-foreground",
+      "--color-faint-foreground",
+      "--color-tint-hover",
+      "--color-tint-foreground",
+      "--color-link",
+    ])
+      expect(token(name), name).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });
 
