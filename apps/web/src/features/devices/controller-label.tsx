@@ -1,8 +1,9 @@
 import { useAgent, useSidebarThread } from "@ace/client-react";
-import { agentName, agentStatusLabel, type Tone } from "@ace/ui-core";
+import { agentName } from "@ace/ui-core";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { driverStatus } from "./live-words.ts";
 
 export type Controller =
   | { kind: "you" }
@@ -38,23 +39,8 @@ export function AgentDriver(props: {
   // An agent on another machine has no agent row here; its guest session names it, e.g.
   // "Linux box · Fix the login flow".
   const name = agent ? agentName(agent) : thread?.details?.guest ? thread.title : "An agent";
-  const status: { label: string; tone: Tone } = live.staleLabel
-    ? { label: live.staleLabel, tone: "idle" }
-    : agent
-      ? agentStatusLabel(agent.status)
-      : { label: "Working", tone: "working" };
-  // Short words: holding the device is driving it; otherwise say what keeps it from acting.
-  const word = live.staleLabel
-    ? live.staleLabel
-    : status.tone === "working"
-      ? "driving"
-      : status.tone === "waiting"
-        ? "waiting"
-        : status.tone === "needs-you"
-          ? "needs you"
-          : status.tone === "failed"
-            ? "failed"
-            : "idle";
+  const status = driverStatus(live.live, agent?.status);
+  const { word } = status;
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5", props.className)}>
       {agent && (
