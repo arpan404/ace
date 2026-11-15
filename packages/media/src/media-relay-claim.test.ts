@@ -5,8 +5,12 @@ import { MediaConnections, MediaIssue, ticketTtlMs, type MediaOwner } from "./me
 // it against what it minted, once, for the same device and admission kind.
 
 function harness() {
-  let now = 1_000_000;
   let byte = 0;
+  return harnessWith((length) => new Uint8Array(length).fill(++byte));
+}
+
+function harnessWith(randomBytes: (length: number) => Uint8Array) {
+  let now = 1_000_000;
   const connections = new MediaConnections({
     port: {
       send: () => true,
@@ -17,7 +21,7 @@ function harness() {
     },
     issue: new MediaIssue(),
     now: () => now,
-    randomBytes: (length) => new Uint8Array(length).fill(++byte),
+    randomBytes,
     id: () => "id",
   });
   return { connections, advance: (ms: number) => void (now += ms) };
@@ -96,4 +100,25 @@ test("a ticket a client already used directly can't open a relay connection too"
   expect(connections.claimRelay(minted.ticket, { device: "phone", admission: "pairing" })).toBe(
     undefined,
   );
+});
+
+test("an all-zero ticket is never a relay ticket, and presenting one burns nothing", async () => {
+  const { connections } = harness();
+  const minted = await ticket(connections);
+  const zeros = Buffer.alloc(32).toString("base64url");
+  expect(connections.claimRelay(zeros, { device: "phone", admission: "pairing" })).toBe(undefined);
+  // The real ticket still opens its connection.
+  expect(
+    connections.claimRelay(minted.ticket, { device: "phone", admission: "pairing" }),
+  ).toMatchObject({
+    connection: minted.connection,
+  });
+});
+
+test("a ticket wiped to zeros before it was minted is never redeemable on the relay", async () => {
+  const { connections } = harnessWith(() => new Uint8Array(32));
+  const result = await connections.connect(phone);
+  const zeros = Buffer.alloc(32).toString("base64url");
+  if (result.ok) expect(result.ticket).toBe(zeros);
+  expect(connections.claimRelay(zeros, { device: "phone", admission: "pairing" })).toBe(undefined);
 });

@@ -207,7 +207,8 @@ export class MediaConnections {
    */
   claimRelay(ticket: string, claimant: MediaRelayClaimant): MediaRelayGrant | undefined {
     const bytes = ticketBytes(ticket);
-    if (!bytes) return undefined;
+    // As in ace-media: a wiped buffer is never a ticket, and presenting one burns nothing.
+    if (!bytes || bytes.every((byte) => byte === 0)) return undefined;
     const presented = digest(bytes);
     bytes.fill(0);
     for (const [connection, held] of this.#held) {
