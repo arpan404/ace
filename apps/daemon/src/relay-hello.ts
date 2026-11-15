@@ -55,7 +55,7 @@ export async function relayHello(
 export async function accountHello(
   hello: Pick<Hello, "deviceId" | "machineCode">,
   grant: string,
-  machine: MachineAccount | undefined,
+  machine: Pick<MachineAccount, "admitDevice" | "status" | "stillAdmitted"> | undefined,
 ): Promise<RelayAdmission> {
   const admission = machine
     ? await machine.admitDevice({

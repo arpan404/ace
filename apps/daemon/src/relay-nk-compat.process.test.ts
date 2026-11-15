@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import { WebSocketServer, WebSocket as Ws } from "ws";
-import { Client, relayRoute, type PortableSocket } from "@ace/client";
-import { browserDeviceSocket } from "@ace/client/devices";
 import { DeviceId, HostId } from "@ace/protocol";
+import { newClient as openClient, ready, recordedSockets } from "./relay-nk-test-support.ts";
 import { connectClientViaRelay, connectHostToRelay, startRelay } from "@ace/relay";
 import { keyPair } from "@ace/secure-channel";
 import { fixture } from "./socket-test-support.ts";
@@ -15,101 +13,6 @@ const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-
-/** Client sockets, each with the sizes of the binary frames it sent. */
-function recordedSockets() {
-  const dials: { sent: number[]; close(): void }[] = [];
-  const socket = (url: string, protocols?: string[]): PortableSocket => {
-    const real = browserDeviceSocket(url, protocols);
-    const dial = { sent: [] as number[], close: () => real.close() };
-    dials.push(dial);
-    return {
-      get binaryType() {
-        return real.binaryType;
-      },
-      set binaryType(value: string) {
-        real.binaryType = value;
-      },
-      get bufferedAmount() {
-        return real.bufferedAmount;
-      },
-      get protocol() {
-        return real.protocol ?? "";
-      },
-      addEventListener: real.addEventListener.bind(real),
-      send(data: string | Uint8Array) {
-        dial.sent.push(typeof data === "string" ? data.length : data.length);
-        real.send(data);
-      },
-      close: () => real.close(),
-    };
-  };
-  /** Which handshake each dial opened with: an XX first message is exactly 32 bytes. */
-  const patterns = () => dials.map((dial) => (dial.sent[0] === 32 ? "xx" : "nk"));
-  return { socket, dials, patterns, drop: () => dials.at(-1)?.close() };
-}
-
-function newClient(
-  relayUrl: string,
-  hostId: string,
-  device: { id: string; token: string },
-  socket: (url: string, protocols?: string[]) => PortableSocket,
-) {
-  const route = relayRoute({
-    relayUrl,
-    hostId,
-    credential: async () => device.token,
-    socket,
-    schedule: (callback, delayMs) => {
-      const timer = setTimeout(callback, delayMs);
-      return () => clearTimeout(timer);
-    },
-  });
-  let bound: string | null = null;
-  const client = new Client({
-    monotonic: () => performance.now(),
-    deviceId: DeviceId.parse(device.id),
-    storage: {
-      load: async () => null,
-      save: async () => {},
-      hostBinding: {
-        load: async () => bound,
-        save: async (host: string) => {
-          bound = host;
-        },
-      },
-    },
-    scheduler: {
-      set(ms, callback) {
-        const timer = setTimeout(callback, ms);
-        return () => clearTimeout(timer);
-      },
-    },
-    limits: { retryBaseMs: 1, retryCapMs: 1 },
-    random: () => 0.5,
-    id: randomUUID,
-    now: Date.now,
-    transport: route.transport,
-    credential: route.credential,
-  });
-  cleanup.push(() => client.close());
-  return client;
-}
-
-function ready(client: Client, after = 0, attempts = () => 0): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const state = client.connectionState();
-    const timer = setTimeout(() => reject(new Error("Not ready in time")), 15_000);
-    const check = () => {
-      if (state.getSnapshot() !== "ready" || attempts() <= after) return;
-      clearTimeout(timer);
-      stop();
-      resolve();
-    };
-    const stop = state.subscribe(check);
-    check();
-  });
-}
 
 async function newDaemon(relayUrl?: string) {
   const relay = relayUrl ? undefined : await startRelay();
@@ -125,7 +28,7 @@ async function newDaemon(relayUrl?: string) {
 it("a new client and a new daemon reconnect with NK, and a dropped NK stream reconnects with NK again", async () => {
   const h = await newDaemon();
   const sockets = recordedSockets();
-  const client = newClient(h.url, h.hostId, h.device, sockets.socket);
+  const client = openClient(cleanup, h.url, h.hostId, h.device, sockets.socket);
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
@@ -192,7 +95,7 @@ async function olderDaemon(announce: boolean) {
 it("a new client and an older daemon stay on XX", async () => {
   const h = await olderDaemon(false);
   const sockets = recordedSockets();
-  const client = newClient(h.url, h.hostId, { id: "phone", token: "device token" }, sockets.socket);
+  const client = openClient(cleanup, h.url, h.hostId, { id: "phone", token: "device token" }, sockets.socket);
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
@@ -205,7 +108,7 @@ it("a new client and an older daemon stay on XX", async () => {
 it("a daemon that announced NK but no longer takes it costs one refused NK first message, then XX in the same attempt", async () => {
   const h = await olderDaemon(true);
   const sockets = recordedSockets();
-  const client = newClient(h.url, h.hostId, { id: "phone", token: "device token" }, sockets.socket);
+  const client = openClient(cleanup, h.url, h.hostId, { id: "phone", token: "device token" }, sockets.socket);
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
@@ -241,13 +144,15 @@ it("a relay that drops every NK first message forces XX and nothing else: the pi
     });
     upstream.on("message", (data: Buffer) => incoming.send(data));
     upstream.on("close", () => incoming.close());
+    upstream.on("error", () => incoming.terminate());
+    incoming.on("error", () => upstream.terminate());
     incoming.on("close", () => upstream.close());
   });
   await new Promise((resolve) => front.once("listening", resolve));
   const address = front.address();
   const frontUrl = `ws://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
   const sockets = recordedSockets();
-  const client = newClient(frontUrl, h.hostId, h.device, sockets.socket);
+  const client = openClient(cleanup, frontUrl, h.hostId, h.device, sockets.socket);
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;

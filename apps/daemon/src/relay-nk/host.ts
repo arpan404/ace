@@ -35,7 +35,7 @@ export type NkHostOptions = {
   epoch: string;
   auth: RemoteAuth;
   devices: Devices;
-  account?: MachineAccount | undefined;
+  account?: Pick<MachineAccount, "admitDevice" | "status" | "stillAdmitted"> | undefined;
   serve(entry: EarlyMain): void | Promise<void>;
 };
 
