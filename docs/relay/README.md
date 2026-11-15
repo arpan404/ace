@@ -61,7 +61,30 @@ The budgets bound the **frames a relay holds to forward**: at most 16 frames of 
 
 ace's hosted relay also forwards plain HTTPS requests to a daemon that registered with `features=http`: it sends an `http` ticket over the control session and the daemon opens `/serve?ticket=...` for one request and its response. This relay never sends `http` tickets. See [Public HTTP to a machine](accounts.md#public-http-to-a-machine).
 
-The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. Handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
+The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. XX handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
+
+### One-round-trip handshake for a returning client (Noise NK)
+
+A client opens the stream with Noise NK instead ([ADR 0155](../adr/0155-relay-connect-in-one-round-trip.md), step 2) only when three things hold:
+
+- An earlier welcome on this relay, under the pinned host key, announced `relayHandshakes: ["nk1"]`.
+- It holds that key from its XX answer.
+- It has a fresh ticket the daemon handed on the relay, or an account grant.
+
+Its prologue is `ace daemon relay stream v2 nk`. The first message (`-> e, es`) is sealed to the daemon's static key and carries `hello.early`, an allowlist: protocol version, device id, exactly one of the ticket or the grant, session options, and at most 4 thread subscribes and 2 sidebar windows. The daemon tells the patterns apart by length: an XX first message is exactly 32 bytes. Its answer (`<- e, ee`) has an empty payload and goes before anything else on the stream.
+
+The client's first transport message is `hello.confirm`, sent as soon as the answer is authenticated. It carries the install id, a link proof and the request for the next ticket. Until it arrives, within 5 seconds of the answer:
+
+- the daemon records nothing about the device;
+- early subscribes hold their threads without making them viewed;
+- output past 256 KiB waits;
+- notifications, broadcasts and the next ticket wait.
+
+Once the session confirms, the daemon sends `hello.confirmed` with that ticket.
+
+A refused NK first message, for any reason, is answered the same way: the daemon closes the stream with nothing sent, 150 ms after the message arrived. The client then makes one XX attempt at once. If NK fails twice in a row, the client rests it for 10 minutes, doubling up to a day.
+
+The relay forwards an NK first message like any other client frame, early (step 1) or after the marker. It can force XX by dropping it, and nothing else: a fallback never replaces the pin.
 
 ### The first message in the upgrade request
 
@@ -74,6 +97,41 @@ A client that would offer `ace.early.1` (it has a grant, or this relay's marker 
 - **Hosted relay hibernation:** a message lost to it closes the client with 4020, as a held frame does.
 
 The entry is never logged by the relay. A proxy or CDN in front of a self-hosted relay sees it in the request headers. For XX it is a public ephemeral key, sent in the clear today as the stream's first frame and authenticating nothing. A first message with an encrypted payload would put that ciphertext and its metadata in the headers too, so disable header logging in a proxy in front of the relay.
+
+### An NK first message in the upgrade request
+
+A client opening with Noise NK (above) offers its first message as `ace.v3` with one entry `ace.n1.<message>`, beside the XX entry. It offers neither entry when its NK message wouldn't fit: it is then sent whole as the early frame.
+
+- **The entry's rule:** canonical unpadded base64url of 48 to 3,066 bytes (what fits a 4 KiB entry), in a header of at most 8 KiB. With a ticket or a grant and every allowed subscribe it is about 1.6 to 1.8 KiB.
+- **What the relay takes:** once room is reserved, a relay takes a valid NK entry ahead of the XX one and echoes `ace.v3`.
+- **A relay that knows only the XX entry** never reads the NK one. It takes XX's and echoes `ace.v2`, and the stream is then XX, that relay's quickest path.
+- **A relay that knows neither** echoes `ace.early.1`, and the NK message goes as its early frame.
+
+Unlike the XX entry, this one is ciphertext with no forward secrecy. It carries the ticket or grant, the device id and the subscribes, sealed to the daemon's static key; anyone who keeps it and later obtains that key can read it. The relay never logs it, on success, refusal or error, and keeps it only as the held early frame. A proxy or CDN in front of a self-hosted relay that logs or keeps request headers would keep it: disable header logging there. A captured entry replayed later is refused, or confined, as any replayed NK first message is (ADR 0155, step 2).
+
+#### What the relay erases, and what it can't
+
+**What ace's code guarantees.** A first-flight message taken from the upgrade (NK's or XX's) is decoded once, straight into one buffer the relay owns. Canonical form is checked on the text, so no second decoded copy is made. That buffer moves to the client's held-frame slot without being copied, and is zero-filled on every exit:
+
+- **Self-hosted relay:**
+  - forwarded to the joining daemon, after the socket has finished sending it;
+  - dropped when the client is expired, rejected by its host, replaced by a newer registration, disconnected or turned away, through the frame reader's `fail`;
+  - the upgrade failing before it completed;
+  - an unknown purpose, where it was never handed over.
+
+  The frame reader zero-fills everything else it drops as well: frames refused on arrival, oversized ones, and step 1's early frames sent as frames.
+
+- **Hosted relay:**
+  - forwarded, right after `send`, which copies the bytes into the outgoing message;
+  - released with its socket (expired, rejected, replaced, disconnected);
+  - a waiting client's frame that won't be forwarded.
+
+**What can't be erased.** The guarantee is that ace's own code keeps no copy past the hand-over and zero-fills the buffers it owns. It is not that the ciphertext never exists in relay memory:
+
+- **Strings.** The upgrade header arrives as a JavaScript string, in the HTTP parser and in the request object the WebSocket library is handed. Strings can't be zero-filled. They live until the runtime collects them.
+- **The self-hosted relay's request object.** `ws` (8.x) keeps no reference to that request on a server-side socket; it holds one only for the sockets it opens as a client. Node frees its HTTP parser for an upgrade, and the relay keeps the request only in weak maps. So once the upgrade completes the request and its header strings are unreachable, though they stay in memory until collected.
+- **The hosted relay.** The Worker and the object read the header through the platform's `Headers`, whose values are strings too, and the Worker builds the object's request from a copy of them. workerd and Cloudflare's edge keep their own copies. An object evicted while it holds a frame loses its memory to the platform without ace zero-filling it.
+- **In transit.** On both relays, the runtime, the TLS layer and the kernel hold their own copies of the bytes as they pass.
 
 ## Framing, limits and backpressure
 

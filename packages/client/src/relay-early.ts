@@ -16,4 +16,12 @@ export const RELAY_EARLY = {
   inUpgrade: "ace.v2",
   /** Step 3: the entry carrying that message, in unpadded base64url. */
   messagePrefix: "ace.x1.",
+  /** Step 3 with step 2: echoed when the relay took an NK first message from the request. */
+  nkInUpgrade: "ace.v3",
+  /** Step 3 with step 2: the entry carrying the NK first message. */
+  nkMessagePrefix: "ace.n1.",
+  /** The longest entry a relay takes, prefix included. */
+  entryBytes: 4096,
+  /** The longest `Sec-WebSocket-Protocol` header a relay takes an entry from. */
+  headerBytes: 8192,
 } as const;

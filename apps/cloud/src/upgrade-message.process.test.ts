@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { CONTROL, Offer, Registration, address, initiate, json, peer } from "@ace/relay/testing";
-import { EARLY_FRAME, UPGRADE_MESSAGE } from "@ace/relay/wire";
+import { EARLY_FRAME, NK_UPGRADE_MESSAGE, UPGRADE_MESSAGE } from "@ace/relay/wire";
 import { WebSocket } from "ws";
 import { mint, startWorker } from "./testing/harness.ts";
 
@@ -146,3 +146,34 @@ it.each([
   },
   15_000,
 );
+
+// With step 2: an NK first message under its own entry.
+
+const nkFirst = new Uint8Array(400).map((_, i) => (i * 7) % 256);
+const nkClient = (id: string) =>
+  openPeer(address(worker.relayUrl, "/client", { hostId: id, [EARLY_FRAME.query]: "1" }), [
+    grant(),
+    NK_UPGRADE_MESSAGE.subprotocol,
+    NK_UPGRADE_MESSAGE.prefix + Buffer.from(nkFirst).toString("base64url"),
+    UPGRADE_MESSAGE.subprotocol,
+    UPGRADE_MESSAGE.prefix + Buffer.from(first).toString("base64url"),
+    EARLY_FRAME.subprotocol,
+  ]);
+
+it("an NK first message in the upgrade is taken ahead of XX's, echoed ace.v3, and delivered once", async () => {
+  const host = await rawDaemon();
+  const client = await nkClient(host.id);
+  expect(client.socket.protocol).toBe(NK_UPGRADE_MESSAGE.subprotocol);
+  const joined = await host.join(await host.offer());
+  expect([...(await joined.next())]).toEqual([...nkFirst]);
+  expect(await within(joined.next())).toBeUndefined();
+}, 15_000);
+
+it("evicted after it took an NK message, the object closes the client with the lost-frame code", async () => {
+  const host = await rawDaemon();
+  const client = await nkClient(host.id);
+  const ticket = await host.offer();
+  await worker.hibernate(host.id);
+  await host.join(ticket).catch(() => undefined);
+  expect(await client.ending).toEqual({ code: EARLY_FRAME.lostClose, reason: "Early frame lost" });
+}, 15_000);

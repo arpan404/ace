@@ -51,28 +51,90 @@ export const UPGRADE_MESSAGE = {
 } as const;
 
 /**
+ * An NK first message in the upgrade request (ADR 0155, steps 2 and 3): `subprotocol` and one
+ * entry `prefix` + the message in canonical unpadded base64url. Unlike XX's, it is ciphertext
+ * (the early hello, sealed to the daemon's static key) of a bounded length: at least `minBytes`
+ * (the ephemeral key and the tag), at most `maxBytes` (what fits in a 4 KiB entry). A relay that
+ * knows only XX's entry ignores it, and a client whose message doesn't fit offers neither entry.
+ */
+export const NK_UPGRADE_MESSAGE = {
+  subprotocol: "ace.v3",
+  prefix: "ace.n1.",
+  minBytes: 48,
+  maxBytes: Math.floor(((UPGRADE_MESSAGE.entryBytes - "ace.n1.".length) * 3) / 4),
+} as const;
+
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * `encoded`, canonical unpadded base64url of `min` to `max` bytes, decoded into one fresh Buffer
+ * the caller owns (and zero-fills when done), or undefined. Canonical form is checked on the
+ * text (alphabet, length, unused trailing bits), so no second decoded copy is ever made.
+ */
+export function decodeFirstMessage(encoded: string, min: number, max: number): Buffer | undefined {
+  const tail = encoded.length % 4;
+  if (!encoded.length || tail === 1 || !/^[A-Za-z0-9_-]+$/.test(encoded)) return undefined;
+  const bytes = Math.floor((encoded.length * 3) / 4);
+  if (bytes < min || bytes > max) return undefined;
+  // The last character's bits past the final byte must be zero, or the text isn't canonical.
+  const last = BASE64URL.indexOf(encoded.at(-1) ?? "");
+  if ((tail === 2 && (last & 0x0f) !== 0) || (tail === 3 && (last & 0x03) !== 0)) return undefined;
+  const message = Buffer.alloc(bytes);
+  if (message.write(encoded, 0, "base64url") !== bytes) {
+    message.fill(0);
+    return undefined;
+  }
+  return message;
+}
+
+/** One entry's message by `decodeFirstMessage`, or undefined. */
+function decodeEntry(offered: string[], prefix: string, min: number, max: number) {
+  const entries = offered.filter((entry) => entry.startsWith(prefix));
+  const [entry] = entries;
+  if (entries.length !== 1 || !entry || entry.length > UPGRADE_MESSAGE.entryBytes) return undefined;
+  return decodeFirstMessage(entry.slice(prefix.length), min, max);
+}
+
+/**
+ * What a relay takes from an upgrade request as the client's first frame, and the subprotocol it
+ * then echoes: an NK first message when one is offered by its rule, else an XX one, else
+ * nothing. Called only after room is reserved, so an upgrade without room never has an entry
+ * decoded.
+ */
+export function takenUpgradeMessage(header: string): { message: Buffer; echo: string } | undefined {
+  if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
+  const offered = header.split(",").map((entry) => entry.trim());
+  if (offered.includes(NK_UPGRADE_MESSAGE.subprotocol)) {
+    const message = decodeEntry(
+      offered,
+      NK_UPGRADE_MESSAGE.prefix,
+      NK_UPGRADE_MESSAGE.minBytes,
+      NK_UPGRADE_MESSAGE.maxBytes,
+    );
+    if (message) return { message, echo: NK_UPGRADE_MESSAGE.subprotocol };
+  }
+  const message = upgradeMessage(header);
+  return message ? { message, echo: UPGRADE_MESSAGE.subprotocol } : undefined;
+}
+
+/**
  * The first message an upgrade carries for the relay to take, or undefined: only when it offers
  * `UPGRADE_MESSAGE.subprotocol` and exactly one entry that can be an XX first message, 32 bytes
  * in canonical unpadded base64url (43 characters). Anything else is as if no entry were offered:
  * no `ace.v2`, nothing kept or forwarded. Called only after room is reserved, so an upgrade
  * without room never has its entry decoded.
  */
-export function upgradeMessage(header: string): Uint8Array | undefined {
+export function upgradeMessage(header: string): Buffer | undefined {
   if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
   const offered = header.split(",").map((entry) => entry.trim());
   if (!offered.includes(UPGRADE_MESSAGE.subprotocol)) return undefined;
-  const entries = offered.filter((entry) => entry.startsWith(UPGRADE_MESSAGE.prefix));
-  const [entry] = entries;
-  if (entries.length !== 1 || !entry || entry.length > UPGRADE_MESSAGE.entryBytes) return undefined;
-  const encoded = entry.slice(UPGRADE_MESSAGE.prefix.length);
-  if (encoded.length !== UPGRADE_MESSAGE.messageCharacters || !/^[A-Za-z0-9_-]+$/.test(encoded))
+  const xx = offered.find((entry) => entry.startsWith(UPGRADE_MESSAGE.prefix));
+  if (xx?.length !== UPGRADE_MESSAGE.prefix.length + UPGRADE_MESSAGE.messageCharacters)
     return undefined;
-  const bytes = Uint8Array.from(Buffer.from(encoded, "base64url"));
-  // Canonical only: exactly the first message's length, encoding back to the same text.
-  if (
-    bytes.length !== UPGRADE_MESSAGE.messageBytes ||
-    Buffer.from(bytes).toString("base64url") !== encoded
-  )
-    return undefined;
-  return bytes;
+  return decodeEntry(
+    offered,
+    UPGRADE_MESSAGE.prefix,
+    UPGRADE_MESSAGE.messageBytes,
+    UPGRADE_MESSAGE.messageBytes,
+  );
 }
