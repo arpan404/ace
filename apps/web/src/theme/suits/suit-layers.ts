@@ -111,7 +111,8 @@ export const suitGuardSheet = [
     (state) =>
       `[data-suit] ${part("status-icon")}[data-state="${state}"]{color:var(--status-${state})}`,
   ),
-  `[data-suit] [data-part]:focus-visible:not(${part("composer-input")}){outline:2px solid color-mix(in oklab, var(--ring) 70%, transparent);outline-offset:2px}`,
+  // Programmatic focus (route changes focus the page title, tabindex=-1) shows no ring, as in ace.
+  `[data-suit] [data-part]:focus-visible:not(${part("composer-input")}):not([tabindex="-1"]){outline:2px solid color-mix(in oklab, var(--ring) 70%, transparent);outline-offset:2px}`,
   "}",
 ].join("\n");
 
