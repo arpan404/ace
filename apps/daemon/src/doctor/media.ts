@@ -126,6 +126,8 @@ export function capabilitiesVerdict(probe: MediaProbe): Verdict {
   return { status: warn ? "warn" : "ok", message: clip(message), fix: warn ? driverFix : nothing };
 }
 
+const hex = (n: number) => n.toString(16).padStart(4, "0");
+
 /** The ranking cache: which encoder won per GPU, driver and settings. */
 export function rankingVerdict(probe: MediaProbe): Verdict {
   if (!probe.ranking.length)
@@ -135,7 +137,6 @@ export function rankingVerdict(probe: MediaProbe): Verdict {
         "No encoder ranking kept: where two hardware encoders serve one GPU, the first choice applies until one runs.",
       fix: nothing,
     };
-  const hex = (n: number) => n.toString(16).padStart(4, "0");
   const lines = probe.ranking.map(
     (r) =>
       `${hex(r.vendor)}:${hex(r.device)} driver ${r.driver}, ${r.codec} ${r.size}: ${r.winner}`,

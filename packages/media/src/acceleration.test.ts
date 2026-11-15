@@ -24,6 +24,8 @@ const settings: MediaSettings = {
   stills: "legacy",
 };
 
+const routes = () => mediaRoutes(settings, "healthy", built);
+
 /** The store fed by the daemon's sources, with ace-media faked at its control lane. */
 function world() {
   const store = new MediaAccelerationStore();
@@ -31,7 +33,6 @@ function world() {
   store.watch((change) => changes.push(change));
   let ids = 0;
   const timers: (() => void)[] = [];
-  const routes = () => mediaRoutes(settings, "healthy", built);
   const sources = new IngestSources({
     port: {
       send: () => true,
