@@ -90,6 +90,57 @@ Raw measurements are checked in beside this file. Single-run startup, throughput
 
 Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--output=FILE.json.gz`; stdout remains JSON. Read a checked-in series with `python3 -c 'import gzip,json; print(json.load(gzip.open("apps/daemon/bench/long-after.json.gz"))["retainedEnd"])'`. Small summaries remain plain JSON.
 
+## Slow links (3G)
+
+`slow-link.ts` and `machine-link.ts` measure the daemon's data path behind a shaped network
+link. Neither is part of `bun run check` or the perf gate; run them on purpose, and compare a
+change against [the baseline](slow-link-REPORT.md) taken on the same machine.
+
+The link is `@ace/perf-kit/link`: a local TCP proxy between clients and a listener that forwards
+bytes untouched (TLS and WebSocket pass through) and times their arrival. All connections through
+one shaper share one link per direction, taking turns segment by segment. Each holds at most
+64 KiB per direction (plus one socket read); past that the proxy stops reading, and it waits for a
+receiver's `drain`, so backpressure reaches the sender. Half-closes are forwarded after the
+delayed bytes. Loss is a stall of one retransmission timeout on a seeded fraction of segments.
+`countsAt(t)` reads the counts as they stood at an earlier moment. Profiles:
+`3g-slow` (400 kbit/s down, 200 kbit/s up, 400 ms round trip, 2% loss), `3g-fast` (1.6 Mbit/s
+down, 750 kbit/s up, 300 ms, 1%) and `lan` (unshaped). It counts bytes and flights in each
+direction; a round trip is one TCP handshake per new connection plus each flight the client
+sent after hearing back.
+
+One case, in under a minute (about 20 s of it seeds the daemon):
+
+```sh
+bun apps/daemon/bench/slow-link.ts --profiles=3g-slow --paths=direct
+bun apps/daemon/bench/slow-link.ts --profiles=3g-slow --paths=relay --output=/tmp/after.json
+bun apps/daemon/bench/machine-link.ts --profiles=3g-slow --seconds=20
+node tools/web-perf/src/slow-link.ts --target=daemon --profile=3g-slow --cache=cold
+```
+
+`slow-link.ts` starts a real daemon from this checkout as its own Bun process in a temporary
+home (`startBenchDaemon` in `@ace/perf-kit/daemon`: HOME, ACE_HOME and every provider's config
+home inside it, an empty PATH, the TLS listener on 127.0.0.1). `slow-link-daemon.ts` seeds it
+from the recorded provider sessions (`slow-link-fixtures.ts`): a 4-item thread, a typical one of
+about 120 items, a 1,500-item one whose shell results carry about 24 KiB each, and 40 older
+rows. The real client (`packages/client`) connects through the shaper over the pinned TLS
+listener a paired phone uses (`direct`) or through a local `@ace/relay` (`relay`; the Cloudflare
+Worker relay is not run). For each it reports, from `connect`: welcome and first sidebar rows;
+first content and completion of each thread the client never opened; an approval's delay over
+the idle link and while the large snapshot is crossing; then a second client on the same kept
+snapshots (painted from disk, then confirmed by the daemon); and the catch-up after it was
+offline through a 2,000-delta turn. Every span has its time, round trips and bytes each way.
+`SLOW_LINK_DEBUG=1` prints the client's connection reports.
+
+`machine-link.ts` pairs two daemons (`machine-link-daemon.ts`, one temporary home each) with the
+source's saved machine pointing at the shaper in front of the target. The source's agent
+delegates one task there, under the default poll interval; it reports each window's calls per
+minute by operation, and per call the median time, round trips and bytes, while the remote
+child works and after it settles.
+
+`--output=FILE.json` writes the machine-readable result (with the load average before and after);
+stderr has the readable table. Numbers on this shared Mac move with its load: compare runs taken
+close together, and repeat a case before reading a small difference.
+
 ## Allocation per streamed event
 
 `allocation-rate.ts` measures how much garbage the daemon makes per streamed delta: the bytes its

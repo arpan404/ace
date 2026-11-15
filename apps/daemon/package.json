@@ -21,7 +21,9 @@
     "bench:notifications": "node bench/notifications.ts",
     "bench:files": "node bench/files.ts",
     "bench:long-thread": "node --expose-gc bench/long-thread.ts",
-    "bench:long-thread-reliability": "node --expose-gc bench/long-thread-reliability.ts"
+    "bench:long-thread-reliability": "node --expose-gc bench/long-thread-reliability.ts",
+    "bench:slow-link": "bun bench/slow-link.ts",
+    "bench:machine-link": "bun bench/machine-link.ts"
   },
   "dependencies": {
     "@ace/account-grant": "workspace:*",
