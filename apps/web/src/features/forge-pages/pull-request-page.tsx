@@ -7,6 +7,7 @@ import { PullRequestOpener } from "@/components/pull-request-link.tsx";
 import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { BackLabel } from "@/components/back-label.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { backLabel, useBackToList } from "./back-to-list.ts";
 import { cachedRow } from "./lists.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -75,7 +76,9 @@ export function PullRequestPage(props: {
           <IssuePages project={project}>
             <Suspense
               fallback={
-                <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
+                <div
+                  className={`h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem] ${sceneThrough}`}
+                >
                   <PrPageSkeleton
                     number={props.number}
                     seed={seed}

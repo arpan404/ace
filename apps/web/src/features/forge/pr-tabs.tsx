@@ -7,6 +7,7 @@ import {
   type UIEvent,
 } from "react";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
+import { sceneBar } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -82,7 +83,11 @@ export function PrTabs(props: {
     >
       <div
         ref={bar}
-        className={cn("shrink-0 border-b border-border", page && "sticky top-0 z-[3] bg-panel")}
+        className={cn(
+          "shrink-0 border-b border-border",
+          page && "sticky top-0 z-[3] bg-panel",
+          page && sceneBar,
+        )}
       >
         <div
           className={cn(

@@ -16,6 +16,7 @@ import {
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { DiffStat } from "@/components/diff-stat.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
@@ -580,6 +581,7 @@ export function PrDetail(props: {
       aria-label={`Pull request #${props.number}`}
       className={cn(
         "@container/pr relative flex h-full min-h-0 flex-col bg-panel [--forge-gutter:1rem]",
+        sceneThrough,
         props.page && "sm:[--forge-gutter:2rem]",
       )}
     >
