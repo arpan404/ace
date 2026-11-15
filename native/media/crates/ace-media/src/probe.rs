@@ -169,6 +169,18 @@ pub fn probe(
     (Capabilities { slots }, late)
 }
 
+/// `ace-media --probe`: the start probe on its own, as `ace doctor` shows it. One JSON object:
+/// how long the probe took and the list `ready` would carry. The last-resort encoder's trial,
+/// which starts a browser, isn't run here.
+pub fn report() -> String {
+    let cancel = Cancel::default();
+    let started = Instant::now();
+    let (capabilities, _late) = probe(trials(), TRIAL_DEADLINE, &cancel);
+    let probe_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    cancel.cancel();
+    serde_json::json!({ "probeMs": probe_ms, "capabilities": capabilities.list() }).to_string()
+}
+
 /// M5's CPU path: JPEG decode, scale and JPEG encode, available everywhere.
 pub struct CpuTrial;
 
