@@ -94,9 +94,10 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
   });
   const control = () => {
     const pid = supervisor.snapshot().pid;
-    // The binary's two sockets pair: `m<pid>i.sock`/`m<pid>c.sock`, or on Windows two named
-    // pipes differing only in their last letter.
-    if (real) return (supervisor.ingest()?.socket ?? "").replace(/i(\.sock)?$/, "c$1");
+    // The binary's control socket is `m<pid>c.sock`; on Windows its two named pipes carry a
+    // nonce and differ only in their last letter, so the control pipe comes from the ingest one.
+    if (real && process.platform !== "win32") return join(runtimeDir, `m${pid}c.sock`);
+    if (real) return (supervisor.ingest()?.socket ?? "").replace(/i$/, "c");
     return process.platform === "win32"
       ? `\\\\.\\pipe\\ace-media-fake-${pid}`
       : join(runtimeDir, "control.sock");
