@@ -78,6 +78,12 @@ impl Engine {
         profiles
     }
 
+    /// Whether conversation `id` is a helper's (its terminal commands run in a session of their
+    /// own, ADR 0158).
+    pub(crate) fn is_helper(&self, id: &str) -> bool {
+        self.helper_of(id).is_some()
+    }
+
     /// The helper whose conversation is `id`, if it is one.
     pub(super) fn helper_of(&self, id: &str) -> Option<StoredHelper> {
         if let Some(known) = self

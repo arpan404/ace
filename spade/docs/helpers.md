@@ -37,7 +37,9 @@ its prompt rebuilds to the same bytes after a restart even if a plugin's profile
   mid-run gets "unknown outcome" as in any turn. Only a helper Stop was pressed on is closed (as
   stopped) at start.
 - Anything that asks which bot a conversation belongs to (`agent_for_conversation`) gets the
-  helper's bot: its workspace, terminal, connectors, settings and caps are the bot's.
+  helper's bot: its workspace, terminal, connectors, settings and caps are the bot's. Its shell
+  commands run in a terminal session of its own (its own folder and variables, beside the bot's
+  commands rather than after them; [computer.md](computer.md), ADR 0158).
 - `GET /v1/conversations` leaves helpers out. Posting a message to one answers `409`. Its events
   and live stream are read like any conversation's.
 
