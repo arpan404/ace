@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
+import { removeWhenFree } from "./supervisor-test-support.ts";
 import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
 import { authenticateLane, connectLane } from "./lanes.ts";
 import {
@@ -38,9 +39,9 @@ const target = real
       launch: (script: string) => ({ command: process.execPath, args: [script] }),
     };
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 async function until(condition: () => boolean, ms = 10_000): Promise<void> {
@@ -79,9 +80,9 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
     onExit: (exit) => void exits.push(exit),
     log: () => {},
   });
-  cleanups.push(() => {
+  cleanups.push(async () => {
     supervisor.dispose();
-    rmSync(runtimeDir, { recursive: true, force: true });
+    await removeWhenFree(runtimeDir);
   });
   const control = () => {
     const pid = supervisor.snapshot().pid;

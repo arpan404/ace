@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Windows: ace-media's private sockets are named pipes. Each is created with a protected DACL
 //! that admits only the current user ([`pipe_dacl`]), refuses remote clients, and claims its
-//! unguessable name as the first instance, so creation fails if anyone got there first. A fresh
-//! instance is created as each connection is accepted, so a client always finds one waiting.
+//! unguessable name as the first instance, so creation fails if anyone got there first. Two
+//! instances always wait, and each accepted one is replaced at once, so a client connecting
+//! while another is being accepted still finds a free instance instead of `ERROR_PIPE_BUSY`.
 #![allow(unsafe_code)]
 use super::listener::{Home, Role, pipe_dacl};
 use std::io;
@@ -25,7 +26,7 @@ pub type Stream = NamedPipeServer;
 
 pub struct Listener {
     name: String,
-    next: NamedPipeServer,
+    waiting: [NamedPipeServer; 2],
     descriptor: Descriptor,
 }
 
@@ -34,20 +35,28 @@ impl Listener {
     pub fn bind(home: &Home, role: Role) -> io::Result<Self> {
         let descriptor = Descriptor::from_sddl(&pipe_dacl(&user_sid()?))?;
         let name = home.address(role);
-        let next = create(&name, true, &descriptor)?;
+        let first = create(&name, true, &descriptor)?;
+        let second = create(&name, false, &descriptor)?;
         Ok(Self {
             name,
-            next,
+            waiting: [first, second],
             descriptor,
         })
     }
 
-    /// The next connected instance. A new instance is waiting before this returns; if one
-    /// can't be made, the connected instance stays and is handed out on the next call.
+    /// The next connected instance, replaced by a fresh one before this returns. If none can be
+    /// made, the connected instance stays and is handed out on the next call. (Waiting on a
+    /// connect is cancel safe: the connect stays in flight.)
     pub async fn accept(&mut self) -> io::Result<Stream> {
-        let connected = self.next.connect().await;
+        let (index, connected) = {
+            let [a, b] = &self.waiting;
+            tokio::select! {
+                connected = a.connect() => (0, connected),
+                connected = b.connect() => (1, connected),
+            }
+        };
         let fresh = create(&self.name, false, &self.descriptor)?;
-        let used = std::mem::replace(&mut self.next, fresh);
+        let used = std::mem::replace(&mut self.waiting[index], fresh);
         connected.map(|()| used)
     }
 }
@@ -186,4 +195,65 @@ pub fn nonce() -> io::Result<[u8; 16]> {
         return Err(io::Error::other(format!("random: status {status:#x}")));
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::listener::{Home, Role, split};
+    use super::Listener;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    #[tokio::test]
+    async fn clients_at_once_all_connect_and_split_connections_carry_bytes_both_ways() {
+        let home = match Home::new(&std::env::temp_dir(), std::process::id()) {
+            Ok(home) => home,
+            Err(error) => panic!("home: {error}"),
+        };
+        let mut listener = match Listener::bind(&home, Role::Control) {
+            Ok(listener) => listener,
+            Err(error) => panic!("bind: {error}"),
+        };
+        let name = home.address(Role::Control);
+        assert!(
+            Listener::bind(&home, Role::Control).is_err(),
+            "a second first instance of the same name is refused"
+        );
+        // Two producers at once: both find an instance before either is accepted.
+        let early = [
+            ClientOptions::new().open(&name),
+            ClientOptions::new().open(&name),
+        ];
+        assert!(early.iter().all(Result::is_ok), "opens: {early:?}");
+        for _ in 0..2 {
+            assert!(listener.accept().await.is_ok());
+        }
+        drop(early);
+        for round in 0u8..3 {
+            let client = ClientOptions::new().open(&name);
+            let Ok(mut client) = client else {
+                panic!("open {round}: {client:?}")
+            };
+            let server = match listener.accept().await {
+                Ok(server) => server,
+                Err(error) => panic!("accept: {error}"),
+            };
+            let (mut read, mut write) = split(server);
+            // A read is pending while the server writes: the lane's shape.
+            let reader = tokio::spawn(async move {
+                let mut got = [0u8; 4];
+                read.read_exact(&mut got).await.map(|_| got)
+            });
+            tokio::task::yield_now().await;
+            assert!(write.write_all(&[round; 3]).await.is_ok());
+            let mut echoed = [0u8; 3];
+            assert!(client.read_exact(&mut echoed).await.is_ok());
+            assert_eq!(echoed, [round; 3]);
+            assert!(client.write_all(&[round, 1, 2, 3]).await.is_ok());
+            match reader.await {
+                Ok(Ok(got)) => assert_eq!(got, [round, 1, 2, 3]),
+                other => panic!("read: {other:?}"),
+            }
+        }
+    }
 }

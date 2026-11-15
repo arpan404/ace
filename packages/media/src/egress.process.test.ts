@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { removeWhenFree } from "./supervisor-test-support.ts";
 import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts";
 import { encodeMediaFrame } from "./frame.ts";
 import { RouteWatch } from "./route-watch.ts";
@@ -24,9 +25,9 @@ import {
 // ace-media (`bun run check:media` does).
 const real = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 async function until(condition: () => boolean, end: number, description: string): Promise<void> {
@@ -109,6 +110,8 @@ it.runIf(real)(
     const handles = new Map<string, number>();
     const tokens = new Map<string, Uint8Array>();
     const changes: { at: number; routes: MediaRoutes }[] = [];
+    // Sources ace-media has opened: a producer's hello before that is refused.
+    const opened = new Set<string>();
 
     const supervisor: MediaSupervisor = new MediaSupervisor({
       version: execFileSync(binary, ["--version"]).toString().trim(),
@@ -136,7 +139,10 @@ it.runIf(real)(
           if (route.egress) supervisor.send({ type: "source.egress", source: id, on: true });
         }
       },
-      onMessage: () => {},
+      onMessage: (message) => {
+        if (message.type === "source.status" && message.status === "starting")
+          opened.add(message.source);
+      },
       onEgress: (frame) => router.push(frame),
       onExit: () => {
         for (const handle of handles.values()) router.close(handle);
@@ -150,18 +156,18 @@ it.runIf(real)(
       capabilities: () => capabilities,
       onChange: (routes) => void changes.push({ at: performance.now(), routes }),
     });
-    cleanups.push(() => {
+    cleanups.push(async () => {
       supervisor.dispose();
-      rmSync(runtimeDir, { recursive: true, force: true });
+      await removeWhenFree(runtimeDir);
     });
 
     // Before ace-media is up the producer streams to the daemon.
     expect(watch.routes().tab).toMatchObject({ producer: "daemon", egress: false });
     supervisor.need();
     await until(
-      () => supervisor.health() === "healthy" && handles.size === 2,
+      () => supervisor.health() === "healthy" && handles.size === 2 && opened.size === 2,
       deadline,
-      "healthy media process and both source handles",
+      "healthy media process and both sources open in it",
     );
     expect(watch.routes().tab).toMatchObject({
       producer: "ace-media",

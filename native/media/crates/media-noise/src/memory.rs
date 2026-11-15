@@ -15,14 +15,25 @@ struct KeyPage {
     expanded: MaybeUninit<LessSafeKey>,
     initialized: bool,
 }
+/// A key page made on the heap. `Box::new` would build the 64 KiB-aligned value on the stack
+/// first, which faults on Windows x64.
+#[allow(unsafe_code)]
+fn zeroed_key_page() -> Box<KeyPage> {
+    // All-zero bytes are a valid `KeyPage`: zeroed key bytes, an uninitialized
+    // expanded key (any bytes) and `initialized: false`.
+    let layout = std::alloc::Layout::new::<KeyPage>();
+    // SAFETY: the layout has a non-zero size; a null result is handled.
+    let ptr = unsafe { std::alloc::alloc_zeroed(layout) }.cast::<KeyPage>();
+    if ptr.is_null() {
+        std::alloc::handle_alloc_error(layout);
+    }
+    // SAFETY: a fresh allocation of `KeyPage`'s layout, zeroed, owned by nothing else.
+    unsafe { Box::from_raw(ptr) }
+}
 impl Key {
     pub(crate) fn new(mut source: Zeroizing<[u8; 32]>) -> Result<Self, Error> {
         let mut key = Self {
-            page: Box::new(KeyPage {
-                bytes: Zeroizing::new([0; 32]),
-                expanded: MaybeUninit::zeroed(),
-                initialized: false,
-            }),
+            page: zeroed_key_page(),
             locked: false,
         };
         key.locked = lock(
