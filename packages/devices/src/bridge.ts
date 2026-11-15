@@ -1,3 +1,4 @@
+import { DeviceQueue } from "./device-queue.ts";
 import { DeviceSubscriptions } from "./subscriptions.ts";
 import {
   DeviceAck,
@@ -18,7 +19,7 @@ import { framePicture } from "@ace/screen";
 import {
   mediaSubscribed,
   viewLink,
-  PendingSwaps,
+  viewSwap,
   viewViewport,
   type HeldView,
   type MediaDeliveryPort,
@@ -69,8 +70,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
   const actor: Actor = { kind: "human", owner, guard: () => access() };
   /** Watched devices ace-media delivers, by their view there. */
   const delivered = new Map<string, HeldView>();
-  /** Each device's subscribe being set up: only the latest one swaps views. */
-  const swaps = new PendingSwaps();
+  /** Each device's subscribes and unsubscribes, one at a time. */
+  const queue = new DeviceQueue();
   /**
    * A subscribe naming a media connection: its viewer there, while ace-media delivers devices.
    * A connection of another session is refused.
@@ -242,90 +243,102 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
             | undefined;
           if (operation.op === "subscribe") {
             const deviceId = operation.deviceId;
-            // Staged: the device's current view keeps delivering until this one is set up, and
-            // a failed resubscribe leaves it as it was (its view in ace-media too,
-            // `PendingSwaps`). A subscribe superseded meanwhile only ever closes its own view.
-            const slot = streams.reserve(deviceId);
-            const port = peer.delivery?.port();
-            let granted: HeldView | undefined;
-            let stop: (() => void) | undefined;
-            let committed = false;
-            let swap: ReturnType<PendingSwaps["begin"]> | undefined;
-            try {
-              const guard = () => {
+            // One at a time per device, the latest winning (`DeviceQueue`): this setup and its
+            // rollback only ever meet the committed subscription. That one keeps delivering
+            // until this one is set up, and a failed resubscribe leaves it as it was, its view
+            // in ace-media included (`viewSwap`).
+            await queue.run(deviceId, "subscribe", async (superseded) => {
+              const slot = streams.reserve(deviceId);
+              const port = peer.delivery?.port();
+              let granted: HeldView | undefined;
+              let stop: (() => void) | undefined;
+              let committed = false;
+              /** The subscription may still see the device. */
+              const live = () => {
                 deviceAccess(deviceId);
                 if (!slot.active()) throw new Error("Device subscription superseded");
               };
-              const connection = operation.media?.connection;
-              const viewer =
-                connection === undefined ? undefined : bindMedia(deviceId, connection, operation);
-              granted =
-                viewer !== undefined && connection !== undefined
-                  ? { viewer, connection }
-                  : undefined;
-              swap = swaps.begin(port, deviceId, delivered.get(deviceId), granted);
-              /** This view's pictures, opened once it is set up (opening replaces the old one's). */
-              let view: PictureView | undefined;
-              // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
-              stop = await service.subscribeEvery(deviceId, actor, (frame) => {
-                guard();
-                // Live views are video only: the JPEG a capture makes for agents while nobody
-                // watches (until this view's H.264 starts) never reaches one. ace-media
-                // delivers this view on the client's media connection.
-                if (frame.header.codec !== "h264" || viewer) return;
-                view?.push(framePicture(frame));
-              });
-              const state = stateForPeer(
-                DeviceState.parse(await service.request(operation, requestActor)),
-              );
-              const poster = viewer ? await port?.poster(viewer) : undefined;
-              guard();
-              // Set up: the new view replaces the old one.
-              if (!swap.commit()) throw new Error("Device subscription superseded");
-              committed = true;
-              if (granted) delivered.set(deviceId, granted);
-              else delivered.delete(deviceId);
-              const opened = pictures.open(deviceId, {
-                keyframe: () =>
-                  void service.request({ op: "stream.keyframe", deviceId }, actor).catch(() => {}),
-                guard,
-                link: pictureLinkLimits,
-              });
-              view = opened;
-              const follow = new LinkFollow({
-                rate: () => opened.rate(),
-                apply: (settings) =>
-                  service.request({ op: "stream.configure", deviceId, settings }, actor),
-              });
-              follows.get(deviceId)?.close();
-              follows.set(deviceId, follow);
-              cancelTick ??= later(1000, tick);
-              const held = granted;
-              const ending = stop;
-              slot.attach(() => {
-                ending();
-                // Its view in ace-media goes with it, unless a newer subscribe took the device.
-                if (held && delivered.get(deviceId) === held) {
-                  delivered.delete(deviceId);
-                  port?.unbind(held.viewer);
-                }
-                opened.close();
-                follow.close();
-                if (follows.get(deviceId) === follow) follows.delete(deviceId);
-              });
-              subscribed = {
-                state,
-                ...(granted ? { media: mediaSubscribed(granted.connection, poster) } : {}),
+              /** Its setup may go on: nothing newer came for the device. */
+              const setup = () => {
+                live();
+                if (superseded()) throw new Error("Device subscription superseded");
               };
-            } catch (error) {
-              stop?.();
-              slot.cancel();
-              // Past the commit only a closing connection throws: it ends every view itself.
-              if (!committed) swap?.abort();
-              throw error;
-            }
+              try {
+                const connection = operation.media?.connection;
+                const viewer =
+                  connection === undefined ? undefined : bindMedia(deviceId, connection, operation);
+                granted =
+                  viewer !== undefined && connection !== undefined
+                    ? { viewer, connection }
+                    : undefined;
+                /** This view's pictures, opened once it is set up (opening replaces the old one's). */
+                let view: PictureView | undefined;
+                // Every frame, unhurried: the viewer's window paces the pictures, not the hub.
+                stop = await service.subscribeEvery(deviceId, actor, (frame) => {
+                  live();
+                  // Live views are video only: the JPEG a capture makes for agents while nobody
+                  // watches (until this view's H.264 starts) never reaches one. ace-media
+                  // delivers this view on the client's media connection.
+                  if (frame.header.codec !== "h264" || viewer) return;
+                  view?.push(framePicture(frame));
+                });
+                setup();
+                const state = stateForPeer(
+                  DeviceState.parse(await service.request(operation, requestActor)),
+                );
+                setup();
+                const poster = viewer ? await port?.poster(viewer) : undefined;
+                setup();
+                // Set up: the new view replaces the old one.
+                viewSwap(port, delivered.get(deviceId), granted).commit();
+                committed = true;
+                if (granted) delivered.set(deviceId, granted);
+                else delivered.delete(deviceId);
+                const opened = pictures.open(deviceId, {
+                  keyframe: () =>
+                    void service
+                      .request({ op: "stream.keyframe", deviceId }, actor)
+                      .catch(() => {}),
+                  guard: live,
+                  link: pictureLinkLimits,
+                });
+                view = opened;
+                const follow = new LinkFollow({
+                  rate: () => opened.rate(),
+                  apply: (settings) =>
+                    service.request({ op: "stream.configure", deviceId, settings }, actor),
+                });
+                follows.get(deviceId)?.close();
+                follows.set(deviceId, follow);
+                cancelTick ??= later(1000, tick);
+                const held = granted;
+                const ending = stop;
+                slot.attach(() => {
+                  ending();
+                  // Its view in ace-media goes with it, unless a newer subscribe took the device.
+                  if (held && delivered.get(deviceId) === held) {
+                    delivered.delete(deviceId);
+                    port?.unbind(held.viewer);
+                  }
+                  opened.close();
+                  follow.close();
+                  if (follows.get(deviceId) === follow) follows.delete(deviceId);
+                });
+                subscribed = {
+                  state,
+                  ...(granted ? { media: mediaSubscribed(granted.connection, poster) } : {}),
+                };
+              } catch (error) {
+                stop?.();
+                slot.cancel();
+                // Past the commit only a closing connection throws: it ends every view itself.
+                if (!committed) viewSwap(port, delivered.get(deviceId), granted).abort();
+                throw error;
+              }
+            });
           } else if (operation.op === "unsubscribe") {
-            streams.remove(operation.deviceId);
+            const deviceId = operation.deviceId;
+            await queue.run(deviceId, "unsubscribe", async () => streams.remove(deviceId));
           }
           if (operation.op === "logs.start") {
             // A new log subscription replaces the old one at once: no batch goes out twice.
