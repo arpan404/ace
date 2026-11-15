@@ -120,6 +120,11 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
   const assembler = new StreamAssembler();
   let counting = false;
   const id = `bench-session-${++sessions}`;
+  const owner = {
+    session: id,
+    device: "bench-phone",
+    admission: { kind: "pairing", generation: 1 },
+  } as const;
   const take = (piece: Uint8Array, ack: (sequence: number) => void) => {
     const at = clock();
     const arrives = link ? (link.sendAll([{ bytes: piece.length, at }])[0] ?? at) : at;
@@ -148,7 +153,7 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
       return true;
     },
     local: link === undefined,
-    media: { session: id, delivery: () => runtime.delivery() },
+    media: { owner: () => owner, delivery: () => runtime.delivery() },
     sendStream: (pieces) => {
       for (const piece of pieces) {
         daemonVideoBytes += piece.length;
@@ -176,11 +181,7 @@ async function watch(delivered: boolean, link: SimpleLink | undefined, ms: numbe
     video: { codecs: ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp8"] },
   };
   if (delivered) {
-    const grant = await runtime.connections.connect({
-      session: id,
-      device: "bench-phone",
-      admission: { kind: "pairing", generation: 1 },
-    });
+    const grant = await runtime.connections.connect(owner);
     if (!grant.ok) throw new Error(`media.connect: ${grant.code}`);
     const opened = await MediaTestClient.open(grant, {
       onPiece: (piece) =>

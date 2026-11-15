@@ -1,6 +1,6 @@
 import type { MediaLinkHint, MediaSubscribed } from "@ace/protocol";
 import type { IngestProducer } from "./ingest-sources.ts";
-import type { MediaConnections } from "./media-connections.ts";
+import type { MediaConnections, MediaOwner } from "./media-connections.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
 
 /*
@@ -20,7 +20,8 @@ export type ViewViewport = ViewerOpen["viewport"];
 
 export type ViewIntent = {
   viewer: string;
-  session: string;
+  /** Who subscribed: its main session, or a channel of its own with its device and admission. */
+  requester: MediaOwner;
   connection: string;
   target: ViewTarget;
   codecs: string[];
@@ -67,12 +68,12 @@ export class MediaViewers {
   }
 
   /**
-   * A subscribe naming `intent.connection`. False when that connection isn't the session's: the
+   * A subscribe naming `intent.connection`. False when its requester doesn't own it: the
    * caller refuses the subscribe. True even before the producer streams into ace-media: the
    * view is granted once it does.
    */
   bind(intent: ViewIntent): boolean {
-    if (!this.#options.connections.owned(intent.session, intent.connection)) return false;
+    if (!this.#options.connections.owned(intent.requester, intent.connection)) return false;
     const held: Held = { intent, path: undefined };
     this.#held.set(intent.viewer, held);
     const live = this.#options.live().find((entry) => intent.shows(entry.producer));
@@ -87,7 +88,7 @@ export class MediaViewers {
 
   #grant(held: Held, path: string): void {
     const { intent } = held;
-    const granted = this.#options.connections.view(intent.session, intent.connection, {
+    const granted = this.#options.connections.view(intent.requester, intent.connection, {
       viewer: intent.viewer,
       source: path,
       target: intent.target,

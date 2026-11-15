@@ -1754,7 +1754,12 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Binding subscribes.** A browser, screen or device subscribe naming a connection is bound by
     `MediaViewers` while ace-media delivers that kind (`MediaRuntime.delivery().serves`: the
     route's deliverer is ace-media and its producer streams there). A connection of another
-    session is refused (`media-connection`). The view follows its producer's id in ace-media
+    session is refused (`media-connection`), unless it comes from a channel of the same
+    device admitted the same way (same pairing generation, or the same account): iOS sends
+    screen and device subscribes on channels of their own, so `MediaConnections.owned` accepts
+    the connection's session or such a channel (`mediaAdmission` gives both the same
+    admission), and the view is granted under the connection's owner, which ace-media checks
+    again. Another device, or the same device under another admission, is refused. The view follows its producer's id in ace-media
     through route flips and reopens (`IngestSources.onLive`). The capture keeps running in the
     daemon, so the producer streams, but none of the view's pictures go on the main socket; the
     browser's chunks are acknowledged in the daemon at once.
