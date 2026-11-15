@@ -268,9 +268,10 @@ export type CallOutcome =
   | { kind: "not_found" }
   /**
    * No answer: unreachable, lost, timed out, or refused for any other reason. `machineWide` when
-   * nothing else on the machine answered around it either.
+   * nothing else on the machine answered around it either; `machineBack` when, besides, the
+   * machine has been back since (the read was sent during an outage that is over).
    */
-  | { kind: "failed"; machineWide?: boolean }
+  | { kind: "failed"; machineWide?: boolean; machineBack?: boolean }
   /** An answer came that could not be applied here (a busy store): as if it was never asked. */
   | { kind: "unapplied" };
 
@@ -341,6 +342,13 @@ export function foldCall(
             RECHECK_POLLS * config.pollMs * 2 ** Math.min(implicated - 1, 30),
           ),
       });
+    } else if (outcome.kind === "failed" && outcome.machineBack === true) {
+      // Failed while its machine was down, which it no longer is: no wait of its own starts, and
+      // one the machine's recovery already ended stays ended.
+      next.set(id, {
+        ...rec,
+        ...(rec.retryAt === undefined ? {} : { retryAt: Math.min(rec.retryAt, now) }),
+      });
     } else {
       // Its own read failed, or the machine doesn't hold it: asked again later each time.
       const failures = rec.failures + 1;
@@ -372,19 +380,53 @@ export function machineBack(records: Records, now: number): Map<string, ChildRec
 }
 
 /**
- * The machine's reachability evidence after a call that got through: when it was last known up.
- * Like every answer, a reply proves the machine up only as of when its call went out; a reply to
- * a call sent before an outage, arriving during it, says nothing of the outage.
+ * What is known of whether a machine is up, every time as of when a call was sent: a reply or a
+ * failure proves something only of the moment its call went out, whenever it arrives.
  */
-export function heardFrom(heard: number | undefined, at: { sent: number; now: number }): number {
-  return Math.max(heard ?? Number.NEGATIVE_INFINITY, at.sent);
+export interface Reachability {
+  /** When the latest call that got through was sent. */
+  heard?: number;
+  /** While the machine is down: when the first read that found it so was sent. */
+  downSince?: number;
+  /** The last outage that ended: from its first failed read to the call that showed it back. */
+  lastOutage?: { from: number; to: number };
 }
 
-/** Whether the machine counts as down for a read sent at `sentAt`: nothing heard around it. */
-export function machineDown(
-  heard: number | undefined,
-  sentAt: number,
-  config: ScheduleConfig,
-): boolean {
-  return (heard ?? Number.NEGATIVE_INFINITY) < sentAt - 2 * config.pollMs;
+/**
+ * A call sent at `at.sent` got through. The machine is back when it was down and the call went
+ * out once it was; a call sent before the outage proves nothing of now.
+ */
+export function heardFrom(
+  state: Reachability,
+  at: { sent: number; now: number },
+): { state: Reachability; back: boolean } {
+  const heard = Math.max(state.heard ?? Number.NEGATIVE_INFINITY, at.sent);
+  if (state.downSince === undefined || at.sent < state.downSince)
+    return { state: { ...state, heard }, back: false };
+  return {
+    state: { heard, lastOutage: { from: state.downSince, to: at.sent } },
+    back: true,
+  };
+}
+
+/** A read sent at `sentAt` failed as the machine's: it is down from then, if not already. */
+export function wentDown(state: Reachability, sentAt: number): Reachability {
+  return state.downSince === undefined ? { ...state, downSince: sentAt } : state;
+}
+
+/** Whose failure a failed read was, judged as of when it was sent. */
+export type FailureOf =
+  /** The child's own: the machine was heard from around it. */
+  | "own"
+  /** The machine's, and it is still down (or nothing says otherwise). */
+  | "machine"
+  /** The machine's, during an outage already over: it starts no wait. */
+  | "machine_back";
+
+export function failureOf(state: Reachability, sentAt: number, config: ScheduleConfig): FailureOf {
+  if (state.downSince !== undefined && sentAt >= state.downSince) return "machine";
+  const outage = state.lastOutage;
+  if (outage && sentAt >= outage.from && sentAt < outage.to) return "machine_back";
+  // Nothing heard within two polls before it was sent.
+  return (state.heard ?? Number.NEGATIVE_INFINITY) < sentAt - 2 * config.pollMs ? "machine" : "own";
 }
