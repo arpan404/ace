@@ -198,7 +198,7 @@ export async function startRelay(options: RelayOptions = {}) {
     url: URL,
     connection: Connection,
     /** The client's first message from its upgrade request, held as its early frame. */
-    message?: Uint8Array,
+    upgraded?: Uint8Array,
   ): Promise<void> {
     if (url.pathname === "/host") {
       const control = await respondHandshake(connection.socket, connection.reader, {
@@ -234,9 +234,9 @@ export async function startRelay(options: RelayOptions = {}) {
         );
         // The upgrade's first message is the client's early frame, held as one sent at once,
         // before the offer goes out, so no join can pair the client ahead of it.
-        if (message) {
+        if (upgraded) {
           connection.fromUpgrade = true;
-          connection.reader.inject(message);
+          connection.reader.inject(upgraded);
         }
         await apply(actions);
       }
