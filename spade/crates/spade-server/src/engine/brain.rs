@@ -460,7 +460,7 @@ pub(super) fn finish_unless_steered(
             _ => None,
         })
         .unwrap_or_default();
-    let open = Transcript::fold(&events)
+    let open = Transcript::fold(events.iter())
         .open_reply()
         .and_then(|m| m.reply.clone());
     if open.as_deref() != Some(reply) {

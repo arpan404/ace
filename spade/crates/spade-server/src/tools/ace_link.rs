@@ -18,7 +18,8 @@ use super::{
     AceLibrary, LibraryFuture, SkillLibrary, SkillSource, Tool, ToolSource, WriteError, WriteFuture,
 };
 
-/// ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
+/// ace's `wait` can block for up to ten minutes: a transport timeout just past that. A call
+/// still running after the engine's foreground window carries on as a background job.
 const CALL_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 
 /// How often a live connection is checked by default (a ping on the MCP session), so a daemon

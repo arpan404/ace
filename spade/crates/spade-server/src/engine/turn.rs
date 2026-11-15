@@ -56,7 +56,7 @@ impl Failure {
         Self { kind, endpoint }
     }
 
-    /// A spending cap: the day's, or the turn's own cost limit.
+    /// A spending cap: the day's, or one of the bot's own caps.
     fn cap() -> Self {
         Self {
             kind: FailureKind::Cap,
@@ -148,6 +148,8 @@ pub(super) async fn run(
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     live.waiting_on_you.store(false, Ordering::SeqCst);
     live.turn_running.store(false, Ordering::SeqCst);
+    // Between turns nothing keeps the conversation's events in memory.
+    *live.log.lock().unwrap_or_else(|p| p.into_inner()) = None;
     engine.set_status(&id, None);
     if paused {
         // Admission may have reopened while this worker was pausing, after reopening looked for
@@ -192,7 +194,7 @@ async fn close_durably(engine: &Engine, id: &str, reply: &str, close: &Event) {
 /// Whether `reply` is still the open reply, from a fresh read.
 fn still_open(engine: &Engine, id: &str, reply: &str) -> Result<bool, spade_store::StoreError> {
     let events = engine.load(id)?;
-    let open = Transcript::fold(&events)
+    let open = Transcript::fold(events.iter())
         .open_reply()
         .and_then(|m| m.reply.clone());
     Ok(open.as_deref() == Some(reply))
@@ -212,7 +214,7 @@ pub(super) async fn pausing(pause: &mut watch::Receiver<Pause>, point: Point) {
 
 fn open_reply(engine: &Engine, id: &str) -> Option<String> {
     let events = engine.load(id).ok()?;
-    Transcript::fold(&events).open_reply()?.reply.clone()
+    Transcript::fold(events.iter()).open_reply()?.reply.clone()
 }
 
 async fn drive(
@@ -252,30 +254,12 @@ async fn drive(
                 *driven = Some(reply.clone());
                 let model = turn_model(engine, &events, &reply);
                 // A subscription (ADR 0133) runs its own loop and keeps its own context: Spade's
-                // step, cost and cap limits and compaction are for endpoint models.
+                // spending cap and compaction are for endpoint models.
                 let cli = spade_core::brain::CliModel::is(&model);
-                let done = progress(&events);
-                // A helper has its own limits (ADR 0152), and no indexes: it starts from Spade's
-                // rules, its profile and its task alone.
+                // A helper has no indexes: it starts from Spade's rules, its profile and its task
+                // alone. No step count or cost per turn ends a turn (ADR 0158); the person's
+                // spending caps and Stop do.
                 let helper = engine.helper_of(id).is_some();
-                if helper {
-                    if let Some(ended) = helper_limits(engine, done) {
-                        return ended;
-                    }
-                } else if !cli && done.steps >= engine.limits.max_steps {
-                    let limit = engine.limits.max_steps;
-                    return Ended::Failed(
-                        String::new(),
-                        format!("the turn reached its limit of {limit} steps"),
-                    );
-                }
-                if !cli && !helper && done.cost_micros >= engine.limits.turn_cost_micros {
-                    return Ended::FailedAs(
-                        String::new(),
-                        "the turn reached its cost limit".to_owned(),
-                        Failure::cap(),
-                    );
-                }
                 if !cli && !engine.within_cap().unwrap_or(false) {
                     return Ended::FailedAs(
                         String::new(),
@@ -393,26 +377,6 @@ async fn drive(
                 }
             }
         }
-    }
-}
-
-/// How a helper's turn ends at its limits (ADR 0152), if it reached one.
-fn helper_limits(engine: &Engine, done: spade_core::turn::Progress) -> Option<Ended> {
-    use spade_core::helper::{over_cost, over_steps};
-    let limits = &engine.limits;
-    if done.steps >= limits.helper_steps {
-        Some(Ended::Failed(
-            String::new(),
-            over_steps(limits.helper_steps),
-        ))
-    } else if done.cost_micros >= limits.helper_cost_micros {
-        Some(Ended::FailedAs(
-            String::new(),
-            over_cost(limits.helper_cost_micros),
-            Failure::cap(),
-        ))
-    } else {
-        None
     }
 }
 
@@ -619,8 +583,7 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
         _ => String::new(),
     };
     let total = progress(&events);
-    // What the person sees the turn cost counts the helpers whose results it read (ADR 0152);
-    // its own $2 limit does not.
+    // What the person sees the turn cost counts the helpers whose results it read (ADR 0152).
     let helpers = spade_core::helper::cost_in_turn(&events);
     let finished = Event::Known(Known::ReplyFinished {
         reply: reply.to_owned(),
@@ -641,7 +604,7 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         return;
     }
     let Ok(events) = engine.load(id) else { return };
-    let transcript = Transcript::fold(&events);
+    let transcript = Transcript::fold(events.iter());
     if transcript.title.is_some() || transcript.open_reply().is_some() {
         return;
     }
@@ -777,7 +740,7 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(5), worker).await??;
 
         let events = engine.load("c1")?;
-        let transcript = Transcript::fold(&events);
+        let transcript = Transcript::fold(events.iter());
         assert!(transcript.open_reply().is_none(), "r1 was left open");
         assert!(events.iter().any(|e| matches!(
             e,

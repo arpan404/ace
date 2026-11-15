@@ -14,10 +14,10 @@ use super::shell::{Ran, Shell};
 use super::{PathError, Workspace, Workspaces};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
-/// The shell's deadline when the model names none, and the longest it may name: inside the
-/// harness's own 120 s tool limit, so the shell reports a timeout itself.
+/// The shell's deadline when the model names none. The model may name any longer one (ADR
+/// 0158); a command still running after the engine's foreground window moves to the background
+/// and its result arrives as a `<job_result>`.
 pub const SHELL_TIMEOUT: Duration = Duration::from_secs(60);
-pub const LONGEST_SHELL: Duration = Duration::from_secs(110);
 
 /// What every workspace tool shares: where workspaces are and who is calling.
 #[derive(Clone)]
@@ -419,12 +419,15 @@ impl Tool for ShellTool {
         shown_def(
             "shell",
             "Runs a shell command in your workspace folder (sh on macOS and Linux, cmd on \
-             Windows) and answers its output. Stops it after timeout_s seconds (60 unless given, \
-             110 at most). The person is asked before every command they have not allowed \
-             always. To read files, use workspace_read and workspace_search instead.",
+             Windows) and answers its output. Stops it after timeout_s seconds (60 unless given; \
+             give a longer one for long builds and test runs, as long as the work needs). A \
+             command still running after 30 seconds moves to the background: the call answers \
+             at once with its job id and the output arrives later as a <job_result>. The person \
+             is asked before every command they have not allowed always. To read files, use \
+             workspace_read and workspace_search instead.",
             json!({ "type": "object",
                     "properties": { "command": { "type": "string" },
-                                    "timeout_s": { "type": "integer", "minimum": 1, "maximum": 110 } },
+                                    "timeout_s": { "type": "integer", "minimum": 1 } },
                     "required": ["command"] }),
             Risk::Write,
             // A command can bring in anything: its output is untrusted, and so is every file it
@@ -517,7 +520,7 @@ impl Tool for ShellTool {
             let timeout = args
                 .timeout_s
                 .map_or(SHELL_TIMEOUT, Duration::from_secs)
-                .clamp(Duration::from_secs(1), LONGEST_SHELL);
+                .max(Duration::from_secs(1));
             let ran = match &shell {
                 Commands::OneShot(shell) => shell.run(&dir, &args.command, timeout).await,
                 Commands::Terminal(terminals) => {

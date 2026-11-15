@@ -194,10 +194,13 @@ When a reply ends finished, `spade_core::task::next(events, policy)` decides:
 | ----------------------------------------------------------- | ------------------------------------------ |
 | reply stopped, failed or cut off; Stop since; a job running | nothing                                    |
 | task not `working`; already paused since the latest message | nothing                                    |
-| 25 steps since the person's latest message                  | pause (`budget`)                           |
 | the last 3 steps had no effect                              | pause (`no_progress`)                      |
 | the last step had an effect                                 | continue now                               |
 | the last _n_ steps had none                                 | continue after 30 s × 2ⁿ⁻¹, at most 15 min |
+
+There is no step budget: a task that keeps doing something carries on for as many steps as it
+needs ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A `task_paused
+{reason: budget}` stored by an earlier version still holds until the person writes.
 
 An effect is a started call of risk write, destructive or memory, or a `todo` / `task_status`
 call with arguments different from the one before it. The engine also starts nothing while the
@@ -208,7 +211,7 @@ write. The model reads `nudge` (`<continue step="n">…</continue>`) as a note f
 brains get it as their next turn. The step's taint reaches back to the latest message. A pause is
 `task_paused {reason, steps}`, stored once.
 
-Only the person's message resets the budget and the pause; a bot's message or a routine's firing
+Only the person's message resets the pause; a bot's message or a routine's firing
 carries on the task it belongs to. `task_state` on the roster and the continuation read the same
 history: the latest valid `task_status`.
 

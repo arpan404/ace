@@ -51,8 +51,8 @@ ones without a worker carry on.
 ## The job
 
 The `helper` job starts the helper (once: a second run of the same job finds it) and waits for
-its conversation to end, then delivers the result as `job_finished`. The job has no 30-minute
-limit; the helper's own limits bound it.
+its conversation to end, then delivers the result as `job_finished`. Like every job it has no
+time limit (ADR 0158).
 
 - **Exactly once.** A job's result is delivered only if none is stored for that job yet (checked
   under the delivery lock, for every job). After a restart each helper job still open is run
@@ -144,9 +144,9 @@ the bot had read the page itself.
 
 ## Limits and spend
 
-- 30 steps and $1 per helper (`Limits.helper_steps`, `Limits.helper_cost_micros`); the helper
-  ends failed with "the helper reached its limit of 30 steps" or "…its spending limit of $1.00".
-  The bot's $2 turn limit does not count helpers.
+- A helper takes as many steps as its task needs; no step count or spend of its own ends it
+  ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). Stop on the bot's reply
+  and the caps below do.
 - Every model call a helper makes is admitted and recorded under its bot's conversation, so it
   counts toward the bot's daily and monthly caps and the service's cap. A bot at its cap ends its
   helpers before their next step, saying which cap.

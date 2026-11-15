@@ -16,8 +16,9 @@ pub const LOW: f64 = 0.35;
 /// The part of the conversation a compaction keeps word for word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
-    /// Index of the first event kept; always a message from the person sent while no tool call
-    /// was waiting for its result, so no call is cut from its result.
+    /// Index of the first event kept: a message from the person, or in a turn too long to keep
+    /// whole a step of it (ADR 0158); either way one that starts while no tool call waits for its
+    /// result, so no call is cut from its result.
     pub keep_from: usize,
 }
 
@@ -48,22 +49,69 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
         _ => None,
     });
     let starts = safe_starts(events, already);
-    let last = *starts.last()?;
     // Size each candidate's kept part in proportion to the reported prompt, by text length.
     let sizes: Vec<usize> = events.iter().map(text_len).collect();
     let total: usize = sizes.iter().sum::<usize>().max(1);
     let target = f64::from(budget) * LOW;
-    let keep_from = starts
+    let after = already.unwrap_or(0);
+    let fits = |start: usize| {
+        let kept: usize = sizes[start..].iter().sum();
+        f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
+    };
+    // A cut at the very start would summarise nothing.
+    if let Some(start) = starts
         .iter()
         .copied()
-        // A cut at the very start would summarise nothing.
-        .filter(|&start| start > already.unwrap_or(0))
-        .find(|&start| {
-            let kept: usize = sizes[start..].iter().sum();
-            f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
-        })
-        .unwrap_or(last);
-    (keep_from > already.unwrap_or(0)).then_some(Plan { keep_from })
+        .filter(|&s| s > after)
+        .find(|&s| fits(s))
+    {
+        return Some(Plan { keep_from: start });
+    }
+    // The latest turn alone is too big: it is cut at one of its own steps, so a turn of any
+    // length keeps its prompt bounded (ADR 0158).
+    let turn = starts.last().copied().unwrap_or(0).max(after);
+    let steps: Vec<usize> = step_starts(events, turn)
+        .into_iter()
+        .filter(|&s| s > after)
+        .collect();
+    let keep_from = match steps.iter().copied().find(|&s| fits(s)) {
+        Some(step) => step,
+        None => match starts.last().copied().filter(|&s| s > after) {
+            Some(message) => message,
+            None => *steps.last()?,
+        },
+    };
+    Some(Plan { keep_from })
+}
+
+/// Where a turn may be cut inside itself: each step after `from` that began once every earlier
+/// call had its result, and whose prompt had seen everything stored before it, so nothing the
+/// model has yet to read is summarised away.
+fn step_starts(events: &[Event], from: usize) -> Vec<usize> {
+    let mut open: Vec<&str> = Vec::new();
+    let mut arrived: Option<usize> = None;
+    let mut starts = Vec::new();
+    for (at, event) in events.iter().enumerate() {
+        let Event::Known(known) = event else { continue };
+        match known {
+            Known::StepFinished { calls, seen, .. } => {
+                let unread = arrived.is_some_and(|a| seen.is_none_or(|s| s <= a));
+                if at > from && open.is_empty() && !unread {
+                    starts.push(at);
+                }
+                open = calls.iter().map(|c| c.id.as_str()).collect();
+                arrived = None;
+            }
+            Known::ToolFinished { call_id, .. } => open.retain(|id| id != call_id),
+            Known::ReplyFinished { .. }
+            | Known::ReplyStopped { .. }
+            | Known::ReplyFailed { .. }
+            | Known::ReplyInterrupted { .. } => open.clear(),
+            known if context::arrives(known) => arrived = Some(at),
+            _ => {}
+        }
+    }
+    starts
 }
 
 /// Where a compaction may cut: each message from the person, after `after`, sent while every

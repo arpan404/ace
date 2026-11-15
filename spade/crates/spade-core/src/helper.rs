@@ -10,25 +10,6 @@ use crate::tools::{Registry, Risk, ToolDef};
 pub const TOOL: &str = "helper";
 /// Helpers that run at once for one bot; more wait for a free slot.
 pub const MOST_RUNNING: usize = 4;
-/// Model steps one helper may take.
-pub const MAX_STEPS: u32 = 30;
-/// What one helper may spend, in micros ($1). Counted in the bot's daily and monthly caps, not
-/// in its turn's limit.
-pub const MAX_COST_MICROS: u64 = 1_000_000;
-
-/// Why a helper stopped at its step limit.
-pub fn over_steps(steps: u32) -> String {
-    format!("the helper reached its limit of {steps} steps")
-}
-
-/// Why a helper stopped at its spending limit.
-pub fn over_cost(micros: u64) -> String {
-    format!(
-        "the helper reached its spending limit of {}",
-        crate::oversight::dollars(micros)
-    )
-}
-
 /// The profile used when the call names none.
 pub const DEFAULT_PROFILE: &str = "general";
 
@@ -386,7 +367,7 @@ mod tests {
             Event::Known(Known::ReplyFailed {
                 reply: "r1".into(),
                 text: "Half way".into(),
-                error: over_cost(MAX_COST_MICROS),
+                error: "the bot reached its daily spending cap".into(),
                 kind: crate::event::FailureKind::Cap,
                 endpoint: None,
             }),
@@ -396,7 +377,7 @@ mod tests {
         };
         assert!(end.is_error);
         assert!(
-            end.content.contains("spending limit of $1.00"),
+            end.content.contains("daily spending cap"),
             "{}",
             end.content
         );

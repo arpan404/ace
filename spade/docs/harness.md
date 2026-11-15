@@ -41,8 +41,10 @@ turn's total.
   running. The gate runs reads; asks for writes unless allowed always; always asks for
   destructive calls and for any write in a turn that read untrusted output (`web_search`,
   `web_fetch`, email). That is the `ask` level; on `auto_review` and `full_access` what the gate
-  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 4) with a timeout; results are cut
-  to 20,000 characters. A declined call returns "The person declined this action."
+  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 4); results are cut
+  to 20,000 characters. No call is timed out by the harness: one still running after the
+  foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
+  its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
@@ -50,7 +52,7 @@ turn's total.
 - **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
   replaced before the step is stored, so results and approvals never match the wrong call.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
-  (at most 30 minutes). Its result is delivered like a message: it steers the open reply or starts a
+  (with no time limit; Stop ends it). Its result is delivered like a message: it steers the open reply or starts a
   new one. Stop cancels jobs and records them stopped without starting a turn; after a restart each
   lost job is delivered as "unknown outcome". The conversation list shows `jobs` running, so a
   conversation never reads as idle while one is out.
@@ -67,8 +69,9 @@ turn's total.
   refusals (`400`, `401`, a missing model) fail at once.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
-- **Limits:** 30 steps, $2 per turn, the daily cap; each ends the turn with `reply_failed` and a
-  reason. A bot at its own daily or monthly cap starts no model call: the turn closes and the bot
+- **No step or time limit:** a turn takes as many steps and as long as its work needs (ADR 0158).
+  The person's controls are Stop and their spending caps: past the daily cap the turn ends with
+  `reply_failed` ("today's spending cap is used up"), and a bot at its own daily or monthly cap starts no model call: the turn closes and the bot
   says so once ([oversight.md](oversight.md)). With the model review on, a write the gate would run
   is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a

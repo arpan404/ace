@@ -8,6 +8,9 @@ taken by the owner's assistant and are open to the owner's confirmation. Amends
 decision 4. Builds on [ADR 0127](0127-spade-main-bot-and-chat.md) (the chat shows no tool calls)
 and [ADR 0002](0002-local-cli-providers.md) (no credentials).
 
+Amended by [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md): no fixed step, cost or time
+limit ends a bot's work.
+
 ## Context
 
 Every write a Spade bot makes asks the person first (ADR 0130: every shell command, unless that
@@ -96,7 +99,8 @@ data, credentials) still come to them.
    stores `task_continued {step, nudge}` with a new `reply_started` and runs it as a normal turn.
    The model reads the nudge as a note from Spade, never as the person's words. Taint carries
    across these steps back to the latest message. Policy (`spade_core::task`, pure):
-   - at most 25 steps on its own, counted from the person's latest message;
+   - at most 25 steps on its own, counted from the person's latest message (removed by
+     [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md): a task has no step budget);
    - a step with no effect (no write, delete or note started; no change to `todo` or
      `task_status`) makes the next wait 30 s, doubling to at most 15 minutes; three in a row
      pause the task;
@@ -133,6 +137,7 @@ data, credentials) still come to them.
 - New bots no longer ask about routine work in their folder; existing ones keep asking until the
   person changes them.
 - A bot's task can spend up to its step budget without a message; the caps bound the money.
+  (Since ADR 0158 there is no step budget; the caps alone bound it.)
 - Classification by words can miss a tool named oddly; an app tool with no annotations always
   goes to the person, and a wrong guess only ever reaches the reviewer, never runs unseen on
   `auto_review` for the kinds that always ask by name.

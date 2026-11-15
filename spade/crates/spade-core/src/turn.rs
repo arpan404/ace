@@ -121,6 +121,8 @@ pub fn unique_call_ids(
     calls: Vec<Call>,
     mut mint: impl FnMut() -> String,
 ) -> Vec<Call> {
+    // The ids already used that this step's calls also use: one pass, copying only those.
+    let wanted: std::collections::HashSet<&str> = calls.iter().map(|c| c.id.as_str()).collect();
     let mut used: std::collections::HashSet<String> = events
         .iter()
         .filter_map(|event| match event {
@@ -128,13 +130,26 @@ pub fn unique_call_ids(
             _ => None,
         })
         .flatten()
+        .filter(|call| wanted.contains(call.id.as_str()))
         .map(|call| call.id.clone())
         .collect();
+    let stored = |id: &str| {
+        events.iter().any(|event| {
+            matches!(event, Event::Known(Known::StepFinished { calls, .. })
+                if calls.iter().any(|c| c.id == id))
+        })
+    };
     calls
         .into_iter()
         .map(|mut call| {
-            while call.id.is_empty() || !used.insert(call.id.clone()) {
-                call.id = mint();
+            if call.id.is_empty() || !used.insert(call.id.clone()) {
+                // Rare: only a reused id is replaced, and the new one is checked against all.
+                loop {
+                    call.id = mint();
+                    if !call.id.is_empty() && !stored(&call.id) && used.insert(call.id.clone()) {
+                        break;
+                    }
+                }
             }
             call
         })

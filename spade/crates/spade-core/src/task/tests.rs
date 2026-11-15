@@ -207,27 +207,43 @@ fn a_changed_plan_counts_as_progress() {
 }
 
 #[test]
-fn a_task_pauses_at_its_step_budget_and_a_message_starts_afresh() {
-    let policy = Policy {
-        max_steps: 2,
-        ..Policy::default()
-    };
+fn a_task_that_keeps_making_changes_carries_on_past_any_step_count() {
     let mut events = opened();
-    add(&mut events, 1, true);
-    add(&mut events, 2, true);
+    for n in 1..=150 {
+        add(&mut events, n, true);
+    }
     assert_eq!(
-        next(&events, &policy),
-        Next::Pause {
-            reason: PauseReason::Budget,
-            steps: 2
+        next(&events, &Policy::default()),
+        Next::Continue {
+            step: 151,
+            after_ms: 0
         }
     );
-    events.push(Event::user_message("keep going"));
-    events.push(started("r3"));
-    events.push(step("r3", vec![]));
-    events.push(finished("r3"));
+}
+
+#[test]
+fn a_pause_holds_until_the_person_writes_and_then_the_task_starts_afresh() {
+    let mut events = opened();
+    for n in 1..=3 {
+        add(&mut events, n, false);
+    }
     assert_eq!(
-        next(&events, &policy),
+        next(&events, &Policy::default()),
+        Next::Pause {
+            reason: PauseReason::NoProgress,
+            steps: 3
+        }
+    );
+    events.push(k(Known::TaskPaused {
+        reason: PauseReason::NoProgress,
+        steps: 3,
+    }));
+    events.push(Event::user_message("keep going"));
+    events.push(started("r9"));
+    events.push(step("r9", vec![]));
+    events.push(finished("r9"));
+    assert_eq!(
+        next(&events, &Policy::default()),
         Next::Continue {
             step: 1,
             after_ms: 0
@@ -260,14 +276,12 @@ fn the_task_state_is_the_latest_valid_task_status_call() {
 }
 
 #[test]
-fn a_routine_firing_keeps_the_tasks_budget_and_its_pause() {
+fn a_routine_firing_keeps_the_tasks_pause() {
     use crate::event::FromRoutine;
-    let policy = Policy {
-        max_steps: 1,
-        ..Policy::default()
-    };
+    let policy = Policy::default();
     let mut events = opened();
     add(&mut events, 1, true);
+    // Stored by an earlier Spade, which paused tasks at a step count: the pause still holds.
     events.push(k(Known::TaskPaused {
         reason: PauseReason::Budget,
         steps: 1,

@@ -535,7 +535,7 @@ impl Engine {
                 continue;
             }
             let events = self.load(&agent.conversation)?;
-            let open = spade_core::Transcript::fold(&events)
+            let open = spade_core::Transcript::fold(events.iter())
                 .open_reply()
                 .and_then(|m| m.reply.clone());
             let pinned = events.iter().any(|event| {

@@ -63,11 +63,27 @@ impl State {
 /// The latest message: the person's (or another bot's) or the agent's reply text, never tool
 /// output, cut to [`PREVIEW`] characters of plain text.
 pub fn last_message(events: &[StoredEvent]) -> Option<LastMessage> {
+    last_of(events.len(), |at| {
+        let stored = &events[at];
+        (&stored.event, stored.seq, stored.at_ms)
+    })
+}
+
+/// [`last_message`] from `len` events, each with its seq and time from `at`.
+pub(crate) fn last_message_at<'a>(
+    len: usize,
+    at: impl Fn(usize) -> (&'a Event, i64, i64),
+) -> Option<LastMessage> {
+    last_of(len, at)
+}
+
+fn last_of<'a>(len: usize, at: impl Fn(usize) -> (&'a Event, i64, i64)) -> Option<LastMessage> {
     // A routine's message is its label, not something the person said; a heartbeat and its quiet
     // answer are shown as nothing (ADR 0129).
-    let silent = spade_core::routine::silent_replies(events.iter().map(|e| &e.event));
-    events.iter().rev().find_map(|stored| {
-        let Event::Known(known) = &stored.event else {
+    let silent = spade_core::routine::silent_replies((0..len).map(|i| at(i).0));
+    (0..len).rev().find_map(|i| {
+        let (event, seq, at_ms) = at(i);
+        let Event::Known(known) = event else {
             return None;
         };
         let (by_agent, text, from_agent) = match known {
@@ -99,8 +115,8 @@ pub fn last_message(events: &[StoredEvent]) -> Option<LastMessage> {
         (!text.is_empty()).then_some(LastMessage {
             by_agent,
             text,
-            at_ms: stored.at_ms,
-            seq: stored.seq,
+            at_ms,
+            seq,
             from_agent,
         })
     })

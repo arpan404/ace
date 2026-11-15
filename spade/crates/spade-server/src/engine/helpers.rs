@@ -472,7 +472,7 @@ impl Engine {
             return Err(AnswerError::NotAwaiting);
         };
         let helper_events = self.load(&ask.conversation)?;
-        let transcript = Transcript::fold(&helper_events);
+        let transcript = Transcript::fold(helper_events.iter());
         if !transcript.awaiting.iter().any(|c| c == &ask.call_id) {
             return Err(AnswerError::NotAwaiting);
         }
@@ -516,7 +516,7 @@ impl Engine {
                 self.stop_helper_after_restart(&helper)?;
             }
             let events = self.load(&helper.conversation)?;
-            let transcript = Transcript::fold(&events);
+            let transcript = Transcript::fold(events.iter());
             if transcript.stopping
                 && let Some(close) = transcript.close_after_restart()
             {
@@ -537,7 +537,7 @@ impl Engine {
         if helper::stage(&events) == Stage::Ended {
             return Ok(());
         }
-        let transcript = Transcript::fold(&events);
+        let transcript = Transcript::fold(events.iter());
         let marker = Event::Known(Known::StopRequested {
             reply: transcript.open_reply().and_then(|m| m.reply.clone()),
             jobs: Vec::new(),
@@ -571,7 +571,7 @@ impl Engine {
         let mut shown = Vec::new();
         for helper in self.store.helpers_of(id)? {
             let events = self.load(&helper.conversation)?;
-            let transcript = Transcript::fold(&events);
+            let transcript = Transcript::fold(events.iter());
             let state = match helper::stage(&events) {
                 Stage::Queued => "queued",
                 Stage::Ended => "ended",

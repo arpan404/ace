@@ -11,10 +11,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use spade_core::tools::Risk;
-use spade_server::engine::Limits;
 use spade_server::tools::Tool;
 use spade_testkit::Script;
-use support::{FakeTool, Options, Result, Spade, types};
+use support::{FakeTool, Result, Spade, types};
 
 fn title() -> Script {
     Script::reply("").plain(r#"{"title":"Logs"}"#)
@@ -446,26 +445,26 @@ async fn a_helper_that_read_a_web_page_returns_an_untrusted_result_and_the_bots_
 }
 
 #[tokio::test]
-async fn a_helper_over_its_spending_limit_ends_saying_so_and_its_cost_is_the_bots() -> Result {
+async fn a_helper_takes_as_many_steps_as_its_task_needs_and_its_cost_is_the_bots() -> Result {
     let mut scripts = warm_up();
+    // The bot's step outlasts the helper's 41, so they arrive in order.
+    scripts.push(
+        Script::reply("")
+            .call("h1", "helper", json!({ "task": "Look it up" }))
+            .call("w1", "linger", json!({})),
+    );
+    scripts.extend(
+        (0..40).map(|n| Script::reply("").call(&format!("l{n}"), "lookup", json!({ "n": n }))),
+    );
     scripts.extend([
-        starts(&[helper_call("h1", "Look it up", None)]),
-        // One step costs more than this helper may spend.
-        Script::reply("").call("l1", "lookup", json!({})),
+        Script::reply("Found it after 40 lookups."),
         Script::reply("A helper is looking."),
-        Script::reply("The helper ran out of budget."),
+        Script::reply("The helper found it."),
     ]);
-    let options = Options {
-        limits: Limits {
-            helper_cost_micros: 50,
-            ..Limits::default()
-        },
-        ..Options::default()
-    };
-    let spade = Spade::start_with(
+    let linger = FakeTool::new("linger", Risk::Read, "ok").slow(Duration::from_secs(2));
+    let spade = Spade::start(
         scripts,
-        tools(vec![pause(), FakeTool::new("lookup", Risk::Read, "found")]),
-        options,
+        tools(vec![linger, FakeTool::new("lookup", Risk::Read, "found")]),
     )
     .await?;
     let (agent, conversation) = warm_bot(&spade).await?;
@@ -477,14 +476,23 @@ async fn a_helper_over_its_spending_limit_ends_saying_so_and_its_cost_is_the_bot
         .find(|e| e["type"] == "job_finished")
         .cloned()
         .unwrap_or_default();
+    assert_eq!(result["is_error"], false, "{result}");
     let content = result["content"].as_str().unwrap_or_default();
-    assert!(
-        content.contains("the helper reached its spending limit of $0.0001"),
-        "{content}"
-    );
+    assert!(content.contains("Found it after 40 lookups."), "{content}");
+    let helper_steps = spade
+        .fake
+        .seen()
+        .iter()
+        .filter(|seen| {
+            seen.body
+                .to_string()
+                .contains("You are a helper Spade started")
+        })
+        .count();
+    assert_eq!(helper_steps, 41);
     let found = helpers(&spade, &conversation).await?;
     let spent = found[0]["cost_micros"].as_u64().unwrap_or(0);
-    assert!(spent >= 50, "{spent}");
+    assert!(spent > 0, "{spent}");
     assert_eq!(result["cost_micros"].as_u64(), Some(spent));
 
     // Every micro spent, the helper's too, is the bot's.

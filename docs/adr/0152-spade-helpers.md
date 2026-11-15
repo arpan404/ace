@@ -6,6 +6,9 @@ Status: accepted. Date: 2026-11-14. Decided by: the owner (2026-11-14, with
 [ADR 0135](0135-spade-research-and-oversight.md) (research, spending caps) and
 [ADR 0144](0144-spade-autonomous-bots.md) (autonomy).
 
+Amended by [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md): no fixed step, cost or time
+limit ends a bot's work.
+
 ## Context
 
 A bot does all of a task in one conversation. Every page it reads and every file it searches
@@ -43,7 +46,9 @@ bot the person manages, one fixed job, or a coding thread in the Threads panel.
 6. **Trust flows back.** A helper's result is untrusted if the helper read anything untrusted,
    so the bot's later writes in that turn ask, exactly as if the bot had read it itself.
 7. **Limits.** 30 steps and $1 per helper, counted in the bot's daily and monthly caps and in the
-   turn's cost shown to the person, but not in the bot's $2 turn limit. The result is cut to 20,000
+   turn's cost shown to the person, but not in the bot's $2 turn limit. (Amended by
+   [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md): no step count or spend of its own ends
+   a helper; its cost still counts in the bot's caps and the turn's cost.) The result is cut to 20,000
    characters, like any tool's.
 8. **What the person sees.** In the bot's conversation, each helper is one line, in Spade's words:
    "Helper looking into the build logs", then "Helper found …" or "Helper stopped". The line
@@ -65,3 +70,4 @@ bot the person manages, one fixed job, or a coding thread in the Threads panel.
   conversation, and the answer reaches the helper.
 - A helper that read a web page returns an untrusted result: the bot's next write asks.
 - A helper over $1 ends with that reason, and its cost counts toward the bot's daily cap.
+  (Since ADR 0158: a helper takes as many steps as it needs; its cost counts toward the caps.)

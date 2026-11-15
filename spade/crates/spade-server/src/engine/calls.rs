@@ -587,9 +587,16 @@ async fn run_tools(
                 changed = stop.changed() => {
                     (changed.is_err() || *stop.borrow()).then_some(Handled::Stopped)
                 }
-                Some(done) = running.next() => {
-                    finished.push_back(done);
-                    None
+                Some((call, name, ran)) = running.next() => {
+                    match settle(engine, id, reply, &call, &name, ran, stop) {
+                        Ok(Some(output)) => {
+                            finished.push_back((call, name, output));
+                            None
+                        }
+                        // Stop came as it moved to the background.
+                        Ok(None) => Some(Handled::Stopped),
+                        Err(error) => Some(Handled::Failed(error)),
+                    }
                 }
                 () = stored(&mut storing) => {
                     storing = None;
@@ -656,6 +663,15 @@ async fn stored(storing: &mut Option<Storing<'_>>) {
     }
 }
 
+/// How a call came back from the foreground.
+enum Ran {
+    Done(ToolOutput),
+    /// Still running when the foreground window closed: the run itself, to carry on as a job.
+    Outlived(crate::tools::ToolFuture),
+}
+
+/// Runs a call for as long as the turn's foreground window (ADR 0158). No call is ever timed out
+/// here: one still running then comes back as [`Ran::Outlived`] and runs on in the background.
 async fn run_one(
     engine: &Arc<Engine>,
     id: &str,
@@ -663,38 +679,47 @@ async fn run_one(
     name: &str,
     arguments: Value,
     facts: &TurnFacts,
-) -> ToolOutput {
+) -> Ran {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
         let registry = engine.registry_for(id);
         let found = registry.search(query, 5);
-        return ToolOutput::ok(describe(&found));
+        return Ran::Done(ToolOutput::ok(describe(&found)));
     }
     let Some(tool) = engine.tools.get_for(id, name) else {
-        return ToolOutput::error(format!("There is no tool named {name}."));
+        return Ran::Done(ToolOutput::error(format!("There is no tool named {name}.")));
     };
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
-    let reads_only = tool.def().risk == Risk::Read;
-    match tokio::time::timeout(
-        engine.limits.tool_timeout,
-        tool.run_in(&key, arguments, facts),
-    )
-    .await
-    {
-        Ok(output) => output,
-        Err(_) => {
-            let seconds = engine.limits.tool_timeout.as_secs();
-            if reads_only {
-                ToolOutput::error(format!("{name} did not finish within {seconds} seconds."))
-            } else {
-                // A write cut off may still have acted; never let it read as "did not run".
-                ToolOutput::maybe_ran(format!(
-                    "{} ({name} did not answer within {seconds} seconds.)",
-                    context::MAYBE_RAN
-                ))
-            }
-        }
+    let mut work = tool.run_in(&key, arguments, facts);
+    match tokio::time::timeout(engine.limits.foreground, &mut work).await {
+        Ok(output) => Ran::Done(output),
+        Err(_) => Ran::Outlived(work),
+    }
+}
+
+/// Answers a call with what came back from the foreground. A call that outlived it becomes job
+/// `call.id`, unless the turn was stopped first: then `None`, and the run is dropped (cut off,
+/// like every call still in flight when Stop comes).
+fn settle(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    call: &Call,
+    name: &str,
+    ran: Ran,
+    stop: &watch::Receiver<bool>,
+) -> Result<Option<ToolOutput>, String> {
+    let work = match ran {
+        Ran::Done(output) => return Ok(Some(output)),
+        Ran::Outlived(work) => work,
+    };
+    match super::jobs::adopt(engine, id, reply, &call.id, name, work, stop) {
+        Ok(super::jobs::Started::Running) => Ok(Some(ToolOutput::ok(
+            context::moved_to_background(&call.id, engine.limits.foreground.as_secs()),
+        ))),
+        Ok(super::jobs::Started::Stopped) => Ok(None),
+        Err(error) => Err(error.to_string()),
     }
 }
 

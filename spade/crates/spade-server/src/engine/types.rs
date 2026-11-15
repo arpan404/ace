@@ -12,20 +12,19 @@ use crate::clock::{Clock, Ids};
 use crate::images::{ImageError, ImageStore};
 use crate::tools::{SkillLibrary, Toolbox};
 
-/// Bounds on one turn.
+/// How a turn runs. Nothing here ends a bot's work: a turn takes as many steps and as long as
+/// it needs, and the person's controls are Stop and their own spending caps (ADR 0158).
 #[derive(Debug, Clone)]
 pub struct Limits {
-    pub max_steps: u32,
-    pub turn_cost_micros: u64,
     pub max_parallel_tools: usize,
-    pub tool_timeout: Duration,
+    /// How long a call holds the turn. A call still running then moves to the background as a
+    /// job, whose result arrives as a `<job_result>`; the turn carries on meanwhile.
+    pub foreground: Duration,
     /// Longest tool result kept, in characters.
     pub result_chars: usize,
     pub longest_message: usize,
     /// Compaction budget in tokens, capped by each model's own context window.
     pub context_budget: u32,
-    /// Longest a background job may run.
-    pub job_timeout: Duration,
     /// Asks one other machine may deliver here in a day (ADR 0132).
     pub remote_asks_per_day: usize,
     /// Asks to other machines that may wait in the outbox at once.
@@ -38,31 +37,22 @@ pub struct Limits {
     pub task: spade_core::task::Policy,
     /// Longest the auto-review may take before the call goes to the person.
     pub review_timeout: Duration,
-    /// Model steps one helper may take (ADR 0152).
-    pub helper_steps: u32,
-    /// What one helper may spend, in micros (ADR 0152).
-    pub helper_cost_micros: u64,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_steps: 30,
-            turn_cost_micros: 2_000_000,
             max_parallel_tools: 4,
-            tool_timeout: Duration::from_secs(120),
+            foreground: Duration::from_secs(30),
             result_chars: 20_000,
             longest_message: 100_000,
             context_budget: 200_000,
-            job_timeout: Duration::from_secs(30 * 60),
             remote_asks_per_day: 500,
             remote_asks_waiting: 500,
             retry: super::retry::Retry::default(),
             new_bot_access: spade_core::autonomy::Access::NEW_BOT,
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
-            helper_steps: spade_core::helper::MAX_STEPS,
-            helper_cost_micros: spade_core::helper::MAX_COST_MICROS,
         }
     }
 }

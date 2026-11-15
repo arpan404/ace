@@ -10,9 +10,7 @@ use spade_core::autonomy::{self, Access, Case, Judgment, Outcome};
 use spade_core::context;
 use spade_core::event::{Call, Known, Verdict};
 use spade_core::review;
-use spade_core::task::{self, State as TaskState};
 use spade_core::tools::{Registry, ToolDef};
-use spade_store::StoredEvent;
 use tokio::sync::watch;
 
 use super::{AgentError, AgentView, Engine};
@@ -21,51 +19,28 @@ use super::{AgentError, AgentView, Engine};
 const REVIEWING: &str = "Checking a step";
 
 /// The level folded from stored events; `unset` when none is stored.
-pub(super) fn access_of(stored: &[StoredEvent], unset: Access) -> Access {
-    stored
-        .iter()
+pub(super) fn access_of<'a>(
+    events: impl DoubleEndedIterator<Item = &'a Event>,
+    unset: Access,
+) -> Access {
+    events
         .rev()
-        .find_map(|e| match &e.event {
+        .find_map(|e| match e {
             Event::Known(Known::AccessChanged { level }) => Some(*level),
             _ => None,
         })
         .unwrap_or(unset)
 }
 
-/// The task state folded from stored events: the latest valid `task_status`, the same history the
-/// continuation reads, so a later call with arguments that don't parse never hides it.
-pub(super) fn task_of(stored: &[StoredEvent]) -> Option<TaskState> {
-    let events: Vec<Event> = stored
-        .iter()
-        .filter(|e| task_call(&e.event))
-        .map(|e| e.event.clone())
-        .collect();
-    task::state(&events)
-}
-
-fn task_call(event: &Event) -> bool {
-    match event {
-        Event::Known(Known::StepFinished { calls, .. }) => calls.iter().any(|c| {
-            c.name == task::TASK_STATUS
-                || c.arguments.get("name").and_then(Value::as_str) == Some(task::TASK_STATUS)
-        }),
-        _ => false,
-    }
-}
-
 /// Whether the latest reply was one Spade started for the bot's task.
-pub(super) fn continued(stored: &[StoredEvent]) -> bool {
-    let Some(start) = stored
-        .iter()
-        .rposition(|e| matches!(e.event, Event::Known(Known::ReplyStarted { .. })))
+/// `at` gives the event at an index of `len`.
+pub(super) fn continued<'a>(len: usize, at: impl Fn(usize) -> &'a Event) -> bool {
+    let Some(start) =
+        (0..len).rfind(|&i| matches!(at(i), Event::Known(Known::ReplyStarted { .. })))
     else {
         return false;
     };
-    start > 0
-        && matches!(
-            stored[start - 1].event,
-            Event::Known(Known::TaskContinued { .. })
-        )
+    start > 0 && matches!(at(start - 1), Event::Known(Known::TaskContinued { .. }))
 }
 
 /// The setting that says every conversation from before access levels had `ask` stored.

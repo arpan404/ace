@@ -76,6 +76,16 @@ waiting for."
     )
 }
 
+/// The answer to a call still running after the turn's foreground window, `seconds` long: it
+/// carries on as job `job` (ADR 0158).
+pub fn moved_to_background(job: &str, seconds: u64) -> String {
+    format!(
+        "Still running after {seconds} seconds, so it carries on in the background as job {job}. \
+Its result will arrive in this conversation as a <job_result> when it finishes. Carry on with \
+other work, or end your reply and say what you are waiting for."
+    )
+}
+
 /// The result of a background job Spade lost when it stopped or restarted.
 pub const JOB_LOST: &str = "Unknown outcome: Spade stopped while this job ran in the background. \
 It may have taken effect; check before trying it again.";
@@ -611,19 +621,25 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
     out
 }
 
+/// Whether the model reads `event` as something that arrived (a message, a job's result, a note
+/// from Spade), which a step whose prompt was built before it comes in has not seen.
+pub(crate) fn arrives(event: &Known) -> bool {
+    matches!(
+        event,
+        Known::UserMessage { .. }
+            | Known::JobFinished { .. }
+            | Known::ComputerHandedBack { .. }
+            | Known::TaskContinued { .. }
+            | Known::PersonActivity { .. }
+    ) || crate::question::is_late(event)
+}
+
 /// The events from `from` on, in the order the model read them: a message or job result that
 /// arrived while a step was being answered (at or after the step's `seen`) comes after that step,
 /// since the step never saw it.
 fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
     let arrives = |event: &Event| match event {
-        Event::Known(
-            Known::UserMessage { .. }
-            | Known::JobFinished { .. }
-            | Known::ComputerHandedBack { .. }
-            | Known::TaskContinued { .. }
-            | Known::PersonActivity { .. },
-        ) => true,
-        Event::Known(known) => crate::question::is_late(known),
+        Event::Known(known) => arrives(known),
         Event::Unknown(_) => false,
     };
     let mut out = Vec::with_capacity(events.len().saturating_sub(from));
@@ -780,18 +796,31 @@ fn turn_from(events: &[Event]) -> usize {
 /// Whether the open turn has read output from a tool whose output can carry instructions from
 /// strangers. The turn includes what started it: a background job's result can open a turn.
 pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
-    !untrusted_sources(events, registry).is_empty()
+    events[turn_from(events)..]
+        .iter()
+        .any(|event| untrusted_event(event, registry))
 }
 
 /// What made the open turn untrusted, in a few words each ("https://example.com/page", "a
 /// message from Research"), oldest first; empty when nothing did.
 pub fn untrusted_sources(events: &[Event], registry: &Registry) -> Vec<String> {
-    let from = turn_from(events);
-    events[from..]
-        .iter()
-        .filter(|event| untrusted_event(event, registry))
-        .map(|event| describe_event(events, event))
-        .collect()
+    described(events, turn_from(events), registry)
+}
+
+/// The untrusted events from `from` on, each described once, oldest first. Each is described from
+/// the events just before it, so a turn of thousands of steps costs what it holds, not its square.
+fn described(events: &[Event], from: usize, registry: &Registry) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (at, event) in events.iter().enumerate().skip(from) {
+        if untrusted_event(event, registry) {
+            let said = describe_event(&events[..at], event);
+            if seen.insert(said.clone()) {
+                out.push(said);
+            }
+        }
+    }
+    out
 }
 
 /// Untrusted content still in the model's view, in a few words each, oldest first: every
@@ -820,11 +849,7 @@ pub fn untrusted_events_in_view(events: &[Event], registry: &Registry) -> Vec<St
         })
         .unwrap_or(0)
         .min(events.len());
-    events[from..]
-        .iter()
-        .filter(|event| untrusted_event(event, registry))
-        .map(|event| describe_event(events, event))
-        .collect()
+    described(events, from, registry)
 }
 
 /// Whether the summary the prompt shows was drawn from untrusted content (ADR 0128). Its facts
@@ -896,7 +921,8 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
 }
 
 /// An untrusted event as a source, in a few words.
-fn describe_event(events: &[Event], event: &Event) -> String {
+/// `event` in a few words; `before` is the events stored before it.
+fn describe_event(before: &[Event], event: &Event) -> String {
     match event {
         Event::Known(Known::UserMessage {
             from_agent: Some(agent),
@@ -916,7 +942,7 @@ fn describe_event(events: &[Event], event: &Event) -> String {
         }) => format!("other bots' messages in {}", group.name),
         Event::Known(Known::UserMessage { .. }) => "an ace event".to_owned(),
         Event::Known(Known::ToolFinished { name, call_id, .. }) => {
-            describe_source(events, name, call_id)
+            describe_source(before, name, call_id)
         }
         Event::Known(Known::JobFinished { name, .. }) if name == "bot_message" => {
             "another bot's answer".to_owned()
