@@ -208,8 +208,7 @@ test("a view follows its producer to each new id in ace-media and goes with its 
   });
   const grant = granted(await h.connections.connect(phone("a")));
   const tab = producer("t1");
-  const intent: ViewIntent = {
-    viewer: "v1",
+  const intent: Omit<ViewIntent, "viewer"> = {
     requester: phone("a"),
     connection: grant.connection,
     target: { kind: "browser", threadId: "t1" },
@@ -219,9 +218,10 @@ test("a view follows its producer to each new id in ace-media and goes with its 
     audio: false,
     shows: (p) => p.threadId === "t1",
   };
-  expect(viewers.bind({ ...intent, requester: laptop })).toBe(false);
-  expect(viewers.bind(intent)).toBe(true);
-  expect(viewers.granted("v1")).toBe(false); // nothing streams into ace-media yet
+  expect(viewers.bind({ ...intent, requester: laptop })).toBeUndefined();
+  const v1 = viewers.bind(intent) ?? "";
+  expect(v1).not.toBe("");
+  expect(viewers.granted(v1)).toBe(false); // nothing streams into ace-media yet
   viewers.live(producer("t2"), "other");
   viewers.live(tab, "path-1");
   viewers.live(tab, "path-2");
@@ -232,6 +232,46 @@ test("a view follows its producer to each new id in ace-media and goes with its 
     new Uint8Array(0),
   );
   viewers.live(tab, "path-3");
+  expect(h.sent.filter((s) => s.message.type === "viewer.open")).toHaveLength(2);
+});
+
+test("a regrant opens a view ace-media replaced again, under its id, as last configured", async () => {
+  const h = harness();
+  const tab = producer("t1");
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => [{ producer: tab, path: "path-1" }],
+    send: (message) => {
+      h.sent.push({ message, payload: new Uint8Array(0) });
+      return true;
+    },
+    id: () => "v",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const viewer =
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId: "t1" },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === "t1",
+    }) ?? "";
+  viewers.configure(viewer, { width: 400, height: 300, dpr: 2, scale: 1 }, true);
+  viewers.regrant(viewer);
+  const opens = h.sent.flatMap((s) => (s.message.type === "viewer.open" ? [s.message] : []));
+  expect(opens.map((o) => o.viewer)).toEqual([viewer, viewer]);
+  expect(opens[1]?.viewport.width).toBe(400);
+  expect(opens[1]?.audio).toBe(true);
+  // A fresh issue: ace-media takes it as a grant, not a replay.
+  expect(opens[1]?.issued).toBeGreaterThan(opens[0]?.issued ?? Infinity);
+  // A view no longer held is never opened again.
+  viewers.unbind(viewer);
+  viewers.regrant(viewer);
   expect(h.sent.filter((s) => s.message.type === "viewer.open")).toHaveLength(2);
 });
 
@@ -346,8 +386,7 @@ test("a poster asks only for the epochs its producer vouches were clear, and a p
   const grant = granted(await h.connections.connect(phone("a")));
   const vouching = { ...producer("t1"), clearEpochs: () => [[0, 4]] as [number, number][] };
   live.push({ producer: vouching, path: "path-1" });
-  const intent: ViewIntent = {
-    viewer: "v1",
+  const intent: Omit<ViewIntent, "viewer"> = {
     requester: phone("a"),
     connection: grant.connection,
     target: { kind: "browser", threadId: "t1" },
@@ -357,14 +396,14 @@ test("a poster asks only for the epochs its producer vouches were clear, and a p
     audio: false,
     shows: (p) => p.threadId === "t1",
   };
-  expect(viewers.bind(intent)).toBe(true);
-  expect(await viewers.poster("v1")).toBeUndefined();
+  const v1 = viewers.bind(intent) ?? "";
+  expect(await viewers.poster(v1)).toBeUndefined();
   expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [[0, 4]] });
   // A producer that says nothing about its epochs vouches for none.
   asked.length = 0;
   live[0] = { producer: producer("t1"), path: "path-2" };
   viewers.live(live[0].producer, "path-2");
-  await viewers.poster("v1");
+  await viewers.poster(v1);
   expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [] });
 });
 
@@ -385,23 +424,23 @@ test("a view's grant is closed when its producer leaves ace-media, and again on 
   const grant = granted(await h.connections.connect(phone("a")));
   const tab = producer("t1");
   live.push({ producer: tab, path: "path-1" });
-  viewers.bind({
-    viewer: "v1",
-    requester: phone("a"),
-    connection: grant.connection,
-    target: { kind: "browser", threadId: "t1" },
-    codecs: ["avc1.42E033"],
-    viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
-    local: true,
-    audio: false,
-    shows: (p) => p.threadId === "t1",
-  });
+  const v1 =
+    viewers.bind({
+      requester: phone("a"),
+      connection: grant.connection,
+      target: { kind: "browser", threadId: "t1" },
+      codecs: ["avc1.42E033"],
+      viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+      local: true,
+      audio: false,
+      shows: (p) => p.threadId === "t1",
+    }) ?? "";
   const closes = () => h.sent.filter((s) => s.message.type === "viewer.close").length;
   // The route moved the producer back to the daemon: ace-media's view must go with it.
   viewers.live(tab, undefined);
   expect(closes()).toBe(1);
-  expect(viewers.granted("v1")).toBe(false);
+  expect(viewers.granted(v1)).toBe(false);
   // Unbinding now closes nothing more: that grant is already gone.
-  viewers.unbind("v1");
+  viewers.unbind(v1);
   expect(closes()).toBe(1);
 });

@@ -1,23 +1,58 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const cwd = new URL("../native/media/", import.meta.url);
+
+// Clippy's lints change between Rust releases, so cargo runs on the toolchain the workspace pins,
+// not whichever cargo comes first on PATH (Homebrew's, say).
+const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
+  readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),
+)?.[1];
+if (channel === undefined) throw new Error("native/media/rust-toolchain.toml names no channel");
+const pinned: string = channel;
+const hasRustup = spawnSync("rustup", ["--version"], { stdio: "ignore" }).status === 0;
+if (!hasRustup) {
+  const version = spawnSync("cargo", ["--version"], { encoding: "utf8" }).stdout?.trim();
+  console.warn(
+    `check:media: rustup not found, so running ${version || "cargo"}, not the pinned ${pinned}`,
+  );
+}
+function cargo(args: string[]): void {
+  if (hasRustup)
+    execFileSync("rustup", ["run", pinned, "cargo", ...args], { cwd, stdio: "inherit" });
+  else execFileSync("cargo", args, { cwd, stdio: "inherit" });
+}
+
 for (const args of [
   ["fmt", "--all", "--check"],
   ["clippy", "--workspace", "--all-targets", "--locked"],
   ["test", "--workspace", "--locked"],
   ["deny", "check", "licenses", "sources"],
 ]) {
-  execFileSync("cargo", args, { cwd, stdio: "inherit" });
+  cargo(args);
 }
 
 // The daemon's supervisor, the egress route, the recording route and delivery against the binary
-// just built: the acceptance tests for the process core, G1, F1 and D1. Windows has no lanes in the
-// binary yet.
-if (process.platform !== "win32") {
-  execFileSync("cargo", ["build", "--locked", "-p", "ace-media"], { cwd, stdio: "inherit" });
+// just built: the acceptance tests for the process core, G1, F1 and D1. Windows runs the supervisor and
+// egress tests over its named pipes; it has no recorder yet, and the producer suites below
+// haven't been run against the Windows binary.
+if (process.platform === "win32") {
+  cargo(["build", "--locked", "-p", "ace-media"]);
+  const binary = fileURLToPath(new URL("target/debug/ace-media.exe", cwd));
+  execFileSync(
+    "bun",
+    ["--bun", "x", "vitest", "run", "src/supervisor.process.test.ts", "src/egress.process.test.ts"],
+    {
+      cwd: new URL("../packages/media/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    },
+  );
+} else {
+  cargo(["build", "--locked", "-p", "ace-media"]);
   const binary = fileURLToPath(new URL("target/debug/ace-media", cwd));
   const tests = [
     "src/supervisor.process.test.ts",
@@ -82,4 +117,12 @@ if (process.platform !== "win32") {
         stdio: "inherit",
       },
     );
+  // E2: the Linux screen streams through this binary and back on egress (with
+  // ACE_SCREEN_INTEGRATION=1 and ACE_LINUX_HELPER, inside a GNOME Wayland session).
+  if (process.platform === "linux")
+    execFileSync("bun", ["--bun", "x", "vitest", "run", "src/media-ingest.linux.process.test.ts"], {
+      cwd: new URL("../packages/screen/", import.meta.url),
+      env: { ...process.env, ACE_MEDIA_TEST_BINARY: binary },
+      stdio: "inherit",
+    });
 }

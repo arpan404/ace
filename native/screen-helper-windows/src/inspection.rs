@@ -41,6 +41,14 @@ impl Inspection {
     }
 }
 
+/// The desktop hello, with the start-up trial's codecs and capture → encode report.
+pub fn capabilities_with(trial: &crate::media::capability::Trial) -> Value {
+    let mut hello = capabilities();
+    hello["codecs"] = trial.codecs();
+    hello["encoders"] = trial.encoders();
+    hello
+}
+
 pub fn capabilities() -> Value {
     json!({"version":2,"platform":"windows",
         "capture":{"windows":true,"displays":true,"changeDriven":true},

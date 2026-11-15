@@ -30,6 +30,15 @@ extension ClientModel {
         }
         return await admissions.wait(id: commandId) { composeAction(create) }
     }
+    /// Back to New thread on a stopped worktree start: nil once this phone has set its Unsent
+    /// row aside and the daemon has forgotten the start, else why not (both stay as they were).
+    func worktreeBack(_ commandId: String) async -> String? {
+        guard canOperate else { return "This phone can only view this machine." }
+        let id = admissions.nextId()
+        return await receipts.wait(id: id) {
+            composeAction(["kind": "worktreeBack", "commandId": commandId, "requestId": id])
+        }
+    }
     /// What the sheet has chosen so far: the picker leads with it and its access modes are read.
     func composeChoice(_ draft: NewThreadDraft) {
         var choice: [String: Any] = ["kind": "choice"]

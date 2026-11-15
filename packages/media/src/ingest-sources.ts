@@ -32,6 +32,12 @@ export type IngestAddress = {
   socket: string;
   token: Uint8Array;
   epoch: number;
+  /**
+   * The ace-media process serving `socket`. A Windows producer refuses a named pipe served by
+   * any other process: another instance of the name can be created by any process of this
+   * user.
+   */
+  pid?: number;
   /** This open's id in ace-media: the path's name in a merge, and `EgressUnit.source` of its
    * units. */
   path: string;
@@ -81,7 +87,7 @@ export type IngestProducer = {
 /** What the sources need of the supervisor. */
 export type IngestPort = {
   send: (message: ToMedia, payload?: Uint8Array) => boolean;
-  ingest: () => { socket: string; websocketPort: number } | undefined;
+  ingest: () => { socket: string; websocketPort: number; pid?: number } | undefined;
   need: () => () => void;
 };
 
@@ -161,6 +167,8 @@ type Path = {
   /** Draining keeps ace-media's need until the path ends. */
   release: (() => void) | undefined;
   reported: boolean;
+  /** ace-media's last plan for it (`source.want`), for the producer once it is pointed here. */
+  want: Extract<FromMedia, { type: "source.want" }>["encodes"] | undefined;
 };
 
 export type IngestSource = {
@@ -302,6 +310,9 @@ export class IngestSources {
       return;
     }
     if (message.type === "source.want") {
+      // ace-media plans as soon as a view is granted, often before the producer is pointed
+      // here: the plan is kept for then.
+      path.want = message.encodes;
       if (entry.state === "ingest") entry.producer.want?.(message.encodes);
       return;
     }
@@ -396,6 +407,7 @@ export class IngestSources {
       closeSent: false,
       release: undefined,
       reported: false,
+      want: undefined,
     };
     this.#paths.set(id, path);
     this.#live(entry, path);
@@ -419,8 +431,11 @@ export class IngestSources {
       token,
       epoch: entry.producer.epoch(),
       path: path.id,
+      ...(ingest.pid ? { pid: ingest.pid } : {}),
     };
-    entry.producer.point(address).then(
+    const pointed = entry.producer.point(address);
+    if (path.want) entry.producer.want?.(path.want);
+    pointed.then(
       () => token.fill(0),
       (error: unknown) => {
         token.fill(0);

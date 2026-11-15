@@ -18,7 +18,7 @@ use media_core::fanout::{Event, Piece, Viewer as Fanout, Window};
 use media_core::link_rate::{Limits, LinkRate};
 use media_core::plan::{Source as PlanSource, VideoViewer, Viewport as PlanViewport, plan_video};
 use media_wire::control::{
-    EncodeSpec, FromMedia, Id, KeyReason, Nonnegative, Sequence, ViewerTarget, Viewport,
+    EncodeSpec, FromMedia, Id, KeyReason, Nonnegative, Sequence, Status, ViewerTarget, Viewport,
 };
 use media_wire::frame::MediaFrame;
 use media_wire::media_link::{ClientMessage, ServerMessage, close};
@@ -39,6 +39,13 @@ pub const RATE_FLOOR: f64 = 150_000.0;
 const RTT_GUESS_MS: f64 = 100.0;
 /// What the bytes in flight may hold beyond one round trip (ADR 0149 decision 2).
 const SLACK_MS: f64 = 300.0;
+/// ADR 0149's coupled keyframe cap: a keyframe is at most about this long at the view's rate.
+const KEYFRAME_SECONDS: f64 = 0.5;
+/// A keyframe this far over the cap reconfigures its producer; each one within it lets the rate
+/// back up by this step.
+const KEYFRAME_SLACK: f64 = 1.25;
+/// The most one oversized keyframe cuts its encode's rate to.
+const KEYFRAME_CUT_FLOOR: f64 = 0.25;
 /// The bytes in flight a view is held to: at least one small unit, at most the fanout's window.
 const MIN_BUDGET: usize = 16 * 1024;
 const MAX_BUDGET: usize = 8 * 1024 * 1024;
@@ -121,6 +128,13 @@ struct SourceFacts {
     keyframes: HashMap<u32, u64>,
     /// The encodes the producer actually sends: coded size, codec and when last seen.
     seen: HashMap<u32, Seen>,
+    /// Encodes whose keyframes outgrew the coupled cap: the share of the plan's bit rate they
+    /// are asked for until their keyframes fit again.
+    cut: HashMap<u32, f64>,
+    /// The id the next new encode takes.
+    next_id: u32,
+    /// Out of ids: the daemon was asked to open the source again.
+    renewing: bool,
 }
 
 struct Seen {
@@ -150,6 +164,21 @@ pub struct Delivery {
     bytes_out: u64,
     /// The capture time of the unit being delivered.
     stamp: f64,
+    /// The last sequence each connection and target used: a view of a target its connection
+    /// showed before continues after it, so a late ack from the retired view (acks name no view
+    /// on the wire) names sequences the new one never sent, and releases nothing of it.
+    sequences: HashMap<(String, String), u64>,
+    /// ace-media's encode ids, when not `MEDIA_IDS` (tests run a small range out).
+    media_ids: Option<std::ops::Range<u32>>,
+}
+
+/// A target's key for `Delivery::sequences`.
+fn target_key(target: &ViewerTarget) -> String {
+    match target {
+        ViewerTarget::Browser { thread_id, .. } => format!("browser/{}", thread_id.get()),
+        ViewerTarget::Screen { session_id } => format!("screen/{}", session_id.get()),
+        ViewerTarget::Device { device_id } => format!("device/{}", device_id.get()),
+    }
 }
 
 fn media(out: &mut Vec<Effect>, connection: &str, message: MediaOut) {
@@ -164,6 +193,21 @@ fn id(value: &str) -> Id {
 }
 
 impl Delivery {
+    /// Removes a view, remembering the last sequence it used for its connection and target.
+    fn retire_view(&mut self, key: &str) -> Option<View> {
+        let view = self.views.remove(key)?;
+        let at = (view.connection.clone(), target_key(&view.target));
+        let last = self.sequences.entry(at).or_default();
+        *last = (*last).max(view.sequence);
+        Some(view)
+    }
+
+    /// The range ace-media's encode ids come from (tests make it small to run it out).
+    #[cfg(test)]
+    pub(crate) fn with_media_ids(&mut self, ids: std::ops::Range<u32>) {
+        self.media_ids = Some(ids);
+    }
+
     pub fn bytes_out(&self) -> u64 {
         self.bytes_out
     }
@@ -180,7 +224,8 @@ impl Delivery {
     }
 
     /// A granted view. Replacing one with the same id starts it over.
-    pub fn open(&mut self, open: Open, now_ms: u64, out: &mut Vec<Effect>) {
+    /// Returns the views it replaced (another view of the same target on the same connection).
+    pub fn open(&mut self, open: Open, now_ms: u64, out: &mut Vec<Effect>) -> Vec<String> {
         let limits = if open.local {
             Limits {
                 initial: 8_000_000.0,
@@ -190,11 +235,38 @@ impl Delivery {
             Limits::default()
         };
         let source = open.source.clone();
-        if let Some(old) = self.views.remove(open.viewer.get())
-            && old.source != source
-        {
-            self.replan(&old.source, now_ms, out);
+        // One view per connection and target: the client can't tell two apart (their pieces
+        // name the same ids), so a grant for a target already shown there replaces that view.
+        let replaced: Vec<String> = self
+            .views
+            .iter()
+            .filter(|(key, v)| {
+                key.as_str() != open.viewer.get()
+                    && v.connection == open.connection
+                    && v.target == open.target
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut sources = Vec::new();
+        for key in &replaced {
+            if let Some(old) = self.retire_view(key) {
+                sources.push(old.source);
+            }
         }
+        if let Some(old) = self.retire_view(open.viewer.get()) {
+            sources.push(old.source);
+        }
+        sources.retain(|old| *old != source);
+        sources.sort();
+        sources.dedup();
+        for old in sources {
+            self.replan(&old, now_ms, out);
+        }
+        let start = self
+            .sequences
+            .get(&(open.connection.clone(), target_key(&open.target)))
+            .copied()
+            .unwrap_or(0);
         self.views.insert(
             open.viewer.get().to_owned(),
             View {
@@ -212,13 +284,14 @@ impl Delivery {
                 hint_bps: open.hint_bps,
                 encode: None,
                 taking: None,
-                sequence: 0,
+                sequence: start,
                 held: VecDeque::new(),
                 frames: 0,
                 dropped: 0,
             },
         );
         self.replan(&source, now_ms, out);
+        replaced
     }
 
     pub fn configure(
@@ -239,7 +312,7 @@ impl Delivery {
     }
 
     pub fn close_view(&mut self, viewer: &str, now_ms: u64, out: &mut Vec<Effect>) {
-        if let Some(view) = self.views.remove(viewer) {
+        if let Some(view) = self.retire_view(viewer) {
             self.replan(&view.source, now_ms, out);
         }
     }
@@ -339,12 +412,14 @@ impl Delivery {
             .collect();
         let mut sources = Vec::new();
         for key in gone {
-            if let Some(view) = self.views.remove(&key) {
+            if let Some(view) = self.retire_view(&key) {
                 sources.push(view.source);
             }
         }
         sources.sort();
         sources.dedup();
+        // The connection is gone for good: nothing of it can be acked again.
+        self.sequences.retain(|(at, _), _| at != connection);
         for source in sources {
             self.replan(&source, now_ms, out);
         }
@@ -515,6 +590,9 @@ impl Delivery {
                 self.replan(source, now_ms, out);
             }
         }
+        if frame.kind == 1 && frame.flags & 1 != 0 && self.keyframe_sized(source, frame) {
+            self.replan(source, now_ms, out);
+        }
         let keys: Vec<String> = self
             .views
             .iter()
@@ -633,6 +711,47 @@ impl Delivery {
         }
     }
 
+    /// A keyframe against ADR 0149's coupled cap for the views taking its encode (about half a
+    /// second of their share of the link): one far over it cuts the rate its producer is asked
+    /// for, so its next keyframes are smaller; each one within it lets the rate back up. The
+    /// oversized one still goes (an empty window takes any unit). True when the cut changed.
+    fn keyframe_sized(&mut self, source: &str, frame: &MediaFrame) -> bool {
+        // The views taking this unit's encode, with the plan's id for it (the producer's id
+        // differs while it runs its own encodes).
+        let taking: Vec<(f64, u32)> = self
+            .views
+            .values()
+            .filter(|v| v.source == source && v.taking == Some(frame.encode))
+            .filter_map(|v| Some((carried(v) * self.share(&v.session), v.encode?)))
+            .collect();
+        let Some(rate) = taking.iter().map(|(rate, _)| *rate).reduce(f64::min) else {
+            return false;
+        };
+        let cap = (rate.max(RATE_FLOOR) / 8.0 * KEYFRAME_SECONDS).max(1.0);
+        let size = frame.payload.len() as f64;
+        // One keyframe moves each planned encode's cut once, however many views share it.
+        let mut planned: Vec<u32> = taking.iter().map(|(_, id)| *id).collect();
+        planned.sort_unstable();
+        planned.dedup();
+        let facts = self.sources.entry(source.to_owned()).or_default();
+        let mut changed = false;
+        for planned in planned {
+            let before = facts.cut.get(&planned).copied().unwrap_or(1.0);
+            let after = if size > cap * KEYFRAME_SLACK {
+                (before * cap / size).clamp(KEYFRAME_CUT_FLOOR, 1.0)
+            } else {
+                (before * KEYFRAME_SLACK).min(1.0)
+            };
+            if after >= 1.0 {
+                facts.cut.remove(&planned);
+            } else {
+                facts.cut.insert(planned, after);
+            }
+            changed |= (after - before).abs() > f64::EPSILON;
+        }
+        changed
+    }
+
     fn events(&mut self, key: &str, events: Vec<Event>, now_ms: u64, out: &mut Vec<Effect>) {
         let Some(view) = self.views.get_mut(key) else {
             return;
@@ -748,22 +867,56 @@ impl Delivery {
         );
         drop(viewers);
         drop(live);
+        let range = self.media_ids.clone().unwrap_or(MEDIA_IDS);
         let facts = self.sources.entry(source.to_owned()).or_default();
+        // Encodes the plan drops: their ids are never given out again while units of theirs may
+        // be queued anywhere.
+        let dropped: Vec<u32> = facts
+            .ids
+            .iter()
+            .filter(|(key, _)| !plan.encodes.iter().any(|e| e.key == **key))
+            .map(|(_, id)| *id)
+            .collect();
         facts
             .ids
             .retain(|key, _| plan.encodes.iter().any(|e| e.key == *key));
+        // The cut belongs to the plan's encode; what the producer sends (`seen`) is its own
+        // record, refreshed by every unit and aged out on its own.
+        for id in dropped {
+            facts.cut.remove(&id);
+        }
         let mut wanted = Vec::with_capacity(plan.encodes.len());
         for encode in &plan.encodes {
-            // A new encode takes the lowest id no kept encode holds, so a source with one
-            // encode stays on 0 as it is resized.
+            // A new encode takes the next id: ids only grow (a source's first is 1), so none is
+            // reused while a dropped encode's units may still be on the way. Out of ids, the
+            // source asks the daemon, once, to open it again (`ended`, no reason): the new open
+            // has a new handle and starts over, and the old one's end marker proves it drained.
+            // Until then the encode runs without a plan of ace-media's.
             let id = match facts.ids.get(&encode.key) {
                 Some(id) => *id,
                 None => {
-                    let free = (0..)
-                        .find(|n| !facts.ids.values().any(|v| v == n))
-                        .unwrap_or(0);
-                    facts.ids.insert(encode.key.clone(), free);
-                    free
+                    let given = next_media_id(&range, facts.next_id, |id| {
+                        facts.ids.values().any(|v| *v == id)
+                    });
+                    let Some((id, next)) = given else {
+                        if !facts.renewing {
+                            facts.renewing = true;
+                            normal(
+                                out,
+                                FromMedia::SourceStatus {
+                                    source: id(source),
+                                    status: Status::Ended,
+                                    reason: None,
+                                    attempts: None,
+                                    acceleration: None,
+                                },
+                            );
+                        }
+                        continue;
+                    };
+                    facts.next_id = next;
+                    facts.ids.insert(encode.key.clone(), id);
+                    id
                 }
             };
             // The planner keeps 500 kbit/s; video's share follows the link below that, down to
@@ -775,13 +928,14 @@ impl Delivery {
                 .filter_map(|(viewer, _)| budgets.get(viewer))
                 .copied()
                 .fold(f64::INFINITY, f64::min);
-            let bitrate = if budget.is_finite() {
-                f64::from(encode.bitrate)
-                    .min(budget.max(RATE_FLOOR))
-                    .round() as u32
+            let budgeted = if budget.is_finite() {
+                f64::from(encode.bitrate).min(budget.max(RATE_FLOOR))
             } else {
-                encode.bitrate
+                f64::from(encode.bitrate)
             };
+            // An encode whose keyframes outgrew the coupled cap is asked for less until they fit.
+            let cut = facts.cut.get(&id).copied().unwrap_or(1.0);
+            let bitrate = (budgeted * cut).max(RATE_FLOOR.min(budgeted)).round() as u32;
             wanted.push(EncodeSpec {
                 id,
                 codec: encode.codec.clone(),
@@ -916,6 +1070,25 @@ fn changed(old: &[EncodeSpec], new: &[EncodeSpec]) -> bool {
                 || a.fps != b.fps
                 || (f64::from(a.bitrate) - f64::from(b.bitrate)).abs() > 0.2 * f64::from(a.bitrate)
         })
+}
+
+/// ace-media's encode ids: [1, 2^20). 0 is what a producer that ignores the plan stamps, and the
+/// daemon's own encodes in a shared capture take [2^20, 2^31), so the two never meet.
+const MEDIA_IDS: std::ops::Range<u32> = 1..1 << 20;
+
+/// The next encode id from `next`, skipping ids in use, and the one after it; none once the
+/// range is used up. Ids never wrap in place: a source out of them is opened again, under a new
+/// handle, and starts the range over there.
+pub(crate) fn next_media_id(
+    range: &std::ops::Range<u32>,
+    next: u32,
+    in_use: impl Fn(u32) -> bool,
+) -> Option<(u32, u32)> {
+    let mut id = next.max(range.start);
+    while id < range.end && in_use(id) {
+        id += 1;
+    }
+    (id < range.end).then(|| (id, id + 1))
 }
 
 /// The encode a view takes: its planned one while the producer sends it, else the produced encode
