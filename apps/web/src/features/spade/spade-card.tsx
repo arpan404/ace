@@ -17,7 +17,7 @@ export const quietBubble =
   "min-w-0 max-w-[min(100%,--spacing(150))] rounded-lg bg-chat-bubble px-3 py-2 wrap-anywhere";
 
 export const personBubble =
-  "min-w-0 max-w-[80%] rounded-lg bg-chat-mine px-3 py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
+  "min-w-0 max-w-[80%] rounded-lg bg-chat-mine px-3 text-chat-mine-foreground py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
 
 /** A card that waits on the person: raised, with its actions in a footer. */
 export function RaisedCard(

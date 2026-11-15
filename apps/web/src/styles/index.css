@@ -86,11 +86,19 @@
   --color-link: var(--ring-text);
   --color-code: var(--code);
   --color-bubble: var(--bubble);
-  /* A conversation's four surfaces (theme/chat-surfaces.ts). */
+  /* A Spade conversation's surfaces and the person's accent bubble (theme/chat-surfaces.ts). */
   --color-chat-bubble: var(--chat-bubble);
   --color-chat-mine: var(--chat-mine);
+  --color-chat-mine-foreground: var(--chat-mine-foreground);
+  --color-chat-mine-meta: var(--chat-mine-meta);
+  --color-chat-mine-code: var(--chat-mine-code);
   --color-chat-raised: var(--chat-raised);
   --color-chat-well: var(--chat-well);
+  --color-chat-code: var(--chat-code);
+  /* A face's status dot: needs-you, failed and off only. */
+  --color-face-dot-needs-you: var(--face-dot-needs-you);
+  --color-face-dot-failed: var(--face-dot-failed);
+  --color-face-dot-off: var(--face-dot-off);
   --color-reading: var(--reading);
   --color-panel: var(--panel);
   --color-sidebar: var(--sidebar);
