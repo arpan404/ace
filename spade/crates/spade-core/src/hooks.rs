@@ -382,7 +382,7 @@ mod tests {
         );
         // A refusal is read through the call's result, never as added text.
         assert_eq!(shown(PRE_TOOL_USE, &[refused.clone(), text.clone()]), None);
-        assert!(!untrusted(POST_TOOL_USE, &[failed.clone()]));
+        assert!(!untrusted(POST_TOOL_USE, std::slice::from_ref(&failed)));
         assert!(untrusted(USER_PROMPT_SUBMIT, &[failed, text]));
         assert!(refusal(&[refused]).is_some_and(|r| r.contains("guard: Run the tests.")));
     }
