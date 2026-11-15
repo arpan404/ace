@@ -47,7 +47,7 @@
   --suit-dither: repeating-conic-gradient(#0d0b22 0 25%, #110e2a 0 50%) 0 0 / 6px 6px;
   --suit-rail-background: var(--suit-dither);
   --suit-sidebar-background: var(--suit-dither);
-  --suit-header-background: linear-gradient(#0d0b22, #0d0b22);
+  --suit-header-background: #0d0b22;
   --suit-composer-background: transparent;
   --suit-right-panel-background: #0d0b22;
   font-family: var(--font-sans);
@@ -618,7 +618,7 @@
 [data-part="composer-send"][data-variant="stopping"],
 [data-part="composer-send"][data-variant="steer"],
 [data-part="composer-send"][data-variant="queue"] {
-  color: inherit;
+  color: var(--color-tint-foreground);
 }
 [data-part="composer-send"][data-variant="stop"]::after,
 [data-part="composer-send"][data-variant="stopping"]::after,
@@ -673,6 +673,10 @@
 [data-part="icon-button"] {
   border-radius: 0;
 }
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+  opacity: 0.7;
+}
 [data-part="icon-button"]:hover,
 [data-part="icon-button"][data-state="active"] {
   box-shadow:
@@ -715,6 +719,11 @@
 [data-part="tab"] {
   border-radius: 0;
   font-size: 11px;
+  color: var(--color-muted-foreground);
+}
+[data-part="tab"]:hover,
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
 }
 [data-part="tab"][data-state="selected"] {
   box-shadow: inset 0 -3px 0 0 var(--color-tint);

@@ -97,6 +97,27 @@ const sceneFor = (element: Element, scenes: readonly SceneFrame[]) =>
     .toSorted((a, b) => (a.host.contains(b.host) ? 1 : -1))[0];
 
 /**
+ * The scene's cells as they show through its veils. A veil is a sibling painted over the scene
+ * and under the host's content, so its opacity tints what the text sits on and never the text.
+ * Each gradient stop of a veil is a backdrop of its own, so the worst one counts.
+ */
+function underVeils(veils: readonly Element[], cells: readonly Rgb[], read: Read): Rgb[] {
+  let shown = [...cells];
+  for (const veil of veils) {
+    const layer = layerOf(veil, read);
+    if (layer === "image") continue;
+    shown = shown.flatMap((cell) => {
+      const painted = over(layer.color, cell);
+      const choices = layer.stops.length
+        ? layer.stops.map((stop) => over(stop, painted))
+        : [painted];
+      return choices.map((choice) => over([...choice, 1], cell, layer.opacity));
+    });
+  }
+  return shown;
+}
+
+/**
  * The layers from what lies beneath `holder` up to it, and the backdrop under those. Undefined
  * when the background can't be read (an image, or a scene that gave no sample).
  */
@@ -110,13 +131,10 @@ function background(
   const layers: PaintLayer[] = [];
   for (let at: Element | null = holder; at; at = at.parentElement) {
     if (scene && at === scene.host) {
-      for (const veil of scene.veils.toReversed()) {
-        const layer = layerOf(veil, read);
-        if (layer !== "image") layers.unshift(layer);
-      }
       if (!scene.grid) return undefined;
-      const backdrop = cellsUnder(scene.grid, box, solidBelow(scene.host, read));
-      return { layers, backdrop: backdrop.length ? backdrop : [solidBelow(scene.host, read)] };
+      const cells = cellsUnder(scene.grid, box, solidBelow(scene.host, read));
+      const backdrop = cells.length ? cells : [solidBelow(scene.host, read)];
+      return { layers, backdrop: underVeils(scene.veils, backdrop, read) };
     }
     const layer = layerOf(at, read);
     if (layer === "image") return undefined;
@@ -139,10 +157,11 @@ function textHolders(part: Element): Element[] {
   return [...holders];
 }
 
-const markOf = (part: Element) => {
-  const svg = part.querySelector("svg");
-  return svg && svg.closest("[data-part]") === part ? svg : undefined;
-};
+/** The part's own icon. A Suit's ornament is decoration (hidden from assistive tech), not one. */
+const markOf = (part: Element) =>
+  [...part.querySelectorAll("svg")].find(
+    (svg) => svg.closest("[data-part]") === part && !svg.closest("[data-ornament]"),
+  );
 
 const shows = (element: Element, box: Box) => {
   if (box.width < 1 || box.height < 1) return false;
