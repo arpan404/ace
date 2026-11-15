@@ -187,3 +187,54 @@ pub fn nonce() -> io::Result<[u8; 16]> {
     }
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::listener::{Home, Role, split};
+    use super::Listener;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    #[tokio::test]
+    async fn split_connections_carry_bytes_both_ways_and_the_next_client_finds_an_instance() {
+        let home = match Home::new(&std::env::temp_dir(), std::process::id()) {
+            Ok(home) => home,
+            Err(error) => panic!("home: {error}"),
+        };
+        let mut listener = match Listener::bind(&home, Role::Control) {
+            Ok(listener) => listener,
+            Err(error) => panic!("bind: {error}"),
+        };
+        let name = home.address(Role::Control);
+        assert!(
+            Listener::bind(&home, Role::Control).is_err(),
+            "a second first instance of the same name is refused"
+        );
+        for round in 0u8..3 {
+            let client = ClientOptions::new().open(&name);
+            let Ok(mut client) = client else {
+                panic!("open {round}: {client:?}")
+            };
+            let server = match listener.accept().await {
+                Ok(server) => server,
+                Err(error) => panic!("accept: {error}"),
+            };
+            let (mut read, mut write) = split(server);
+            // A read is pending while the server writes: the lane's shape.
+            let reader = tokio::spawn(async move {
+                let mut got = [0u8; 4];
+                read.read_exact(&mut got).await.map(|_| got)
+            });
+            tokio::task::yield_now().await;
+            assert!(write.write_all(&[round; 3]).await.is_ok());
+            let mut echoed = [0u8; 3];
+            assert!(client.read_exact(&mut echoed).await.is_ok());
+            assert_eq!(echoed, [round; 3]);
+            assert!(client.write_all(&[round, 1, 2, 3]).await.is_ok());
+            match reader.await {
+                Ok(Ok(got)) => assert_eq!(got, [round, 1, 2, 3]),
+                other => panic!("read: {other:?}"),
+            }
+        }
+    }
+}
