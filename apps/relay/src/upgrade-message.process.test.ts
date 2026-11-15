@@ -202,3 +202,54 @@ it("nothing the relay writes, on any path, carries an upgrade entry", async () =
   expect(written.join("\n")).not.toContain(NK_UPGRADE_MESSAGE.prefix);
   expect(written.join("\n")).not.toContain(UPGRADE_MESSAGE.prefix);
 });
+
+it("once the first message is held, and after it is forwarded, the relay keeps no copy of the upgrade entry", async () => {
+  for (const offer of [
+    nkOffer(nkFirst),
+    [UPGRADE_MESSAGE.subprotocol, entry(first), EARLY_FRAME.subprotocol, EARLY_FRAME.neutral],
+  ]) {
+    const h = await relayWithHost();
+    const client = await openPeer(
+      address(h.relay.url, "/client", { hostId: h.daemon.hostId, [EARLY_FRAME.query]: "1" }),
+      offer,
+    );
+    cleanups.push(() => client.close());
+    // Held as the early frame: the entry itself is no longer kept by the relay.
+    expect(h.relay.upgradeEntries()).toBe(0);
+    expect(h.relay.earlyHeld().frames).toBe(1);
+    const joined = await h.join(await h.offer());
+    await joined.next();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Forwarded: nothing of it is held anywhere the relay keeps it.
+    expect(h.relay.upgradeEntries()).toBe(0);
+    expect(h.relay.earlyHeld()).toMatchObject({ frames: 0, bytes: 0, queuedBytes: 0 });
+  }
+});
+
+it("an upgrade that never completes leaves no entry behind", async () => {
+  const h = await relayWithHost();
+  const socket = await import("node:net").then(({ connect }) =>
+    connect(Number(new URL(h.relay.url).port), "127.0.0.1"),
+  );
+  await new Promise((resolve) => socket.once("connect", resolve));
+  socket.write(
+    [
+      `GET /client?hostId=${h.daemon.hostId}&early=1 HTTP/1.1`,
+      "Host: 127.0.0.1",
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      "Sec-WebSocket-Version: 13",
+      // A bad key: the relay reserves and reads the entry, then the upgrade fails.
+      "Sec-WebSocket-Key: not-a-key",
+      `Sec-WebSocket-Protocol: ${nkOffer(nkFirst).join(", ")}`,
+      "",
+      "",
+    ].join("\r\n"),
+  );
+  // The relay answers the bad key; the client then goes away.
+  await new Promise((resolve) => socket.once("data", resolve));
+  socket.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(h.relay.upgradeEntries()).toBe(0);
+  expect(h.relay.earlyHeld()).toMatchObject({ reserved: 0, frames: 0 });
+});
