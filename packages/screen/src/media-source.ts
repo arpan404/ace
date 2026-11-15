@@ -12,25 +12,38 @@ import type { HelperPort } from "./helper-session.ts";
 import { PathMerge } from "@ace/media/path-merge";
 
 /**
- * A Mac or Windows screen session as an ace-media producer (docs/media/plan.md, E3). When the route sends
- * screens to ace-media, the helper is given the ingest socket with each `stream.configure` and
- * writes its H.264 there; ace-media's egress brings the units back as the frames the helper's
+ * A Mac, Windows or Linux screen session as an ace-media producer (docs/media/plan.md, E3, E1,
+ * E2). When the route sends screens to ace-media, the helper is given the ingest socket with
+ * each `stream.configure` and writes its H.264 there. On Linux the daemon's path keeps today's
+ * JPEG pictures, which the daemon encodes for viewers as before, so only the ace-media route
+ * runs the helper's encoder; ace-media's egress brings the units back as the frames the helper's
  * socket would have carried, header for header, for the daemon's legacy viewer, recorder and
  * stills. Both paths go through one ordered merge, so a route change loses or repeats nothing.
  */
 
 /**
- * Whether a screen helper makes its own video: the Mac's (VideoToolbox), and Windows' where its
- * start-up trial found a Media Foundation H.264 encoder. A helper offering only JPEG gets its
- * video from the daemon's last-resort encoder instead.
+ * Whether a screen helper makes its own video: the Mac's (VideoToolbox), Windows' where its
+ * start-up trial found a Media Foundation H.264 encoder, and Linux's where one of its encoders
+ * (VA-API, NVENC or the last resort) worked. A helper offering only JPEG gets its video from the
+ * daemon's last-resort encoder instead.
  */
 export function helperEncodesVideo(
   capabilities: { platform: string; codecs: readonly string[] } | undefined,
 ): boolean {
   return (
-    (capabilities?.platform === "macos" || capabilities?.platform === "windows") &&
+    (capabilities?.platform === "macos" ||
+      capabilities?.platform === "windows" ||
+      capabilities?.platform.startsWith("linux") === true) &&
     capabilities.codecs.includes("h264")
   );
+}
+
+/**
+ * Whether a helper's video goes to ace-media only (Linux, E2): on the daemon's path it sends the
+ * JPEG pictures the daemon has always encoded itself, so `media.encode: legacy` keeps today's path.
+ */
+export function videoOnlyToMedia(capabilities: { platform: string } | undefined): boolean {
+  return capabilities?.platform.startsWith("linux") === true;
 }
 
 /** Where screen sources are opened in ace-media: the daemon's `IngestSources`. */
@@ -74,7 +87,8 @@ export function egressScreenFrame(sessionId: string, frame: MediaFrame): Frame |
 
 export type ScreenMediaSourceOptions = {
   sessionId: string;
-  /** The helper's platform, as its hello names it (`macos`, `windows`). */
+  /** The helper's platform, as its hello names it (`macos`, `windows`, `linux-wayland`): ace-media's
+   * origin, and whether the daemon's path carries video (`videoOnlyToMedia`). */
   platform: string;
   helper: HelperPort;
   media: ScreenMedia;
@@ -131,6 +145,11 @@ export class ScreenMediaSource {
       // ace-media's end marker for a path, after its last unit.
       pathEnded: (path, interrupted) => this.#merge.ended(path, interrupted),
     });
+  }
+
+  /** Whether the helper sends video to ace-media now (its stills then come only on request). */
+  get ingesting(): boolean {
+    return this.#onPath !== daemonPath;
   }
 
   /** Frames dropped as older than one already handed on, or lost to a cut path. */
@@ -249,7 +268,10 @@ export class ScreenMediaSource {
       reply = ScreenStreamConfigured.parse(
         await this.#options.helper.request({
           op: "stream.configure",
-          settings,
+          // A Linux helper's video goes to ace-media only: on the daemon's path it sends the
+          // JPEG pictures the daemon has always encoded itself.
+          settings:
+            address || !videoOnlyToMedia(this.#options) ? settings : { ...settings, codec: "jpeg" },
           epoch: screenOpeningEpoch,
           ...(address ? { ingest: address.ingest } : {}),
         }),

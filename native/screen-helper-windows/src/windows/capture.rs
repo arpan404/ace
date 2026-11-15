@@ -450,8 +450,9 @@ fn run(
                 scale_per_pixel,
                 captured,
                 // The epoch in force when this picture was captured, by its own timestamp: a
-                // picture delivered after a later epoch was applied keeps the earlier one.
-                epoch: lock_stream().epoch_at(match (captured_100ns, qpc()) {
+                // picture delivered after a later epoch was applied keeps the earlier one. It
+                // replaces the one kept before, so older epochs are forgotten.
+                epoch: lock_stream().epoch_for_newest(match (captured_100ns, qpc()) {
                     (Some(units), Some((_, frequency))) => {
                         CaptureTime::from_100ns(units, frequency)
                     }
