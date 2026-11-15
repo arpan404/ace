@@ -89,6 +89,32 @@ import XCTest
         // A settled swipe takes about three seconds, its fling included.
         XCTAssertLessThan(slowest, 15, "a swipe through the finished work logs didn't settle")
     }
+    /// Swiping the moment a long finished thread opens, while its rows are still measuring for
+    /// the first time: a stall here pinned the main thread in the lazy feed's layout (#2051's
+    /// follow-up, seen first in #2005's rail test). No wait for a log: that's the point.
+    func testSwipingTheMomentALongFinishedThreadOpensStaysResponsive() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--perf-probe", "--perf-log"]
+        app.launchWithArguments()
+        addTeardownBlock { @MainActor in
+            let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+            counts.name = "perf counts"
+            counts.lifetime = .keepAlways
+            self.add(counts)
+        }
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        var slowest: TimeInterval = 0
+        for _ in 0..<6 {
+            let started = Date()
+            transcript.swipeDown(velocity: .fast)
+            slowest = max(slowest, Date().timeIntervalSince(started))
+            // A settled swipe takes about three seconds, its fling included.
+            XCTAssertLessThan(slowest, 15, "a swipe right after opening didn't settle")
+        }
+    }
     private func message(_ text: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text)).firstMatch
     }
