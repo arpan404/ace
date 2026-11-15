@@ -279,6 +279,11 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * `lines` every frame holds exactly one message.
        */
       framing: z.array(z.string().max(32)).max(8).optional(),
+      /**
+       * With a ticket: this client keeps the next one in memory, so the welcome may carry a
+       * fresh one-use ticket for its next connection (ADR 0150). Older daemons ignore it.
+       */
+      nextTicket: z.literal(true).optional(),
     })
     .refine(
       (hello) =>
@@ -412,6 +417,14 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      * one. Absent for other credentials and from daemons that don't enforce it.
      */
     grantTtlMs: z.number().int().nonnegative().optional(),
+    /**
+     * For a hello that opened with a ticket and asked for the next (`nextTicket`): a fresh
+     * one-use ticket for this device's next connection, valid `ttlMs` from now (ADR 0150). It
+     * is bound to the device and its credential, and revoking the device voids it.
+     */
+    ticket: z
+      .object({ ticket: z.string().regex(/^[0-9a-f]{64}$/), ttlMs: z.number().int().positive() })
+      .optional(),
   }),
   z
     .object({ type: z.literal("snapshot"), subscriptionId: z.string(), seq, view: SnapshotView })

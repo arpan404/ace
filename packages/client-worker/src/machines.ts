@@ -345,6 +345,7 @@ export class MachinePool {
     this.live.delete(hostId);
     this.failures.delete(hostId);
     this.gates.delete(hostId);
+    this.options.account?.grantSettled?.(hostId);
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
@@ -364,7 +365,7 @@ export class MachinePool {
     const hostId = machine.hostId;
     let gate = this.gates.get(hostId);
     if (!gate) {
-      gate = machineCodeGate(() => account.grant());
+      gate = machineCodeGate(() => account.grant(hostId));
       this.gates.set(hostId, gate);
     }
     const current = this.live.get(hostId);
@@ -417,6 +418,7 @@ export class MachinePool {
       this.dispose(live);
       this.live.delete(hostId);
       this.failures.delete(hostId);
+      this.options.account?.grantSettled?.(hostId);
       gone.push(hostId);
     }
     this.gates.clear();
@@ -504,6 +506,9 @@ export class MachinePool {
   private publish(live: Live, state: MachineState): void {
     live.state = state;
     if (state.status === "online") this.failures.delete(state.entry.hostId);
+    // Welcomed: how this account machine got its grant no longer matters.
+    if (state.status === "online" && state.entry.target.kind === "account")
+      this.options.account?.grantSettled?.(state.entry.hostId);
     this.notifications.emit([`machine:${state.entry.hostId}`]);
     // An account machine that can't open (signed out, another account, its code to enter)
     // gives the paired entry it stood in for back until it proves itself again.
@@ -726,9 +731,12 @@ export class MachinePool {
     const paths = new Multipath({
       routes,
       scheduler,
-      // The shell's clock; an app that injects none gets the wall clock here, at the boundary.
+      // The shell's wall clock, only for moments shown; an app that injects none gets the wall
+      // clock here, at the boundary.
       now: this.options.remote.now ?? Date.now,
-      ...(account.clock ? { clock: account.clock } : {}),
+      // Every liveness duration runs on the monotonic clock (ADR 0150); the path manager's own
+      // default when the app gives none.
+      ...(account.clock ? { clock: account.clock, monotonic: account.clock } : {}),
       // A hidden window pings its machine less often.
       ...(visibility ? { visible: () => visibility.visible() } : {}),
       ...(account.watchNetwork ? { watchNetwork: account.watchNetwork } : {}),
@@ -744,7 +752,8 @@ export class MachinePool {
       ...(paired ? { paired } : {}),
       transport: route.transport,
       credential: route.credential,
-      grant: () => account.grant(),
+      grant: () => account.grant(hostId),
+      grantRefused: (grant) => account.grantRefused?.(grant, hostId) ?? false,
     });
     client.usePaths?.(paths);
     return client;

@@ -3,7 +3,6 @@ import { join } from "node:path";
 import {
   HostId,
   maxTransferBytes,
-  transferChunkBytes,
   type CommandId,
   type IncomingTransfer,
   type PortableHandoff,
@@ -18,7 +17,8 @@ import {
   type WorkspaceId,
 } from "@ace/protocol";
 import type { RemoteProfile } from "../cli/profiles.ts";
-import { MachineFailure } from "../machines/transport.ts";
+import { MachineFailure, MachineTimeout } from "../machines/transport.ts";
+import { ChunkPace } from "./chunk-pace.ts";
 import type { Store } from "../store.ts";
 import { TransferClient, type TransferTransport } from "./client.ts";
 import { ensureDirectory, fileBytes, readAt, removeQuietly, removeStray } from "./files.ts";
@@ -471,14 +471,26 @@ export class OutgoingTransfers {
         record = this.update(this.need(transferId), { totalBytes: total });
       record = this.update(this.need(transferId), { phase: "sending" });
       const sent = { code: status.offset, ignored: status.ignoredOffset ?? 0 };
+      // Chunk sizes and timeouts follow the throughput acknowledged chunks show.
+      const pace = new ChunkPace();
       const upload = async (part: "code" | "ignored", path: string, bytes: number) => {
         while (sent[part] < bytes) {
           signal.throwIfAborted();
           const from = sent[part];
-          const data = await readAt(path, from, Math.min(transferChunkBytes, bytes - from));
-          sent[part] = await this.reach(signal, () =>
-            client.chunk(transferId, from, data, signal, part),
-          );
+          // Each attempt reads its chunk again, so one sent after a timeout is smaller.
+          sent[part] = await this.reach(signal, async () => {
+            const data = await readAt(path, from, pace.size(bytes - from));
+            const timeoutMs = pace.timeoutMs(data.length);
+            const started = this.deps.now();
+            try {
+              const offset = await client.chunk(transferId, from, data, signal, part, timeoutMs);
+              pace.sent(data.length, this.deps.now() - started);
+              return offset;
+            } catch (error) {
+              if (error instanceof MachineTimeout) pace.timedOut(data.length, timeoutMs);
+              throw error;
+            }
+          });
           record = this.bytes(this.need(transferId), sent.code + sent.ignored);
         }
       };
