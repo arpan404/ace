@@ -105,13 +105,22 @@ impl Gate {
     }
     /// Open while any subscriber is still active, until [`LATE_LIMIT`] past the latest caller's
     /// deadline: a step past the deadline still runs, and its result arrives late.
+    /// Cancelled subscribers are let go of here, so a long run holds only the waiting ones.
     pub(crate) fn open(&self) -> bool {
-        let active = lock(&self.subscribers).iter().any(|c| !c.is_cancelled());
-        active && Instant::now() < *lock(&self.deadline) + LATE_LIMIT
+        let mut subscribers = lock(&self.subscribers);
+        subscribers.retain(|c| !c.is_cancelled());
+        !subscribers.is_empty() && Instant::now() < *lock(&self.deadline) + LATE_LIMIT
+    }
+    #[cfg(test)]
+    fn subscribers(&self) -> usize {
+        lock(&self.subscribers).len()
     }
     /// Another caller joins: its cancellation counts, and its deadline extends the worker's.
     fn join(&self, cancel: ProbeCancel, until: Instant) {
-        lock(&self.subscribers).push(cancel);
+        let mut subscribers = lock(&self.subscribers);
+        subscribers.retain(|c| !c.is_cancelled());
+        subscribers.push(cancel);
+        drop(subscribers);
         let mut deadline = lock(&self.deadline);
         *deadline = (*deadline).max(until);
     }
@@ -388,5 +397,20 @@ mod tests {
             b.late.recv_timeout(Duration::from_secs(2)),
             Err(mpsc::RecvTimeoutError::Disconnected)
         );
+    }
+
+    #[test]
+    fn a_cancelled_caller_is_let_go_of_while_the_others_keep_the_worker() {
+        let now = Instant::now();
+        let gate = Gate::new(ProbeCancel::default(), now);
+        let callers: Vec<ProbeCancel> = (0..100).map(|_| ProbeCancel::default()).collect();
+        for caller in &callers {
+            gate.join(caller.clone(), now);
+        }
+        for caller in &callers {
+            caller.cancel();
+        }
+        assert!(gate.open(), "the first caller still waits");
+        assert_eq!(gate.subscribers(), 1, "the cancelled ones are let go of");
     }
 }

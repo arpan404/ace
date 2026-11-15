@@ -129,7 +129,8 @@ struct Running {
 pub struct Worker<B: Backends> {
     backends: B,
     encodes: BTreeMap<u32, Running>,
-    jpeg: Vec<u8>,
+    /// Hardware encoders starting beside an encode's fallback, by encode id.
+    shadows: BTreeMap<u32, switch::Shadow>,
     last_pts: u64,
     epoch: u32,
     reported: Option<Acceleration>,
@@ -186,12 +187,82 @@ fn reason_of(error: &CodecError) -> String {
     }
 }
 
+/// One picture, as every encode of the source takes it.
+struct Fed<'a> {
+    jpeg: &'a [u8],
+    source_size: Size,
+    pts: u64,
+    epoch: u32,
+    captured_us: u64,
+}
+
+/// Decodes the picture for `running`'s encoder and hands it over. A picture that won't decode,
+/// or that a busy encoder can't take, is skipped; any other error is the encoder's.
+fn feed<B: Backends>(backends: &mut B, running: &mut Running, fed: &Fed) -> Result<(), CodecError> {
+    let prepared = match running.chosen.takes_jpeg {
+        Some(direct) if fed.source_size == running.size => {
+            direct(fed.jpeg.to_vec(), fed.pts).map(|picture| Decoded {
+                picture,
+                backend: running.chosen.backend,
+                hardware: false,
+                uploads: 0,
+            })
+        }
+        _ => backends.decode(fed.jpeg, running.size, running.chosen.backend),
+    };
+    let mut decoded = match prepared {
+        Ok(decoded) => decoded,
+        Err(CodecError::InvalidInput(_)) => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    set_pts(&mut decoded.picture, fed.pts);
+    let encode_uploads = u32::from(matches!(decoded.picture, Picture::Cpu(_)));
+    let steps = vec![
+        SourceStep {
+            step: Step::JpegDecode,
+            backend: decoded.backend,
+            hardware: decoded.hardware,
+            readbacks: 0,
+            uploads: decoded.uploads,
+        },
+        SourceStep {
+            step: Step::Encode,
+            backend: running.chosen.backend,
+            hardware: running.chosen.hardware,
+            readbacks: 0,
+            uploads: encode_uploads,
+        },
+    ];
+    match running
+        .chosen
+        .encoder
+        .encode(decoded.picture, running.key_owed)
+    {
+        Ok(()) => {
+            running.key_owed = false;
+            running.steps = steps;
+            if running.pending.len() >= PENDING_MAX {
+                running.pending.pop_front();
+            }
+            running.pending.push_back(Pending {
+                pts: fed.pts,
+                epoch: fed.epoch,
+                captured_us: fed.captured_us,
+            });
+            Ok(())
+        }
+        // The encoder is behind: this picture is skipped, the next one taken.
+        Err(CodecError::Backpressure) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 impl<B: Backends> Worker<B> {
     pub fn new(backends: B) -> Self {
         Self {
             backends,
             encodes: BTreeMap::new(),
-            jpeg: Vec::new(),
+            shadows: BTreeMap::new(),
             last_pts: 0,
             epoch: 0,
             reported: None,
@@ -214,9 +285,12 @@ impl<B: Backends> Worker<B> {
                 if let Some(running) = self.encodes.get_mut(&id) {
                     running.key_owed = true;
                 }
+                if let Some(shadow) = self.shadows.get_mut(&id) {
+                    shadow.running.key_owed = true;
+                }
             }
             Command::Drain => return self.drain(now_us, out),
-            Command::Capabilities => self.upgrade(now_us, out),
+            Command::Capabilities => self.upgrade(now_us),
         }
         self.poll(now_us, out);
         // After the units, so a source reports its steps once it plays.
@@ -228,6 +302,8 @@ impl<B: Backends> Worker<B> {
     /// Flushes every encoder and takes what it still held. One that can't flush ends the
     /// source as undrainable, so its end is never reported clean.
     fn drain(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        // Closing: a hardware encoder still starting is dropped; the fallback finishes.
+        self.shadows.clear();
         for running in self.encodes.values_mut() {
             if running.chosen.encoder.flush().is_err() {
                 self.failed = true;
@@ -242,52 +318,24 @@ impl<B: Backends> Worker<B> {
         }
     }
 
-    /// Moves each encode a newly found hardware encoder improves onto it: the old encoder's
-    /// held units go out first, then the new one starts at a keyframe. Never moves off
-    /// hardware. The steps, and so `degraded`, follow on the next picture.
-    fn upgrade(&mut self, now_us: u64, out: &mut Vec<Output>) {
+    /// The probe's findings changed: an encode a newly found hardware encoder improves starts
+    /// one beside its fallback (`switch`). Never moves off hardware.
+    fn upgrade(&mut self, now_us: u64) {
         self.backends.refresh();
-        let ids: Vec<u32> = self.encodes.keys().copied().collect();
-        for id in ids {
-            let Some(running) = self.encodes.get(&id) else {
-                continue;
-            };
-            let improves = !running.chosen.hardware
-                && matches!(self.backends.choice(running.codec), Some((_, true)));
-            if !improves {
-                continue;
-            }
-            let (codec, spec) = (running.codec, spec_of(&running.wire, running.codec));
-            let mut chosen = match self.backends.encoder(codec) {
-                Ok(chosen) if chosen.hardware => chosen,
-                // It didn't open after all: the source keeps the encoder it has.
-                Ok(_) | Err(_) => continue,
-            };
-            if chosen.encoder.configure(&spec).is_err() {
-                continue;
-            }
-            if let Some(running) = self.encodes.get_mut(&id) {
-                let _ = running.chosen.encoder.flush();
-            }
-            self.poll(now_us, out);
-            if let Some(running) = self.encodes.get_mut(&id) {
-                running.chosen = chosen;
-                running.key_owed = true;
-                running.description = None;
-                running.pending.clear();
-            }
-        }
+        self.start_shadows(now_us);
     }
 
     fn fail(&mut self, error: &CodecError, out: &mut Vec<Output>) {
         self.failed = true;
         self.encodes.clear();
+        self.shadows.clear();
         out.push(Output::Failed(reason_of(error)));
     }
 
     fn configure(&mut self, specs: Vec<EncodeSpec>, out: &mut Vec<Output>) {
         let wanted: Vec<u32> = specs.iter().map(|s| s.id).collect();
         self.encodes.retain(|id, _| wanted.contains(id));
+        self.shadows.retain(|id, _| wanted.contains(id));
         for wire in specs {
             let Some(codec) = family(&wire.codec) else {
                 return self.fail(&CodecError::Unsupported(wire.codec), out);
@@ -301,9 +349,19 @@ impl<B: Backends> Worker<B> {
                 if let Err(error) = running.chosen.encoder.configure(&spec) {
                     return self.fail(&error, out);
                 }
+                if let Some(shadow) = self.shadows.get_mut(&wire.id)
+                    && shadow.running.chosen.encoder.configure(&spec).is_err()
+                {
+                    self.shadows.remove(&wire.id);
+                }
+                if let Some(shadow) = self.shadows.get_mut(&wire.id) {
+                    shadow.running.wire = wire.clone();
+                }
                 running.wire = wire;
                 continue;
             }
+            // A new encode takes the best encoder there is now: no switch needed.
+            self.shadows.remove(&wire.id);
             let chosen = match self.backends.encoder(codec) {
                 Ok(chosen) => chosen,
                 Err(error) => return self.fail(&error, out),
@@ -336,77 +394,33 @@ impl<B: Backends> Worker<B> {
         let Some(jpeg) = crate::engine::base64::decode(text) else {
             return;
         };
-        self.jpeg = jpeg;
-        let Ok(source_size) = jpeg_size(&self.jpeg) else {
+        let Ok(source_size) = jpeg_size(&jpeg) else {
             return;
         };
         self.epoch = epoch;
         let pts = self.last_pts.saturating_add(1).max(captured_us);
         self.last_pts = pts;
+        let fed = Fed {
+            jpeg: &jpeg,
+            source_size,
+            pts,
+            epoch,
+            captured_us,
+        };
         let ids: Vec<u32> = self.encodes.keys().copied().collect();
         for id in ids {
+            // While a hardware encoder takes over, the fallback only finishes what it has.
+            if self.shadows.get(&id).is_some_and(switch::Shadow::keyed) {
+                continue;
+            }
             let Some(running) = self.encodes.get_mut(&id) else {
                 continue;
             };
-            let prepared = match running.chosen.takes_jpeg {
-                Some(direct) if source_size == running.size => {
-                    direct(self.jpeg.clone(), pts).map(|picture| Decoded {
-                        picture,
-                        backend: running.chosen.backend,
-                        hardware: false,
-                        uploads: 0,
-                    })
-                }
-                _ => self
-                    .backends
-                    .decode(&self.jpeg, running.size, running.chosen.backend),
-            };
-            let mut decoded = match prepared {
-                Ok(decoded) => decoded,
-                // A picture that won't decode is skipped; the next one may.
-                Err(CodecError::InvalidInput(_)) => continue,
-                Err(error) => return self.fail(&error, out),
-            };
-            set_pts(&mut decoded.picture, pts);
-            let encode_uploads = u32::from(matches!(decoded.picture, Picture::Cpu(_)));
-            let steps = vec![
-                SourceStep {
-                    step: Step::JpegDecode,
-                    backend: decoded.backend,
-                    hardware: decoded.hardware,
-                    readbacks: 0,
-                    uploads: decoded.uploads,
-                },
-                SourceStep {
-                    step: Step::Encode,
-                    backend: running.chosen.backend,
-                    hardware: running.chosen.hardware,
-                    readbacks: 0,
-                    uploads: encode_uploads,
-                },
-            ];
-            match running
-                .chosen
-                .encoder
-                .encode(decoded.picture, running.key_owed)
-            {
-                Ok(()) => {
-                    running.key_owed = false;
-                    running.steps = steps;
-                    if running.pending.len() >= PENDING_MAX {
-                        running.pending.pop_front();
-                    }
-                    running.pending.push_back(Pending {
-                        pts,
-                        epoch,
-                        captured_us,
-                    });
-                }
-                // The encoder is behind: this picture is skipped, the next one taken.
-                Err(CodecError::Backpressure) => {}
-                Err(error) => return self.fail(&error, out),
+            if let Err(error) = feed(&mut self.backends, running, &fed) {
+                return self.fail(&error, out);
             }
         }
+        self.feed_shadows(&fed);
     }
 
     fn report(&mut self, out: &mut Vec<Output>) {
@@ -431,8 +445,12 @@ impl<B: Backends> Worker<B> {
         if self.failed {
             return;
         }
+        self.poll_shadows(now_us, out);
         let mut failure = None;
-        for running in self.encodes.values_mut() {
+        for (id, running) in &mut self.encodes {
+            if self.shadows.get(id).is_some_and(switch::Shadow::keyed) {
+                continue;
+            }
             loop {
                 match running.chosen.encoder.poll_result() {
                     Ok(Some(unit)) => {
@@ -508,6 +526,9 @@ fn frame(running: &mut Running, unit: EncodedUnit, fallback_epoch: u32, now_us: 
         payload: unit.data,
     }
 }
+
+#[path = "switch.rs"]
+mod switch;
 
 #[cfg(test)]
 #[path = "worker_tests.rs"]

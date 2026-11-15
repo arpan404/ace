@@ -400,3 +400,6 @@ fn an_encoder_that_cannot_drain_says_so_rather_than_drained() {
 
 #[path = "worker_upgrade_tests.rs"]
 mod upgrade;
+
+#[path = "worker_switch_tests.rs"]
+mod switch;
