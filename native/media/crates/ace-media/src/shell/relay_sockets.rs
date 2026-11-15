@@ -7,7 +7,9 @@
 //! - **Closing.** A close keeps its entry, with a way to force it, until the socket is gone. A
 //!   later close of the same stream joins that completion rather than answering at once, and a
 //!   forced one (a revocation) escalates a graceful close in progress.
-use super::relay::{DIAL_DEADLINE, Opened, RelayEvent, Socket, open, spawn, spawn_tls};
+use super::relay::{
+    DIAL_DEADLINE, Opened, RelayEvent, SharedFinale, Socket, open, spawn, spawn_tls,
+};
 use crate::engine::relay::{CloseMode, Pool};
 use media_wire::control::Id;
 use std::collections::HashMap;
@@ -20,12 +22,20 @@ type Slot = Arc<Mutex<Option<Socket>>>;
 struct Entry {
     dial: JoinHandle<()>,
     slot: Slot,
+    finale: SharedFinale,
 }
 
 /// A close in progress.
 struct Closing {
     force: Arc<Notify>,
+    finale: SharedFinale,
     done: watch::Receiver<bool>,
+}
+
+fn lock<T>(shared: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub struct RelaySockets {
@@ -69,24 +79,21 @@ impl RelaySockets {
         };
         let slot: Slot = Arc::default();
         let held = slot.clone();
+        let finale: SharedFinale = Arc::default();
+        let last = finale.clone();
         let dial = tokio::spawn(async move {
             let opened = tokio::time::timeout(DIAL_DEADLINE, open(&url)).await;
             let event = match opened {
                 Ok(Ok(Opened::Plain(read, write, leftover, handle))) => {
-                    let socket = spawn(
-                        id.clone(),
-                        read,
-                        write,
-                        leftover,
-                        handle,
-                        events.clone(),
-                        pool,
-                    );
+                    // The handle, then the tasks: no await in between.
+                    lock(&last).hold(handle);
+                    let socket = spawn(id.clone(), read, write, leftover, events.clone(), pool);
                     store(&held, socket);
                     RelayEvent::Dialed { stream: id }
                 }
                 Ok(Ok(Opened::Tls(tls, leftover, handle))) => {
-                    let socket = spawn_tls(id.clone(), tls, leftover, handle, events.clone(), pool);
+                    lock(&last).hold(handle);
+                    let socket = spawn_tls(id.clone(), tls, leftover, events.clone(), pool);
                     store(&held, socket);
                     RelayEvent::Dialed { stream: id }
                 }
@@ -100,7 +107,7 @@ impl RelaySockets {
             };
             let _ = events.send(event).await;
         });
-        if let Some(old) = self.streams.insert(stream, Entry { dial, slot }) {
+        if let Some(old) = self.streams.insert(stream, Entry { dial, slot, finale }) {
             old.dial.abort();
         }
     }
@@ -130,7 +137,8 @@ impl RelaySockets {
     pub fn close(&mut self, stream: &str, mode: CloseMode) -> Option<JoinHandle<()>> {
         self.closing.retain(|_, closing| !*closing.done.borrow());
         if let Some(closing) = self.closing.get(stream) {
-            if mode == CloseMode::Forced {
+            // Under the finale's lock: the force lands before the final close, or finds it done.
+            if mode == CloseMode::Forced && lock(&closing.finale).force() {
                 closing.force.notify_one();
             }
             return Some(tokio::spawn(finished(closing.done.clone())));
@@ -141,6 +149,7 @@ impl RelaySockets {
         let events = self.events.clone();
         let id = Id::new(stream.to_owned()).ok();
         let forcing = force.clone();
+        let finale = entry.finale.clone();
         tokio::spawn(async move {
             // A dial that ended has put its socket in the slot; one cut short leaves it there, or
             // drops what it held (with a reset).
@@ -148,7 +157,7 @@ impl RelaySockets {
             let _ = entry.dial.await;
             let socket = entry.slot.lock().ok().and_then(|mut held| held.take());
             if let Some(socket) = socket {
-                socket.shut(mode, forcing).await;
+                socket.shut(mode, forcing, entry.finale).await;
             }
             let _ = done_tx.send(true);
             if let Some(stream) = id {
@@ -156,8 +165,14 @@ impl RelaySockets {
             }
         });
         let joined = tokio::spawn(finished(done.clone()));
-        self.closing
-            .insert(stream.to_owned(), Closing { force, done });
+        self.closing.insert(
+            stream.to_owned(),
+            Closing {
+                force,
+                finale,
+                done,
+            },
+        );
         Some(joined)
     }
 
@@ -182,6 +197,17 @@ impl RelaySockets {
         let entry = self.streams.get(stream)?;
         let held = entry.slot.lock().ok()?;
         held.as_ref().map(Socket::alive)
+    }
+
+    /// Holds the stream's close between its tasks ending and its socket closing: `reached` fires
+    /// there, and the close goes on once `release` is notified (tests).
+    #[cfg(test)]
+    pub fn pause_before_close(&self, stream: &str) -> (Arc<Notify>, Arc<Notify>) {
+        let pause = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        if let Some(entry) = self.streams.get(stream) {
+            lock(&entry.finale).pause = Some(pause.clone());
+        }
+        pause
     }
 
     /// Aborts the stream's writer alone, as a close that finished too early would (tests).

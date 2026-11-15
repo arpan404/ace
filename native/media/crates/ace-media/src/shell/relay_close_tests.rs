@@ -161,17 +161,26 @@ async fn the_end_check_refuses_a_socket_whose_reader_still_runs() {
 async fn a_graceful_close_delivers_every_byte_and_the_websocket_close_to_a_slow_relay() {
     let (listener, url) = small_window().await;
     let (mut sockets, mut relay, pool) = stalled(listener, url).await;
-    // A slow relay, reading a little at a time, that closes its side once it sees our end.
+    // A slow relay, reading a little at a time, that closes once it has the WebSocket close (as a
+    // relay answers one), and then reads on until our side ends.
     let reading = tokio::spawn(async move {
-        use tokio::io::AsyncReadExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let mut received = Vec::new();
         let mut buffer = vec![0u8; 4096];
+        let mut answered = false;
         loop {
             match tokio::time::timeout(END, relay.read(&mut buffer)).await {
                 Ok(Ok(0)) => return (received, Ended::Eof),
                 Ok(Err(_)) => return (received, Ended::Reset),
                 Ok(Ok(n)) => received.extend_from_slice(&buffer[..n]),
                 Err(_) => panic!("the relay never saw the stream end"),
+            }
+            if !answered && received.ends_with(&[0x88, 0x80])
+                || received.len() >= 6
+                    && received[received.len() - 6..received.len() - 4] == [0x88, 0x80]
+            {
+                answered = true;
+                let _ = relay.shutdown().await;
             }
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
@@ -198,4 +207,48 @@ async fn a_graceful_close_delivers_every_byte_and_the_websocket_close_to_a_slow_
     // Every frame, then the masked, empty close frame.
     assert_eq!(received.len(), wire + 6);
     assert_eq!(&received[wire..wire + 2], &[0x88, 0x80]);
+}
+
+#[tokio::test]
+async fn a_revocation_at_the_moment_a_graceful_close_completes_still_resets() {
+    use tokio::io::AsyncWriteExt;
+    let (listener, url) = small_window().await;
+    let (mut sockets, mut relay, pool) = stalled(listener, url).await;
+    // The relay half-closes without reading: our reader sees its end, our writer finishes, and the
+    // graceful close completes with most of what was written still in our kernel.
+    relay
+        .shutdown()
+        .await
+        .unwrap_or_else(|_| panic!("half-close"));
+    // More than the half-closed relay takes in (about 320 KB on macOS loopback), less than our
+    // send buffer adds: the writer finishes with the rest still in our kernel.
+    for _ in 0..24 {
+        assert!(sockets.send("st", frame(&pool, 16_000)));
+    }
+    let alive = sockets.alive("st").unwrap_or_default();
+    let (reached, release) = sockets.pause_before_close("st");
+    let graceful = sockets.close("st", CloseMode::Graceful);
+    // Exactly between the last task ending and the socket closing: the revocation arrives.
+    tokio::time::timeout(END, reached.notified())
+        .await
+        .unwrap_or_else(|_| panic!("the close never reached its final step"));
+    assert_eq!(alive.strong_count(), 0);
+    let Some(revoked) = sockets.close("st", CloseMode::Forced) else {
+        panic!("the close in progress was not found")
+    };
+    release.notify_one();
+    let _ = revoked.await;
+    let at_answer = unread(&relay);
+    let (received, ended) = read_to_end(&mut relay, &alive)
+        .await
+        .unwrap_or_else(|why| panic!("{why}"));
+    assert!(
+        received.len() <= at_answer,
+        "{} bytes reached the relay after the answer",
+        received.len() - at_answer
+    );
+    assert_eq!(ended, Ended::Reset);
+    if let Some(graceful) = graceful {
+        let _ = graceful.await;
+    }
 }

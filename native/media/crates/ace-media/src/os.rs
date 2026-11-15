@@ -160,15 +160,18 @@ pub fn rss_bytes() -> u64 {
     }
 }
 
-/// A second handle on a relay socket (a duplicate of its descriptor): the socket's final close is
-/// this handle's, after every task using the socket has ended, so nothing else can change how it
-/// closes in between.
+/// A second handle on a relay socket (a duplicate of its descriptor or `SOCKET`): the socket's
+/// final close is this handle's, after every task using the socket has ended, so nothing else can
+/// change how it closes in between.
 pub struct SocketHandle {
     #[cfg(unix)]
     fd: std::os::fd::OwnedFd,
+    #[cfg(windows)]
+    socket: std::os::windows::io::OwnedSocket,
 }
 
 impl SocketHandle {
+    /// None when the duplicate can't be made: the dial fails rather than run without it.
     pub fn of(stream: &tokio::net::TcpStream) -> Option<Self> {
         #[cfg(unix)]
         {
@@ -179,16 +182,25 @@ impl SocketHandle {
                 .ok()
                 .map(|fd| Self { fd })
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsSocket;
+            stream
+                .as_socket()
+                .try_clone_to_owned()
+                .ok()
+                .map(|socket| Self { socket })
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = stream;
-            Some(Self {})
+            None
         }
     }
 
     /// The final close resets the connection (`SO_LINGER` on, zero seconds): nothing the kernel
-    /// still holds for the peer is sent.
-    pub fn reset_on_close(&self) {
+    /// still holds for the peer is sent. False when the option couldn't be set.
+    pub fn reset_on_close(&self) -> bool {
         #[cfg(unix)]
         {
             use std::os::fd::AsRawFd;
@@ -197,15 +209,42 @@ impl SocketHandle {
                 l_linger: 0,
             };
             // SAFETY: a valid descriptor and a linger struct of the size given.
-            unsafe {
+            let set = unsafe {
                 libc::setsockopt(
                     self.fd.as_raw_fd(),
                     libc::SOL_SOCKET,
                     libc::SO_LINGER,
                     (&raw const linger).cast(),
                     std::mem::size_of::<libc::linger>() as libc::socklen_t,
-                );
-            }
+                )
+            };
+            set == 0
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawSocket;
+            use windows_sys::Win32::Networking::WinSock::{
+                LINGER, SO_LINGER, SOCKET, SOL_SOCKET, setsockopt,
+            };
+            let linger = LINGER {
+                l_onoff: 1,
+                l_linger: 0,
+            };
+            // SAFETY: a valid SOCKET and a LINGER struct of the size given.
+            let set = unsafe {
+                setsockopt(
+                    self.socket.as_raw_socket() as SOCKET,
+                    SOL_SOCKET,
+                    SO_LINGER,
+                    (&raw const linger).cast(),
+                    std::mem::size_of::<LINGER>() as i32,
+                )
+            };
+            set == 0
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            false
         }
     }
 }

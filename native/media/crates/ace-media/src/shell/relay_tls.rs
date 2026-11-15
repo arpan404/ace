@@ -157,8 +157,8 @@ impl Tls {
         }
     }
 
-    /// Ends the connection gracefully: TLS's close_notify, normal linger (what the kernel holds
-    /// is delivered, not reset), then our FIN.
+    /// Ends the connection gracefully: TLS's close_notify and normal linger (what the kernel holds
+    /// is delivered when the socket closes, not reset). The FIN comes with that close.
     pub async fn finish(&mut self) -> io::Result<()> {
         let mut plain = Vec::new();
         self.settle(&mut plain).await?;
@@ -173,8 +173,7 @@ impl Tls {
         };
         self.tcp.write_all(&self.outgoing[..n]).await?;
         #[allow(deprecated)] // `None` only turns linger off; nothing blocks on drop.
-        self.tcp.set_linger(None)?;
-        self.tcp.shutdown().await
+        self.tcp.set_linger(None)
     }
 
     /// Encrypts `parts` as application data into the outgoing buffer and writes it in one go.

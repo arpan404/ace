@@ -10,7 +10,7 @@ use crate::engine::relay::{CloseMode, Pool};
 use crate::os::SocketHandle;
 use media_wire::control::Id;
 use std::io::IoSlice;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -54,13 +54,46 @@ pub(super) enum Out {
     Close,
 }
 
-/// One dialed stream's socket: its tasks, the writer first, and a second handle on the socket
-/// that makes the final close. Dropping it aborts the tasks; the socket then closes with a reset
-/// (relay sockets keep a zero linger unless a graceful close turned it off).
+/// How a stream's socket makes its final close, decided in one place: the second handle on the
+/// socket, and whether a revocation forced the close. A close in progress and an escalation both
+/// take this lock, so a force either lands before the handle is closed (and the close resets) or
+/// finds it closed already.
+#[derive(Default)]
+pub struct Finale {
+    handle: Option<SocketHandle>,
+    forced: bool,
+    /// Holds the close between its tasks ending and the handle closing (tests).
+    #[cfg(test)]
+    pub(super) pause: Option<(Arc<Notify>, Arc<Notify>)>,
+}
+
+impl Finale {
+    pub(super) fn hold(&mut self, handle: SocketHandle) {
+        self.handle = Some(handle);
+    }
+
+    /// A revocation reached the close: the final close resets. False when the socket is closed
+    /// already, so nothing is left to force.
+    pub(super) fn force(&mut self) -> bool {
+        self.forced = true;
+        self.handle.is_some()
+    }
+}
+
+pub(super) type SharedFinale = Arc<Mutex<Finale>>;
+
+fn finale(shared: &SharedFinale) -> std::sync::MutexGuard<'_, Finale> {
+    shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// One dialed stream's socket: its tasks, the writer first. Dropping it aborts the tasks; the
+/// socket then closes with a reset (relay sockets keep a zero linger unless a graceful close
+/// turned it off). Its final close is the stream's `Finale`'s.
 pub struct Socket {
     tx: mpsc::Sender<Out>,
     tasks: Vec<JoinHandle<()>>,
-    handle: Option<SocketHandle>,
     /// Held by every task that owns the socket: none left means none is running (read by
     /// tests).
     #[cfg_attr(not(test), allow(dead_code))]
@@ -97,7 +130,7 @@ impl Socket {
     /// closed. A graceful close sends what is queued and the WebSocket close, within `GRACE`;
     /// past it, or once `force` is notified (a revocation reaching a close in progress), the
     /// close is forced. Only a graceful close that completed ends without a reset.
-    pub(super) async fn shut(mut self, mode: CloseMode, force: Arc<Notify>) {
+    pub(super) async fn shut(mut self, mode: CloseMode, force: Arc<Notify>, last: SharedFinale) {
         let mut tasks = std::mem::take(&mut self.tasks);
         let mut finished = false;
         if mode == CloseMode::Graceful && self.tx.try_send(Out::Close).is_ok() {
@@ -126,9 +159,19 @@ impl Socket {
         for task in tasks {
             let _ = task.await;
         }
-        // Every task is gone: nothing else can turn the linger back off before the close.
-        if let Some(handle) = self.handle.take() {
-            if !finished {
+        #[cfg(test)]
+        {
+            let pause = finale(&last).pause.clone();
+            if let Some((reached, release)) = pause {
+                reached.notify_one();
+                release.notified().await;
+            }
+        }
+        // Every task is gone, so nothing else can turn the linger back off; and under the lock a
+        // force that came at any moment until now is seen.
+        let mut last = finale(&last);
+        if let Some(handle) = last.handle.take() {
+            if !finished || last.forced {
                 handle.reset_on_close();
             }
             drop(handle);
@@ -147,8 +190,8 @@ impl Drop for Socket {
 /// A dialed socket, upgraded: plain TCP halves, or a TLS connection; either with the frame bytes
 /// read past the upgrade response.
 pub(super) enum Opened {
-    Plain(OwnedReadHalf, OwnedWriteHalf, Vec<u8>, Option<SocketHandle>),
-    Tls(Box<Tls>, Vec<u8>, Option<SocketHandle>),
+    Plain(OwnedReadHalf, OwnedWriteHalf, Vec<u8>, SocketHandle),
+    Tls(Box<Tls>, Vec<u8>, SocketHandle),
 }
 
 /// TCP connect, TLS for `wss://`, and the upgrade. The error is the `relay.failed` reason.
@@ -161,7 +204,8 @@ pub(super) async fn open(url: &str) -> Result<Opened, &'static str> {
     // nothing it had queued in the kernel reaches the relay. Only `Out::Close` turns it off.
     stream.set_zero_linger().map_err(|_| "dial")?;
     stream.set_nodelay(true).map_err(|_| "dial")?;
-    let handle = SocketHandle::of(&stream);
+    // Required: without it a close could not be forced to reset.
+    let handle = SocketHandle::of(&stream).ok_or("dial")?;
     let key = relay_ws::key();
     let request = relay_ws::request(&address, &key);
     let mut head = Vec::with_capacity(1024);
@@ -228,7 +272,6 @@ pub(super) fn spawn_tls(
     stream: Id,
     tls: Box<Tls>,
     leftover: Vec<u8>,
-    handle: Option<SocketHandle>,
     events: mpsc::Sender<RelayEvent>,
     pool: Pool,
 ) -> Socket {
@@ -242,7 +285,6 @@ pub(super) fn spawn_tls(
     Socket {
         tx,
         tasks: vec![task],
-        handle,
         alive,
     }
 }
@@ -252,7 +294,6 @@ pub(super) fn spawn(
     read: OwnedReadHalf,
     write: OwnedWriteHalf,
     leftover: Vec<u8>,
-    handle: Option<SocketHandle>,
     events: mpsc::Sender<RelayEvent>,
     pool: Pool,
 ) -> Socket {
@@ -275,7 +316,6 @@ pub(super) fn spawn(
     Socket {
         tx,
         tasks: vec![writer, reader],
-        handle,
         alive,
     }
 }
@@ -329,9 +369,36 @@ async fn read_frames(
     let _ = events.send(RelayEvent::Ended { stream, reason }).await;
 }
 
+/// The writer's half, released without shutting the write direction down (tokio's own drop does),
+/// on every path, an abort's included. Once both directions are shut some platforms (Darwin)
+/// refuse socket options, so the final close could no longer be made a reset; and a FIN sent
+/// early can't be taken back. Our FIN comes with the final close.
+struct Unshut(Option<OwnedWriteHalf>);
+
+impl Drop for Unshut {
+    fn drop(&mut self) {
+        if let Some(write) = self.0.take() {
+            write.forget();
+        }
+    }
+}
+
 async fn write_frames(
     stream: Id,
-    mut write: OwnedWriteHalf,
+    write: OwnedWriteHalf,
+    rx: mpsc::Receiver<Out>,
+    events: mpsc::Sender<RelayEvent>,
+    pool: Pool,
+) {
+    let mut held = Unshut(Some(write));
+    if let Some(write) = held.0.as_mut() {
+        write_to(stream, write, rx, events, pool).await;
+    }
+}
+
+async fn write_to(
+    stream: Id,
+    write: &mut OwnedWriteHalf,
     mut rx: mpsc::Receiver<Out>,
     events: mpsc::Sender<RelayEvent>,
     pool: Pool,
@@ -341,12 +408,12 @@ async fn write_frames(
         let (opcode, mut payload) = match out {
             Out::Frame(frame) => (OP_BINARY, frame),
             Out::Pong(data) => (OP_PONG, data),
-            Out::Close => return finish(&mut write, &mut masks).await,
+            Out::Close => return finish(write, &mut masks).await,
         };
         let key = masks.next();
         let (head, n) = relay_ws::header(opcode, payload.len(), key);
         relay_ws::mask(&mut payload, key);
-        let written = write_all(&mut write, &head[..n], &payload).await;
+        let written = write_all(write, &head[..n], &payload).await;
         if opcode == OP_BINARY {
             pool.give(payload);
         }
@@ -362,8 +429,8 @@ async fn write_frames(
     }
 }
 
-/// A graceful close's last bytes: the WebSocket close, then normal linger (so what the kernel
-/// holds is delivered, not reset) and our FIN.
+/// A graceful close's last bytes: the WebSocket close, then normal linger, so what the kernel
+/// holds is delivered when the socket closes rather than reset.
 async fn finish(write: &mut OwnedWriteHalf, masks: &mut Masks) {
     let (head, n) = relay_ws::header(OP_CLOSE, 0, masks.next());
     if write.write_all(&head[..n]).await.is_err() {
@@ -371,7 +438,9 @@ async fn finish(write: &mut OwnedWriteHalf, masks: &mut Masks) {
     }
     #[allow(deprecated)] // `None` only turns linger off; nothing blocks on drop.
     let _ = write.as_ref().set_linger(None);
-    let _ = write.shutdown().await;
+    // No shutdown here: our FIN comes with the final close, which a revocation can still turn
+    // into a reset (once a FIN is out, a zero-linger close no longer resets on every platform).
+    // The relay answers the WebSocket close by closing, which ends the reader.
 }
 
 /// The header and the payload in as few writes as the socket allows.
