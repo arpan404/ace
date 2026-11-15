@@ -37,7 +37,7 @@ interface Asked {
  * `known`: whether the daemon still has the start when the phone first asks for it.
  * `progress`: whether the phone heard how it stopped before that.
  */
-function fixture(known = true, progress = true) {
+function fixture(known = true, progress = true, takenBack = false) {
   const pump = new PatchPump();
   native.ack = (accepted) => pump.ack(accepted);
   native.frames.length = 0;
@@ -62,7 +62,7 @@ function fixture(known = true, progress = true) {
     connectionGeneration: () => ({ getSnapshot: () => 1, subscribe: () => () => {} }),
     pendingSends: () => ({ getSnapshot: () => [], subscribe: () => () => {} }),
   };
-  const kept = new Set<string>();
+  const kept = new Set<string>(takenBack ? [id] : []);
   const saving = { works: true };
   const store: DismissedSends = {
     has: (commandId) => kept.has(commandId),
@@ -197,4 +197,13 @@ test("a start just sent that the daemon hasn't made yet shows no card and can't 
   expect(await until(() => receipt("back-7"))).toMatchObject({ ok: false });
   expect(made.actions()).toEqual([]);
   expect(made.kept.has(id)).toBe(false);
+});
+
+test("a start already taken back stays gone after a relaunch: no card, nothing to give back", async () => {
+  const made = fixture(false, true, true);
+  await settle();
+  expect(card()?.card ?? null).toBeNull();
+  await made.starts.giveBack(id, "back-8");
+  expect(await until(() => receipt("back-8"))).toMatchObject({ ok: false });
+  expect(made.actions()).toEqual([]);
 });

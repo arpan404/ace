@@ -91,12 +91,20 @@ export class WorktreeStarts {
   readonly #stopOutbox: () => void;
   /** Where the phone keeps the failed sends the person dealt with: Back's Unsent row. */
   readonly #kept: DismissedSends | undefined;
+  readonly #stopKept: () => void;
 
   constructor(owner: WorktreeOwner, sink: PatchSink, preview: Preview, kept?: DismissedSends) {
     this.#store = new WorktreeCreations(owner);
     this.#sink = sink;
     this.#preview = preview;
     this.#kept = kept;
+    // A start set aside on this phone (taken back, or discarded) has no card: redraw each as
+    // the kept list loads and changes.
+    this.#stopKept =
+      kept?.observe((commandId) => {
+        if (commandId) this.#redraw(commandId);
+        else for (const followed of this.#followed.keys()) this.#redraw(followed);
+      }) ?? (() => {});
     const sends = owner.pendingSends();
     const read = () => {
       for (const send of sends.getSnapshot())
@@ -155,7 +163,8 @@ export class WorktreeStarts {
       }));
     const entry = this.#followed.get(commandId);
     const state = this.#store.state(commandId).getSnapshot();
-    if (!entry || entry.returned || !stoppedStart(state, entry.code)) return answer(finished);
+    if (!entry || this.#setAside(commandId) || !stoppedStart(state, entry.code))
+      return answer(finished);
     if (state.sending) return answer(worktreeRefusalWords.busy);
     if (!state.gone) {
       const result = await this.#store.act(commandId, "dismiss");
@@ -173,9 +182,20 @@ export class WorktreeStarts {
 
   close(): void {
     this.#stopOutbox();
+    this.#stopKept();
     for (const entry of this.#followed.values()) entry.stop();
     this.#followed.clear();
     this.#store.close();
+  }
+
+  /** Taken back here, or its Unsent row dealt with on this phone: the start is done with. */
+  #setAside(commandId: string): boolean {
+    return this.#followed.get(commandId)?.returned === true || this.#kept?.has(commandId) === true;
+  }
+
+  #redraw(commandId: string): void {
+    if (this.#followed.has(commandId))
+      this.#emit(commandId, this.#store.state(commandId).getSnapshot());
   }
 
   #emit(commandId: string, state: WorktreeCreationState): void {
@@ -183,11 +203,11 @@ export class WorktreeStarts {
     this.#sink.put(`compose:worktree:${commandId}`, () => ({
       type: "compose.worktree",
       id: commandId,
-      card: entry && !entry.returned ? this.#card(state, entry) : null,
+      card: entry && !this.#setAside(commandId) ? this.#card(state, entry) : null,
       /** The thread made in it (or on the local checkout instead), to open; null until then. */
       made: made(state),
       /** The person took the stopped start back to New thread: no refusal to say. */
-      returned: entry?.returned ?? false,
+      returned: this.#setAside(commandId),
     }));
   }
 
