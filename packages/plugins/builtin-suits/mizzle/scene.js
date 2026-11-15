@@ -8,7 +8,7 @@
  * stops and starts again at rough spots, sweeps up the droplets in its path, sheds a line of
  * small ones behind it and clears the mist, which slowly forms again.
  *
- * Each frame, at reduced resolution:
+ * Each frame, at reduced resolution and at most 30 times a second:
  *   1. the city as the eye sees it through clear glass (wide discs), and as a drop focuses it
  *      (points), each rendered by one shader;
  *   2. the city through mist: the first one blurred further;
@@ -504,8 +504,8 @@ void main() {
   float grain = vnoise(gl_FragCoord.xy * 0.22) * 0.6 + vnoise(gl_FragCoord.xy * 0.07) * 0.4;
   float from = 0.08 + 0.45 * grain;
   // A cleared trail keeps a thin film of water, so it is never quite as clear as dry glass.
-  float fog = clamp(thick * mix(1.0, 0.86, day), 0.0, 1.0) * (1.0 - 0.82 * smoothstep(from, from + 0.18, clear));
-  vec3 fogged = mix(misty, veil, 0.4) * mix(0.8, 0.9, day) + mix(vec3(0.0035, 0.0035, 0.0045), vec3(0.06, 0.062, 0.066), day);
+  float fog = clamp(thick * mix(1.0, 0.94, day), 0.0, 1.0) * (1.0 - 0.82 * smoothstep(from, from + 0.18, clear));
+  vec3 fogged = mix(misty, veil, 0.4) * mix(0.8, 0.9, day) + mix(vec3(0.0035, 0.0035, 0.0045), vec3(0.09, 0.092, 0.097), day);
   vec3 glass = mix(through, fogged, fog);
 
   // Through a drop: the focused city, shifted against the slope, so it shows upside down.

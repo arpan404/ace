@@ -58,6 +58,7 @@
   --suit-lift-3:
     0 1px 2px rgb(0 0 0 / 0.4), 0 10px 24px -6px rgb(0 0 0 / 0.45),
     0 30px 60px -20px rgb(0 0 0 / 0.62);
+  --suit-pane: color-mix(in oklab, var(--color-background) 52%, transparent);
   --suit-frost: color-mix(in oklab, var(--color-sidebar) 66%, transparent);
   --suit-frost-raised: color-mix(in oklab, var(--color-surface-2) 84%, transparent);
   --suit-frost-field: color-mix(in oklab, var(--color-surface-1) 80%, transparent);
@@ -80,6 +81,7 @@
     0 1px 2px rgb(26 29 34 / 0.06), 0 8px 20px -6px rgb(26 29 34 / 0.12),
     0 26px 52px -20px rgb(26 29 34 / 0.24);
   /* Near-white and mostly solid: ace's status colours are tuned for a pale sidebar. */
+  --suit-pane: color-mix(in oklab, var(--color-background) 58%, transparent);
   --suit-frost: rgb(250 251 252 / 0.84);
   --suit-frost-raised: rgb(255 255 255 / 0.9);
   --suit-frost-field: rgb(255 255 255 / 0.86);
@@ -89,9 +91,15 @@
 
 /* ── Regions: frosted panes over the rain ───────────────────────────────────────────────── */
 
+/*
+ * The reading column and full pages: a darker pane that lets about half the rain through, sharp,
+ * as through a window; the panes round it are frosted.
+ */
 [data-part="app"] {
   --suit-sidebar-background: var(--suit-frost);
   --suit-sidebar-shadow: inset -1px 0 0 var(--suit-edge);
+  --suit-page-background: var(--suit-pane);
+  --suit-transcript-background: var(--suit-pane);
 }
 [data-part="right-panel"] {
   box-shadow: inset 1px 0 0 var(--suit-edge);
@@ -243,6 +251,11 @@
 }
 [data-part="icon-button"][data-state="active"] {
   background: var(--suit-wash-3);
+}
+/* Disabled icons stay legible over the rain (3:1), just quieter than live ones. */
+[data-part="icon-button"][data-state="disabled"],
+[data-part="icon-button"]:disabled {
+  opacity: 0.62;
 }
 
 [data-part="input"],

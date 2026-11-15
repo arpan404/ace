@@ -88,9 +88,6 @@
     "border": 1
   },
   "reveal": {
-    "app": 0.6,
-    "transcript": 0.35,
-    "page": 0.35,
     "right-panel": 0.4
   },
   "terminal": {
