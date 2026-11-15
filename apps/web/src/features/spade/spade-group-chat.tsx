@@ -9,6 +9,8 @@ import { memo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { chatBubble, mineBubble } from "./spade-bubble-style.ts";
+import { SpeakerLine } from "./spade-chat-parts.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 
 /** A member as the chat shows it: its face and name, and its own chat when this window has it. */
@@ -19,9 +21,6 @@ export interface GroupFace {
   open: (() => void) | undefined;
 }
 
-const bubble =
-  "min-w-0 max-w-[80%] rounded-lg px-3 py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
-
 /** A member the group names that this window doesn't know: the face its id seeds. */
 export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
   name: bot.name,
@@ -30,8 +29,8 @@ export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
 });
 
 /**
- * A group's conversation as a chat (ADR 0132): the person's bubbles on the right, each member's
- * on the left with its name above the first of a run and its face beside the last, a handoff
+ * A group's conversation as a chat (ADR 0132): the person's bubbles on the right in the accent,
+ * each member's turn on the left starting with its face and name, a handoff
  * (`Spade asked Research`) and a queued, failed or stopped ask as one short muted line. Never a
  * tool call. While the group works, one line under the last bubble: the answering member's face
  * with moving eyes, the group's few words, `Open <bot>` when that bot waits for the person in
@@ -54,21 +53,21 @@ export function SpadeGroupChat(props: {
       role="feed"
       aria-label={`Conversation in ${props.name}`}
       aria-busy={view.busy}
-      className="flex flex-col gap-3"
+      className="flex flex-col"
     >
-      {view.rows.map((row) => (
-        <Row key={row.key} row={row} faceOf={props.faceOf} />
+      {view.rows.map((row, index) => (
+        <Row key={row.key} row={row} previous={view.rows[index - 1]} faceOf={props.faceOf} />
       ))}
       {view.busy && (
-        <div role="status" className="flex items-center gap-2.5">
+        <div role="status" className="mt-(--chat-turn-gap) flex items-center gap-2.5 first:mt-0">
           {working ? (
             <SpadeFace
               avatar={working.avatar}
-              size={28}
+              size={32}
               state={waiting ? "needs-you" : view.status === "Thinking" ? "thinking" : "working"}
             />
           ) : (
-            <span aria-hidden className="w-7 shrink-0" />
+            <span aria-hidden className="size-(--spade-working-face) shrink-0" />
           )}
           <span className="min-w-0 truncate text-ui text-muted-foreground">
             {view.status ??
@@ -89,11 +88,24 @@ export function SpadeGroupChat(props: {
   );
 }
 
+type GroupRow = SpadeGroupView["rows"][number];
+
+/** 4px within a run (a member's or the person's), 16px between turns, 20px above a speaker. */
+function spaceAbove(row: GroupRow, previous: GroupRow | undefined): string {
+  if (!previous) return "";
+  if (row.kind === "member" && row.first) return "mt-5";
+  const sameRun =
+    (row.kind === "member" && !row.first) || (row.kind === "person" && previous.kind === "person");
+  return sameRun ? "mt-(--chat-run-gap)" : "mt-(--chat-turn-gap)";
+}
+
 const Row = memo(function Row(props: {
-  row: SpadeGroupView["rows"][number];
+  row: GroupRow;
+  previous: GroupRow | undefined;
   faceOf(bot: SpadeGroupBot): GroupFace;
 }) {
   const { row } = props;
+  const space = spaceAbove(row, props.previous);
   switch (row.kind) {
     case "person":
       return (
@@ -101,33 +113,33 @@ const Row = memo(function Row(props: {
           role="article"
           aria-label="You"
           aria-busy={row.sending || undefined}
-          className={cn("flex flex-col items-end", row.sending && "opacity-70")}
+          className={cn("flex flex-col items-end", row.sending && "opacity-70", space)}
         >
-          <div className={cn(bubble, "bg-active")}>
-            <SpadeBubbleText text={row.text} />
+          <div className={mineBubble}>
+            <SpadeBubbleText text={row.text} side="mine" />
           </div>
         </div>
       );
     case "line":
       return (
-        <p role="note" className="text-center text-xs text-muted-foreground">
+        <p
+          role="note"
+          className={cn("text-center text-xs leading-4 text-subtle-foreground", space)}
+        >
           {row.text}
         </p>
       );
     case "member": {
       const face = props.faceOf(row.bot);
       return (
-        <div role="article" aria-label={face.name} className="flex flex-col gap-1">
-          {row.first && <span className="pl-9.5 text-xs text-subtle-foreground">{face.name}</span>}
-          <div className="flex items-end gap-2.5">
-            {row.last ? (
-              <SpadeFace avatar={face.avatar} size={28} />
-            ) : (
-              <span aria-hidden className="w-7 shrink-0" />
-            )}
-            <div className={cn(bubble, "bg-bubble shadow-[inset_0_0_0_1px_var(--border)]")}>
-              <SpadeBubbleText text={row.text} />
-            </div>
+        <div
+          role="article"
+          aria-label={face.name}
+          className={cn("flex min-w-0 flex-col items-start", space)}
+        >
+          {row.first && <SpeakerLine avatar={face.avatar} name={face.name} />}
+          <div className={chatBubble}>
+            <SpadeBubbleText text={row.text} />
           </div>
         </div>
       );

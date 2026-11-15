@@ -9,10 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
-test("a bot's bubbles in a row are one run: its face once, at the run's first bubble, and the run's time under it", async () => {
-  // With speech, Read aloud sits under each reply: the face stays at the run's top, not by it.
-  vi.stubGlobal("speechSynthesis", { speak: vi.fn(), cancel: vi.fn() });
-  vi.stubGlobal("SpeechSynthesisUtterance", class extends EventTarget {});
+test("a bot's bubbles in a row are one run with no face beside them, under one time line", async () => {
   await spadeApp("/spade/garden", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -23,19 +20,118 @@ test("a bot's bubbles in a row are one run: its face once, at the run's first bu
   });
   const chat = within(await feed("Garden"));
   await chat.findByText("Mulch it after.");
-  // A day line, then the person's message, then one run of Garden's two bubbles.
-  expect(chat.getByRole("separator", { name: "Today" })).toBeTruthy();
+  // One time line for it all: nothing paused 30 minutes.
+  expect(chat.getAllByRole("separator").map((line) => line.textContent)).toEqual([
+    expect.stringMatching(/^Today \d{1,2}:\d{2}/),
+  ]);
   const [run, ...more] = chat.getAllByRole("article", { name: "Garden" });
   if (!run) throw new Error("expected Garden's run");
   expect(more).toEqual([]);
-  const faces = run.querySelectorAll("svg.bot-face");
-  expect(faces).toHaveLength(1);
-  // The face comes before the run's first words.
-  const first = within(run).getByText("In October.");
-  expect(faces[0]?.compareDocumentPosition(first)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-  // Its reply finished while the person watched: the face shows done, then rests.
-  expect(faces[0]?.getAttribute("data-state")).toMatch(/^(done|idle)$/);
-  expect(within(run).getByText(/^\d{1,2}:\d{2}/)).toBeTruthy();
+  expect(within(run).getByText("In October.")).toBeTruthy();
+  // A one-to-one chat carries the bot's face in the pill and the working line, never by bubbles.
+  expect(run.querySelector("svg.bot-face")).toBeNull();
+});
+
+test("each bubble offers its exact time and Copy, and Copy takes the words without their marks", async () => {
+  const written = vi.fn(() => Promise.resolve());
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: written } });
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    spade.reply(garden, "## Garlic\n- Plant in **October**");
+  });
+  const chat = within(await feed("Garden"));
+  // The marks never show: the heading and bold read as what they mean.
+  expect((await chat.findByRole("heading", { name: "Garlic" })).textContent).toBe("Garlic");
+  expect(chat.queryByText(/\*\*|##/)).toBeNull();
+  const run = chat.getByRole("article", { name: "Garden" });
+  expect(within(run).getByText(/^Today \d{1,2}:\d{2}/)).toBeTruthy();
+  await userEvent.click(within(run).getByRole("button", { name: "Copy" }));
+  expect(written).toHaveBeenCalledWith("Garlic\n\n- Plant in October");
+});
+
+test("a code block sits in its own well with its language and a Copy of just the code", async () => {
+  const written = vi.fn(() => Promise.resolve());
+  vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: written } });
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    spade.reply(garden, "Use the fake clock:\n```ts\nawait clock.advance(5000);\n```");
+  });
+  const chat = within(await feed("Garden"));
+  const code = await chat.findByText("await clock.advance(5000);");
+  expect(chat.getByText("ts")).toBeTruthy();
+  expect(chat.queryByText(/```/)).toBeNull();
+  await userEvent.click(chat.getByRole("button", { name: "Copy code" }));
+  expect(written).toHaveBeenCalledWith("await clock.advance(5000);");
+  expect(code.closest("pre")).not.toBeNull();
+});
+
+test("a reply's steps fold into one line under it that opens to each step in Spade's words", async () => {
+  await spadeApp("/spade/garden", (spade) => {
+    withEndpoint(spade);
+    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const garden = spade.addAgent({ id: "garden", name: "Garden" });
+    const store = (event: Record<string, unknown>) => spade.store(garden.conversation, event);
+    store({ type: "user_message", text: "Check the beds" }); // 1
+    store({ type: "reply_started", reply: "r1" }); // 2
+    store({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [
+        { id: "a", name: "shell", arguments: { command: "ls beds" } },
+        { id: "b", name: "shell", arguments: { command: "cat beds/notes" } },
+        { id: "c", name: "workspace_write", arguments: { path: "plan.md" } },
+      ],
+    }); // 3
+    for (const [id, name] of [
+      ["a", "shell"],
+      ["b", "shell"],
+      ["c", "workspace_write"],
+    ])
+      store({
+        type: "tool_finished",
+        reply: "r1",
+        call_id: id,
+        name,
+        content: "",
+        is_error: false,
+      }); // 4, 5, 6
+    store({ type: "reply_finished", reply: "r1", text: "The beds are fine." });
+    // Spade's log files each call at its result here (none started): the second has no entry.
+    const entry = (seq: number, kind: string, sentence: string, detail: string) => ({
+      id: `${seq}-0`,
+      seq,
+      at: 0,
+      kind,
+      name: "",
+      summary: detail,
+      sentence,
+      detail,
+      outcome: "ok",
+      reply: "r1",
+    });
+    spade.oversight.activity.set("garden", [
+      entry(6, "file", "Wrote a file", "plan.md"),
+      entry(4, "tool", "Ran a command", "ls beds"),
+    ]);
+  });
+  const chat = within(await feed("Garden"));
+  const line = await chat.findByText("Ran 2 commands, wrote a file");
+  // Tool arguments never show in the chat itself.
+  expect(chat.queryByText(/ls beds|plan\.md/)).toBeNull();
+  await userEvent.click(line);
+  const steps = within(await chat.findByRole("list", { name: "Steps" }));
+  await steps.findByText("ls beds");
+  expect(steps.getAllByRole("listitem").map((step) => step.textContent)).toEqual([
+    "Ran a commandls beds",
+    // Not in the log: the chat's own words.
+    "Ran a command",
+    "Wrote a fileplan.md",
+  ]);
 });
 
 test("another bot's run shows its name and face once, above its first message", async () => {

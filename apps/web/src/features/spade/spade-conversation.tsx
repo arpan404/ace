@@ -3,8 +3,11 @@ import {
   spadeBubbles,
   spadeLiveSurfaces,
   spadeStateLine,
+  spadeStepsQuery,
+  spadeStepsWithActivity,
   spadeTaskLine,
   type SpadeChatItem,
+  type SpadeStep,
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +31,8 @@ import { ComputerPanel, type FilesAt } from "./computer/computer-view.tsx";
 import { panelWidth, readPanel, writePanel, type PanelSection } from "./computer/panel-place.ts";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
 import { ConversationSkeleton, message, Problem, Scroller } from "./spade-screen-parts.tsx";
+import { useSpadeClient } from "./spade-machine.tsx";
+import { readActivity } from "./spade-oversight-api.ts";
 import { questionAnchor } from "./spade-question-bubble.tsx";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -67,6 +72,13 @@ export function Conversation(props: {
 }) {
   const { bot } = props;
   const conversation = useSpadeConversation(bot.conversation);
+  const client = useSpadeClient();
+  // A reply's steps in Spade's own words, from its activity log, when the person opens them.
+  const stepWords = async (steps: readonly SpadeStep[]) => {
+    const query = spadeStepsQuery(steps);
+    if (!query) return steps;
+    return spadeStepsWithActivity(steps, (await readActivity(client, bot.id, query)).entries);
+  };
   const { view, problem } = conversation;
   const line = spadeStateLine(useSpadeStatus(), true);
   const toast = useToast();
@@ -208,6 +220,7 @@ export function Conversation(props: {
             }
             endpointName={endpointName}
             onHelperSteps={conversation.helperSteps}
+            onStepWords={stepWords}
             onRetry={(text) =>
               conversation
                 .send({ text, images: [] })

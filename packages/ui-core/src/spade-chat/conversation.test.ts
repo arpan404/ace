@@ -539,7 +539,7 @@ test("a job's end reads above the words that answer it", () => {
 });
 
 describe("the conversation as a chat", () => {
-  test("bubbles show both sides' words and nothing of the tools, jobs or compaction", () => {
+  test("bubbles show both sides' words, the tools only as the reply's steps line, nothing of jobs or compaction", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Find me a flight" });
     c.stored({ type: "reply_started", reply: "r1" });
@@ -577,17 +577,21 @@ describe("the conversation as a chat", () => {
                     ? "search setup"
                     : bubble.kind === "question"
                       ? `question: ${bubble.callId}`
-                      : `${bubble.kind}: ${bubble.text}`,
+                      : bubble.kind === "steps"
+                        ? `steps: ${bubble.summary}`
+                        : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",
       "bot: Looking.",
+      // Under the words of the step that searched, which compaction set apart.
+      "steps: Searched the web",
       "bot: The 9:40 is cheapest.",
       "Travel: Booked it for you.",
     ]);
   });
 
-  test("an approval is the bot's bubble after the words that asked, and stays once answered", () => {
+  test("an approval is the bot's bubble after the words that asked, and stays once answered until its reply ends", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
@@ -604,8 +608,10 @@ describe("the conversation as a chat", () => {
     expect(asked()).toEqual(["Drafted it.", "ask open"]);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
     c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
-    c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
     expect(asked()).toEqual(["Drafted it.", "ask allowed", "Sent."]);
+    // Once the reply ends it is one of the reply's steps (steps.test.ts).
+    c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
+    expect(asked()).toEqual(["Drafted it.\n\nSent.", ""]);
   });
 
   test("a request its reply ended before the person answered stays, closed", () => {

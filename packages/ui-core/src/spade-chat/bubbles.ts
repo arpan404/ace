@@ -11,6 +11,7 @@ import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 import { spadeCapSentence } from "./oversight.ts";
 import { spadeHelperLine } from "./helper-words.ts";
+import { spadeReplySteps, spadeStepsSummary, type SpadeStep } from "./steps.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
@@ -67,6 +68,11 @@ type SpadeBubbleOf =
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
     }
+  /**
+   * The steps a reply took, as one line under its words that opens to each (`spadeReplySteps`).
+   * `reply`: the reply they led to.
+   */
+  | { kind: "steps"; key: string; reply: string; summary: string; steps: readonly SpadeStep[] }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
@@ -313,8 +319,10 @@ function askBubble(
 
 /**
  * A reply's bubbles: its words, split where it remembered a note or asked a question, each with
- * the images and documents its tools showed meanwhile after its words. The first run keeps the
- * reply's key, so a bubble keeps its place as the reply grows.
+ * the images and documents its tools showed meanwhile after its words, and its steps folded into
+ * one line under its last words. Once the reply has ended, a request the person answered is one
+ * of those steps, not a bubble of its own. The first run keeps the reply's key, so a bubble keeps
+ * its place as the reply grows.
  */
 function replyBubbles(
   entry: SpadeReplyEntry,
@@ -327,6 +335,8 @@ function replyBubbles(
   let images: SpadeImageRef[] = [];
   let documents: SpadeDocumentRef[] = [];
   let runs = 0;
+  // Where the steps line goes: after the reply's last words, or where the reply began.
+  let afterWords = bubbles.length;
   const take = () => {
     const media = { images, documents };
     images = [];
@@ -346,6 +356,7 @@ function replyBubbles(
       ...take(),
       ...at,
     });
+    afterWords = bubbles.length;
   };
   for (const part of entry.parts) {
     if (part.kind === "text") words.push(part.text);
@@ -362,6 +373,8 @@ function replyBubbles(
       flush();
       hold(held, part.key, part.paths);
     } else if (part.kind === "request") {
+      // Answered in a reply that has ended, it reads among the reply's steps.
+      if (entry.end !== undefined && part.answer !== undefined) continue;
       flush();
       ask(part, `${entry.key}:${part.key}`, entry.startedAt);
     }
@@ -370,7 +383,7 @@ function replyBubbles(
   const text = words.join("\n\n").trim();
   const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
   // A reply with nothing more to say yet shows only as the working line.
-  if (text || end || images.length || documents.length)
+  if (text || end || images.length || documents.length) {
     pushBot(bubbles, held, {
       key: runs ? `${entry.key}:${runs + 1}` : entry.key,
       text,
@@ -386,6 +399,18 @@ function replyBubbles(
             }
           : undefined,
       ...take(),
+      ...at,
+    });
+    afterWords = bubbles.length;
+  }
+  const steps = spadeReplySteps(entry);
+  if (steps.length)
+    bubbles.splice(afterWords, 0, {
+      kind: "steps",
+      key: `steps:${entry.key}`,
+      reply: entry.reply,
+      summary: spadeStepsSummary(steps),
+      steps,
       ...at,
     });
   // Under the finished reply, so it sits below the bot's own words about it.
@@ -423,7 +448,9 @@ function pushBot(
  * isn't offered (they would be lost), nor one a routine, group or bot sent, nor a cap's failure.
  */
 function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
-  const last = bubbles.at(-1);
+  // The failed reply's steps line may sit under it.
+  const at = bubbles.findLastIndex((bubble) => bubble.kind !== "steps");
+  const last = bubbles[at];
   if (last?.kind !== "bot" || !last.failure || last.failure.kind === "cap") return;
   const reply = entries.findLastIndex((entry) => entry.kind === "reply");
   if (reply !== entries.length - 1) return;
@@ -440,5 +467,5 @@ function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
     !asked.text.trim()
   )
     return;
-  bubbles[bubbles.length - 1] = { ...last, failure: { ...last.failure, retry: asked.text } };
+  bubbles[at] = { ...last, failure: { ...last.failure, retry: asked.text } };
 }

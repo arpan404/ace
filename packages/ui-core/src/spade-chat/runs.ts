@@ -2,30 +2,38 @@ import { formatClock } from "../time.ts";
 import type { SpadeChatItem } from "./skills.ts";
 
 /*
- * A chat laid out as people read one: the bot's bubbles in runs, with its face once at a run's
- * first bubble and the run's time under it; another bot's likewise under its name; everything
- * else (the person's messages, routine labels, helper lines) on its own row; and a day line
- * before the first thing said on each day. Pure: the caller passes the clock, and the locale and
- * time zone when it wants other than the host's.
+ * A chat laid out as people read a messenger: the bot's bubbles in runs, another bot's in its
+ * own runs under its name, everything else (the person's messages, helper lines) on its own row,
+ * and a time line only where time passed: before the first thing said, after a 30-minute gap,
+ * and on a new day. A routine's run names itself in its time line ("Morning check · Today 9:00
+ * AM") rather than taking a row of its own. Every bubble keeps its exact time for hover. Pure:
+ * the caller passes the clock, and the locale and time zone when it wants other than the host's.
  */
 
 export type SpadeChatRow =
-  | { kind: "day"; key: string; label: string }
+  | {
+      kind: "time";
+      key: string;
+      /** "Today 9:00 AM", "Yesterday 11:31 PM", "Fri 3:11 AM", "Nov 3 6:00 PM". */
+      label: string;
+      /** The routine whose run this line starts, by name; undefined for a plain time line. */
+      routine: string | undefined;
+    }
   | {
       kind: "run";
       key: string;
       /** Whose bubbles: the bot's own, or another bot's that wrote here. */
       sender: { kind: "bot" } | { kind: "other"; agent: { id: string; name: string } };
       items: SpadeChatItem[];
-      /** When the run began, as "6:12 PM"; undefined when none of it has a time yet. */
-      time: string | undefined;
+      /** Each item's exact time, as the time line words it, by index; undefined when unknown. */
+      whens: (string | undefined)[];
     }
   | {
       kind: "item";
       key: string;
       item: SpadeChatItem;
-      /** When it was said, as "6:12 PM", for a tooltip; undefined when unknown. */
-      time: string | undefined;
+      /** When it was said, as the time line words it, for hover; undefined when unknown. */
+      when: string | undefined;
     };
 
 export interface SpadeChatClock {
@@ -34,7 +42,17 @@ export interface SpadeChatClock {
   timeZone?: string;
 }
 
-const botSide = new Set<SpadeChatItem["kind"]>(["bot", "ask", "question", "skill", "files"]);
+/** A pause this long between two things said starts a new time line. */
+export const spadeTimeGapMs = 30 * 60_000;
+
+const botSide = new Set<SpadeChatItem["kind"]>([
+  "bot",
+  "ask",
+  "question",
+  "skill",
+  "files",
+  "steps",
+]);
 
 /** Whose run an item belongs to, if any: "bot", another bot's id, or undefined for its own row. */
 function senderOf(item: SpadeChatItem): string | undefined {
@@ -51,36 +69,46 @@ export function spadeChatRows(
   clock: SpadeChatClock,
 ): SpadeChatRow[] {
   const days = dayReader(clock);
-  const time = (at: number | undefined) =>
-    at === undefined ? undefined : formatClock(at, clock.locale, clock.timeZone);
   const rows: SpadeChatRow[] = [];
   // Times only move forward: a bubble stamped earlier than what came before it (a reply that
   // began before the message that steered it) reads at the latest time seen.
   let latest: number | undefined;
-  let day: string | undefined;
   let run: Extract<SpadeChatRow, { kind: "run" }> | undefined;
   let runSender: string | undefined;
   for (const item of items) {
     const stamped = atOf(item);
     const at = stamped === undefined ? undefined : Math.max(stamped, latest ?? stamped);
+    const when = at === undefined ? undefined : days.stamp(at);
+    if (item.kind === "routine") {
+      // The routine's run names itself in its line, whatever the gap.
+      rows.push({
+        kind: "time",
+        key: `time:${item.key}`,
+        label: when ?? item.label,
+        routine: item.name,
+      });
+      if (at !== undefined) latest = at;
+      run = undefined;
+      continue;
+    }
     if (at !== undefined) {
+      const fresh =
+        latest === undefined || at - latest >= spadeTimeGapMs || days.key(at) !== days.key(latest);
       latest = at;
-      const today = days.key(at);
-      if (today !== day) {
-        day = today;
-        rows.push({ kind: "day", key: `day:${today}`, label: days.label(at) });
+      if (fresh && when !== undefined) {
+        rows.push({ kind: "time", key: `time:${item.key}`, label: when, routine: undefined });
         run = undefined;
       }
     }
     const sender = senderOf(item);
     if (sender === undefined) {
       run = undefined;
-      rows.push({ kind: "item", key: item.key, item, time: time(at) });
+      rows.push({ kind: "item", key: item.key, item, when });
       continue;
     }
     if (run && runSender === sender) {
       run.items.push(item);
-      run.time ??= time(at);
+      run.whens.push(when);
       continue;
     }
     run = {
@@ -88,7 +116,7 @@ export function spadeChatRows(
       key: `run:${item.key}`,
       sender: item.kind === "other" ? { kind: "other", agent: item.agent } : { kind: "bot" },
       items: [item],
-      time: time(at),
+      whens: [when],
     };
     runSender = sender;
     rows.push(run);
@@ -100,7 +128,7 @@ const dayMs = 86_400_000;
 /** "2026-11-15" as a whole day count, so two days' distance is a subtraction. */
 const dayNumber = (dayKey: string) => Date.parse(`${dayKey}T00:00:00Z`) / dayMs;
 
-/** Each instant's calendar day in the reader's zone, and its words: Today, Yesterday, Monday. */
+/** Each instant's calendar day in the reader's zone, and its words: "Today 9:00 AM". */
 function dayReader(clock: SpadeChatClock) {
   const keyFormat = new Intl.DateTimeFormat("en-CA", {
     timeZone: clock.timeZone,
@@ -110,11 +138,10 @@ function dayReader(clock: SpadeChatClock) {
   });
   const weekday = new Intl.DateTimeFormat(clock.locale, {
     timeZone: clock.timeZone,
-    weekday: "long",
+    weekday: "short",
   });
   const thisYear = new Intl.DateTimeFormat(clock.locale, {
     timeZone: clock.timeZone,
-    weekday: "short",
     month: "short",
     day: "numeric",
   });
@@ -125,18 +152,18 @@ function dayReader(clock: SpadeChatClock) {
     year: "numeric",
   });
   const key = (at: number) => keyFormat.format(at);
-  const today = dayNumber(key(clock.now));
+  const todayKey = key(clock.now);
+  const today = dayNumber(todayKey);
+  const day = (at: number) => {
+    const dayKey = key(at);
+    const ago = today - dayNumber(dayKey);
+    if (ago === 0) return "Today";
+    if (ago === 1) return "Yesterday";
+    if (ago > 1 && ago < 7) return weekday.format(at);
+    return dayKey.slice(0, 4) === todayKey.slice(0, 4) ? thisYear.format(at) : otherYear.format(at);
+  };
   return {
     key,
-    label(at: number) {
-      const dayKey = key(at);
-      const ago = today - dayNumber(dayKey);
-      if (ago === 0) return "Today";
-      if (ago === 1) return "Yesterday";
-      if (ago > 1 && ago < 7) return weekday.format(at);
-      return dayKey.slice(0, 4) === key(clock.now).slice(0, 4)
-        ? thisYear.format(at)
-        : otherYear.format(at);
-    },
+    stamp: (at: number) => `${day(at)} ${formatClock(at, clock.locale, clock.timeZone)}`,
   };
 }

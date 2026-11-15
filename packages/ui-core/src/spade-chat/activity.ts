@@ -51,6 +51,10 @@ export interface SpadeActivityEntry {
   summary: string;
   outcome: string | undefined;
   reply: string | undefined;
+  /** The entry in Spade's words ("Ran a command"); undefined from an older Spade. */
+  sentence: string | undefined;
+  /** One line of what it touched ("gh pr list --state open"); undefined when there is none. */
+  detail: string | undefined;
   costMicros: number | undefined;
   raw: Record<string, unknown>;
 }
@@ -64,6 +68,8 @@ const entryShape = z.object({
   summary: z.string().nullish().catch(undefined),
   outcome: z.string().nullish().catch(undefined),
   reply: z.string().nullish().catch(undefined),
+  sentence: z.string().nullish().catch(undefined),
+  detail: z.string().nullish().catch(undefined),
   cost_micros: z.number().nonnegative().nullish().catch(undefined),
 });
 
@@ -93,6 +99,8 @@ export function parseSpadeActivity(
         summary: value.summary ?? "",
         outcome: value.outcome ?? undefined,
         reply: value.reply ?? undefined,
+        sentence: value.sentence || undefined,
+        detail: value.detail || undefined,
         costMicros: value.cost_micros ?? undefined,
         raw: fields,
       },

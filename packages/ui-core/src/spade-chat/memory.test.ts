@@ -7,7 +7,12 @@ import {
   parseSpadeNotes,
   spadeBubbles,
   spadeView,
+  type SpadeBubble,
 } from "./index.ts";
+
+/** The bubbles without a reply's steps line. */
+const withoutSteps = (bubbles: SpadeBubble[]) =>
+  bubbles.filter((bubble) => bubble.kind !== "steps");
 
 /** A conversation fed stored events as the live stream sends them. */
 function conversation() {
@@ -17,8 +22,9 @@ function conversation() {
     const input = parseSpadeLiveFrame("stored", JSON.stringify({ seq: ++seq, at: 1000, event }));
     if (input) foldSpade(state, input);
   };
+  // The reply's steps line is steps.test.ts's; here only what was remembered and said.
   const bubbles = () =>
-    spadeBubbles(spadeView(state)).map((bubble) =>
+    withoutSteps(spadeBubbles(spadeView(state))).map((bubble) =>
       bubble.kind === "remembered"
         ? `remembered: ${bubble.note.text}${bubble.note.shared ? " (shared)" : ""}`
         : bubble.kind === "bot" || bubble.kind === "person"

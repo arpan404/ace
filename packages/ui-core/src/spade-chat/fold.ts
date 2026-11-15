@@ -48,7 +48,18 @@ export type SpadeCallState =
 
 export type SpadeReplyPart =
   | { kind: "text"; key: string; text: string }
-  | { kind: "call"; key: string; name: string; state: SpadeCallState }
+  | {
+      kind: "call";
+      key: string;
+      name: string;
+      state: SpadeCallState;
+      /**
+       * The `seq` of the event Spade's activity log files this call under: its `tool_started`,
+       * else the `tool_finished` of a call that never started. Joins it to its sentence and
+       * detail there (`spadeStepsWithActivity`).
+       */
+      logged?: number;
+    }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** The bot asked the person a card of questions (`ask_user`, ADR 0154), where it asked. */
@@ -83,6 +94,11 @@ export type SpadeReplyEnd =
 export interface SpadeReplyEntry {
   kind: "reply";
   key: string;
+  /**
+   * The reply's id. Every step event names it, so a step lands under its own reply whatever
+   * arrived in between. The parts of a reply the person steered share it.
+   */
+  reply: string;
   /** Each model step's words and calls, in order. */
   parts: readonly SpadeReplyPart[];
   /** The open step's words so far: checkpoints, then live pieces. Empty once it is stored. */
@@ -369,6 +385,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.entries.push({
         kind: "reply",
         key: event.reply,
+        reply: event.reply,
         parts: [],
         live: "",
         end: undefined,
@@ -381,15 +398,12 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return updateOpen(state, event.reply, (entry) =>
         entry.live.startsWith(event.text) ? undefined : { ...entry, live: event.text },
       );
-    case "step_finished":
-      if (state.open?.reply === event.reply)
+    case "step_finished": {
+      const index = replyAt(state, event.reply);
+      if (index !== undefined)
         for (const call of event.calls)
-          state.calls.set(call.id, {
-            reply: event.reply,
-            index: state.open.index,
-            arguments: call.arguments,
-          });
-      return updateOpen(state, event.reply, (entry) => ({
+          state.calls.set(call.id, { reply: event.reply, index, arguments: call.arguments });
+      return updateReply(state, event.reply, (entry) => ({
         ...entry,
         live: "",
         parts: [
@@ -403,6 +417,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           })),
         ],
       }));
+    }
     case "approval_requested": {
       const helper = event.helper ? helperEntry(state, event.helper.job) : undefined;
       state.approvals = [
@@ -457,28 +472,35 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return true;
     case "tool_started":
       state.running.set(event.call_id, { reply: event.reply, name: event.name });
-      setCall(state, event.reply, event.call_id, event.name, "running");
+      setCall(state, event.reply, event.call_id, event.name, "running", stored.seq);
       return true;
     case "tool_finished":
       state.running.delete(event.call_id);
-      setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
+      setCall(
+        state,
+        event.reply,
+        event.call_id,
+        event.name,
+        event.is_error ? "failed" : "done",
+        stored.seq,
+      );
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
       if (spadeNeedsSearchSetup(event.name, event.content, event.is_error === true))
-        updateOpen(state, event.reply, (entry) =>
+        updateReply(state, event.reply, (entry) =>
           // Once per reply, however often it searched.
           entry.parts.some((part) => part.kind === "search-setup")
             ? undefined
             : { ...entry, parts: [...entry.parts, { kind: "search-setup", key }] },
         );
       if (event.files.length)
-        updateOpen(state, event.reply, (entry) => ({
+        updateReply(state, event.reply, (entry) => ({
           ...entry,
           parts: [...entry.parts, { kind: "files", key: `${key}:files`, paths: event.files }],
         }));
       return true;
     case "shared":
       if (!event.images.length && !event.documents.length) return false;
-      return updateOpen(state, event.reply, (entry) => ({
+      return updateReply(state, event.reply, (entry) => ({
         ...entry,
         parts: [
           ...entry.parts,
@@ -707,7 +729,7 @@ function remembered(
 ) {
   const note = spadeRemembered(name, content, isError);
   if (note)
-    updateOpen(state, reply, (entry) => ({
+    updateReply(state, reply, (entry) => ({
       ...entry,
       parts: [...entry.parts, { kind: "remembered", key, note }],
     }));
@@ -769,17 +791,48 @@ function updatePlaced<K extends Placed["kind"], T>(
 }
 
 /** Replace the open reply's entry when it is `reply`; `change` returns undefined for no change. */
+/** Change the open reply's live text; only an open reply streams. */
 function updateOpen(
   state: SpadeConversationState,
   reply: string,
   change: (entry: SpadeReplyEntry) => SpadeReplyEntry | undefined,
 ): boolean {
   if (state.open?.reply !== reply) return false;
-  const entry = state.entries[state.open.index];
+  return changeAt(state, state.open.index, change);
+}
+
+/**
+ * Where reply `reply` stands: the open reply's place, else its latest part (a steered reply's
+ * parts share its id). Steps of a reply that already ended still land in it, by its id.
+ */
+function replyAt(state: SpadeConversationState, reply: string): number | undefined {
+  if (state.open?.reply === reply) return state.open.index;
+  const index = state.entries.findLastIndex(
+    (entry) => entry.kind === "reply" && entry.reply === reply,
+  );
+  return index < 0 ? undefined : index;
+}
+
+/** Change reply `reply` by its id, open or not (`replyAt`). */
+function updateReply(
+  state: SpadeConversationState,
+  reply: string,
+  change: (entry: SpadeReplyEntry) => SpadeReplyEntry | undefined,
+): boolean {
+  const index = replyAt(state, reply);
+  return index !== undefined && changeAt(state, index, change);
+}
+
+function changeAt(
+  state: SpadeConversationState,
+  index: number,
+  change: (entry: SpadeReplyEntry) => SpadeReplyEntry | undefined,
+): boolean {
+  const entry = state.entries[index];
   if (entry?.kind !== "reply") return false;
   const next = change(entry);
   if (!next) return false;
-  state.entries[state.open.index] = next;
+  state.entries[index] = next;
   return true;
 }
 
@@ -789,35 +842,62 @@ function setCall(
   callId: string,
   name: string | undefined,
   callState: SpadeCallState,
+  /** The event's seq, kept as the call's `logged` when it has none yet. */
+  seq?: number,
 ) {
-  if (state.open?.reply !== reply) return;
-  const at = state.calls.get(callId);
-  const entry = at && state.entries[at.index];
-  if (at && entry?.kind === "reply") {
-    const index = entry.parts.findIndex((part) => part.kind === "call" && part.key === callId);
-    const part = entry.parts[index];
+  // Where the call stands: as the open reply recorded it, or, once its reply ended, found in
+  // that reply by its id (a result that arrives late still lands on its own step).
+  const index = state.calls.get(callId)?.index ?? callIn(state, reply, callId);
+  const entry = index === undefined ? undefined : state.entries[index];
+  if (index !== undefined && entry?.kind === "reply") {
+    const at = entry.parts.findIndex((part) => part.kind === "call" && part.key === callId);
+    const part = entry.parts[at];
     if (part?.kind !== "call") return;
     // `call_tool` reaches a deferred tool; once Spade names that tool, the call reads as it.
     const named = name && part.name === "call_tool" ? name : part.name;
-    if (part.state === callState && named === part.name) return;
+    const logged = part.logged ?? seq;
     // Spade answers a declined call with an errored result; it stays what the person chose.
-    if (part.state === "declined" && callState === "failed" && named === part.name) return;
+    const next = part.state === "declined" && callState === "failed" ? "declined" : callState;
+    if (part.state === next && named === part.name && logged === part.logged) return;
     const parts = entry.parts.slice();
-    parts[index] = {
+    parts[at] = {
       ...part,
       name: named,
-      state: part.state === "declined" && callState === "failed" ? "declined" : callState,
+      state: next,
+      ...(logged === undefined ? {} : { logged }),
     };
-    state.entries[at.index] = { ...entry, parts };
+    state.entries[index] = { ...entry, parts };
     return;
   }
   if (!name) return;
-  // A call no step listed (an older Spade): it shows where the reply is now.
-  state.calls.set(callId, { reply, index: state.open.index });
-  updateOpen(state, reply, (open) => ({
+  // A call no step listed (an older Spade): it shows where its reply is now.
+  const last = replyAt(state, reply);
+  if (last === undefined) return;
+  if (state.open?.reply === reply) state.calls.set(callId, { reply, index: last });
+  changeAt(state, last, (open) => ({
     ...open,
-    parts: [...open.parts, { kind: "call", key: callId, name, state: callState }],
+    parts: [
+      ...open.parts,
+      {
+        kind: "call",
+        key: callId,
+        name,
+        state: callState,
+        ...(seq === undefined ? {} : { logged: seq }),
+      },
+    ],
   }));
+}
+
+/** The part of reply `reply` (a steered reply has several) that lists call `callId`. */
+function callIn(state: SpadeConversationState, reply: string, callId: string) {
+  const index = state.entries.findLastIndex(
+    (entry) =>
+      entry.kind === "reply" &&
+      entry.reply === reply &&
+      entry.parts.some((part) => part.kind === "call" && part.key === callId),
+  );
+  return index < 0 ? undefined : index;
 }
 
 const unsettled = new Set<SpadeCallState>(["queued", "waiting", "running"]);
