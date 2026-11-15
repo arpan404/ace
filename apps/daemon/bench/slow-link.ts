@@ -60,8 +60,9 @@ const selection = (client: Client) => {
   const state = client.connectionState();
   return { observe: (changed: () => void) => state.subscribe(changed), state };
 };
+/** The daemon's whole view: confirmed, caught up, and no longer a tail awaiting its snapshot. */
 const settled = (reader: ThreadSource) =>
-  reader.thread !== undefined && !reader.syncing && !reader.unconfirmed;
+  reader.filling !== true && reader.thread !== undefined && !reader.syncing && !reader.unconfirmed;
 const hasContent = (reader: ThreadSource) => reader.thread !== undefined && reader.order.length > 0;
 
 async function measure(path: LinkPath, profileName: string) {
@@ -242,11 +243,49 @@ async function measure(path: LinkPath, profileName: string) {
     );
     const paint = await painted;
 
+    // The same client drops and comes back at once: its next hello can use the ticket the last
+    // welcome handed over (ADR 0150), so no exchange; the kept thread resumes from its cursor.
+    warm.networkOnline(false);
+    await when(
+      link,
+      mark(link),
+      warmState.observe,
+      () => warmState.state.getSnapshot() === "offline",
+      timeout,
+      "offline",
+    );
+    const reconnectFrom = mark(link);
+    warm.networkOnline(true);
+    const reconnectWelcome = await when(
+      link,
+      reconnectFrom,
+      warmState.observe,
+      () => warmState.state.getSnapshot() === "ready",
+      timeout,
+      "reconnect welcome",
+    );
+    const reconnectConfirmed = await when(
+      link,
+      reconnectFrom,
+      (changed) => keptReader.observe(changed),
+      () => settled(keptReader) && warmState.state.getSnapshot() === "ready",
+      timeout,
+      "reconnect confirm",
+    );
+
     // Offline through a long streamed turn, then back: what does catching up cost?
     warm.networkOnline(false);
     const { head } = z
       .object({ head: z.number() })
       .parse(await daemon.request({ op: "stream", thread: ready.threads.typical.id, ...stream }));
+    // SLOW_LINK_DEBUG=1: what the catch-up is made of, message by message.
+    const stopLog = process.env.SLOW_LINK_DEBUG
+      ? warm.onMessage((message) =>
+          process.stderr.write(
+            `resume message: ${message.type} ${JSON.stringify(message).length} chars\n`,
+          ),
+        )
+      : undefined;
     const resumeFrom = mark(link);
     warm.networkOnline(true);
     const resume = await when(
@@ -262,6 +301,7 @@ async function measure(path: LinkPath, profileName: string) {
       timeout,
       "resume",
     );
+    stopLog?.();
     await warm.close();
     return {
       path,
@@ -283,6 +323,8 @@ async function measure(path: LinkPath, profileName: string) {
         welcome: await rewelcome,
         confirmed,
       },
+      /** The same client reconnecting at once: the handed-ticket path. */
+      reconnect: { welcome: reconnectWelcome, confirmed: reconnectConfirmed },
       approval: { idleMs: idleApprovalMs, duringLargeSnapshotMs: duringSnapshotMs },
       resume: { ...resume, streamedTextBytes: stream.deltas * stream.bytes, deltas: stream.deltas },
       totals: since(link, connect),
@@ -307,7 +349,7 @@ for (const path of paths)
   }
 
 function span(label: string, value: Span): string {
-  return `  ${label.padEnd(34)} ${String(value.ms).padStart(7)} ms ${String(value.roundTrips).padStart(3)} RT ${(value.downBytes / 1024).toFixed(1).padStart(8)} KiB down`;
+  return `  ${label.padEnd(36)} ${String(value.ms).padStart(7)} ms ${String(value.roundTrips).padStart(3)} RT ${String(value.connections).padStart(2)} conn ${(value.downBytes / 1024).toFixed(1).padStart(8)} KiB down`;
 }
 
 function summary(run: (typeof runs)[number]): string {
@@ -321,6 +363,8 @@ function summary(run: (typeof runs)[number]): string {
     span("large thread, complete", run.complete.large),
     span("cached thread, painted from disk", run.cached.paint),
     span("cached thread, confirmed", run.cached.confirmed),
+    span("reconnect, same client: welcome", run.reconnect.welcome),
+    span("reconnect, same client: confirmed", run.reconnect.confirmed),
     span("resume after long turn", run.resume),
     `  approval delay: idle ${run.approval.idleMs} ms, during large snapshot ${run.approval.duringLargeSnapshotMs} ms`,
   ].join("\n");

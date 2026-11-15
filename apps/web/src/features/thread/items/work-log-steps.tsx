@@ -2,7 +2,7 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import type { Item, ToolSurface } from "@ace/protocol";
 import { isMeasurementCall, opensAgentPage, stepOpens, type StepText } from "@ace/ui-core";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
-import { Suspense, useId } from "react";
+import { Suspense, use, useId } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useShowBrowserPanel } from "@/features/panels/index.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
@@ -11,7 +11,7 @@ import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { DeferredStepDetail } from "./deferred-step-detail.ts";
 import { StepImages } from "./ace-steps.tsx";
 import { StepGlyph } from "./step-glyph.tsx";
-import { RailMark } from "./step-rail.tsx";
+import { RailMark, StepsLive } from "./step-rail.tsx";
 import { StepProse } from "./step-prose.tsx";
 import { useStepDisplay } from "./use-step-display.ts";
 import { useStepOpen } from "./step-open.ts";
@@ -186,6 +186,8 @@ export function StepRow(
   ),
 ) {
   const { step } = props;
+  // A step in flight only on a current copy (`StepsLive`): a cached one neither shimmers nor runs.
+  const live = use(StepsLive);
   const toggles = !props.onOpen && props.expandable !== false;
   return (
     <button
@@ -206,14 +208,14 @@ export function StepRow(
           item={props.item}
           surface={props.surface}
           mark={step.ace?.mark}
-          running={!step.settled}
+          running={!step.settled && live}
           failed={step.failed}
         />
       </span>
       <span
         className={cn(
           step.target ? "shrink-0" : "min-w-0 truncate",
-          !step.settled && "step-shimmer",
+          !step.settled && live && "step-shimmer",
         )}
       >
         {step.verb}

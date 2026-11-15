@@ -553,9 +553,10 @@ export class BrowserLive {
         (reply) => {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
-            // A connection the daemon won't bind for this view: it goes on the main socket.
+            // A connection the daemon won't bind for this view: it goes on the main socket. Any
+            // other failure falls back as the shared client says, and the view's retry asks again.
             const error = new Error(reply.error ?? "");
-            if (this.#media.refused(watch.threadId, begun.generation, error)) {
+            if (this.#media.failed(watch.threadId, begun.generation, error) === "resubscribe") {
               refused = true;
               return;
             }

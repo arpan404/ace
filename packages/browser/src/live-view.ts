@@ -8,7 +8,11 @@ export { SharedStreams } from "./shared-streams.ts";
 export {
   channelPath,
   isMediaRefusal,
+  mediaRetryCooldownMs,
+  mediaRetryDelaysMs,
+  mediaSubscribeDeadlineMs,
   MediaSubscriptions,
+  type FailedSubscribe,
   type AckWay,
   type DeliveryState,
   type MediaRoute,

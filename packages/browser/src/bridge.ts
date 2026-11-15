@@ -14,6 +14,7 @@ import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
   mediaSubscribed,
   viewLink,
+  viewSwap,
   viewViewport,
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
@@ -429,6 +430,19 @@ export function connectBrowser(
             // two never both deliver; the old grant closes once this subscribe has succeeded.
             const left = leave(existing, subscriber);
             let joined: { viewer: string; created: boolean } | undefined;
+            const swap = () => {
+              const was = before?.media.get(subscriber);
+              const connection = message.media?.connection;
+              return viewSwap(
+                options.media?.delivery(),
+                left !== undefined && was !== undefined
+                  ? { viewer: left, connection: was }
+                  : undefined,
+                joined?.created && connection !== undefined
+                  ? { viewer: joined.viewer, connection }
+                  : undefined,
+              );
+            };
             try {
               joined = message.media
                 ? bindMedia(threadId, message.media.connection, message, existing)
@@ -472,9 +486,10 @@ export function connectBrowser(
                 if (shown) service.configureCapture(threadId, options.connectionId, shown);
               }
             } catch (error) {
-              // Undo it all: the view granted for this subscribe, a subscription it installed,
-              // and the thread's subscription as it was, capture settings included.
-              if (joined?.created) options.media?.delivery()?.unbind(joined.viewer);
+              // Undo it all: the view granted for this subscribe (the old one opens again where
+              // the new one replaced it), a subscription it installed, and the thread's
+              // subscription as it was, capture settings included.
+              swap().abort();
               if (existing && before) {
                 Object.assign(existing, before);
                 if (before.shown)
@@ -496,8 +511,7 @@ export function connectBrowser(
               }
               throw error;
             }
-            if (left !== undefined && left !== joined?.viewer)
-              options.media?.delivery()?.unbind(left);
+            swap().commit();
             if (joined && message.media) {
               const poster = await options.media?.delivery()?.poster(joined.viewer);
               if (!closed)

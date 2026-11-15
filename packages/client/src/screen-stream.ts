@@ -178,6 +178,8 @@ export class ScreenStreamClient {
     this.states.clear();
     this.streams.reset();
     this.media.reset();
+    for (const cancel of this.retries.values()) cancel();
+    this.retries.clear();
     this.pictures.discard();
     for (const request of this.pending.values()) {
       request.cancel();
@@ -301,14 +303,41 @@ export class ScreenStreamClient {
   current(picture: SourcePicture): boolean {
     return this.media.current(picture.sourceId, picture.generation);
   }
+  /**
+   * A subscribe of `sessionId` failed: try again after the bounded backoff, unless the channel
+   * closed, nothing holds the stream any more or another subscribe went out meanwhile.
+   */
+  private retryLater(sessionId: string): void {
+    const delay = this.media.retryDelay(sessionId);
+    if (delay === undefined) return;
+    const epoch = this.epoch;
+    const generation = this.media.generation(sessionId);
+    this.cancelRetry(sessionId);
+    const cancel = this.options.schedule(() => {
+      this.retries.delete(sessionId);
+      if (this.epoch !== epoch || this.media.generation(sessionId) !== generation) return;
+      if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+    }, delay);
+    this.retries.set(sessionId, cancel);
+  }
+  /** Retries waiting on the clock, by source: cancelled when they no longer apply. */
+  private readonly retries = new Map<string, () => void>();
+  private cancelRetry(sessionId: string): void {
+    this.retries.get(sessionId)?.();
+    this.retries.delete(sessionId);
+  }
   private subscribe(sessionId: string): void {
+    // This subscribe supersedes any retry still waiting.
+    this.cancelRetry(sessionId);
     const { generation, fields } = this.media.begin(sessionId);
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(sessionId);
     void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
       (error: unknown) => {
+        const next = this.media.failed(sessionId, generation, error);
         // A connection the daemon won't bind here: the stream goes on this channel instead.
-        if (this.media.refused(sessionId, generation, error)) this.subscribe(sessionId);
+        if (next === "resubscribe") return this.subscribe(sessionId);
+        if (next === "retry") this.retryLater(sessionId);
       },
     );
   }
@@ -322,6 +351,7 @@ export class ScreenStreamClient {
       () => this.subscribe(sessionId),
       () => {
         this.media.forget(sessionId);
+        this.cancelRetry(sessionId);
         void this.request({ op: "unsubscribe", sessionId }).catch(() => {});
       },
     );

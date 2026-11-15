@@ -5,6 +5,12 @@ import { ThreadId, type MediaStreamClientMessage, type MediaPoster } from "@ace/
 import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
+import type { PosterDecoder } from "@/lib/video/poster.ts";
+import {
+  mediaRetryCooldownMs,
+  mediaRetryDelaysMs,
+  mediaSubscribeDeadlineMs,
+} from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -74,12 +80,20 @@ afterEach(() => {
  * as `serves here` does, but first replays the page's last picture (a keyframe) on the socket,
  * before the reply, as the browser bridge does.
  */
-type Daemon = "binds" | "serves here" | "replays here" | "replays, answers later" | "refuses";
+type Daemon =
+  | "binds"
+  | "answers later"
+  | "serves here"
+  | "replays here"
+  | "replays, answers later"
+  | "fails"
+  | "fails everything"
+  | "refuses";
 
 function withMediaReplies(
   api: ClientApi,
   poster: MediaPoster | undefined,
-  daemon: Daemon,
+  answers: () => Daemon,
   refused: unknown[],
   replay: () => void,
   answered: Promise<void>,
@@ -88,8 +102,17 @@ function withMediaReplies(
     get(target, key) {
       if (key === "request")
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
+          const daemon = answers();
           const named =
             input.type === "browser.subscribe" && "media" in input ? input.media : undefined;
+          if (
+            input.type === "browser.subscribe" &&
+            ((named && daemon === "fails") || daemon === "fails everything")
+          ) {
+            // It reaches the daemon (and the record), which answers that it is too busy.
+            await target.request(input, options);
+            return { type: "browser.result", requestId: "r", ok: false, error: "busy" };
+          }
           if (named && daemon === "refuses") {
             refused.push(input);
             return {
@@ -101,7 +124,8 @@ function withMediaReplies(
           }
           const reply = await target.request(input, options);
           if (named && (daemon === "replays here" || daemon === "replays, answers later")) replay();
-          if (named && daemon === "replays, answers later") await answered;
+          if (named && (daemon === "replays, answers later" || daemon === "answers later"))
+            await answered;
           if (
             input.type !== "browser.subscribe" ||
             !named ||
@@ -125,7 +149,15 @@ async function watching(
   initial: string | undefined,
   poster?: MediaPoster,
   answer: Daemon = "binds",
+  decodePoster?: PosterDecoder,
 ) {
+  /** How the daemon answers from now on (`answerAs`). */
+  let mode = answer;
+  /** The page's visibility, flipped by the test (`flap`). */
+  let pageShown = true;
+  const seen = new Set<() => void>();
+  /** The view's timers, fired by the test (`fire`) by their delay. */
+  const timers = new Set<{ run: () => void; ms: number }>();
   const daemon = new FakeDaemon({ clock: () => 1000 });
   new ScenarioPlayer(daemon, failingSubagent()).step();
   daemon.browser.drive(thread, { url: "http://localhost:5173" });
@@ -144,21 +176,31 @@ async function watching(
     withMediaReplies(
       wire.api,
       poster,
-      answer,
+      () => mode,
       refused,
       // Each replay a later number, so a test can tell which subscribe's it was.
       () => wire.stream(video(++replays, true)),
       answered,
     ),
     {
-      schedule: () => () => {},
-      visibility: { visible: () => true, watch: () => () => {} },
+      schedule: (run, ms) => {
+        const timer = { run, ms };
+        timers.add(timer);
+        return () => void timers.delete(timer);
+      },
+      visibility: {
+        visible: () => pageShown,
+        watch: (listener) => {
+          seen.add(listener);
+          return () => void seen.delete(listener);
+        },
+      },
       videoDecoder: decoder.factory,
       videoSupport: () => Promise.resolve(["hvc1.1.6.L153.B0", "avc1.42E033"]),
       media: link.media,
       poster: async (shown) => {
         posters.push(shown);
-        return { sequence: -1, draw() {}, close() {} };
+        return decodePoster ? decodePoster(shown) : { sequence: -1, draw() {}, close() {} };
       },
     },
   );
@@ -201,6 +243,27 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** The daemon answers subscribes this way from now on. */
+    answerAs(next: Daemon) {
+      mode = next;
+    },
+    /** The page is hidden, then shown again. */
+    flap() {
+      for (const visible of [false, true]) {
+        pageShown = visible;
+        for (const listener of Array.from(seen)) listener();
+      }
+    },
+    /** How many timers of this delay are waiting. */
+    pending: (ms: number) => Array.from(timers).filter((timer) => timer.ms === ms).length,
+    /** Every timer of this delay runs. */
+    fire(ms: number) {
+      for (const timer of Array.from(timers))
+        if (timer.ms === ms) {
+          timers.delete(timer);
+          timer.run();
+        }
+    },
   };
 }
 
@@ -324,4 +387,183 @@ test("the reply of a subscribe a rebind replaced never shows the picture held fo
   // The subscribe again (naming B) gets replay 2, and only that one is the view's.
   await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
   expect(view.mainAcks()).not.toContainEqual(expect.objectContaining({ sequence: 1 }));
+});
+
+test("a subscribe that times out stops holding video, and its late reply still settles delivery", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "answers later");
+  // No answer in time: the video is the socket's until the daemon says otherwise.
+  view.fire(mediaSubscribeDeadlineMs);
+  view.wire.stream(video(1, true));
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(1));
+  await waitFor(() =>
+    expect(view.mainAcks()).toContainEqual(expect.objectContaining({ sequence: 1 })),
+  );
+  // The answer comes late: the daemon delivers by the media connection after all.
+  view.answer();
+  await waitFor(() => expect(view.subscribes().length).toBeGreaterThan(0));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  view.link.deliver(video(2, true));
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(2));
+  expect(view.link.acks).toContainEqual(expect.objectContaining({ sequence: 2 }));
+});
+
+test("a poster still decoding when the view rebinds is never drawn", async () => {
+  const decodes: {
+    resolve: (picture: { sequence: number; draw(): void; close(): void }) => void;
+  }[] = [];
+  const closed: number[] = [];
+  const view = await watching(
+    "mc_aaaaaaaaaa",
+    { width: 1170, height: 2400, jpeg: "/9j/AA==" },
+    "binds",
+    () => new Promise((resolve) => decodes.push({ resolve })),
+  );
+  await waitFor(() => expect(decodes).toHaveLength(1));
+  // The connection moves while poster A decodes; the subscribe naming B brings poster B.
+  view.link.move("mc_bbbbbbbbbb");
+  await waitFor(() => expect(decodes).toHaveLength(2));
+  decodes[0]!.resolve({ sequence: -100, draw() {}, close: () => void closed.push(-100) });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  decodes[1]!.resolve({ sequence: -200, draw() {}, close: () => void closed.push(-200) });
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(-200));
+  expect(closed).toContain(-100);
+});
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+const named = (request: { media?: unknown }) =>
+  typeof request.media === "object" && request.media !== null && "connection" in request.media
+    ? request.media.connection
+    : undefined;
+
+test("a failing subscribe is retried on the shared ladder, then the view settles on the socket", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  expect(view.subscribes().map(named)).toEqual(["mc_aaaaaaaaaa"]);
+  for (const [index, delay] of mediaRetryDelaysMs.entries()) {
+    view.fire(delay);
+    await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
+  }
+  expect(view.subscribes().map(named)).toEqual(Array(5).fill("mc_aaaaaaaaaa"));
+  // The ladder is spent: after the cooldown, the next try is the socket's.
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
+  expect(named(view.subscribes()[5]!)).toBeUndefined();
+});
+
+test("a rebind cancels the retry still waiting for the old connection", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  view.link.move(undefined);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(2));
+  expect(named(view.subscribes()[1]!)).toBeUndefined();
+  // The retry scheduled for connection A never goes out.
+  view.fire(mediaRetryDelaysMs[0]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(view.subscribes()).toHaveLength(2);
+  expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
+});
+
+test("a rebind subscribes at once even while the old subscribe is still open", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "answers later");
+  // Connection A goes away before its subscribe is answered; the answer never comes.
+  view.link.move("mc_bbbbbbbbbb");
+  await waitFor(() => expect(view.subscribes().map(named)).toContain("mc_bbbbbbbbbb"));
+});
+
+test("hiding and showing the page again and again stays within the retry ladder and its cooldown", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails everything");
+  const storm = async (times: number) => {
+    for (let index = 0; index < times; index++) {
+      view.flap();
+      await settle();
+    }
+  };
+  await settle();
+  // A flap may skip one wait per ladder step: the first try and one per step, then nothing.
+  await storm(30);
+  expect(view.subscribes()).toHaveLength(1 + mediaRetryDelaysMs.length);
+  // Past the ladder, the cooldown holds however often the page flaps.
+  await storm(30);
+  expect(view.subscribes()).toHaveLength(1 + mediaRetryDelaysMs.length);
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(2 + mediaRetryDelaysMs.length));
+  // The socket fails too: one more try per cooldown, flapping or not.
+  await storm(30);
+  expect(view.subscribes()).toHaveLength(2 + mediaRetryDelaysMs.length);
+});
+
+test("an unmounted view's retry stops waiting on the clock", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+  view.unwatch();
+  await settle();
+  expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
+});
+
+test("a disposed preview's retries stop waiting on the clock", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+  view.preview.dispose();
+  expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
+});
+
+/** Every ladder step runs out in turn, each subscribe failing: the ladder is spent. */
+async function spend(view: Awaited<ReturnType<typeof watching>>) {
+  await settle();
+  for (const [index, delay] of mediaRetryDelaysMs.entries()) {
+    view.fire(delay);
+    await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
+  }
+  await settle();
+}
+
+test("a view that leaves and comes back starts a fresh ladder, naming the connection again", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await spend(view);
+  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
+  view.unwatch();
+  await settle();
+  // Back before the cache lets the thread go: nothing of the old ladder is inherited.
+  view.preview.watch(thread);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
+  expect(named(view.subscribes()[5]!)).toBe("mc_aaaaaaaaaa");
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
+});
+
+test("a subscribe that succeeds resets the ladder for the next failure", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  view.fire(mediaRetryDelaysMs[0]);
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[1])).toBe(1));
+  // The daemon is back: the second step's retry binds.
+  view.answerAs("binds");
+  view.fire(mediaRetryDelaysMs[1]);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(3));
+  await settle();
+  // A later failure (after a rebind) starts again from the first step.
+  view.answerAs("fails");
+  view.link.move("mc_bbbbbbbbbb");
+  await waitFor(() => expect(view.subscribes()).toHaveLength(4));
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+});
+
+test("past the cooldown the view recovers on the socket once the daemon answers again", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails everything");
+  await spend(view);
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
+  await settle();
+  // That socket try failed too; by the next cooldown's end the daemon answers again.
+  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
+  view.answerAs("binds");
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(7));
+  expect(named(view.subscribes()[6]!)).toBeUndefined();
+  view.wire.stream(video(1, true));
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(1));
+  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
 });

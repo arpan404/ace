@@ -158,6 +158,7 @@ export class MediaRuntime {
       poster: (viewer) => this.viewers.poster(viewer),
       configure: (viewer, viewport, audio) => this.viewers.configure(viewer, viewport, audio),
       pause: (viewer, paused) => this.viewers.pause(viewer, paused),
+      regrant: (viewer) => this.viewers.regrant(viewer),
       unbind: (viewer) => this.viewers.unbind(viewer),
     };
   }

@@ -382,7 +382,7 @@ export class LiveVideo {
           if (codec && generation === this.generation) this.failedCodecs.add(codec);
         },
         want: (encodes) => {
-          if (generation === this.generation) this.mediaWanted = [...encodes];
+          if (generation === this.generation) this.mediaWanted = encodes && [...encodes];
         },
         accelerated: () => {
           if (generation === this.generation) this.statusChanged();

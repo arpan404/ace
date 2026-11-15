@@ -408,7 +408,7 @@ export function drawPage(
  * degraded sentence can be seen. Every other message passes unchanged.
  */
 export function degradedBrowser(enabled: boolean): (text: string) => string {
-  if (!enabled) return (text) => text;
+  if (!enabled) return (message) => message;
   const acceleration = {
     steps: [{ step: "encode", backend: "cpu", hardware: false, readbacks: 1, uploads: 0 }],
     degraded: true,
@@ -418,9 +418,9 @@ export function degradedBrowser(enabled: boolean): (text: string) => string {
     if (value && typeof value === "object" && "threadId" in value && "closed" in value)
       Object.assign(value, { acceleration });
   };
-  return (text) => {
-    if (!text.includes('"type":"browser.')) return text;
-    const message = JSON.parse(text) as { state?: unknown; result?: { state?: unknown } };
+  return (frame) => {
+    if (!frame.includes('"type":"browser.')) return frame;
+    const message = JSON.parse(frame) as { state?: unknown; result?: { state?: unknown } };
     mark(message.state);
     mark(message.result?.state);
     return JSON.stringify(message);

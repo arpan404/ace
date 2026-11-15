@@ -1,33 +1,10 @@
-import type { MediaDeliveryPort, ViewIntent } from "@ace/media/media-viewers";
+import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import { expect, test } from "vitest";
 import { connectBrowser } from "./index.ts";
 import { idleThread } from "./idle-test-support.ts";
 
-/** A delivery that serves every kind and holds the views it granted, by the id it gave. */
-function delivery() {
-  const views = new Map<string, Omit<ViewIntent, "viewer">>();
-  let ids = 0;
-  const port: MediaDeliveryPort = {
-    serves: () => true,
-    bind: (intent) => {
-      const viewer = `view-${++ids}`;
-      views.set(viewer, intent);
-      return viewer;
-    },
-    granted: () => true,
-    poster: () => Promise.resolve(undefined),
-    configure: () => {},
-    pause: () => {},
-    unbind: (viewer) => void views.delete(viewer),
-  };
-  return { port, views };
-}
-
-const owner = {
-  session: "main-0d8c7a3e-4b1f-4e2a-9c5d-6f7a8b9c0d1e",
-  device: "phone",
-  admission: { kind: "pairing", generation: "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f" },
-} as const;
+const delivery = fakeDelivery;
+const owner = phoneOwner;
 
 const subscribe = (subscriberId: string, connection?: string, threadId = "thread") => ({
   type: "browser.subscribe",
@@ -130,5 +107,21 @@ test("a subscribe that fails partway leaves the thread's subscription as it was"
   // `b` was never added: once `a` and `c` leave, nothing is left.
   await client.handle(unsubscribe(a));
   await client.handle(unsubscribe("c"));
+  expect(views.size).toBe(0);
+});
+
+test("a resubscribe on the same connection that fails keeps delivering on the view it had", async () => {
+  const { bridge: client, views, live, failing } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  const [first] = live;
+  // Its new view replaced the old one in ace-media before the setup failed.
+  failing.state = true;
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  failing.state = false;
+  expect([...live]).toEqual([first]);
+  expect(views.size).toBe(1);
+  // The subscription still holds that view: leaving closes it.
+  await client.handle(unsubscribe(a));
+  expect(live.size).toBe(0);
   expect(views.size).toBe(0);
 });

@@ -137,6 +137,7 @@ final class NativeHost: @unchecked Sendable {
         let view: String
         let source: String
         let generation: Int
+        let revision: Int
         let path: String?
         let poster: String?
     }
@@ -147,7 +148,7 @@ final class NativeHost: @unchecked Sendable {
               (value.poster?.utf8.count ?? 0) <= 64 else {
             reply(.failure(HostError.encoding), to: callback); return
         }
-        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, poster: value.poster),
+        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path, revision: value.revision, poster: value.poster),
                                              for: DeliveryKey(view: value.view, source: value.source))
         reply(.success(""), to: callback)
     }

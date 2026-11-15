@@ -11,6 +11,7 @@ import type {
   VideoIngestTarget,
   VideoMediaKind,
 } from "./backend.ts";
+import { EncodeIds, mediaKey, type IdRange } from "./encode-ids.ts";
 import type { VideoEncode } from "./video-policy.ts";
 
 /*
@@ -27,7 +28,7 @@ import type { VideoEncode } from "./video-policy.ts";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "encodes" | "key" | "picture" | "close"
+  "streaming" | "encodes" | "key" | "picture" | "reconnect" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -77,85 +78,11 @@ type Ids = { threadId?: string; tabId?: string };
 const holdMs = 1_000;
 let captures = 0;
 
-/**
- * The daemon's own encodes' ids start here, above ace-media's (from 0, D1), so the two plans can
- * run side by side in one capture.
- */
-const daemonIds = 2 ** 20;
-/** The key prefix of an encode ace-media planned, which keeps ace-media's own id. */
-const mediaKey = "media/";
-
-/** Dropped encodes' keys kept for their late units: far more than are ever in flight. */
-const keptKeys = 4096;
-/** The last id the daemon's encodes may take: frames carry encode ids as u32. */
-const lastId = 0xffff_ffff;
-
-/**
- * The daemon's next encode id: ids only grow, so one is never given to another encode while
- * units of the first may still be queued anywhere. Past the end of the u32 space (some 4 × 10^9
- * encodes later) they wrap back to `daemonIds`, skipping the ids running now.
- */
-export function nextEncodeId(
-  next: number,
-  running: ReadonlySet<number>,
-): { id: number; next: number } {
-  let id = next;
-  for (let tried = 0; running.has(id) && tried <= running.size; tried++)
-    id = id >= lastId ? daemonIds : id + 1;
-  return { id, next: id >= lastId ? daemonIds : id + 1 };
-}
-
-/**
- * An encode's id in ace-media's frames, per capture: ace-media's own for the encodes it planned
- * (pinned), and for the daemon's an id from `nextEncodeId`. A daemon encode keeps its id while
- * the plan has it; an encode the plan drops keeps its key for late units, never handed on.
- */
-class EncodeIds {
-  readonly #ids = new Map<string, number>();
-  readonly #keys = new Map<number, string>();
-  /** The daemon's keys running now, with their ids. */
-  readonly #daemon = new Map<string, number>();
-  #next = daemonIds;
-  /** An encode ace-media planned: its key keeps ace-media's id. */
-  pin(key: string, id: number): void {
-    this.#ids.set(key, id);
-    this.#keys.set(id, key);
-  }
-  id(key: string): number {
-    const pinned = this.#ids.get(key);
-    if (pinned !== undefined) return pinned;
-    let id = this.#daemon.get(key);
-    if (id === undefined) {
-      const given = nextEncodeId(this.#next, new Set(this.#daemon.values()));
-      id = given.id;
-      this.#next = given.next;
-      this.#daemon.set(key, id);
-      this.#keys.set(id, key);
-      // Keys of dropped encodes stay for their late units, the oldest going past a bound.
-      const running = new Set(this.#daemon.values());
-      for (const old of this.#keys.keys()) {
-        if (this.#keys.size <= keptKeys) break;
-        if (old >= daemonIds && !running.has(old)) this.#keys.delete(old);
-      }
-    }
-    return id;
-  }
-  key(id: number): string | undefined {
-    return this.#keys.get(id);
-  }
-  /** Specs with their ids, for producers that stamp frames with them. */
-  stamp(specs: readonly VideoEncode[]): (VideoEncode & { id: number })[] {
-    const keep = new Set(specs.map((spec) => spec.key));
-    for (const key of this.#daemon.keys()) if (!keep.has(key)) this.#daemon.delete(key);
-    return specs.map((spec) => ({ ...spec, id: this.id(spec.key) }));
-  }
-}
-
 /** A unit off egress as the chunk a capture's listener takes; undefined for other kinds. */
 function chunkOf(unit: EgressUnit, ids: EncodeIds): EncodedChunk | undefined {
   const { frame } = unit;
   if (frame.kind !== 1) return undefined;
-  const encode = ids.key(frame.encode);
+  const encode = ids.key(frame.encode, unit.source);
   if (encode === undefined) return undefined;
   const key = (frame.flags & 1) !== 0;
   const described = key && (frame.flags & 4) !== 0 && frame.description.length > 0;
@@ -221,10 +148,19 @@ export function mediaVideoHosts(
   };
 }
 
-export function mediaVideoHost(inner: VideoHost, media: BrowserMedia, ids: () => Ids): VideoHost {
+/** Limits a test can shrink: the daemon's encode id range, to run it out. */
+export type MediaVideoLimits = { daemonIds?: IdRange };
+
+export function mediaVideoHost(
+  inner: VideoHost,
+  media: BrowserMedia,
+  ids: () => Ids,
+  limits: MediaVideoLimits = {},
+): VideoHost {
   const kind = inner.mediaKind;
   if (!kind) return inner;
-  if (kind === "tab-pictures" || kind === "user-tab") return pictureHost(inner, kind, media, ids);
+  if (kind === "tab-pictures" || kind === "user-tab")
+    return pictureHost(inner, kind, media, ids, limits);
   return {
     ...inner,
     mediaKind: kind,
@@ -238,6 +174,7 @@ export function mediaVideoHost(inner: VideoHost, media: BrowserMedia, ids: () =>
         media,
         events,
         ids(),
+        limits,
       );
     },
   };
@@ -256,6 +193,7 @@ async function streamed(
   media: BrowserMedia,
   events: CaptureEvents,
   ids: Ids,
+  limits: MediaVideoLimits,
 ): Promise<VideoCaptureHandle> {
   const merge = new PathMerge<Unit>("daemon", {
     emit: (unit) => {
@@ -287,7 +225,13 @@ async function streamed(
   });
   const ingest = handle.ingest?.bind(handle);
   if (!ingest) return handle;
-  const encodeIds = new EncodeIds();
+  let renew: (() => void) | undefined;
+  const encodeIds = new EncodeIds({ ...limits, renew: () => renew?.() });
+  // The live video's last plan, stamped again when what may run changes.
+  let last: readonly VideoEncode[] = [];
+  const run = () => handle.encodes(encodeIds.stamp(last));
+  /** The ace-media path the capture streams to. */
+  let current: string | undefined;
   const name = `capture-${++captures}`;
   const source = media.add({
     source: name,
@@ -303,19 +247,33 @@ async function streamed(
     }),
     point: (address) => {
       merge.switching(address ? address.path : "daemon");
+      current = address?.path;
+      if (encodeIds.pointed(current) && last.some((spec) => spec.key.startsWith(mediaKey))) {
+        // ace-media's plan was the old path's: its encodes stop before the capture moves (the
+        // encoder drops a stopped encode's output at once), so none of their units reach the
+        // new path, whose plan starts its ids over. Until that plan comes, the live video
+        // plans its delivered views itself.
+        run();
+        events.want?.(undefined);
+      }
       ingest(address ? wire(address) : undefined);
       return Promise.resolve();
     },
     keyframe: (encode) => {
-      const key = encodeIds.key(encode);
+      const key = encodeIds.key(encode, current);
       if (key !== undefined) handle.keyframe(key);
     },
-    pathEnded: (path, interrupted) => merge.ended(path, interrupted),
+    pathEnded: (path, interrupted) => {
+      merge.ended(path, interrupted);
+      // Every path open when the daemon's ids ran out has ended: encodes waiting for one run.
+      if (encodeIds.ended(path)) run();
+    },
     // ace-media's plan for the views it delivers: the capture runs it, under ace-media's ids.
     want: (encodes) => {
-      const planned: VideoEncode[] = encodes.map((encode) => {
+      // An id outside ace-media's range is never pinned: it could be a daemon encode's.
+      const planned: VideoEncode[] = encodes.flatMap((encode) => {
         const key = `${mediaKey}${encode.id}/${encode.codec}/${encode.width}x${encode.height}`;
-        encodeIds.pin(key, encode.id);
+        if (!encodeIds.pin(key, encode.id)) return [];
         return {
           key,
           codec: encode.codec,
@@ -329,8 +287,12 @@ async function streamed(
     },
   });
   if (!source) return handle;
+  renew = () => source.reconnect();
   const routed: VideoCaptureHandle = {
-    encodes: (specs) => handle.encodes(encodeIds.stamp(specs)),
+    encodes: (specs) => {
+      last = specs;
+      run();
+    },
     keyframe: (key) => handle.keyframe(key),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
     close: () => {
@@ -352,6 +314,7 @@ function pictureHost(
   kind: "tab-pictures" | "user-tab",
   media: BrowserMedia,
   ids: () => Ids,
+  limits: MediaVideoLimits,
 ): VideoHost {
   const offered = (codec: string) => media.pictureCodecs().some((o) => same(o, codec));
   const canEncode = (codecs: readonly string[]) => codecs.length > 0 && codecs.every(offered);
@@ -378,6 +341,7 @@ function pictureHost(
         height,
         events,
         ids: ids(),
+        limits,
         canEncode,
         refuse: () => {
           refused = true;
@@ -445,11 +409,26 @@ function pictureCapture(options: {
   height: number;
   events: CaptureEvents;
   ids: Ids;
+  limits: MediaVideoLimits;
   canEncode: (codecs: readonly string[]) => boolean;
   refuse: () => void;
 }): VideoCaptureHandle | undefined {
   const { events } = options;
-  const encodeIds = new EncodeIds();
+  let renew: (() => void) | undefined;
+  const encodeIds = new EncodeIds({ ...options.limits, renew: () => renew?.() });
+  /** The live video's last plan, sent again once encodes waiting for an id can have one. */
+  let last: readonly VideoEncode[] = [];
+  const run = () =>
+    source?.encodes(
+      encodeIds.stamp(last).map((spec) => ({
+        id: spec.id,
+        codec: spec.codec,
+        width: spec.width,
+        height: spec.height,
+        fps: Math.max(1, Math.round(spec.fps)),
+        bitrate: Math.max(1, Math.round(spec.bitrate)),
+      })),
+    );
   let open = true;
   let streaming = false;
   let source: BrowserMediaSource | undefined;
@@ -472,6 +451,7 @@ function pictureCapture(options: {
     }),
     point: (address) => {
       address?.token.fill(0);
+      encodeIds.pointed(address?.path);
       const was = streaming;
       streaming = address !== undefined;
       // ace-media went away (or the route left it): the live video opens a new capture, which
@@ -480,6 +460,9 @@ function pictureCapture(options: {
       return Promise.resolve();
     },
     keyframe: () => {},
+    pathEnded: (path) => {
+      if (encodeIds.ended(path) && open) run();
+    },
     refused: (reason) => {
       options.refuse();
       end(reason ?? "ace-media could not encode this tab");
@@ -487,6 +470,7 @@ function pictureCapture(options: {
   });
   const opened = source;
   if (!opened) return undefined;
+  renew = () => opened.reconnect();
   const handle: VideoCaptureHandle = {
     encodes: (specs) => {
       if (!open) return;
@@ -495,18 +479,13 @@ function pictureCapture(options: {
         for (const spec of specs) events.failed(spec.key);
         return end("ace-media can't encode these codecs here");
       }
-      opened.encodes(
-        encodeIds.stamp(specs).map((spec) => ({
-          id: spec.id,
-          codec: spec.codec,
-          width: spec.width,
-          height: spec.height,
-          fps: Math.max(1, Math.round(spec.fps)),
-          bitrate: Math.max(1, Math.round(spec.bitrate)),
-        })),
-      );
+      last = specs;
+      run();
     },
-    keyframe: (key) => opened.key(encodeIds.id(key)),
+    keyframe: (key) => {
+      const id = encodeIds.id(key);
+      if (id !== undefined) opened.key(id);
+    },
     pictures: {
       width: options.width,
       height: options.height,

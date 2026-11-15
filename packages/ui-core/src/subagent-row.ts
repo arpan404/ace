@@ -22,8 +22,8 @@ export interface SubagentDetail {
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
- * The row's second line. Live activity shows only while the thread's facts are fresh: a cached
- * copy never claims what an agent does now.
+ * The row's second line, only while the thread's facts are fresh: a cached copy never claims
+ * what an agent does now, that it waits on the person, its queue place or how it ended.
  */
 export function subagentDetail(
   entry: Pick<
@@ -34,6 +34,9 @@ export function subagentDetail(
   toolTitle: string | undefined,
   fresh: boolean,
 ): SubagentDetail {
+  // A copy that isn't current says nothing of the child: not that it waits on the person, not its
+  // queue place, not how it ended.
+  if (!fresh) return {};
   const status = agent?.status;
   if (entry.state === "queued") return { detail: queuedDetailFor(entry) };
   if (entry.state === "human") return { detail: "Waiting for you", kind: "human" };
@@ -43,7 +46,7 @@ export function subagentDetail(
   }
   if (subagentTerminal(entry.state) || !entry.agentId)
     return { detail: entry.result, kind: entry.result ? "result" : undefined };
-  if (!fresh || !status || (status.state !== "working" && status.state !== "starting")) return {};
+  if (!status || (status.state !== "working" && status.state !== "starting")) return {};
   return { detail: sentence(describeActivity(status, toolTitle)), kind: "live" };
 }
 

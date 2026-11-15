@@ -120,12 +120,22 @@ import Testing
 
     @Test func aNewerGenerationIsKeptWhenAnOlderOneArrivesAfterIt() {
         var gate = DeliveryGate<Picture>()
-        _ = gate.set(MediaDelivery(generation: 8, path: "b"))
+        _ = gate.set(MediaDelivery(generation: 8, path: "b", revision: 2))
         // Generation 7, read before 8 was set, reaches the gate after it.
-        let late = gate.set(MediaDelivery(generation: 7, path: "a"))
-        #expect(!late.reset && late.released.isEmpty)
-        #expect(gate.delivery == MediaDelivery(generation: 8, path: "b"))
+        let late = gate.set(MediaDelivery(generation: 7, path: "a", revision: 1))
+        #expect(!late.accepted && !late.reset && late.released.isEmpty)
+        #expect(gate.delivery == MediaDelivery(generation: 8, path: "b", revision: 2))
         #expect({ if case .show(8) = gate.arrive(Picture(id: 1, key: true, byteCount: 1), path: "b", at: 0) { true } else { false } }())
+    }
+
+    @Test func aFailedSubscribeFallingBackToTheDeliveryItReplacedIsTaken() {
+        var gate = DeliveryGate<Picture>()
+        _ = gate.set(MediaDelivery(generation: 7, path: "a", revision: 1))
+        _ = gate.set(MediaDelivery(generation: 8, path: nil, revision: 2))
+        // Subscribe 8 failed; the script restores 7, whose way still holds, as its latest update.
+        let restored = gate.set(MediaDelivery(generation: 7, path: "a", revision: 3))
+        #expect(restored.accepted && restored.reset)
+        #expect({ if case .show(7) = gate.arrive(Picture(id: 1, key: true, byteCount: 1), path: "a", at: 0) { true } else { false } }())
     }
 
     @Test func aPendingSixMegabyteKeyframeHoldsLessThanFourMegabytes() {
@@ -152,14 +162,14 @@ import Testing
         let renderer = BrowserRenderer(threadId: "B", showPoster: { _ in shown.show(0) }, present: { _ in }, ack: { _ in })
         defer { renderer.close() }
         renderer.follow(hub)
-        hub.setDelivery(MediaDelivery(generation: 5, path: nil), for: DeliveryKey(view: "browser", source: "B"))
+        hub.setDelivery(MediaDelivery(generation: 5, path: nil, revision: 2), for: DeliveryKey(view: "browser", source: "B"))
         // A's reply arrives after the switch: its delivery is A's, never B's.
-        hub.setDelivery(MediaDelivery(generation: 3, path: "mc", poster: posterA), for: DeliveryKey(view: "browser", source: "A"))
-        // An older subscribe of B naming A's poster changes nothing either.
-        renderer.delivery("B", MediaDelivery(generation: 4, path: "mc", poster: posterA))
+        hub.setDelivery(MediaDelivery(generation: 3, path: "mc", revision: 3, poster: posterA), for: DeliveryKey(view: "browser", source: "A"))
+        // An older update of B naming A's poster, arriving late, changes nothing either.
+        renderer.delivery("B", MediaDelivery(generation: 4, path: "mc", revision: 1, poster: posterA))
         try await Task.sleep(for: .milliseconds(100))
         #expect(shown.pictures.isEmpty)
-        hub.setDelivery(MediaDelivery(generation: 5, path: "mc", poster: posterB), for: DeliveryKey(view: "browser", source: "B"))
+        hub.setDelivery(MediaDelivery(generation: 5, path: "mc", revision: 4, poster: posterB), for: DeliveryKey(view: "browser", source: "B"))
         for _ in 0..<200 where shown.pictures.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
         #expect(shown.pictures.count == 1)
     }

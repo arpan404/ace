@@ -102,6 +102,8 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
     if (sockets.size > 32) sockets.clear();
     sockets.set(bound, opened);
   });
+  /** The order Swift takes deliveries in: each one sent counts up, whatever its generation. */
+  let revision = 0;
   const deliver = (view: "browser" | "screen" | "device", state: DeliveryState) => {
     const path =
       state.path === undefined
@@ -113,6 +115,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
       view,
       source: state.source,
       generation: state.generation,
+      revision: ++revision,
       path,
       // Swift named the reply's poster with a token in place of its JPEG.
       poster: state.poster?.jpeg ?? null,

@@ -119,6 +119,8 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
       for (const watcher of watchers) watcher();
     },
     onChannel,
+    /** Timers waiting on the injected clock (request deadlines, retries). */
+    pendingTimers: () => deadlines.size,
     /** Every pending request's deadline passes. */
     timeOut() {
       for (const run of Array.from(deadlines)) {
@@ -130,14 +132,18 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
       for (const listener of streams) listener(message);
     },
     /** `channel`: the daemon serves the stream on the channel itself (no `media` in the reply). */
-    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "channel") {
+    /** `fails`: a transient error, such as the daemon's pending-request limit. */
+    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "channel" | "fails") {
       server(
-        answer === "refuses"
+        answer === "refuses" || answer === "fails"
           ? {
               type: "screen.result",
               requestId: subscribe.requestId,
               ok: false,
-              error: "media-connection: that media connection isn't this session's",
+              error:
+                answer === "fails"
+                  ? "Too many pending screen requests"
+                  : "media-connection: that media connection isn't this session's",
             }
           : {
               type: "screen.result",
@@ -316,5 +322,55 @@ describe("screen pictures across a media rebind", () => {
     expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
     view.client.ack(view.drawn[1]!);
     expect(view.mediaAcks.map((ack) => ack.on)).toEqual(["mc_aaaaaaaaaa"]);
+  });
+
+  it("a subscribe that fails for another reason stops holding pictures and tries again later", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    // Nothing was delivered before it: the channel's pictures draw.
+    view.onChannel(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    // A bounded backoff later, it subscribes again, naming the connection.
+    expect(view.subscribes).toHaveLength(1);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.subscribes[1]?.media).toEqual({ connection: "mc_aaaaaaaaaa" });
+  });
+
+  it("a released stream or a closed channel leaves no retry waiting on the clock", async () => {
+    const view = harness();
+    const release = view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    release();
+    expect(view.pendingTimers()).toBe(1); // the unsubscribe's own deadline
+    view.timeOut();
+    await flush();
+    const again = harness();
+    again.client.retainStream("app");
+    again.reply(again.subscribes[0]!, "fails");
+    await flush();
+    again.client.disconnect();
+    expect(again.pendingTimers()).toBe(0);
+  });
+
+  it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    // The binding moves: the stream subscribes again at once, so the waiting retry goes.
+    view.move("mc_bbbbbbbbbb");
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.pendingTimers()).toBe(1); // the new subscribe's own deadline
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
   });
 });

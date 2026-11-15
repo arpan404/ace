@@ -55,7 +55,8 @@ export interface CaptureEvents {
    * ace-media's plan for the views it delivers (`source.want`, D1): the capture runs these too,
    * in place of any the daemon would plan for those views. Replaces the previous plan.
    */
-  want?(encodes: VideoEncode[]): void;
+  /** Undefined: ace-media has no plan (yet) on the path the capture streams to now. */
+  want?(encodes: VideoEncode[] | undefined): void;
   /** What the capture runs on in ace-media changed (`VideoCaptureHandle.acceleration`). */
   accelerated?(): void;
 }

@@ -46,6 +46,7 @@ import { SubagentFocusProvider } from "./focus.ts";
 import { SubagentLiveLine } from "./subagent-live-line.tsx";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
 import { SubagentPrompt } from "./subagent-prompt.tsx";
+import { useThreadLiveState } from "../lib/live-state.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 
 /** A dialog, menu or list open over the page takes Esc for itself; a closed, kept one doesn't. */
@@ -177,6 +178,7 @@ function useBranch(threadId: string, agentId: string) {
 
 function SubagentLive(props: { threadId: string; agent: Agent }) {
   const { phase } = useBranch(props.threadId, props.agent.id);
+  const { live } = useThreadLiveState(props.threadId);
   const { work } = useTreeWork(props.threadId);
   const tree = useAgentTree(props.threadId);
   const node = tree && findAgentNode(tree, props.agent.id);
@@ -187,6 +189,7 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
       agent={props.agent}
       phase={phase}
       subagents={running}
+      live={live}
     />
   );
 }
@@ -195,12 +198,14 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
  * Its open requests in the composer's one strip, then the bar: model and effort, how it ended
  * or how long it has worked (its whole branch: never "Completed" while anything under it
  * runs or waits on the person), Stop while it runs or has gone silent, Ask parent to retry once
- * it failed or was stopped, and Open parent.
+ * it failed or was stopped, and Open parent. While the thread's copy isn't confirmed the bar says
+ * so ("Reconnecting…") instead of how it went, and offers only Open parent.
  */
 function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }) {
   const { threadId, agent } = props;
   const meta = useThreadMeta(threadId);
   const { branch, phase } = useBranch(threadId, agent.id);
+  const { live } = useThreadLiveState(threadId);
   const requests = useBranchRequests(threadId, agent.id);
   const tree = useAgentTree(threadId);
   const node = tree && findAgentNode(tree, agent.id);
@@ -218,6 +223,7 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
         acpAgentId={agent.native.acpAgentId}
         model={agent.model ? modelLabel(agent.model) : providerNames[agent.native.provider]}
         phase={phase}
+        live={live}
         startedAt={agent.createdAt}
         endedAt={subagentEnded(phase) ? branch?.end : undefined}
         parent={
@@ -228,30 +234,32 @@ function SubagentBottom(props: { threadId: string; agent: Agent; root: boolean }
             : undefined
         }
         actions={
-          !subagentEnded(phase)
-            ? stoppable && (
-                <StopAgent
-                  threadId={threadId}
-                  agent={agent}
-                  pending
-                  variant="ghost"
-                  feedback="toast"
-                  className={barAction}
-                  subagents={node ? countSubagents(node) : 0}
-                />
-              )
-            : // Only its parent can run it again; a read-only thread can't be asked. It is its
-              // own ending that is retried, not a failure further down its branch.
-              (agent.status.state === "failed" || agent.status.state === "interrupted") &&
-              !meta?.continuation && (
-                // A resumed subagent that ends again can be asked about again.
-                <AskParentRetry
-                  key={branch?.end ?? 0}
-                  threadId={threadId}
-                  agent={agent}
-                  direct={props.root}
-                />
-              )
+          !live.current
+            ? undefined
+            : !subagentEnded(phase)
+              ? stoppable && (
+                  <StopAgent
+                    threadId={threadId}
+                    agent={agent}
+                    pending
+                    variant="ghost"
+                    feedback="toast"
+                    className={barAction}
+                    subagents={node ? countSubagents(node) : 0}
+                  />
+                )
+              : // Only its parent can run it again; a read-only thread can't be asked. It is its
+                // own ending that is retried, not a failure further down its branch.
+                (agent.status.state === "failed" || agent.status.state === "interrupted") &&
+                !meta?.continuation && (
+                  // A resumed subagent that ends again can be asked about again.
+                  <AskParentRetry
+                    key={branch?.end ?? 0}
+                    threadId={threadId}
+                    agent={agent}
+                    direct={props.root}
+                  />
+                )
         }
       />
     </ComposerDock>

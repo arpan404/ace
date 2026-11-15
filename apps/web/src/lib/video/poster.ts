@@ -39,19 +39,23 @@ export const imagePoster: PosterDecoder = async (poster) => {
 
 /**
  * Draws a device's or screen's poster on its live canvas while no live picture has been drawn
- * there (`data-frame` unset); the first picture then draws over it. Resolves whether it drew.
+ * there (`data-frame` unset); the first picture then draws over it. `current` says, once the
+ * poster has decoded, whether it is still its source's delivery's and its view is still there: a
+ * poster that outlived either (a rebind, a remount) is closed, never drawn. Resolves whether it
+ * drew.
  */
 export async function drawPoster(
   canvas: HTMLCanvasElement,
   context: CanvasRenderingContext2D,
   poster: MediaPoster,
+  current: () => boolean,
   decode: PosterDecoder = imagePoster,
 ): Promise<boolean> {
   if (canvas.dataset["frame"] !== undefined) return false;
   const image = await decode(poster);
   if (!image) return false;
   try {
-    if (canvas.dataset["frame"] !== undefined) return false;
+    if (!current() || canvas.dataset["frame"] !== undefined) return false;
     drawUpright(canvas, context, image, {
       width: poster.width,
       height: poster.height,

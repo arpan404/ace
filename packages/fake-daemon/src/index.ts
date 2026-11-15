@@ -155,3 +155,4 @@ export type { FakeSpadeNote } from "./spade-notes.ts";
 export type { FakeSpadeSpending } from "./spade-oversight.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";

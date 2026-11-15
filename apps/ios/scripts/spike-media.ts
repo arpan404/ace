@@ -39,6 +39,15 @@ interface Connection {
 
 const encodeTicket = (bytes: Buffer) => bytes.toString("base64url");
 
+const json = (text: string): Record<string, unknown> | undefined => {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 export function spikeMedia(port: number, enabled: boolean) {
   let legacy = !enabled;
   let made = 0;
@@ -58,15 +67,6 @@ export function spikeMedia(port: number, enabled: boolean) {
     unavailable: 0,
     /** Browser acks the phone sent on its main socket: pictures delivered there. */
     mainAcks: 0,
-  };
-
-  const json = (text: string): Record<string, unknown> | undefined => {
-    try {
-      const value: unknown = JSON.parse(text);
-      return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
-    } catch {
-      return undefined;
-    }
   };
 
   return {

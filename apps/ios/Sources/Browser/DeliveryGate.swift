@@ -6,6 +6,9 @@ import Foundation
 struct MediaDelivery: Equatable, Sendable {
     let generation: Int
     let path: String?
+    /// The script's order of its deliveries; it counts up with each one sent. A generation may
+    /// come back (a failed subscribe falls back to the one it replaced), so this is the order.
+    var revision = 0
     /// The token naming the poster this subscribe's reply brought back (`PosterReply`), if any.
     var poster: String? = nil
     static let channel = "channel"
@@ -41,8 +44,9 @@ extension BrowserVideoChunk: GatedPicture {
 /// One source's pictures held to its current delivery. A picture that comes the current way is
 /// shown with the generation it came for; one that comes another way is dropped. While the reply
 /// is pending, each way keeps its newest keyframe and the deltas after it, at most 4 MB or 2 s of
-/// arrivals; the way the reply settles on is released, the rest dropped. A generation older than
-/// the one held (set late, out of order) changes nothing. Before the script has set any delivery,
+/// arrivals; the way the reply settles on is released, the rest dropped. An update older than the
+/// one held (by the script's `revision`: set late, out of order) changes nothing; another
+/// generation, newer or restored, starts over. Before the script has set any delivery,
 /// pictures pass unstamped, as they did before generations. Pure.
 struct DeliveryGate<Picture: GatedPicture> {
     enum Arrival { case show(generation: Int?), hold, drop }
@@ -80,7 +84,7 @@ struct DeliveryGate<Picture: GatedPicture> {
 
     mutating func set(_ next: MediaDelivery) -> Change {
         let previous = delivery
-        if let previous, next.generation < previous.generation { return Change(accepted: false) }
+        if let previous, next.revision < previous.revision { return Change(accepted: false) }
         delivery = next
         // A new subscribe: everything of the old one is stale, held or decoding.
         guard let previous, previous.generation == next.generation else {

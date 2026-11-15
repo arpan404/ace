@@ -241,6 +241,8 @@ export class DeviceClient {
     this.connected = false;
     this.liveStreams.reset();
     this.media.reset();
+    for (const cancel of this.retries.values()) cancel();
+    this.retries.clear();
     this.states.clear();
     this.devices = [];
     this.inventoryLoaded = false;
@@ -390,13 +392,40 @@ export class DeviceClient {
   current(picture: DevicePicture): boolean {
     return this.media.current(picture.sourceId, picture.generation);
   }
+  /**
+   * A subscribe of `deviceId` failed: try again after the bounded backoff, unless the channel
+   * closed, nothing holds the stream any more or another subscribe went out meanwhile.
+   */
+  private retryLater(deviceId: string): void {
+    const delay = this.media.retryDelay(deviceId);
+    if (delay === undefined) return;
+    const epoch = this.epoch;
+    const generation = this.media.generation(deviceId);
+    this.cancelRetry(deviceId);
+    const cancel = this.options.schedule(() => {
+      this.retries.delete(deviceId);
+      if (this.epoch !== epoch || this.media.generation(deviceId) !== generation) return;
+      if (this.liveStreams.held().includes(deviceId)) this.subscribe(deviceId);
+    }, delay);
+    this.retries.set(deviceId, cancel);
+  }
+  /** Retries waiting on the clock, by source: cancelled when they no longer apply. */
+  private readonly retries = new Map<string, () => void>();
+  private cancelRetry(deviceId: string): void {
+    this.retries.get(deviceId)?.();
+    this.retries.delete(deviceId);
+  }
   private subscribe(deviceId: string): void {
+    // This subscribe supersedes any retry still waiting.
+    this.cancelRetry(deviceId);
     const { generation, fields } = this.media.begin(deviceId);
     // What the earlier subscribe delivered and nobody drew yet is stale now.
     this.pictures.discardSource(deviceId);
     void this.send({ op: "subscribe", deviceId, ...fields }, generation).catch((error: unknown) => {
+      const next = this.media.failed(deviceId, generation, error);
       // A connection the daemon won't bind here: the stream goes on this channel instead.
-      if (this.media.refused(deviceId, generation, error)) this.subscribe(deviceId);
+      if (next === "resubscribe") return this.subscribe(deviceId);
+      if (next === "retry") this.retryLater(deviceId);
     });
   }
   private receiveMedia(message: StreamMessage): void {
@@ -446,6 +475,7 @@ export class DeviceClient {
       () => this.subscribe(deviceId),
       () => {
         this.media.forget(deviceId);
+        this.cancelRetry(deviceId);
         void this.request({ op: "unsubscribe", deviceId }).catch(() => {});
       },
     );

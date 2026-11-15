@@ -247,15 +247,36 @@ table, including timed-out trials and the ranking cache.
     combinations"), with nothing else on it.
     - If it drops, ace-media is killed and restarted like any lane failure: lanes authenticate
       once per process, so a lane is never reopened.
-  - **Lane authentication.** Both socket lanes authenticate with a 32-byte lane secret. The
-    daemon sends it in `init`'s binary payload over stdin, which is already private to the two
-    processes. ace-media compares in constant time, wipes its copy once both lanes are up, and
-    takes no further lane connections until it restarts.
-  - **Lane hello** (`packages/media/src/lanes.ts`). A socket lane's first 37 bytes are `"ACEL"`,
-    a u8 lane tag (1 priority, 2 egress) and the 32-byte lane secret. ace-media answers one byte,
-    `0x01`, and the connection then carries that lane's frames. On a wrong secret, an unknown or
-    repeated tag, or a connection after both lanes are up, it closes the connection without
-    answering, and the supervisor treats that as a lane failure.
+  - **Lane authentication.** Both socket lanes authenticate with a 32-byte lane secret (never
+    all zero). The daemon sends it in `init`'s binary payload over stdin, which is already
+    private to the two processes; it never goes on a socket. Each side proves it holds the
+    secret, ace-media first, compared in constant time. ace-media wipes its copy once both lanes
+    are up and takes no further lane connections until it restarts.
+  - **Lane hello** (`media_wire::lane`, `packages/media/src/lanes.ts`, vectors in
+    `vectors/lane/proofs.json`). The daemon sends 37 bytes: `"ACEL"`, a u8 lane tag (1
+    priority, 2 egress) and a fresh 32-byte nonce. ace-media answers 64: its proof,
+    HMAC-SHA256 keyed by the secret over `"ace-media lane v1 server"`, the tag and that nonce,
+    then a fresh nonce of its own. The daemon checks the proof before sending anything else,
+    then sends its own, over `"ace-media lane v1 client"`, the tag and both nonces. ace-media
+    answers `0x01` as its first record (below), and the connection then carries that lane's
+    frames. On a bad hello, an unknown or repeated tag, a wrong proof or a connection after both
+    lanes are up, ace-media closes the connection without answering; on a wrong server proof the
+    daemon closes it. Either is a lane failure to the supervisor.
+  - **Lane records** (`ace_media::lane_cipher`, `packages/media/src/lane-records.ts`). After the
+    hello every byte of a lane, the accept byte first, is in authenticated encryption, so a
+    process relaying the whole hello between the two can neither read a lane nor get a frame of
+    its own accepted. Keys: HKDF-SHA256 from the lane secret, salt `"ace-media lane v1 keys"`,
+    over the whole handshake transcript (`"ACEL"`, the tag, both nonces, both proofs) and
+    `"daemon to media"` or `"media to daemon"`. Records: a u16 BE
+    length, then ChaCha20-Poly1305 from media-noise's transport (ace-media) and
+    `@ace/secure-channel`'s CipherState (daemon): Noise nonces, which are the per-direction
+    sequence numbers, with each direction rekeyed every 2^20 records. A record that fails to
+    open closes the lane, and so does an end inside a record (an integrity error, never a clean
+    end). Every end of a lane (an end of the socket, a bad record, a destroy, either of
+    ace-media's two pumps finishing) goes one way: the other direction is closed too, the keys
+    are wiped, and only then are the lane's users told. Measured on the M4 Max: sealing 1.97 GB/s in ace-media, with no
+    allocation per record (0.1 % of a core at 16 Mbit/s); opening 297 MB/s on Node and
+    248 MB/s on Bun in the daemon (under 1 %).
 - **Frames** (all lanes except egress). `u32 BE frame length` (the bytes after this field, at
   most 8 MiB on the normal lane, 64 KiB on the priority lane), then `u32 BE JSON length`, the
   JSON message in UTF-8, then an optional binary payload (the rest of the frame).
@@ -1298,6 +1319,20 @@ For scale, today's measurements (ADR 0147's Context): the Linux and Windows scre
 
 ## K1 contract clarifications
 
+- **Lanes are authenticated, then encrypted** ("ace-media: lanes prove the server before the
+  daemon speaks"). Proving the secret alone would leave the lanes plaintext to a same-user
+  process that relays the hello between the daemon and ace-media; so every lane byte after the
+  hello is a sealed record under keys derived from the secret and that transcript (see "Lane
+  records"). A relay reads nothing, and a frame it modifies, injects, replays or reorders
+  closes the lane.
+- **The lane hello proves the server first.** The secret is never on a socket. A server that doesn't hold it (a squatting
+  instance of a Windows pipe name, which any process of the user can create) receives a random
+  nonce and nothing else. A proof is refused when it is replayed from another connection (the
+  nonces differ), made with the other direction's label, or a guess. Nonces are fresh per
+  connection attempt on both sides and never reused; the daemon draws its own from the CSPRNG,
+  never from the secret's source. HMAC-SHA256 is ring's in ace-media, already in the tree
+  through media-noise, and node:crypto in the daemon, so the cargo-deny allowlist is unchanged.
+
 - `source.open`'s `token` column denotes its binary payload, not a JSON field. The JSON has
   no token. Control messages and nested contract objects reject unknown fields and tags on
   both sides, as specified by the Rust control contract; opaque `record.meta.data` and
@@ -1755,8 +1790,8 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Plans.** A source's views are planned together with `media_core::plan`, against
     `source.page` (or the first unit's size) and `source.codecs` (or what the views decode);
     the encodes go out as `source.want` when ids, sizes, codecs or fps change, or the bit rate
-    moves over 20 %. Ids start at 0 and only go up (wrapping past ids still in use), so a dropped
-    encode's queued units never land on a new one.
+    moves over 20 %. Ids are [1, 2^20) and only go up, so a dropped encode's queued units never
+    land on a new one; a source that uses them up is opened again (round 4, below).
     Plans follow the links once a second, with `viewer.stats`.
   - **Taking what the producer sends.** Until the daemon applies `source.want` to producers (see
     "Owed"), a producer runs its own encodes: a view takes its planned encode once the producer
@@ -1863,6 +1898,56 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Browser subscribes are transactional.** A subscribe that fails partway restores the
     thread's subscription (subscribers, views, capture settings) and closes the view it was
     granted; a replaced view closes only once the subscribe succeeded.
+- **Review fixes (round 4, at `33650ac5aa`).** No client wire change.
+  - **A failed resubscribe keeps delivering.** ace-media holds one view per connection and
+    target, so a same-connection resubscribe's new view replaces the old one there at once. When
+    the subscribe then fails, the bridge closes the new view and regrants the old one
+    (`MediaDeliveryPort.regrant`: its `viewer.open` again, under its id and current intent, with
+    a fresh issue). Its sequences continue and it starts at a keyframe.
+  - **Disjoint id ranges.** ace-media's encode ids are [1, 2^20) and the daemon's own are
+    [2^20, 2^31), each enforced by its allocator (`next_media_id`, `encode-ids.ts`). An id
+    ace-media gives outside its range is never pinned.
+  - **No wrap: a used-up range reopens its source.** Ids never wrap in place.
+    - ace-media out of ids reports the source `ended` with no reason, and the daemon opens it
+      again under a fresh id and handle (`IngestSources`' reconnect). The old path drains to
+      its egress end marker, or is cut after `drainMs`. The new source's ids start at 1.
+    - The daemon out of ids asks the same reconnect and starts over once every path open then
+      has ended. It skips the ids that ran across the reopen until the next one.
+    - On a new path, the capture stops ace-media's old encodes before it moves; the extension
+      drops a stopped encoder's output at once. ace-media's pins are kept per path, so the old
+      path's late units keep their labels, and the live video plans its delivered views itself
+      until the new plan comes. `IngestSources` hands the producer a plan made while its
+      source was still opening.
+  - **A shared encode's keyframe cut** moves once per keyframe, however many views take it.
+  - **Screen and device resubscribes are transactional too.** A resubscribe is staged: the
+    old view keeps delivering until the new one is set up, its answer included (state, and
+    for devices the poster). Only then does it replace the old one. A failure closes only the
+    new view, and regrants the old one where the new one had replaced it in ace-media. The
+    three bridges share one swap, `viewSwap` in `media-viewers`. `DeviceSubscriptions` stages
+    a new slot beside the current one, and log subscriptions still replace theirs at once.
+- **Review fixes (round 5, at `fb3389132a`).**
+  - **A superseded device setup never takes its successor's view.** (Round 6 replaced the
+    round-5 `PendingSwaps` with a queue; see below.)
+  - **A failed resubscribe leaves the old view its stream request.** `DeviceStreamOwners`
+    counts an owner's overlapping views of a device, and the owner's stream request goes only
+    when the last of them ends.
+- **Review fixes (round 6, at `f0b27a8330`).**
+  - **Device subscribes run one at a time.** A connection's subscribes and unsubscribes of a
+    device go through `DeviceQueue`, one at a time, so a setup and its rollback only ever meet
+    the committed subscription, and there is never more than one pending setup.
+    - The latest wins: a new operation tells the running setup it is superseded, and that
+      setup rolls back before the next one starts. A subscribe still waiting its turn is
+      dropped without running.
+    - Unsubscribes always run.
+    - `PendingSwaps` is gone; browser and screen never needed it, since they commit before
+      their one await.
+  - **A view the frame hub drops releases its stream request.** `LatestFrameHub` tells a
+    subscriber it dropped (its sink threw, or the hub was cleared) through `ended`.
+    `DevicesService.view` passes the same idempotent release its close uses, so the owner's
+    count reaches zero and the capture goes back to unwatched.
+- **Review fix (round 7, at `01900bd16e`).** A view the frame hub refuses (its subscriber
+  limit) releases the stream request it had already counted, so the owner's other views can
+  still take the capture back to unwatched.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
@@ -2064,3 +2149,116 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
   (media-mf's driving of it is tested on the VM's software MFT only), the "Acceleration
   acceptance" Windows numbers (1080p60 ≤ 5 % of a core with a GPU; software MFT 1080p30 ≥
   30 fps on the VM, not benched yet), and x64 Windows.
+
+## E2 notes
+
+- **Encoder choice** (`native/screen-helper-linux/src/media/select.rs`, pure). VA-API (Intel,
+  AMD), then NVENC (NVIDIA), then the last-resort Chrome encoder (`media-chrome`, run by the
+  helper itself), H.264 only (the screen frame header names `avc1` alone). B3 and B5 have not
+  passed on real hardware yet, so VA-API is routed to only with `ACE_SCREEN_VAAPI=1` and NVENC
+  only with B5's `ACE_MEDIA_NV=1`; without them every Linux machine takes the last resort, and
+  says so. Removing the VA-API gate (`trials.rs`) is a one-line change once the hardware runs below
+  pass.
+- **The hello** (`trials.rs`). At helper start, on a thread of its own: VA-API's trial (gated),
+  NVENC's (gated), and the Chrome trial only when neither worked (`last_resort_needed`). The
+  hello waits for them at most 5 s from start. `encoders` lists every trial that ran, the chosen
+  one first; `codecs` gains `h264` only when one worked. `zeroCopy` is the driver's DMA-BUF
+  import, and false once the running capture turns out to be shared memory.
+- **Capture** (`pipewire.c`). With an encoder that imports DMA-BUFs (VA-API, NVENC) opened on
+  the capture thread first, the stream offers BGRx/BGRA/RGBx/RGBA as DMA-BUFs with the linear
+  modifier, then as shared memory. A DMA-BUF the device can't import (another GPU's) makes the
+  stream ask for shared memory only, and the producer renegotiates. The newest buffer is held
+  (handed back once a newer one replaces it), so a keyframe, a still, or someone starting to
+  watch encodes the current picture without waiting for the desktop to change, and a picture
+  that arrives too soon waits without a copy. PipeWire's `remove_buffer` clears a held buffer
+  it removes, and a format change hands the held one back first, so redelivery and teardown
+  never touch a buffer of the old format; the capture asks the C shell whether one is held. Tiled modifiers (an EGL/VA modifier query) are
+  not offered yet.
+- **Paths per backend** (`encoder.rs`, `gl.rs`).
+  - VA-API: a DMA-BUF is imported as a VA surface (`DRM_PRIME_2`) and VPP converts and scales
+    it: 0 readbacks, 0 uploads. Shared memory is uploaded once (`uploads: 1`). VPP is given the
+    whole surface, so a buffer with a crop (`SPA_META_VideoCrop`: GNOME's window streams) never
+    reaches it (`select::dmabuf_use`): the stream moves to shared memory, where only the region
+    is copied out. Applying the crop in VPP (`surface_region`) would need a `media-vaapi` change.
+  - NVENC: the DMA-BUF becomes an `EGLImage` on the NVIDIA EGL device (surfaceless OpenGL 3.3
+    context, current on the capture thread), bound to a texture. The crop is copied exactly into a
+    staging texture with a one-pixel border of its own edges, and one linear blit scales that
+    into the texture NVENC encodes (`NV_ENC_DEVICE_TYPE_OPENGL`), so filtering never reads past
+    the crop (tested on Mesa's software EGL device with `ACE_E2_GL=1`). Shared memory is one
+    `glTexSubImage2D`. Written from the Khronos specs; compiled, never run here.
+  - Last resort: the visible region copied once, scaled on the CPU (`media_codec::CpuScaler`),
+    encoded by Chrome; AVCC output becomes Annex B with the parameter sets before each IDR.
+    `degraded`, with the sentence "Video runs on the processor here: this computer has no
+    hardware video encoder."
+- **Stream control.** `stream.configure`, `stream.keyframe` and `stream.image` follow E3's
+  contract. Video is encoded only while someone watches and the view asked for H.264, at its
+  fps (up to 60); stills then come only on `stream.image`. Epochs are applied on the capture clock with the
+  daemon's `epochPrivate` (unsaid is private), and each arrival is resolved against them once,
+  by `media_ingest::epochs` (the rule E1 wrote, now shared by both helpers): ties go private,
+  and redelivery keeps the picture's epoch. The ledger forgets an application only once no
+  picture in flight can need it (Linux as each arrival is resolved, Windows as each newest
+  picture replaces the last); a 4096-entry bound remains, and a picture older than what is kept
+  resolves to a private epoch, never 0. Forced keyframes (the route's, the daemon socket's, the
+  encoder's and the daemon's requests) coalesce while one is owed and come at most every 500 ms
+  on the capture clock, as ace-media's own rule. Frame identity is the visible region's position and
+  pixels; a cached still of another region is dropped. The `stream.configure` reply also carries
+  `acceleration` (K2's shape) once the stream has run, for A1 to pick up.
+- **Ingest** (`media/ingest.rs`). The writer, route, retirement and framing are E1's sans-IO
+  `media-ingest` crate; the helper only drives it: one tokio task owns the `Route`, and units
+  from the capture thread and switches from `stream.configure` reach it through one queue, so
+  a switch keeps its exact boundary. Units wait at most 8 MiB (`ADMIT_LIMIT`); past it video
+  is dropped to the next keyframe and one is asked for, again once the queue is down to half if
+  a keyframe is still owed, so a stalled route never grows the helper nor leaves a still
+  desktop frozen. The daemon socket's video queue has the same 8 MiB budget, keyframes included,
+  and the same recovery. Connection reports and close have a queue of their own, served first; close is
+  terminal (connects cancelled, connections destroyed, the task gone). Each connection has a
+  writer task and a reader (EOF means
+  ace-media closed it), and a 100 ms tick judges deadlines. A cut sends video back to the
+  daemon's socket at once and says so with `stream.ingest`. The helper never calls
+  `legacy_still`: its boundary is the last video unit, which is what the daemon's merge waits for.
+- **Daemon** (`packages/screen`). Linux screens are an ingest kind (`platformRouteCapabilities`).
+  A Linux session's `ScreenMediaSource` asks its helper for H.264 only toward ace-media; on the
+  daemon's path it asks for JPEG, so `media.encode: legacy` keeps today's path exactly (the
+  daemon's encoder Chrome turns the pictures into video). The helper is launched with
+  `--data-dir`, where ace's own Chrome for Testing lives.
+- **Tested here** (the shared M-series Mac; Linux aarch64, no GPU: a Debian 13 container for
+  builds and unit tests, and a Debian 13 Lima VM, which has the logind GNOME Shell needs):
+  - the helper's unit tests, and the ingest shell against real sockets: route flips with no
+    unit lost or repeated and an end frame on every replaced path, ace-media's connection
+    dropping → the daemon's socket at once, a socket that can't be opened;
+  - `tests/crop_paths.rs` (`ACE_E2_ENCODERS=1`): a buffer red outside a green region, through
+    the encoders the machine has (here the last resort), decoded by ffmpeg: no red, and the
+    region's size;
+  - `tests/computer/run-renegotiate.sh`: the helper built with AddressSanitizer in its C shell,
+    renegotiating its buffers (debug builds take `ACE_SCREEN_TEST_REALLOCATE_MS`) while it holds
+    one and is asked for keyframes and stills; before the fix it crashed in `deliver()`;
+  - `tests/computer/run-video.sh` in headless GNOME 48 through the real RemoteDesktop/ScreenCast
+    portal and PipeWire (shared memory), the last-resort encoder on Debian's Chromium: the hello
+    reports `chrome`, not hardware, not zero copy; video starts at a keyframe with SPS/PPS;
+    ffmpeg decodes every unit; keyframes and stills on request; JPEG again at once on the way
+    back (one of four runs failed its first checks while the VM was building; the other three
+    passed);
+  - `media-ingest.linux.process.test.ts` there, with the release ace-media: units through
+    ingest and egress to the legacy viewer with today's header and the source's epoch, four
+    route flips (each codec in order, none repeated, every planned end clean), `kill -9` →
+    the helper socket within 2 s, then the restarted ace-media.
+- **Owed on real hardware** (none can run without the GPU):
+  1. Intel (iHD) and AMD (radeonsi), GNOME (Ubuntu 25.04, Fedora 43, Debian 13) and Omarchy
+     (Hyprland): build the helper (`native/screen-helper-linux/build.sh`) and ace-media
+     (`cargo build --release -p ace-media` in `native/media`); run
+     `ACE_SCREEN_VAAPI=1 ACE_E2_EXPECT=vaapi tests/computer/run-video.sh` and expect `capture:
+DMA-BUF` on stderr and the hello's first encoder `vaapi`, `hardware` and `zeroCopy` true;
+     then, in the desktop session, `ACE_SCREEN_VAAPI=1 ACE_SCREEN_INTEGRATION=1
+ACE_MEDIA_TEST_BINARY=… ACE_LINUX_HELPER=… bun --bun x vitest run
+src/media-ingest.linux.process.test.ts` in `packages/screen`, and
+     `ACE_SCREEN_VAAPI=1 ACE_E2_ENCODERS=1 cargo test --test crop_paths` in the helper. Record the "Acceleration
+     acceptance" Linux columns (1080p60 and 4K30 CPU per stream, copies 0 / 0 on DMA-BUF, 0 / 1 on
+     shared memory) with distribution, kernel, Mesa and `intel-media-driver` versions.
+  2. NVIDIA (driver ≥ 590): after B5's `ACE_NV_HEADERS` layout check passes, the same with
+     `ACE_MEDIA_NV=1 ACE_E2_EXPECT=nv`; expect the GL path (`capture: DMA-BUF`, 0 / 0).
+  3. A two-GPU laptop (Intel + NVIDIA): the screen is captured on one GPU; check that a DMA-BUF
+     the other can't import falls back to shared memory (`capture: shared memory`) and keeps
+     streaming.
+  4. A window share on GNOME with VA-API: it must say `capture: shared memory` after its first
+     cropped buffer and show nothing outside the window; a whole-screen share stays on DMA-BUF.
+     With NVENC (`ACE_MEDIA_NV=1`), a window share stays on DMA-BUF and the GL blit crops it.

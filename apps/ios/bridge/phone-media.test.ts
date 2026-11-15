@@ -97,7 +97,7 @@ test("a new main session closes the old media connection and asks for a new one"
   main.move(2);
   await later();
   expect(asked).toContainEqual(expect.objectContaining({ id: first, action: "close" }));
-  const second = asked.filter((entry) => entry.action === "open").at(-1)?.id ?? "";
+  const second = asked.findLast((entry) => entry.action === "open")?.id ?? "";
   expect(second).not.toBe(first);
   socketEvent(second, "open", "");
   socketEvent(
@@ -200,7 +200,7 @@ test("media sockets the far end closed leave nothing open natively, however many
   });
   for (let round = 0; round < 5; round++) {
     await later();
-    const id = asked.filter((entry) => entry.action === "open").at(-1)?.id ?? "";
+    const id = asked.findLast((entry) => entry.action === "open")?.id ?? "";
     socketEvent(id, "open", "");
     socketEvent(
       id,
@@ -219,5 +219,36 @@ test("media sockets the far end closed leave nothing open natively, however many
   // Every socket but the one open now has been let go natively.
   expect(opened.slice(0, -1).filter((id) => !closed.has(id))).toEqual([]);
   expect(opened.length).toBeGreaterThanOrEqual(5);
+  media.stop();
+});
+
+test("Swift hears deliveries in the order they were set, a restored earlier generation included", async () => {
+  nativeSockets();
+  const told: {
+    generation: number;
+    revision: number;
+    path: string | null;
+    poster: string | null;
+  }[] = [];
+  native.calls.set("media.delivery", (input) => {
+    told.push(input as (typeof told)[number]);
+    return "";
+  });
+  const media = phoneMedia(session(async () => ({ refused: true })).owner, {
+    schedule: never,
+    now: () => 0,
+    codecs: () => [],
+  });
+  media.deliver("screen", { source: "app", generation: 7, path: "channel" });
+  media.deliver("screen", { source: "app", generation: 8, path: undefined });
+  // Subscribe 8 failed and the client fell back to the delivery it replaced.
+  media.deliver("screen", { source: "app", generation: 7, path: "channel" });
+  await later();
+  expect(told.map(({ generation, revision, path }) => [generation, revision, path])).toEqual([
+    [7, 1, "channel"],
+    [8, 2, null],
+    [7, 3, "channel"],
+  ]);
+  native.calls.delete("media.delivery");
   media.stop();
 });

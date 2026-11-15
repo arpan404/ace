@@ -79,14 +79,23 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
     drawn.push(picture);
     await draw?.(picture);
   });
-  const reply = (subscribe: Subscribe) => {
+  const reply = (subscribe: Subscribe, answer: "binds" | "fails" = "binds") => {
     const named = subscribe.operation.op === "subscribe" ? subscribe.operation.media : undefined;
-    events?.message({
-      type: "devices.result",
-      requestId: subscribe.requestId,
-      ok: true,
-      ...(named ? { media: { connection: named.connection } } : {}),
-    });
+    events?.message(
+      answer === "fails"
+        ? {
+            type: "devices.result",
+            requestId: subscribe.requestId,
+            ok: false,
+            error: { code: "busy", message: "Too many pending device requests", hint: "" },
+          }
+        : {
+            type: "devices.result",
+            requestId: subscribe.requestId,
+            ok: true,
+            ...(named ? { media: { connection: named.connection } } : {}),
+          },
+    );
   };
   return {
     client,
@@ -95,6 +104,8 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
     mediaAcks,
     drawn,
     reply,
+    /** Timers waiting on the injected clock (request deadlines, retries). */
+    pendingTimers: () => deadlines.size,
     /** Every pending request's deadline passes. */
     timeOut() {
       for (const run of Array.from(deadlines)) {
@@ -186,5 +197,55 @@ describe("device pictures across a media rebind", () => {
     view.deliver(frame(2));
     await flush();
     expect(view.drawn.map((picture) => picture.sequence)).toEqual([1, 2]);
+  });
+
+  it("a subscribe that fails for another reason stops holding pictures and tries again later", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    view.onChannel(frame(1));
+    await flush();
+    expect(view.drawn.map((picture) => picture.sequence)).toEqual([1]);
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
+
+  it("a closed channel leaves no retry waiting on the clock", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    view.client.disconnect();
+    expect(view.pendingTimers()).toBe(0);
+  });
+
+  it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    view.move("mc_bbbbbbbbbb");
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.pendingTimers()).toBe(1); // the new subscribe's own deadline
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
+
+  it("a released device's retry stops waiting on the clock", async () => {
+    const view = setup();
+    const release = view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    release();
+    expect(view.pendingTimers()).toBe(1); // the unsubscribe's own deadline
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
   });
 });

@@ -125,14 +125,20 @@ export interface HostOperations {
    * its latest subscribe, and the way its pictures come, `"channel"` or a media socket's id
    * (`socket(id, "open", {media})`), or null while that subscribe's reply is pending. Native code
    * draws and acknowledges only what came that way, with that generation, holds what comes while
-   * pending (bounded), starts its decoder over on a new generation, and ignores a generation
-   * older than the one it holds. It decides nothing else.
+   * pending (bounded), starts its decoder over on another generation, and ignores an update
+   * older (by `revision`) than the one it holds. It decides nothing else.
    */
   "media.delivery": {
     input: {
       view: "browser" | "screen" | "device";
       source: string;
       generation: number;
+      /**
+       * Counts up with every `media.delivery` this script sends, in the order it sent them: native
+       * code ignores one older than the update it holds. A generation may come back (a failed
+       * subscribe falls back to the delivery it replaced), so the order is this, not the generation.
+       */
+      revision: number;
       path: string | null;
       /**
        * The poster this subscribe's reply brought back, as native code named it in the reply
