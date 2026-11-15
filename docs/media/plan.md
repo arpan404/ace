@@ -1755,7 +1755,8 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - **Plans.** A source's views are planned together with `media_core::plan`, against
     `source.page` (or the first unit's size) and `source.codecs` (or what the views decode);
     the encodes go out as `source.want` when ids, sizes, codecs or fps change, or the bit rate
-    moves over 20 %. Ids start at 0 and are reused, so a one-encode producer needs no mapping.
+    moves over 20 %. Ids start at 0 and only go up (wrapping past ids still in use), so a dropped
+    encode's queued units never land on a new one.
     Plans follow the links once a second, with `viewer.stats`.
   - **Taking what the producer sends.** Until the daemon applies `source.want` to producers (see
     "Owed"), a producer runs its own encodes: a view takes its planned encode once the producer
@@ -1847,6 +1848,21 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     and ids a plan gave back rest for one plan.
   - The flight cap's round trip is the media path's own (`view.rate.rtt()`); the 70 % share and
     its cut to 35 % come from `session.link` only.
+- **Review fixes (round 3, at `e4f63b4045`).** No wire change: C1 and C2 send nothing new.
+  - **Acks across view generations.** A view that replaces another on the same connection and
+    target continues its sequences, so a late ack of the old view names sequences the new one
+    never sent and releases nothing.
+  - **Encode ids have a drain boundary.** ace-media's plan ids and the daemon's (from 2^20) only
+    go up, wrapping past ids still running; an id is never given to another encode while the
+    capture lives, so units of a dropped encode still queued can't pass as a new one's.
+  - **The device budget goes with its last viewer.** An empty plan, a detach and route loss
+    remove owner `ace-media` from the device's stream budget.
+  - **Screens share one arbiter.** `StreamOwners` (`@ace/screen`, also behind
+    `DeviceStreamControl`) runs the stream every owner can take; the screen's legacy viewers
+    and ace-media are two owners of it, so neither overwrites the other's configuration.
+  - **Browser subscribes are transactional.** A subscribe that fails partway restores the
+    thread's subscription (subscribers, views, capture settings) and closes the view it was
+    granted; a replaced view closes only once the subscribe succeeded.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:
