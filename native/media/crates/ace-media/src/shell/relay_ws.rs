@@ -14,7 +14,7 @@ pub const OP_CLOSE: u8 = 8;
 pub const OP_PING: u8 = 9;
 pub const OP_PONG: u8 = 10;
 
-/// A `ws://host[:port]/path?query` address, split for dialing.
+/// A `ws://` or `wss://host[:port]/path?query` address, split for dialing.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Address {
     /// `host:port`, for the TCP connect.
@@ -22,10 +22,16 @@ pub struct Address {
     /// The `Host` header.
     pub host: String,
     pub target: String,
+    /// `wss://`: the name the relay's certificate must carry (and the SNI), without its port or
+    /// an IPv6 address's brackets.
+    pub tls: Option<String>,
 }
 
 pub fn address(url: &str) -> Option<Address> {
-    let rest = url.strip_prefix("ws://")?;
+    let (rest, tls, port) = match url.strip_prefix("wss://") {
+        Some(rest) => (rest, true, 443),
+        None => (url.strip_prefix("ws://")?, false, 80),
+    };
     let (authority, target) = match rest.find(['/', '?']) {
         Some(i) if rest.as_bytes()[i] == b'/' => (&rest[..i], rest[i..].to_owned()),
         Some(i) => (&rest[..i], format!("/{}", &rest[i..])),
@@ -43,9 +49,14 @@ pub fn address(url: &str) -> Option<Address> {
     {
         authority.to_owned()
     } else {
-        format!("{authority}:80")
+        format!("{authority}:{port}")
     };
+    let name = with_port
+        .rsplit_once(':')
+        .map(|(name, _)| name.trim_start_matches('[').trim_end_matches(']'))
+        .filter(|name| !name.is_empty())?;
     Some(Address {
+        tls: tls.then(|| name.to_owned()),
         authority: with_port,
         host: authority.to_owned(),
         target,
@@ -131,6 +142,20 @@ pub fn mask(payload: &mut [u8], key: [u8; 4]) {
     }
     for (i, byte) in chunks.into_remainder().iter_mut().enumerate() {
         *byte ^= key[i];
+    }
+}
+
+/// What the next whole server frame in `buffer` is, taken out of it: `Ok(None)` until one has
+/// fully arrived; `Err` for a frame a relay never sends.
+pub fn take_frame(buffer: &mut Vec<u8>) -> Result<Option<(u8, Vec<u8>)>, &'static str> {
+    match parse(buffer) {
+        Parse::Invalid => Err("protocol"),
+        Parse::Frame(frame) if buffer.len() >= frame.header + frame.length => {
+            let payload = buffer[frame.header..frame.header + frame.length].to_vec();
+            buffer.drain(..frame.header + frame.length);
+            Ok(Some((frame.opcode, payload)))
+        }
+        Parse::Frame(_) | Parse::Short => Ok(None),
     }
 }
 
@@ -225,13 +250,25 @@ mod tests {
                 authority: "127.0.0.1:8787".into(),
                 host: "127.0.0.1:8787".into(),
                 target: "/join?ticket=ab&hostId=X".into(),
+                tls: None,
             })
         );
         assert_eq!(
             address("ws://relay").map(|a| a.authority),
             Some("relay:80".into())
         );
-        assert_eq!(address("wss://relay/join"), None);
+        // A TLS relay is verified (and named in the SNI) by its host alone.
+        let tls = address("wss://relay.example/join?ticket=t");
+        assert_eq!(
+            tls.as_ref().map(|a| a.authority.as_str()),
+            Some("relay.example:443")
+        );
+        assert_eq!(tls.and_then(|a| a.tls), Some("relay.example".into()));
+        assert_eq!(
+            address("wss://[::1]:9443/join").and_then(|a| a.tls),
+            Some("::1".into())
+        );
+        assert_eq!(address("http://relay/join"), None);
         assert_eq!(address("ws://user@relay/join"), None);
         assert_eq!(address("ws://relay/jo in"), None);
     }

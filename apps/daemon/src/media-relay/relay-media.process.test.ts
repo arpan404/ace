@@ -1,230 +1,22 @@
-import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { loadavg, tmpdir } from "node:os";
+import { loadavg } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MediaRuntime } from "@ace/media/runtime";
-import { legacyMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
-import type { FromMedia, ToMedia } from "@ace/media/wire";
-import { DeviceId, type ClientMessage } from "@ace/protocol";
-import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
-import { fingerprint, keyPair } from "@ace/secure-channel";
-import { startFilesRelay } from "../files-relay.ts";
-import { RemoteAuth } from "../remote-auth.ts";
-import { Store } from "../store.ts";
-import { MediaRelayStreams } from "./streams.ts";
-import { tabProducer } from "./testing-producer.ts";
-import { StreamAssembler, decodeStreamMessage } from "@ace/browser/stream";
+import type { ClientChannel } from "@ace/relay";
+import { b64, binary, firstChunk, hex, setup, until } from "./testing-relay.ts";
 
 // A relay media stream end to end (D2): the real self-hosted relay, the real ace-media binary
 // under its supervisor, the daemon's relay host with real pairing credentials, and a client
 // through the relay. The handshake and hello run through ace-media; after the keys ace-media
 // alone answers the client. Needs ACE_MEDIA_TEST_BINARY (`bun run check:media` sets it).
-const binary = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
-
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-async function until(condition: () => boolean, ms = 10_000): Promise<void> {
-  const end = performance.now() + ms;
-  while (!condition()) {
-    if (performance.now() > end) throw new Error("timed out");
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
-
-const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
-const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
-
-function hello(
-  credential: { deviceId: string; token: string },
-  extra: Partial<Extract<ClientMessage, { type: "hello" }>>,
-): Extract<ClientMessage, { type: "hello" }> {
-  return {
-    type: "hello",
-    protocolVersion: 1,
-    deviceId: DeviceId.parse(credential.deviceId),
-    token: credential.token,
-    flowControl: ["credit"],
-    ...extra,
-  };
-}
-
-/** The first browser video chunk a relay client gets: whether it was a keyframe. */
-async function firstChunk(client: ClientChannel): Promise<boolean> {
-  const assembler = new StreamAssembler();
-  for (;;) {
-    const frame = await client.receiveFrame();
-    if (!(frame instanceof Uint8Array)) continue;
-    const envelope = assembler.push(frame);
-    const message = envelope && decodeStreamMessage(envelope);
-    if (message?.kind === "browser.video") return message.chunk.key;
-  }
-}
-
-async function setup() {
-  if (!binary) throw new Error("ACE_MEDIA_TEST_BINARY is required");
-  const root = await mkdtemp(join(tmpdir(), "ace-d2-"));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
-  const store = new Store(join(root, "store.sqlite"));
-  cleanups.push(() => store.close());
-  const auth = new RemoteAuth(store.devices, "host-local-token", {
-    now: () => 1,
-    secret: randomUUID,
-  });
-  const pair = () => {
-    const { device, token } = auth.redeem(auth.pairing(["admin"]).code, "phone");
-    return { deviceId: device.id, token };
-  };
-  const phone = pair();
-  const tablet = pair();
-
-  const logs: string[] = [];
-  const sent: { message: ToMedia; payload: Uint8Array; copy: Uint8Array }[] = [];
-  const received: FromMedia[] = [];
-  let streams: MediaRelayStreams | undefined;
-  const keys = keyPair();
-  const runtimeDir = await mkdtemp(join(tmpdir(), "ace-d2m-"));
-  cleanups.push(() => rm(runtimeDir, { recursive: true, force: true }));
-  const runtime = new MediaRuntime({
-    version: execFileSync(binary, ["--version"]).toString().trim(),
-    binary,
-    runtimeDir,
-    dataDir: runtimeDir,
-    settings: () => ({ ...legacyMediaSettings, encode: "auto", delivery: "auto" }),
-    capabilities: { ingest: ["tab"], recordings: false, stills: false, delivery: true },
-    host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
-    clock: systemMediaClock,
-    random: Math.random,
-    listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
-    id: randomUUID,
-    onMessage: (message, payload) => {
-      received.push(message);
-      streams?.onMessage(message, payload);
-    },
-    onExit: () => streams?.onExit(),
-    log: (level, message, fields) => logs.push(`${level} ${message} ${JSON.stringify(fields)}`),
-  });
-  const supervisor = runtime.supervisor;
-  cleanups.push(() => supervisor.dispose());
-  streams = new MediaRelayStreams({
-    link: {
-      send(message, payload = new Uint8Array(0)) {
-        // The test keeps a copy of the key block to scan for; the daemon itself never does.
-        sent.push({ message, payload, copy: payload.slice() });
-        return supervisor.send(message, payload);
-      },
-      closeStream: (message) => void supervisor.revoke(message),
-      need: () => supervisor.need(),
-      available: () => supervisor.health() !== "unavailable",
-    },
-    clock: systemMediaClock,
-    hostKeys: keys,
-    ephemeralKey: keyPair,
-    newId: randomUUID,
-    log: (line) => logs.push(line),
-  });
-  const relay = await startRelay({ limits: { messagesPerSecond: 100_000, messageBurst: 100_000 } });
-  cleanups.push(() => relay.close());
-  const host = await startFilesRelay({
-    url: relay.url,
-    keys,
-    auth,
-    devices: store.devices,
-    store,
-    hostId: "daemon-relay-host",
-    headSeq: () => 0,
-    media: {
-      streams,
-      claim: (ticket, claimant) => runtime.connections.claimRelay(ticket, claimant),
-    },
-  });
-  cleanups.push(() => host.close());
-
-  /** `media.connect` on the phone's (or another device's) main session: its ticket. */
-  async function mint(device: string, session = "s1"): Promise<string> {
-    const hold = supervisor.need();
-    cleanups.push(hold);
-    await until(() => (supervisor.listening()?.loopbackPort ?? 0) > 0);
-    const granted = await runtime.connections.connect({
-      session,
-      device,
-      admission: { kind: "pairing", generation: 1 },
-    });
-    if (!granted.ok) throw new Error(granted.code);
-    return granted.ticket;
-  }
-
-  async function open(purpose?: "media"): Promise<ClientChannel> {
-    const client = await connectClientViaRelay({
-      relayUrl: relay.url,
-      hostId: host.hostId,
-      pinnedFingerprint: fingerprint(keys.publicKey),
-      ...(purpose ? { purpose } : {}),
-    });
-    cleanups.push(() => client.close());
-    return client;
-  }
-  /** A media stream through ace-media with the client's hello, then what came back first. */
-  async function media(
-    credential: { deviceId: string; token: string },
-    ticket: string | undefined,
-    channel: "media" | "files" = "media",
-  ) {
-    const client = await open("media");
-    client.flowControl?.();
-    await client.send(
-      hello(credential, { channel, ...(ticket !== undefined ? { mediaTicket: ticket } : {}) }),
-    );
-    return { client, first: await client.receive() };
-  }
-  /** A tab producing into ace-media, and a view of it bound to a relay connection. */
-  function tab() {
-    const producer = tabProducer("t1");
-    cleanups.push(() => producer.stop());
-    const source = runtime.sources.add(producer);
-    return {
-      source,
-      bind(connection: string) {
-        return runtime.viewers.bind({
-          viewer: `tab-${connection}`,
-          session: "s1",
-          connection,
-          target: { kind: "browser", threadId: "t1" },
-          codecs: ["avc1.42E033"],
-          viewport: { width: 800, height: 600, dpr: 1, scale: 1 },
-          local: false,
-          audio: false,
-          shows: (p) => p.threadId === "t1",
-        });
-      },
-    };
-  }
-  return {
-    tab,
-    firstChunk,
-    runtime,
-    supervisor,
-    streams,
-    sent,
-    received,
-    logs,
-    mint,
-    phone,
-    tablet,
-    open,
-    hello,
-    media,
-  };
-}
-
 describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_000 }, () => {
   it("hands a stream to ace-media with no frame lost or replayed, and keeps its keys out of every log", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const ticket = await t.mint(t.phone.deviceId);
     const client = await t.open("media");
     client.flowControl?.();
@@ -267,7 +59,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
   });
 
   it("refuses media hellos that name another channel, lack a ticket, reuse one or come from another device", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const ticket = await t.mint(t.phone.deviceId);
     const files = await t.media(t.phone, ticket, "files");
     expect(files.first).toMatchObject({ type: "error", code: "unauthorized" });
@@ -290,7 +82,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
   });
 
   it("refuses a media hello on a stream the relay didn't open for media", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const client = await t.open();
     await client.send(
       t.hello(t.phone, { channel: "media", mediaTicket: await t.mint(t.phone.deviceId) }),
@@ -301,7 +93,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
   });
 
   it("a revocation shuts the client's relay stream and is answered within 50 ms", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const { client, first } = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(first).toMatchObject({ type: "welcome" });
     const started = performance.now();
@@ -318,7 +110,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
   });
 
   it("after ace-media is killed the client's stream ends, and a new stream is handed over by the restarted process", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const before = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(before.first).toMatchObject({ type: "welcome" });
     const pid = t.supervisor.snapshot().pid;
@@ -333,7 +125,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
   });
 
   it("pictures reach a relay client starting at a keyframe, and again after ace-media is killed and the client reconnects", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const tab = t.tab();
     const connect = async () => {
       const opens = () => t.received.filter((m) => m.type === "connection.open");
@@ -350,7 +142,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
       return client;
     };
     const before = await connect();
-    expect(await t.firstChunk(before)).toBe(true);
+    expect(await firstChunk(before)).toBe(true);
     const pid = t.supervisor.snapshot().pid;
     if (!pid) throw new Error("no pid");
     process.kill(pid, "SIGKILL");
@@ -363,11 +155,11 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-    expect(await t.firstChunk(after)).toBe(true);
+    expect(await firstChunk(after)).toBe(true);
   });
 
   it("revocations are answered within 50 ms p99 while the normal lane is saturated and a relay stream carries pictures", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const tab = t.tab();
     const ticket = await t.mint(t.phone.deviceId);
     const { client, first } = await t.media(t.phone, ticket);
@@ -378,7 +170,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     const opened = t.received.findLast((m) => m.type === "connection.open");
     if (opened?.type !== "connection.open") throw new Error("no connection");
     expect(tab.bind(opened.connection)).toBe(true);
-    expect(await t.firstChunk(client)).toBe(true);
+    expect(await firstChunk(client)).toBe(true);
     const picture = { type: "source.picture", source: "none", ageMs: 0, epoch: 0 } as const;
     const latencies: number[] = [];
     for (let i = 0; i < 40; i++) {
@@ -416,7 +208,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
   });
 
   it("a stopped ace-media is killed 250 ms into a revocation, and the client's stream closes soon after", async () => {
-    const t = await setup();
+    const t = await setup(cleanups);
     const { client, first } = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(first).toMatchObject({ type: "welcome" });
     const pid = t.supervisor.snapshot().pid;

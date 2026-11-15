@@ -227,3 +227,20 @@ it("a refused stream stays open just long enough for its refusal to be written f
   h.advance(REFUSAL_LINGER_MS);
   expect(h.closed).toEqual([stream]);
 });
+
+it("a stream ace-media couldn't dial turns the relay's ticket down at once; a joined one never does", async () => {
+  const failing = harness();
+  let rejected = 0;
+  failing.streams.offer("wss://relay/join?ticket=t", admitAll, () => rejected++);
+  const stream = streamOf(failing);
+  failing.streams.onMessage({ type: "relay.failed", stream, reason: "tls" }, new Uint8Array(0));
+  await failing.settle();
+  expect(rejected).toBe(1);
+
+  const joined = harness();
+  joined.streams.offer("ws://relay/join?ticket=t", admitAll, () => rejected++);
+  joined.streams.onMessage({ type: "relay.dialed", stream: streamOf(joined) }, new Uint8Array(0));
+  joined.advance(HANDOVER_DEADLINE_MS);
+  await joined.settle();
+  expect(rejected).toBe(1);
+});

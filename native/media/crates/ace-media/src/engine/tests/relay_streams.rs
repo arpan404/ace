@@ -161,7 +161,7 @@ fn a_stream_the_daemon_stops_pulling_is_failed_past_its_bound_and_shut() {
 }
 
 #[test]
-fn dials_are_refused_for_tls_relays_and_for_streams_closed_before() {
+fn tls_relays_are_dialed_and_other_addresses_or_closed_streams_refused() {
     let mut engine = engine();
     let tls = send(
         &mut engine,
@@ -171,6 +171,16 @@ fn dials_are_refused_for_tls_relays_and_for_streams_closed_before() {
     );
     assert!(matches!(
         tls.as_slice(),
+        [Effect::Relay(RelayEffect::Dial { .. })]
+    ));
+    let http = send(
+        &mut engine,
+        json!({ "type": "relay.dial", "stream": "h", "url": "https://relay/join" }),
+        &[],
+        NOW,
+    );
+    assert!(matches!(
+        http.as_slice(),
         [Effect::Normal(FromMedia::RelayFailed { .. })]
     ));
     send(

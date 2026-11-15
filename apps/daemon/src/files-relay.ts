@@ -88,7 +88,8 @@ export async function startFilesRelay(
       ...(media && admitMedia
         ? {
             media: {
-              offer: (_ticket: string, url: string) => media.streams.offer(url, admitMedia),
+              offer: (_ticket: string, url: string, reject: () => void) =>
+                media.streams.offer(url, admitMedia, reject),
             },
           }
         : {}),

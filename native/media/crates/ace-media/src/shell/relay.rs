@@ -3,6 +3,7 @@
 //! to the main loop, and a writer that masks pooled sealed frames in place and returns their
 //! buffers. Closing a stream aborts both at once, which shuts the socket, so a revocation's
 //! answer follows the shutdown of every socket it covers.
+use super::relay_tls::{Tls, pump_tls};
 use super::relay_ws::{self, Masks, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG, Parse};
 use crate::engine::relay::Pool;
 use media_wire::control::Id;
@@ -27,7 +28,7 @@ pub enum RelayEvent {
     Ended { stream: Id, reason: &'static str },
 }
 
-enum Out {
+pub(super) enum Out {
     Frame(Vec<u8>),
     Pong(Vec<u8>),
 }
@@ -35,7 +36,7 @@ enum Out {
 /// One dialed stream's socket tasks; dropping it shuts the socket.
 pub struct Socket {
     tx: mpsc::Sender<Out>,
-    tasks: [AbortHandle; 2],
+    tasks: Vec<AbortHandle>,
 }
 
 impl Drop for Socket {
@@ -72,11 +73,18 @@ impl RelaySockets {
         let task = tokio::spawn(async move {
             let opened = tokio::time::timeout(DIAL_DEADLINE, open(&url)).await;
             let event = match opened {
-                Ok(Ok((read, write, leftover))) => RelayEvent::Dialed {
+                Ok(Ok(Opened::Plain(read, write, leftover))) => RelayEvent::Dialed {
                     stream: id.clone(),
                     socket: spawn(id, read, write, leftover, events.clone(), pool),
                 },
-                _ => RelayEvent::Ended {
+                Ok(Ok(Opened::Tls(tls, leftover))) => RelayEvent::Dialed {
+                    stream: id.clone(),
+                    socket: spawn_tls(id, tls, leftover, events.clone(), pool),
+                },
+                // A certificate the trust store doesn't vouch for is never retried or waived:
+                // the stream fails and the client stays on legacy delivery.
+                Ok(Err(reason)) => RelayEvent::Ended { stream: id, reason },
+                Err(_) => RelayEvent::Ended {
                     stream: id,
                     reason: "dial",
                 },
@@ -117,35 +125,95 @@ impl RelaySockets {
     }
 }
 
-/// TCP connect and the upgrade. Returns the halves and any frame bytes read past the response.
-async fn open(url: &str) -> std::io::Result<(OwnedReadHalf, OwnedWriteHalf, Vec<u8>)> {
-    let address = relay_ws::address(url).ok_or_else(|| std::io::Error::other("address"))?;
-    let stream = TcpStream::connect(&address.authority).await?;
-    stream.set_nodelay(true)?;
-    let (mut read, mut write) = stream.into_split();
+/// A dialed socket, upgraded: plain TCP halves, or a TLS connection; either with the frame bytes
+/// read past the upgrade response.
+enum Opened {
+    Plain(OwnedReadHalf, OwnedWriteHalf, Vec<u8>),
+    Tls(Box<Tls>, Vec<u8>),
+}
+
+/// TCP connect, TLS for `wss://`, and the upgrade. The error is the `relay.failed` reason.
+async fn open(url: &str) -> Result<Opened, &'static str> {
+    let address = relay_ws::address(url).ok_or("address")?;
+    let stream = TcpStream::connect(&address.authority)
+        .await
+        .map_err(|_| "dial")?;
+    stream.set_nodelay(true).map_err(|_| "dial")?;
     let key = relay_ws::key();
-    write
-        .write_all(relay_ws::request(&address, &key).as_bytes())
-        .await?;
+    let request = relay_ws::request(&address, &key);
     let mut head = Vec::with_capacity(1024);
-    let mut chunk = [0u8; 1024];
-    let end = loop {
-        let n = read.read(&mut chunk).await?;
-        if n == 0 {
-            return Err(std::io::Error::other("closed during upgrade"));
+    match &address.tls {
+        Some(name) => {
+            let mut tls = Tls::connect(stream, name).await.map_err(|_| "tls")?;
+            tls.send(&[request.as_bytes()], &mut head)
+                .await
+                .map_err(|_| "dial")?;
+            let end = loop {
+                if let Some(end) = upgraded(&head)? {
+                    break end;
+                }
+                let more = tls.wait_readable().await.is_ok()
+                    && matches!(tls.read_ready(), Ok(true))
+                    && tls.receive(&mut head).await.is_ok();
+                if !more {
+                    return Err("dial");
+                }
+            };
+            accept(&head, end, &key)?;
+            Ok(Opened::Tls(Box::new(tls), head.split_off(end)))
         }
-        head.extend_from_slice(&chunk[..n]);
-        if let Some(end) = relay_ws::response_end(&head) {
-            break end;
+        None => {
+            let (mut read, mut write) = stream.into_split();
+            write
+                .write_all(request.as_bytes())
+                .await
+                .map_err(|_| "dial")?;
+            let mut chunk = [0u8; 1024];
+            let end = loop {
+                if let Some(end) = upgraded(&head)? {
+                    break end;
+                }
+                match read.read(&mut chunk).await {
+                    Ok(n) if n > 0 => head.extend_from_slice(&chunk[..n]),
+                    _ => return Err("dial"),
+                }
+            };
+            accept(&head, end, &key)?;
+            Ok(Opened::Plain(read, write, head.split_off(end)))
         }
-        if head.len() > relay_ws::MAX_RESPONSE {
-            return Err(std::io::Error::other("upgrade response too long"));
-        }
-    };
-    if !relay_ws::accepted(&head[..end], &key) {
-        return Err(std::io::Error::other("upgrade refused"));
     }
-    Ok((read, write, head.split_off(end)))
+}
+
+/// Where the upgrade response ends, once it has; too long a response fails the dial.
+fn upgraded(head: &[u8]) -> Result<Option<usize>, &'static str> {
+    match relay_ws::response_end(head) {
+        Some(end) => Ok(Some(end)),
+        None if head.len() > relay_ws::MAX_RESPONSE => Err("dial"),
+        None => Ok(None),
+    }
+}
+
+fn accept(head: &[u8], end: usize, key: &str) -> Result<(), &'static str> {
+    if relay_ws::accepted(&head[..end], key) {
+        Ok(())
+    } else {
+        Err("dial")
+    }
+}
+
+fn spawn_tls(
+    stream: Id,
+    tls: Box<Tls>,
+    leftover: Vec<u8>,
+    events: mpsc::Sender<RelayEvent>,
+    pool: Pool,
+) -> Socket {
+    let (tx, rx) = mpsc::channel(WRITE_QUEUE);
+    let task = tokio::spawn(pump_tls(stream, tls, leftover, rx, events, pool));
+    Socket {
+        tx,
+        tasks: vec![task.abort_handle()],
+    }
 }
 
 fn spawn(
@@ -167,7 +235,7 @@ fn spawn(
     let reader = tokio::spawn(read_frames(stream, read, leftover, tx.clone(), events));
     Socket {
         tx,
-        tasks: [reader.abort_handle(), writer.abort_handle()],
+        tasks: vec![reader.abort_handle(), writer.abort_handle()],
     }
 }
 

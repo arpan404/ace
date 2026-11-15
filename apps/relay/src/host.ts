@@ -74,9 +74,11 @@ export async function connectHostToRelay(options: {
   /**
    * Takes media streams (ADR 0147 §5.2): the host registers with the `media` feature, and each
    * `purpose=media` ticket goes to `offer` with the `/join` address to dial, instead of being
-   * joined here. `offer` returns false to turn it down (the client hears "Host busy").
+   * joined here. `offer` returns false to turn it down (the client hears "Host busy"), and may
+   * call `reject` later, while the ticket is unjoined, to turn it down then (a failed dial), so
+   * the client falls back at once instead of waiting out the ticket.
    */
-  media?: { offer(ticket: string, joinUrl: string): boolean };
+  media?: { offer(ticket: string, joinUrl: string, reject: () => void): boolean };
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -305,15 +307,18 @@ export async function connectHostToRelay(options: {
                 ticket: message.ticket,
                 hostId: id,
               });
-              if (!options.media?.offer(message.ticket, joinUrl))
-                await sendFrame(
-                  socket,
+              const ticket = message.ticket;
+              const control = socket;
+              const reject = () => {
+                if (controller.signal.aborted || control.readyState !== control.OPEN) return;
+                void sendFrame(
+                  control,
                   transport.send.encrypt(
-                    new TextEncoder().encode(
-                      JSON.stringify({ type: "reject", ticket: message.ticket }),
-                    ),
+                    new TextEncoder().encode(JSON.stringify({ type: "reject", ticket })),
                   ),
-                );
+                ).catch(() => {});
+              };
+              if (!options.media?.offer(ticket, joinUrl, reject)) reject();
               continue;
             }
             const reservation = slots.reserve(message.ticket);

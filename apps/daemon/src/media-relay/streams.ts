@@ -85,16 +85,18 @@ export class MediaRelayStreams {
 
   /**
    * A relay offered a media ticket. False turns it down (too many pending, or ace-media can't
-   * dial now); otherwise the stream runs to its keys or is closed.
+   * dial now); otherwise the stream runs to its keys or is closed. A stream that fails before
+   * ace-media joined it (a refused certificate, an unreachable relay) calls `reject`, so the
+   * relay turns the client away at once and it stays on legacy delivery.
    */
-  offer(joinUrl: string, admit: AdmitMediaHello): boolean {
+  offer(joinUrl: string, admit: AdmitMediaHello, reject: () => void = () => {}): boolean {
     if (this.#pending.size >= MAX_PENDING_STREAMS || !this.#link.available()) return false;
     const stream = `rs_${this.#ids()}`;
     // ace-media starts on its first need; the dial goes out once its lanes are up.
     const release = this.#link.need();
     const pending: Pending = { dialed: Promise.withResolvers<void>(), handed: false };
     this.#pending.set(stream, pending);
-    void this.#run(stream, pending, admit, joinUrl).then(
+    void this.#run(stream, pending, admit, joinUrl, reject).then(
       (connection) => {
         if (connection === undefined) return release();
         this.#held.get(connection)?.();
@@ -159,7 +161,9 @@ export class MediaRelayStreams {
     pending: Pending,
     admit: AdmitMediaHello,
     url: string,
+    reject: () => void,
   ): Promise<string | undefined> {
+    let joined = false;
     const deadline = Promise.withResolvers<never>();
     const cancel = this.#clock.setTimeout(
       () => deadline.reject(new Error("handover deadline")),
@@ -170,6 +174,7 @@ export class MediaRelayStreams {
     try {
       await this.#dial(stream, url, within);
       await within(pending.dialed.promise);
+      joined = true;
       const pipe: StreamPipe = {
         send: async (frame) => {
           if (!this.#link.send({ type: "relay.out", stream }, frame))
@@ -207,6 +212,7 @@ export class MediaRelayStreams {
       this.#log(
         `relay stream ${stream} closed: ${error instanceof Error ? error.message : "failed"}`,
       );
+      if (!joined) reject();
       const close = () =>
         this.#link.closeStream({
           type: "relay.close",

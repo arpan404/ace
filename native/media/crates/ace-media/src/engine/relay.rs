@@ -112,7 +112,7 @@ impl Relays {
         self.pending.get(stream).is_some_and(|p| p.dialed)
     }
 
-    /// `relay.dial`: plain `ws://` only. Returns the refusal reason, if any.
+    /// `relay.dial`: a `ws://` or `wss://` address. Returns the refusal reason, if any.
     pub fn dial(
         &mut self,
         stream: &str,
@@ -122,9 +122,8 @@ impl Relays {
         if self.pending.contains_key(stream) {
             return Err("duplicate");
         }
-        if !url.starts_with("ws://") {
-            // TLS to the relay lands with a TLS client; the daemon falls back until then.
-            return Err("relay-unavailable");
+        if !url.starts_with("ws://") && !url.starts_with("wss://") {
+            return Err("address");
         }
         self.pending.insert(stream.to_owned(), Pending::default());
         out.push(Effect::Relay(RelayEffect::Dial {

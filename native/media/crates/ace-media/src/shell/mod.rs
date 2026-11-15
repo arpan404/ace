@@ -11,6 +11,7 @@ mod lanes;
 mod pictures;
 mod readers;
 mod relay;
+mod relay_tls;
 mod relay_ws;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
