@@ -227,6 +227,33 @@ describe("screen pictures by the media connection", () => {
     ).toEqual([{ connection: "mc_aaaaaaaaaa" }, undefined]);
   });
 
+  it("a viewer that can't decode HEVC moves only its own session to H.264", async () => {
+    const { client, sent } = harness();
+    client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);
+    client.retainStream("app");
+    client.retainStream("other");
+    await flush();
+    sent.length = 0;
+    expect(client.fallBack("app", "hvc1.1.6.L153.B0")).toBe(true);
+    await flush();
+    expect(subscribes(sent)).toEqual([
+      {
+        op: "subscribe",
+        sessionId: "app",
+        media: { connection: "mc_aaaaaaaaaa" },
+        codecs: ["avc1.42E033"],
+      },
+    ]);
+    // A reconnect keeps the other session on HEVC and this one on H.264.
+    sent.length = 0;
+    client.retainStream("third");
+    await flush();
+    expect(subscribes(sent)[0]).toMatchObject({ codecs: ["hvc1.1.6.L153.B0", "avc1.42E033"] });
+    // H.264 itself failing has nothing left to fall back to.
+    expect(client.fallBack("app", "avc1.42E033")).toBe(false);
+    expect(client.fallBack("app", "hev1.1.6.L153.B0")).toBe(false);
+  });
+
   it("keeps the poster a media subscribe brings back", async () => {
     const { client, sent, server } = harness("answers later");
     client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);

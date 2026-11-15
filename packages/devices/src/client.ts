@@ -136,6 +136,16 @@ export class DeviceClient {
       for (const stop of stops) stop();
     };
   }
+  /**
+   * The view of `deviceId` couldn't decode `codec` (HEVC, say): that one stream subscribes again
+   * without it, while every other source keeps the codecs it plays. False when nothing is left
+   * to fall back to (H.264 itself failed).
+   */
+  fallBack(deviceId: string, codec: string): boolean {
+    if (!this.media.fallBack(deviceId, codec)) return false;
+    if (this.liveStreams.held().includes(deviceId)) this.subscribe(deviceId);
+    return true;
+  }
   /** The still the device's subscribe brought back, to show until its first live picture. */
   poster(deviceId: string): MediaPoster | undefined {
     return this.media.poster(deviceId);

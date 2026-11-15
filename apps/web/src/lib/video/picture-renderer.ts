@@ -30,7 +30,7 @@ export interface PictureRendererPorts<P extends LivePicture> {
   /** Tell the daemon the view showed `picture`; `keyframe`: the decoder lost its place. */
   ack(picture: P, keyframe: boolean): void;
   /** This client can't decode the stream's video: the view says so. Live views are video only. */
-  fallback(): void;
+  fallback(picture?: P): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
   pressure(): void;
   /**
@@ -118,6 +118,8 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   let unsupported = false;
   /** The platform said it can't decode this stream at all: no point asking for a keyframe. */
   let refused = false;
+  /** The codec this view gave up on: a stream in another codec (a fallback) starts afresh. */
+  let failedCodec: string | undefined;
   let closed = false;
   /** The newest decoded picture waiting for the display's next refresh. */
   let queued: { picture: DecodedPicture; shown: P } | undefined;
@@ -208,13 +210,14 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     ack(picture, false);
     if (unsupported) return false;
     unsupported = true;
+    failedCodec = picture.codec;
     disarm();
     video?.close();
     video = undefined;
     return true;
   };
   const giveUp = (picture: P) => {
-    if (stop(picture)) ports.fallback();
+    if (stop(picture)) ports.fallback(picture);
   };
   const stall = (picture: P) => {
     if (stop(picture)) (ports.stalled ?? ports.fallback)();
@@ -239,6 +242,14 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
         reset();
         failures = 0;
         unsupported = false;
+      }
+      if (unsupported && picture.codec !== "jpeg" && picture.codec !== failedCodec) {
+        // The source fell back to a codec this view may play: its stream starts over.
+        reset();
+        failures = 0;
+        unsupported = false;
+        refused = false;
+        failedCodec = undefined;
       }
       if (picture.sequence <= previous) return;
       const gap = previous >= 0 && picture.sequence !== previous + 1;

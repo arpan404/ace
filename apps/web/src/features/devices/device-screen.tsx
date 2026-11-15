@@ -226,7 +226,11 @@ export function DeviceScreen(props: {
         if (keyframe) latestStream.current?.keyframeAsked(Date.now());
         session.client.ack(picture, keyframe);
       },
-      fallback: cannotDecode,
+      fallback: (picture) => {
+        // HEVC this browser won't decode: only this device asks again, for H.264.
+        if (picture && !disposed && session.client.fallBack(deviceId, picture.codec)) return;
+        cannotDecode();
+      },
       pressure: () => {
         const now = performance.now();
         stableSince = now;

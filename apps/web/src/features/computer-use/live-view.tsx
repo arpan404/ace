@@ -114,8 +114,10 @@ export function LiveView(props: {
         element.dataset["frame"] = String(picture.sequence);
       },
       ack: (picture, keyframe) => session.ack(picture, keyframe),
-      fallback: () => {
-        if (!disposed) setNoVideo("This browser can't decode video");
+      fallback: (picture) => {
+        // HEVC this browser won't decode: only this session asks again, for H.264.
+        if (disposed || (picture && session.fallBack(sessionId, picture.codec))) return;
+        setNoVideo("This browser can't decode video");
       },
       // The view fell behind: a lighter stream, at most every 1.5 s; it recovers when steady.
       pressure: () => {

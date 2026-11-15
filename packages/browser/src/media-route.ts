@@ -28,6 +28,14 @@ export interface MediaRoute {
 export const isMediaRefusal = (error: unknown): boolean =>
   error instanceof Error && error.message.includes("media-connection");
 
+/** The codec every viewer decodes, kept when a source has given up on the others. */
+const baseline = "avc1.42E033";
+/** A codec's family: `hvc1` and `hev1` are both HEVC, every `avc1` is H.264. */
+const family = (codec: string) => {
+  const head = codec.slice(0, 4);
+  return head === "hev1" ? "hvc1" : head;
+};
+
 /**
  * Which media connection each source's subscribe named and the daemon confirmed, so its acks
  * follow its pictures, and the poster that subscribe brought back. A subscribe the daemon
@@ -43,17 +51,23 @@ export class MediaSubscriptions {
   /** Refused for this source: not named again while it is the binding. */
   #refused = new Map<string, string>();
   #posters = new Map<string, MediaPoster>();
+  /**
+   * Codec families a source's viewer couldn't decode: that source alone asks without them. Kept
+   * across reconnects of the channel, and dropped with the route.
+   */
+  #failed = new Map<string, Set<string>>();
   get route(): MediaRoute | undefined {
     return this.#route;
   }
   use(route: MediaRoute | undefined): void {
     this.#route = route;
+    this.#failed.clear();
     this.reset();
   }
   /** The subscribe's `media` and `codecs` for `source` now. */
   fields(source: string): { media?: MediaBinding; codecs?: string[] } {
     const binding = this.#route?.binding();
-    const codecs = this.#route?.codecs() ?? [];
+    const codecs = this.codecs(source);
     this.#bound.delete(source);
     if (!binding || this.#refused.get(source) === binding.connection) {
       this.#asked.delete(source);
@@ -61,6 +75,27 @@ export class MediaSubscriptions {
     }
     this.#asked.set(source, binding.connection);
     return { media: binding, ...(codecs.length ? { codecs: codecs.slice(0, 8) } : {}) };
+  }
+  /** The decoders `source`'s subscribe names: the route's, less what failed for this source. */
+  codecs(source: string): string[] {
+    const offered = this.#route?.codecs() ?? [];
+    const failed = this.#failed.get(source);
+    if (!failed) return offered.slice(0, 8);
+    const left = offered.filter((codec) => !failed.has(family(codec)));
+    return (left.length ? left : [baseline]).slice(0, 8);
+  }
+  /**
+   * `source`'s viewer couldn't decode `codec`. True when that takes something away (anything but
+   * H.264, the baseline): subscribe that source again, and the others keep their codecs.
+   */
+  fallBack(source: string, codec: string): boolean {
+    const lost = family(codec);
+    if (lost === "avc1") return false;
+    const failed = this.#failed.get(source) ?? new Set<string>();
+    if (failed.has(lost)) return false;
+    failed.add(lost);
+    this.#failed.set(source, failed);
+    return true;
   }
   /** The subscribe's reply: delivery by the media connection only when it says so. */
   subscribed(source: string, media: MediaSubscribed | undefined): void {
