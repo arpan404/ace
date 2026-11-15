@@ -8,7 +8,10 @@ mod effects;
 mod egress;
 mod ingest;
 mod lanes;
+mod listener;
 mod pictures;
+#[cfg(windows)]
+mod pipe;
 mod readers;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
@@ -23,6 +26,7 @@ use crate::secret::LaneSecret;
 use effects::{Outputs, Step, apply};
 use egress::EgressLane;
 use ingest::{Ingest, IngestEvent};
+use listener::{Home, Listener, Role};
 use media_wire::control::{
     Control, ControlFrame, FromMedia, Ingest as IngestAddress, Lane, Listen, Protocol, ToMedia,
 };
@@ -31,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
-use tokio::net::{TcpListener, UnixListener};
+use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use writer::{EGRESS_LIMIT, NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
 
@@ -39,8 +43,6 @@ use writer::{EGRESS_LIMIT, NORMAL_LIMIT, PRIORITY_LIMIT, Writer};
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_FAILED: i32 = 1;
 pub const EXIT_PROTOCOL: i32 = 2;
-/// Every unix socket path must fit `sun_path` (104 bytes on macOS, with its NUL).
-const SOCKET_PATH_MAX: usize = 103;
 const STDIN_GRACE: Duration = Duration::from_millis(500);
 const TICK: Duration = Duration::from_millis(100);
 
@@ -49,15 +51,17 @@ fn fail(message: &str) -> i32 {
     EXIT_FAILED
 }
 
-/// Binds a socket that only this user can reach from the moment it exists: the runtime
-/// directory is checked private, and the socket is created under a 0177 umask.
-fn bind_unix(path: &Path) -> std::io::Result<UnixListener> {
-    if path.as_os_str().len() > SOCKET_PATH_MAX {
-        return Err(std::io::Error::other("socket path too long"));
+/// Recordings need the recorder's unix file handling; elsewhere `record.start` is refused as
+/// `recorder-unavailable`, so the daemon keeps its own path.
+fn recorders() -> Box<dyn crate::engine::recorder::Recorders> {
+    #[cfg(unix)]
+    {
+        Box::new(crate::record::Mp4Recorders)
     }
-    let _ = std::fs::remove_file(path);
-    let _umask = crate::os::PrivateUmask::set();
-    UnixListener::bind(path)
+    #[cfg(not(unix))]
+    {
+        Box::new(crate::engine::recorder::NoRecorders)
+    }
 }
 
 struct Clock(Instant);
@@ -107,20 +111,17 @@ pub async fn run(version: &str) -> i32 {
     if let Err(reason) = crate::os::private_dir(&dir) {
         return fail(&reason);
     }
-    let pid = std::process::id();
-    let control_path = dir.join(format!("m{pid}c.sock"));
-    let ingest_path = dir.join(format!("m{pid}i.sock"));
-    let paths = [control_path.clone(), ingest_path.clone()];
+    let home = match Home::new(&dir, std::process::id()) {
+        Ok(home) => home,
+        Err(error) => return fail(&format!("socket names: {error}")),
+    };
     let places = Places {
-        control: &control_path,
-        ingest: &ingest_path,
+        home: &home,
         data: Path::new(&data_dir),
         runtime: &dir,
     };
     let code = serve(version, &clock, stdin, secret, places).await;
-    for path in paths {
-        let _ = std::fs::remove_file(path);
-    }
+    home.remove();
     code
 }
 
@@ -143,8 +144,7 @@ async fn fired<T>(rx: &mut Option<oneshot::Receiver<T>>) {
 
 /// Where ace-media keeps its sockets and finds its data.
 struct Places<'a> {
-    control: &'a Path,
-    ingest: &'a Path,
+    home: &'a Home,
     data: &'a Path,
     runtime: &'a Path,
 }
@@ -156,16 +156,11 @@ async fn serve(
     secret: LaneSecret,
     places: Places<'_>,
 ) -> i32 {
-    let Places {
-        control: control_path,
-        ingest: ingest_path,
-        ..
-    } = places;
-    let control = match bind_unix(control_path) {
+    let control = match Listener::bind(places.home, Role::Control) {
         Ok(listener) => listener,
         Err(error) => return fail(&format!("control socket: {error}")),
     };
-    let ingest_socket = match bind_unix(ingest_path) {
+    let ingest_socket = match Listener::bind(places.home, Role::Ingest) {
         Ok(listener) => listener,
         Err(error) => return fail(&format!("ingest socket: {error}")),
     };
@@ -212,11 +207,11 @@ async fn serve(
         pid: std::process::id(),
         capabilities: capabilities.list(),
         ingest: IngestAddress {
-            socket: ingest_path.to_string_lossy().into_owned(),
+            socket: places.home.address(Role::Ingest),
             websocket_port,
         },
         control: Control {
-            socket: control_path.to_string_lossy().into_owned(),
+            socket: places.home.address(Role::Control),
         },
         listen: Listen {
             loopback_port: 0,
@@ -246,10 +241,7 @@ async fn serve(
     });
 
     let egress_lane = EgressLane::default();
-    let mut engine = Engine::new(
-        Box::new(crate::record::Mp4Recorders),
-        Box::new(egress_lane.clone()),
-    );
+    let mut engine = Engine::new(recorders(), Box::new(egress_lane.clone()));
     let (still_tx, mut still_rx) = mpsc::unbounded_channel();
     let started = clock.0;
     let threads = crate::stills::StillThreads::probed(
@@ -290,7 +282,7 @@ async fn serve(
             up = &mut lanes, if lanes_pending => {
                 lanes_pending = false;
                 let Ok(up) = up else { break fail("lane authentication") };
-                let (mut read, write) = up.priority.into_split();
+                let (mut read, write) = listener::split(up.priority);
                 let mut writer = Writer::spawn(write, PRIORITY_LIMIT);
                 priority_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
                 priority_out = Some(writer);
@@ -309,7 +301,7 @@ async fn serve(
                 });
                 let (closed_tx, closed_rx) = oneshot::channel();
                 egress_closed = Some(closed_rx);
-                let (mut egress_read, egress_write) = up.egress.into_split();
+                let (mut egress_read, egress_write) = listener::split(up.egress);
                 let mut writer = Writer::spawn(egress_write, EGRESS_LIMIT);
                 egress_failed = Some(std::mem::replace(&mut writer.failed, oneshot::channel().1));
                 egress_lane.connect(writer);

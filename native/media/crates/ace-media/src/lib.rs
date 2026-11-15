@@ -10,8 +10,6 @@ pub mod probe;
 pub mod record;
 pub mod secret;
 pub mod serve_sim;
-#[cfg(unix)]
 pub mod shell;
-#[cfg(unix)]
 pub mod stills;
 pub mod trials;
