@@ -233,12 +233,13 @@ test("a request is the bot's bubble saying who an email goes to and what, as pla
   expect(request.textContent).not.toContain("{");
 });
 
-test("Stop stays in the composer while a bot waits on the person", async () => {
+test("a bot waiting on the person's answer to a request is not working: no Stop in the composer", async () => {
   await spadeApp("/spade/inbox", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     api.ask(api.addAgent({ id: "inbox", name: "Inbox" }), "k7", "send_email");
   });
   await screen.findByRole("group", { name: "Inbox wants to send an email" });
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Talk with Inbox" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });

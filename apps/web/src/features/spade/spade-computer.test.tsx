@@ -310,8 +310,8 @@ test("on a phone the panel covers the chat at full height, with Chat to go back"
   phoneWindow();
   await spadeApp("/spade", browsing);
   await userEvent.click(await botRow("Scout"));
-  // A phone's header keeps its actions behind ⋯.
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
+  // A phone's header keeps its actions behind ⋯ (only actions now: the bot's menu is its profile's).
+  await userEvent.click(await screen.findByRole("button", { name: "Actions" }));
   await userEvent.click(await screen.findByRole("button", { name: "Computer, in use" }));
   await screen.findByRole("tablist", { name: "Panel" });
   // The chat is under it, out of reach.
