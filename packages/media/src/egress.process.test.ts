@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { removeWhenFree } from "./supervisor-test-support.ts";
 import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts";
 import { encodeMediaFrame } from "./frame.ts";
 import { RouteWatch } from "./route-watch.ts";
@@ -24,9 +25,9 @@ import {
 // ace-media (`bun run check:media` does).
 const real = process.env.ACE_MEDIA_TEST_BINARY?.trim() || undefined;
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 async function until(condition: () => boolean, end: number, description: string): Promise<void> {
@@ -150,9 +151,9 @@ it.runIf(real)(
       capabilities: () => capabilities,
       onChange: (routes) => void changes.push({ at: performance.now(), routes }),
     });
-    cleanups.push(() => {
+    cleanups.push(async () => {
       supervisor.dispose();
-      rmSync(runtimeDir, { recursive: true, force: true });
+      await removeWhenFree(runtimeDir);
     });
 
     // Before ace-media is up the producer streams to the daemon.
