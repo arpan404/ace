@@ -307,6 +307,20 @@ not its text. `suit.json`'s `terminal` sets the rest:
 
 A new Suit restyles open terminals in place; their sessions and scrollback stay.
 
+## Previews in Settings
+
+Settings > Appearance draws a Suit as it looks, never as a swatch: the Suits list, the Custom
+card and the Mode cards each hold a miniature ace window (`apps/web/src/features/settings/suit-preview.tsx`)
+built from these parts: `app` (`data-page="thread"`), `rail`, `rail-item` (one `active`),
+`sidebar`, `sidebar-header` (with the `sidebar-header` ornament), `thread-list`, `thread-row`
+(`active`, `unread`, plain), `status-icon` (`working`, `waiting`, `done`), `thread-title`,
+`thread-meta`, `sidebar-footer`, `main`, `header`, `header-title`, `page`, `transcript`,
+`message-user`, `message-agent`, `link`, `tool-row` (`edit`, `done`), `inline-code`,
+`working-line` (`working`), `composer`, `composer-input`, `composer-toolbar`, `model-picker`,
+`composer-send` (`send`), and the four corner ornaments. It runs the Suit's tokens, suit.css,
+labels and ace's guard in a shadow root of its own, laid out at 960 × 540 and scaled to the card,
+so the Suit on screen never restyles another Suit's miniature. Scenes don't run in it.
+
 ## Changes
 
 - Version 1, 2026-11-14: `nav-item` added.
@@ -319,3 +333,5 @@ A new Suit restyles open terminals in place; their sessions and scrollback stay.
   shows Settings. A Suit's needs-fixes list is `list` `problems` with `failed` rows.
 - Version 1, 2026-11-15: `tool-row` carries the step's kind as `data-variant` (`read`, `search`,
   `list`, `shell`, `edit`, `web`, `tool`, `think`, `note`), so a Suit can mark each kind.
+- Version 1, 2026-11-15: Settings previews each Suit in a miniature of real parts (see "Previews
+  in Settings"); the Suits list's colour swatch is gone.

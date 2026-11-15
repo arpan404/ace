@@ -233,7 +233,7 @@ Name fonts in suit.json's `fonts` first; they set ace's own font stacks. For a d
 @font-face {
   font-family: "Suit Display";
   src: url("assets/fonts/display.woff2") format("woff2");
-  font-display: swap;
+  font-display: fallback;
 }
 [data-part="page-title"],
 [data-part="header-title"] {
@@ -241,7 +241,13 @@ Name fonts in suit.json's `fonts` first; they set ace's own font stacks. For a d
 }
 ```
 
-`@font-face` sources must be `.woff2`, `.woff`, `.ttf` or `.otf` files in `assets/`.
+`@font-face` sources must be `.woff2`, `.woff`, `.ttf` or `.otf` files in `assets/`. Give each weight or style its own `@font-face` with `font-weight` / `font-style`.
+
+Bundled fonts never flash a fallback face: when the person switches to your Suit, ace loads every font file from `fonts` and from these `@font-face` rules first (up to 1.5 s) and only then shows the Suit, and font files are cached for as long as the Suit's version stays the same. Keep the files small (subset `.woff2`), so a first switch over a slow link doesn't hit that limit.
+
+## How Settings previews it
+
+Settings > Appearance draws your Suit as it looks: the Suits list, the Custom card and the Light, Dark and System cards each show a small ace window built from real parts (`app`, `rail`, `rail-item`, `sidebar`, `sidebar-header` with its ornament, `thread-list`, `thread-row` with one `active`, `status-icon`, `thread-title`, `thread-meta`, `main`, `header`, `header-title`, `page`, `transcript`, `message-user`, `message-agent`, `link`, `tool-row` (`edit`, `done`), `inline-code`, `working-line`, `composer`, `composer-input`, `composer-toolbar`, `model-picker`, `composer-send`, corner ornaments), with your tokens, suit.css and labels applied, laid out at 960 × 540 and scaled to the card. It is a window of its own: the Suit on screen never reaches it, so write rules from `[data-part]` and `[data-state]` and they show there as in the app. Scenes don't run in it (the frame colour shows), and pages other than `thread` aren't in it.
 
 ## Keyframes and transitions
 
