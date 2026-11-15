@@ -437,6 +437,10 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get promptFiles() {
         return services.promptFiles;
       },
+      // Published once a service first starts ace-media.
+      get mediaAcceleration() {
+        return services.mediaAcceleration;
+      },
       get skillLibrary() {
         return services.skillLibrary;
       },

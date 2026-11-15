@@ -227,6 +227,7 @@ export function createDevicesSession(context: SocketContext): SocketService {
     if (channel || closed) return;
     channel = reserveDevices(service, context.sessionId, {
       authorize: () => context.connected() && context.authorize("admin"),
+      acceleration: context.options.mediaAcceleration,
       canReadThread: (threadId) => context.canReadThread(ThreadId.parse(threadId)),
       agentExists: (threadId, agentId) =>
         context.options.store.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==

@@ -15,12 +15,25 @@ export type SourceAcceleration = NonNullable<
   Extract<FromMedia, { type: "source.status" }>["acceleration"]
 >;
 
+/** A source by the daemon's name, with the ids of what it shows (from its `IngestProducer`). */
+export type AccelerationSubject = {
+  source: string;
+  tabId?: string;
+  sessionId?: string;
+  deviceId?: string;
+};
+type SubjectKey = "tabId" | "sessionId" | "deviceId";
+
 /** What changed: the capability list, or one source's report. */
-export type AccelerationChange = { kind: "capabilities" } | { kind: "source"; source: string };
+export type AccelerationChange =
+  | { kind: "capabilities" }
+  | { kind: "source"; source: string; subject: AccelerationSubject };
+
+type Reported = { subject: AccelerationSubject; acceleration: SourceAcceleration };
 
 export class MediaAccelerationStore {
   #capabilities: readonly MediaCapabilityEntry[] | undefined;
-  readonly #sources = new Map<string, SourceAcceleration>();
+  readonly #sources = new Map<string, Reported>();
   readonly #listeners = new Set<(change: AccelerationChange) => void>();
 
   /** The probe's list from the running ace-media; undefined before `ready` and after it exits. */
@@ -30,12 +43,19 @@ export class MediaAccelerationStore {
 
   /** The source's steps, once ace-media has chosen them. */
   of(source: string): SourceAcceleration | undefined {
-    return this.#sources.get(source);
+    return this.#sources.get(source)?.acceleration;
+  }
+
+  /** The report of the source showing this tab, screen session or device, if one has one. */
+  for(key: SubjectKey, id: string): SourceAcceleration | undefined {
+    for (const reported of this.#sources.values())
+      if (reported.subject[key] === id) return reported.acceleration;
+    return undefined;
   }
 
   /** Every source with a report, by the daemon's name. */
-  sources(): ReadonlyMap<string, SourceAcceleration> {
-    return this.#sources;
+  sources(): { subject: AccelerationSubject; acceleration: SourceAcceleration }[] {
+    return [...this.#sources.values()];
   }
 
   /** Told after each change; returns the unsubscribe. */
@@ -52,23 +72,27 @@ export class MediaAccelerationStore {
   }
 
   /** A source's report, or undefined once nothing in ace-media runs it any more. */
-  report(source: string, acceleration: SourceAcceleration | undefined): void {
-    const before = this.#sources.get(source);
+  report(from: AccelerationSubject, acceleration: SourceAcceleration | undefined): void {
+    // Only the ids: a producer passed in carries much more than its names.
+    const subject = ids(from);
+    const { source } = subject;
+    const before = this.#sources.get(source)?.acceleration;
     if (acceleration === undefined) {
       if (!before) return;
       this.#sources.delete(source);
     } else {
       if (before && same(before, acceleration)) return;
-      this.#sources.set(source, acceleration);
+      this.#sources.set(source, { subject, acceleration });
     }
-    this.#emit({ kind: "source", source });
+    this.#emit({ kind: "source", source, subject });
   }
 
   /** ace-media exited: its list and every report are gone with it. */
   exited(): void {
-    const reported = [...this.#sources.keys()];
+    const reported = [...this.#sources.values()];
     this.#sources.clear();
-    for (const source of reported) this.#emit({ kind: "source", source });
+    for (const { subject } of reported)
+      this.#emit({ kind: "source", source: subject.source, subject });
     if (this.#capabilities === undefined) return;
     this.#capabilities = undefined;
     this.#emit({ kind: "capabilities" });
@@ -77,6 +101,15 @@ export class MediaAccelerationStore {
   #emit(change: AccelerationChange): void {
     for (const listener of this.#listeners) listener(change);
   }
+}
+
+function ids({ source, tabId, sessionId, deviceId }: AccelerationSubject): AccelerationSubject {
+  return {
+    source,
+    ...(tabId === undefined ? {} : { tabId }),
+    ...(sessionId === undefined ? {} : { sessionId }),
+    ...(deviceId === undefined ? {} : { deviceId }),
+  };
 }
 
 function same(a: SourceAcceleration, b: SourceAcceleration): boolean {

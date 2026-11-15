@@ -26,6 +26,8 @@ export type MediaRuntimeOptions = Omit<
   capabilities?: RouteCapabilities;
   onMessage?: (message: FromMedia, payload: Uint8Array) => void;
   onExit?: (exit: MediaExit) => void;
+  /** The store to keep what ace-media runs on in; one of its own unless given. */
+  acceleration?: MediaAccelerationStore;
 };
 
 export class MediaRuntime {
@@ -34,9 +36,10 @@ export class MediaRuntime {
   readonly egress: EgressRouter;
   readonly sources: IngestSources;
   /** What ace-media runs on: its probe's list and each source's steps. */
-  readonly acceleration = new MediaAccelerationStore();
+  readonly acceleration: MediaAccelerationStore;
 
   constructor(options: MediaRuntimeOptions) {
+    this.acceleration = options.acceleration ?? new MediaAccelerationStore();
     const capabilities = options.capabilities ?? builtRouteCapabilities;
     this.supervisor = new MediaSupervisor({
       ...options,
@@ -78,7 +81,7 @@ export class MediaRuntime {
       randomBytes: options.randomBytes ?? secureRandomBytes,
       id: options.id,
       schedule: (callback, ms) => options.clock.setTimeout(callback, ms),
-      acceleration: (source, acceleration) => this.acceleration.report(source, acceleration),
+      acceleration: (subject, acceleration) => this.acceleration.report(subject, acceleration),
     });
   }
 

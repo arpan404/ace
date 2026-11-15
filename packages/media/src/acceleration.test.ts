@@ -48,10 +48,11 @@ function world() {
       timers.push(run);
       return () => {};
     },
-    acceleration: (source, value) => store.report(source, value),
+    acceleration: (subject, value) => store.report(subject, value),
   });
   const producer: IngestProducer = {
     source: "capture-1",
+    tabId: "tab-7",
     kind: "tab-pictures",
     origin: { kind: "tab-pictures" } as IngestProducer["origin"],
     epoch: () => 0,
@@ -93,6 +94,8 @@ it("a source's steps are kept under the daemon's name and follow it across a reo
   const source = sources.add(producer);
   status("m1", onTheProcessor);
   expect(store.of("capture-1")).toEqual(onTheProcessor);
+  expect(store.for("tabId", "tab-7")).toEqual(onTheProcessor);
+  expect(store.for("sessionId", "tab-7")).toBeUndefined();
 
   source.reconnect();
   status("m2", onHardware);
@@ -109,12 +112,13 @@ it("a source's report goes once nothing in ace-media runs it, and with ace-media
   source.close();
   expect(store.of("capture-1")).toBeUndefined();
 
-  sources.add({ ...producer, source: "capture-2" });
+  sources.add({ ...producer, source: "capture-2", tabId: "tab-8" });
   status("m2", onTheProcessor);
   expect(store.of("capture-2")).toEqual(onTheProcessor);
   sources.exited();
   store.exited();
-  expect(store.sources().size).toBe(0);
+  expect(store.sources()).toEqual([]);
+  expect(store.for("tabId", "tab-8")).toBeUndefined();
 });
 
 it("listeners hear a change only when the report changes", () => {
@@ -124,9 +128,9 @@ it("listeners hear a change only when the report changes", () => {
   status("m1", structuredClone(onHardware));
   status("m1");
   status("m1", onTheProcessor);
-  expect(changes).toEqual([
-    { kind: "source", source: "capture-1" },
-    { kind: "source", source: "capture-1" },
+  expect(changes.map((c) => (c.kind === "source" ? c.subject.tabId : c.kind))).toEqual([
+    "tab-7",
+    "tab-7",
   ]);
 });
 
