@@ -74,23 +74,35 @@ const automationPut = controlTool({
   riskClass: "agent-execution",
   description:
     "Create or replace (same id) an automation: a message ace sends into this thread on a schedule or with automation_run. You answer it here with this thread's model and access, queued behind any running turn.",
-  input: z.strictObject({
-    id: automationId,
-    title: z.string().min(1).max(256).describe("What it does, for the person."),
-    prompt: MessageText.describe(
-      "The message each run sends: the whole task, readable without this conversation.",
-    ),
-    schedule: AgentAutomationSchedule.optional().describe(
-      "rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only.",
-    ),
-    enabled: z.boolean().default(true).describe("false saves it paused."),
-    missedRun: z
-      .enum(["skip", "run_once"])
-      .default("skip")
-      .describe("A run missed while ace was off: skip it, or run once."),
-  }),
+  input: z
+    .strictObject({
+      id: automationId,
+      title: z.string().min(1).max(256).describe("What it does, for the person."),
+      prompt: MessageText.describe(
+        "The message each run sends: the whole task, readable without this conversation.",
+      ),
+      schedule: AgentAutomationSchedule.optional().describe(
+        "rrule (FREQ=DAILY;BYHOUR=9;BYMINUTE=0) or cron (0 9 * * 1-5); timezone defaults to this machine's, startAt (epoch ms, whole minute) to now. Omit to run by hand only.",
+      ),
+      webhook: z
+        .boolean()
+        .optional()
+        .describe(
+          "true: runs when its signed webhook is called, with {{body.field}} from the JSON body. The person makes its secret and URL in Automations. Not with schedule.",
+        ),
+      enabled: z.boolean().default(true).describe("false saves it paused."),
+      missedRun: z
+        .enum(["skip", "run_once"])
+        .default("skip")
+        .describe("A run missed while ace was off: skip it, or run once."),
+    })
+    .superRefine((input, context) => {
+      if (input.webhook && input.schedule)
+        context.addIssue({ code: "custom", path: ["webhook"], message: "Not with schedule." });
+    })
+    .meta({ "x-ace-constraint": "webhook and schedule can't both be set." }),
   output: controlResult(z.unknown()),
-  async run({ schedule, ...automation }, control) {
+  async run({ schedule, webhook, ...automation }, control) {
     const saved = await control.run({
       op: "automation.manage",
       request: {
@@ -98,7 +110,11 @@ const automationPut = controlTool({
         requestId: `put:${automation.id}`,
         automation: {
           ...automation,
-          trigger: schedule ? { kind: "schedule", schedule } : { kind: "manual" },
+          trigger: webhook
+            ? { kind: "webhook" }
+            : schedule
+              ? { kind: "schedule", schedule }
+              : { kind: "manual" },
         },
       },
     });

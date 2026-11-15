@@ -197,7 +197,7 @@ export function completeTrigger(
   now: number,
   localZone: string,
 ): Automation["trigger"] {
-  if (trigger.kind === "manual") return trigger;
+  if (trigger.kind === "manual" || trigger.kind === "webhook") return trigger;
   const { schedule } = trigger;
   return {
     kind: "schedule",

@@ -1522,7 +1522,7 @@ Example:
 | missedRun | no | ["skip","run_once"] | {"default":"skip"} |
 | concurrency | no | integer | {"default":1,"minimum":1,"maximum":32} |
 | jitterMs | no | integer | {"minimum":0,"maximum":3600000} |
-| trigger | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"manual"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"schedule"},"schedule":{"$ref":"https://ace.local/protocol/v1/AgentAutomationSchedule.json"}},"required":["kind","schedule"]}]} |
+| trigger | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"manual"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"schedule"},"schedule":{"$ref":"https://ace.local/protocol/v1/AgentAutomationSchedule.json"}},"required":["kind","schedule"]},{"type":"object","properties":{"kind":{"type":"string","const":"webhook"}},"required":["kind"]}]} |
 
 Example:
 
@@ -1532,12 +1532,7 @@ Example:
   "prompt": "example",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "rrule",
-      "startAt": 0
-    }
+    "kind": "webhook"
   },
   "worktree": false
 }
@@ -1567,17 +1562,10 @@ Example:
     "prompt": "example",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "cron",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "kind": "webhook"
     },
     "worktree": false
   },
-  "expectedRevision": 3,
   "requestId": "example",
   "type": "automation.put"
 }
