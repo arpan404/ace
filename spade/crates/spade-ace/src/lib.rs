@@ -29,8 +29,8 @@ pub use discovery::{
     next_retry_between,
 };
 pub use skills::{
-    ALL_AGENTS, AceSkills, NewSkill, Skill, SkillEdit, SkillErrorCode, SkillList, SkillScope,
-    SkillText, SkillsError,
+    ALL_AGENTS, AceSkills, NewSkill, Skill, SkillEdit, SkillErrorCode, SkillFile, SkillFileBytes,
+    SkillFiles, SkillList, SkillScope, SkillText, SkillsError,
 };
 pub use spade_mcp::Secret;
 pub use tools::{

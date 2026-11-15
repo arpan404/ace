@@ -193,6 +193,8 @@ pub struct Options {
     pub workspaces: Option<spade_server::workspace::Workspaces>,
     /// Skill proposals, for the API (ADR 0130).
     pub learning: Option<Arc<spade_server::learning::Learning>>,
+    /// Spade's skill store, for the API (ADR 0151).
+    pub skill_store: Option<Arc<spade_server::skill_store::SkillStore>>,
     /// Sets up connectors (ADR 0131), with the mock keychain.
     pub connectors: bool,
     /// With `connectors`: the client ID metadata document Spade signs in as.
@@ -303,6 +305,7 @@ impl Default for Options {
             keychain_gate_for: None,
             workspaces: None,
             learning: None,
+            skill_store: None,
             connectors: false,
             client_metadata: None,
             apps: Vec::new(),
@@ -565,6 +568,7 @@ impl Spade {
             ace: ace.clone(),
             workspaces: options.workspaces.clone(),
             learning: options.learning.clone(),
+            skill_store: options.skill_store.clone(),
             connectors: connectors.clone(),
             search,
         };

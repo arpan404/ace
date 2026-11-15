@@ -387,7 +387,11 @@ impl Learning {
             },
         );
         let text = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
-        crate::atomic::write_whole(&self.notes_file(agent), &text).map_err(|e| e.to_string())
+        crate::atomic::write_whole(&self.notes_file(agent), &text).map_err(|e| e.to_string())?;
+        // Search breaks ties toward skills the bot found helpful (ADR 0151).
+        self.library
+            .record_verdict(agent, skill, verdict == Verdict::Helpful);
+        Ok(())
     }
 
     /// The bot's note on `skill`, if it left one.

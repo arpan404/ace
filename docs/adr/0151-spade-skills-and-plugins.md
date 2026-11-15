@@ -35,7 +35,8 @@ else, and Spade can reach MCP servers only over HTTP, so a plugin's local server
    a skill whose hash changed, its files included, on start and on each change notice. The copy
    is replaced whole, written beside the old one and renamed over it. A skill the library no longer
    has is dropped. With ace away, the last copy is used and says nothing; there is no "stale" state
-   to show.
+   to show. The daemon's change notices follow SKILL.md only, so on each new connection Spade also
+   compares every skill's file list with its copy, which catches a file changed on its own.
 3. **A saved proposal goes to ace when ace is there**, as ADR 0130 says, so every agent can use
    it; the store then copies it like any library skill. With ace away (and always on Cloud), it is
    saved in the store with origin `spade`. Spade never pushes a `spade` skill to ace on its own;
@@ -43,8 +44,9 @@ else, and Spade can reach MCP servers only over HTTP, so a plugin's local server
    store's copy once the library has it.
 4. **The daemon gives a skill's files.** `skills.request` gains a `files` operation: a skill's
    relative paths, sizes and hashes, and the content of one file by path. Paths are the library's
-   own, checked the same way as plugin paths. Files over 1 MB, and more than 200 files, are left
-   out with a note.
+   own, checked the same way as plugin paths (the rule now lives in `@ace/protocol` as
+   `ContainedPath`). Each file carries its executable bit. Hidden entries and links are never listed
+   or read. Files over 1 MB, and more than 200 files, are left out with a note.
 5. **Loading a skill brings its files.** `skill_load` answers with `SKILL.md`, a list of the
    skill's other files, and the folder they are in: `skills/<name>/` inside the bot's workspace,
    written there (read only) when the skill is loaded and replaced if the skill changed. The bot

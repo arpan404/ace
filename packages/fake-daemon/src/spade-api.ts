@@ -110,6 +110,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly computer: FakeSpadeComputer;
   /** Each agent's skill proposals, in Spade's JSON. */
   proposals = new Map<string, Json[]>();
+  /** Spade's skill store (`GET /v1/skills`), in Spade's JSON; Add to ace's library moves one out. */
+  skillStore: { skills: Json[]; ace: boolean } = { skills: [], ace: false };
   /** What the bots remember, their own and the shared ones (ADR 0128). */
   readonly notes: FakeSpadeNotes;
   /** Every request the app sent, in order. */
@@ -371,6 +373,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
       return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
+    }
+    if (root === "skills" && request.method === "GET") return reply(this.skillStore);
+    if (root === "skills" && id && sub === "add-to-ace" && request.method === "POST") {
+      if (!this.skillStore.ace) return problem(503, "ace isn't running.");
+      const skills = this.skillStore.skills;
+      if (!skills.some((skill) => skill.id === id)) return problem(404, "no such skill");
+      this.skillStore.skills = skills.filter((skill) => skill.id !== id);
+      return reply({ skill_id: `skl_${id}` });
     }
     if (root === "oversight") return this.oversight.route(request.method, body);
     if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {

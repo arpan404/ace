@@ -9,6 +9,7 @@ mod notes;
 mod oversight;
 mod routines;
 mod schema;
+mod skills;
 mod teams;
 
 pub use agents::{Agent, NewAgent};
@@ -16,6 +17,7 @@ pub use endpoints::{StoredEndpoint, StoredModel};
 pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
+pub use skills::{SkillOrigin, SkillUse, StoredSkill};
 pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, StoredMember};
 
 use std::path::Path;
@@ -112,6 +114,8 @@ impl Store {
             "notes",
             "routines",
             "routine_runs",
+            "skills",
+            "skill_uses",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {

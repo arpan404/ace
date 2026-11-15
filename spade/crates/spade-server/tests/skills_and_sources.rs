@@ -29,6 +29,7 @@ impl Library {
                 name: (*name).into(),
                 description: (*description).into(),
                 manual: false,
+                body: String::new(),
             })
             .collect();
         Arc::new(library)
@@ -43,6 +44,7 @@ impl Library {
                 name: name.into(),
                 description: "added later".into(),
                 manual: false,
+                body: String::new(),
             });
     }
 }
@@ -66,7 +68,7 @@ impl SkillLibrary for Library {
 fn skill_tools(library: &Arc<Library>) -> Vec<Arc<dyn Tool>> {
     let library: Arc<dyn SkillLibrary> = library.clone();
     vec![
-        Arc::new(SkillSearch(library.clone())),
+        Arc::new(SkillSearch::new(library.clone())),
         Arc::new(SkillLoad::new(library)),
     ]
 }

@@ -15,6 +15,7 @@ use spade_server::images::ImageStore;
 use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
+use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
     AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch,
     TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch, WebSearch,
@@ -256,30 +257,42 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
     ));
-    let mut skills: Option<Arc<dyn SkillLibrary>> = None;
-    let mut learning: Option<Arc<Learning>> = None;
-    if let Some(link) = &ace {
-        let library: Arc<dyn SkillLibrary> = link.clone();
-        let learned = Arc::new(Learning::new(
-            home.dir.join("skills"),
-            Arc::new(SystemClock),
-            library.clone(),
-        ));
-        core.push(Arc::new(SkillSearch(library.clone())));
-        core.push(Arc::new(
-            SkillLoad::new(library.clone()).with_notes(learned.clone(), bots.clone()),
-        ));
-        core.push(Arc::new(SkillPropose {
-            learning: learned.clone(),
-            bots: bots.clone(),
-        }));
-        core.push(Arc::new(SkillFeedback {
-            learning: learned.clone(),
-            bots: bots.clone(),
-        }));
-        skills = Some(library);
-        learning = Some(learned);
-    }
+    // Spade's own skill store (ADR 0151): ace's library mirrored with its files while ace is
+    // there, skills written in Spade otherwise. Spade Cloud has the store with no ace.
+    let upstream = ace
+        .clone()
+        .map(|link| link as Arc<dyn spade_server::skill_store::Upstream>);
+    let skill_store = SkillStore::open(
+        home.dir.join("skills"),
+        Store::open(&home.database()).map_err(other)?,
+        Arc::new(SystemClock),
+        upstream,
+    );
+    tokio::spawn(skill_store.clone().run_mirror());
+    let library: Arc<dyn SkillLibrary> = skill_store.clone();
+    let learned = Arc::new(Learning::new(
+        home.dir.join("skills"),
+        Arc::new(SystemClock),
+        library.clone(),
+    ));
+    core.push(Arc::new(
+        SkillSearch::new(library.clone()).with_uses(bots.clone()),
+    ));
+    core.push(Arc::new(
+        SkillLoad::new(library.clone())
+            .with_notes(learned.clone(), bots.clone())
+            .with_workspaces(workspaces.clone(), bots.clone()),
+    ));
+    core.push(Arc::new(SkillPropose {
+        learning: learned.clone(),
+        bots: bots.clone(),
+    }));
+    core.push(Arc::new(SkillFeedback {
+        learning: learned.clone(),
+        bots: bots.clone(),
+    }));
+    let skills: Option<Arc<dyn SkillLibrary>> = Some(library);
+    let learning: Option<Arc<Learning>> = Some(learned);
     let mut tools = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
     if let Some(link) = &ace {
         tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
@@ -398,6 +411,7 @@ async fn run() -> Result<(), Failure> {
         ace,
         workspaces: Some(workspaces),
         learning,
+        skill_store: Some(skill_store),
         connectors: Some(connectors),
         search: Some(search),
     };
