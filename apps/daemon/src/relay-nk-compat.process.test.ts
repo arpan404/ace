@@ -35,8 +35,8 @@ it("a new client and a new daemon reconnect with NK, and a dropped NK stream rec
   await client.start();
   await first;
   for (const round of [1, 2]) {
-    // The confirmation's answer, with the next ticket, follows the welcome.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Each connect's next ticket: in the XX welcome, then in the NK confirmation's answer.
+    await client.ticketsHanded(round);
     const before = sockets.dials.length;
     const again = ready(client, before, () => sockets.dials.length);
     sockets.drop();
@@ -212,7 +212,7 @@ it.each([
     const first = ready(client, 0, () => sockets.dials.length);
     await client.start();
     await first;
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await client.ticketsHanded(1);
     const again = ready(client, reconnectDials, () => sockets.dials.length);
     sockets.drop();
     await again;
@@ -231,7 +231,7 @@ it("a relay that knows step 1 but not the upgrade entries gets the NK first mess
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await client.ticketsHanded(1);
   const again = ready(client, 1, () => sockets.dials.length);
   sockets.drop();
   await again;
@@ -249,7 +249,7 @@ it("an NK stream cut after the daemon's answer and before its welcome is followe
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await client.ticketsHanded(1);
   const before = attempts;
   const again = ready(client, 2, () => sockets.dials.length);
   sockets.drop();

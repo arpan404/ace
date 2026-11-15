@@ -43,13 +43,14 @@ it.each([400, 1_000])(
     const first = ready(client, 0, () => sockets.dials.length);
     await client.start();
     await first;
-    await new Promise((resolve) => setTimeout(resolve, 2 * rttMs));
+    await client.ticketsHanded(1);
     const again = ready(client, 1, () => sockets.dials.length);
     sockets.drop();
     await again;
     expect(sockets.patterns()).toEqual(["xx", "nk"]);
-    // Past the deadline the session is still the same one: no close, no new dial.
-    await new Promise((resolve) => setTimeout(resolve, 6_000));
+    // The confirmation's answer hands the next ticket, and only a session that confirmed
+    // before its deadline gets one: the same session, no close, no new dial.
+    await client.ticketsHanded(2);
     expect(sockets.dials).toHaveLength(2);
     expect(client.connectionState().getSnapshot()).toBe("ready");
   },

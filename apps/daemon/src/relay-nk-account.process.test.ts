@@ -13,7 +13,7 @@ import { address, initiate, openPeer, STREAM } from "@ace/relay/testing";
 import { NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
 import { machineAccount } from "./account-access/machine-account.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
-import { recordedSockets } from "./relay-nk-test-support.ts";
+import { eventually, recordedSockets } from "./relay-nk-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
 
 // An NK session is an XX session in every field of its welcome and every keeper it starts
@@ -198,14 +198,14 @@ it("an account device's NK connection is carried past its grant's lifetime by it
   });
   cleanup.push(() => client.close());
   await client.start();
-  await expect.poll(() => client.state, { timeout: 10_000 }).toBe("ready");
+  await eventually(() => client.state === "ready");
   sockets.drop();
-  await expect.poll(() => sockets.dials.length, { timeout: 10_000 }).toBe(2);
-  await expect.poll(() => client.state, { timeout: 10_000 }).toBe("ready");
+  await eventually(() => sockets.dials.length === 2);
+  await eventually(() => client.state === "ready");
   expect(sockets.patterns()).toEqual(["xx", "nk"]);
   const connected = d.deviceGrants();
-  // Three grant lifetimes later, still the same NK connection, its grant refreshed on it.
-  await new Promise((resolve) => setTimeout(resolve, 12_000));
+  // Four refreshes later (past three grant lifetimes), still the same NK connection.
+  await eventually(() => d.deviceGrants() - connected >= 4);
   expect(sockets.dials).toHaveLength(2);
   expect(client.state).toBe("ready");
   expect(d.deviceGrants() - connected).toBeGreaterThanOrEqual(4);

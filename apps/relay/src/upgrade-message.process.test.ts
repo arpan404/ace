@@ -48,6 +48,11 @@ async function relayWithHost(limits: { ticketTimeoutMs?: number } = {}) {
   return { relay, keys, daemon, offer, client, join };
 }
 
+/** Resolves once `check` holds, looking every 10 ms; the test's timeout is the only limit. */
+async function eventually(check: () => boolean): Promise<void> {
+  while (!check()) await new Promise((resolve) => setTimeout(resolve, 10));
+}
+
 const within = (next: Promise<Buffer>, ms = 300) =>
   Promise.race([
     next,
@@ -71,12 +76,11 @@ it("a first message in the upgrade is taken, echoed, and delivered to the joinin
 });
 
 it("a client that also sends the message as a frame before pairing is closed at once: it is delivered once", async () => {
-  const h = await relayWithHost();
+  // Its ticket would expire only after the test's own timeout: a close now is the frame's.
+  const h = await relayWithHost({ ticketTimeoutMs: 60_000 });
   const client = await h.client(first);
-  const started = Date.now();
   await client.send(first);
   expect(await client.closed).toBe(1008);
-  expect(Date.now() - started).toBeLessThan(2_000);
   expect(h.relay.earlyHeld()).toMatchObject({ frames: 0, bytes: 0 });
 });
 
@@ -197,8 +201,9 @@ it("nothing the relay writes, on any path, carries an upgrade entry", async () =
     EARLY_FRAME.neutral,
   ]);
   const broken = await open(nkOffer(nkFirst));
+  const reserved = h.relay.earlyHeld().reserved;
   broken.socket.terminate();
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await eventually(() => h.relay.earlyHeld().reserved < reserved);
   for (const spy of spies) spy.mockRestore();
   expect(written.join("\n")).not.toContain(secret.slice(0, 40));
   expect(written.join("\n")).not.toContain(NK_UPGRADE_MESSAGE.prefix);
@@ -221,7 +226,7 @@ it("once the first message is held, and after it is forwarded, the relay keeps n
     expect(h.relay.earlyHeld().frames).toBe(1);
     const joined = await h.join(await h.offer());
     await joined.next();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await eventually(() => h.relay.earlyHeld().frames === 0);
     // Forwarded: nothing of it is held anywhere the relay keeps it.
     expect(h.relay.upgradeEntries()).toBe(0);
     expect(h.relay.earlyHeld()).toMatchObject({ frames: 0, bytes: 0, queuedBytes: 0 });
@@ -251,7 +256,7 @@ it("an upgrade that never completes leaves no entry behind", async () => {
   // The relay answers the bad key; the client then goes away.
   await new Promise((resolve) => socket.once("data", resolve));
   socket.destroy();
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await eventually(() => h.relay.earlyHeld().reserved === 0);
   expect(h.relay.upgradeEntries()).toBe(0);
   expect(h.relay.earlyHeld()).toMatchObject({ reserved: 0, frames: 0 });
 });
@@ -274,8 +279,8 @@ function handedOver() {
 const zero = (bytes: Uint8Array | undefined) =>
   bytes !== undefined && bytes.every((byte) => byte === 0);
 const until = async (check: () => boolean) => {
-  for (let n = 0; n < 200 && !check(); n++) await new Promise((resolve) => setTimeout(resolve, 10));
-  return check();
+  await eventually(check);
+  return true;
 };
 const nkClientOf = async (h: Awaited<ReturnType<typeof relayWithHost>>) => {
   const client = await openPeer(

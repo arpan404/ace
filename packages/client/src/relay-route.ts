@@ -50,6 +50,8 @@ export interface RelayRouteOptions {
   clocks?: NkClocks | undefined;
   /** Open returning streams with Noise NK when the daemon announced it (ADR 0155); default on. */
   nk?: boolean | undefined;
+  /** The daemon handed this route its next one-use ticket (in a welcome or `hello.confirmed`). */
+  ticketHanded?: () => void;
   /** Carry the first handshake message in the upgrade request (ADR 0155, step 3); default on. */
   inUpgrade?: boolean | undefined;
 }
@@ -334,7 +336,9 @@ export function relayRoute(options: RelayRouteOptions): {
                 }
                 // The daemon's own answer to an NK confirmation: its next ticket, for this route.
                 if (frame.startsWith('{"type":"hello.confirmed"')) {
-                  nk.handed(handedTicket(frame));
+                  const handed = handedTicket(frame);
+                  nk.handed(handed);
+                  if (handed) options.ticketHanded?.();
                   continue;
                 }
                 if (!welcomed) {
@@ -344,6 +348,7 @@ export function relayRoute(options: RelayRouteOptions): {
                     // Kept with the key this stream was keyed to, and only if it is the pinned one.
                     nk.welcomed(stream.hostKey, welcome.relayHandshakes);
                     nk.handed(welcome.ticket);
+                    if (welcome.ticket) options.ticketHanded?.();
                     if (nkStream) nk.succeeded();
                     nkUnwelcomed = false;
                     options.welcomed?.();

@@ -3,7 +3,7 @@ import { AgentId, InteractionId, ItemId } from "@ace/protocol";
 import { startRelay } from "@ace/relay";
 import { keyPair } from "@ace/secure-channel";
 import { message } from "./payload-test-support.ts";
-import { newClient, recordedSockets } from "./relay-nk-test-support.ts";
+import { eventually, newClient, recordedSockets } from "./relay-nk-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
 
 // Between an NK session's early events and its confirmation (ADR 0155, step 2), the thread can
@@ -16,13 +16,8 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
-const until = async (check: () => boolean, what: string, ms = 10_000) => {
-  const started = Date.now();
-  while (!check()) {
-    if (Date.now() - started > ms) throw new Error(`Timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-};
+/** Waits for `check`; the test's timeout is the only limit. `_what` names it for the reader. */
+const until = (check: () => boolean, _what: string) => eventually(check);
 
 it.each([
   ["a replay", false],
@@ -55,8 +50,8 @@ it.each([
       { type: "item.created", item: message("b", "second") },
     ]);
     await until(() => !store.syncing && store.item("b") !== undefined, "the open thread");
-    // The confirmation's answer (the next ticket) follows the welcome.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // The XX welcome's next ticket, which the NK reconnect opens with.
+    await client.ticketsHanded(1);
 
     // Away: one change missed, which the NK reconnect carries early.
     sockets.drop();

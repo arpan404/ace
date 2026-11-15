@@ -4,9 +4,9 @@ import { connectHostToRelay, startRelay, type NkHost } from "./index.ts";
 import { address, openPeer } from "./testing/peer.ts";
 import { NK_REFUSAL_MS, NK_STREAM_PROLOGUE, PAIRED_MARKER } from "./wire.ts";
 
-// Refusals of an NK first message (ADR 0155, step 2) look the same whatever the reason: the
-// stream closes with nothing sent, one fixed time after the message arrived, whether the
-// daemon's check is slow, refused at once, over its rate, or the daemon doesn't take NK.
+// A refused NK first message (ADR 0155, step 2) over real sockets: the client's stream closes
+// with nothing sent. The fixed deadline for every kind of refusal is tested on the relay's own
+// clock in nk-refusal.test.ts.
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -39,40 +39,9 @@ async function refusedAfter(nk: NkHost | undefined): Promise<number> {
   return performance.now() - sent;
 }
 
-const never = new Promise<undefined>(() => {});
-const cases: [string, NkHost | undefined][] = [
-  ["a check that would wait on the network", { arrive: () => true, admit: () => never }],
-  ["an immediate refusal", { arrive: () => true, admit: async () => undefined }],
-  ["a daemon over its rate", { arrive: () => false, admit: async () => undefined }],
-  ["a daemon that doesn't take NK", undefined],
-];
-
-it.each(cases)("%s is refused at the same fixed time after arrival", async (_name, nk) => {
-  const took = await refusedAfter(nk);
+it("a refused NK first message closes the client with nothing sent, never before the refusal time", async () => {
+  // When the deadline falls for each kind of refusal is held in nk-refusal.test.ts on the
+  // relay's clock; this shows the real sockets: a close and no answer, no earlier than it.
+  const took = await refusedAfter({ arrive: () => true, admit: async () => undefined });
   expect(took).toBeGreaterThanOrEqual(NK_REFUSAL_MS - 5);
-  expect(took).toBeLessThan(NK_REFUSAL_MS + 150);
-});
-
-it("an admission whose own work runs past the refusal time is refused and abandoned, never answered", async () => {
-  let abandoned = 0;
-  let opened = 0;
-  const slow: NkHost = {
-    arrive: () => true,
-    admit: async () => {
-      // Synchronous work (or a stalled event loop) past the deadline.
-      const until = performance.now() + NK_REFUSAL_MS + 100;
-      while (performance.now() < until);
-      return {
-        open: () => {
-          opened++;
-        },
-        abandon: () => {
-          abandoned++;
-        },
-      };
-    },
-  };
-  await refusedAfter(slow);
-  expect(abandoned).toBe(1);
-  expect(opened).toBe(0);
 });

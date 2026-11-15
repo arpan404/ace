@@ -77,11 +77,17 @@ export function newClient(
   /** Called each time the connection asks the route for a new transport (a new attempt). */
   onAttempt?: () => void,
 ) {
+  let handed = 0;
+  const waiters: (() => void)[] = [];
   const route = relayRoute({
     relayUrl,
     hostId,
     credential: async () => device.token,
     socket,
+    ticketHanded: () => {
+      handed++;
+      for (const wake of waiters.splice(0)) wake();
+    },
     schedule: (callback, delayMs) => {
       const timer = setTimeout(callback, delayMs);
       return () => clearTimeout(timer);
@@ -118,20 +124,28 @@ export function newClient(
     credential: route.credential,
   });
   cleanup.push(() => client.close());
-  return client;
+  /** Resolves once the route holds its `n`th handed ticket. */
+  const ticketsHanded = async (n: number) => {
+    while (handed < n) await new Promise<void>((resolve) => waiters.push(resolve));
+  };
+  return Object.assign(client, { ticketsHanded });
 }
 
 export function ready(client: Client, after = 0, attempts = () => 0): Promise<void> {
-  return new Promise((resolve, reject) => {
+  // No time limit of its own: the test's timeout is the only one.
+  return new Promise((resolve) => {
     const state = client.connectionState();
-    const timer = setTimeout(() => reject(new Error("Not ready in time")), 15_000);
     const check = () => {
       if (state.getSnapshot() !== "ready" || attempts() <= after) return;
-      clearTimeout(timer);
       stop();
       resolve();
     };
     const stop = state.subscribe(check);
     check();
   });
+}
+
+/** Resolves once `check` holds, looking every 10 ms; the test's timeout is the only limit. */
+export async function eventually(check: () => boolean): Promise<void> {
+  while (!check()) await new Promise((resolve) => setTimeout(resolve, 10));
 }

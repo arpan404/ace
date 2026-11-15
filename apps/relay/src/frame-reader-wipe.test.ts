@@ -146,7 +146,7 @@ it("a forwarded first-flight frame refused by the relay's buffer cap is wiped", 
     },
     undefined,
   );
-  for (let n = 0; n < 10 && !wiped(early); n++)
-    await new Promise((resolve) => setTimeout(resolve, 5));
+  // The forward fails at the cap; waits for its wipe, the test's timeout the only limit.
+  while (!wiped(early)) await new Promise((resolve) => setTimeout(resolve, 5));
   expect(wiped(early)).toBe(true);
 });

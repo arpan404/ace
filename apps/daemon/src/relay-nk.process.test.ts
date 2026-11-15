@@ -5,6 +5,7 @@ import { address, initiate, openPeer, STREAM } from "@ace/relay/testing";
 import { CREDIT_FLAG, NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
 import type { ServerMessage } from "@ace/protocol";
 import { fixture } from "./socket-test-support.ts";
+import { eventually } from "./relay-nk-test-support.ts";
 import { message as itemMessage } from "./payload-test-support.ts";
 
 // A returning client opening its relay stream with Noise NK (ADR 0155, step 2), against the
@@ -211,7 +212,8 @@ it("a session that never confirms is closed after 5 s, having written nothing fo
   })().catch(() => {});
   expect(seen).toContain("welcome");
   expect(seen).not.toContain("snapshot");
-  expect(Date.now() - started).toBeLessThan(6_000);
+  // Closed by the 5 s deadline, never sooner.
+  expect(Date.now() - started).toBeGreaterThanOrEqual(4_500);
   const after = h.f.store.devices.list().find((device) => device.id === h.paired.device.id);
   expect(after?.lastSeenAt).toBe(before?.lastSeenAt);
   expect(h.f.store.viewedThreads()).toEqual([]);
@@ -253,10 +255,8 @@ it("a flood of invalid first messages is refused alike while a confirmed session
   await confirmed?.channel.until("welcome");
   const refusals = await Promise.all(
     Array.from({ length: 24 }, async (_, n) => {
-      const started = Date.now();
       const junk = new Uint8Array(48 + n).map(() => n);
-      const { answer } = await h.answered(junk);
-      return { answer, took: Date.now() - started };
+      return h.answered(junk);
     }),
   );
   expect(refusals.every(({ answer }) => answer === undefined)).toBe(true);
@@ -288,9 +288,9 @@ it("a subscription worth several MiB and a busy live stream produce nothing past
   const reading = (async () => {
     while (!reader.stop) before.push((await opened.channel.receive()).type);
   })();
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  // The welcome has come, and the thread has gone on changing: 30 more events.
+  await eventually(() => before.includes("welcome") && live >= 30);
   clearInterval(writer);
-  expect(live).toBeGreaterThan(20);
   expect(before).toEqual(["welcome"]);
   const sentBefore = opened.channel.received;
   expect(sentBefore).toBeLessThan(256 * 1024);

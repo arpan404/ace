@@ -139,7 +139,7 @@ it("an XX client reaches the same daemon as before", async () => {
   expect([...(await client.next())]).toEqual([1]);
   await initiate(client, STREAM, keyPair(), d.id);
   // The host took it as XX: its channel went to the ordinary handler.
-  for (let n = 0; n < 50 && d.arrived.length === 0; n++)
-    await new Promise((resolve) => setTimeout(resolve, 20));
+  // Waits for it; the test's timeout is the only limit.
+  while (d.arrived.length === 0) await new Promise((resolve) => setTimeout(resolve, 20));
   expect(d.arrived).toHaveLength(1);
 });
