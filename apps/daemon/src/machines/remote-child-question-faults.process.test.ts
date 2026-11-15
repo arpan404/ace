@@ -27,6 +27,11 @@ import {
  * nobody can answer. A real parent engine and store; the other machine played in memory.
  */
 
+const nothing = () => {};
+/** What the person's question says. */
+const titleOf = (ask: { request: object }) =>
+  "title" in ask.request && typeof ask.request.title === "string" ? ask.request.title : "";
+
 /**
  * Writes that can fail: write statements in the store's transactions, and the engine's writes to
  * the parent. When the one failure has run its course (its transaction rolled back, or at once
@@ -38,7 +43,7 @@ function faulty(f: Fixture) {
   /** Transactions open through this store. */
   let depth = 0;
   let unwinding = false;
-  let check = () => {};
+  let check: () => void = nothing;
   let checked = false;
   const inspect = () => {
     checked = true;
@@ -200,7 +205,7 @@ function answerable(lost: Lost, on: MachineChildren) {
  * child state it goes with are both there or neither is. Every open question is the one its child
  * points at, and its child is still one to ask about; an unpaired child has its pairing question
  * and a child that lost contact its own;
- * and while a question is open its parent holds the child, whose row isn't done.
+ * and while a question is open its parent holds the child, whose row is live.
  */
 function inconsistencies(lost: Lost): string[] {
   const { f, parent } = lost;
@@ -221,7 +226,7 @@ function inconsistencies(lost: Lost): string[] {
     if (
       row.settled === 0 &&
       row.lost_at !== null &&
-      !open.some((ask) => ask.id === row.lost_ask && !ask.request.title.startsWith("Lost contact"))
+      !open.some((ask) => ask.id === row.lost_ask && !titleOf(ask).startsWith("Lost contact"))
     )
       problems.push("unpaired child without its pairing question");
   // Its parent's session is live throughout here, so nothing else closes its question.
@@ -230,16 +235,15 @@ function inconsistencies(lost: Lost): string[] {
       questionFate(questionFacts(row)) === "keep" &&
       row.settled === 0 &&
       row.lost_at === null &&
-      !open.some((ask) => ask.id === row.lost_ask && ask.request.title.startsWith("Lost contact"))
+      !open.some((ask) => ask.id === row.lost_ask && titleOf(ask).startsWith("Lost contact"))
     )
       problems.push("child lost contact without its question");
   if (open.length > 0) {
     const view = parentView(f, parent);
     if (!view.holds.some((hold) => hold.status === "running"))
       problems.push("question open while the parent's hold isn't running");
-    const row = view.rows[0];
-    if (row?.kind === "agent" && row.agent.status.state === "done")
-      problems.push("question open while the child's row reads done");
+    if (view.rows[0]?.live !== true)
+      problems.push("question open while the child's row reads finished");
   }
   return problems;
 }
