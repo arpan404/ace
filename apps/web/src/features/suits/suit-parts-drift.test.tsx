@@ -292,7 +292,37 @@ test("the shared overlays and controls name themselves wherever they are used", 
   await waitFor(() => expect(missing(sharedParts)).toEqual([]));
 });
 
+/** Drawn on the Code review pages, walked by features/forge-pages/forge-suit-parts.test.tsx. */
+const codeReviewPages = [
+  "page",
+  "page-header",
+  "page-title",
+  "page-toolbar",
+  "page-body",
+  "page-section",
+  "list",
+  "list-row",
+  "list-group",
+  "card",
+  "filter-bar",
+  "search-field",
+  "avatar",
+  "label-chip",
+  "pr-header",
+  "pr-row",
+  "issue-row",
+  "review-comment",
+  "review-thread",
+  "check-row",
+  "commit-row",
+  "diff-file",
+  "timeline-item",
+  "branch-chip",
+  "merge-box",
+] as const;
+
 const coverage = [
+  codeReviewPages,
   workingThread,
   settledThread,
   approvalScreen,
