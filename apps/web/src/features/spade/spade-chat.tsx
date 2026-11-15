@@ -10,7 +10,6 @@ import {
   type SpadeAvatar,
   type SpadeChatItem,
   type SpadeHelperStep,
-  type SpadeStep,
   type SpadeProposal,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
@@ -20,14 +19,7 @@ import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
-import {
-  BubbleFrame,
-  Failure,
-  FileChips,
-  SpeakerLine,
-  StepsLine,
-  WorkingLine,
-} from "./spade-chat-parts.tsx";
+import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
@@ -52,8 +44,9 @@ export interface ChatBot {
  * face beside them (the pill and the working line carry it); a time line only after a pause or
  * on a new day, a routine's run named in its line; messages other bots sent here under their
  * face and name. Each bubble offers its exact time, Copy and Read aloud on hover or a long
- * press. A reply's steps fold into one line under it; nothing else of how the bot works shows:
- * no tool arguments, jobs, compaction or the notes it saves (ADR 0128). A request
+ * press. Each thing the bot says is a bubble of its own, stacked as a messenger shows several
+ * messages; nothing of how it works shows once it is done:
+ * no steps, tool arguments, jobs, compaction or the notes it saves (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
  * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
@@ -87,8 +80,6 @@ export function SpadeChat(props: {
   onRetry?(text: string): Promise<boolean>;
   /** A helper's own steps, by its job (ADR 0152), for its line to expand to. */
   onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
-  /** A reply's steps in Spade's own words and detail, read when its steps line opens. */
-  onStepWords?(steps: readonly SpadeStep[]): Promise<readonly SpadeStep[]>;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -127,7 +118,6 @@ export function SpadeChat(props: {
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
     onHelperSteps: props.onHelperSteps,
-    onStepWords: props.onStepWords,
   };
   return (
     <div
@@ -192,7 +182,6 @@ interface Handlers {
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
-  onStepWords: ((steps: readonly SpadeStep[]) => Promise<readonly SpadeStep[]>) | undefined;
 }
 
 /**
@@ -351,14 +340,6 @@ function RunItem(props: {
         <div className={chatBubble}>
           <FileChips paths={item.paths} onOpen={handlers.onOpenFile} first />
         </div>
-      );
-    case "steps":
-      return (
-        <StepsLine
-          summary={item.summary}
-          steps={item.steps}
-          readWords={handlers.onStepWords && (() => handlers.onStepWords?.(item.steps))}
-        />
       );
     case "question":
       return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;

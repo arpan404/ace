@@ -106,7 +106,11 @@ const tools: Record<string, ToolWords> = {
     doing: "Looking at a screen",
     done: "Looked at a screen",
   },
-  screen_act: { base: "use an app on the screen", doing: "Using an app", done: "Used an app" },
+  screen_act: {
+    base: "use an app on the screen",
+    doing: "Using an app on the screen",
+    done: "Used an app",
+  },
   screen_apps: { base: "list open apps", doing: "Listing open apps", done: "Listed open apps" },
   browser_open: { base: "open a web page", doing: "Opening a web page", done: "Opened a web page" },
   browser_act: { base: "use a web page", doing: "Using a web page", done: "Used a web page" },

@@ -69,7 +69,7 @@ test("a code block sits in its own well with its language and a Copy of just the
   expect(code.closest("pre")).not.toBeNull();
 });
 
-test("a reply's steps fold into one line under it that opens to each step in Spade's words", async () => {
+test("once a reply ends its steps leave no line in the chat, only its words", async () => {
   await spadeApp("/spade/garden", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -101,37 +101,40 @@ test("a reply's steps fold into one line under it that opens to each step in Spa
         is_error: false,
       }); // 4, 5, 6
     store({ type: "reply_finished", reply: "r1", text: "The beds are fine." });
-    // Spade's log files each call at its result here (none started): the second has no entry.
-    const entry = (seq: number, kind: string, sentence: string, detail: string) => ({
-      id: `${seq}-0`,
-      seq,
-      at: 0,
-      kind,
-      name: "",
-      summary: detail,
-      sentence,
-      detail,
-      outcome: "ok",
-      reply: "r1",
-    });
-    spade.oversight.activity.set("garden", [
-      entry(6, "file", "Wrote a file", "plan.md"),
-      entry(4, "tool", "Ran a command", "ls beds"),
-    ]);
   });
   const chat = within(await feed("Garden"));
-  const line = await chat.findByText("Ran 2 commands, wrote a file");
+  await chat.findByText("The beds are fine.");
+  expect(chat.queryByText(/Ran \d+ commands|wrote a file|Steps/i)).toBeNull();
+  expect(chat.queryByRole("list", { name: "Steps" })).toBeNull();
   // Tool arguments never show in the chat itself.
   expect(chat.queryByText(/ls beds|plan\.md/)).toBeNull();
-  await userEvent.click(line);
-  const steps = within(await chat.findByRole("list", { name: "Steps" }));
-  await steps.findByText("ls beds");
-  expect(steps.getAllByRole("listitem").map((step) => step.textContent)).toEqual([
-    "Ran a commandls beds",
-    // Not in the log: the chat's own words.
-    "Ran a command",
-    "Wrote a fileplan.md",
-  ]);
+});
+
+test("the working line says what a tool does in plain words, not its raw name", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+  });
+  const main = spade.agents[0];
+  if (!main) throw new Error("no Spade");
+  await feed("Spade");
+  spade.store(main.conversation, { type: "reply_started", reply: "r1" });
+  spade.store(main.conversation, {
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [{ id: "k1", name: "screen_act" }],
+  });
+  spade.store(main.conversation, {
+    type: "tool_started",
+    reply: "r1",
+    call_id: "k1",
+    name: "screen_act",
+  });
+  spade.status(main, "working", "Using screen act");
+  const line = await screen.findByRole("status", { name: "" });
+  await waitFor(() => expect(line.textContent).toContain("Using an app on the screen"));
+  expect(line.textContent).not.toContain("screen act");
 });
 
 test("another bot's run shows its name and face once, above its first message", async () => {

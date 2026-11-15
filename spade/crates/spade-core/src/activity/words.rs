@@ -217,7 +217,7 @@ const TOOLS: &[(&str, &str, &str, &str)] = &[
     (
         "screen_act",
         "use an app on the screen",
-        "Using an app",
+        "Using an app on the screen",
         "Used an app",
     ),
     (

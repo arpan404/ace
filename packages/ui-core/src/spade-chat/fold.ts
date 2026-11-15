@@ -56,7 +56,7 @@ export type SpadeReplyPart =
       /**
        * The `seq` of the event Spade's activity log files this call under: its `tool_started`,
        * else the `tool_finished` of a call that never started. Joins it to its sentence and
-       * detail there (`spadeStepsWithActivity`).
+       * detail there.
        */
       logged?: number;
     }

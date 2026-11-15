@@ -221,7 +221,8 @@ pub fn tool_status(tool: &str, bot: Option<&str>) -> String {
             Some(name) => format!("Asking {name}"),
             None => "Asking another bot".to_owned(),
         },
-        other => format!("Using {}", other.replace(['_', '-'], " ")),
+        // The same plain words the activity log uses ("Using an app on the screen").
+        other => spade_core::activity::words::tool_words(other).doing,
     }
 }
 
