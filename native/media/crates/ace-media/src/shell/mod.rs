@@ -245,6 +245,7 @@ async fn serve(
     let (media_tx, mut media_rx) = mpsc::channel(256);
     viewers::serve(media_listener, media_tx);
     let mut outboxes = viewers::Outboxes::default();
+    let mut hellos = viewers::Hellos::default();
 
     let (normal_tx, mut normal_rx) = mpsc::channel(4);
     tokio::spawn(async move {
@@ -393,12 +394,10 @@ async fn serve(
             Some(outcome) = still_rx.recv() => engine.still_finished(outcome),
             Some(event) = media_rx.recv() => match event {
                 viewers::MediaEvent::Hello { ticket, outbox, admit } => {
-                    let opened = engine.claim_ticket(&ticket[..], clock.now());
-                    drop(ticket);
-                    if let Some(connection) = &opened {
-                        outboxes.insert(connection.get().to_owned(), outbox);
-                    }
-                    let _ = admit.send(opened.map(|c| c.get().to_owned()));
+                    let now = clock.now();
+                    let mut claim =
+                        |t: &[u8]| engine.claim_ticket(t, now).map(|c| c.get().to_owned());
+                    hellos.present(ticket, outbox, admit, &mut claim, &mut outboxes);
                 }
                 viewers::MediaEvent::Text(connection, text) => {
                     engine.media_message(&connection, &text, clock.now());
@@ -413,6 +412,11 @@ async fn serve(
                 engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
                 engine.tick(now);
             }
+        }
+        {
+            let now = clock.now();
+            let mut claim = |t: &[u8]| engine.claim_ticket(t, now).map(|c| c.get().to_owned());
+            hellos.retry(&mut claim, &mut outboxes);
         }
         let mut outputs = Outputs {
             stdout: &stdout,

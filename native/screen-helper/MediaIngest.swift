@@ -228,7 +228,7 @@ final class IngestWriter {
 
 /// Where a producer's video units go: the daemon's socket (`legacy`) or ace-media's ingest. The
 /// route is read and each unit written under one lock, so a switch has an exact boundary: the
-/// sequence of the last unit the previous path took. The route owns its writers.
+/// sequence of the last video unit the previous path took (stills never count). The route owns its writers.
 final class IngestRoute {
     private let lock = NSLock()
     /// Writes one unit to the daemon's socket.
@@ -291,10 +291,12 @@ final class IngestRoute {
         }
     }
 
-    /// Runs `write` (a still on the daemon's socket) under the route's lock, as unit `sequence`.
-    func legacyStill(_ sequence: UInt64, _ write: () -> Void) {
+    /// Runs `write` (a still on the daemon's socket) under the route's lock, so it is ordered
+    /// with the switches around it. It never moves the boundary: the daemon compares a boundary
+    /// with video sequences only, so the boundary is the last video unit the path took.
+    func legacyStill(_ write: () -> Void) {
         lock.lock(); defer { lock.unlock() }
-        write(); lastLegacy = sequence
+        write()
     }
 
     /// Sends to ace-media at `socket` with `token` from now on (or the daemon's socket for nil).

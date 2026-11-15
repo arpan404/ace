@@ -5,7 +5,8 @@ import SwiftUI
 /// first part go, Show earlier reads back. Find searches the whole file a page at a time without
 /// holding it (`LargeFileFind`) and jumps the shown parts to each match. Share saves the whole file
 /// to the phone however big it is. A thread's file can be edited a part at a time: each part
-/// opens on its own and saves over the bytes it was read from.
+/// opens on its own and saves over the bytes it was read from. Lines changed since the last
+/// commit carry the source view's bars: green at the gutter's edge, a red rule above a removal.
 struct LargeFileView: View {
     let model: ClientModel
     let scope: FilesScope
@@ -13,6 +14,8 @@ struct LargeFileView: View {
     let size: Int?
     /// Parts can be edited and saved (a thread's file, on a pairing that may change it).
     var editable = false
+    /// Lines changed since the last commit, by 1-based line: "added", "modified" or "removed".
+    var marks: [Int: String] = [:]
     @AppStorage("files.wrap") private var wrap = false
     @State private var reading = LargeFileText()
     @State private var loading = false
@@ -162,9 +165,17 @@ struct LargeFileView: View {
         // A CRLF line keeps its `\r` for saving; it isn't drawn.
         let drawn = text.unicodeScalars.last == "\r" ? String(text.unicodeScalars.dropLast()) : text
         let hit = !query.isEmpty && drawn.range(of: query, options: .caseInsensitive) != nil
+        let mark = marks[number + 1]
         return HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.md) {
             Text("\(number + 1)").foregroundStyle(AceTheme.Colours.decoration)
                 .frame(minWidth: FileDiffStyle.gutter, alignment: .trailing)
+                .padding(.trailing, AceTheme.Spacing.xs)
+                .overlay(alignment: .trailing) {
+                    if mark == "added" || mark == "modified" {
+                        Rectangle().fill(AceTheme.StatusText.done).frame(width: FileDiffStyle.bar)
+                    }
+                }
+                .accessibilityValue(mark.flatMap(LineMark.words) ?? "")
             Text(drawn.isEmpty ? " " : drawn).foregroundStyle(AceTheme.Colours.foreground)
                 .lineLimit(wrap ? nil : 1).fixedSize(horizontal: !wrap, vertical: true)
         }
@@ -175,6 +186,9 @@ struct LargeFileView: View {
         .background(shown?.line == number ? AceDesign.Surface.lineHighlight : .clear)
         .overlay(alignment: .leading) {
             if hit { Rectangle().fill(AceTheme.Colours.accent).frame(width: AceTheme.Spacing.xxs) }
+        }
+        .overlay(alignment: .top) {
+            if mark == "removed" { Rectangle().fill(AceTheme.StatusText.failed).frame(height: AceDesign.Size.rail) }
         }
     }
 

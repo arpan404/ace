@@ -85,7 +85,8 @@ export class StderrLog {
 
   push(chunk: Uint8Array): void {
     const lines = (this.#partial + this.#decoder.decode(chunk, { stream: true })).split("\n");
-    this.#partial = lines.pop() ?? "";
+    // Only the first 4 KiB of a line is ever kept, so an unended line holds no more than that.
+    this.#partial = (lines.pop() ?? "").slice(0, maxLine);
     for (const line of lines) this.#line(line.slice(0, maxLine));
   }
 

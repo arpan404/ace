@@ -1,8 +1,8 @@
 import XCTest
 
 /// The thread's terminal against the fixture shell (`packages/fake-daemon` terminal programs):
-/// a colour chart, a full-screen program driven by keys, a fast flood of output with Find, and
-/// ending the session. `ACE_IOS_SHOTS` (a folder) keeps each screen as a PNG.
+/// a colour chart, a full-screen program driven by keys, a fast flood of output with Find,
+/// sharing the raw log, and ending the session. `ACE_IOS_SHOTS` (a folder) keeps each screen as a PNG.
 @MainActor final class TerminalUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
@@ -31,18 +31,31 @@ import XCTest
         XCTAssertTrue(screen(output, contains: "inverse"), "leaving top brings the shell's screen back")
 
         input.typeText("flood 3000\n")
-        XCTAssertTrue(screen(output, contains: "module-3000.ts"))
+        // A narrow phone wraps each line after "module-N.", so look for what fits one row.
+        XCTAssertTrue(screen(output, contains: "module-3000"))
         capture("flood")
 
         app.buttons["terminal.find"].tap()
         let field = app.textFields["terminal.find.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.typeText("module-2990.ts")
+        field.typeText("module-2990")
         let count = app.staticTexts["terminal.find.count"]
         XCTAssertTrue(count.waitForExistence(timeout: 5))
         wait(for: [expectation(for: NSPredicate(format: "label == '1 of 1'"), evaluatedWith: count)], timeout: 10)
         capture("find")
         app.buttons["terminal.find.done"].tap()
+
+        // The raw log, escapes and all, goes to the share sheet as a .log file.
+        app.buttons["terminal.more"].tap()
+        let shareLog = app.buttons["terminal.shareLog"]
+        XCTAssertTrue(shareLog.waitForExistence(timeout: 5))
+        shareLog.tap()
+        let sheet = app.otherElements["ActivityListView"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 10), "the share sheet opens with the log")
+        capture("share-log")
+        let close = app.buttons.matching(NSPredicate(format: "label == 'Close'")).firstMatch
+        if close.waitForExistence(timeout: 3) { close.tap() } else { sheet.swipeDown(velocity: .fast) }
+        XCTAssertTrue(app.buttons["terminal.more"].waitForExistence(timeout: 10))
 
         app.buttons["terminal.more"].tap()
         XCTAssertTrue(app.buttons["End session"].waitForExistence(timeout: 5))
@@ -68,9 +81,14 @@ import XCTest
         let start = app.buttons["Open a terminal"]
         if start.waitForExistence(timeout: 10) { start.tap() }
     }
-    /// The surface's accessibility value is the text on screen.
+    /// The surface's accessibility value is the text on screen, a row per line: a line the screen
+    /// wrapped still counts, read with the rows joined.
     private func screen(_ output: XCUIElement, contains text: String) -> Bool {
-        let shown = expectation(for: NSPredicate(format: "value CONTAINS %@", text), evaluatedWith: output)
+        let joined = NSPredicate { element, _ in
+            guard let value = (element as? XCUIElement)?.value as? String else { return false }
+            return value.replacingOccurrences(of: "\n", with: "").contains(text)
+        }
+        let shown = expectation(for: joined, evaluatedWith: output)
         return XCTWaiter.wait(for: [shown], timeout: 15) == .completed
     }
     private func launch() -> XCUIApplication {
