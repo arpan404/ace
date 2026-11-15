@@ -16,6 +16,8 @@ export interface StreamChannel {
   ack(picture: SourcePicture, keyframe?: boolean): void;
   /** The view of `source` couldn't decode `codec`: that stream alone asks again without it. */
   fallBack(source: string, codec: string): boolean;
+  /** Whether `picture` is of its source's current subscribe. */
+  current(picture: SourcePicture): boolean;
   watchDeliveries(listener: (state: DeliveryState) => void): () => void;
 }
 
@@ -70,8 +72,12 @@ export class HeldStreams {
   ): void {
     this.#channel.ack(decoded(source, streamId, sequence, generation), keyframe);
   }
-  /** Swift's decoder couldn't play `codec` for `source`: that stream asks again without it. */
-  fallBack(source: string, codec: string): void {
+  /**
+   * Swift's decoder couldn't play `codec` for `source`: that stream asks again without it, unless
+   * the failure was in the decoder of an earlier delivery (`generation`), which says nothing now.
+   */
+  fallBack(source: string, codec: string, generation?: number): void {
+    if (!this.#channel.current(decoded(source, "", 0, generation))) return;
     this.#channel.fallBack(source, codec);
   }
 }

@@ -1,4 +1,5 @@
-import "./test-host.ts";
+import { host } from "./test-host.ts";
+import { ClientError } from "@ace/client";
 import type { DeliveryState, MediaRoute } from "@ace/browser/live-view";
 import type { MediaStreamClientMessage } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
@@ -143,4 +144,53 @@ test("after a rebind, an ack stamped with the old delivery goes nowhere", async 
   expect(sent).toEqual([]);
   view.action({ kind: "ack", sequence: 1, generation: delivered() });
   expect(media.carried).toEqual([expect.objectContaining({ sequence: 1 })]);
+});
+
+test("a subscribe that fails after the view's retry fired is settled and asked again", async () => {
+  const media = connection();
+  media.bind("mc_aaaaaaaa");
+  const browser = await live({ media: "hangs" });
+  const deliveries: DeliveryState[] = [];
+  browser.view.useMedia(media.route, (_view, state) => deliveries.push(state));
+  browser.view.action({ kind: "open", threadId: "web", viewport });
+  await until(() => browser.hanging.length === 1, "a subscribe left waiting");
+  // The view's retry (every 5 s) fires while that subscribe is still out: it sends nothing more.
+  browser.elapse(5_000);
+  expect(subscribes(browser.requested)).toHaveLength(1);
+  expect(deliveries.at(-1)?.path).toBeUndefined();
+
+  browser.hanging[0]?.(new ClientError("offline"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Swift stops holding pictures for it, and the view asks again.
+  expect(deliveries.at(-1)?.path).toBe("channel");
+  // On the shared ladder: its first wait is a second.
+  browser.elapse(1_000);
+  await until(() => subscribes(browser.requested).length === 2, "the subscribe asked again");
+});
+
+test("a decoder failure from before a resubscribe doesn't drop the view to H.264", async () => {
+  Object.assign(host, { video: { decoders: () => ["hvc1.1.6.L153.B0", "avc1.42E033"] } });
+  try {
+    const { requested, view, media, delivered } = await opened("mc_aaaaaaaa");
+    const before = delivered();
+    media.bind("mc_bbbbbbbb");
+    await until(() => subscribes(requested).length === 2, "resubscribe");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // HEVC failed in the decoder of the earlier subscribe; its report arrives late.
+    view.action({ kind: "ack", sequence: 9, keyframe: true, fallback: true, generation: before });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(subscribes(requested)).toHaveLength(2);
+    // The current subscribe's decoder failing still falls back.
+    view.action({
+      kind: "ack",
+      sequence: 1,
+      keyframe: true,
+      fallback: true,
+      generation: delivered(),
+    });
+    await until(() => subscribes(requested).length === 3, "H.264 subscribe");
+    expect(requested.at(-1)).toMatchObject({ video: { codecs: ["avc1.42E033"] } });
+  } finally {
+    Reflect.deleteProperty(host, "video");
+  }
 });

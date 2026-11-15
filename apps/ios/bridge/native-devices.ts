@@ -222,7 +222,8 @@ export class NativeDevices {
           action.keyframe === true,
           action.generation,
         );
-        if (action.fallback) this.#streams.fallBack(action.deviceId, action.codec ?? "hvc1");
+        if (action.fallback)
+          this.#streams.fallBack(action.deviceId, action.codec ?? "hvc1", action.generation);
         return;
       case "native.devices.unwatch":
         this.#streams.release(action.deviceId);

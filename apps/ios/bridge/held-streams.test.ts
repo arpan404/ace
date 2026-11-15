@@ -199,3 +199,21 @@ test("a reply's poster reaches Swift with its own subscribe's delivery, never a 
   expect(withPosters.map((delivery) => delivery.generation)).toEqual([latest]);
   expect(withPosters[0]).toMatchObject({ source: "app", path: "mc_aaaaaaaa" });
 });
+
+test("a decoder failure from before a rebind leaves the app's codecs alone", async () => {
+  const app = phone("mc_aaaaaaaa", true);
+  app.streams.hold("app");
+  await settle();
+  const before = app.deliveries.at(-1)?.generation;
+  app.move("mc_bbbbbbbb");
+  await settle();
+  const count = app.subscribes().length;
+  // HEVC failed in the decoder of the earlier delivery; its report arrives late.
+  app.streams.fallBack("app", "hvc1.1.6.L153.B0", before);
+  await settle();
+  expect(app.subscribes()).toHaveLength(count);
+  // The current delivery's decoder failing still moves it to H.264.
+  app.streams.fallBack("app", "hvc1.1.6.L153.B0", app.deliveries.at(-1)?.generation);
+  await settle();
+  expect(app.subscribes().at(-1)).toMatchObject({ codecs: ["avc1.42E033"] });
+});

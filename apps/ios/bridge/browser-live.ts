@@ -1,6 +1,12 @@
 import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
-import { MediaSubscriptions, type DeliveryState, type MediaRoute } from "@ace/browser/live-view";
+import {
+  MediaSubscriptions,
+  mediaRetryCooldownMs,
+  mediaSubscribeDeadlineMs,
+  type DeliveryState,
+  type MediaRoute,
+} from "@ace/browser/live-view";
 import {
   BrowserCaptureViewport,
   BrowserInput,
@@ -484,6 +490,9 @@ export class BrowserLive {
         // Each ack goes the way its picture's delivery came (Swift stamps the generation it was
         // delivered for): the media connection, the main socket, or nowhere once it is stale.
         const way = this.#media.way(watch.threadId, action.generation);
+        // A picture of an earlier subscribe (another thread's, or this one's before it subscribed
+        // again): neither its ack nor its decoder's failure says anything about this view now.
+        if (way === "stale") return true;
         if (way === "media") this.#media.route?.ack(ack);
         else if (way === "channel")
           try {
@@ -539,6 +548,20 @@ export class BrowserLive {
     const begun = this.#media.begin(watch.threadId);
     const { media } = begun.fields;
     let refused = false;
+    /** When the shared ladder says to ask again after a failure: its delay. */
+    let retryAfter: number | undefined;
+    const failed = (error: unknown) => {
+      const next = this.#media.failed(watch.threadId, begun.generation, error);
+      if (next === "resubscribe") refused = true;
+      else if (next === "retry") retryAfter = this.#retryDelay(watch.threadId);
+    };
+    // No answer in time: the thread stops waiting on the media connection (a late reply still
+    // settles it), so Swift stops holding its pictures.
+    const deadline = media
+      ? this.#schedule(mediaSubscribeDeadlineMs, () =>
+          this.#media.abandon(watch.threadId, begun.generation),
+        )
+      : undefined;
     void this.#owner
       .request({
         type: "browser.subscribe",
@@ -553,13 +576,10 @@ export class BrowserLive {
         (reply) => {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
-            // A connection the daemon won't bind for this view: it goes on the main socket. Any
-            // other failure falls back as the shared client says, and the view's retry asks again.
-            const error = new Error(reply.error ?? "");
-            if (this.#media.failed(watch.threadId, begun.generation, error) === "resubscribe") {
-              refused = true;
-              return;
-            }
+            // A connection the daemon won't bind for this view goes on the main socket; any other
+            // failure falls back as the shared client says, and is asked again on its ladder.
+            failed(new Error(reply.error ?? ""));
+            if (refused) return;
             watch.error = reply.error ?? "browser_failed";
             this.#putView(watch);
             return;
@@ -575,17 +595,36 @@ export class BrowserLive {
           // A size reported while the subscribe was on its way.
           if (generation === watch.generation) this.#putView(watch);
         },
-        () => {},
+        // Lost on its way (offline, timed out): settled or restored as the shared client says.
+        (error: unknown) => {
+          if (this.#watch === watch) failed(error);
+        },
       )
       .finally(() => {
+        deadline?.();
         watch.subscribing = false;
         // The binding moved while this subscribe was on its way, or the daemon refused it.
         const moved = binding !== this.#media.route?.binding()?.connection;
         if (h264Only !== this.#h264Only || ((moved || refused) && this.#watch === watch)) {
           watch.subscribed = false;
           this.#subscribe(watch);
+        } else if (this.#watch === watch && !watch.subscribed) {
+          // Not subscribed and nothing else on its way (the view's own retry may have fired while
+          // this one was out): ask again on the shared ladder, or the view's usual pace.
+          watch.retry?.();
+          watch.retry = this.#schedule(retryAfter ?? retryMs, () => {
+            watch.retry = undefined;
+            this.#subscribe(watch);
+          });
         }
       });
+  }
+  /** The shared ladder's next wait; once spent, the connection isn't named for a while. */
+  #retryDelay(threadId: string): number {
+    const delay = this.#media.retryDelay(threadId);
+    if (delay !== undefined) return delay;
+    this.#media.giveUp(threadId);
+    return mediaRetryCooldownMs;
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */
   /**

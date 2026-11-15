@@ -104,7 +104,8 @@ export class NativeScreen {
         action.keyframe === true,
         action.generation,
       );
-      if (action.fallback) this.#streams.fallBack(action.sessionId, action.codec ?? "hvc1");
+      if (action.fallback)
+        this.#streams.fallBack(action.sessionId, action.codec ?? "hvc1", action.generation);
     } else if (action.type === "native.screen.unwatch") {
       this.#streams.release(action.sessionId);
     } else if (this.client.getSnapshot().connected) {

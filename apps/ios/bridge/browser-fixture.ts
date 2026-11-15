@@ -28,9 +28,10 @@ export async function liveBrowser(
     /**
      * How the daemon answers a subscribe naming a media connection (ADR 0147 §4): `binds` says
      * so in its reply, `refuses` refuses it as another session's, and by default it serves the
-     * view on the main socket as the fake daemon does.
+     * view on the main socket as the fake daemon does. `hangs`: its request waits until the test
+     * fails it (`hanging`), as a lost connection would.
      */
-    media?: "binds" | "refuses";
+    media?: "binds" | "refuses" | "hangs";
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
     context?: Pick<
       BrowserThreadContext,
@@ -46,6 +47,8 @@ export async function liveBrowser(
   const listeners = new Set<(message: ServerMessage) => void>();
   const sent: unknown[] = [];
   const requested: unknown[] = [];
+  /** Subscribes left waiting (`media: "hangs"`): each fails its request when called. */
+  const hanging: ((error: Error) => void)[] = [];
   const owner: BrowserOwner = {
     request: ((message, requestOptions) => {
       requested.push(message);
@@ -57,6 +60,8 @@ export async function liveBrowser(
           ok: false,
           error: "media-connection: that media connection isn't this session's",
         });
+      if (named && options.media === "hangs")
+        return new Promise((_resolve, reject) => void hanging.push(reject));
       const reply = client.request(message, requestOptions);
       if (!named || options.media !== "binds") return reply;
       return reply.then((value) => ({ ...value, media: { connection: named.connection } }));
@@ -82,6 +87,8 @@ export async function liveBrowser(
   };
   const sink = new RecordingSink();
   const scheduled: (() => void)[] = [];
+  /** Each scheduled callback's delay, for a test to run only the timers it means. */
+  const delays = new Map<() => void, number>();
   let now = 1_000;
   const context: BrowserThreadContext = {
     agentName: (_threadId, agentId) => (agentId && options.names?.[agentId]) || "An agent",
@@ -95,8 +102,9 @@ export async function liveBrowser(
     owner,
     sink,
     plainPreview,
-    (_delay, callback) => {
+    (delay, callback) => {
       scheduled.push(callback);
+      delays.set(callback, delay);
       return () => {
         const index = scheduled.indexOf(callback);
         if (index >= 0) scheduled.splice(index, 1);
@@ -110,5 +118,12 @@ export async function liveBrowser(
     const page = BrowserPageMessage.parse(message);
     for (const listener of listeners) listener(page);
   };
-  return { daemon, client, sink, view, sent, requested, push, scheduled };
+  /** Runs the scheduled callbacks of `delay` ms, as if that long passed for them alone. */
+  const elapse = (delay: number) => {
+    for (const run of scheduled.filter((callback) => delays.get(callback) === delay)) {
+      scheduled.splice(scheduled.indexOf(run), 1);
+      run();
+    }
+  };
+  return { daemon, client, sink, view, sent, requested, push, scheduled, hanging, elapse };
 }
