@@ -321,3 +321,22 @@ test("an agent's automation with the same id doesn't hide the person's webhook",
     await f.daemon.close();
   }
 });
+
+test("a webhook past 60 new deliveries a minute is told to retry later, with no run", async () => {
+  const { f, app, webhook, runs } = await setUp();
+  try {
+    await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    const made = await webhook("rotate", "rotate");
+    const send = (id: string) =>
+      deliver(f.daemon, () => f.h.clock.now(), hookIdOf(made), made.secret ?? "", { id });
+    for (let i = 1; i <= 60; i++) expect((await send(`evt_${i}`)).status).toBe(202);
+    const over = await send("evt_61");
+    expect(over.status).toBe(429);
+    expect(over.headers.get("retry-after")).toBe("60");
+    expect((await runs()).some((run) => run.eventKey === "webhook:evt_61")).toBe(false);
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});

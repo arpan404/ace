@@ -17,6 +17,7 @@ import type {
 } from "@ace/protocol";
 import type { ReachFacts } from "./external-mcp/reach.ts";
 import { unreachable } from "./external-mcp/reach.ts";
+import { RateLimit } from "./external-mcp/oauth/rate-limit.ts";
 import type { RelayHttpHandler } from "./relay-http.ts";
 import type { ServiceContext } from "./services/types.ts";
 
@@ -32,6 +33,8 @@ export interface AutomationWebhookService {
 }
 
 const setting = "remote.relayWebhooks";
+/** New deliveries each webhook starts runs for, per minute. */
+export const webhookRate = { limit: 60, windowMs: 60_000, keys: 2048 };
 export const hooksPath = "/hooks/";
 /** Until the server listens, nothing reaches this machine from outside. */
 const noReach = (): ReachFacts => unreachable;
@@ -47,9 +50,17 @@ export async function startAutomationWebhooks(
   store: AutomationStore,
   service: AutomationService,
 ): Promise<AutomationWebhookService> {
-  const deps = { now: context.now, randomBytes: (size: number) => randomBytes(size) };
+  // Each store has its own ids, so each has its own limit (ADR 0158, decision 10).
+  const deps = () => {
+    const limit = new RateLimit({ ...webhookRate, now: context.now });
+    return {
+      now: context.now,
+      randomBytes: (size: number) => randomBytes(size),
+      allow: (automationId: string) => limit.allow(automationId),
+    };
+  };
   const person: Source = {
-    webhooks: new AutomationWebhooks(store, service, deps),
+    webhooks: new AutomationWebhooks(store, service, deps()),
     live: () => true,
   };
   // Agent control may start after this; its store is looked up per request.
@@ -60,7 +71,7 @@ export async function startAutomationWebhooks(
       agents = {
         store: current.store,
         source: {
-          webhooks: new AutomationWebhooks(current.store, current.service, deps),
+          webhooks: new AutomationWebhooks(current.store, current.service, deps()),
           live: current.live,
         },
       };
@@ -149,6 +160,10 @@ export async function startAutomationWebhooks(
 function answer(status: number, body: object): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      ...(status === 429 ? { "retry-after": String(webhookRate.windowMs / 1000) } : {}),
+    },
   });
 }

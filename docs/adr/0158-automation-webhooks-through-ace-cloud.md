@@ -105,6 +105,7 @@ restart.
    | No signature matches                                  | 401    | `bad_signature`          |
    | Body not JSON, or over a depth, count or length limit | 422    | `bad_body`               |
    | Automation turned off                                 | 409    | `disabled`               |
+   | Over the webhook's limit of new deliveries            | 429    | `rate_limited`           |
    | Automation service not running                        | 503    | `unavailable`            |
 
    Checks run in this order, so a caller without the secret learns only whether the hook exists.
@@ -118,6 +119,10 @@ restart.
    default; an access the person picks is kept. An agent's webhook automation runs in its
    thread, at that thread's access: the person sees that when they make its secret.
 
+10. **Each webhook starts at most 60 new runs a minute.** Counted after the signature verifies,
+    so someone who knows the URL but not the secret can't spend a real sender's room. Over the
+    limit is 429 with `retry-after`; a delivery already admitted still gets its run back.
+
 ## Consequences
 
 - Senders that speak Standard Webhooks work without custom code. GitHub's own webhooks sign
@@ -125,12 +130,12 @@ restart.
   trigger still covers them.
 - ace cloud sees webhook bodies in plain text, as it does outside MCP traffic (ADR 0122). It
   never sees the secret.
-- Anyone with the secret can put text into an agent's prompt, with the access the automation
-  runs at. The person chooses which fields the prompt uses. The Automations screen says so when
-  it shows the secret.
+- Anyone with the secret can still put text into an agent's prompt. Decision 9 marks it and
+  starts webhook automations read-only by default, but a person who picks a wider access, or an
+  agent's thread running at its own, gives that text the same reach. The Automations screen says
+  so when it shows the secret.
 - Concurrency, connection count, header size and timeouts are bounded by ace cloud's per-host
-  limits and the relay host's `maxConcurrent`. Admission is one SQLite transaction, so the
-  handler adds no limit of its own.
+  limits and the relay host's `maxConcurrent`; decision 10 bounds the runs each webhook starts.
 - Clients older than this change see a `trigger.kind` they don't know. Protocol v1 allows wider
   types (docs/protocol/README.md), and the generated schema is updated with it.
 

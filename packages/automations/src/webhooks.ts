@@ -18,6 +18,7 @@ export type WebhookError =
   | "bad_signature"
   | "bad_body"
   | "disabled"
+  | "rate_limited"
   | "unavailable";
 export type WebhookAnswer =
   | { status: 202; body: { runId: string } }
@@ -33,13 +34,22 @@ const statuses: Record<WebhookError, number> = {
   bad_signature: 401,
   bad_body: 422,
   disabled: 409,
+  rate_limited: 429,
   unavailable: 503,
 };
 const refuse = (error: WebhookError, message?: string): WebhookAnswer => ({
   status: statuses[error],
   body: message === undefined ? { error } : { error, message },
 });
-export type WebhookDependencies = { now(): number; randomBytes(size: number): Uint8Array };
+export type WebhookDependencies = {
+  now(): number;
+  randomBytes(size: number): Uint8Array;
+  /**
+   * Counts one new delivery for the automation; false when it is over its limit. Asked only
+   * after the signature verifies, so a caller without the secret can't spend a sender's room.
+   */
+  allow?(automationId: string): boolean;
+};
 /** A hook id in a URL: 128 bits in lowercase hex. */
 export const hookIdPattern = /^[0-9a-f]{32}$/;
 const json = /^application\/json\s*(;|$)/i;
@@ -108,6 +118,7 @@ export class AutomationWebhooks {
     const eventKey = `webhook:${headers.headers.id}`;
     const earlier = this.store.webhooks.delivered(automation.id, eventKey);
     if (earlier !== undefined) return { status: 202, body: { runId: earlier } };
+    if (this.deps.allow && !this.deps.allow(automation.id)) return refuse("rate_limited");
     try {
       const run = this.service.trigger(
         automation.id,

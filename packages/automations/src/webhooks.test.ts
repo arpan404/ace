@@ -143,6 +143,27 @@ describe("webhook automations", () => {
     expect(webhooks().receive(hookId, signed(secret))).toMatchObject({ status: 409 });
   });
 
+  it("over its limit, a webhook refuses new deliveries but still answers known ones", () => {
+    const h = harness();
+    h.now = start;
+    h.service.put(definition({ id: "deploy", trigger: { kind: "webhook" }, prompt: "Go" }));
+    let room = 1;
+    const limited = new AutomationWebhooks(h.store, h.service, {
+      now: () => start,
+      randomBytes: bytes,
+      allow: (automationId) => automationId === "deploy" && room-- > 0,
+    });
+    const { hookId, secret } = limited.rotate("deploy");
+    const first = limited.receive(hookId, signed(secret));
+    expect(first.status).toBe(202);
+    expect(limited.receive(hookId, signed(secret, { id: "evt_2" }))).toMatchObject({
+      status: 429,
+      body: { error: "rate_limited" },
+    });
+    expect(limited.receive(hookId, signed(secret)).body).toEqual(first.body);
+    expect(h.service.inbox().runs).toHaveLength(1);
+  });
+
   it("refuses each kind of bad request with its own status and starts no run", () => {
     const { h, webhooks } = setup();
     const { hookId, secret } = webhooks().rotate("deploy");
