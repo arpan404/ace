@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { QuestionInputs } from "./spade-question-inputs.tsx";
+import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 
 type Card = Extract<SpadeBubble, { kind: "question" }>;
 
@@ -92,7 +93,7 @@ export function SpadeQuestionBubble(props: {
           // Questions keep their place in the card; the bot gives no other identity.
           // eslint-disable-next-line react/no-array-index-key
           <li key={at} className="min-w-0">
-            <p className="whitespace-pre-wrap">{question.prompt}</p>
+            <SpadeBubbleText text={question.prompt} />
             {open ? (
               <QuestionInputs
                 question={question}
