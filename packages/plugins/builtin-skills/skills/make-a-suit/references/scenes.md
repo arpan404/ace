@@ -46,7 +46,7 @@ ace.scene({
 });
 ```
 
-Arcade Cabinet's `stage-clear.js` is a complete one.
+The example above is a complete celebration: draw each frame, then `ace.finish()` when it is done.
 
 ## The sandbox
 

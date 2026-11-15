@@ -32,37 +32,6 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
     );
     expect(manifest.id).toBe(id);
   }
-  // A Suit's scene, styles, ornaments, sprites and bundled fonts are copied with it.
-  const arcade = join(library, "arcade-cabinet");
-  expect(await readFile(join(arcade, "scene.js"), "utf8")).toContain("ace.scene(");
-  expect(await readFile(join(arcade, "suit.css"), "utf8")).toContain("[data-part=");
-  expect(await readdir(join(arcade, "assets", "ornaments"))).toContain("title-plate.svg");
-  expect(await readdir(join(arcade, "assets", "fonts"))).toContain("Silkscreen-OFL.txt");
-  const journal = join(library, "quest-journal");
-  expect(await readFile(join(journal, "celebration.js"), "utf8")).toContain("ace.scene(");
-  expect(await readdir(join(journal, "assets", "fonts"))).toEqual(
-    expect.arrayContaining(["Alegreya-OFL.txt", "Almendra-OFL.txt"]),
-  );
-  const atelier = join(library, "atelier-noir");
-  expect(await readFile(join(atelier, "celebration.js"), "utf8")).toContain("ace.scene(");
-  expect(await readdir(join(atelier, "assets", "fonts"))).toEqual(
-    expect.arrayContaining(["BodoniModa-OFL.txt", "Newsreader-OFL.txt", "InstrumentSans-OFL.txt"]),
-  );
-  const field = join(library, "field-journal");
-  expect(await readFile(join(field, "celebration.js"), "utf8")).toContain("ace.scene(");
-  expect(await readdir(join(field, "assets", "fonts"))).toEqual(
-    expect.arrayContaining(["Caveat-OFL.txt", "Alegreya-OFL.txt", "AlegreyaSans-OFL.txt"]),
-  );
-  const bridge = join(library, "starship-bridge");
-  expect(await readFile(join(bridge, "celebration.js"), "utf8")).toContain("ace.finish()");
-  expect(await readdir(join(bridge, "assets", "fonts"))).toEqual(
-    expect.arrayContaining(["ChakraPetch-OFL.txt", "JetBrainsMono-OFL.txt"]),
-  );
-  const glasshouse = join(library, "glasshouse");
-  expect(await readFile(join(glasshouse, "celebration.js"), "utf8")).toContain("ace.scene(");
-  expect(await readdir(join(glasshouse, "assets", "fonts"))).toEqual(
-    expect.arrayContaining(["Manrope.ttf", "Manrope-OFL.txt"]),
-  );
 });
 
 it("a library that already exists is left as the person made it, even with a shipped Suit removed", async () => {

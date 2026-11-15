@@ -10,13 +10,13 @@ afterEach(() => {
     root.removeAttribute(name);
 });
 
-/** Arcade Cabinet as the daemon serves it over one socket's grant, at one version. */
-const arcade = (grant: string, contentHash = "hash-1"): SuitDetail => ({
+/** A Suit as the daemon serves it over one socket's grant, at one version. */
+const sample = (grant: string, contentHash = "hash-1"): SuitDetail => ({
   ...fakeSuit(
-    { id: "arcade-cabinet", base: "midnight", dark: { canvas: "#0a0f1e" } },
+    { id: "sample-suit", base: "midnight", dark: { canvas: "#0a0f1e" } },
     { scene: true, contentHash },
   ),
-  sceneUrl: `http://127.0.0.1:4242/v1/suits/arcade-cabinet/${contentHash}/${grant}/scene.html`,
+  sceneUrl: `http://127.0.0.1:4242/v1/suits/sample-suit/${contentHash}/${grant}/scene.html`,
 });
 
 const frame = () => document.querySelector<HTMLIFrameElement>('iframe[title="Suit scene"]');
@@ -24,28 +24,28 @@ const shell = () => document.querySelector("[data-connection]");
 
 async function open(library: ReturnType<typeof fakeSuitLibrary>) {
   const storage = memoryKeyValue();
-  storage.setItem("ace.appearance", JSON.stringify({ suit: "arcade-cabinet" }));
+  storage.setItem("ace.appearance", JSON.stringify({ suit: "sample-suit" }));
   await harness({ storage, suits: library.transport }).open("/settings/appearance");
   await waitFor(() => expect(frame()).not.toBeNull());
 }
 
 test("the applied Suit's scene runs behind the shell, sandboxed, and the shell lets it through", async () => {
-  const library = fakeSuitLibrary([arcade("grant-a")]);
+  const library = fakeSuitLibrary([sample("grant-a")]);
   await open(library);
-  expect(frame()?.getAttribute("src")).toBe(arcade("grant-a").sceneUrl);
+  expect(frame()?.getAttribute("src")).toBe(sample("grant-a").sceneUrl);
   expect(frame()?.getAttribute("sandbox")).toBe("allow-scripts");
   await waitFor(() => expect(shell()?.hasAttribute("data-suit-scene")).toBe(true));
 });
 
 test("after a reconnect the scene loads from the new daemon run's URL", async () => {
-  const library = fakeSuitLibrary([arcade("grant-a")]);
+  const library = fakeSuitLibrary([sample("grant-a")]);
   await open(library);
-  act(() => library.replace([arcade("grant-b")], 2));
-  await waitFor(() => expect(frame()?.getAttribute("src")).toBe(arcade("grant-b").sceneUrl));
+  act(() => library.replace([sample("grant-b")], 2));
+  await waitFor(() => expect(frame()?.getAttribute("src")).toBe(sample("grant-b").sceneUrl));
 });
 
 test("a scene that fails is off for that version of the Suit, whose colours stay, until it changes", async () => {
-  const library = fakeSuitLibrary([arcade("grant-a")]);
+  const library = fakeSuitLibrary([sample("grant-a")]);
   await open(library);
   act(() => {
     window.dispatchEvent(
@@ -56,18 +56,18 @@ test("a scene that fails is off for that version of the Suit, whose colours stay
     );
   });
   await waitFor(() => expect(frame()).toBeNull());
-  expect(root.getAttribute("data-suit")).toBe("arcade-cabinet");
+  expect(root.getAttribute("data-suit")).toBe("sample-suit");
   await waitFor(() => expect(shell()?.hasAttribute("data-suit-scene")).toBe(false));
 
   // A reconnect brings a new URL but the same version: the scene stays off.
-  act(() => library.replace([arcade("grant-b")], 2));
-  await waitFor(() => expect(root.getAttribute("data-suit")).toBe("arcade-cabinet"));
+  act(() => library.replace([sample("grant-b")], 2));
+  await waitFor(() => expect(root.getAttribute("data-suit")).toBe("sample-suit"));
   expect(frame()).toBeNull();
 
   // An edit to the Suit is a new version, and its scene gets another go.
-  act(() => library.replace([arcade("grant-b", "hash-2")], 2));
+  act(() => library.replace([sample("grant-b", "hash-2")], 2));
   await waitFor(() =>
-    expect(frame()?.getAttribute("src")).toBe(arcade("grant-b", "hash-2").sceneUrl),
+    expect(frame()?.getAttribute("src")).toBe(sample("grant-b", "hash-2").sceneUrl),
   );
 });
 

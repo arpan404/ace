@@ -6,7 +6,6 @@ import { WebSocket } from "ws";
 import { z } from "zod";
 import { AgentId, ServerMessage, ThreadId, type McpAttribution } from "@ace/protocol";
 import { SuitPreviews } from "@ace/mcp-server";
-import { seedBuiltinSuits } from "@ace/plugins";
 import { SuitServerMessage } from "@ace/protocol/suits";
 import { expect, test } from "vitest";
 import { setup } from "./remote-test-support.ts";
@@ -122,8 +121,13 @@ test("a read device lists Suits and hears removals, but only an admin device rem
 
 test("an agent's preview reaches the person's sockets only; keep and revert follow it there", async () => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-suit-looks-")));
-  const suits = library(join(home, "suits"));
-  await seedBuiltinSuits(join(home, "suits"));
+  const root = join(home, "suits");
+  await mkdir(join(root, "sample-suit"), { recursive: true });
+  await writeFile(
+    join(root, "sample-suit", "suit.json"),
+    JSON.stringify({ format: 1, id: "sample-suit", name: "Sample Suit", dark: {} }),
+  );
+  const suits = library(root);
   await suits.start();
   const looks = new SuitLooks(() => "keep-1");
   const thread = ThreadId.parse("thread-agent");
@@ -156,15 +160,15 @@ test("an agent's preview reaches the person's sockets only; keep and revert foll
     };
     const signal = new AbortController().signal;
 
-    expect(await previews.preview(caller, "arcade-cabinet", signal)).toMatchObject({
+    expect(await previews.preview(caller, "sample-suit", signal)).toMatchObject({
       status: "previewing",
     });
-    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "arcade-cabinet" });
+    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "sample-suit" });
 
     expect(await previews.keep(caller, undefined, signal)).toMatchObject({ status: "kept" });
     expect(await laptop.active()).toEqual({
       kind: "keep",
-      suitId: "arcade-cabinet",
+      suitId: "sample-suit",
       keepId: "keep-1",
     });
 
@@ -173,8 +177,8 @@ test("an agent's preview reaches the person's sockets only; keep and revert foll
     expect(await stranger.quiet("after")).toEqual([]);
 
     // A turn's end takes its preview down on the devices that saw it.
-    await previews.preview(caller, "arcade-cabinet", signal);
-    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "arcade-cabinet" });
+    await previews.preview(caller, "sample-suit", signal);
+    expect(await laptop.active()).toEqual({ kind: "preview", suitId: "sample-suit" });
     await previews.turnEnded(thread);
     expect(await laptop.active()).toEqual({ kind: "none" });
   } finally {

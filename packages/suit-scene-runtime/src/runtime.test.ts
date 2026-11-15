@@ -302,100 +302,46 @@ const offscreenDocument = {
   createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
 };
 
-test.each(shippedScenes)(
-  "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
-  (id) => {
-    const source = readFileSync(
-      new URL(
-        `../../plugins/builtin-suits/${id.includes("/") ? id : `${id}/scene`}.js`,
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    const page = sandbox();
-    new Function("ace", "document", "OffscreenCanvas", source)(
-      page.ace,
-      offscreenDocument,
-      undefined,
-    );
-    page.send(init);
-    page.send({ type: "tick", time: 0 });
-    for (const signal of ["working", "waiting", "failed", "pr-merged", "done"])
-      page.send({ type: "signal", signal });
-    page.send({ type: "tick", time: 33 });
-    page.send({ type: "resize", width: 400, height: 300, pixelRatio: 1 });
-    page.send({ type: "tick", time: 66 });
-    page.send({ type: "motion", reduceMotion: true });
-    page.send({ type: "tick", time: 99 });
-    // A celebration may say it's finished once motion is turned off; that is covered below.
-    expect(page.replies.filter((reply) => (reply as { type: string }).type !== "finished")).toEqual(
-      [
+// ace may ship no Suits, and then there are no shipped scenes to check.
+if (shippedScenes.length > 0) {
+  test.each(shippedScenes)(
+    "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
+    (id) => {
+      const source = readFileSync(
+        new URL(
+          `../../plugins/builtin-suits/${id.includes("/") ? id : `${id}/scene`}.js`,
+          import.meta.url,
+        ),
+        "utf8",
+      );
+      const page = sandbox();
+      new Function("ace", "document", "OffscreenCanvas", source)(
+        page.ace,
+        offscreenDocument,
+        undefined,
+      );
+      page.send(init);
+      page.send({ type: "tick", time: 0 });
+      for (const signal of ["working", "waiting", "failed", "pr-merged", "done"])
+        page.send({ type: "signal", signal });
+      page.send({ type: "tick", time: 33 });
+      page.send({ type: "resize", width: 400, height: 300, pixelRatio: 1 });
+      page.send({ type: "tick", time: 66 });
+      page.send({ type: "motion", reduceMotion: true });
+      page.send({ type: "tick", time: 99 });
+      // A celebration may say it's finished once motion is turned off; that is covered below.
+      expect(
+        page.replies.filter((reply) => (reply as { type: string }).type !== "finished"),
+      ).toEqual([
         { type: "ready" },
         { type: "drawn", time: 0 },
         { type: "drawn", time: 33 },
         { type: "drawn", time: 66 },
         { type: "drawn", time: 99 },
-      ],
-    );
-  },
-);
-
-test.each([
-  ["arcade-cabinet/stage-clear", "pr-merged"],
-  ["atelier-noir/celebration", "pr-merged"],
-  ["field-journal/celebration", "done"],
-  ["quest-journal/celebration", "done"],
-])(
-  "the shipped %s celebration plays once on %s, then says it's done well before ace's 4 s cut",
-  (file, signal) => {
-    const source = readFileSync(
-      new URL(`../../plugins/builtin-suits/${file}.js`, import.meta.url),
-      "utf8",
-    );
-    const page = sandbox();
-    new Function("ace", "document", source)(page.ace, offscreenDocument);
-    page.send({ ...init, region: "celebration" });
-    // The clock is shared with the app's scenes, so the moment may start far from zero.
-    for (let time = 50_000; time <= 50_066; time += 33) page.send({ type: "tick", time });
-    expect(page.replies.some((reply) => (reply as { type: string }).type === "finished")).toBe(
-      false,
-    );
-    page.send({ type: "signal", signal });
-    let finishedAt = -1;
-    for (let time = 50_099; time <= 54_200; time += 33) {
-      const before = page.replies.length;
-      page.send({ type: "tick", time });
-      const answered = page.replies.slice(before) as { type: string }[];
-      if (finishedAt < 0 && answered.some((reply) => reply.type === "finished")) finishedAt = time;
-    }
-    const replies = page.replies as { type: string }[];
-    expect(replies[0]).toEqual({ type: "ready" });
-    expect(replies.filter((reply) => reply.type === "finished")).toEqual([{ type: "finished" }]);
-    expect(replies.some((reply) => reply.type === "error")).toBe(false);
-    expect(finishedAt - 50_099).toBeGreaterThan(2500);
-    expect(finishedAt - 50_099).toBeLessThan(3900);
-  },
-);
-
-test.each(["pr-merged", "done"])(
-  "the shipped Starship Bridge jump plays once on %s, then says it's done",
-  (signal) => {
-    const source = readFileSync(
-      new URL("../../plugins/builtin-suits/starship-bridge/celebration.js", import.meta.url),
-      "utf8",
-    );
-    const page = sandbox();
-    new Function("ace", "document", source)(page.ace, offscreenDocument);
-    page.send({ ...init, region: "celebration" });
-    page.send({ type: "signal", signal });
-    for (let time = 0; time <= 3300; time += 33) page.send({ type: "tick", time });
-    const replies = page.replies as { type: string }[];
-    expect(replies[0]).toEqual({ type: "ready" });
-    expect(replies.filter((reply) => reply.type === "finished")).toEqual([{ type: "finished" }]);
-    expect(replies.some((reply) => reply.type === "error")).toBe(false);
-    expect(replies.filter((reply) => reply.type === "drawn")).toHaveLength(101);
-  },
-);
+      ]);
+    },
+  );
+}
 
 /*
  * Glass. Node has no canvas, so `painter` stands in for a 2D context with just enough of a model

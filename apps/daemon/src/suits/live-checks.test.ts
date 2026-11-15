@@ -24,7 +24,7 @@ function clock() {
   };
 }
 
-const report = (checkId: string, suitId = "arcade-cabinet"): SuitLiveReport => ({
+const report = (checkId: string, suitId = "sample-suit"): SuitLiveReport => ({
   checkId,
   suitId,
   client: "web",
@@ -46,7 +46,7 @@ function setup() {
   const phone = { name: "phone" };
   let settled: SuitLiveReport[] | undefined;
   const start = (sockets: object[], signal = new AbortController().signal) =>
-    checks.run("arcade-cabinet", () => sockets, signal).then((reports) => (settled = reports));
+    checks.run("sample-suit", () => sockets, signal).then((reports) => (settled = reports));
   return { time, checks, laptop, phone, start, settled: () => settled };
 }
 
