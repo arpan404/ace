@@ -1,6 +1,6 @@
 import { botFaceStateOf, faceForId } from "@ace/ui-core/bot-face";
 import { spadeAgentNameMax } from "@ace/ui-core/spade-chat";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
@@ -107,7 +107,10 @@ function NameField(props: { bot: RosterBot }) {
   const [text, setText] = useState(bot.name);
   const [problem, setProblem] = useState<string>();
   const [saving, setSaving] = useState(false);
+  // Esc put it back: the blur as the field goes must not save what was dropped.
+  const dropped = useRef(false);
   const save = async () => {
+    if (dropped.current) return;
     const name = text.trim();
     if (!name || name === bot.name) {
       setText(bot.name);
@@ -127,6 +130,7 @@ function NameField(props: { bot: RosterBot }) {
         type="button"
         aria-label={`Rename ${bot.name}`}
         onClick={() => {
+          dropped.current = false;
           setText(bot.name);
           setProblem(undefined);
           setEditing(true);
@@ -157,6 +161,7 @@ function NameField(props: { bot: RosterBot }) {
             void save();
           } else if (event.key === "Escape") {
             event.stopPropagation();
+            dropped.current = true;
             setText(bot.name);
             setProblem(undefined);
             setEditing(false);

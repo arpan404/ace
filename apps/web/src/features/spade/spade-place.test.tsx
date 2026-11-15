@@ -190,6 +190,22 @@ test("editing a bot sends only what changed", async () => {
   );
 });
 
+test("Esc puts a task being edited back, and nothing is sent", async () => {
+  const { spade } = await spadeApp("/spade/garden?profile=details", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    api.addAgent({ id: "garden", name: "Garden", task: "Keep the garden alive" });
+  });
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
+  );
+  const task = screen.getByRole("textbox", { name: "Task" });
+  await userEvent.clear(task);
+  await userEvent.type(task, "Something else{Escape}");
+  await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" });
+  expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([]);
+});
+
 test("deleting a bot asks first, then removes it and its conversation", async () => {
   const { spade } = await spadeApp("/spade/garden", (api) => {
     withEndpoint(api);

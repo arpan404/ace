@@ -1,6 +1,6 @@
 import { spadeAccessChoices, spadeAgentTaskMax, type SpadeAccess } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -71,7 +71,10 @@ function TaskField(props: { bot: RosterBot }) {
   const [text, setText] = useState(bot.task);
   const [problem, setProblem] = useState<string>();
   const [saving, setSaving] = useState(false);
+  // Esc put it back: the blur as the field goes must not save what was dropped.
+  const dropped = useRef(false);
   const save = async () => {
+    if (dropped.current) return;
     const task = text.trim();
     if (task === bot.task.trim()) {
       setEditing(false);
@@ -91,6 +94,7 @@ function TaskField(props: { bot: RosterBot }) {
         data-setting-slot=""
         aria-label={bot.task ? `Edit the task: ${bot.task}` : "Write its task"}
         onClick={() => {
+          dropped.current = false;
           setText(bot.task);
           setProblem(undefined);
           setEditing(true);
@@ -123,6 +127,7 @@ function TaskField(props: { bot: RosterBot }) {
             void save();
           } else if (event.key === "Escape") {
             event.stopPropagation();
+            dropped.current = true;
             setText(bot.task);
             setProblem(undefined);
             setEditing(false);

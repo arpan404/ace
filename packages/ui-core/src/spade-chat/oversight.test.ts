@@ -356,9 +356,11 @@ describe("the chat", () => {
   });
 });
 
-describe("an activity row", () => {
-  const row = (fields: Record<string, unknown>) => spadeActivityRow(parsedEntry(fields));
+const row = (fields: Record<string, unknown>) => spadeActivityRow(parsedEntry(fields));
+const exception = (fields: Record<string, unknown>) =>
+  row({ sentence: "Did it", ...fields }).exception;
 
+describe("an activity row", () => {
   test("says what Spade said, never the tool's name or its arguments", () => {
     expect(
       row({
@@ -389,8 +391,6 @@ describe("an activity row", () => {
   });
 
   test("marks only what went wrong or waits on the person", () => {
-    const exception = (fields: Record<string, unknown>) =>
-      row({ sentence: "Did it", ...fields }).exception;
     expect(exception({ kind: "tool", outcome: "ok" })).toBeUndefined();
     expect(exception({ kind: "routine", outcome: null })).toBeUndefined();
     expect(exception({ kind: "tool", outcome: "error" })).toEqual({

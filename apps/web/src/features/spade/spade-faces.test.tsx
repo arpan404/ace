@@ -183,15 +183,15 @@ test("changing a bot's face in its profile sends the new face as it closes; leav
   const { spade } = await spadeApp("/spade/fern", crew);
   await screen.findByRole("feed", { name: "Conversation with Fern" });
   await openProfile("Fern");
-  let face = await faceOfFern();
-  expect(checkedIn(face, "Creature")).toBe("Creature: sprout");
+  let popover = await faceOfFern();
+  expect(checkedIn(popover, "Creature")).toBe("Creature: sprout");
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(spade.sent("PATCH", "/v1/agents/fern")).toEqual([]);
 
-  face = await faceOfFern();
-  await userEvent.click(face.getByRole("button", { name: "More" }));
-  await userEvent.click(face.getByRole("radio", { name: "Mouth: grin" }));
+  popover = await faceOfFern();
+  await userEvent.click(popover.getByRole("button", { name: "More" }));
+  await userEvent.click(popover.getByRole("radio", { name: "Mouth: grin" }));
   await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/fern")).toHaveLength(1));
   expect(spade.sent("PATCH", "/v1/agents/fern")[0]).toMatchObject({
