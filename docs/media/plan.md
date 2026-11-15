@@ -1705,9 +1705,19 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   probe now runs B3's VA-API trial and B5's NVENC/NVDEC trial (`probe_linux.rs`); NVENC is
   still gated off (B5 notes), so it lists nothing and NVIDIA machines take the last-resort
   encoder. Media Foundation joins when ace-media runs on Windows (no lanes there yet).
+- **Usable is what this build constructs.** The probe reports what each backend can do, but
+  only backends in `encode::platform::BUILT_ENCODERS`, the table beside the match in
+  `Platform::encoder` that builds them, choose a JPEG source's encoder or turn the last-resort
+  encoder off (`select::encoder_for`, `select::last_resort_needed`). Today that is VideoToolbox
+  on macOS only: a Linux machine whose VA-API trial works still gets the Chrome trial and the
+  Chrome encoder for H.264 until VA-API is wired into the JPEG encoder and added there.
 - **Ranking** (`rank.rs`). `Ranker` runs each candidate for at most 10 s, 20 s in all, only
-  while no source is open (`sources(n)`), and a source opening cancels it at once: nothing is
-  kept from a cancelled run, and the candidates come back for the next idle time. The winner
+  while no source is open (`sources(n)`), and a source opening cancels it at once. One owner
+  thread takes the source counts and each run's result as events in order; a run's result is
+  only a proposal, kept (cache and `results`) only if that run's generation was never
+  cancelled and no source is open when it arrives. Whenever nothing is open and nothing runs,
+  the next run starts, so a source that closes before a cancelled run returns doesn't leave it
+  stopped. A kept winner suppresses ranking only if it is one of the current candidates. The winner
   goes to `<dataDir>/media/encoder-rank.json` under adapter (PCI vendor, device, LUID), driver
   and settings (codec family, size bucket), read leniently, written whole through a rename.
   Without a result, `choice` is the first candidate in the caller's order (the MFT on Windows,

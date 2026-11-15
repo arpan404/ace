@@ -184,25 +184,62 @@ fn best(results: &[(Backend, Option<f64>)]) -> Option<Backend> {
     best.map(|b| b.0)
 }
 
-/// Runs the ranking for one key while no source is open. `sources` is told how many sources
-/// are open after every change; `results` gives each finished ranking's winner.
+/// Runs the ranking for one key while no source is open. One owner thread holds the state and
+/// takes every change as an event, in order: the number of open sources (`sources`, from any
+/// [`RankerHandle`]) and each run's result. A run's result is only a proposal: the owner keeps
+/// it (cache and `results`) only if that run, by its generation, was never cancelled and no
+/// source is open when it arrives. Whenever nothing is open and nothing runs, a run starts,
+/// until one has been accepted.
 pub struct Ranker {
-    key: RankKey,
-    cache_path: PathBuf,
-    budget: (Duration, Duration),
-    candidates: Option<Vec<Box<dyn Candidate>>>,
-    running: Option<Running>,
-    results: mpsc::Sender<Backend>,
+    handle: RankerHandle,
+}
+
+/// Tells the ranker how many sources are open; cheap to clone and send.
+#[derive(Clone)]
+pub struct RankerHandle(mpsc::Sender<Event>);
+
+impl RankerHandle {
+    /// The number of open sources changed: none open starts the ranking, one cancels it.
+    pub fn sources(&self, open: usize) {
+        let _ = self.0.send(Event::Sources(open));
+    }
+}
+
+enum Event {
+    Sources(usize),
+    /// A run returned. `completed`: every candidate ran without being stopped.
+    Finished {
+        generation: u64,
+        candidates: Vec<Box<dyn Candidate>>,
+        scores: Vec<(Backend, Option<f64>)>,
+        completed: bool,
+    },
+    Stop,
 }
 
 struct Running {
+    generation: u64,
     stop: Arc<AtomicBool>,
-    back: mpsc::Receiver<Vec<Box<dyn Candidate>>>,
+    cancelled: bool,
+}
+
+struct State {
+    key: RankKey,
+    cache_path: PathBuf,
+    budget: (Duration, Duration),
+    /// Held while no run has them; none once a run was accepted, or when there is nothing to
+    /// rank.
+    candidates: Option<Vec<Box<dyn Candidate>>>,
+    open: usize,
+    generation: u64,
+    running: Option<Running>,
+    results: mpsc::Sender<Backend>,
+    events: mpsc::Sender<Event>,
 }
 
 impl Ranker {
     /// A ranker for `key` with `candidates` in deterministic order. It never runs with fewer
-    /// than two, or when `cache_path` already holds a result for the key.
+    /// than two, or when `cache_path` already holds a winner that is one of them.
     pub fn new(
         key: RankKey,
         candidates: Vec<Box<dyn Candidate>>,
@@ -220,57 +257,118 @@ impl Ranker {
         total: Duration,
     ) -> (Self, mpsc::Receiver<Backend>) {
         let (results, receiver) = mpsc::channel();
-        let ranked = RankCache::load(&cache_path).winner(&key).is_some();
-        let ranker = Self {
+        let (events, inbox) = mpsc::channel();
+        // A kept winner counts only if it is still eligible here; any other entry is ignored.
+        let ranked = RankCache::load(&cache_path)
+            .winner(&key)
+            .is_some_and(|winner| candidates.iter().any(|c| c.backend() == winner));
+        let state = State {
             key,
             cache_path,
             budget: (per_candidate, total),
             candidates: (candidates.len() >= 2 && !ranked).then_some(candidates),
+            // Nothing runs until the first count arrives.
+            open: 1,
+            generation: 0,
             running: None,
             results,
+            events: events.clone(),
         };
-        (ranker, receiver)
+        let _ = std::thread::Builder::new()
+            .name("media-rank-owner".into())
+            .spawn(move || state.serve(&inbox));
+        (
+            Self {
+                handle: RankerHandle(events),
+            },
+            receiver,
+        )
     }
 
-    /// The number of open sources changed: the ranking starts once none is open, and one
-    /// opening cancels it.
-    pub fn sources(&mut self, open: usize) {
-        if open > 0 {
-            self.cancel();
-            return;
-        }
-        if let Some(running) = &self.running {
-            // A cancelled run hands its candidates back when it returns; then it can run again.
-            match running.back.try_recv() {
-                Ok(candidates) => {
-                    self.running = None;
-                    self.candidates = Some(candidates);
+    /// The number of open sources changed.
+    pub fn sources(&self, open: usize) {
+        self.handle.sources(open);
+    }
+
+    pub fn handle(&self) -> RankerHandle {
+        self.handle.clone()
+    }
+}
+
+impl Drop for Ranker {
+    fn drop(&mut self) {
+        let _ = self.handle.0.send(Event::Stop);
+    }
+}
+
+impl State {
+    fn serve(mut self, inbox: &mpsc::Receiver<Event>) {
+        while let Ok(event) = inbox.recv() {
+            match event {
+                Event::Sources(open) => {
+                    self.open = open;
+                    if open > 0 {
+                        self.cancel();
+                    }
                 }
-                Err(mpsc::TryRecvError::Empty) => return,
-                Err(mpsc::TryRecvError::Disconnected) => self.running = None,
+                Event::Finished {
+                    generation,
+                    candidates,
+                    scores,
+                    completed,
+                } => self.finished(generation, candidates, &scores, completed),
+                Event::Stop => {
+                    self.cancel();
+                    return;
+                }
             }
-        }
-        if let Some(candidates) = self.candidates.take() {
-            self.start(candidates);
+            if self.open == 0 && self.running.is_none() {
+                self.start();
+            }
         }
     }
 
     fn cancel(&mut self) {
-        if let Some(running) = &self.running {
+        if let Some(running) = &mut self.running {
+            running.cancelled = true;
             running.stop.store(true, Ordering::SeqCst);
         }
     }
 
-    fn start(&mut self, mut candidates: Vec<Box<dyn Candidate>>) {
+    fn finished(
+        &mut self,
+        generation: u64,
+        candidates: Vec<Box<dyn Candidate>>,
+        scores: &[(Backend, Option<f64>)],
+        completed: bool,
+    ) {
+        let Some(running) = self.running.take_if(|r| r.generation == generation) else {
+            return;
+        };
+        if running.cancelled || !completed || self.open > 0 {
+            // Thrown away; the candidates wait for the next idle time.
+            self.candidates = Some(candidates);
+            return;
+        }
+        // Accepted. Every candidate failing keeps the deterministic choice, and is not retried.
+        if let Some(winner) = best(scores) {
+            let mut cache = RankCache::load(&self.cache_path);
+            cache.insert(self.key.clone(), winner);
+            let _ = cache.save(&self.cache_path);
+            let _ = self.results.send(winner);
+        }
+    }
+
+    fn start(&mut self) {
+        let Some(mut candidates) = self.candidates.take() else {
+            return;
+        };
+        self.generation += 1;
+        let generation = self.generation;
         let stop = Arc::new(AtomicBool::new(false));
-        let (back_tx, back) = mpsc::channel();
-        let (key, path, results) = (
-            self.key.clone(),
-            self.cache_path.clone(),
-            self.results.clone(),
-        );
-        let (per_candidate, total) = self.budget;
         let flag = stop.clone();
+        let events = self.events.clone();
+        let (per_candidate, total) = self.budget;
         let spawned = std::thread::Builder::new()
             .name("media-rank".into())
             .spawn(move || {
@@ -283,28 +381,21 @@ impl Ranker {
                     }
                     scores.push((candidate.backend(), candidate.run(each, &stopped)));
                 }
-                if stopped() {
-                    let _ = back_tx.send(candidates);
-                    return;
-                }
-                // Every candidate failing keeps the deterministic choice, and is not retried.
-                let winner = best(&scores);
-                if let Some(winner) = winner {
-                    let mut cache = RankCache::load(&path);
-                    cache.insert(key, winner);
-                    let _ = cache.save(&path);
-                    let _ = results.send(winner);
-                }
+                let completed = scores.len() == candidates.len() && !stopped();
+                let _ = events.send(Event::Finished {
+                    generation,
+                    candidates,
+                    scores,
+                    completed,
+                });
             });
         if spawned.is_ok() {
-            self.running = Some(Running { stop, back });
+            self.running = Some(Running {
+                generation,
+                stop,
+                cancelled: false,
+            });
         }
-    }
-}
-
-impl Drop for Ranker {
-    fn drop(&mut self) {
-        self.cancel();
     }
 }
 
