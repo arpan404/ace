@@ -6,8 +6,8 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
-/// Bytes of video units queued for the daemon's socket past which deltas are dropped to the
-/// next keyframe.
+/// Bytes of video units queued for the daemon's socket: a unit that doesn't fit is dropped,
+/// keyframes too, and video resumes at the next keyframe that fits.
 pub const VIDEO_LIMIT: usize = 8 * 1024 * 1024;
 
 struct Queue {
@@ -18,6 +18,11 @@ struct Queue {
     video_bytes: usize,
     /// Past the limit: deltas are dropped until the next keyframe.
     skipping: bool,
+    /// Video was dropped and no keyframe has been queued since: who to ask for one. Asked at
+    /// once, and again (once per drop) when the queue has drained to half, since a still
+    /// desktop sends nothing unless asked.
+    recover: Option<Arc<dyn Fn() + Send + Sync>>,
+    rearmed: bool,
     closed: bool,
 }
 #[derive(Clone)]
@@ -66,21 +71,39 @@ impl Publisher {
         &self.session
     }
 
-    /// Queues one video packet in order. `Ok(false)` when it was dropped because the socket is
-    /// backed up: the caller asks the encoder for a keyframe.
-    pub fn video(&self, packet: Vec<u8>, keyframe: bool) -> Result<bool> {
+    /// Queues one video packet in order, within [`VIDEO_LIMIT`] bytes. A unit that doesn't fit
+    /// is dropped, keyframes included, and video resumes at the next keyframe that fits:
+    /// `recover` (the capture's keyframe request) is called on the first drop and again once
+    /// the queue drains, until a keyframe is queued. `Ok(false)` when this unit was dropped.
+    pub fn video(
+        &self,
+        packet: Vec<u8>,
+        keyframe: bool,
+        recover: &Arc<dyn Fn() + Send + Sync>,
+    ) -> Result<bool> {
         let (lock, ready) = &*self.queue;
         let mut q = lock.lock().map_err(internal)?;
         if q.closed {
             return Err(internal("Frame endpoint closed"));
         }
-        if q.video_bytes > VIDEO_LIMIT {
+        let fits = q.video_bytes + packet.len() <= VIDEO_LIMIT || q.video.is_empty();
+        if !fits || (q.skipping && !keyframe) {
             q.skipping = true;
-        }
-        if q.skipping && !keyframe {
+            q.rearmed = true;
+            let first = q.recover.is_none();
+            if first {
+                q.recover = Some(recover.clone());
+            }
+            drop(q);
+            if first {
+                recover();
+            }
             return Ok(false);
         }
-        q.skipping = false;
+        if keyframe {
+            q.skipping = false;
+            q.recover = None;
+        }
         q.video_bytes += packet.len();
         q.video.push_back(packet);
         ready.notify_one();
@@ -104,6 +127,8 @@ impl Writer {
                 video: Default::default(),
                 video_bytes: 0,
                 skipping: false,
+                recover: None,
+                rearmed: false,
                 closed: false,
             }),
             Condvar::new(),
@@ -133,7 +158,17 @@ impl Writer {
                     }
                     None => state.latest.take(),
                 };
+                // Drained to half with a keyframe still owed: ask again, once per drop.
+                let again = (state.video_bytes <= VIDEO_LIMIT / 2 && state.rearmed)
+                    .then(|| state.recover.clone())
+                    .flatten();
+                if again.is_some() {
+                    state.rearmed = false;
+                }
                 drop(state);
+                if let Some(again) = again {
+                    again();
+                }
                 if let Some(bytes) = bytes {
                     if stream.write_all(&bytes).is_err() {
                         if let Ok(mut s) = lock.lock() {
@@ -175,5 +210,82 @@ impl Drop for Writer {
         if let Some(w) = self.worker.take() {
             let _ = w.join();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VIDEO_LIMIT, Writer};
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// Packets read until the socket stays quiet: (keyframe?, bytes) each.
+    fn drain(peer: &mut UnixStream) -> Vec<bool> {
+        peer.set_read_timeout(Some(Duration::from_millis(300)))
+            .unwrap();
+        let mut bytes = Vec::new();
+        let mut chunk = vec![0u8; 1 << 20];
+        while let Ok(n) = peer.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..n]);
+        }
+        let mut keys = Vec::new();
+        let mut rest = &bytes[..];
+        while rest.len() >= 4 {
+            let length = u32::from_be_bytes(rest[..4].try_into().unwrap()) as usize;
+            let header: serde_json::Value = serde_json::from_slice(&rest[4..4 + length]).unwrap();
+            let payload = header["bytes"].as_u64().unwrap() as usize;
+            keys.push(header["keyframe"] == true);
+            rest = &rest[4 + length + payload..];
+        }
+        keys
+    }
+
+    fn unit(key: bool, mib: usize) -> Vec<u8> {
+        let payload = vec![1u8; mib << 20];
+        let header = serde_json::json!({"codec": "h264", "keyframe": key, "bytes": payload.len()});
+        crate::protocol::packet(&header, &payload).unwrap()
+    }
+
+    #[test]
+    fn a_blocked_daemon_socket_holds_a_bounded_queue_even_of_keyframes_and_asks_again_once_it_drains()
+     {
+        let (ours, mut peer) = UnixStream::pair().unwrap();
+        let writer = Writer::open(ours).unwrap();
+        let publisher = writer.publisher("s1".into());
+        let asked = Arc::new(AtomicUsize::new(0));
+        let a = asked.clone();
+        let recover: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            a.fetch_add(1, Ordering::SeqCst);
+        });
+        // The daemon reads nothing: every unit is a 1 MiB keyframe, far past the budget.
+        for _ in 0..24 {
+            publisher.video(unit(true, 1), true, &recover).unwrap();
+        }
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            1,
+            "a keyframe is asked for once when video is dropped"
+        );
+        let taken = drain(&mut peer);
+        // What reached the socket: the budget, plus what the kernel buffered and one in flight.
+        assert!(
+            taken.len() <= VIDEO_LIMIT / (1 << 20) + 3,
+            "{} MiB queued for a blocked socket",
+            taken.len()
+        );
+        // Drained: the recovery is asked for again, once, though no unit came since.
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            asked.load(Ordering::SeqCst),
+            2,
+            "asked again once the queue had room"
+        );
+        drop(writer);
     }
 }

@@ -643,7 +643,7 @@ fn outlets(
     stream: &Arc<StreamControl>,
     wake: &UnixStream,
 ) -> Result<Outlets> {
-    let owe = {
+    let owe: Arc<dyn Fn() + Send + Sync> = {
         let stream = stream.clone();
         let wake = wake.try_clone().map_err(internal)?;
         Arc::new(move || {
@@ -657,16 +657,15 @@ fn outlets(
     let session = session.to_owned();
     Ok(Outlets {
         legacy: Box::new(move |unit| {
+            // A unit the daemon's socket can't take is the writer's to recover: it asks for a
+            // keyframe through `legacy_owe` until one is queued.
             let generation =
                 Some(legacy_control.generation.load(Ordering::Acquire)).filter(|g| *g > 0);
-            let sent =
-                crate::media::unit::legacy_packet(&unit, legacy_publisher.session(), generation)
-                    .ok()
-                    .is_some_and(|packet| {
-                        legacy_publisher.video(packet, unit.key).unwrap_or(false)
-                    });
-            if !sent {
-                legacy_owe();
+            match crate::media::unit::legacy_packet(&unit, legacy_publisher.session(), generation) {
+                Ok(packet) => {
+                    let _ = legacy_publisher.video(packet, unit.key, &legacy_owe);
+                }
+                Err(_) => legacy_owe(),
             }
         }),
         keyframe: owe,
