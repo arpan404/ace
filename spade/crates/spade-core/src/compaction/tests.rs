@@ -4,7 +4,7 @@ use spade_models::{Message, ToolSpec};
 use super::*;
 use crate::context;
 use crate::event::{Call, Tokens};
-use crate::tools::ToolDef;
+use crate::tools::{Registry, Risk, ToolDef};
 
 fn turn(n: usize, words: usize) -> Vec<Event> {
     vec![
@@ -68,6 +68,7 @@ fn a_second_compaction_only_cuts_after_the_first() {
         tokens_before: 8_000,
         images_left_out: None,
         untrusted: false,
+        carried: None,
     }));
     events.extend((10..12).flat_map(|n| turn(n, 50)));
     let second = plan(&events, 8_000, 10_000)
@@ -91,6 +92,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         tokens_before: 5_000,
         images_left_out: None,
         untrusted: false,
+        carried: None,
     }));
     let after = context::prompt(context::SYSTEM, tools, &events);
 
@@ -368,6 +370,7 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
         tokens_before: 8_000,
         images_left_out: None,
         untrusted: false,
+        carried: None,
     }));
     assert_eq!(
         plan(&events, 8_000, 10_000),
@@ -579,6 +582,7 @@ fn compacted(keep_from: usize) -> Event {
         tokens_before: 9_000,
         images_left_out: None,
         untrusted: false,
+        carried: None,
     })
 }
 
@@ -753,7 +757,7 @@ fn a_write_handed_to_the_background_takes_its_outcome_from_its_job() {
         Vec::<String>::new(),
         "a failed job is not carried out"
     );
-    let maybe = line(MAYBE);
+    let maybe = line(carried::MAYBE);
     assert_eq!(
         listed(Some(job_ended(
             "w1",

@@ -20,7 +20,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `approval_requested`             | `reply`, `call_id`, `name`, `arguments`                                  | The gate is waiting on the person                                                                                                                                                   |
 | `approval_answered`              | `reply`, `call_id`, `allowed`, `always`                                  | `always` allows that tool for the rest of the conversation                                                                                                                          |
 | `tool_started` / `tool_finished` | `reply`, `call_id`, `name`, (`content`, `is_error`)                      | A tool ran                                                                                                                                                                          |
-| `context_compacted`              | `summary`, `keep_from`, `tokens_before`                                  | The model now sees `summary`, then events from index `keep_from`                                                                                                                    |
+| `context_compacted`              | `summary`, `keep_from`, `tokens_before`, `carried?`                      | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list, carried forward by the next compaction                              |
 | `job_started`                    | `reply`, `job`, `name`                                                   | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                  |
 | `job_finished`                   | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`       | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                    |
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
@@ -126,9 +126,17 @@ Before each model call, if the endpoint's last reported prompt is at least 75% o
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
 35% are kept. It asks the conversation's own model for a JSON summary by appending the request to
 the current prompt with the same tools (no typed-output option, which would change the request and
-miss the cache), counts that call's cost like any other, appends every write already carried out
-with its call id and exact arguments (from the events, never the summary), and stores
-`context_compacted`. Compaction is the one place earlier prompt bytes change: the system prompt and
+miss the cache), counts that call's cost like any other, appends the writes already carried out
+(from the events, never the summary), and stores `context_compacted`. The list stays bounded over
+weeks: it holds the writes made since the previous compaction, then the previous summary's own list
+carried forward (stored as `carried` on `context_compacted`, so the conversation is never walked from
+the start again). Each write is one line: its tool, call id and arguments, with text over 120
+characters cut to 80 plus its length, lists cut to their first 8 items and the whole kept under 400
+characters. Writes since the previous summary and jobs still running are always listed; past
+16,000 characters the oldest carried lines fold into a count that points at `history_search`. A job
+listed as still running is looked at again at the next compaction (done, unknown, or dropped if it
+failed). A summary stored before `carried` existed makes the next compaction walk from the start,
+once. Compaction is the one place earlier prompt bytes change: the system prompt and
 tools stay cached, the conversation before the cut becomes the summary. If the summary fails, older turns are left out with a note saying
 so. `POST /v1/conversations/{id}/compact` with an optional `{"focus": "…"}` compacts between
 turns (409 mid-reply).

@@ -373,6 +373,7 @@ fn untrusted_content_stays_in_view_across_turns_until_compaction_leaves_it_out()
             tokens_before: 0,
             images_left_out: None,
             untrusted,
+            carried: None,
         })
     };
     let mut events = vec![
@@ -717,6 +718,7 @@ fn between_compactions_new_images_only_add_to_the_end_of_the_prompt() {
         tokens_before: 0,
         images_left_out: Some(fixed),
         untrusted: false,
+        carried: None,
     }));
     assert_eq!(shown_images(&messages_with(&events, &Shelf)), SHOWN_IMAGES);
     let mut before = messages_with(&events, &Shelf);

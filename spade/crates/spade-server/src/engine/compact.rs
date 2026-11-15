@@ -95,7 +95,8 @@ async fn run(
         text: compaction::request(focus),
         images: Vec::new(),
     });
-    let carried = compaction::carried_out(events, plan.keep_from, &engine.registry_for(id));
+    let ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
+    let carried = compaction::lines(&ledger);
     // Admitted like every model call (ADR 0135); at a cap nothing is compacted or spent.
     // It waits while only calls still running stand in the way.
     let hint = super::ledger::turn_hint(events);
@@ -126,12 +127,8 @@ async fn run(
         Some(summary) => compaction::render(&summary, &carried),
         None => {
             let mut text = LEFT_OUT.to_owned();
-            if !carried.is_empty() {
-                text.push_str("\n\nAlready carried out (do not repeat):\n");
-                for action in &carried {
-                    text.push_str(&format!("- {action}\n"));
-                }
-            }
+            text.push('\n');
+            text.push_str(&compaction::carried_section(&carried));
             text
         }
     };
@@ -141,6 +138,7 @@ async fn run(
         tokens_before: last_prompt_tokens(events),
         images_left_out: Some(context::images_to_leave_out(events, plan.keep_from)),
         untrusted,
+        carried: Some(ledger),
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a compaction");

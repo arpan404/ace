@@ -357,6 +357,11 @@ pub enum Known {
         /// facts drawn from it are only suggested to the person (ADR 0128).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untrusted: bool,
+        /// The writes this summary lists as already carried out, so the next compaction carries
+        /// them forward instead of walking the whole conversation again. Missing on events from
+        /// before it was stored; the next compaction then walks from the start once.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        carried: Option<CarriedLedger>,
     },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
@@ -683,6 +688,34 @@ impl Event {
             title: title.into(),
         })
     }
+}
+
+/// The "already carried out" list a compaction wrote (ADR 0158): one line per write, newest last.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CarriedLedger {
+    pub writes: Vec<CarriedWrite>,
+    /// Older writes no longer listed one by one, so the list stays bounded over weeks.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub earlier: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
+/// One write in a compaction's "already carried out" list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarriedWrite {
+    pub call_id: String,
+    /// The tool, call id and arguments, trimmed to one line.
+    pub what: String,
+    /// What became of it ("" when done).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    /// Its background job had not ended when this list was written; the next compaction looks
+    /// again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub running: bool,
 }
 
 #[cfg(test)]
