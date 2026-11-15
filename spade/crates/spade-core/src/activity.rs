@@ -10,6 +10,8 @@ use crate::event::{CapScope, Event, Known, Verdict};
 use crate::redact;
 use crate::tools::{CALL_TOOL, TOOL_SEARCH, unwrap_call_tool};
 
+pub mod words;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
@@ -60,6 +62,12 @@ pub struct Entry {
     pub kind: Kind,
     pub name: Option<String>,
     pub summary: String,
+    /// What happened in Spade's words ("Ran a command", "Sent message in Gmail"); what the app
+    /// shows instead of the name.
+    pub sentence: String,
+    /// One line under the sentence: the command, the file's path, the note, an email's
+    /// recipient and subject. Never raw arguments; `None` when the sentence says it all.
+    pub detail: Option<String>,
     pub outcome: Option<String>,
     pub reply: Option<String>,
     pub cost_micros: Option<u64>,
@@ -79,6 +87,15 @@ pub fn fold<'a>(events: impl IntoIterator<Item = Stored<'a>>) -> Vec<Entry> {
     let mut log = Log::default();
     for stored in events {
         log.apply(&stored);
+    }
+    // Last, since a call's outcome (and with it "Running" or "Ran") settles after its entry.
+    for entry in &mut log.entries {
+        entry.sentence = words::sentence(&words::Facts {
+            kind: entry.kind,
+            name: entry.name.as_deref(),
+            summary: &entry.summary,
+            outcome: entry.outcome.as_deref(),
+        });
     }
     log.entries
 }
@@ -108,6 +125,10 @@ impl Log {
             0
         };
         self.last = (stored.seq, n);
+        let detail = match fields.detail {
+            Some(detail) => detail,
+            None => words::other_detail(kind, &fields.summary),
+        };
         self.entries.push(Entry {
             id: format!("{}-{n}", stored.seq),
             seq: stored.seq,
@@ -115,6 +136,8 @@ impl Log {
             kind,
             name: fields.name,
             summary: fields.summary,
+            sentence: String::new(),
+            detail,
             outcome: fields.outcome.map(str::to_owned),
             reply: fields.reply,
             cost_micros: fields.cost,
@@ -289,7 +312,7 @@ impl Log {
                     Fields {
                         reply: Some(reply.clone()),
                         outcome: Some("asked"),
-                        ..Fields::named(name, &summary(name, arguments))
+                        ..Fields::call(name, arguments)
                     },
                 );
             }
@@ -314,7 +337,7 @@ impl Log {
                     Fields {
                         reply: Some(reply.clone()),
                         outcome: Some(answer),
-                        ..Fields::named(&name, &summary(&name, &arguments))
+                        ..Fields::call(&name, &arguments)
                     },
                 );
             }
@@ -395,6 +418,7 @@ impl Log {
                             outcome: Some(how),
                             reply: None,
                             cost: None,
+                            detail: None,
                         },
                     );
                 }
@@ -428,6 +452,7 @@ impl Log {
                 outcome: Some(how),
                 reply: Some(reply.to_owned()),
                 cost: Some(cost),
+                detail: None,
             },
         );
     }
@@ -447,6 +472,7 @@ impl Log {
                 outcome: Some("failed"),
                 reply: Some(reply.to_owned()),
                 cost: (cost > 0).then_some(cost),
+                detail: None,
             },
         );
     }
@@ -458,6 +484,8 @@ struct Fields {
     outcome: Option<&'static str>,
     reply: Option<String>,
     cost: Option<u64>,
+    /// The detail line: `None` takes it from the summary (by kind), `Some` sets it.
+    detail: Option<Option<String>>,
 }
 
 impl Fields {
@@ -468,6 +496,15 @@ impl Fields {
             outcome: None,
             reply: None,
             cost: None,
+            detail: None,
+        }
+    }
+
+    /// A call's: its arguments in one line, and the detail that matters for its kind.
+    fn call(name: &str, arguments: &Value) -> Self {
+        Self {
+            detail: Some(words::call_detail(name, arguments)),
+            ..Self::named(name, &summary(name, arguments))
         }
     }
 
@@ -512,7 +549,10 @@ fn call_entry(name: &str, arguments: &Value) -> (Kind, Fields) {
     };
     (
         kind,
-        Fields::new(name, &summary(name, arguments), "running"),
+        Fields {
+            outcome: Some("running"),
+            ..Fields::call(name, arguments)
+        },
     )
 }
 
@@ -527,7 +567,7 @@ fn summary(name: &str, arguments: &Value) -> String {
 }
 
 /// Whether an entry passes the filters: one of `kinds` (all when empty), at or after `from` and
-/// before `to`, and every word of `query` in its name or summary (any case).
+/// before `to`, and every word of `query` in its name, summary, sentence or detail (any case).
 pub fn matches(entry: &Entry, kinds: &[Kind], range: Option<(i64, i64)>, query: &str) -> bool {
     if !kinds.is_empty() && !kinds.contains(&entry.kind) {
         return false;
@@ -537,7 +577,14 @@ pub fn matches(entry: &Entry, kinds: &[Kind], range: Option<(i64, i64)>, query: 
     {
         return false;
     }
-    let text = format!("{} {}", entry.name.as_deref().unwrap_or(""), entry.summary).to_lowercase();
+    let text = format!(
+        "{} {} {} {}",
+        entry.name.as_deref().unwrap_or(""),
+        entry.summary,
+        entry.sentence,
+        entry.detail.as_deref().unwrap_or("")
+    )
+    .to_lowercase();
     query
         .split_whitespace()
         .all(|word| text.contains(&word.to_lowercase()))

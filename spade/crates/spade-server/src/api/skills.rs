@@ -24,7 +24,22 @@ async fn list(State(state): State<AppState>) -> Response {
         return Json(json!({ "skills": [], "ace": false })).into_response();
     };
     let ace = state.ace.as_ref().is_some_and(|ace| ace.connected());
-    match tokio::task::spawn_blocking(move || store.views()).await {
+    let learning = state.learning.clone();
+    let read = move || {
+        let writers = learning.map(|l| l.writers()).unwrap_or_default();
+        store.views().map(|views| {
+            views
+                .into_iter()
+                .map(|view| {
+                    let written = writers.get(&view.name).cloned().unwrap_or_default();
+                    let mut shown = json!(view);
+                    shown["written_by"] = json!(written);
+                    shown
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    match tokio::task::spawn_blocking(read).await {
         Ok(Ok(skills)) => Json(json!({ "skills": skills, "ace": ace })).into_response(),
         Ok(Err(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),
         Err(_) => problem(StatusCode::INTERNAL_SERVER_ERROR, "the request stopped"),

@@ -71,6 +71,9 @@ pub(super) struct Settings {
     /// The model that transcribes voice (ADR 0134).
     #[serde(default, deserialize_with = "present")]
     transcription_model: Option<Option<String>>,
+    /// The model new bots start on; `null` goes back to the first usable model.
+    #[serde(default, deserialize_with = "present")]
+    new_bot_model: Option<Option<String>>,
 }
 
 /// How long a list of endpoints waits for the keychain before answering without it: long enough
@@ -186,6 +189,7 @@ fn models_now(state: &AppState) -> Response {
         "presets": presets,
         "fast_model": fast,
         "transcription_model": engine.transcription_model().ok().flatten(),
+        "new_bot_model": engine.new_bot_model().ok().flatten(),
         "keychain": state.keys.is_some(),
         "starting": engine.starting().is_some(),
         "starting_reason": engine.starting(),
@@ -300,6 +304,11 @@ pub(super) async fn settings(
 ) -> Response {
     if let Some(fast) = body.fast_model
         && let Err(error) = state.engine.set_fast_model(fast.as_deref())
+    {
+        return endpoint_problem(&error);
+    }
+    if let Some(model) = body.new_bot_model
+        && let Err(error) = state.engine.set_new_bot_model(model.as_deref())
     {
         return endpoint_problem(&error);
     }

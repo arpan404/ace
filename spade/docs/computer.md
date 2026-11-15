@@ -23,9 +23,21 @@ Spade without computers: `503`.
       "live": true, "title": "string" | null, "since": 0 | null,
       "url": "string", "tab_id": "string", "ending_stuck": true, "last": 0 | null,
       "person_active": false }
-  ]
+  ],
+  "state": "asleep" | "starting" | "ready",
+  "used": ["browser", "terminal"]
 }
 ```
+
+- `state` is the computer as a whole, for "Waking up…" before the first frame: `starting` while
+  the bot reached for its browser or screen (one of ace's tools for it started) in the last 30 s
+  and ace hasn't reported that surface since; else `ready` while any surface is live or its
+  terminal's shell runs; else `asleep`. A surface ace never reports reads as starting for 30 s
+  only. A change of `state` is sent on the live stream like any other change.
+- `used` is every surface this bot's computer has ever had (a `last` time), in the order
+  `browser`, `screen`, `terminal`, `files`, so the app shows only those tabs. It survives restarts
+  (`<data folder>/computer/used/<bot id>.json`, written when a surface is first used) and goes
+  when the bot is deleted.
 
 - `mode` is `cowork` (the default: the person and the bot use the computer at once) or
   `exclusive` (the person took over and the bot is paused). `driver` follows it: `bot` in cowork,

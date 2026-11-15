@@ -5,7 +5,7 @@
 
 mod tools;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -217,6 +217,26 @@ impl Learning {
             let _ = std::fs::remove_file(self.proposals_dir().join(format!("{}.json", old.id)));
         }
         Ok(proposal)
+    }
+
+    /// The bots whose saved proposals wrote or changed each skill, by the skill's name, each
+    /// list in id order.
+    pub fn writers(&self) -> HashMap<String, Vec<String>> {
+        let _files = lock(&self.files);
+        let mut writers: HashMap<String, Vec<String>> = HashMap::new();
+        for proposal in self.read_all() {
+            if proposal.state == ProposalState::Saved {
+                writers
+                    .entry(proposal.name)
+                    .or_default()
+                    .push(proposal.agent);
+            }
+        }
+        for bots in writers.values_mut() {
+            bots.sort();
+            bots.dedup();
+        }
+        writers
     }
 
     /// The bot's proposals, oldest first.
