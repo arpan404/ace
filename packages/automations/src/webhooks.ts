@@ -5,12 +5,7 @@
 import type { AutomationService } from "./service.ts";
 import type { AutomationStore } from "./store.ts";
 import { webhookBodyLimits, webhookVariables } from "./webhook-body.ts";
-import {
-  newWebhookSecret,
-  readWebhookHeaders,
-  verifyWebhook,
-  webhookToleranceMs,
-} from "./webhook-signature.ts";
+import { newWebhookSecret, readWebhookHeaders, verifyWebhook } from "./webhook-signature.ts";
 
 export type WebhookRequest = { method: string; headers: Headers; body: Uint8Array };
 export type WebhookError =
@@ -108,25 +103,16 @@ export class AutomationWebhooks {
     if (check !== "ok") return refuse(check);
     const variables = webhookVariables(request.body, headers.headers.id);
     if (!variables.ok) return refuse(variables.error, variables.message);
-    // A delivery already admitted answers with its run, whatever has changed since.
-    const deliveryId = headers.headers.id;
-    const earlier = this.store.webhooks.delivered(automation.id, deliveryId);
-    if (earlier !== undefined) return { status: 202, body: { runId: earlier } };
     if (!automation.enabled) return refuse("disabled");
+    // A delivery already admitted answers with its run, even once that run is pruned.
+    const eventKey = `webhook:${headers.headers.id}`;
+    const earlier = this.store.webhooks.delivered(automation.id, eventKey);
+    if (earlier !== undefined) return { status: 202, body: { runId: earlier } };
     try {
       const run = this.service.trigger(
         automation.id,
-        { key: `webhook:${deliveryId}`, variables: variables.variables },
+        { key: eventKey, variables: variables.variables },
         "webhook",
-      );
-      // Synchronous from the check above, so no second request can come between. A crash
-      // before this line leaves the run's event key, which still finds it until it is pruned.
-      this.store.webhooks.deliver(
-        automation.id,
-        deliveryId,
-        run.id,
-        headers.headers.timestamp * 1000 + webhookToleranceMs,
-        this.deps.now(),
       );
       return { status: 202, body: { runId: run.id } };
     } catch {

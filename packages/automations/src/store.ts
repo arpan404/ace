@@ -13,6 +13,7 @@ import {
 import { admission, canPromote } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
 import { WebhookKeys } from "./webhook-store.ts";
+import { webhookToleranceMs } from "./webhook-signature.ts";
 
 const JobMetadata = z.object({
   automation: z.unknown().transform(normalizeAutomation),
@@ -413,6 +414,10 @@ export class AutomationStore {
       input ? JSON.stringify(input) : null,
       run.finishedAt ?? null,
     );
+    // A webhook delivery's receipt commits with its run (ADR 0158, decision 6). A timestamp is
+    // accepted up to the tolerance either side of now, so twice it covers every replay.
+    if (trigger === "webhook")
+      this.webhooks.deliver(automation.id, event.key, id, now + 2 * webhookToleranceMs, now);
     this.prune(automation.id);
     return { run, admitted, created: true };
   }

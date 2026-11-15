@@ -78,6 +78,32 @@ describe("webhook automations", () => {
     expect(webhooks().receive(hookId, signed(secret)).body).toEqual(first.body);
   });
 
+  it("a run admitted for a delivery holds its receipt from the same commit", async () => {
+    const { h, webhooks } = setup();
+    const { hookId, secret } = webhooks().rotate("deploy");
+    // Admission alone, as if the daemon stopped right after it: the receipt is already there.
+    const run = h.service.trigger(
+      "deploy",
+      {
+        key: "webhook:evt_1",
+        variables: { "webhook.id": "evt_1", "body.env": "prod", "body.commit": "c" },
+      },
+      "webhook",
+    );
+    await h.nextExecution(0);
+    await h.finish(0);
+    for (let i = 2; i <= 1002; i++) webhooks().receive(hookId, signed(secret, { id: `evt_${i}` }));
+    expect(webhooks().receive(hookId, signed(secret)).body).toEqual({ runId: run.id });
+  });
+
+  it("a known delivery to an automation turned off since is refused, not answered with its run", () => {
+    const { h, webhooks } = setup();
+    const { hookId, secret } = webhooks().rotate("deploy");
+    expect(webhooks().receive(hookId, signed(secret)).status).toBe(202);
+    h.service.setEnabled("deploy", false);
+    expect(webhooks().receive(hookId, signed(secret))).toMatchObject({ status: 409 });
+  });
+
   it("refuses each kind of bad request with its own status and starts no run", () => {
     const { h, webhooks } = setup();
     const { hookId, secret } = webhooks().rotate("deploy");

@@ -27,27 +27,25 @@ export class WebhookKeys {
     this.sql("DELETE FROM automation_webhook_deliveries WHERE automation_id=?").run(automationId);
   }
   /**
-   * The run a delivery started, kept apart from run history, which is pruned to its latest
-   * runs: a replay must find its run for as long as its timestamp could still be accepted.
+   * The run a delivery (its event key, `webhook:<id>`) started. Kept apart from run history,
+   * which is pruned to each automation's latest runs: a replay must find its run for as long as
+   * its timestamp could still be accepted.
    */
-  delivered(automationId: string, deliveryId: string): string | undefined {
+  delivered(automationId: string, eventKey: string): string | undefined {
     const row = this.sql(
       "SELECT run_id FROM automation_webhook_deliveries WHERE automation_id=? AND delivery_id=?",
-    ).get(automationId, deliveryId);
+    ).get(automationId, eventKey);
     return row ? String(row.run_id) : undefined;
   }
-  /** Notes a delivery's run until `expires`, and drops receipts that have expired by `now`. */
-  deliver(
-    automationId: string,
-    deliveryId: string,
-    runId: string,
-    expires: number,
-    now: number,
-  ): void {
+  /**
+   * Notes a delivery's run, in the transaction that admits it, until `expires`; drops receipts
+   * that have expired by `now`.
+   */
+  deliver(automationId: string, eventKey: string, runId: string, expires: number, now: number) {
     this.sql("DELETE FROM automation_webhook_deliveries WHERE expires < ?").run(now);
     this.sql("INSERT OR IGNORE INTO automation_webhook_deliveries VALUES(?,?,?,?)").run(
       automationId,
-      deliveryId,
+      eventKey,
       runId,
       expires,
     );
