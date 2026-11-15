@@ -21,7 +21,7 @@ function SetupRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   return (
-    <div className="relative flex min-w-0 flex-1 flex-col bg-reading">
+    <div className="relative flex min-w-0 flex-1 flex-col">
       <SetupScreen
         step={search.step ?? "welcome"}
         project={search.project}

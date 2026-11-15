@@ -56,7 +56,7 @@ test("a first launch opens setup on Welcome; signing in readies an agent, and a 
   const app = firstRun();
   await app.open("/");
   expect(
-    await screen.findByRole("heading", { level: 2, name: "Welcome to ace" }, { timeout: 10_000 }),
+    await screen.findByRole("heading", { level: 1, name: "Welcome to ace" }, { timeout: 10_000 }),
   ).toBeTruthy();
   const cards = await toAgents();
   expect((await readyLine()).textContent).toBe("Sign in to one to start.");
@@ -79,7 +79,7 @@ test("a first launch opens setup on Welcome; signing in readies an agent, and a 
   expect(within(claude).queryByRole("button", { name: "Sign in to Claude Code" })).toBeNull();
   expect(within(claude).getByText(/^Signed in/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-  await screen.findByRole("heading", { level: 2, name: "Add your first project" });
+  await screen.findByRole("heading", { level: 1, name: "Add your first project" });
   await userEvent.click(screen.getByRole("button", { name: /^Git URL/ }));
   expect(await screen.findByRole("dialog", { name: "Add project" })).toBeTruthy();
   // Opening a source isn't finishing: closing it leaves this device's setup to come back to.
@@ -89,7 +89,7 @@ test("a first launch opens setup on Welcome; signing in readies an agent, and a 
 test("Skip for now goes on to Home, which offers a project to add and doesn't send this device back to setup", async () => {
   const app = firstRun();
   await app.open("/");
-  await screen.findByRole("heading", { level: 2, name: "Welcome to ace" }, { timeout: 10_000 });
+  await screen.findByRole("heading", { level: 1, name: "Welcome to ace" }, { timeout: 10_000 });
   await userEvent.click(screen.getByRole("button", { name: "Skip for now" }));
   // Home's empty list: a chat needs no project, and Add a project is on offer.
   expect(await screen.findByRole("heading", { level: 1, name: "No threads yet" })).toBeTruthy();
@@ -156,17 +156,17 @@ test("first launch walks Welcome, Agents, Project and Done, and reaches the comp
   app.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/weather", git: true }]);
   await app.open("/");
   expect(
-    await screen.findByRole("heading", { level: 2, name: "Welcome to ace" }, { timeout: 10_000 }),
+    await screen.findByRole("heading", { level: 1, name: "Welcome to ace" }, { timeout: 10_000 }),
   ).toBeTruthy();
-  expect(screen.getByRole("list", { name: "Step 1 of 4" })).toBeTruthy();
+  expect(screen.getByRole("status", { name: "Step 1 of 4" })).toBeTruthy();
   // Welcome names what it found on this computer.
-  expect(await screen.findByRole("list", { name: "Agents found" })).toBeTruthy();
+  expect(await screen.findByRole("region", { name: "Agents found" })).toBeTruthy();
   const skip = screen.getByRole("button", { name: "Skip for now" });
   await toAgents();
   const next = screen.getByRole<HTMLButtonElement>("button", { name: "Continue" });
   await waitFor(() => expect(next.disabled).toBe(false));
   await userEvent.click(next);
-  await screen.findByRole("heading", { level: 2, name: "Add your first project" });
+  await screen.findByRole("heading", { level: 1, name: "Add your first project" });
   // Skip for now stays where it was.
   expect(screen.getByRole("button", { name: "Skip for now" })).toBe(skip);
   // Local folder opens Add project on the folder chooser.
@@ -177,7 +177,7 @@ test("first launch walks Welcome, Agents, Project and Done, and reaches the comp
   await userEvent.click(screen.getByRole("button", { name: "Add" }));
   // Adding from setup comes back to Done, which names the project; setup is finished.
   expect(
-    await screen.findByRole("heading", { level: 2, name: "You're set up" }, { timeout: 10_000 }),
+    await screen.findByRole("heading", { level: 1, name: "You're set up" }, { timeout: 10_000 }),
   ).toBeTruthy();
   expect(screen.getByText("weather")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();

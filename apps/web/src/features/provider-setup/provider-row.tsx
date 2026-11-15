@@ -1,6 +1,7 @@
 import type { ProviderKind, ProviderInstallProgress } from "@ace/protocol";
 import type { ReadinessView } from "@ace/ui-core";
-import { ArrowClockwiseIcon, DotsThreeIcon, InfoIcon, XIcon } from "@ace/icons";
+import { ArrowClockwiseIcon, CheckIcon, DotsThreeIcon, InfoIcon, XIcon } from "@ace/icons";
+import { Icon } from "@/components/icon.tsx";
 import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { StatusLine } from "@/components/provider-tile.tsx";
@@ -163,8 +164,17 @@ export function ProviderSetupRow({
               text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
             />
           ) : props.view?.summary ? (
-            // Ready says so too ("Signed in as ada@example.com"), so no row reads as unknown.
-            <StatusLine tone={props.view.tone} text={props.view.summary} />
+            // Ready says so too ("Signed in as ada@example.com"), quietly: only what needs the
+            // person takes colour.
+            <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+              <Icon
+                icon={CheckIcon}
+                size={14}
+                weight="bold"
+                className="shrink-0 text-status-done"
+              />
+              <span className="truncate">{props.view.summary}</span>
+            </span>
           ) : null}
           {props.columns && <span aria-hidden className="hidden flex-1 @[34rem]:block" />}
           {busy ? (
