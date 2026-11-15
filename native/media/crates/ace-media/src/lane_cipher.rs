@@ -76,6 +76,12 @@ impl<const INTERVAL: u64> Records<INTERVAL> {
         Ok(())
     }
 
+    /// Wipes both keys: nothing seals or opens after.
+    pub fn close(&mut self) {
+        self.transport.close();
+        self.scratch.clear();
+    }
+
     /// Opens one record's body (the bytes after its length) in place. Any failure closes the
     /// lane for good: every later record is refused too.
     pub fn open<'a>(&mut self, body: &'a mut [u8]) -> Result<&'a mut [u8], Error> {

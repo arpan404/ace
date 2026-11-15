@@ -266,11 +266,15 @@ table, including timed-out trials and the ranking cache.
     hello every byte of a lane, the accept byte first, is in authenticated encryption, so a
     process relaying the whole hello between the two can neither read a lane nor get a frame of
     its own accepted. Keys: HKDF-SHA256 from the lane secret, salt `"ace-media lane v1 keys"`,
-    over the tag, both nonces and `"daemon to media"` or `"media to daemon"`. Records: a u16 BE
+    over the whole handshake transcript (`"ACEL"`, the tag, both nonces, both proofs) and
+    `"daemon to media"` or `"media to daemon"`. Records: a u16 BE
     length, then ChaCha20-Poly1305 from media-noise's transport (ace-media) and
     `@ace/secure-channel`'s CipherState (daemon): Noise nonces, which are the per-direction
     sequence numbers, with each direction rekeyed every 2^20 records. A record that fails to
-    open closes the lane. Measured on the M4 Max: sealing 1.97 GB/s in ace-media, with no
+    open closes the lane, and so does an end inside a record (an integrity error, never a clean
+    end). Every end of a lane (an end of the socket, a bad record, a destroy, either of
+    ace-media's two pumps finishing) goes one way: the other direction is closed too, the keys
+    are wiped, and only then are the lane's users told. Measured on the M4 Max: sealing 1.97 GB/s in ace-media, with no
     allocation per record (0.1 % of a core at 16 Mbit/s); opening 297 MB/s on Node and
     248 MB/s on Bun in the daemon (under 1 %).
 - **Frames** (all lanes except egress). `u32 BE frame length` (the bytes after this field, at
