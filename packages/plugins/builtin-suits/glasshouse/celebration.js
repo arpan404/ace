@@ -123,7 +123,8 @@ function draw(time) {
   ctx.clearRect(0, 0, width, height);
   if (t >= endMs) {
     finished = true;
-    ace.finish();
+    // Hosts older than the celebration contract have no finish(); they take the layer down on time.
+    if (typeof ace.finish === "function") ace.finish();
     return;
   }
   const fade = t > fadeFrom ? 1 - clamp((t - fadeFrom) / (endMs - fadeFrom)) : 1;

@@ -166,7 +166,7 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["arcade-cabinet"]);
+  expect(seeded).toEqual(["arcade-cabinet", "glasshouse"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -183,6 +183,12 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "empty-state",
     "sidebar-header",
   ]);
+  // Glasshouse brings its light field, its celebration, its sidebar mark and empty-state art.
+  const glasshouse = detail(await library.read("glasshouse"));
+  expect(glasshouse.sceneUrl).toMatch(/scene\.html$/);
+  expect(Object.keys(glasshouse.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
+  expect(glasshouse.css).toContain('[data-suit="glasshouse"]');
+  expect(Object.keys(glasshouse.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {

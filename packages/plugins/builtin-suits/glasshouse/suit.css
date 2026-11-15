@@ -61,6 +61,8 @@
     inset -1px 0 0 var(--suit-rim-under), inset 0 -1px 0 var(--suit-rim-under);
   --suit-fill: var(--suit-glass);
   --suit-frost: blur(22px) saturate(170%);
+  --suit-bead-hi: #ffffff;
+  --suit-bead-lo: var(--color-hover);
 }
 
 [data-scheme="dark"] [data-part="app"],
@@ -78,8 +80,8 @@
   --suit-glass-well: rgb(10 18 22 / 0.55);
   --suit-sheen: linear-gradient(
     172deg,
-    rgb(220 240 245 / 0.09) 0%,
-    rgb(220 240 245 / 0.02) 36%,
+    rgb(220 240 245 / 0.06) 0%,
+    rgb(220 240 245 / 0.015) 36%,
     rgb(220 240 245 / 0) 60%
   );
   --suit-rim: rgb(225 245 250 / 0.2);
@@ -92,6 +94,8 @@
   --suit-glow: color-mix(in oklab, var(--color-tint) 26%, transparent);
   --suit-wash: color-mix(in oklab, var(--color-tint) 12%, transparent);
   --suit-frost: blur(26px) saturate(150%);
+  --suit-bead-hi: var(--color-active);
+  --suit-bead-lo: var(--color-surface-2);
   --suit-sheet: rgb(12 21 26 / 0.42);
 }
 
@@ -344,6 +348,16 @@
   min-height: 40px;
 }
 
+/* Pages whose strip shows no title (Settings, the review lists) leave the strip clear. */
+[data-page="settings"] [data-part="header"],
+[data-page="pulls"] [data-part="header"],
+[data-page="issues"] [data-part="header"],
+[data-page="inbox"] [data-part="header"] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 [data-part="header-title"] {
   font-weight: 650;
   letter-spacing: -0.005em;
@@ -546,21 +560,20 @@
   color: var(--color-subtle-foreground);
 }
 
-/* Send is a luminous orb: a glass bead lit from within by the accent. */
+/* Send is a luminous orb: a glass bead lit from within by the accent, its highlight a paler
+ * accent (never white), so the arrow reads on every part of it. */
 [data-part="composer-send"] {
   border-radius: 999px;
-  border: 1px solid color-mix(in oklab, var(--color-tint) 60%, white);
+  border: 1px solid color-mix(in oklab, var(--color-tint) 55%, var(--suit-rim));
   color: var(--color-tint-foreground);
-  background:
-    radial-gradient(circle at 34% 28%, rgb(255 255 255 / 0.85) 0, rgb(255 255 255 / 0) 34%),
-    radial-gradient(
-      circle at 50% 60%,
-      var(--color-tint-hover) 0,
-      var(--color-tint) 62%,
-      color-mix(in oklab, var(--color-tint) 70%, black) 100%
-    );
+  background: radial-gradient(
+    circle at 34% 26%,
+    color-mix(in oklab, var(--color-tint) 72%, white) 0,
+    var(--color-tint) 48%,
+    color-mix(in oklab, var(--color-tint) 78%, black) 100%
+  );
   box-shadow:
-    inset 0 -2px 4px color-mix(in oklab, var(--color-tint) 60%, black),
+    inset 0 1px 1px rgb(255 255 255 / 0.35),
     0 0 0 3px var(--suit-wash),
     0 4px 14px var(--suit-glow),
     0 0 22px var(--suit-glow);
@@ -571,7 +584,7 @@
 [data-part="composer-send"]:hover {
   transform: scale(1.05);
   box-shadow:
-    inset 0 -2px 4px color-mix(in oklab, var(--color-tint) 60%, black),
+    inset 0 1px 1px rgb(255 255 255 / 0.35),
     0 0 0 4px var(--suit-wash),
     0 6px 18px var(--suit-glow),
     0 0 30px var(--suit-glow);
@@ -579,14 +592,13 @@
 [data-part="composer-send"]:active {
   transform: scale(0.96);
 }
+/* Unlit: a clear bead waiting for words. */
 [data-part="composer-send"][data-state="disabled"] {
-  color: var(--color-subtle-foreground);
+  color: var(--color-muted-foreground);
   border-color: var(--suit-edge-strong);
-  background:
-    radial-gradient(circle at 34% 28%, rgb(255 255 255 / 0.55) 0, rgb(255 255 255 / 0) 36%),
-    var(--suit-glass-strong);
+  background: radial-gradient(circle at 34% 26%, var(--suit-bead-hi) 0, var(--suit-bead-lo) 75%);
   box-shadow:
-    var(--suit-edges),
+    inset 0 1px 0 var(--suit-rim),
     0 2px 6px var(--suit-shade-near);
   transform: none;
 }
@@ -639,6 +651,11 @@
   border-radius: 10px;
   transition: background-color 140ms ease;
 }
+/* Disabled glyphs go faint, the palette's icon-only level, which still reads at 3:1. */
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-faint-foreground);
+  opacity: 1;
+}
 [data-part="icon-button"]:hover,
 [data-part="icon-button"][data-state="active"] {
   background: var(--suit-glass);
@@ -687,7 +704,7 @@
 }
 [data-part="tab"][data-state="selected"] {
   color: var(--color-foreground);
-  background: var(--suit-sheen), var(--suit-glass-strong);
+  background: var(--suit-glass-strong);
   box-shadow:
     var(--suit-edges),
     0 1px 4px var(--suit-shade-near);
@@ -873,9 +890,51 @@
 [data-part="issue-row"] {
   --suit-fill: var(--suit-glass);
   position: relative;
+  isolation: isolate;
   border: 1px solid var(--suit-line);
   border-radius: 16px;
   margin-block: 8px;
+}
+/* The state glyph sits in a small glass lens, under ace's own icon. */
+[data-part="pr-row"]::before,
+[data-part="issue-row"]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 9px;
+  top: 5px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--suit-edge);
+  background:
+    radial-gradient(circle at 35% 25%, var(--suit-rim) 0, transparent 60%), var(--suit-glass-strong);
+  box-shadow:
+    inset 0 -1px 2px var(--suit-shade-near),
+    0 1px 3px var(--suit-shade-near);
+}
+/* A chevron of light on the card's right edge, shown on hover. */
+[data-part="pr-row"]::after,
+[data-part="issue-row"]::after {
+  content: "›";
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  margin-top: -13px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--color-link);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition:
+    opacity 160ms ease,
+    transform 200ms ease;
+  pointer-events: none;
+}
+[data-part="pr-row"]:hover::after,
+[data-part="issue-row"]:hover::after {
+  opacity: 1;
+  transform: none;
 }
 [data-part="pr-row"]:hover,
 [data-part="issue-row"]:hover {
@@ -887,17 +946,22 @@
   --suit-line: color-mix(in oklab, var(--color-tint) 45%, var(--suit-edge));
   --suit-height: 0 0 0 2px var(--suit-glow), var(--suit-lift);
 }
+/* A draft is etched glass: a dashed edge, not yet set in its frame. */
+[data-part="pr-row"][data-variant="draft"] {
+  border-style: dashed;
+  --suit-line: var(--suit-edge-strong);
+}
 /* A merged or closed pull request is glass gone quiet: clearer, flatter. */
 [data-part="pr-row"][data-variant="merged"],
 [data-part="pr-row"][data-variant="closed"],
 [data-part="issue-row"][data-variant="closed"] {
-  --suit-fill: rgb(255 255 255 / 0.32);
+  --suit-fill: rgb(255 255 255 / 0.4);
   --suit-height: 0 1px 2px var(--suit-shade-near);
 }
 [data-scheme="dark"] [data-part="pr-row"][data-variant="merged"],
 [data-scheme="dark"] [data-part="pr-row"][data-variant="closed"],
 [data-scheme="dark"] [data-part="issue-row"][data-variant="closed"] {
-  --suit-fill: rgb(20 32 39 / 0.45);
+  --suit-fill: rgb(20 32 39 / 0.5);
 }
 
 /* One pull request: a hero pane at the top, then panes for everything under it. */
@@ -910,8 +974,7 @@
   position: relative;
   border: 1px solid var(--suit-line);
   border-radius: 24px;
-  padding: 22px 26px 20px;
-  margin-bottom: 14px;
+  margin: 10px 12px 8px 2px;
   box-shadow: var(--suit-edges), var(--suit-height);
 }
 /* A filament of light along the hero's top edge, bending to the accent near its centre. */
@@ -987,15 +1050,19 @@
   box-shadow: var(--suit-edges);
 }
 [data-part="diff-file"] {
+  --suit-fill: var(--suit-glass-strong);
   border: 1px solid var(--suit-line);
   border-radius: 16px;
   overflow: hidden;
+}
+[data-part="right-panel"] [data-part="diff-file"] {
+  margin: 8px 10px 10px;
 }
 
 /* ------------------------------------------------------------------ side panel: its own pane */
 
 [data-part="right-panel"] {
-  margin: 0 10px 10px 0;
+  margin: 6px 10px 10px 2px;
   border-radius: var(--suit-r-pane);
   overflow: hidden;
 }
