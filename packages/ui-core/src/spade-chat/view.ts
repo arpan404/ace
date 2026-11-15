@@ -65,12 +65,24 @@ export function spadeView(state: SpadeConversationState): SpadeView {
       reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,
     working: working(state, reply?.startedAt, approvals.length > 0 || state.question !== undefined),
     // Its words only while anything is open: the line goes when the reply ends.
-    status: reply !== undefined || state.jobs.size > 0 ? state.status : undefined,
+    status:
+      reply !== undefined || state.jobs.size > 0
+        ? plainStatus(state.status, [...state.running.values()].at(-1)?.name)
+        : undefined,
     approvals,
     asking: state.question !== undefined,
     forLater: [...state.forLater],
     questionsForLater: questionsIn(state.entries, state.forLater),
   };
+}
+
+/**
+ * A status that names a tool by its raw name ("Using screen act", from a server that doesn't
+ * know the tool) reads in the tool's plain words ("Using an app on the screen").
+ */
+function plainStatus(status: string | undefined, running: string | undefined): string | undefined {
+  if (status === undefined || running === undefined || !status.startsWith("Using ")) return status;
+  return spadeToolWords(running).doing;
 }
 
 /** The questions of the cards `callIds` names, wherever each card stands in the chat. */

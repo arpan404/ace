@@ -27,4 +27,3 @@ export * from "./computer.ts";
 export * from "./request-words.ts";
 export * from "./questions.ts";
 export * from "./runs.ts";
-export * from "./steps.ts";

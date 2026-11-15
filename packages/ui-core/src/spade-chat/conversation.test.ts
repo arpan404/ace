@@ -539,7 +539,7 @@ test("a job's end reads above the words that answer it", () => {
 });
 
 describe("the conversation as a chat", () => {
-  test("bubbles show both sides' words, the tools only as the reply's steps line, nothing of jobs or compaction", () => {
+  test("bubbles show both sides' words, each step's words its own bubble, nothing of tools, jobs or compaction", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Find me a flight" });
     c.stored({ type: "reply_started", reply: "r1" });
@@ -577,17 +577,62 @@ describe("the conversation as a chat", () => {
                     ? "search setup"
                     : bubble.kind === "question"
                       ? `question: ${bubble.callId}`
-                      : bubble.kind === "steps"
-                        ? `steps: ${bubble.summary}`
-                        : `${bubble.kind}: ${bubble.text}`,
+                      : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",
       "bot: Looking.",
-      // Under the words of the step that searched, which compaction set apart.
-      "steps: Searched the web",
       "bot: The 9:40 is cheapest.",
       "Travel: Booked it for you.",
+    ]);
+  });
+
+  test("each step's words is its own bubble, in order, and no steps line stays once the reply ends", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    for (const [index, text] of ["First.", "Second.", "Third."].entries()) {
+      c.stored({
+        type: "step_finished",
+        reply: "r1",
+        text,
+        calls: [{ id: `k${index}`, name: "shell" }],
+      });
+      c.stored({ type: "tool_started", reply: "r1", call_id: `k${index}`, name: "shell" });
+      c.stored({ type: "tool_finished", reply: "r1", call_id: `k${index}`, name: "shell" });
+    }
+    c.stored({ type: "reply_finished", reply: "r1", text: "Third." });
+    const bubbles = spadeBubbles(c.view());
+    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["bot", "bot", "bot"]);
+    expect(bubbles.map((bubble) => (bubble.kind === "bot" ? bubble.text : ""))).toEqual([
+      "First.",
+      "Second.",
+      "Third.",
+    ]);
+    expect(new Set(bubbles.map((bubble) => bubble.key)).size).toBe(3);
+  });
+
+  test("streaming words grow a bubble of their own after the finished ones", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Done with that." });
+    c.frame("delta", { reply: "r1", text: "Now I am wri" });
+    expect(
+      spadeBubbles(c.view()).map((bubble) =>
+        bubble.kind === "bot" ? [bubble.text, bubble.live] : [],
+      ),
+    ).toEqual([
+      ["Done with that.", false],
+      ["Now I am wri", true],
+    ]);
+  });
+
+  test("a failed reply puts its ending on its last words, not on a bubble of its own", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Trying." });
+    c.stored({ type: "reply_failed", reply: "r1", text: "", error: "x", kind: "other" });
+    expect(spadeBubbles(c.view())).toMatchObject([
+      { kind: "bot", text: "Trying.", end: "failed", failure: { kind: "other" } },
     ]);
   });
 
@@ -609,9 +654,9 @@ describe("the conversation as a chat", () => {
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
     c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
     expect(asked()).toEqual(["Drafted it.", "ask allowed", "Sent."]);
-    // Once the reply ends it is one of the reply's steps (steps.test.ts).
+    // Once the reply ends the answered request goes with the work; each step's words stays.
     c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
-    expect(asked()).toEqual(["Drafted it.\n\nSent.", ""]);
+    expect(asked()).toEqual(["Drafted it.", "Sent."]);
   });
 
   test("a request its reply ended before the person answered stays, closed", () => {
@@ -634,6 +679,20 @@ describe("the conversation as a chat", () => {
     expect(c.view().status).toBe("Reading a page");
     c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
     expect(c.view().status).toBeUndefined();
+  });
+
+  test("a status that names a tool by its raw name reads in the tool's plain words", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "c1", name: "ace__screen_act" }],
+    });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "c1", name: "ace__screen_act" });
+    c.frame("status", { state: "working", status: "Using screen act" });
+    expect(c.view().status).toBe("Using an app on the screen");
   });
 });
 

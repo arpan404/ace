@@ -45,14 +45,7 @@ export interface SpadeChatClock {
 /** A pause this long between two things said starts a new time line. */
 export const spadeTimeGapMs = 30 * 60_000;
 
-const botSide = new Set<SpadeChatItem["kind"]>([
-  "bot",
-  "ask",
-  "question",
-  "skill",
-  "files",
-  "steps",
-]);
+const botSide = new Set<SpadeChatItem["kind"]>(["bot", "ask", "question", "skill", "files"]);
 
 /** Whose run an item belongs to, if any: "bot", another bot's id, or undefined for its own row. */
 function senderOf(item: SpadeChatItem): string | undefined {

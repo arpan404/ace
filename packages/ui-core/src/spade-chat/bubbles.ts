@@ -11,7 +11,6 @@ import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 import { spadeCapSentence } from "./oversight.ts";
 import { spadeHelperLine } from "./helper-words.ts";
-import { spadeReplySteps, spadeStepsSummary, type SpadeStep } from "./steps.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
@@ -68,11 +67,6 @@ type SpadeBubbleOf =
       images: readonly SpadeImageRef[];
       documents: readonly SpadeDocumentRef[];
     }
-  /**
-   * The steps a reply took, as one line under its words that opens to each (`spadeReplySteps`).
-   * `reply`: the reply they led to.
-   */
-  | { kind: "steps"; key: string; reply: string; summary: string; steps: readonly SpadeStep[] }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
@@ -318,11 +312,12 @@ function askBubble(
 }
 
 /**
- * A reply's bubbles: its words, split where it remembered a note or asked a question, each with
- * the images and documents its tools showed meanwhile after its words, and its steps folded into
- * one line under its last words. Once the reply has ended, a request the person answered is one
- * of those steps, not a bubble of its own. The first run keeps the reply's key, so a bubble keeps
- * its place as the reply grows.
+ * A reply's bubbles: each step's words is a bubble of its own, as a messenger shows several
+ * messages in a row; a note it remembered or a question it asked splits the words too. The images
+ * and documents its tools showed ride on the bubble before them (ADR 0134). The steps it took
+ * leave no line: while it works they are the working line's, after, the profile's Activity. A
+ * request the person answered once the reply has ended goes with them. The first bubble keeps the
+ * reply's key, so a bubble keeps its place as the reply grows.
  */
 function replyBubbles(
   entry: SpadeReplyEntry,
@@ -331,88 +326,93 @@ function replyBubbles(
   ask: (request: SpadeRequest, key: string, at: number | undefined) => void,
 ) {
   const at = stamp(entry.startedAt);
-  let words: string[] = [];
   let images: SpadeImageRef[] = [];
   let documents: SpadeDocumentRef[] = [];
-  let runs = 0;
-  // Where the steps line goes: after the reply's last words, or where the reply began.
-  let afterWords = bubbles.length;
+  let count = 0;
+  // Where this reply's newest bot bubble sits, while nothing else has been added after it.
+  let latest = -1;
   const take = () => {
     const media = { images, documents };
     images = [];
     documents = [];
     return media;
   };
-  const flush = () => {
-    const text = words.join("\n\n").trim();
-    words = [];
-    if (!text && !images.length && !documents.length) return;
+  const say = (text: string, live: boolean) => {
     pushBot(bubbles, held, {
-      key: runs++ ? `${entry.key}:${runs}` : entry.key,
+      key: count++ ? `${entry.key}:${count}` : entry.key,
       text,
-      live: false,
+      live,
       end: undefined,
       failure: undefined,
       ...take(),
       ...at,
     });
-    afterWords = bubbles.length;
+    latest = bubbles.length - 1;
+  };
+  /** The last bubble of the reply, when it is still the chat's last. */
+  const tail = () => {
+    const bubble = latest === bubbles.length - 1 ? bubbles[latest] : undefined;
+    return bubble?.kind === "bot" ? bubble : undefined;
+  };
+  const attach = () => {
+    const bubble = tail();
+    if (!bubble || (!images.length && !documents.length)) return;
+    bubbles[latest] = {
+      ...bubble,
+      images: [...bubble.images, ...images],
+      documents: [...bubble.documents, ...documents],
+    };
+    images = [];
+    documents = [];
   };
   for (const part of entry.parts) {
-    if (part.kind === "text") words.push(part.text);
-    else if (part.kind === "shared") {
+    if (part.kind === "text") {
+      const text = part.text.trim();
+      if (text) say(text, false);
+    } else if (part.kind === "shared") {
       images.push(...part.images);
       documents.push(...part.documents);
+      attach();
     } else if (part.kind === "remembered") {
-      flush();
       bubbles.push({ kind: "remembered", key: `${entry.key}:${part.key}`, note: part.note });
     } else if (part.kind === "question") {
-      flush();
       bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...at });
     } else if (part.kind === "files") {
-      flush();
       hold(held, part.key, part.paths);
     } else if (part.kind === "request") {
-      // Answered in a reply that has ended, it reads among the reply's steps.
+      // Answered in a reply that has ended, it is part of the work, not a bubble.
       if (entry.end !== undefined && part.answer !== undefined) continue;
-      flush();
       ask(part, `${entry.key}:${part.key}`, entry.startedAt);
     }
   }
-  if (entry.live) words.push(entry.live);
-  const text = words.join("\n\n").trim();
+  const live = entry.end === undefined ? entry.live.trim() : "";
+  // The streaming words grow a bubble of their own.
+  if (live) say(live, true);
   const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
-  // A reply with nothing more to say yet shows only as the working line.
-  if (text || end || images.length || documents.length) {
-    pushBot(bubbles, held, {
-      key: runs ? `${entry.key}:${runs + 1}` : entry.key,
-      text,
-      live: entry.end === undefined,
-      end,
-      failure:
-        entry.end?.kind === "failed"
-          ? {
-              kind: entry.end.failure,
-              endpoint: entry.end.endpoint,
-              error: entry.end.error,
-              retry: undefined,
-            }
-          : undefined,
-      ...take(),
-      ...at,
-    });
-    afterWords = bubbles.length;
+  const failure =
+    entry.end?.kind === "failed"
+      ? {
+          kind: entry.end.failure,
+          endpoint: entry.end.endpoint,
+          error: entry.end.error,
+          retry: undefined,
+        }
+      : undefined;
+  if (end) {
+    // How it ended sits on its last words, or stands alone when nothing was said after.
+    const bubble = tail();
+    if (bubble && !bubble.end) bubbles[latest] = { ...bubble, end, failure };
+    else {
+      say("", false);
+      const added = bubbles[latest];
+      if (added?.kind === "bot") bubbles[latest] = { ...added, end, failure };
+    }
   }
-  const steps = spadeReplySteps(entry);
-  if (steps.length)
-    bubbles.splice(afterWords, 0, {
-      kind: "steps",
-      key: `steps:${entry.key}`,
-      reply: entry.reply,
-      summary: spadeStepsSummary(steps),
-      steps,
-      ...at,
-    });
+  // Media with no words before it.
+  if (images.length || documents.length) {
+    if (tail()) attach();
+    else say("", false);
+  }
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
@@ -448,8 +448,7 @@ function pushBot(
  * isn't offered (they would be lost), nor one a routine, group or bot sent, nor a cap's failure.
  */
 function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
-  // The failed reply's steps line may sit under it.
-  const at = bubbles.findLastIndex((bubble) => bubble.kind !== "steps");
+  const at = bubbles.length - 1;
   const last = bubbles[at];
   if (last?.kind !== "bot" || !last.failure || last.failure.kind === "cap") return;
   const reply = entries.findLastIndex((entry) => entry.kind === "reply");
