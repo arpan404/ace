@@ -40,6 +40,7 @@ pub const GL_TEXTURE_2D: u32 = 0x0DE1;
 const GL_TEXTURE_MIN_FILTER: u32 = 0x2801;
 const GL_TEXTURE_MAG_FILTER: u32 = 0x2800;
 const GL_LINEAR: i32 = 0x2601;
+const GL_NEAREST: i32 = 0x2600;
 const GL_RGBA8: i32 = 0x8058;
 const GL_RGBA: u32 = 0x1908;
 const GL_BGRA: u32 = 0x80E1;
@@ -122,6 +123,8 @@ pub struct GlImporter {
     upload: Option<Texture>,
     /// What NVENC encodes, at the encode size.
     output: Option<Texture>,
+    /// The exact crop with a one-pixel border of its own edges, scaled from (`blit`).
+    staging: Option<Texture>,
 }
 
 fn failed(what: &str) -> CodecError {
@@ -140,6 +143,12 @@ pub struct DmaPlane<'fd> {
 impl GlImporter {
     /// A context on the first EGL device whose vendor is NVIDIA. `Unsupported` anywhere else.
     pub fn open() -> Result<Self, CodecError> {
+        Self::open_where(|vendor| vendor.contains("NVIDIA"))
+    }
+
+    /// A context on the first EGL device whose vendor `wanted` takes. Tests take Mesa's
+    /// software device, to run the same import, upload and blit without a GPU.
+    fn open_where(wanted: impl Fn(&str) -> bool) -> Result<Self, CodecError> {
         // SAFETY: loading runs libEGL's initialisers, which only set up its own state.
         let library = unsafe { libloading::Library::new("libEGL.so.1") }
             .map_err(|e| CodecError::Unsupported(format!("no libEGL: {e}")))?;
@@ -174,7 +183,7 @@ impl GlImporter {
                 let p = unsafe { (egl.query_string)(display, name) };
                 (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
             };
-            let nvidia = text(EGL_VENDOR).is_some_and(|v| v.contains("NVIDIA"));
+            let nvidia = text(EGL_VENDOR).is_some_and(|v| wanted(&v));
             let extensions = text(EGL_EXTENSIONS).unwrap_or_default();
             if !nvidia
                 || !extensions.contains("EGL_EXT_image_dma_buf_import")
@@ -235,6 +244,7 @@ impl GlImporter {
             draw: fbs[1],
             upload: None,
             output: None,
+            staging: None,
         })
     }
 
@@ -278,22 +288,16 @@ impl GlImporter {
     }
 
     /// Crops `region` of `source` and scales it into the output texture, which it returns.
-    fn blit(
-        &mut self,
-        source: u32,
-        region: (u32, u32, u32, u32),
-        size: Size,
-    ) -> Result<u32, CodecError> {
-        let output = self.output(size);
-        let (left, top, width, height) = region;
-        // SAFETY: the context is current; both textures are complete RGBA textures of it.
+    /// Points the read framebuffer at `read` and the draw one at `draw`.
+    fn attach(&self, read: u32, draw: u32) -> Result<(), CodecError> {
+        // SAFETY: the context is current; both are complete RGBA textures of it.
         unsafe {
             (self.gl.bind_framebuffer)(GL_READ_FRAMEBUFFER, self.read);
             (self.gl.framebuffer_texture)(
                 GL_READ_FRAMEBUFFER,
                 GL_COLOR_ATTACHMENT0,
                 GL_TEXTURE_2D,
-                source,
+                read,
                 0,
             );
             (self.gl.bind_framebuffer)(GL_DRAW_FRAMEBUFFER, self.draw);
@@ -301,7 +305,7 @@ impl GlImporter {
                 GL_DRAW_FRAMEBUFFER,
                 GL_COLOR_ATTACHMENT0,
                 GL_TEXTURE_2D,
-                output,
+                draw,
                 0,
             );
             if (self.gl.check_framebuffer)(GL_READ_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE
@@ -309,21 +313,84 @@ impl GlImporter {
             {
                 return Err(failed("incomplete framebuffer"));
             }
-            // Rows keep their memory order (row 0 first), so nothing is flipped.
-            (self.gl.blit)(
-                left as i32,
-                top as i32,
-                (left + width) as i32,
-                (top + height) as i32,
-                0,
-                0,
-                size.width as i32,
-                size.height as i32,
-                GL_COLOR_BUFFER_BIT,
-                GL_LINEAR as u32,
-            );
-            (self.gl.finish)();
         }
+        Ok(())
+    }
+
+    /// One blit between the attached framebuffers: `from` and `to` as (x0, y0, x1, y1).
+    fn copy(&self, from: [u32; 4], to: [u32; 4], filter: i32) {
+        // SAFETY: the context is current with both framebuffers attached (`attach`).
+        unsafe {
+            (self.gl.blit)(
+                from[0] as i32,
+                from[1] as i32,
+                from[2] as i32,
+                from[3] as i32,
+                to[0] as i32,
+                to[1] as i32,
+                to[2] as i32,
+                to[3] as i32,
+                GL_COLOR_BUFFER_BIT,
+                filter as u32,
+            );
+        }
+    }
+
+    /// The staging texture for a `width`×`height` crop: one pixel wider on every side.
+    fn staging(&mut self, width: u32, height: u32) -> u32 {
+        let size = Size {
+            width: width + 2,
+            height: height + 2,
+        };
+        if self.staging.as_ref().is_none_or(|t| t.size != size) {
+            if let Some(old) = self.staging.take() {
+                self.drop_texture(old);
+            }
+            self.staging = Some(self.texture(size));
+        }
+        self.staging.as_ref().map_or(0, |t| t.id)
+    }
+
+    /// Crops `region` of `source` and scales it into the output texture, which it returns.
+    ///
+    /// Linear filtering reads up to a pixel beyond what it scales, so the region is first copied
+    /// exactly (nearest, 1:1) into a staging texture with a one-pixel border holding the region's
+    /// own edge rows, columns and corners. The scale reads only that texture: no sample can ever
+    /// come from outside the crop, at any size, offset or edge.
+    fn blit(
+        &mut self,
+        source: u32,
+        region: (u32, u32, u32, u32),
+        size: Size,
+    ) -> Result<u32, CodecError> {
+        let output = self.output(size);
+        let (l, t, w, h) = region;
+        if w == 0 || h == 0 {
+            return Err(CodecError::InvalidInput("an empty crop".into()));
+        }
+        let (r, b) = (l + w, t + h);
+        let staging = self.staging(w, h);
+        self.attach(source, staging)?;
+        let nearest = GL_NEAREST;
+        // The region, then its edges into the border. Rows keep their memory order, so nothing
+        // is flipped.
+        self.copy([l, t, r, b], [1, 1, w + 1, h + 1], nearest);
+        self.copy([l, t, r, t + 1], [1, 0, w + 1, 1], nearest);
+        self.copy([l, b - 1, r, b], [1, h + 1, w + 1, h + 2], nearest);
+        self.copy([l, t, l + 1, b], [0, 1, 1, h + 1], nearest);
+        self.copy([r - 1, t, r, b], [w + 1, 1, w + 2, h + 1], nearest);
+        self.copy([l, t, l + 1, t + 1], [0, 0, 1, 1], nearest);
+        self.copy([r - 1, t, r, t + 1], [w + 1, 0, w + 2, 1], nearest);
+        self.copy([l, b - 1, l + 1, b], [0, h + 1, 1, h + 2], nearest);
+        self.copy([r - 1, b - 1, r, b], [w + 1, h + 1, w + 2, h + 2], nearest);
+        self.attach(staging, output)?;
+        self.copy(
+            [1, 1, w + 1, h + 1],
+            [0, 0, size.width, size.height],
+            GL_LINEAR,
+        );
+        // SAFETY: the context is current.
+        unsafe { (self.gl.finish)() };
         Ok(output)
     }
 
@@ -468,7 +535,7 @@ impl GlImporter {
 
 impl Drop for GlImporter {
     fn drop(&mut self) {
-        for texture in [self.upload.take(), self.output.take()]
+        for texture in [self.upload.take(), self.output.take(), self.staging.take()]
             .into_iter()
             .flatten()
         {
@@ -486,6 +553,89 @@ impl Drop for GlImporter {
             );
             (self.egl.destroy_context)(self.display, self.context);
             (self.egl.terminate)(self.display);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GlImporter;
+    use crate::media::stream::{StreamSettings, encode_size};
+    use media_codec::{PixelFormat, Size};
+
+    const WIDTH: u32 = 160;
+    const HEIGHT: u32 = 120;
+
+    /// BGRA: red everywhere, green inside `region`.
+    fn pattern((left, top, width, height): (u32, u32, u32, u32)) -> Vec<u8> {
+        let mut bytes = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let inside = x >= left && x < left + width && y >= top && y < top + height;
+                let at = ((y * WIDTH + x) * 4) as usize;
+                bytes[at..at + 4].copy_from_slice(if inside {
+                    &[0, 255, 0, 255]
+                } else {
+                    &[0, 0, 255, 255]
+                });
+            }
+        }
+        bytes
+    }
+
+    fn settings(max: u32) -> StreamSettings {
+        StreamSettings {
+            codec: "h264".into(),
+            max_width: max,
+            max_height: max,
+            fps: 30,
+            bitrate: 1_000_000,
+        }
+    }
+
+    /// Needs an EGL device (Mesa's software one will do): `ACE_E2_GL=1`.
+    #[test]
+    fn a_crop_scaled_on_the_gpu_never_takes_in_a_pixel_from_outside_it() {
+        if std::env::var_os("ACE_E2_GL").is_none_or(|v| v != "1") {
+            eprintln!("skipped: set ACE_E2_GL=1 with an EGL device");
+            return;
+        }
+        let mut gl = GlImporter::open_where(|_| true).expect("an EGL device");
+        let cases = [
+            ("small interior, enlarged to 64", (60, 45, 40, 30), 3840),
+            ("odd size and offset", (7, 9, 33, 17), 3840),
+            ("top-left edge", (0, 0, 50, 41), 3840),
+            ("bottom-right edge", (WIDTH - 37, HEIGHT - 23, 37, 23), 3840),
+            ("one pixel wide", (80, 10, 1, 90), 3840),
+            ("downscaled", (13, 11, 131, 97), 64),
+        ];
+        for (name, region, max) in cases {
+            let size: Size = encode_size(region.2, region.3, &settings(max));
+            let bytes = pattern(region);
+            gl.upload(
+                &bytes,
+                (WIDTH * 4) as usize,
+                PixelFormat::Bgra8,
+                Size {
+                    width: WIDTH,
+                    height: HEIGHT,
+                },
+                region,
+                size,
+            )
+            .expect("uploads and scales");
+            let picture = gl.read_output().expect("reads back");
+            assert_eq!(picture.size(), size, "{name}");
+            let plane = &picture.planes()[0];
+            let red = plane.data.chunks(4).filter(|p| p[2] > 8).count();
+            assert_eq!(
+                red, 0,
+                "{name}: {red} pixels took in red from outside the crop"
+            );
+            assert!(
+                plane.data.chunks(4).all(|p| p[1] > 200),
+                "{name}: the crop itself is green"
+            );
         }
     }
 }
