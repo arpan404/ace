@@ -45,6 +45,11 @@ export interface CaptureEvents {
    * the first thing after the move back.
    */
   moved?(to: "ingest" | "daemon"): void;
+  /**
+   * ace-media's plan for the views it delivers (`source.want`, D1): the capture runs these too,
+   * in place of any the daemon would plan for those views. Replaces the previous plan.
+   */
+  want?(encodes: VideoEncode[]): void;
 }
 /** What ace-media calls a host's sources (docs/media/plan.md, "Routes"). */
 export type VideoMediaKind = "tab" | "tab-pictures" | "user-tab" | "embedded";

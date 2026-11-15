@@ -49,11 +49,24 @@ type Ids = { threadId?: string; tabId?: string };
 const holdMs = 1_000;
 let captures = 0;
 
-/** An encode's id in ace-media's frames, per capture, from 1. */
+/**
+ * The daemon's own encodes' ids start here, above ace-media's (from 0, D1), so the two plans can
+ * run side by side in one capture.
+ */
+const daemonIds = 2 ** 20;
+/** The key prefix of an encode ace-media planned, which keeps ace-media's own id. */
+const mediaKey = "media/";
+
+/** An encode's id in ace-media's frames, per capture: the daemon's from `daemonIds`. */
 class EncodeIds {
   readonly #ids = new Map<string, number>();
   readonly #keys = new Map<number, string>();
-  #next = 1;
+  #next = daemonIds;
+  /** An encode ace-media planned: its key keeps ace-media's id. */
+  pin(key: string, id: number): void {
+    this.#ids.set(key, id);
+    this.#keys.set(id, key);
+  }
   id(key: string): number {
     let id = this.#ids.get(key);
     if (id === undefined) {
@@ -231,6 +244,22 @@ async function streamed(
       if (key !== undefined) handle.keyframe(key);
     },
     pathEnded: (path, interrupted) => merge.ended(path, interrupted),
+    // ace-media's plan for the views it delivers: the capture runs it, under ace-media's ids.
+    want: (encodes) => {
+      const planned: VideoEncode[] = encodes.map((encode) => {
+        const key = `${mediaKey}${encode.id}/${encode.codec}/${encode.width}x${encode.height}`;
+        encodeIds.pin(key, encode.id);
+        return {
+          key,
+          codec: encode.codec,
+          width: encode.width,
+          height: encode.height,
+          fps: encode.fps,
+          bitrate: encode.bitrate,
+        };
+      });
+      events.want?.(planned);
+    },
   });
   if (!source) return handle;
   return {

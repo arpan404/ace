@@ -103,10 +103,18 @@ export function connectBrowser(
      * socket.
      */
     media: Map<string, string>;
+    /** The view the capture was last told about, to tell it again when delivery changes. */
+    shown?: CaptureViewer | undefined;
   };
   /** Every subscriber of the entry is delivered by ace-media: nothing goes on this socket. */
   const allMedia = (entry: Subscription) =>
     entry.media.size > 0 && entry.media.size >= entry.subscribers.size;
+  /**
+   * This connection's view as the daemon's capture sees it: delivered by ace-media while every
+   * subscriber is, so the capture runs ace-media's plan for it and the daemon sends it nothing.
+   */
+  const deliveredBy = (entry: Subscription, capture: CaptureViewer): CaptureViewer =>
+    allMedia(entry) ? { ...capture, delivered: true } : capture;
   /** Retires a subscriber's view on its media connection, if it had one. */
   const retire = (entry: Subscription | undefined, subscriber: string) => {
     const mediaViewer = entry?.media.get(subscriber);
@@ -404,10 +412,12 @@ export function connectBrowser(
               entry.binary = binary;
               entry.video = video;
               if (delivered) entry.media.set(subscriber, delivered);
-              if (capture) service.configureCapture(threadId, options.connectionId, capture);
+              entry.subscribers.add(subscriber);
+              const shown = capture && deliveredBy(entry, capture);
+              if (capture) entry.shown = capture;
+              if (shown) service.configureCapture(threadId, options.connectionId, shown);
               options.send({ type: "browser.state", state: service.state(threadId) });
               service.replayFrame(threadId, options.connectionId);
-              entry.subscribers.add(subscriber);
             } else {
               if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
               entry = {
@@ -416,10 +426,12 @@ export function connectBrowser(
                 binary,
                 video,
                 media: new Map(delivered ? [[subscriber, delivered]] : []),
+                shown: capture,
               };
-              bind(threadId, entry, capture);
+              const shown = capture && deliveredBy(entry, capture);
+              bind(threadId, entry, shown);
               subscriptions.set(threadId, entry);
-              if (capture) service.configureCapture(threadId, options.connectionId, capture);
+              if (shown) service.configureCapture(threadId, options.connectionId, shown);
             }
             if (delivered && message.media) {
               const poster = await options.media?.delivery()?.poster(delivered);
@@ -441,6 +453,13 @@ export function connectBrowser(
             const subscriber = message.subscriberId ?? "legacy";
             retire(entry, subscriber);
             entry?.subscribers.delete(subscriber);
+            // Who is left decides again whether the daemon or ace-media delivers this view.
+            if (entry?.subscribers.size && entry.shown)
+              service.configureCapture(
+                threadId,
+                options.connectionId,
+                deliveredBy(entry, entry.shown),
+              );
             if (entry && !entry.subscribers.size) {
               entry.stop();
               subscriptions.delete(threadId);
@@ -460,10 +479,11 @@ export function connectBrowser(
               );
               delivery?.pause(mediaViewer, message.viewport.paused === true);
             }
+            entry.shown = viewer(message.viewport, entry.video);
             service.configureCapture(
               threadId,
               options.connectionId,
-              viewer(message.viewport, entry.video),
+              deliveredBy(entry, entry.shown),
             );
             respond(null);
             break;

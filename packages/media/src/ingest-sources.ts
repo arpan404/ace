@@ -70,6 +70,11 @@ export type IngestProducer = {
    * no poster (a producer that can't vouch for its source's privacy history gets none).
    */
   clearEpochs?: () => [number, number][];
+  /**
+   * ace-media's plan for the views it delivers (`source.want`, D1): the encodes to run, under
+   * ace-media's own ids. Sent only while this producer streams to ace-media.
+   */
+  want?: (encodes: EncodeSpec[]) => void;
 };
 
 /** What the sources need of the supervisor. */
@@ -274,13 +279,22 @@ export class IngestSources {
 
   /** The supervisor's `onMessage`. */
   message(message: FromMedia): void {
-    if (message.type !== "source.status" && message.type !== "source.keyframe") return;
+    if (
+      message.type !== "source.status" &&
+      message.type !== "source.keyframe" &&
+      message.type !== "source.want"
+    )
+      return;
     const path = this.#paths.get(message.source);
     if (!path || path.draining) return;
     const { entry } = path;
     if (entry.closed || entry.live !== path) return;
     if (message.type === "source.keyframe") {
       if (entry.state === "ingest") entry.producer.keyframe(message.encode);
+      return;
+    }
+    if (message.type === "source.want") {
+      if (entry.state === "ingest") entry.producer.want?.(message.encodes);
       return;
     }
     this.#status(entry, path, message);
