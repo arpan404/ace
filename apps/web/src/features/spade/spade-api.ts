@@ -15,7 +15,7 @@ import {
   type SpadeModels,
   type SpadeSubscription,
 } from "@ace/ui-core/spade-chat";
-import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
+import { segment, spadeBody, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
 /*
  * Spade's agent, endpoint and model routes (ADR 0126, 0127), each answer parsed with
@@ -62,7 +62,8 @@ export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
 
 /**
  * Makes a bot. With `first`, its first message goes in the same call (the new-bot conversation):
- * Spade makes the bot and sends the message together, or does neither and says why.
+ * Spade makes the bot and sends the message together, or does neither and says why. An older
+ * Spade that answers without the message gets it sent on its own.
  */
 export async function createAgent(
   target: SpadeTarget,
@@ -79,7 +80,13 @@ export async function createAgent(
       }
     : draft;
   const body = await spadeHttp(target, "POST", "/v1/agents", { body: sent });
-  return sure(parseSpadeAgent(body), "new agent");
+  const agent = sure(parseSpadeAgent(body), "new agent");
+  // A Spade from before first messages makes the bot and drops the message: send it now.
+  if (first && !agent.lastMessage)
+    await spadeHttp(target, "POST", `/v1/conversations/${segment(agent.conversation)}/messages`, {
+      body: spadeBody(first),
+    });
+  return agent;
 }
 
 /** Name and avatar change at once; task and model apply from the agent's next turn, access from its next step. */

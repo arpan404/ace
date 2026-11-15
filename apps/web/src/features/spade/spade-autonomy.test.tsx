@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openNew, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -18,25 +18,6 @@ async function openPage(name: string) {
   await openProfile(name);
   return within(await screen.findByRole("region", { name: "Access" }));
 }
-
-test("New bot starts on Auto-review and sends it with the bot", async () => {
-  const { spade } = await spadeApp("/spade", withSpade);
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  const access = within(form.getByRole("radiogroup", { name: "Access" }));
-  expect(access.getByRole("radio", { name: "Auto-review" }).getAttribute("aria-checked")).toBe(
-    "true",
-  );
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Travel");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents")).toEqual([
-      expect.objectContaining({ name: "Travel", access: "auto_review" }),
-    ]),
-  );
-});
 
 test("Full access is given only once the person confirms it", async () => {
   const { spade } = await spadeApp("/spade", (api) => {

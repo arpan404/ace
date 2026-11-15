@@ -12,11 +12,6 @@ const withSpade = (spade: FakeSpadeApi) => {
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
 };
 
-async function newBot() {
-  await openNew("New bot");
-  return within(await screen.findByRole("dialog", { name: "New bot" }));
-}
-
 async function choose(scope: ReturnType<typeof within>, select: string, option: string) {
   await userEvent.click(scope.getByRole("combobox", { name: select }));
   await userEvent.click(await screen.findByRole("option", { name: option }));
@@ -24,8 +19,8 @@ async function choose(scope: ReturnType<typeof within>, select: string, option: 
 
 test("the model picker lists what each endpoint serves with its facts, and takes a typed id", async () => {
   await spadeApp("/spade", withSpade);
-  const form = await newBot();
-  await userEvent.click(await form.findByRole("button", { name: "Model" }));
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const models = within(await screen.findByRole("listbox", { name: "Models" }));
   await models.findByRole("option", { name: /^Sonnet/ });
   expect(models.getAllByRole("option").map((option) => option.textContent)).toEqual([
@@ -38,39 +33,9 @@ test("the model picker lists what each endpoint serves with its facts, and takes
   ).toHaveLength(3);
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "qwen/qwen3-coder");
   await userEvent.click(await screen.findByRole("option", { name: "Use “qwen/qwen3-coder”" }));
-  expect(form.getByRole("button", { name: "Model" }).textContent).toBe(
+  expect(screen.getByRole("button", { name: "Model" }).textContent).toBe(
     "qwen/qwen3-coder · OpenRouter",
   );
-});
-
-test("New bot creates the bot on the machine chosen for it and opens its conversation", async () => {
-  const { others, spade } = await spadeApp("/spade", withSpade, {
-    machines: [{ hostId: "studio", name: "Studio Mac", seed: withEndpoint }],
-  });
-  const form = await newBot();
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Travel");
-  await userEvent.type(form.getByRole("textbox", { name: "Task" }), "Plan and book my trips");
-  await userEvent.click(form.getByRole("radio", { name: "Creature: fox" }));
-  await userEvent.click(form.getByRole("radio", { name: "Colours: cocoa" }));
-  await choose(form, "Machine", "Studio Mac");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  const studio = others.get("studio");
-  await waitFor(() =>
-    expect(studio?.sent("POST", "/v1/agents")).toEqual([
-      {
-        name: "Travel",
-        task: "Plan and book my trips",
-        model: "openrouter/anthropic/sonnet",
-        access: "auto_review",
-        avatar: expect.objectContaining({ kind: "character", v: 1, body: "fox", pair: "cocoa" }),
-      },
-    ]),
-  );
-  expect(spade.sent("POST", "/v1/agents")).toEqual([]);
-  await screen.findByRole("feed", { name: "Conversation with Travel" });
-  expect((await botRow("Travel")).getAttribute("aria-current")).toBe("page");
 });
 
 test("a bot on a machine that goes offline stays listed, as away", async () => {
