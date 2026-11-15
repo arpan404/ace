@@ -60,10 +60,14 @@ async function restartedWithBacklog(n: number, options: Parameters<typeof machin
   );
   for (const id of ids) first.report(id, working);
   await run(first, first.clock.now + 2_000);
-  // One turn in which every shared call fails: each child is saved as asked alone.
-  first.reads.decide = (asked) =>
-    asked.length > 1 ? new MachineFailure("disconnected") : undefined;
-  await run(first, first.clock.now + POLL);
+  // Shared calls fail until every child has been in one: each is saved as asked alone.
+  const caught = new Set<string>();
+  first.reads.decide = (asked) => {
+    if (asked.length < 2) return undefined;
+    for (const id of asked) caught.add(id);
+    return new MachineFailure("disconnected");
+  };
+  while (caught.size < n) await run(first, first.clock.now + POLL);
   first.children.close();
   const h = machine(first.home, { pollMs: POLL, startAt: first.clock.now + POLL, ...options });
   for (const id of ids) h.report(id, working);
