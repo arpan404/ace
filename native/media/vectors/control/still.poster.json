@@ -7,11 +7,6 @@
     "width": 390,
     "height": 844,
     "deadlineMs": 800,
-    "clear": [
-      [
-        1,
-        2
-      ]
-    ]
+    "clear": [[1, 2]]
   }
 }

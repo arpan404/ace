@@ -274,7 +274,7 @@ test("a ticket held behind backpressure reaches ace-media intact: the lane owns 
   // The real lane writer, on a sink that is backpressured until after `connect` returns.
   const written: Uint8Array[] = [];
   const callbacks: (() => void)[] = [];
-  let drain = () => {};
+  let drain: (() => void) | undefined;
   let open = false;
   const sink = {
     write(chunk: Uint8Array, done: (error?: Error | null) => void) {
@@ -310,7 +310,7 @@ test("a ticket held behind backpressure reaches ace-media intact: the lane owns 
   const grant = granted(await connections.connect(phone("a")));
   expect(written).toHaveLength(1); // only the ping: the ticket waits behind it
   open = true;
-  drain();
+  drain?.();
   for (const callback of callbacks.splice(0)) callback();
   const frame = new Uint8Array(written.slice(1).reduce((n, chunk) => n + chunk.length, 0));
   let at = 0;
