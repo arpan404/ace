@@ -196,8 +196,9 @@ it("a hand-over cancelled while admission is pending exports no keys and sends n
   expect(nothing).toBe("nothing");
 });
 
+const zeroed = (key: Uint8Array) => key.every((byte) => byte === 0);
+
 it("the ephemeral key it was given is wiped on every path: hand-over, refusal, cancellation and a bad key", async () => {
-  const zeroed = (key: Uint8Array) => key.every((byte) => byte === 0);
   // Handed over.
   {
     const link = wire();
