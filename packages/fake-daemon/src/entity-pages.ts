@@ -1,4 +1,5 @@
 import type { EntityCollection } from "@ace/protocol";
+import { entityPage as pageOf } from "@ace/projection/entity-pages";
 
 /** Whether an entity is active, as the daemon's entity window counts it. */
 function active(collection: EntityCollection, entity: unknown): boolean {
@@ -22,10 +23,9 @@ function active(collection: EntityCollection, entity: unknown): boolean {
 
 /**
  * A page of a collection's entities (in creation order; an entity's place is its creation
- * sequence) created before `before`, as the daemon pages them: up to 200 entries or `maxBytes`
- * unless one alone is more, newest first. `active-first`, as the daemon does: the newest page
- * carries every active entity first and older pages only inactive ones. `chronological`, as
- * daemons before it did: newest first whatever the state.
+ * sequence) from `before`. `active-first`, as the daemon pages them (`@ace/projection`'s
+ * `entityPage`). `chronological`, as daemons before it did: newest first whatever the state, up
+ * to 200 entries or `maxBytes` unless one alone is more, each whole.
  */
 export function entityPage(
   inOrder: readonly unknown[],
@@ -36,41 +36,27 @@ export function entityPage(
   mode: "active-first" | "chronological",
 ): { entries: unknown[]; entitiesBefore: number | null } {
   const all = inOrder.map((entity, index) => ({
-    entity,
     seq: index + 1,
-    bytes: JSON.stringify(entity).length,
+    bytes: Buffer.byteLength(JSON.stringify(entity)),
+    entity: () => entity,
+    active: active(collection, entity),
   }));
-  const isActive = (entity: unknown) => active(collection, entity);
+  if (mode === "active-first") {
+    const rows = (isActive: boolean) => (below: number) =>
+      all.filter((row) => row.active === isActive && row.seq < below).toReversed();
+    return pageOf({ active: rows(true), inactive: rows(false) }, before, limit, maxBytes);
+  }
   const most = Math.min(limit, 200);
-  const newestPage = before >= Number.MAX_SAFE_INTEGER;
-  const activeFirst =
-    mode === "active-first" && all.filter(({ entity }) => isActive(entity)).length <= 200;
-  const rows =
-    activeFirst && newestPage ? all.filter(({ entity }) => isActive(entity)).toReversed() : [];
-  let bytes = rows.reduce((total, row) => total + row.bytes, 0);
-  const room = Math.max(0, most - rows.length);
-  const rest = all
-    .filter(({ entity, seq }) => seq < before && !(activeFirst && isActive(entity)))
-    .toReversed();
-  let taken = 0;
-  let more = false;
-  let oldest = before;
-  for (const row of rest) {
-    if (taken >= room || (rows.length && bytes + row.bytes > maxBytes)) {
-      more = true;
-      break;
-    }
+  const rows: typeof all = [];
+  let bytes = 0;
+  for (const row of all.filter(({ seq }) => seq < before).toReversed()) {
+    if (rows.length >= most || (rows.length && bytes + row.bytes > maxBytes))
+      return {
+        entries: rows.toReversed().map(({ entity }) => entity()),
+        entitiesBefore: rows.at(-1)?.seq ?? null,
+      };
     rows.push(row);
     bytes += row.bytes;
-    taken++;
-    oldest = row.seq;
   }
-  if (activeFirst && newestPage && taken === 0) {
-    if (room === 0) more = rest.length > 0;
-    oldest = Number.MAX_SAFE_INTEGER - 1;
-  }
-  return {
-    entries: rows.toSorted((a, b) => a.seq - b.seq).map(({ entity }) => entity),
-    entitiesBefore: more ? oldest : null,
-  };
+  return { entries: rows.toReversed().map(({ entity }) => entity()), entitiesBefore: null };
 }
