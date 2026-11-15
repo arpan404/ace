@@ -29,7 +29,8 @@ struct ComposerMediaStrip: View {
                         ComposerMediaThumb(file: file, source: .staged(url)) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
                     } else {
                         AttachmentChip(file: file, remove: { remove(file.id) },
-                                       asText: asText.flatMap { asText in ComposerIntake.restorable(file, in: staging) ? { asText(file.id) } : nil })
+                                       asText: asText.flatMap { asText in ComposerIntake.restorable(file, in: staging) ? { asText(file.id) } : nil },
+                                       staysAttached: asText == nil ? nil : ComposerIntake.staysAttached(file, in: staging))
                     }
                 }
             }

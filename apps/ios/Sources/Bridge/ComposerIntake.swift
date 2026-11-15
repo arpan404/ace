@@ -121,6 +121,13 @@ enum ComposerIntake {
         file.carried == nil && LargePaste.isPasted(file.name) && file.bytes <= restoreBytes && staging.holds(file.id)
     }
 
+    /// Why a paste the phone still holds can't go back as text, when that is its length; nil when
+    /// it can, or when it isn't such a paste.
+    static func staysAttached(_ file: AttachmentFile, in staging: AttachmentStaging) -> String? {
+        guard file.carried == nil, LargePaste.isPasted(file.name), file.bytes > restoreBytes, staging.holds(file.id) else { return nil }
+        return "Pastes over 1 MB stay as attachments"
+    }
+
     /// A staged paste's words, read off the main actor, to put back in the message as text.
     @concurrent static func pastedText(_ localId: String, in staging: AttachmentStaging) async -> String? {
         guard let url = staging.file(localId), let data = try? Data(contentsOf: url) else { return nil }

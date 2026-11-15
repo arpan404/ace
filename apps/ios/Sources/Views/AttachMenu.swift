@@ -187,6 +187,8 @@ struct AttachmentChip: View {
     let remove: () -> Void
     /// Puts a pasted file's words back in the message instead; nil where that can't happen.
     var asText: (() -> Void)? = nil
+    /// Why a paste can't go back as text (it is too long); shown where Paste as Text would be.
+    var staysAttached: String? = nil
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
@@ -211,9 +213,14 @@ struct AttachmentChip: View {
         .contextMenu {
             if let asText {
                 Button("Paste as Text", ace: .textAlignLeft, action: asText)
+            } else if let staysAttached {
+                Text(staysAttached)
+            }
+            if asText != nil || staysAttached != nil {
                 Button("Remove", ace: .x, role: .destructive, action: remove)
             }
         }
+        .accessibilityHint(staysAttached ?? "")
         .accessibilityActions {
             if let asText { Button("Paste as Text", action: asText) }
         }

@@ -91,6 +91,11 @@ import Testing
         #expect(!ComposerIntake.restorable(chip(state: "ready", carried: .init(itemId: "i", ref: "r", thumbnail: false)), in: staging))
         // Too long for the field: it stays a file.
         #expect(!ComposerIntake.restorable(chip(state: "ready", bytes: ComposerIntake.restoreBytes + 1), in: staging))
+        // Too long to go back, it says so instead of simply having no Paste as Text.
+        #expect(ComposerIntake.staysAttached(chip(state: "failed", bytes: ComposerIntake.restoreBytes + 1), in: staging)
+                == "Pastes over 1 MB stay as attachments")
+        #expect(ComposerIntake.staysAttached(chip(state: "ready"), in: staging) == nil)
+        #expect(ComposerIntake.staysAttached(chip(state: "ready", name: "notes.txt", bytes: ComposerIntake.restoreBytes + 1), in: staging) == nil)
         staging.discard(file.localId)
         #expect(!ComposerIntake.restorable(chip(state: "ready"), in: staging))
     }
