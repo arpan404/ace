@@ -1,3 +1,4 @@
+import { SuitCornerOrnaments } from "@/theme/suits/suit-ornament.tsx";
 import { TransferHost } from "@/features/transfers/index.ts";
 import { TransferOpenerProvider } from "@/lib/transfer-opener.ts";
 import { ThreadPreviewProvider } from "@/lib/thread-preview.tsx";
@@ -91,6 +92,7 @@ export function AppShell() {
               >
                 {/* A Suit's scene, behind the sidebar and the transcript. */}
                 <AppliedSuitBackdrop onShowing={setSceneShowing} />
+                <SuitCornerOrnaments />
                 <a
                   href="#main"
                   // The desktop's macOS traffic lights cover the window's top-left corner.

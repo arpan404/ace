@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import { useRouterState } from "@tanstack/react-router";
 import { useRef, type ReactNode } from "react";
 import { NavButtons } from "./app-header.tsx";
@@ -70,8 +71,10 @@ export function AppSidebar(props: {
           className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}
         >
           {railShape === "merged" && rail}
+          <SuitOrnament slot="sidebar-header" className="max-h-24" />
           {!bodyClaimed && (onForge ? <ForgePanel /> : props.threads)}
           <div ref={setBody} className="contents" />
+          <SuitOrnament slot="sidebar-footer" className="mt-auto max-h-24" />
         </div>
       </div>
     </div>

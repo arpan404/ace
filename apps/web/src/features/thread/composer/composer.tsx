@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import "@/styles/composer-pill.css";
 import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import "@/styles/composer-markdown.css";
@@ -412,6 +413,8 @@ function ComposerBody({
         <FloatingContents glass>
           {props.attached}
           {props.environment}
+          {/* In the flow under the strip, so it never lies over an approval. */}
+          <SuitOrnament slot="composer-top" className="max-h-8" />
           <div
             ref={surface}
             data-slot="composer"

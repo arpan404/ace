@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import type { HistoryPager } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -401,6 +402,7 @@ export function FeedView(props: FeedViewProps) {
                   </Button>
                 </p>
               )}
+              {!hasOlder && <SuitOrnament slot="transcript-top" className="mb-4 max-h-32" />}
               <div
                 ref={feed}
                 role="feed"

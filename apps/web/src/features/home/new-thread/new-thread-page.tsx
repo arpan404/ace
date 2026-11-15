@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
 import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { useNavigate } from "@tanstack/react-router";
@@ -840,6 +841,7 @@ function PreparationPage(props: {
         {/* The thread's reading column: a question naming the project (its name picks another),
             the machine under it while there are several, the composer high on the page, and the project's open work to start from below it. */}
         <div className={cn(readingColumn, "flex flex-col pt-[clamp(1rem,22vh,12rem)]")}>
+          <SuitOrnament slot="empty-state" className="mx-auto mb-4 max-h-32" />
           {props.chat ? (
             // A chat names no project: a plain question, with the picker after it to choose one.
             <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
