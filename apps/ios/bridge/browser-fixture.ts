@@ -47,7 +47,7 @@ export async function liveBrowser(
   const sent: unknown[] = [];
   const requested: unknown[] = [];
   const owner: BrowserOwner = {
-    request: (message, requestOptions) => {
+    request: ((message, requestOptions) => {
       requested.push(message);
       const named = message.type === "browser.subscribe" ? message.media : undefined;
       if (named && options.media === "refuses")
@@ -56,11 +56,12 @@ export async function liveBrowser(
           requestId: "refused",
           ok: false,
           error: "media-connection: that media connection isn't this session's",
-        }) as ReturnType<typeof client.request>;
+        });
       const reply = client.request(message, requestOptions);
       if (!named || options.media !== "binds") return reply;
       return reply.then((value) => ({ ...value, media: { connection: named.connection } }));
-    },
+      // The fake daemon's own replies, changed only where a test asked for a media answer.
+    }) as BrowserOwner["request"],
     send: (message) => {
       sent.push(message);
       client.send(message);

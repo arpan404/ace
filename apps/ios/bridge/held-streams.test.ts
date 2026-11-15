@@ -73,7 +73,7 @@ function phone(bound: string | undefined) {
     channelAcks: () => sent.filter((m) => m.type === "screen.ack"),
     move(next: string | undefined) {
       connection = next;
-      for (const watcher of [...watchers]) watcher();
+      for (const watcher of Array.from(watchers)) watcher();
     },
   };
 }

@@ -36,7 +36,7 @@ function connection() {
     carried,
     bind(next: string | undefined) {
       bound = next;
-      for (const listener of [...watchers]) listener();
+      for (const listener of Array.from(watchers)) listener();
     },
   };
 }

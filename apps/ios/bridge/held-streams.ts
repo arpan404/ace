@@ -57,7 +57,8 @@ export class HeldStreams {
   fallBack(): void {
     if (this.#h264Only) return;
     this.#h264Only = true;
-    for (const source of [...this.#held.keys()]) this.hold(source);
+    // A copy: holding again re-adds each source, which would keep a live iteration going.
+    for (const source of Array.from(this.#held.keys())) this.hold(source);
   }
 }
 

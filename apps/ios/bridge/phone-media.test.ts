@@ -36,7 +36,7 @@ function session(answer: () => Promise<unknown>) {
     owner,
     move(next: number | undefined) {
       generation = next;
-      for (const listener of [...listeners]) listener();
+      for (const listener of Array.from(listeners)) listener();
     },
   };
 }
