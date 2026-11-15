@@ -54,7 +54,9 @@ async function daemon(media: boolean) {
 }
 
 function open(url: string, protocols: string[]) {
-  const socket = new WebSocket(url, protocols, { perMessageDeflate: false, closeTimeout: 500 });
+  // ws reads `closeTimeout`; its type definitions don't list it yet.
+  const options = { perMessageDeflate: false, closeTimeout: 500 };
+  const socket = new WebSocket(url, protocols, options);
   cleanups.push(() => socket.terminate());
   const frames: Buffer[] = [];
   const arrived = deferred<void>();
