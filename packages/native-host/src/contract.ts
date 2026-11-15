@@ -162,6 +162,8 @@ export type SocketAction = "open" | "send" | "close";
 
 /** What native code installs as `globalThis.aceHost` before the bundle runs. */
 export interface NativeHost {
+  /** Native video codecs, preferred first; absent hosts use H.264. */
+  readonly video?: { decoders(): string[] };
   readonly version: number;
   readonly capabilities: readonly OptionalCapability[];
 

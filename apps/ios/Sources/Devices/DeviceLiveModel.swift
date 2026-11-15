@@ -11,6 +11,7 @@ struct NativeDeviceAck: Sendable {
     let streamId: String
     let sequence: Int
     let keyframe: Bool
+    var fallback = false
 }
 final class LatestDevicePicture: @unchecked Sendable {
     private let lock = NSLock()
@@ -28,7 +29,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
     private let sampler: StreamSampler?
     private var streamId: String?
     private var sequence = -1
-    private var decoder: H264Decoder?
+    private var decoder: VideoDecoder?
     private var closed = false
     init(deviceId: String, sampler: StreamSampler? = nil, present: @escaping @Sendable (NativeDevicePicture) -> Void, acknowledge: @escaping @Sendable (NativeDeviceAck) -> Void) {
         self.deviceId = deviceId; self.sampler = sampler; self.present = present; self.acknowledge = acknowledge
@@ -51,21 +52,25 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
             if sequence >= 0, chunk.sequence != sequence + 1, !chunk.key { decoder = nil }
             sequence = chunk.sequence
             var needsKeyframe = false
+            var fallback = false
             do {
                 if chunk.isJPEG {
                     present(NativeDevicePicture(image: try NativeJPEG.decode(chunk), chunk: chunk))
                     decoder = nil
                 } else {
                     if chunk.key {
-                        guard let sets = AnnexB.parameterSets(chunk.bytes) else { throw AnnexB.ParseError.noNALUnits }
-                        if decoder?.parameterSets != sets.sequence + sets.picture { decoder = try H264Decoder(annexBKeyframe: chunk.bytes) }
+                        let sets: [Data]?
+                        if VideoCapabilities.isHEVC(chunk.codec) { sets = AnnexB.hevcParameterSets(chunk.bytes) }
+                        else { sets = AnnexB.parameterSets(chunk.bytes).map { $0.sequence + $0.picture } }
+                        guard let sets else { throw AnnexB.ParseError.noNALUnits }
+                        if decoder?.parameterSets != sets { decoder = try VideoDecoder(annexBKeyframe: chunk.bytes, codec: chunk.codec) }
                     }
                     if let decoder { present(NativeDevicePicture(image: try decoder.decode(annexB: chunk.bytes), chunk: chunk)) }
                     else { needsKeyframe = true }
                 }
-            } catch { decoder = nil; needsKeyframe = true }
+            } catch { decoder = nil; needsKeyframe = true; fallback = VideoCapabilities.isHEVC(chunk.codec) }
             if needsKeyframe { sampler?.keyframeAsked() }
-            acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe))
+            acknowledge(NativeDeviceAck(deviceId: deviceId, streamId: chunk.streamId, sequence: chunk.sequence, keyframe: needsKeyframe, fallback: fallback))
         }
     }
     func close() { queue.async { [self] in closed = true; decoder = nil } }
@@ -86,6 +91,7 @@ final class NativeRemotePictureRenderer: @unchecked Sendable {
         let renderer = NativeRemotePictureRenderer(deviceId: deviceId, sampler: sampler, present: { latest.put($0) }) { ack in
             var value: [String: Any] = ["type": "devices.ack", "deviceId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if ack.keyframe { value["keyframe"] = true }
+            if ack.fallback { value["fallback"] = true }
             ClientModel.action(value, to: session)
         }
         self.renderer = renderer; streams = session.browserStreams

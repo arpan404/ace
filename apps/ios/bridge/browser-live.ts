@@ -1,3 +1,4 @@
+import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
 import {
   BrowserCaptureViewport,
@@ -35,8 +36,6 @@ export type BrowserOwner = Pick<
   Partial<Pick<ClientCore, "onStream">>;
 export type Schedule = (delayMs: number, callback: () => void) => () => void;
 
-/** The codecs the native decoder plays (VideoToolbox H.264), best first. */
-export const nativeVideoCodecs = ["avc1.42E033"] as const;
 /** A watched thread whose browser isn't there yet asks again this often, as the web does. */
 const retryMs = 5_000;
 /** Tabs sent per page; each "show more" adds as many. */
@@ -68,6 +67,7 @@ const BrowserAction = z.discriminatedUnion("kind", [
     kind: z.literal("ack"),
     sequence: z.number().int().nonnegative(),
     keyframe: z.boolean().optional(),
+    fallback: z.boolean().optional(),
   }),
 ]);
 export type BrowserAction = z.infer<typeof BrowserAction>;
@@ -143,6 +143,7 @@ interface Watch {
 }
 
 export class BrowserLive {
+  #h264Only = false;
   #owner: BrowserOwner;
   #sink: PatchSink;
   #preview: Preview;
@@ -453,6 +454,12 @@ export class BrowserLive {
         } catch {
           // Offline: the subscription ended with the connection.
         }
+        if (action.fallback && !this.#h264Only) {
+          this.#h264Only = true;
+          watch.subscribed = false;
+          this.#restart(watch);
+          this.#subscribe(watch);
+        }
         return true;
     }
   }
@@ -488,6 +495,7 @@ export class BrowserLive {
     if (this.#owner.state !== "ready") return;
     watch.subscribing = true;
     const generation = watch.generation;
+    const h264Only = this.#h264Only;
     void this.#owner
       .request({
         type: "browser.subscribe",
@@ -495,7 +503,7 @@ export class BrowserLive {
         subscriberId,
         binaryFrames: true,
         viewport: captureFor(watch),
-        video: { codecs: [...nativeVideoCodecs] },
+        video: { codecs: this.#h264Only ? ["avc1.42E033"] : nativeVideoCodecs() },
       })
       .then(
         (reply) => {
@@ -518,6 +526,10 @@ export class BrowserLive {
       )
       .finally(() => {
         watch.subscribing = false;
+        if (h264Only !== this.#h264Only) {
+          watch.subscribed = false;
+          this.#subscribe(watch);
+        }
       });
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */

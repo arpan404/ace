@@ -12,6 +12,7 @@ import Foundation
         let renderer = NativeRemotePictureRenderer(deviceId: sessionId, present: { latest.put($0) }) { ack in
             var action: [String: Any] = ["type": "screen.ack", "sessionId": ack.deviceId, "streamId": ack.streamId, "sequence": ack.sequence]
             if ack.keyframe { action["keyframe"] = true }
+            if ack.fallback { action["fallback"] = true }
             ClientModel.action(action, to: session)
         }
         self.renderer = renderer; streams = session.browserStreams

@@ -21,7 +21,7 @@ final class BrowserAcks: @unchecked Sendable {
         lock.withLock {
             guard !closed else { return }
             guard visible else {
-                owed = owed.map { BrowserAck(sequence: max($0.sequence, value.sequence), keyframe: $0.keyframe || value.keyframe) } ?? value
+                owed = owed.map { BrowserAck(sequence: max($0.sequence, value.sequence), keyframe: $0.keyframe || value.keyframe, fallback: $0.fallback || value.fallback) } ?? value
                 return
             }
             send(value)

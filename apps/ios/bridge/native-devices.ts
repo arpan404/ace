@@ -1,3 +1,4 @@
+import { nativeVideoCodecs } from "./video-codecs.ts";
 import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
@@ -52,7 +53,7 @@ export const NativeDeviceRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devices.tree"), deviceId: AppDeviceId }),
 ]);
 export const NativeDeviceControl = z.discriminatedUnion("type", [
-  DeviceAck,
+  DeviceAck.extend({ fallback: z.boolean().optional() }),
   z.object({ type: z.literal("native.devices.close") }),
   z.object({ type: z.literal("native.devices.unwatch"), deviceId: DeviceAck.shape.deviceId }),
   z.object({ type: z.literal("native.devices.release"), deviceId: DeviceAck.shape.deviceId }),
@@ -121,6 +122,7 @@ export interface NativeDevicesOptions {
 const retryMs = 10_000;
 
 export class NativeDevices {
+  #h264Only = new Set<string>();
   readonly client: DeviceClient;
   readonly connection: NativeFeatureConnection;
   readonly options: NativeDevicesOptions | undefined;
@@ -186,7 +188,14 @@ export class NativeDevices {
     if (operation.op === "screenshot") throw new Error("Use the native live view");
     if (operation.op === "controller") return this.#controller(operation, raw.threadId);
     if (controlled.has(operation.op)) return this.#act(operation, raw.threadId);
-    return this.client.request(operation);
+    const negotiated =
+      operation.op === "subscribe"
+        ? {
+            ...operation,
+            codecs: this.#h264Only.has(operation.deviceId) ? ["avc1.42E033"] : nativeVideoCodecs(),
+          }
+        : operation;
+    return this.client.request(negotiated);
   }
   handle(action: z.infer<typeof NativeDeviceControl>): void {
     switch (action.type) {
@@ -197,7 +206,19 @@ export class NativeDevices {
         this.#ack = undefined;
         return;
       case "devices.ack":
-        void this.#ack?.(action).catch(() => {});
+        {
+          const { fallback, ...wire } = action;
+          void this.#ack?.(wire).catch(() => {});
+          if (fallback && !this.#h264Only.has(action.deviceId)) {
+            this.#h264Only.add(action.deviceId);
+            const operation = {
+              op: "subscribe" as const,
+              deviceId: action.deviceId,
+              codecs: ["avc1.42E033"],
+            };
+            void this.client.request(operation).catch(() => {});
+          }
+        }
         return;
       case "native.devices.view":
         this.#watchView(action);
