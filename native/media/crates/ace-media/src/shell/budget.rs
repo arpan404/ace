@@ -33,12 +33,17 @@ impl Cap {
     }
 
     pub fn take(&self) -> Option<Slot> {
-        self.count
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < self.max).then_some(n + 1)
-            })
-            .ok()
-            .map(|_| Slot(self.count.clone()))
+        let mut n = self.count.load(Ordering::Acquire);
+        while n < self.max {
+            match self
+                .count
+                .compare_exchange_weak(n, n + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return Some(Slot(self.count.clone())),
+                Err(now) => n = now,
+            }
+        }
+        None
     }
 }
 
