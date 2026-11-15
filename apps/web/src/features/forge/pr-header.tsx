@@ -16,7 +16,7 @@ import {
   GitPullRequestIcon,
   ArrowSquareOutIcon,
   PencilSimpleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";

@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { floatingControl, floatingHover, floatingMotion } from "@/components/floating-control.ts";

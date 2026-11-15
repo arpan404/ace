@@ -1,5 +1,5 @@
 import { addressHost } from "@ace/ui-core";
-import { ChatCenteredDotsIcon } from "@phosphor-icons/react";
+import { ChatCenteredDotsIcon } from "@ace/icons";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";

@@ -1,7 +1,7 @@
 import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import { ThreadId, type Agent } from "@ace/protocol";
 import { agentName, retryRequest } from "@ace/ui-core";
-import { ArrowCounterClockwiseIcon, CheckIcon } from "@phosphor-icons/react";
+import { ArrowCounterClockwiseIcon, CheckIcon } from "@ace/icons";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { barAction } from "./subagent-status-bar.tsx";

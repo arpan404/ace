@@ -98,7 +98,7 @@ test("editing a paired machine saves on that host and replaces stale thread labe
   });
   view.unmount();
   view = await app.open("/");
-  const sidebar = await screen.findByRole("list", { name: "Threads" });
+  const sidebar = await screen.findByRole("list", { name: "Projects" });
   const row = await within(sidebar).findByRole("link", {
     name: /Replay cursor resets.*Running on Build server/,
   });
@@ -115,7 +115,7 @@ test("this machine's name stays out of the task row while its project remains vi
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
   app.play(replayCursor()).runThrough("finding");
   await app.open("/");
-  const sidebar = await screen.findByRole("list", { name: "Threads" });
+  const sidebar = await screen.findByRole("list", { name: "Projects" });
   await within(sidebar).findByRole("link", { name: /Replay cursor resets/ });
   expect(sidebar.textContent).not.toContain("Workshop Mac");
 });
@@ -198,7 +198,7 @@ test("a paired machine's updated host identity replaces the cached label after r
     })
     .runThrough("finding");
   await app.open("/");
-  const sidebar = await screen.findByRole("list", { name: "Threads" });
+  const sidebar = await screen.findByRole("list", { name: "Projects" });
   await within(sidebar).findByRole("link", { name: /Replay cursor resets.*Running on Old server/ });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   app.machines.get("build")?.services.settings.seed({

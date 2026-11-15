@@ -5,7 +5,7 @@ import { baseName, sendBusyReason } from "@ace/ui-core";
 import type { SendOp } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
-import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";

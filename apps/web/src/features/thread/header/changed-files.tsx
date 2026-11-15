@@ -1,4 +1,4 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { useId, useState } from "react";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { Button } from "@/components/ui/button.tsx";

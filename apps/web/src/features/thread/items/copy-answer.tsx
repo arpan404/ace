@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
+import { CheckIcon, CopyIcon } from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 

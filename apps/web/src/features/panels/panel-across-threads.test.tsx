@@ -15,7 +15,7 @@ async function twoThreads() {
 }
 
 async function switchTo(title: RegExp) {
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   await userEvent.click(within(threads).getByRole("link", { name: title }));
   await screen.findByRole("heading", { level: 1, name: title });
 }

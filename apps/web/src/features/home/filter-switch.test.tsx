@@ -14,7 +14,7 @@ configure({ asyncUtilTimeout: 10000 });
  * a status the daemon hasn't confirmed), and no skeleton flashes in between.
  */
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 // relay's rows, all in Active: the workbench's waiting approval and running thread, and a quiet
 // one added here.
 const relay = [
@@ -63,7 +63,7 @@ test("switching the project filter paints that project's rows at once, syncing u
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   addQuietRelayThread(app);
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole("link", {
     name: new RegExp(relay[0] ?? ""),
   });
   const skeleton = watchSkeleton();
@@ -97,7 +97,7 @@ test("a filter whose list arrives quickly never flashes the skeleton, even with 
   for (const scenario of workbench()) first.play(scenario).runUntilBlocked();
   addQuietRelayThread(first);
   const view = await first.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await chooseProject("All projects", "relay");
   await screen.findByRole("button", { name: "Project filter: relay" });
   view.unmount();

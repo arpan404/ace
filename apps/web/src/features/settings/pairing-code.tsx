@@ -1,4 +1,4 @@
-import { CheckCircleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon } from "@ace/icons";
 import type { Device } from "@ace/protocol";
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";

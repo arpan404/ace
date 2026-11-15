@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { DesktopTowerIcon, GlobeIcon } from "@phosphor-icons/react";
+import { DesktopTowerIcon, GlobeIcon } from "@ace/icons";
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import {
   Dialog,

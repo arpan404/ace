@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { useMemo, useRef } from "react";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {

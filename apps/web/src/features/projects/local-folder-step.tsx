@@ -1,9 +1,4 @@
-import {
-  FolderOpenIcon,
-  FolderPlusIcon,
-  FolderSimpleIcon,
-  FolderSimpleStarIcon,
-} from "@phosphor-icons/react";
+import { FolderOpenIcon, FolderPlusIcon, FolderSimpleIcon, FolderSimpleStarIcon } from "@ace/icons";
 import {
   choosePath,
   displayPath,

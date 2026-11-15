@@ -1,4 +1,4 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReadinessView } from "@ace/ui-core";
 import { Suspense, useRef } from "react";

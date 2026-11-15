@@ -1,10 +1,10 @@
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { DotsThreeIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon } from "@ace/icons";
 import { useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { formatAgo } from "@ace/ui-core";
-import { TrayArrowUpIcon } from "@phosphor-icons/react";
+import { TrayArrowUpIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";

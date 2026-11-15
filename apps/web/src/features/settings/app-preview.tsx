@@ -1,4 +1,4 @@
-import { ArrowUpIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import type { Scheme, ThemeId } from "@ace/themes";
 

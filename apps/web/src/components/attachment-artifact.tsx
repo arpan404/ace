@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
 import { isCheckoutPath } from "@ace/ui-core";
-import { ArchiveIcon } from "@phosphor-icons/react";
+import { ArchiveIcon } from "@ace/icons";
 import { ArtifactImage } from "./artifact-image.tsx";
 import { UnavailableImage } from "./attachment-message.tsx";
 import { projectRelative } from "./attachment-format.ts";

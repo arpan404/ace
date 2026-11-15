@@ -9,7 +9,7 @@ import {
   PushPinIcon,
   SidebarSimpleIcon,
   TextAlignLeftIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { isMarkdownPath, pathParts } from "@ace/ui-core";
 import { Fragment, type ReactNode } from "react";
 import { EditorIcon } from "@/components/editor-icon.tsx";

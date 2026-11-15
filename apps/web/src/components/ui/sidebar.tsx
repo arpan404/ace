@@ -20,7 +20,7 @@
  * THE SOFTWARE.
  */
 import { createContext, useContext, useMemo, type ComponentProps, type ReactNode } from "react";
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
+import { SidebarSimpleIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { IconButton } from "./icon-button.tsx";
 

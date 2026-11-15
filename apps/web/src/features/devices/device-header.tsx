@@ -1,4 +1,4 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

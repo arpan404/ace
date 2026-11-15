@@ -9,7 +9,7 @@ import {
   LaptopIcon,
   TerminalWindowIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 
 /** The curated machine marks, in the order a picker offers them. */

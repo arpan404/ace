@@ -1,4 +1,4 @@
-import { DevicesIcon } from "@phosphor-icons/react";
+import { DevicesIcon } from "@ace/icons";
 import {
   MenuContent,
   MenuRadioGroup,

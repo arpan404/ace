@@ -1,7 +1,7 @@
 import { useAgent, useThreadMeta } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
 import { agentName, type SubagentPhase } from "@ace/ui-core";
-import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
+import { ArrowBendLeftUpIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { StatusGlyph } from "@/components/status-glyph.tsx";

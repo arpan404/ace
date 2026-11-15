@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useClient } from "@ace/client-react";
 import { ThreadId, WorkspaceId, type CommandPayload } from "@ace/protocol";
 import { staleLockOutcome, type StaleLockTarget } from "@ace/ui-core";
-import { LockOpenIcon } from "@phosphor-icons/react";
+import { LockOpenIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {

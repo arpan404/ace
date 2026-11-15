@@ -4,7 +4,7 @@ import { FakeDaemon } from "@ace/fake-daemon";
 import { markitWasmFile } from "@ace/markit-web/assets";
 import { preloadMarkit } from "@ace/markit-web/react";
 import { ThreadId } from "@ace/protocol";
-import { BrowserIcon } from "@phosphor-icons/react";
+import { BrowserIcon } from "@ace/icons";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { useMemo } from "react";
 import { beforeAll, expect, it } from "vitest";

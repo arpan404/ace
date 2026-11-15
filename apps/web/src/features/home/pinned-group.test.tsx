@@ -6,7 +6,7 @@ import { createIdleTask } from "@/test/tasks.ts";
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 /** Three resting threads in ace, newest first by activity, and one in relay. */
 const seeded = [
   ["alpha", "Alpha task", "ace"],
@@ -36,7 +36,7 @@ async function openHome() {
   for (const [id, title, project] of seeded)
     createIdleTask(app.daemon, { id, title, workspaceId: project, provider: "codex" });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 type App = Awaited<ReturnType<typeof openHome>>;

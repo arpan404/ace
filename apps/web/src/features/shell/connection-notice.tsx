@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useDaemonConnection, versionMismatchWords } from "@/boot/connection.tsx";
 import { useClient, useConnectionState } from "@ace/client-react";

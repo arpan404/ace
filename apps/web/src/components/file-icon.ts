@@ -32,7 +32,7 @@ import {
   FileVueIcon,
   FileXlsIcon,
   FileZipIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { pathParts } from "@ace/ui-core";
 import { pinnedGlyph, type IconGlyph } from "@/components/icon.tsx";
 
@@ -124,8 +124,7 @@ const byExtension: Record<string, IconGlyph> = {
   svelte: FileCodeIcon,
 };
 
-// Drawn in the regular weight only, which is all the build keeps of a mark only this table
-// draws (`glyphTables` in `icon-weights.ts`).
+// File-type marks always draw in the regular weight.
 const regular = new Map(
   [...new Set([...Object.values(byExtension), FileIcon])].map((glyph) => [
     glyph,

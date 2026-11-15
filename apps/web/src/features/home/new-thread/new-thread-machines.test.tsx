@@ -61,7 +61,7 @@ test("picking Build server starts the thread there, opens it here and lists it i
   // The list is looked up on every try: the sidebar may replace it while the row arrives.
   await waitFor(() =>
     expect(
-      within(screen.getByRole("list", { name: "Threads" })).getByRole("link", {
+      within(screen.getByRole("list", { name: "Projects" })).getByRole("link", {
         name: /^Add a health check\..*Build server/,
       }),
     ).toBeTruthy(),
@@ -97,7 +97,7 @@ test("a draft written on Build server reopens on Build server", async () => {
   await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Rotate the keys");
 
   // Leave New thread for a thread here; the draft stays with its machine.
-  const threads = await screen.findByRole("list", { name: "Threads" });
+  const threads = await screen.findByRole("list", { name: "Projects" });
   await userEvent.click(await within(threads).findByRole("link", { name: /^Trim the cache/ }));
   await screen.findByRole("heading", { level: 1, name: "Trim the cache" });
   const drafts = await screen.findByRole("list", { name: "Draft threads on Build server" });
@@ -153,7 +153,7 @@ test("a thread addressed by this window's own host id is the open row in the lis
     hasSentMessage: true,
   });
   await made.open("/t/thread-here?machine=this-mac");
-  const threads = await screen.findByRole("list", { name: "Threads" });
+  const threads = await screen.findByRole("list", { name: "Projects" });
   const row = await within(threads).findByRole("link", { name: /^Trim the cache/ });
   await waitFor(() => expect(row.className).toContain("bg-active"));
 });

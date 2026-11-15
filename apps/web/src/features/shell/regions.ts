@@ -55,7 +55,7 @@ function target(doc: Document, region: Region): HTMLElement | null {
     case "sidebar":
       // The list's one Tab stop (its roving row), else the first control in the sidebar.
       return (
-        root.querySelector<HTMLElement>('[role="list"][aria-label="Threads"] [tabindex="0"]') ??
+        root.querySelector<HTMLElement>('[role="list"][aria-label="Projects"] [tabindex="0"]') ??
         firstTabbable(root)
       );
     case "panel":

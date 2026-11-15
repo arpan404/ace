@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { AccessMode } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
 import { MenuGroup } from "@/components/ui/menu.tsx";

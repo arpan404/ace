@@ -8,7 +8,7 @@ import {
   providerAccountViews,
   type AccountView,
 } from "@ace/ui-core";
-import { DotsThreeIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon } from "@ace/icons";
 import { useRef, useState } from "react";
 import { formatResets } from "@/features/accounts/index.ts";
 import { accountLimit } from "@ace/ui-core";
