@@ -18,6 +18,19 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 atspi = { version = "0.29", default-features = false, features = ["proxies", "tokio"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+# ace-media's own crates (docs/media/plan.md, E2): the MediaFrame codec and capability types,
+# the codec contracts and the bitstream helpers. The encoders follow, Linux only.
+media-wire = { path = "../media/crates/media-wire" }
+media-codec = { path = "../media/crates/media-codec" }
+media-bitstream = { path = "../media/crates/media-bitstream" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# VA-API (Intel, AMD), NVENC (NVIDIA) and the last-resort Chrome encoder. Each opens its
+# libraries at run time; nothing is linked.
+media-vaapi = { path = "../media/crates/media-vaapi" }
+media-nv = { path = "../media/crates/media-nv" }
+media-chrome = { path = "../media/crates/media-chrome" }
+libloading = "0.8"
 
 [dev-dependencies]
 zbus = { version = "5", default-features = false, features = ["tokio", "p2p"] }
