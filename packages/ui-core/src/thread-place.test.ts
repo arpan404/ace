@@ -259,25 +259,25 @@ test("each tab's rows are its threads, with no headings; Settled offers more the
   expect(panelRows(built, "snoozed")).toEqual([{ kind: "snoozed", id: "nap" }]);
   expect(panelRows(built, "settled", { shown: 50, moreOnDaemon: true })).toEqual([
     { kind: "settled", id: "rest" },
-    { kind: "more", more: true, less: false },
+    { kind: "more" },
   ]);
 });
 
 const ids = (prefix: string, count: number) =>
   Array.from({ length: count }, (_, index) => `${prefix}${index}`);
 
-test("Snoozed and Settled show a page at a time, with Show more and Show less", () => {
+test("Snoozed and Settled show a page at a time, with a foot while more are left", () => {
   const loaded = { inbox: [], pinned: [], snoozed: ids("nap", 120), settled: ids("rest", 70) };
   const first = panelRows(loaded, "snoozed", { shown: panelPage });
   expect(first.filter((row) => row.kind === "snoozed")).toHaveLength(50);
-  expect(first.at(-1)).toEqual({ kind: "more", more: true, less: false });
+  expect(first.at(-1)).toEqual({ kind: "more" });
   const third = panelRows(loaded, "snoozed", { shown: panelPage * 3 });
   expect(third.filter((row) => row.kind === "snoozed")).toHaveLength(120);
-  expect(third.at(-1)).toEqual({ kind: "more", more: false, less: true });
-  // Every loaded settled thread showing, yet the daemon holds older ones: still Show more.
+  expect(third.at(-1)).toEqual({ kind: "snoozed", id: "nap119" });
+  // Every loaded settled thread showing, yet the daemon holds older ones: still a foot.
   const settled = panelRows(loaded, "settled", { shown: panelPage * 2, moreOnDaemon: true });
   expect(settled.filter((row) => row.kind === "settled")).toHaveLength(70);
-  expect(settled.at(-1)).toEqual({ kind: "more", more: true, less: true });
+  expect(settled.at(-1)).toEqual({ kind: "more" });
   // A short list needs neither.
   const short = { ...loaded, snoozed: ids("nap", 3) };
   expect(panelRows(short, "snoozed", { shown: panelPage }).map((row) => row.kind)).toEqual([
