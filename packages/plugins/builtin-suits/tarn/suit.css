@@ -1,0 +1,377 @@
+/*
+ * Tarn: cool slate and blue-black ink. One material, one accent (the ink itself), and depth
+ * from three things only: a hairline, a lit top edge and a soft shadow. Colours are suit.json's;
+ * this file sets type, edges, elevation and the states of rows and controls.
+ */
+
+/* Type: one sans for the interface and answers, in real weights and a real italic. */
+@font-face {
+  font-family: "Tarn Sans";
+  src: url("assets/fonts/HankenGrotesk.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Tarn Sans";
+  src: url("assets/fonts/HankenGrotesk-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: fallback;
+}
+
+/*
+ * The Suit's own values. Floating layers render outside the app part, so they get them too.
+ * wash: ink laid thinly over whatever is underneath, so a hover reads on every surface.
+ * edge: the hairline round anything raised. lift: its shadow, small, medium and floating.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-wash-1: color-mix(in oklab, var(--color-foreground) 4%, transparent);
+  --suit-wash-2: color-mix(in oklab, var(--color-foreground) 7%, transparent);
+  --suit-wash-3: color-mix(in oklab, var(--color-foreground) 11%, transparent);
+  --suit-halo: 0 0 0 3px color-mix(in oklab, var(--color-tint) 16%, transparent);
+  --suit-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"] {
+  --suit-edge: rgb(24 28 34 / 0.1);
+  --suit-edge-strong: rgb(24 28 34 / 0.16);
+  --suit-top: inset 0 1px 0 rgb(255 255 255 / 0.7);
+  --suit-lift-1: 0 1px 2px rgb(24 28 34 / 0.06);
+  --suit-lift-2: 0 1px 2px rgb(24 28 34 / 0.05), 0 8px 24px -12px rgb(24 28 34 / 0.16);
+  --suit-lift-3:
+    0 1px 2px rgb(24 28 34 / 0.06), 0 8px 20px -6px rgb(24 28 34 / 0.12),
+    0 24px 48px -20px rgb(24 28 34 / 0.22);
+  --suit-raised: #ffffff;
+  --suit-well: inset 0 1px 1px rgb(24 28 34 / 0.05);
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-edge: rgb(255 255 255 / 0.075);
+  --suit-edge-strong: rgb(255 255 255 / 0.13);
+  --suit-top: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --suit-lift-1: 0 1px 2px rgb(0 0 0 / 0.3);
+  --suit-lift-2: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 28px -12px rgb(0 0 0 / 0.55);
+  --suit-lift-3:
+    0 1px 2px rgb(0 0 0 / 0.4), 0 10px 24px -6px rgb(0 0 0 / 0.45),
+    0 28px 56px -20px rgb(0 0 0 / 0.6);
+  --suit-raised: color-mix(in oklab, var(--color-foreground) 7%, transparent);
+  --suit-well: inset 0 1px 1px rgb(0 0 0 / 0.25);
+}
+
+/* ── Sidebar and navigation ─────────────────────────────────────────────────────────────── */
+
+[data-part="thread-row"],
+[data-part="chat-row"],
+[data-part="nav-item"],
+[data-part="rail-item"] {
+  border-radius: var(--radius);
+  transition:
+    background-color 140ms var(--suit-ease),
+    box-shadow 140ms var(--suit-ease);
+}
+[data-part="thread-row"]:hover,
+[data-part="chat-row"]:hover,
+[data-part="nav-item"]:hover,
+[data-part="rail-item"]:hover {
+  background: var(--suit-wash-1);
+}
+/* The open row is a raised plate: its own fill, a hairline and the smallest shadow. */
+[data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
+[data-part="chat-row"][data-state="active"],
+[data-part="nav-item"][data-state="active"],
+[data-part="rail-item"][data-state="active"] {
+  background: var(--suit-raised);
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-lift-1);
+}
+[data-part="thread-title"] {
+  letter-spacing: -0.003em;
+}
+[data-part="header-title"] {
+  font-weight: 550;
+  letter-spacing: -0.006em;
+}
+
+/* ── Transcript ─────────────────────────────────────────────────────────────────────────── */
+
+[data-part="message-user"] {
+  background: var(--color-surface-1);
+  border: 1px solid var(--suit-edge);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--suit-lift-1);
+}
+[data-part="link"]:not([data-variant]) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 34%, transparent);
+  transition: text-decoration-color 140ms var(--suit-ease);
+}
+[data-part="link"]:not([data-variant]):hover {
+  text-decoration-color: var(--color-link);
+}
+[data-part="inline-code"] {
+  background: var(--suit-wash-2);
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  border: 1px solid var(--suit-edge);
+  border-radius: var(--radius-lg);
+}
+[data-part="tool-row"],
+[data-part="tool-group-header"] {
+  border-radius: var(--radius-sm);
+  transition: color 140ms var(--suit-ease);
+}
+[data-part="attachment"] {
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 1px var(--suit-edge);
+}
+
+/* ── Composer ───────────────────────────────────────────────────────────────────────────── */
+
+[data-part="composer"] {
+  background: var(--color-surface-1);
+  border: 1px solid var(--suit-edge-strong);
+  box-shadow: var(--suit-top), var(--suit-lift-2);
+  transition:
+    border-color 160ms var(--suit-ease),
+    box-shadow 160ms var(--suit-ease);
+}
+[data-part="composer"]:focus-within {
+  border-color: color-mix(in oklab, var(--color-tint) 46%, var(--color-border-strong));
+  box-shadow: var(--suit-top), var(--suit-halo), var(--suit-lift-2);
+}
+[data-part="composer-strip"] {
+  border: 1px solid var(--suit-edge);
+}
+[data-part="composer-send"]:is(
+    [data-variant="send"],
+    [data-variant="steer"],
+    [data-variant="queue"]
+  ):not([data-state="disabled"]) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    var(--suit-lift-1);
+}
+[data-part="model-picker"] {
+  border-radius: var(--radius-sm);
+  transition: background-color 140ms var(--suit-ease);
+}
+[data-part="model-picker"]:hover,
+[data-part="model-picker"][data-state="open"] {
+  background: var(--suit-wash-2);
+}
+[data-part="queue-item"] {
+  border-radius: var(--radius-sm);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--suit-wash-2);
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────────────────────── */
+
+[data-part="button"] {
+  transition:
+    background-color 140ms var(--suit-ease),
+    border-color 140ms var(--suit-ease),
+    box-shadow 140ms var(--suit-ease);
+}
+[data-part="button"][data-variant="primary"] {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    var(--suit-lift-1);
+}
+[data-part="button"][data-variant="primary"]:active {
+  box-shadow: none;
+}
+[data-part="button"][data-variant="secondary"] {
+  background: var(--suit-raised);
+  border-color: var(--suit-edge-strong);
+  box-shadow: var(--suit-lift-1);
+}
+[data-part="button"][data-variant="secondary"]:hover {
+  background: color-mix(in oklab, var(--color-foreground) 5%, var(--color-surface-1));
+}
+[data-scheme="dark"] [data-part="button"][data-variant="secondary"]:hover {
+  background: var(--suit-wash-3);
+}
+[data-part="button"][data-variant="secondary"]:active {
+  box-shadow: none;
+}
+[data-part="button"][data-state="disabled"],
+[data-part="button"]:disabled {
+  box-shadow: none;
+}
+[data-part="icon-button"] {
+  transition: background-color 140ms var(--suit-ease);
+}
+[data-part="icon-button"]:hover {
+  background: var(--suit-wash-2);
+}
+[data-part="icon-button"][data-state="active"] {
+  background: var(--suit-wash-3);
+}
+
+[data-part="input"],
+[data-part="search-field"],
+[data-part="select"] {
+  border-color: var(--suit-edge-strong);
+  transition:
+    border-color 140ms var(--suit-ease),
+    box-shadow 140ms var(--suit-ease);
+}
+[data-part="input"]:focus,
+[data-part="input"]:focus-within,
+[data-part="search-field"]:focus-within {
+  border-color: color-mix(in oklab, var(--color-tint) 52%, var(--color-border-strong));
+  box-shadow: var(--suit-halo);
+}
+[data-part="select"] {
+  box-shadow: var(--suit-lift-1);
+}
+
+[data-part="switch-thumb"] {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.08),
+    0 1px 2px rgb(0 0 0 / 0.22);
+}
+[data-part="slider-thumb"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge-strong),
+    0 1px 3px rgb(0 0 0 / 0.2);
+}
+[data-part="segmented"] {
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="segmented-thumb"] {
+  box-shadow:
+    0 0 0 1px var(--suit-edge),
+    var(--suit-lift-1);
+}
+[data-part="segment"][data-state="selected"] {
+  font-weight: 550;
+}
+[data-part="tab"] {
+  transition:
+    background-color 140ms var(--suit-ease),
+    color 140ms var(--suit-ease);
+}
+[data-part="kbd"] {
+  font-family: var(--font-mono);
+  border-radius: var(--radius-xs);
+  box-shadow:
+    inset 0 0 0 1px var(--suit-edge-strong),
+    inset 0 -1px 0 var(--suit-edge-strong);
+}
+[data-part="badge"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="panel-body"] {
+  scrollbar-color: color-mix(in oklab, var(--color-foreground) 18%, transparent) transparent;
+}
+
+/* ── Floating layers ────────────────────────────────────────────────────────────────────── */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  border: 1px solid var(--suit-edge-strong);
+  box-shadow: var(--suit-top), var(--suit-lift-3);
+}
+[data-part="dialog"] {
+  border: 1px solid var(--suit-edge-strong);
+  box-shadow: var(--suit-top), var(--suit-lift-3);
+}
+[data-part="menu-item"] {
+  border-radius: var(--radius-sm);
+  transition: background-color 100ms var(--suit-ease);
+}
+[data-part="menu-item"][data-state="checked"] {
+  font-weight: 550;
+}
+[data-part="tooltip"] {
+  border: 1px solid var(--suit-edge-strong);
+  box-shadow: var(--suit-lift-2);
+}
+
+/* ── Pages ──────────────────────────────────────────────────────────────────────────────── */
+
+[data-part="page-title"] {
+  letter-spacing: -0.018em;
+}
+[data-part="card"]:is(
+  [data-variant="settings-group"],
+  [data-variant="description"],
+  [data-variant="changes"],
+  [data-variant="check"],
+  [data-variant="connect"]
+),
+[data-part="merge-box"] {
+  background: var(--color-surface-1);
+  border: 1px solid var(--suit-edge);
+  box-shadow: var(--suit-top), var(--suit-lift-1);
+}
+[data-part="card"][data-variant="picker"][data-state="checked"] {
+  box-shadow: var(--suit-lift-2);
+}
+[data-part="list-row"],
+[data-part="pr-row"],
+[data-part="issue-row"],
+[data-part="check-row"],
+[data-part="commit-row"],
+[data-part="table-row"] {
+  transition: background-color 120ms var(--suit-ease);
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover,
+[data-part="check-row"]:hover {
+  background: var(--suit-wash-1);
+}
+[data-part="branch-chip"] {
+  font-family: var(--font-mono);
+  border-radius: var(--radius-xs);
+  box-shadow: inset 0 0 0 1px var(--suit-edge);
+}
+[data-part="stat"] {
+  font-variant-numeric: tabular-nums;
+}
+[data-part="review-comment"],
+[data-part="review-thread"] {
+  border-color: var(--suit-edge);
+}
+
+/* ── Side panel ─────────────────────────────────────────────────────────────────────────── */
+
+[data-part="panel-tab"] {
+  border-radius: var(--radius-sm);
+  transition: background-color 140ms var(--suit-ease);
+}
+[data-part="diff-file"] {
+  border-color: var(--suit-edge);
+}
