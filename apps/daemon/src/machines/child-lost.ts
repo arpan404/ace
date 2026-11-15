@@ -182,29 +182,29 @@ export class LostChildren {
    */
   silent(row: ChildRow, since: number): void {
     if (this.pending(row)) return;
-    const name = this.deps.label(row.machine);
-    const request = silentRequest(row, name, since, this.deps.now());
     try {
-      const opened = this.deps.store.atomic(() => {
-        // The question opens first, on its row, so the row counts it once.
-        if (!this.open(row, request)) return false;
-        this.launchRow(
-          row,
-          name,
-          { state: "needs_you", interactions: 1 },
-          "needs_you",
-          null,
-          "lost",
-        );
-        return true;
-      });
-      if (opened) this.deps.emit([row.id]);
+      if (this.openSilent(row, since)) this.deps.emit([row.id]);
     } catch (error) {
       this.deps.log("Lost contact not shown to the person yet", {
         id: row.id,
         error: String(error),
       });
     }
+  }
+  /**
+   * Opens the question about a child that lost contact, with its row, in the caller's
+   * transaction if there is one; false when its parent is gone. Throws when a write fails, so a
+   * caller marking it silent in the same transaction rolls that back too.
+   */
+  openSilent(row: ChildRow, since: number): boolean {
+    const name = this.deps.label(row.machine);
+    const request = silentRequest(row, name, since, this.deps.now());
+    return this.deps.store.atomic(() => {
+      // The question opens first, on its row, so the row counts it once.
+      if (!this.open(row, request)) return false;
+      this.launchRow(row, name, { state: "needs_you", interactions: 1 }, "needs_you", null, "lost");
+      return true;
+    });
   }
   /**
    * Closes every open question its child's state no longer explains (`questionFate`): back in

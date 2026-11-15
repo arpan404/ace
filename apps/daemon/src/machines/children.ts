@@ -174,7 +174,7 @@ export class MachineChildren implements RemoteChildren {
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
       unpaired: (row) => this.lostFrom(row.machine)?.(row) ?? false,
-      silent: (row, since) => this.lost.silent(row, since),
+      silent: (row, since) => void this.lost.openSilent(row, since),
       heard: (row) => this.lost.heard(row),
       unanswered: this.unanswered,
       readSince: (id, at) => (this.readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= at,

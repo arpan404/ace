@@ -57,7 +57,8 @@ export interface ChildLivenessDeps {
   unanswered: Map<string, Unanswered>;
   /**
    * Its machine stopped answering for a lease: the parent keeps holding it and asks the person
-   * (LostChildren.silent). `since` is when its first unanswered read went out.
+   * (LostChildren.openSilent), in the transaction that marks it silent; throws when a write
+   * fails. `since` is when its first unanswered read went out.
    */
   silent(row: ChildRow, since: number): void;
   /** It reported again, or a stop began: the question about lost contact closes. */
@@ -222,12 +223,24 @@ export class ChildLiveness {
         this.deps.unanswered.delete(id);
         continue;
       }
+      try {
+        // Silent since its first unanswered read: what the person is told it last answered
+        // before. Marked silent and asked about in one transaction, or neither: a failed write
+        // leaves it as it was, and the next poll's lease check does it again.
+        this.deps.store.atomic(() => {
+          this.deps.ledger.markSilent(row.id, reads.since);
+          this.deps.silent({ ...row, silent_since: reads.since }, reads.since);
+        });
+      } catch (error) {
+        this.deps.log("Machine child lost contact not recorded yet", {
+          id: row.id,
+          error: String(error),
+        });
+        continue;
+      }
       marked++;
       this.deps.unanswered.delete(id);
-      // Silent since its first unanswered read: what the person is told it last answered before.
-      this.deps.ledger.markSilent(row.id, reads.since);
       this.deps.mirror.release(`child:${row.id}`);
-      this.deps.silent({ ...row, silent_since: reads.since }, reads.since);
       this.deps.emit([row.id]);
       this.deps.log("Machine child lost contact", { id: row.id, machine: row.machine });
     }
