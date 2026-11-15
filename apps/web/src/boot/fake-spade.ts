@@ -1,5 +1,6 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
+import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -479,6 +480,9 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
 
   seedFakeCards(here);
+  seedFakeTranscript(here, (back) => {
+    rewound = back * 60_000;
+  });
 
   const remote = running(server);
   remote.addAgent({
@@ -511,10 +515,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   remote.endpoints.push({ ...endpoint });
 }
 
+/** How far back the fake's clock reads for what is seeded next, in ms (the transcript's days). */
+let rewound = 0;
+
 function running(daemon: FakeDaemon) {
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   daemon.services.settings.write("spade.enabled", true);
-  return new FakeSpadeApi(daemon.spade, () => Date.now());
+  return new FakeSpadeApi(daemon.spade, () => Date.now() - rewound);
 }
 
 /**
