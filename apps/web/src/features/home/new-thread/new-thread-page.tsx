@@ -198,7 +198,7 @@ export function NewThreadPage(props: {
     );
   if (chat.state === "failed")
     return (
-      <Screen title="New thread">
+      <Screen page="new-thread" title="New thread">
         <div className="px-5 py-6">
           <p role="alert" className="text-ui text-status-failed">
             Couldn't start a chat without a project. Check the connection and try again.
@@ -807,7 +807,7 @@ function PreparationPage(props: {
   const promoted = preparation(storage, props.host, draftKey)?.handoffCleanupPending;
   if (promoted || (recoverable && !readDraft(storage, draftKey)))
     return (
-      <Screen title="Saved preparation">
+      <Screen page="new-thread" title="Saved preparation">
         <div className="px-5 py-6">
           <p role="alert" className="text-ui text-status-failed">
             {promoted
@@ -833,7 +833,7 @@ function PreparationPage(props: {
     !!error ||
     !!returned;
   return (
-    <Screen title="New thread">
+    <Screen page="new-thread" title="New thread">
       <div
         ref={page}
         className="flex h-full min-h-0 flex-col overflow-y-auto pt-6 pb-[max(1rem,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]"
