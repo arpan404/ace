@@ -9,6 +9,8 @@ pub mod endpoint;
 pub mod media;
 #[cfg(target_os = "linux")]
 pub mod pipewire;
+#[cfg(target_os = "linux")]
+mod pipewire_ffi;
 pub mod policy;
 pub mod portal;
 pub mod portal_choice;

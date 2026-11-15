@@ -1,0 +1,302 @@
+//! A capture's live video: what `stream.configure` asked for, the epoch pictures are stamped
+//! with when they arrive, the encoder (opened on the capture thread, which GL needs), and each
+//! unit handed to a sink in order with its picture's capture time, scale and epoch.
+use super::encoder::{Captured, ScreenEncoder};
+use super::ingest::Clock;
+use super::select::Capture;
+use super::stream::StreamSettings;
+use media_codec::CodecError;
+use media_ingest::VideoUnit;
+use media_wire::capability::Backend;
+use std::collections::VecDeque;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, AtomicU32, Ordering},
+};
+
+/// Encode failures in a row after which the stream gives up on video and sends stills.
+const MAX_FAILURES: u32 = 3;
+/// Pictures whose units haven't come back yet, remembered for their stamps.
+const MAX_IN_FLIGHT: usize = 16;
+
+/// What the runtime tells the capture thread about video, and what it reports back.
+#[derive(Default)]
+pub struct StreamControl {
+    settings: Mutex<Option<StreamSettings>>,
+    epoch: AtomicU32,
+    key: AtomicBool,
+    still: AtomicBool,
+    running: Mutex<Running>,
+}
+
+/// What the stream runs on, for the `stream.configure` reply.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Running {
+    pub backend: Option<Backend>,
+    pub capture: Option<Capture>,
+    /// Video was given up on here: the encoder failed. Stills continue.
+    pub failed: Option<String>,
+}
+
+impl StreamControl {
+    pub fn set(&self, settings: StreamSettings) {
+        if let Ok(mut s) = self.settings.lock() {
+            *s = Some(settings);
+        }
+    }
+    pub fn settings(&self) -> Option<StreamSettings> {
+        self.settings.lock().ok().and_then(|s| s.clone())
+    }
+    pub fn set_epoch(&self, epoch: u32) {
+        self.epoch.store(epoch, Ordering::Release);
+    }
+    pub fn epoch(&self) -> u32 {
+        self.epoch.load(Ordering::Acquire)
+    }
+    pub fn want_key(&self) {
+        self.key.store(true, Ordering::Release);
+    }
+    pub fn key_owed(&self) -> bool {
+        self.key.load(Ordering::Acquire)
+    }
+    fn take_key(&self) -> bool {
+        self.key.swap(false, Ordering::AcqRel)
+    }
+    pub fn want_still(&self) {
+        self.still.store(true, Ordering::Release);
+    }
+    pub fn still_owed(&self) -> bool {
+        self.still.load(Ordering::Acquire)
+    }
+    pub fn take_still(&self) -> bool {
+        self.still.swap(false, Ordering::AcqRel)
+    }
+    pub fn running(&self) -> Running {
+        self.running.lock().map(|r| r.clone()).unwrap_or_default()
+    }
+    fn report(&self, update: impl FnOnce(&mut Running)) {
+        if let Ok(mut running) = self.running.lock() {
+            update(&mut running);
+        }
+    }
+}
+
+/// Where units go: the route, which sends each to the daemon's socket or ace-media's ingest.
+/// `false` when the unit was dropped: the next one should be a keyframe.
+pub trait VideoSink: Send {
+    fn unit(&mut self, unit: VideoUnit) -> bool;
+    /// The frame sequence the next unit takes, shared with stills.
+    fn next_sequence(&mut self) -> u64;
+}
+
+/// A picture handed to the encoder, kept until its unit comes back.
+#[derive(Clone, Copy, Debug)]
+pub struct Stamp {
+    pub pts_us: u64,
+    pub timestamp: f64,
+    pub scale: f64,
+    pub epoch: u32,
+}
+
+pub struct Video {
+    pub control: std::sync::Arc<StreamControl>,
+    choice: Option<(Backend, Option<media_chrome::ChromeOptions>)>,
+    encoder: Option<ScreenEncoder>,
+    failures: u32,
+    given_up: bool,
+    in_flight: VecDeque<Stamp>,
+    sink: Box<dyn VideoSink>,
+    clock: Clock,
+    last_pts: u64,
+}
+
+impl Video {
+    pub fn new(
+        control: std::sync::Arc<StreamControl>,
+        choice: Option<(Backend, Option<media_chrome::ChromeOptions>)>,
+        sink: Box<dyn VideoSink>,
+        clock: Clock,
+    ) -> Self {
+        Self {
+            control,
+            choice,
+            encoder: None,
+            failures: 0,
+            given_up: false,
+            in_flight: VecDeque::new(),
+            sink,
+            clock,
+            last_pts: 0,
+        }
+    }
+
+    /// The helper's monotonic microseconds: pictures' capture times, on the route's clock.
+    pub fn now_us(&self) -> u64 {
+        self.clock.us()
+    }
+
+    /// A strictly increasing presentation time for a picture captured at `captured_us`.
+    pub fn pts(&mut self, captured_us: u64) -> u64 {
+        self.last_pts = captured_us.max(self.last_pts + 1);
+        self.last_pts
+    }
+
+    /// Opens the encoder now when it imports DMA-BUFs, so the stream can offer them. Must run
+    /// on the capture thread. Returns whether DMA-BUFs should be offered.
+    pub fn open_for_dmabuf(&mut self) -> bool {
+        let Some((backend, _)) = &self.choice else {
+            return false;
+        };
+        if !matches!(backend, Backend::Vaapi | Backend::Nv) {
+            return false;
+        }
+        self.open().is_ok_and(|e| e.imports_dmabuf())
+    }
+
+    fn open(&mut self) -> Result<&mut ScreenEncoder, CodecError> {
+        if self.encoder.is_none() {
+            let (backend, chrome) = self
+                .choice
+                .clone()
+                .ok_or_else(|| CodecError::Unsupported("no encoder here".into()))?;
+            match ScreenEncoder::open(backend, chrome) {
+                Ok(encoder) => {
+                    self.control.report(|r| r.backend = Some(backend));
+                    self.encoder = Some(encoder);
+                }
+                Err(error) => {
+                    self.give_up(&error);
+                    return Err(error);
+                }
+            }
+        }
+        self.encoder.as_mut().ok_or(CodecError::NotConfigured)
+    }
+
+    fn give_up(&mut self, error: &CodecError) {
+        eprintln!("screen video: {error}; sending stills instead");
+        self.given_up = true;
+        let reason = error.to_string();
+        self.control.report(|r| r.failed = Some(reason));
+    }
+
+    /// The settings to encode under now: video asked for, someone watching, an encoder here.
+    pub fn active(&self, watching: bool) -> Option<StreamSettings> {
+        if !watching || self.given_up || self.choice.is_none() {
+            return None;
+        }
+        self.control.settings().filter(StreamSettings::video)
+    }
+
+    /// Takes the keyframe request, if any.
+    pub fn take_key(&self) -> bool {
+        self.control.take_key()
+    }
+
+    /// Encodes one picture. A DMA-BUF the encoder couldn't import returns `Err`, for the
+    /// capture to fall back to shared memory.
+    pub fn encode(
+        &mut self,
+        picture: &Captured<'_>,
+        settings: &StreamSettings,
+        stamp: Stamp,
+        key: bool,
+    ) -> Result<(), CodecError> {
+        self.control.report(|r| r.capture = Some(picture.capture()));
+        let encoder = self.open()?;
+        match encoder.encode(picture, settings, key) {
+            Ok(()) => {
+                self.failures = 0;
+                if self.in_flight.len() == MAX_IN_FLIGHT {
+                    self.in_flight.pop_front();
+                }
+                self.in_flight.push_back(stamp);
+                Ok(())
+            }
+            Err(CodecError::Backpressure) => {
+                // Skipped: the next picture carries the keyframe if one was owed.
+                if key {
+                    self.control.want_key();
+                }
+                Ok(())
+            }
+            Err(error) => {
+                self.control.want_key();
+                self.failures += 1;
+                if self.failures >= MAX_FAILURES {
+                    self.give_up(&error);
+                    if let Some(encoder) = self.encoder.take() {
+                        encoder.close();
+                    }
+                }
+                Err(error)
+            }
+        }
+    }
+
+    /// A still from a DMA-BUF picture: one readback through the encoder's device.
+    pub fn read_back(&mut self, picture: &Captured<'_>) -> Option<(media_codec::CpuPicture, bool)> {
+        self.encoder.as_mut()?.read_back(picture)
+    }
+
+    /// Whether units may still come back without a new picture.
+    pub fn waiting(&self) -> bool {
+        !self.in_flight.is_empty()
+            && self
+                .encoder
+                .as_ref()
+                .is_some_and(ScreenEncoder::asynchronous)
+    }
+
+    /// Hands every unit that is out to the sink, stamped with its picture's stamp.
+    pub fn drain(&mut self) {
+        loop {
+            let output = match self.encoder.as_mut().map(ScreenEncoder::poll) {
+                Some(Ok(Some(output))) => output,
+                Some(Err(error)) => {
+                    eprintln!("screen video: {error}");
+                    self.control.want_key();
+                    return;
+                }
+                _ => return,
+            };
+            while self
+                .in_flight
+                .front()
+                .is_some_and(|s| s.pts_us < output.pts_us)
+            {
+                self.in_flight.pop_front();
+            }
+            let Some(stamp) = self
+                .in_flight
+                .front()
+                .copied()
+                .filter(|s| s.pts_us == output.pts_us)
+            else {
+                continue;
+            };
+            self.in_flight.pop_front();
+            let unit = VideoUnit {
+                sequence: self.sink.next_sequence(),
+                timestamp_ms: stamp.timestamp,
+                scale: stamp.scale,
+                width: output.size.width,
+                height: output.size.height,
+                key: output.key,
+                codec: output.codec,
+                epoch: stamp.epoch,
+                captured_us: stamp.pts_us,
+                payload: output.data,
+            };
+            if !self.sink.unit(unit) {
+                self.control.want_key();
+            }
+        }
+    }
+
+    pub fn close(&mut self) {
+        if let Some(encoder) = self.encoder.take() {
+            encoder.close();
+        }
+    }
+}

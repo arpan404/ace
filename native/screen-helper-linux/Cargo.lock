@@ -7,6 +7,7 @@ name = "ace-screen-helper-linux"
 version = "0.1.0"
 dependencies = [
  "atspi",
+ "base64",
  "cc",
  "futures-util",
  "jpeg-encoder",
@@ -15,6 +16,7 @@ dependencies = [
  "media-bitstream",
  "media-chrome",
  "media-codec",
+ "media-ingest",
  "media-nv",
  "media-vaapi",
  "media-wire",
@@ -24,6 +26,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]
@@ -206,6 +209,12 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bitflags"
@@ -632,6 +641,14 @@ dependencies = [
  "objc2-image-io",
  "zune-core",
  "zune-jpeg",
+]
+
+[[package]]
+name = "media-ingest"
+version = "0.1.0"
+dependencies = [
+ "media-wire",
+ "zeroize",
 ]
 
 [[package]]

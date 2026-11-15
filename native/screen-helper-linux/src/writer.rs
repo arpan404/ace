@@ -6,8 +6,18 @@ use std::{
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
 };
+/// Bytes of video units queued for the daemon's socket past which deltas are dropped to the
+/// next keyframe.
+pub const VIDEO_LIMIT: usize = 8 * 1024 * 1024;
+
 struct Queue {
+    /// The newest still: an older one waiting is replaced, stills never queue up.
     latest: Option<Vec<u8>>,
+    /// Video units, every one in order: a delta lost would leave the stream undecodable.
+    video: std::collections::VecDeque<Vec<u8>>,
+    video_bytes: usize,
+    /// Past the limit: deltas are dropped until the next keyframe.
+    skipping: bool,
     closed: bool,
 }
 #[derive(Clone)]
@@ -45,6 +55,37 @@ impl Publisher {
         ready.notify_one();
         Ok(())
     }
+
+    /// The next frame sequence, shared by stills and video.
+    pub fn next_sequence(&self) -> u64 {
+        self.sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn session(&self) -> &str {
+        &self.session
+    }
+
+    /// Queues one video packet in order. `Ok(false)` when it was dropped because the socket is
+    /// backed up: the caller asks the encoder for a keyframe.
+    pub fn video(&self, packet: Vec<u8>, keyframe: bool) -> Result<bool> {
+        let (lock, ready) = &*self.queue;
+        let mut q = lock.lock().map_err(internal)?;
+        if q.closed {
+            return Err(internal("Frame endpoint closed"));
+        }
+        if q.video_bytes > VIDEO_LIMIT {
+            q.skipping = true;
+        }
+        if q.skipping && !keyframe {
+            return Ok(false);
+        }
+        q.skipping = false;
+        q.video_bytes += packet.len();
+        q.video.push_back(packet);
+        ready.notify_one();
+        Ok(true)
+    }
 }
 pub struct Writer {
     queue: Arc<(Mutex<Queue>, Condvar)>,
@@ -60,6 +101,9 @@ impl Writer {
         let queue = Arc::new((
             Mutex::new(Queue {
                 latest: None,
+                video: Default::default(),
+                video_bytes: 0,
+                skipping: false,
                 closed: false,
             }),
             Condvar::new(),
@@ -72,7 +116,7 @@ impl Writer {
                     Ok(s) => s,
                     Err(_) => break,
                 };
-                while state.latest.is_none() && !state.closed {
+                while state.latest.is_none() && state.video.is_empty() && !state.closed {
                     state = match ready.wait(state) {
                         Ok(s) => s,
                         Err(_) => return,
@@ -81,7 +125,14 @@ impl Writer {
                 if state.closed {
                     break;
                 }
-                let bytes = state.latest.take();
+                // Video first, in order; a still waits behind the units already queued.
+                let bytes = match state.video.pop_front() {
+                    Some(unit) => {
+                        state.video_bytes -= unit.len();
+                        Some(unit)
+                    }
+                    None => state.latest.take(),
+                };
                 drop(state);
                 if let Some(bytes) = bytes {
                     if stream.write_all(&bytes).is_err() {
@@ -117,6 +168,7 @@ impl Drop for Writer {
         if let Ok(mut q) = lock.lock() {
             q.closed = true;
             q.latest = None;
+            q.video.clear();
         }
         ready.notify_one();
         let _ = self.socket.shutdown(std::net::Shutdown::Both);

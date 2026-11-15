@@ -1,3 +1,10 @@
+use crate::media::{
+    select::{self, Trials},
+    stream::StreamSettings,
+    trials::{ChromePlace, Found},
+    ingest::{Clock, Ingest, Outlets},
+    video::StreamControl,
+};
 use crate::{
     accessibility::Accessibility,
     policy::wayland_session,
@@ -5,6 +12,7 @@ use crate::{
     protocol::{Fault, Request, Result, internal, reply, valid_id},
     writer::Writer,
 };
+use media_wire::capability::Backend;
 use serde_json::{Value, json};
 use std::time::Duration;
 use std::{
@@ -24,9 +32,12 @@ pub(crate) struct Capture {
     wake: UnixStream,
     worker: Option<JoinHandle<()>>,
     control: Arc<crate::pipewire::Control>,
+    stream: Arc<StreamControl>,
+    ingest: Ingest,
 }
 impl Drop for Capture {
     fn drop(&mut self) {
+        self.ingest.close();
         self.stop.store(true, Ordering::Release);
         let _ = self.wake.write_all(&[1]);
         if let Some(w) = self.worker.take() {
@@ -42,10 +53,109 @@ pub(crate) struct Runtime {
     target: Option<crate::protocol::Target>,
     pub(crate) capture: Option<Capture>,
     pub(crate) writer: Writer,
+    encoders: Found,
+    clock: Clock,
 }
 impl Runtime {
+    /// The trials' results; empty while they still run past the hello's wait.
+    fn trials(&self) -> Trials {
+        self.encoders.wait().unwrap_or_default()
+    }
     fn capabilities(&self) -> Value {
-        self.portal.capabilities(self.ui.is_some())
+        let mut capabilities = self.portal.capabilities(self.ui.is_some());
+        let trials = self.trials();
+        let capture = self
+            .capture
+            .as_ref()
+            .and_then(|c| c.stream.running().capture);
+        if select::choose(&trials).is_some() {
+            capabilities["codecs"] = json!(["jpeg", "h264"]);
+        }
+        let mut encoders = select::encoders(&trials, capture);
+        encoders.truncate(16);
+        capabilities["encoders"] = json!(encoders);
+        capabilities
+    }
+    /// The encoder a new capture opens, with Chrome's options for the last resort.
+    fn choice(&self) -> Option<(Backend, Option<media_chrome::ChromeOptions>)> {
+        let trials = self.trials();
+        let backend = select::choose(&trials)?.backend;
+        let chrome = (backend == Backend::Chrome)
+            .then(|| self.encoders.chrome.options())
+            .flatten();
+        Some((backend, chrome))
+    }
+    /// `stream.configure`: the view's settings and the epoch. Video stays on the daemon's
+    /// socket until the ingest route lands; the reply says so (`ingest: "off"`).
+    async fn configure(&mut self, r: &Request) -> Result<Value> {
+        let target = ingest_address(r.ingest.as_ref())?;
+        let settings: StreamSettings = r
+            .settings
+            .clone()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .filter(StreamSettings::valid)
+            .ok_or_else(|| Fault::new("bounds", "Invalid stream settings"))?;
+        let video = settings.video() && select::choose(&self.trials()).is_some();
+        let capture = self
+            .capture
+            .as_mut()
+            .ok_or_else(|| Fault::new("target_gone", "No capture session"))?;
+        let stream = &capture.stream;
+        if let Some(epoch) = r.epoch {
+            stream.set_epoch(epoch);
+        }
+        let previous = stream.settings();
+        if video
+            && previous.as_ref().is_none_or(|p| {
+                !p.video()
+                    || p.max_width != settings.max_width
+                    || p.max_height != settings.max_height
+            })
+        {
+            stream.want_key();
+        }
+        stream.set(settings);
+        let _ = capture.wake.write_all(&[1]);
+        let to_ingest = target.is_some();
+        // Units captured before this point stay on the path they were routed to.
+        let moved = capture
+            .ingest
+            .route(target)
+            .await
+            .map_err(|e| Fault::new("target_gone", format!("Cannot connect ingest socket: {e}")))?;
+        if moved.switched {
+            capture.stream.want_key();
+            let _ = capture.wake.write_all(&[1]);
+        }
+        let running = capture.stream.running();
+        let codec = if video && running.failed.is_none() {
+            "h264"
+        } else {
+            "jpeg"
+        };
+        let mut reply = json!({"codec": codec, "ingest": if to_ingest { "on" } else { "off" }});
+        if moved.switched {
+            reply["switched"] = json!(true);
+            reply["boundary"] = json!(moved.boundary);
+        }
+        if let (Some(backend), Some(kind)) = (running.backend, running.capture) {
+            reply["acceleration"] = json!(select::acceleration(backend, kind));
+        }
+        Ok(reply)
+    }
+    /// `stream.keyframe` and `stream.image`: owed to the capture, which wakes for them.
+    fn owe(&mut self, still: bool) -> Result<Value> {
+        let capture = self
+            .capture
+            .as_mut()
+            .ok_or_else(|| Fault::new("target_gone", "No capture session"))?;
+        if still {
+            capture.stream.want_still();
+        } else {
+            capture.stream.want_key();
+        }
+        let _ = capture.wake.write_all(&[1]);
+        Ok(json!({}))
     }
     async fn stop(&mut self) -> Result<Value> {
         self.capture.take();
@@ -104,7 +214,10 @@ impl Runtime {
         let stop = Arc::new(AtomicBool::new(false));
         let cancelled = stop.clone();
         let socket = self.writer.abort_socket()?;
-        let worker = {
+        let stream = Arc::new(StreamControl::default());
+        let encoder = self.choice();
+        let clock = self.clock;
+        let (worker, ingest) = {
             let p = &mut self.portal;
             let choice = match target.kind.as_str() {
                 "chooser" => Choice::Any,
@@ -150,12 +263,24 @@ impl Runtime {
                     }
                 }
             }
-            let publisher = self.writer.publisher(session);
+            let publisher = self.writer.publisher(session.clone());
+            let ingest = Ingest::spawn(
+                clock,
+                outlets(&session, &publisher, &capture_control, &stream, &wake)?,
+            );
+            let outputs = crate::pipewire::Outputs {
+                publisher,
+                shown: p_shown(&self.portal),
+                control: capture_control,
+                stream: stream.clone(),
+                ingest: ingest.clone(),
+                clock,
+                encoder,
+            };
             let p = &self.portal;
             let node = p.node;
             let logical_width = p.size.0;
-            let shown = p.shown.clone();
-            std::thread::spawn(move || {
+            let worker = std::thread::spawn(move || {
                 let _read = read;
                 if let Err(e) = crate::pipewire::capture(
                     fd,
@@ -164,14 +289,13 @@ impl Runtime {
                     logical_width,
                     _read.as_raw_fd(),
                     cancelled,
-                    publisher,
-                    shown,
-                    capture_control,
+                    outputs,
                 ) {
                     eprintln!("capture: {e}");
                     let _ = socket.shutdown(std::net::Shutdown::Both);
                 }
-            })
+            });
+            (worker, ingest)
         };
         self.target = Some(target.clone());
         self.capture = Some(Capture {
@@ -179,6 +303,8 @@ impl Runtime {
             wake,
             worker: Some(worker),
             control,
+            stream,
+            ingest,
         });
         let picked = self
             .portal
@@ -239,6 +365,9 @@ impl Runtime {
             }
             "start" => self.start(r).await,
             "watch" => self.watch(r),
+            "stream.configure" => self.configure(r).await,
+            "stream.keyframe" => self.owe(false),
+            "stream.image" => self.owe(true),
             "stop" => self.stop().await,
             "ui.tree" => {
                 crate::policy::scoped_target(r.target.as_ref(), self.target.as_ref())?;
@@ -323,6 +452,7 @@ pub async fn run() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let mut endpoint = None;
     let mut token_path = None;
+    let mut data_dir = None;
     let mut i = 0;
     while i < args.len() {
         let value = args
@@ -332,6 +462,7 @@ pub async fn run() -> Result<()> {
             "--endpoint" => endpoint = Some(value.clone()),
             "--socket" => endpoint = Some(format!("unix:{value}")),
             "--restore-token" => token_path = Some(PathBuf::from(value)),
+            "--data-dir" => data_dir = Some(PathBuf::from(value)),
             _ => return Err(Fault::new("bounds", "Unknown argument")),
         }
         i += 2;
@@ -358,6 +489,15 @@ pub async fn run() -> Result<()> {
             "Wayland requires --restore-token in the ace data directory",
         )
     })?;
+    // The encoders' trials run while the portal and the daemon's hello come up.
+    let profiles = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("ace-screen-encoder");
+    let encoders = Found::start(ChromePlace {
+        data_dir,
+        profile_root: profiles,
+    });
     let portal = Portal::connect(path).await?;
     let mut runtime = Runtime {
         portal,
@@ -367,6 +507,8 @@ pub async fn run() -> Result<()> {
         target: None,
         capture: None,
         writer,
+        encoders,
+        clock: Clock::start(),
     };
     let mut lines = crate::command_lines::spawn(tokio::io::stdin());
     let mut queued = std::collections::VecDeque::new();
@@ -444,4 +586,69 @@ fn respond(r: &Request, result: Result<Value>) -> Result<()> {
     }
     bytes.push(b'\n');
     std::io::stdout().write_all(&bytes).map_err(internal)
+}
+
+fn p_shown(portal: &Portal) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
+    portal.shown.clone()
+}
+
+/// `stream.configure`'s `ingest`: ace-media's socket and the source's token (base64 of 32
+/// bytes), parsed at the boundary. Absent means the daemon's socket.
+fn ingest_address(raw: Option<&Value>) -> Result<Option<media_ingest::Address>> {
+    use base64::Engine as _;
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let invalid = || Fault::new("bounds", "Invalid ingest address");
+    let socket = raw.get("socket").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 1024).ok_or_else(invalid)?;
+    let text = raw.get("token").and_then(Value::as_str).ok_or_else(invalid)?;
+    let bytes = zeroize::Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(text).map_err(|_| invalid())?);
+    let token: [u8; 32] = bytes.as_slice().try_into().map_err(|_| invalid())?;
+    Ok(Some(media_ingest::Address {
+        socket: socket.to_owned(),
+        token: zeroize::Zeroizing::new(token),
+    }))
+}
+
+/// Where the capture's route sends what it doesn't write to ace-media: units to the daemon's
+/// socket, keyframes owed to the capture, and the `stream.ingest` event when ace-media's
+/// connection is cut (video is back on the daemon's socket by then).
+fn outlets(
+    session: &str,
+    publisher: &crate::writer::Publisher,
+    control: &Arc<crate::pipewire::Control>,
+    stream: &Arc<StreamControl>,
+    wake: &UnixStream,
+) -> Result<Outlets> {
+    let owe = {
+        let stream = stream.clone();
+        let wake = wake.try_clone().map_err(internal)?;
+        Arc::new(move || {
+            stream.want_key();
+            let _ = (&wake).write_all(&[1]);
+        })
+    };
+    let (legacy_publisher, legacy_control, legacy_owe) = (publisher.clone(), control.clone(), owe.clone());
+    let closed_owe = owe.clone();
+    let session = session.to_owned();
+    Ok(Outlets {
+        legacy: Box::new(move |unit| {
+            let generation = Some(legacy_control.generation.load(Ordering::Acquire)).filter(|g| *g > 0);
+            let sent = crate::media::unit::legacy_packet(&unit, legacy_publisher.session(), generation)
+                .ok()
+                .is_some_and(|packet| legacy_publisher.video(packet, unit.key).unwrap_or(false));
+            if !sent {
+                legacy_owe();
+            }
+        }),
+        keyframe: owe,
+        closed: Box::new(move |boundary| {
+            closed_owe();
+            let event = json!({"event": "stream.ingest", "sessionId": session, "state": "closed", "boundary": boundary});
+            if let Ok(mut line) = serde_json::to_vec(&event) {
+                line.push(b'\n');
+                let _ = std::io::stdout().write_all(&line);
+            }
+        }),
+    })
 }
