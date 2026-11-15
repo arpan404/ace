@@ -319,10 +319,13 @@ pub fn ace_children<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<AceC
             } if name == "delegate" || name == "wait" => {
                 let states = thread_states(content);
                 for child in children.iter_mut().filter(|c| &c.job == job) {
-                    child.state = states
-                        .iter()
-                        .find(|(t, _)| t == &child.thread)
-                        .map_or(AceState::Ended, |(_, s)| *s);
+                    match states.iter().find(|(t, _)| t == &child.thread) {
+                        Some((_, state)) => child.state = *state,
+                        // A job cut off by Stop says nothing of its children: a stopped one stays
+                        // stopped, and one that was running is no longer read as running.
+                        None if child.state == AceState::Working => child.state = AceState::Ended,
+                        None => {}
+                    }
                 }
             }
             Known::WorkerReported(report) if report.kind == Kind::Ace => {

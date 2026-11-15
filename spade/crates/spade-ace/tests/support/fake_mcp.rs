@@ -61,6 +61,8 @@ struct State {
     hang: std::sync::atomic::AtomicBool,
     /// Whether the children `delegate` started have finished; until then `wait` times out.
     children_done: std::sync::atomic::AtomicBool,
+    /// Every call a handler ran: its tool and arguments.
+    ran: Mutex<Vec<(String, serde_json::Value)>>,
 }
 
 #[derive(Clone)]
@@ -89,6 +91,7 @@ impl FakeMcp {
             redirect_calls: Mutex::new(None),
             hang: std::sync::atomic::AtomicBool::new(false),
             children_done: std::sync::atomic::AtomicBool::new(false),
+            ran: Mutex::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -189,6 +192,11 @@ impl FakeMcp {
     /// Calls a tool handler actually ran.
     pub fn tool_runs(&self) -> usize {
         self.state.tool_runs.load(Ordering::SeqCst)
+    }
+
+    /// Every call a handler ran, in order: its tool and arguments.
+    pub fn ran(&self) -> Vec<(String, serde_json::Value)> {
+        lock(&self.state.ran).clone()
     }
 
     pub fn request_headers(&self) -> Vec<HeaderMap> {
@@ -399,6 +407,10 @@ impl ServerHandler for Fake {
     ) -> Result<CallToolResponse, ErrorData> {
         self.0.tool_runs.fetch_add(1, Ordering::SeqCst);
         let args = request.arguments.clone().unwrap_or_default();
+        lock(&self.0.ran).push((
+            request.name.to_string(),
+            serde_json::Value::Object(args.clone()),
+        ));
         let result = match request.name.as_ref() {
             // Answers whom the call named itself as made for (`_meta` `ace/acting-for`).
             "whoami" => {
@@ -457,6 +469,10 @@ impl ServerHandler for Fake {
                     json!({ "ok": true, "data": data }).to_string(),
                 )])
             }
+            // ace's own: a child is messaged or cancelled.
+            "agent_message" | "agent_cancel" => CallToolResult::success(vec![ContentBlock::text(
+                json!({ "ok": true, "data": {} }).to_string(),
+            )]),
             "slow" => {
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 CallToolResult::success(vec![])

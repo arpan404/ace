@@ -322,6 +322,18 @@ fn ace_children_follow_delegate_and_wait_results_and_a_stop() {
         ),
     ];
     assert_eq!(states(&unread), vec![("t9".to_owned(), AceState::Ended)]);
+    // A stop noted before its job's end stays: the stopped job says nothing of its children.
+    let stopped = vec![
+        child("t9"),
+        e(json!({
+            "type": "worker_reported", "worker": "t9", "kind": "ace", "name": "Fix",
+            "state": "stopped", "epoch": "stop", "summary": "stopped"
+        })),
+        e(
+            json!({ "type": "job_finished", "job": "d1", "name": "delegate", "content": "Stopped by the person.", "is_error": true }),
+        ),
+    ];
+    assert_eq!(states(&stopped), vec![("t9".to_owned(), AceState::Stopped)]);
     assert_eq!(
         delegated_threads(&json!({ "ok": true, "data": { "threadIds": ["t1"] } }).to_string()),
         vec!["t1".to_owned()]

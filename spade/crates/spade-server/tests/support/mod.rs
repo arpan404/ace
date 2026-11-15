@@ -542,6 +542,10 @@ impl Spade {
             None => None,
         };
         let bots = spade_server::tools::EngineHandle::default();
+        // As in Spade: ace's tools are called for the bot that made each call.
+        if let Some(link) = &ace {
+            link.act_for(bots.clone());
+        }
         let search = match options.search.clone() {
             Some(config) => {
                 let lookup = keys.clone();

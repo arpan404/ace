@@ -6,11 +6,16 @@
 //! `pause`, so a worker's first call arrives before its maker's next step. Workers are named by
 //! their maker, so they make no title call.
 
+#[path = "../../spade-ace/tests/support/fake_mcp.rs"]
+#[allow(dead_code)]
+mod fake_mcp;
 mod support;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use fake_mcp::{FakeMcp, tool};
 use serde_json::{Value, json};
 use spade_core::tools::Risk;
 use spade_server::tools::Tool;
@@ -691,5 +696,133 @@ async fn wait_for_a_worker_wakes_the_maker_when_it_reports() -> Result {
         types(&events)
     );
     assert_eq!(reports(&events).len(), 1);
+    Ok(())
+}
+
+fn with_ace(home: &Path) -> Options {
+    Options {
+        ace_home: Some(home.to_path_buf()),
+        ..Default::default()
+    }
+}
+
+async fn connect(spade: &Spade, home: &Path, mcp: &FakeMcp) -> Result {
+    use spade_server::tools::ToolSource;
+    let endpoint = mcp.url().trim_end_matches("/mcp").to_owned();
+    std::fs::write(home.join("daemon-endpoint"), format!("{endpoint}\n"))?;
+    std::fs::write(home.join("daemon-token"), "local-token\n")?;
+    spade
+        .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
+        .await?;
+    until("ace's tools arrive", || async {
+        Ok(spade.ace.as_ref().is_some_and(|ace| ace.tools().len() >= 4))
+    })
+    .await
+}
+
+fn ace_tools() -> Vec<rmcp::model::Tool> {
+    vec![
+        tool("delegate", Some(false), None),
+        tool("wait", Some(true), None),
+        tool("agent_cancel", Some(false), None),
+        tool("agent_message", Some(false), None),
+    ]
+}
+
+/// The lead hands a fix to an ace agent.
+fn delegating() -> Script {
+    Script::reply("").call(
+        "d1",
+        "call_tool",
+        json!({ "name": "delegate",
+                "arguments": { "tasks": [{ "task": "Fix the bug", "role": "Fix-bug" }] } }),
+    )
+}
+
+/// The ace children in the tree of `agent`: `(id, name, state)`.
+async fn ace_children(spade: &Spade, agent: &str) -> Result<Vec<(Value, Value, Value)>> {
+    let shown = tree(spade, agent).await?;
+    Ok(shown["children"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter(|c| c["kind"] == "ace")
+        .map(|c| (c["id"].clone(), c["name"].clone(), c["state"].clone()))
+        .collect())
+}
+
+#[tokio::test]
+async fn ace_children_of_a_delegate_show_in_the_tree_until_they_settle() -> Result {
+    let home = tempfile::tempdir()?;
+    let mcp = FakeMcp::start(ace_tools()).await;
+    let mut scripts = warm_up();
+    scripts.extend([
+        delegating(),
+        Script::reply("I handed the fix to an agent."),
+        Script::reply("The agent fixed the bug."),
+    ]);
+    let spade = Spade::start_with(scripts, Vec::new(), with_ace(home.path())).await?;
+    connect(&spade, home.path(), &mcp).await?;
+    let (lead_id, lead_chat) = lead(&spade).await?;
+    spade.say(&lead_chat, "Get the bug fixed").await?;
+    until("the ace child shows, working", || async {
+        Ok(ace_children(&spade, &lead_id).await?
+            == vec![(json!("t1"), json!("Fix-bug"), json!("working"))])
+    })
+    .await?;
+    let lead_now = agent(&spade, |a| a["id"] == lead_id.as_str()).await?;
+    assert_eq!(lead_now["state"], "working");
+
+    mcp.settle_children();
+    spade.wait_for(&lead_chat, "job_finished").await?;
+    until("the ace child reads done", || async {
+        Ok(ace_children(&spade, &lead_id).await?
+            == vec![(json!("t1"), json!("Fix-bug"), json!("done"))])
+    })
+    .await?;
+    quiet(&spade, &lead_chat).await?;
+    let events = spade.events(&lead_chat).await?;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "worker_started" && e["kind"] == "ace")
+            .count(),
+        1,
+        "noted once, though ace was asked again while the child ran"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_on_the_maker_cancels_its_ace_children_through_ace() -> Result {
+    let home = tempfile::tempdir()?;
+    let mcp = FakeMcp::start(ace_tools()).await;
+    let mut scripts = warm_up();
+    scripts.extend([delegating(), Script::reply("I handed the fix to an agent.")]);
+    let spade = Spade::start_with(scripts, Vec::new(), with_ace(home.path())).await?;
+    connect(&spade, home.path(), &mcp).await?;
+    let (lead_id, lead_chat) = lead(&spade).await?;
+    spade.say(&lead_chat, "Get the bug fixed").await?;
+    until("the ace child shows", || async {
+        Ok(!ace_children(&spade, &lead_id).await?.is_empty())
+    })
+    .await?;
+
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{lead_chat}/stop"), json!({}))
+        .await?;
+    assert!(status < 300, "{status}");
+    until("ace was asked to cancel the child", || async {
+        Ok(mcp
+            .ran()
+            .iter()
+            .any(|(name, arguments)| name == "agent_cancel" && arguments["threadId"] == "t1"))
+    })
+    .await?;
+    assert_eq!(
+        ace_children(&spade, &lead_id).await?,
+        vec![(json!("t1"), json!("Fix-bug"), json!("stopped"))]
+    );
     Ok(())
 }
