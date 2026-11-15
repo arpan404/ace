@@ -394,6 +394,17 @@ impl Engine {
         self.announce(id);
     }
 
+    /// Marks a conversation (a bot's or a group's) seen up to `seq`, its last event when `None`,
+    /// and tells its live subscribers, so every device drops its "not seen" mark. Answers the
+    /// cursor, or `None` for no such conversation.
+    pub fn mark_seen(&self, id: &str, seq: Option<i64>) -> Result<Option<i64>, StoreError> {
+        let seen = self.store.mark_seen(id, seq, self.clock.now_ms())?;
+        if let Some(seq) = seen {
+            let _ = self.live(id).frames.send(Frame::Seen { seq });
+        }
+        Ok(seen)
+    }
+
     /// Sends the agent's state and status to live subscribers: the same the roster shows.
     fn announce(&self, id: &str) {
         let Ok(activity) = self.activity(id) else {

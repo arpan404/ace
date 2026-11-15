@@ -428,11 +428,12 @@ mod tests {
             let connection = rusqlite::Connection::open(&path)?;
             connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
-            connection.execute_batch("DROP TABLE skill_uses; DROP TABLE skills;")?;
+            connection
+                .execute_batch("DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;")?;
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 3,
+                crate::schema::current_version() as i64 - 4,
             )?;
         }
         let store = Store::open(&path)?;

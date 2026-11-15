@@ -106,6 +106,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
             "from": if m.by_agent { "agent" } else { "person" },
             "text": m.text,
             "at": m.at_ms,
+            "seq": m.seq,
             "from_agent": m.from_agent.as_ref().map(|f| json!({ "id": f.id, "name": f.name })),
         })
     });
@@ -127,6 +128,8 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "status": view.status,
         "problem": view.problem,
         "last_message": last_message,
+        "seen_seq": view.seen,
+        "unseen": crate::engine::roster::unseen(view.state, view.last_message.as_ref(), view.seen),
     });
     // `spending` and `review` (ADR 0135); `access`, `task_state` and `continuing` (ADR 0144).
     if let (Some(shown), Some(extra)) = (shown.as_object_mut(), view.oversight.as_object()) {

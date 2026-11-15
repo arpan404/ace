@@ -146,7 +146,7 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
 "created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
-"problem", "last_message", "access", "task_state", "continuing"}`
+"problem", "last_message", "seen_seq", "unseen", "access", "task_state", "continuing"}`
 
 - `access`, `task_state`, `continuing`: the bot's access level and its task as it last said, and
   whether Spade is carrying the task on by itself ([autonomy.md](autonomy.md)).
@@ -164,10 +164,26 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   arguments; `null` when idle.
 - `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
   until a later reply finishes; `null` otherwise ([cli-brains.md](cli-brains.md)).
-- `last_message`: `{"from": "person"|"agent", "text", "at", "from_agent": {"id","name"}|null}` or
-  `null`. The latest message in the conversation: a message to the agent (`person`; with
+- `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "from_agent": {"id","name"}|null}`
+  or `null`. The latest message in the conversation: a message to the agent (`person`; with
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
-  output; plain text, at most 200 characters.
+  output. `text` is the list's preview: plain text on one line, at most 200 characters, with
+  markdown gone (emphasis, headings, quotes, fences, list marks, strike-through) and links and
+  images as their words (`[the plan](…)` → `the plan`). `seq` is its event.
+- `seen_seq`: the conversation's seen cursor (see Seen), or `null` when never marked.
+- `unseen`: the bot finished and the person hasn't seen it: `state` is `idle` and the bot's own
+  `last_message` is past `seen_seq`. Never true while any of its work runs or waits on the person.
+
+### Seen
+
+`PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a group's
+conversation seen up to that event, the conversation's last when absent, never past it. The
+cursor only moves forward: an older `seq` leaves it where it is. Answer `{"seen_seq"}`; `404` for
+no such conversation. Each mark is sent on the conversation's live stream as
+`event: seen`, `data: {"seq"}`, so every device drops its mark. Cursors live in the `seen` table,
+so they survive restarts, and go with their conversation; they are never events, so nothing the
+model reads changes. The schema step that added them counted every conversation as seen up to
+then.
 
 | Method and path                               | Body                                                                       | Answer                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |

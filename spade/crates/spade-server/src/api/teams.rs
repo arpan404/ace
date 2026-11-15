@@ -99,6 +99,7 @@ fn group_json(view: &GroupView) -> Value {
             "from": if m.from.is_some() { "agent" } else { "person" },
             "text": m.text,
             "at": m.at_ms,
+            "seq": m.seq,
             "agent": m.from.as_ref().map(|b| json!({ "id": b.id, "name": b.name, "machine": b.machine })),
         })
     });
@@ -115,6 +116,8 @@ fn group_json(view: &GroupView) -> Value {
         "status": view.status,
         "waiting_member": view.waiting_member.as_ref().map(|b| json!({ "id": b.id, "name": b.name, "machine": b.machine })),
         "last_message": last_message,
+        "seen_seq": view.seen,
+        "unseen": view.unseen(),
     })
 }
 

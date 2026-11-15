@@ -54,6 +54,8 @@ pub struct GroupLast {
     pub from: Option<GroupBot>,
     pub text: String,
     pub at_ms: i64,
+    /// The event it is, for the seen cursor.
+    pub seq: i64,
 }
 
 /// What a group is doing now (ADR 0132): its state, a few words, and while it waits on the
@@ -95,6 +97,19 @@ pub struct GroupView {
     pub last_activity_ms: i64,
     /// Per member, in order: its machine can't be reached now.
     pub away: Vec<bool>,
+    /// How far the person has seen the group's conversation.
+    pub seen: Option<i64>,
+}
+
+impl GroupView {
+    /// A member answered and the person hasn't seen it, and nothing in the group runs or waits.
+    pub fn unseen(&self) -> bool {
+        self.state == State::Idle
+            && self
+                .last_message
+                .as_ref()
+                .is_some_and(|m| m.from.is_some() && m.seq > self.seen.unwrap_or(0))
+    }
 }
 
 /// A member as group events name it.
@@ -325,8 +340,9 @@ impl Engine {
         let last_message = stored.iter().rev().find_map(|e| match &e.event {
             Event::Known(Known::GroupMessage { text, from, .. }) => Some(GroupLast {
                 from: from.clone(),
-                text: roster::plain(text, roster::PREVIEW),
+                text: roster::preview(text, roster::PREVIEW),
                 at_ms: e.at_ms,
+                seq: e.seq,
             }),
             _ => None,
         });
@@ -336,7 +352,9 @@ impl Engine {
             .iter()
             .map(|m| !m.machine.is_empty() && !self.machine_online(&m.machine))
             .collect();
+        let seen = self.store.seen(&group.conversation)?;
         Ok(GroupView {
+            seen,
             last_activity_ms: last_activity_ms.max(group.updated_ms),
             group,
             state,

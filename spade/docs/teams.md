@@ -16,7 +16,7 @@ with (kept for a bot whose machine is away). `away` is true while a member's mac
 reached.
 
 **Group** = `{"id", "name", "lead": Member, "members": [Member], "conversation", "created_at",
-"updated_at", "last_activity", "state", "status", "last_message"}`.
+"updated_at", "last_activity", "state", "status", "last_message", "seen_seq", "unseen"}`.
 
 - `members` includes the lead, in the order the person chose.
 - `conversation` is the group's transcript: read it with `GET /v1/conversations/{id}/events` and
@@ -24,8 +24,12 @@ reached.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
 answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
-- `last_message`: `{"from": "person"|"agent", "text", "at", "agent": {"id", "name",
-"machine"}|null}` or null; plain text, at most 200 characters.
+- `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "agent": {"id", "name",
+"machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
+([agents.md](agents.md)).
+- `seen_seq`, `unseen`: the group's seen cursor and whether a member answered since the person
+  last saw it while nothing in the group runs or waits; marked with
+  `PUT /v1/conversations/{conversation}/seen` (see Seen in [agents.md](agents.md)).
 
 | Method and path              | Body                                          | Answer                                   |
 | ---------------------------- | --------------------------------------------- | ---------------------------------------- |
