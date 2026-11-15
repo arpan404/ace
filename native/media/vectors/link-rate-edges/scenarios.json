@@ -34279,6 +34279,752 @@
     ]
   },
   {
+    "name": "sequence reset on a new encode",
+    "limits": {
+      "min": 150000,
+      "max": 16000000,
+      "initial": 1500000
+    },
+    "steps": [
+      {
+        "op": {
+          "sent": {
+            "sequence": 1000,
+            "bytes": 2000,
+            "at": 0
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "probing": true
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1000,
+            "at": 40
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1001,
+            "bytes": 2000,
+            "at": 100
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1001,
+            "at": 140
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1002,
+            "bytes": 2000,
+            "at": 200
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1002,
+            "at": 240
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1003,
+            "bytes": 2000,
+            "at": 300
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1003,
+            "at": 340
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1004,
+            "bytes": 2000,
+            "at": 400
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1004,
+            "at": 440
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1005,
+            "bytes": 2000,
+            "at": 500
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1005,
+            "at": 540
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1006,
+            "bytes": 2000,
+            "at": 600
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1006,
+            "at": 640
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1007,
+            "bytes": 2000,
+            "at": 700
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1007,
+            "at": 740
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1008,
+            "bytes": 2000,
+            "at": 800
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1008,
+            "at": 840
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1009,
+            "bytes": 2000,
+            "at": 900
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1009,
+            "at": 940
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1010,
+            "bytes": 2000,
+            "at": 1000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "reset": true
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 0,
+            "bytes": 2000,
+            "at": 1050
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 0,
+            "at": 1090
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1,
+            "bytes": 2000,
+            "at": 1150
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1,
+            "at": 1190
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 2,
+            "bytes": 2000,
+            "at": 1250
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 2,
+            "at": 1290
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 3,
+            "bytes": 2000,
+            "at": 1350
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 3,
+            "at": 1390
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 4,
+            "bytes": 2000,
+            "at": 1450
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 4,
+            "at": 1490
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 5,
+            "bytes": 2000,
+            "at": 1550
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 5,
+            "at": 1590
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 6,
+            "bytes": 2000,
+            "at": 1650
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 6,
+            "at": 1690
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 7,
+            "bytes": 2000,
+            "at": 1750
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 7,
+            "at": 1790
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 8,
+            "bytes": 2000,
+            "at": 1850
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 8,
+            "at": 1890
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 9,
+            "bytes": 2000,
+            "at": 1950
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 9,
+            "at": 1990
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1010,
+            "at": 2100
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 40,
+          "probing": true,
+          "backlogBytes": 63750
+        }
+      }
+    ]
+  },
+  {
+    "name": "out-of-order acks",
+    "limits": {
+      "min": 150000,
+      "max": 16000000,
+      "initial": 1500000
+    },
+    "steps": [
+      {
+        "op": {
+          "sent": {
+            "sequence": 0,
+            "bytes": 2000,
+            "at": 0
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "probing": true
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 1,
+            "bytes": 2000,
+            "at": 50
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "probing": true
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 2,
+            "bytes": 2000,
+            "at": 100
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "probing": true
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 3,
+            "bytes": 2000,
+            "at": 150
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "probing": true
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 2,
+            "at": 300
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 200,
+          "probing": true,
+          "backlogBytes": 112500
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 0,
+            "at": 310
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 200,
+          "probing": true,
+          "backlogBytes": 112500
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 1,
+            "at": 320
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 200,
+          "probing": true,
+          "backlogBytes": 112500
+        }
+      },
+      {
+        "op": {
+          "ack": {
+            "sequence": 3,
+            "at": 400
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "rtt": 204.91666666666666,
+          "probing": true,
+          "backlogBytes": 112500
+        }
+      }
+    ]
+  },
+  {
     "name": "a drop behind a stalled chunk",
     "limits": {
       "min": 150000,

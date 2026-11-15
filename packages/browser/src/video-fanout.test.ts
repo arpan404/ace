@@ -150,6 +150,28 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received).toHaveLength(5 + 6);
   });
 
+  it("a new capture whose sequences restart isn't held back by the old one's chunks", () => {
+    const { fanout, keyframes, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const phone = viewer("phone");
+    const at = (sequence: number, isKey: boolean): Chunk => ({
+      sequence,
+      key: isKey,
+      bytes: new Uint8Array(10),
+    });
+    fanout.publish("e1", at(100, true));
+    fanout.publish("e1", at(101, false));
+    fanout.publish("e1", at(102, false));
+    // The capture restarts: the viewer leaves and joins again, and sequences start over.
+    fanout.assign("phone", undefined);
+    fanout.assign("phone", "e1");
+    fanout.publish("e1", at(1, true));
+    fanout.publish("e1", at(2, false));
+    fanout.acknowledge("phone", 2);
+    for (let sequence = 3; sequence <= 5; sequence++) fanout.publish("e1", at(sequence, false));
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1, 2, 3, 4, 5]);
+    expect(keyframes.filter((key) => key === "e1")).toHaveLength(2);
+  });
+
   it("a lone keyframe larger than the byte window still goes, and fills it", () => {
     const { fanout, viewer } = setup({ frames: 8, bytes: 1_000 });
     const phone = viewer("phone");

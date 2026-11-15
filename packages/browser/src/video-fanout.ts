@@ -111,6 +111,10 @@ export class VideoFanout<C extends VideoPiece> {
     if (!viewer || viewer.encode === encode) return;
     viewer.encode = encode;
     setQueue(viewer, []);
+    // Another encode is another sequence space: the old one's chunks in flight can't be acked
+    // by the new one's (which may start over), so they stop counting against the window.
+    viewer.inflight = [];
+    viewer.inflightBytes = 0;
     viewer.needKey = true;
     viewer.dropping = false;
     if (encode === undefined) this.stopPlaying(id, viewer);

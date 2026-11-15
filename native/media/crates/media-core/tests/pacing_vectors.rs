@@ -347,6 +347,9 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
                 viewer.assign(Some(1), event);
             } else if let Some(bound) = op.get("bound") {
                 viewer.bound(bound.as_u64().map(|v| v as usize));
+            } else if op.get("restart").is_some() {
+                viewer.assign(None, event);
+                viewer.assign(Some(1), event);
             } else {
                 panic!("{name}: unknown op {op}");
             }
@@ -370,6 +373,8 @@ fn link_rate_replays_edges_the_3g_link_loss_stalls_queueing_and_hints() {
                 );
             } else if let Some(ack) = op.get("ack") {
                 rate.acknowledged(u(ack, "sequence"), n(ack, "at"));
+            } else if op.get("reset").is_some() {
+                rate.reset();
             } else {
                 rate.dropped(n(&op["drop"], "at"));
             }

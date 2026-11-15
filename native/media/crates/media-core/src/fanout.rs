@@ -73,6 +73,9 @@ impl Viewer {
         }
         self.encode = encode;
         self.clear_queue();
+        // Another encode is another sequence space: its acks can't clear the old one's chunks.
+        self.inflight.clear();
+        self.inflight_bytes = 0;
         self.need_key = true;
         self.dropping = false;
         if encode.is_some() {

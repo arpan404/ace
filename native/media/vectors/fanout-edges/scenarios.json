@@ -753,6 +753,311 @@
     ]
   },
   {
+    "name": "keyframe storm",
+    "window": {
+      "frames": 3,
+      "bytes": 100
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 0,
+          "key": true,
+          "bytes": {
+            "length": 60
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 60
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": true,
+          "bytes": {
+            "length": 60
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": true,
+          "bytes": {
+            "length": 60
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 0
+      },
+      {
+        "publish": {
+          "sequence": 6,
+          "key": true,
+          "bytes": {
+            "length": 60
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 7,
+          "key": true,
+          "bytes": {
+            "length": 60
+          }
+        }
+      },
+      {
+        "ack": 7
+      },
+      {
+        "publish": {
+          "sequence": 8,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 0
+      },
+      {
+        "counted": 0,
+        "bytes": 60
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
+        "bytes": 60
+      },
+      {
+        "offered": 5
+      },
+      {
+        "counted": 5,
+        "bytes": 10
+      },
+      {
+        "offered": 7
+      },
+      {
+        "counted": 7,
+        "bytes": 60
+      },
+      {
+        "offered": 8
+      },
+      {
+        "counted": 8,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "sequence reset on a new capture",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 100,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 101,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 102,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "restart": true
+      },
+      {
+        "publish": {
+          "sequence": 0,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "ack": 101
+      },
+      {
+        "ack": 1
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 100
+      },
+      {
+        "counted": 100,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 101
+      },
+      {
+        "counted": 101,
+        "bytes": 10
+      },
+      {
+        "offered": 102
+      },
+      {
+        "counted": 102,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
+        "bytes": 10
+      }
+    ]
+  },
+  {
     "name": "viewer joining mid-GOP",
     "window": {
       "frames": 4,

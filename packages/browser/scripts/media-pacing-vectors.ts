@@ -10,7 +10,8 @@ type FanoutOp =
   | { refuse: boolean }
   | { flush: true }
   | { assign: true }
-  | { bound: number | null };
+  | { bound: number | null }
+  | { restart: true };
 
 const piece = (sequence: number, key: boolean, length: number): FanoutOp => ({
   publish: { sequence, key, bytes: { length } },
@@ -39,7 +40,11 @@ function fanoutScenario(name: string, window: VideoWindow, ops: FanoutOp[]) {
     else if ("refuse" in op) accepting = !op.refuse;
     else if ("flush" in op) fanout.flush();
     else if ("bound" in op) fanout.bound("v", op.bound ?? undefined);
-    else fanout.assign("v", "e");
+    else if ("restart" in op) {
+      // A new capture: the viewer leaves its encode and joins again, sequences from 0.
+      fanout.assign("v", undefined);
+      fanout.assign("v", "e");
+    } else fanout.assign("v", "e");
   }
   return { name, window, ops, events };
 }
@@ -122,6 +127,36 @@ export function fanoutEdges() {
       piece(9, false, 100),
       piece(10, false, 100),
     ]),
+    // A burst of keyframes: each replaces the one waiting, deltas wait behind the newest.
+    fanoutScenario("keyframe storm", { frames: 3, bytes: 100 }, [
+      { assign: true },
+      piece(0, true, 60),
+      piece(1, true, 60),
+      piece(2, true, 60),
+      piece(3, false, 10),
+      piece(4, true, 60),
+      piece(5, false, 10),
+      { ack: 0 },
+      piece(6, true, 60),
+      piece(7, true, 60),
+      { ack: 7 },
+      piece(8, false, 10),
+    ]),
+    // A new capture restarts the sequences: old acks and the old window don't carry over.
+    fanoutScenario("sequence reset on a new capture", { frames: 3, bytes: 1000 }, [
+      { assign: true },
+      piece(100, true, 10),
+      piece(101, false, 10),
+      piece(102, false, 10),
+      { restart: true },
+      piece(0, false, 10),
+      piece(1, true, 10),
+      piece(2, false, 10),
+      { ack: 101 },
+      { ack: 1 },
+      piece(3, false, 10),
+      piece(4, false, 10),
+    ]),
     fanoutScenario("viewer joining mid-GOP", { frames: 4, bytes: 1000 }, [
       piece(0, true, 10),
       piece(1, false, 10),
@@ -137,7 +172,8 @@ export function fanoutEdges() {
 type RateOp =
   | { sent: { sequence: number; bytes: number; at: number } }
   | { ack: { sequence: number; at: number } }
-  | { drop: { at: number } };
+  | { drop: { at: number } }
+  | { reset: true };
 
 const edgeLimits: LinkRateLimits = { min: linkFloor, max: 16_000_000, initial: 1_000_000 };
 
@@ -155,7 +191,8 @@ function rateScenario(name: string, ops: RateOp[], limits = edgeLimits, hint?: L
   const steps = ops.map((op) => {
     if ("sent" in op) rate.sent(op.sent.sequence, op.sent.bytes, op.sent.at);
     else if ("ack" in op) rate.acknowledged(op.ack.sequence, op.ack.at);
-    else rate.dropped(op.drop.at);
+    else if ("drop" in op) rate.dropped(op.drop.at);
+    else rate.reset();
     return { op, output: state(rate) };
   });
   return { name, limits, ...(hint ? { hint } : {}), steps };
@@ -298,6 +335,33 @@ export function linkRateEdges() {
     rateScenario(
       "an ack burst past the delivery entries",
       Array.from({ length: 320 }, (_, i) => sendAndAck(i, 500, i * 5, 20)).flat(),
+      phoneLimits,
+    ),
+    // A new encode restarts sequences: sends before it don't count, and acks of old numbers
+    // past the new ones change nothing.
+    rateScenario(
+      "sequence reset on a new encode",
+      [
+        ...Array.from({ length: 10 }, (_, i) => sendAndAck(1_000 + i, 2_000, i * 100, 40)).flat(),
+        { sent: { sequence: 1_010, bytes: 2_000, at: 1_000 } },
+        { reset: true },
+        ...Array.from({ length: 10 }, (_, i) => sendAndAck(i, 2_000, 1_050 + i * 100, 40)).flat(),
+        { ack: { sequence: 1_010, at: 2_100 } },
+      ],
+      phoneLimits,
+    ),
+    // Out of order: an older ack after a newer one changes nothing.
+    rateScenario(
+      "out-of-order acks",
+      [
+        ...[0, 1, 2, 3].map((sequence) => ({
+          sent: { sequence, bytes: 2_000, at: sequence * 50 },
+        })),
+        { ack: { sequence: 2, at: 300 } },
+        { ack: { sequence: 0, at: 310 } },
+        { ack: { sequence: 1, at: 320 } },
+        { ack: { sequence: 3, at: 400 } },
+      ],
       phoneLimits,
     ),
     // Drops while a loss stalls the link: no cut.
