@@ -228,7 +228,7 @@ final class IngestWriter {
 
 /// Where a producer's video units go: the daemon's socket (`legacy`) or ace-media's ingest. The
 /// route is read and each unit written under one lock, so a switch has an exact boundary: the
-/// sequence of the last unit the previous path took. The route owns its writers.
+/// sequence of the last video unit the previous path took (stills never count). The route owns its writers.
 final class IngestRoute {
     private let lock = NSLock()
     /// Writes one unit to the daemon's socket.
@@ -239,7 +239,7 @@ final class IngestRoute {
     private var lastLegacy: UInt64?
     private var lastIngest: UInt64?
     /// The current writer failed: video is on the daemon's socket again. Its argument is the
-    /// last sequence the writer took. Called on the writer's queue.
+    /// last sequence the writer took. Called on the encoder owner's queue via `recover`.
     var onClosed: (UInt64?) -> Void = { _ in }
     /// ace-media's ingest fell behind: the next unit should be a keyframe.
     var onKeyframe: () -> Void = {}
@@ -259,6 +259,10 @@ final class IngestRoute {
     /// Runs `work` after `delay` seconds; returns its cancel.
     typealias Schedule = (_ delay: TimeInterval, _ work: @escaping () -> Void) -> () -> Void
     private let connect: Connect
+    /// On the encoder owner queue: drain submitted output and arm its next keyframe.
+    private let beforeSwitch: () -> Void
+    /// Moves socket failures onto that same queue before touching the output route.
+    private let recover: (@escaping () -> Void) -> Void
     private let schedule: Schedule
 
     static let connectSocket: Connect = { socket, token, onClosed, onKeyframe in
@@ -272,8 +276,10 @@ final class IngestRoute {
 
     /// `drainLimit` bounds how long a replaced writer may drain before it is closed, its path cut.
     init(legacy: @escaping (EncodedVideo) -> Void, now: @escaping () -> UInt64, drainLimit: TimeInterval = 2,
+         beforeSwitch: @escaping () -> Void = {}, recover: @escaping (@escaping () -> Void) -> Void = { $0() },
          connect: @escaping Connect = IngestRoute.connectSocket, schedule: @escaping Schedule = IngestRoute.dispatchSchedule) {
         self.legacy = legacy; self.now = now; self.drainLimit = drainLimit
+        self.beforeSwitch = beforeSwitch; self.recover = recover
         self.connect = connect; self.schedule = schedule
     }
     /// Replaced writers still draining.
@@ -291,15 +297,18 @@ final class IngestRoute {
         }
     }
 
-    /// Runs `write` (a still on the daemon's socket) under the route's lock, as unit `sequence`.
-    func legacyStill(_ sequence: UInt64, _ write: () -> Void) {
+    /// Runs `write` (a still on the daemon's socket) under the route's lock, so it is ordered
+    /// with the switches around it. It never moves the boundary: the daemon compares a boundary
+    /// with video sequences only, so the boundary is the last video unit the path took.
+    func legacyStill(_ write: () -> Void) {
         lock.lock(); defer { lock.unlock() }
-        write(); lastLegacy = sequence
+        write()
     }
 
     /// Sends to ace-media at `socket` with `token` from now on (or the daemon's socket for nil).
     /// Returns whether video moved and, if so, the last sequence the previous path took. An
-    /// address already in use changes nothing.
+    /// address already in use changes nothing. Call on the encoder owner's queue so no new
+    /// picture submits between `beforeSwitch` and the route change.
     func route(to target: (socket: String, token: Data)?) throws -> (switched: Bool, boundary: UInt64?) {
         lock.lock()
         let same = target?.socket == address?.socket && target?.token == address?.token
@@ -310,10 +319,13 @@ final class IngestRoute {
         let held = Held()
         let next = try target.map { target in
             try connect(target.socket, target.token, { [weak self] in
-                if let failed = held.writer { self?.failed(failed) }
+                if let failed = held.writer {
+                    self?.recover { [weak self] in self?.failed(failed) }
+                }
             }, { [weak self] in self?.onKeyframe() })
         }
         held.writer = next
+        beforeSwitch()
         lock.lock()
         let previous = writer
         let boundary = previous == nil ? lastLegacy : lastIngest
@@ -361,6 +373,12 @@ final class IngestRoute {
     }
 
     private func failed(_ failed: IngestWriter) {
+        lock.lock()
+        let current = writer === failed
+        lock.unlock()
+        guard current else { return }
+        // Outside the route lock: completing an encode publishes through this route again.
+        beforeSwitch()
         lock.lock()
         guard writer === failed else { lock.unlock(); return }
         writer = nil; address = nil

@@ -2,37 +2,41 @@
 //! The private control socket: accepts the priority and egress lanes once each, for the holder
 //! of the lane secret, and refuses every other connection by closing it without a word.
 use super::budget::Cap;
-use crate::auth::{HELLO_LEN, LANE_ACCEPTED, LaneAuth, SocketLane, Verdict};
+use super::listener::{Listener, Stream};
+use super::sealed::sealed;
+use crate::auth::{LaneAuth, SocketLane, Verdict};
+use crate::lane_cipher::{LANE_ACCEPTED_PLAIN, Records};
 use crate::secret::LaneSecret;
+use media_wire::lane::{HELLO_LEN, NONCE_LEN, PROOF_LEN};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::{mpsc, oneshot};
 
-/// How long a connection may take to send its hello.
+/// How long a connection may take to send its hello and its proof.
 const HELLO_WITHIN: Duration = Duration::from_secs(5);
 /// Connections still sending their hello at once; more are closed at accept.
 const MAX_PENDING: usize = 8;
 
+/// The two lanes, each behind its record layer: plaintext to the shell.
 pub struct Lanes {
-    pub priority: UnixStream,
-    pub egress: UnixStream,
+    pub priority: DuplexStream,
+    pub egress: DuplexStream,
 }
 
 /// Serves the control socket for the process's lifetime. The lanes arrive once both are up.
-pub fn serve(listener: UnixListener, secret: LaneSecret) -> oneshot::Receiver<Lanes> {
+pub fn serve(mut listener: Listener, secret: LaneSecret) -> oneshot::Receiver<Lanes> {
     let (done, lanes) = oneshot::channel();
     let auth = Arc::new(Mutex::new(LaneAuth::new(secret)));
     let pending = Cap::new(MAX_PENDING);
     tokio::spawn(async move {
-        let (accepted_tx, mut accepted) = mpsc::channel::<(SocketLane, UnixStream)>(2);
+        let (accepted_tx, mut accepted) = mpsc::channel::<(SocketLane, DuplexStream)>(2);
         let mut done = Some(done);
         let (mut priority, mut egress) = (None, None);
         loop {
             tokio::select! {
                 connection = listener.accept() => {
-                    let Ok((stream, _)) = connection else { continue };
+                    let Ok(stream) = connection else { continue };
                     let Some(slot) = pending.take() else { continue };
                     let (auth, accepted) = (auth.clone(), accepted_tx.clone());
                     tokio::spawn(async move {
@@ -59,23 +63,32 @@ pub fn serve(listener: UnixListener, secret: LaneSecret) -> oneshot::Receiver<La
 }
 
 async fn hello(
-    mut stream: UnixStream,
+    mut stream: Stream,
     auth: Arc<Mutex<LaneAuth>>,
-    accepted: mpsc::Sender<(SocketLane, UnixStream)>,
+    accepted: mpsc::Sender<(SocketLane, DuplexStream)>,
 ) {
-    let mut bytes = zeroize::Zeroizing::new([0u8; HELLO_LEN]);
-    let read = tokio::time::timeout(HELLO_WITHIN, stream.read_exact(&mut bytes[..])).await;
-    if !matches!(read, Ok(Ok(_))) {
-        return;
-    }
-    let verdict = match auth.lock() {
-        Ok(mut auth) => auth.check(&bytes[..]),
-        Err(_) => Verdict::Refuse,
+    let handshake = async {
+        let mut hello = [0u8; HELLO_LEN];
+        stream.read_exact(&mut hello).await.ok()?;
+        // Fresh for every connection: a proof from another one can't match it.
+        let mut nonce = [0u8; NONCE_LEN];
+        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut nonce).ok()?;
+        let mut challenge = auth.lock().ok()?.challenge(&hello, nonce)?;
+        stream.write_all(challenge.reply()).await.ok()?;
+        let mut proof = zeroize::Zeroizing::new([0u8; PROOF_LEN]);
+        stream.read_exact(&mut proof[..]).await.ok()?;
+        let Verdict::Accept(lane) = auth.lock().ok()?.accept(&challenge, &proof[..]) else {
+            return None;
+        };
+        // From here every byte is a record, the accept byte first.
+        let mut records = Records::media_side(challenge.take_keys()?).ok()?;
+        let mut accept = Vec::new();
+        records.seal(&[LANE_ACCEPTED_PLAIN], &mut accept).ok()?;
+        stream.write_all(&accept).await.ok()?;
+        Some((lane, records))
     };
-    let Verdict::Accept(lane) = verdict else {
+    let Ok(Some((lane, records))) = tokio::time::timeout(HELLO_WITHIN, handshake).await else {
         return;
     };
-    if stream.write_all(&[LANE_ACCEPTED]).await.is_ok() {
-        let _ = accepted.send((lane, stream)).await;
-    }
+    let _ = accepted.send((lane, sealed(stream, records))).await;
 }

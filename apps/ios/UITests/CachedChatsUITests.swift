@@ -66,7 +66,7 @@ import XCTest
     private func launch(_ extra: [String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
-        app.launch()
+        app.launchWithArguments()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
         if alert.waitForExistence(timeout: 5) { alert.tap() }
         return app

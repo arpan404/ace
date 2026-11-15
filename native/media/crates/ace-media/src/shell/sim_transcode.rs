@@ -128,12 +128,7 @@ impl Transcode {
         let mut encode = step(Step::Encode);
         encode.readbacks = copies.readbacks;
         encode.uploads = copies.uploads;
-        Acceleration {
-            steps: vec![step(Step::Decode), step(Step::Scale), encode],
-            degraded: !hardware,
-            reason: (!hardware)
-                .then(|| "The Simulator is re-encoded on the processor here.".into()),
-        }
+        crate::acceleration::assess(&[], vec![step(Step::Decode), step(Step::Scale), encode])
     }
 }
 

@@ -516,6 +516,11 @@
     },
     {
       "properties": {
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "force": {
           "type": "boolean"
         },
@@ -2186,6 +2191,16 @@
         "origin": {
           "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
         },
+        "runId": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/RunId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -2237,6 +2252,11 @@
     },
     {
       "properties": {
+        "beforeSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },

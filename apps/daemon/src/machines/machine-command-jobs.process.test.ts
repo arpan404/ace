@@ -8,6 +8,7 @@ import { invoke } from "../browser-mcp-test-support.ts";
 import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 import { fleetWindow, sourceProfile } from "./grants-test-support.ts";
+import { machineRequest, type MachineTransport } from "./transport.ts";
 
 /*
  * Background command jobs an agent starts on another machine hold its thread here: it never
@@ -22,8 +23,11 @@ const ToolResult = z.object({
   }),
 });
 
-async function commandsAllowed() {
-  const pair = await pairedMachines({ access: "operate" });
+async function commandsAllowed(sourceTransport?: MachineTransport) {
+  const pair = await pairedMachines({
+    access: "operate",
+    ...(sourceTransport ? { sourceTransport } : {}),
+  });
   const window = await fleetWindow(pair.target);
   await window.set(sourceProfile(pair).deviceId, "commands", "operate");
   await window.close();
@@ -95,7 +99,11 @@ async function pidFrom(path: string): Promise<number> {
 }
 
 it("the calling thread waits while its job on another machine runs, and is done once it ends", async () => {
-  const pair = await commandsAllowed();
+  let reads = 0;
+  const pair = await commandsAllowed((profile, body, options) => {
+    if (body.call.op === "command.jobs") reads++;
+    return machineRequest(profile, body, options);
+  });
   await startJob(pair, "sleep 2; echo built");
   await endTurn(pair);
   // Its own agent finished, but the job there still runs: never done.
@@ -105,6 +113,9 @@ it("the calling thread waits while its job on another machine runs, and is done 
   ]);
   await vi.waitFor(() => expect(state(pair)?.state).toBe("done"), { timeout: 20_000 });
   expect(rows(pair).map((row) => row.status)).toEqual(["completed"]);
+  // While it kept running it was read less often than every 50 ms poll: about 40 reads.
+  expect(reads).toBeGreaterThan(0);
+  expect(reads).toBeLessThan(20);
 }, 40_000);
 
 it("the person's Stop on the row here stops the job on its machine, with every process it started", async () => {
@@ -139,7 +150,18 @@ it("a job its machine no longer has (it restarted) lets go of the calling thread
   await endTurn(pair);
   expect(state(pair)?.state).toBe("waiting");
   await pair.restartTarget();
-  await vi.waitFor(() => expect(state(pair)?.state).toBe("done"), { timeout: 20_000 });
+  // Reads failed while it was down, and a machine failing them is read again only once its
+  // backoff has passed by this daemon's clock: a manual one here, moved a second per check as
+  // time passes. The row ends as completed (the job is unknown there), never by its deadline.
+  const { clock } = pair.source.h;
+  await vi.waitFor(
+    () => {
+      clock.advance(clock.now() + 1_000);
+      expect(state(pair)?.state).toBe("done");
+    },
+    { timeout: 20_000 },
+  );
+  expect(rows(pair).map((row) => row.status)).toEqual(["completed"]);
 }, 60_000);
 
 it("a calling machine that restarts keeps holding its thread for a job still running there", async () => {

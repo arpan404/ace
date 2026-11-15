@@ -24,6 +24,7 @@ import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import { startMedia } from "./media.ts";
 import type { ServiceContext } from "./types.ts";
+import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startScreen(
   context: ServiceContext,
@@ -202,6 +203,12 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
         send: context.send,
         // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
         pictureEncoder: () => context.options.browser?.videoEncoder(),
+        // Subscribes naming a media connection go to ace-media (D1) while it serves screens.
+        delivery: {
+          owner: () => mediaOwner(context),
+          port: () => context.options.mediaDelivery?.(),
+        },
+        acceleration: context.options.mediaAcceleration,
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>

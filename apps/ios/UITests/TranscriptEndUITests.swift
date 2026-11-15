@@ -223,7 +223,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", threadId]
-        app.launch()
+        app.launchWithArguments()
         // The fixture build asks for notifications on first launch.
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 3) { allow.tap() }

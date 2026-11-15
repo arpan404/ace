@@ -9,7 +9,7 @@ pub use cipher::{CipherState, MAX_MESSAGE};
 pub use flow::{CREDIT_FLAG, FLOW_WINDOW, FlowCredit, credit_fragment, fragment_cost, read_credit};
 pub use memory::{install_payload_free_panic_hook, lock_memory, unlock_memory};
 pub use message::{Message, MessageAssembler};
-pub use relay::{Fragment, FragmentKind, Fragments, REKEY_INTERVAL, RelayStream};
+pub use relay::{Fragment, FragmentKind, Fragments, REKEY_INTERVAL, RelayStream, Transport};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

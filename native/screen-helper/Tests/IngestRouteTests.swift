@@ -16,6 +16,69 @@ final class IngestRouteTests: XCTestCase {
 
     private func route() -> IngestRoute { IngestRoute(legacy: { _ in }, now: { 0 }) }
 
+    func testSubmittedOutputStaysOnTheOldRouteBeforeAPlannedSwitch() throws {
+        let listener = try Listener()
+        var legacy: [UInt64] = []
+        var route: IngestRoute!
+        // Completing an outstanding hardware encode publishes its delta synchronously.
+        route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 },
+            beforeSwitch: { route.publish(self.unit(1, bytes: 100)) })
+        defer { route.close(); route = nil }
+        let moved = try route.route(to: (listener.path, token))
+        listener.accept()
+        XCTAssertEqual(legacy, [1], "the submitted delta completes on the old route")
+        XCTAssertEqual(moved.boundary, 1)
+    }
+
+    func testFailureWaitsForTheEncoderOwnerBeforeChangingTheRoute() throws {
+        let listener = try Listener()
+        var recovery: (() -> Void)?
+        var drain: () -> Void = {}
+        var legacy: [UInt64] = []
+        let notified = expectation(description: "failure queued on encoder owner")
+        let closed = expectation(description: "fallback reported")
+        var boundary: UInt64?
+        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 },
+            beforeSwitch: { drain() }, recover: { work in recovery = work; notified.fulfill() })
+        defer { route.close() }
+        route.onClosed = { boundary = $0; closed.fulfill() }
+        _ = try route.route(to: (listener.path, token))
+        listener.accept()
+        route.publish(unit(1, bytes: 100, keyframe: true))
+        listener.drop()
+        wait(for: [notified], timeout: 5)
+        // Drain the in-flight delta while the failed route still owns it. It must never leak
+        // onto stdout ahead of the fallback keyframe.
+        var submitted: (() -> Void)? = { route.publish(self.unit(2, bytes: 100)) }
+        drain = { submitted?(); submitted = nil }
+        recovery?()
+        submitted?()
+        wait(for: [closed], timeout: 5)
+        route.publish(unit(3, bytes: 100, keyframe: true))
+        XCTAssertEqual(legacy, [3])
+        XCTAssertEqual(boundary, 1)
+    }
+
+    func testAStillAfterTheLastVideoUnitNeverBecomesTheSwitchBoundary() throws {
+        let listener = try Listener()
+        var legacy: [UInt64] = []
+        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 })
+        route.publish(unit(1, bytes: 100, keyframe: true))
+        route.publish(unit(2, bytes: 100))
+        // A still goes out on the daemon's socket after the last video unit, numbered after it.
+        var stills = 0
+        route.legacyStill { stills += 1 }
+        let moved = try route.route(to: (listener.path, token))
+        listener.accept()
+        XCTAssertEqual(legacy, [1, 2])
+        XCTAssertEqual(stills, 1)
+        // The daemon compares the boundary with video sequences: a still's would never arrive,
+        // and the switch would wait out its limit and end interrupted.
+        XCTAssertEqual(moved.switched, true)
+        XCTAssertEqual(moved.boundary, 2, "the boundary is the last video unit on the daemon's path")
+        route.close()
+    }
+
     func testUnitsQueuedBehindABlockedReaderStillReachItAfterTheRouteMovesOn() throws {
         let listener = try Listener()
         let route = route()

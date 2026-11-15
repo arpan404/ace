@@ -8,6 +8,8 @@ import type {
 import { PathMerge } from "@ace/media/path-merge";
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import type { SourceKind } from "@ace/media/routes";
+import type { ScreenStreamSettings } from "@ace/protocol";
+import { wantedStreamSettings } from "@ace/screen";
 import type { VideoUnit } from "./scrcpy-video.ts";
 
 /**
@@ -23,6 +25,38 @@ import type { VideoUnit } from "./scrcpy-video.ts";
 
 /** Where device sources are opened in ace-media: the daemon's shared sources. */
 export type DeviceMedia = { attach(producer: IngestProducer): IngestSource };
+
+/**
+ * A device's media, with every producer it attaches carrying ace-media's plan for the device's
+ * views (`source.want`, D1) to `want` as one stream request: a device runs one stream. `want`
+ * gets undefined when that plan stops holding: an empty plan, the producer pointed back at the
+ * daemon (a route flip, ace-media gone) or its source closed, so ace-media's budget never
+ * outlives its last viewer.
+ */
+export function withMediaWant(
+  media: DeviceMedia,
+  want: (settings: ScreenStreamSettings | undefined) => void,
+): DeviceMedia {
+  return {
+    attach: (producer) => {
+      const source = media.attach({
+        ...producer,
+        want: (encodes) => want(wantedStreamSettings(encodes)),
+        point: (address) => {
+          if (!address) want(undefined);
+          return producer.point(address);
+        },
+      });
+      return {
+        ...source,
+        close: () => {
+          want(undefined);
+          source.close();
+        },
+      };
+    },
+  };
+}
 
 /**
  * The producer's answer to a switch: where it sends now, and the last sequence the previous

@@ -19,7 +19,7 @@ import XCTest
         var rows: [Double] = []
         for _ in 0..<5 {
             let app = fixtureApp()
-            app.launch()
+            app.launchWithArguments()
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch.waitForExistence(timeout: 30))
             rows.append(try XCTUnwrap(app.waitForProbe("launch.inbox.rowsOnScreen")))
             app.terminate()
@@ -34,7 +34,7 @@ import XCTest
         let seeded = try XCTUnwrap(try fixtureHealth(port: busyPort)["busy"] as? Int, "fixture /health has no busy count")
         XCTAssertGreaterThanOrEqual(seeded, Workload.busyThreads, "Start the busy fixture with ACE_IOS_SPIKE_INBOX=\(Workload.busyThreads)")
         let app = fixtureApp(port: busyPort)
-        app.launch()
+        app.launchWithArguments()
         // The rows needing the person come first and fill the screen, so the busy rows sit below
         // the fold: wait for the list, then for the app to hold every busy row.
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch.waitForExistence(timeout: 30), "no rows listed")
@@ -66,7 +66,7 @@ import XCTest
 
     func testOpeningTheLongLiveThreadColdThenWarm() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         XCTAssertEqual(app.probe["open.thread"], "ios-stream")
         XCTAssertEqual(app.probe["open.warm"], "false")
@@ -102,7 +102,7 @@ import XCTest
 
     func testStreamingIntoAnOpenLongThreadStaysCheap() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let sent = try streamedDeltas()
         // Two windows of streaming at 20 deltas a second with nothing else moving.
@@ -140,7 +140,7 @@ import XCTest
 
     func testScrollingTheLongTranscriptKeepsFramesOnTime() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         measureTranscriptScroll(app, list: app.scrollViews.firstMatch, name: "transcript scroll")
     }
@@ -152,7 +152,7 @@ import XCTest
         XCUIDevice.shared.orientation = .landscapeLeft
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let toggle = app.buttons["thread.panel"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 10))
@@ -198,7 +198,7 @@ import XCTest
         XCTAssertGreaterThanOrEqual(history, Workload.longHistoryItems,
                                     "Start the fixture with ACE_IOS_SPIKE_HISTORY=\(Workload.longHistoryItems)")
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let list = app.scrollViews["transcript"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
@@ -242,7 +242,7 @@ import XCTest
 
     func testTypingWithTheLongThreadBehindIt() throws {
         let app = try longThreadApp()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.openThread("ios-stream"))
         let field = app.textViews["composer.input"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
@@ -261,7 +261,7 @@ import XCTest
 
     func testThreadSheetsFillWithinBudget() throws {
         let app = fixtureApp()
-        app.launch()
+        app.launchWithArguments()
         app.openThread("ios-tree", timeout: 1)
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         var agents: [Double] = [], changes: [Double] = [], models: [Double] = []

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaStreamClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/MediaBrowserAck.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ScreenAck.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/DeviceAck.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MediaPing.json"
+    }
+  ]
+}

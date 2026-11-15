@@ -33,8 +33,8 @@ impl Backends for Fake {
             uploads: 0,
         })
     }
-    fn jpeg_hardware_expected(&self) -> bool {
-        false
+    fn probed(&self) -> Vec<media_wire::capability::Capability> {
+        Vec::new()
     }
 }
 
@@ -360,8 +360,8 @@ impl Backends for LateBackends {
             uploads: 0,
         })
     }
-    fn jpeg_hardware_expected(&self) -> bool {
-        false
+    fn probed(&self) -> Vec<media_wire::capability::Capability> {
+        Vec::new()
     }
 }
 
@@ -397,3 +397,9 @@ fn an_encoder_that_cannot_drain_says_so_rather_than_drained() {
     worker.command(Command::Drain, 2_000, &mut out);
     assert_eq!(out, [Output::Failed("encoder-undrainable".into())]);
 }
+
+#[path = "worker_upgrade_tests.rs"]
+mod upgrade;
+
+#[path = "worker_switch_tests.rs"]
+mod switch;

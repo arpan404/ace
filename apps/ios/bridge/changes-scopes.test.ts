@@ -52,6 +52,19 @@ describe("Changes sheet scopes", () => {
     expect(paths(sink)).toEqual(["src/replay.ts"]);
   });
 
+  test("a turn scope's progress counts files viewed at that scope's version of their diff", async () => {
+    const { session, sink } = await opened();
+    session.scope("all");
+    expect(summary(sink)?.progress).toEqual({ viewed: 0, files: 2 });
+    expect(session.viewed("src/deep/nested/new.ts", true)).toBe(true);
+    expect(session.viewed("src/replay.ts", true)).toBe(true);
+    expect(summary(sink)?.progress).toEqual({ viewed: 2, files: 2 });
+    // The last turn's diff of the same file is another version: its mark doesn't carry over.
+    session.scope("last");
+    expect(paths(sink)).toEqual(["src/replay.ts"]);
+    expect(summary(sink)?.progress).toEqual({ viewed: 0, files: 1 });
+  });
+
   test("a turn's diff shows that turn's edit; the whole thread composes them", async () => {
     const { session, sink } = await opened();
     session.open("src/replay.ts", true);

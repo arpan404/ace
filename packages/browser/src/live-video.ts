@@ -1,4 +1,4 @@
-import type { BrowserVideoStatus } from "@ace/protocol";
+import type { BrowserVideoStatus, MediaAcceleration } from "@ace/protocol";
 import { AudioFanout, listens, type AudioSink } from "./audio-fanout.ts";
 import type {
   BrowserCdp,
@@ -86,6 +86,8 @@ export class LiveVideo {
   private retryAt = -Infinity;
   private wanted: { width: number; height: number; since: number } | undefined;
   private encodes = "";
+  /** ace-media's plan for the views it delivers (D1), from the open capture; none yet. */
+  private mediaWanted: VideoEncode[] | undefined;
   /** The bit rate each running encode was last given. */
   private bitrates = new Map<string, number>();
   private bitratesAt = -Infinity;
@@ -211,6 +213,10 @@ export class LiveVideo {
     if (!this.failures) return undefined;
     return { status: "retrying", reason: this.failure, attempts: this.failures };
   }
+  /** What ace-media runs the video on while it carries it (`BrowserState.acceleration`). */
+  acceleration(): MediaAcceleration | undefined {
+    return this.capture?.handle.acceleration?.();
+  }
   /** Stops the tab's capture; viewers keep their last picture until the next `attach`. */
   detach(): void {
     this.generation++;
@@ -218,6 +224,7 @@ export class LiveVideo {
     this.capture = undefined;
     this.source = undefined;
     this.encodes = "";
+    this.mediaWanted = undefined;
     this.soundOn = false;
     this.wanted = undefined;
     this.owedKeys.clear();
@@ -258,12 +265,17 @@ export class LiveVideo {
       return;
     }
     if (this.codecs === undefined) return this.probe(source, now);
-    const plan = planVideo(
+    // Views ace-media delivers take ace-media's plan once it has one; until then the daemon plans
+    // for them too, so the capture opens and ace-media sees the source.
+    const delivered = showing.filter(([, viewer]) => viewer.capture.delivered === true);
+    const wanted = delivered.length ? this.mediaWanted : undefined;
+    const planned = wanted ? showing.filter(([, viewer]) => !viewer.capture.delivered) : showing;
+    const daemonPlan = planVideo(
       {
         ...this.page,
         codecs: this.codecs.filter((codec) => !this.failedCodecs.has(codec)),
       },
-      showing.map(([id, viewer]) => {
+      planned.map(([id, viewer]) => {
         const full = viewerPicture(this.page, viewer.capture.viewport);
         const link = viewer.link.rate;
         return {
@@ -275,6 +287,16 @@ export class LiveVideo {
         };
       }),
     );
+    const plan = {
+      ...daemonPlan,
+      encodes: [...daemonPlan.encodes, ...(wanted ?? [])],
+      capture: wanted
+        ? {
+            width: Math.max(daemonPlan.capture.width, ...wanted.map((encode) => encode.width)),
+            height: Math.max(daemonPlan.capture.height, ...wanted.map((encode) => encode.height)),
+          }
+        : daemonPlan.capture,
+    };
     if (!plan.encodes.length) {
       if (this.capture) this.close();
       return;
@@ -288,9 +310,9 @@ export class LiveVideo {
       if (!capture || now - this.wanted.since >= settleMs) this.open(source, size, now);
     }
     const open = this.capture;
-    // A paused viewer has no encode, so it is sent nothing.
-    for (const id of this.viewers.keys())
-      this.fanout.assign(id, open ? plan.viewers.get(id) : undefined);
+    // A paused viewer has no encode, so it is sent nothing; nor is one ace-media delivers.
+    for (const [id, viewer] of this.viewers)
+      this.fanout.assign(id, open && !viewer.capture.delivered ? plan.viewers.get(id) : undefined);
     if (!open) return;
     const encodes = plan.encodes.map((encode) => encode.key).join(",");
     if (encodes !== this.encodes || this.bitratesMoved(plan.encodes, now)) {
@@ -359,6 +381,12 @@ export class LiveVideo {
           const codec = encode.split("/")[0];
           if (codec && generation === this.generation) this.failedCodecs.add(codec);
         },
+        want: (encodes) => {
+          if (generation === this.generation) this.mediaWanted = encodes && [...encodes];
+        },
+        accelerated: () => {
+          if (generation === this.generation) this.statusChanged();
+        },
         ended: (reason) => {
           if (generation !== this.generation) return;
           this.capture = undefined;
@@ -404,6 +432,7 @@ export class LiveVideo {
     this.capture?.handle.close();
     this.capture = undefined;
     this.encodes = "";
+    this.mediaWanted = undefined;
     this.soundOn = false;
     this.fanout.stopAll();
   }

@@ -42,6 +42,8 @@ import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { LimitsView } from "./limits-view.tsx";
+import { ComingUp } from "./coming-up.tsx";
+import type { RedeemReset } from "./banked-resets.tsx";
 import { breakdownNamer, withCanonicalModels } from "./breakdown-lists.ts";
 import { Ledger, type Metric } from "./ledger.tsx";
 import { useLedger } from "./ledger-data.ts";
@@ -197,6 +199,17 @@ export function UsagePage() {
   );
   const machineFor = (id: string | undefined): Machine | undefined =>
     machines.find((machine) => (id === primaryMachineId ? machine.primary : machine.id === id));
+  const redeem: RedeemReset = async (entry, idempotencyKey) => {
+    const machine = machineFor(entry.environmentId);
+    if (!machine?.client) throw new Error("Machine is offline");
+    const reply = await machine.client.request({
+      type: "accounts.consumeReset",
+      instanceId: entry.account.id,
+      idempotencyKey,
+    });
+    await refresh();
+    return reply.outcome;
+  };
   // An account chosen in Limits: Spend lists accounts with that one open, and comes into view.
   const showAccount = (entry: AccountLimits) => {
     setGroup("account");
@@ -257,6 +270,9 @@ export function UsagePage() {
               {usage.coverage.line}
             </p>
           )}
+          {accountsLoaded && !accountsFailed && (
+            <ComingUp limits={limits} now={now} redeem={redeem} />
+          )}
           <SectionHeading id="usage-limits" title="Limits">
             {observedAt > 0 && <span>Read {formatAgo(observedAt, now)}</span>}
             <button
@@ -301,17 +317,7 @@ export function UsagePage() {
                   toggle: (id) =>
                     setPins(pins.includes(id) ? pins.filter((each) => each !== id) : [...pins, id]),
                 }}
-                redeem={async (entry, idempotencyKey) => {
-                  const machine = machineFor(entry.environmentId);
-                  if (!machine?.client) throw new Error("Machine is offline");
-                  const reply = await machine.client.request({
-                    type: "accounts.consumeReset",
-                    instanceId: entry.account.id,
-                    idempotencyKey,
-                  });
-                  await refresh();
-                  return reply.outcome;
-                }}
+                redeem={redeem}
               />
             )}
           </div>

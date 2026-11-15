@@ -181,6 +181,8 @@ import QuartzCore
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored private let frameTiming: FrameTiming
     @ObservationIgnored private var sawFrame = false
+    /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
+    @ObservationIgnored private var sawConfirmedRow = false
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -190,14 +192,17 @@ import QuartzCore
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
+    /// Reads the kept inbox a connection shows first (`InboxCheckpoint.background`).
+    @ObservationIgnored private let checkpoints: InboxCheckpoint.Reader
     @ObservationIgnored var metrics: SpikeMetrics?
     @ObservationIgnored var largestFrame = 0
     @ObservationIgnored var patchCount = 0
     @ObservationIgnored var streamedUpdates = 0
 
-    init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live, makeRuntime: @escaping ClientSessionFactory = {
+    init(now: @escaping () -> Double, frames frameTiming: FrameTiming = .live,
+         checkpoints: @escaping InboxCheckpoint.Reader = InboxCheckpoint.background, makeRuntime: @escaping ClientSessionFactory = {
         ClientRuntime(target: $0, storageURL: $1, receive: $2, fail: $3)
-    }) { self.now = now; self.frameTiming = frameTiming; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
+    }) { self.now = now; self.frameTiming = frameTiming; self.checkpoints = checkpoints; self.makeRuntime = makeRuntime; liveActivity = ThreadLiveActivity(now: { Date(timeIntervalSince1970: now() / 1000) }) }
     func connect(target: ConnectionTarget, directory: URL, itemLimit: Int = 200) async {
         connectionEpoch += 1
         let epoch = connectionEpoch
@@ -218,15 +223,19 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil
+        connection = "connecting"; error = nil; problem = nil; sawConfirmedRow = false
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
+        // Read and decoded off the main thread (it may be megabytes), applied here in one step.
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
-        apply(InboxCheckpoint.read(database: database))
+        let restored = await checkpoints(database)
         restoring.end()
+        // A newer connection began meanwhile: it restores its own copy.
+        guard connectionEpoch == epoch else { return }
+        apply(restored)
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
@@ -465,6 +474,7 @@ import QuartzCore
                     normalizeGenerations()
                 }
                 if inbox.isEmpty, row != nil { LaunchTrace.mark("inbox.firstRow", row?.confirmed == true ? "confirmed" : "unconfirmed") }
+                if !sawConfirmedRow, row?.confirmed == true { sawConfirmedRow = true; LaunchTrace.mark("inbox.firstConfirmed", hostId ?? "") }
                 if ProjectChoice.changes(inbox[id], row) { projectsVersion &+= 1 }
                 var revision = historyRevision
                 revision.row(id, old: inbox[id], new: row)

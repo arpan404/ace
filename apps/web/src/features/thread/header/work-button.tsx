@@ -1,5 +1,4 @@
 import { useThreadMeta } from "@ace/client-react";
-import { listTreeFacts, treeWorking } from "@ace/ui-core";
 import { CirclesThreeIcon } from "@phosphor-icons/react";
 import { Suspense, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -7,6 +6,8 @@ import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { PendingDismiss } from "@/lib/pending-open.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredWorkCard } from "./work-surface.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
+import { treeDot } from "./live-words.ts";
 import { useWorkCardState, useWorkCardStore, type WorkCardStore } from "./work-card-store.ts";
 
 /** The icon's popover around the card, loaded with it (`work-popover.tsx`). */
@@ -31,8 +32,8 @@ export function WorkButton(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
   const button = useRef<HTMLButtonElement>(null);
   const room = useRoomBelow(popover, button, store);
-  const facts = meta && listTreeFacts(meta);
-  const dot = facts?.needsYou ? "needs-you" : facts && treeWorking(facts) ? "working" : undefined;
+  // A dot claims live work: only from a confirmed copy.
+  const dot = treeDot(useThreadLiveState(props.threadId).live, meta);
   // Once opened, the card stays mounted while hidden: a form it opened outlives the popover.
   const [opened, setOpened] = useState(false);
   if (popover && !opened) setOpened(true);

@@ -118,6 +118,22 @@
       "const": "thread",
       "type": "string"
     },
+    "partial": {
+      "properties": {
+        "previews": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 200,
+          "type": "array"
+        }
+      },
+      "required": [
+        "previews"
+      ],
+      "type": "object"
+    },
     "queue": {
       "$ref": "https://ace.local/protocol/v1/QueueState.json"
     },

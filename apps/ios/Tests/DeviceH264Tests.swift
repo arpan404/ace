@@ -17,7 +17,7 @@ import Testing
     @Test func aKeyframeNeedsBothParameterSetsToConfigureADecoder() {
         let noPicture = Data([0, 0, 0, 1, 0x67, 0x42, 0, 0, 1, 0x65, 0x88])
         #expect(AnnexB.parameterSets(noPicture) == nil)
-        #expect(throws: H264Decoder.DecodeError.self) { try H264Decoder(annexBKeyframe: noPicture) }
+        #expect(throws: VideoDecoder.DecodeError.self) { try VideoDecoder(annexBKeyframe: noPicture) }
         // A unit made only of parameter sets has no picture to decode.
         #expect(throws: AnnexB.ParseError.noNALUnits) { try AnnexB.lengthPrefixed(Data([0, 0, 1, 0x67, 0x42, 0, 0, 1, 0x68, 0xce])) }
     }
@@ -28,7 +28,7 @@ import Testing
         let sets = avc.sequenceParameterSets + avc.pictureParameterSets
         let keyframe = Self.annexB(prefix: sets, lengthPrefixed: chunks[0], lengthSize: avc.nalLengthSize)
         let delta = Self.annexB(prefix: [], lengthPrefixed: chunks[1], lengthSize: avc.nalLengthSize)
-        let decoder = try H264Decoder(annexBKeyframe: keyframe)
+        let decoder = try VideoDecoder(annexBKeyframe: keyframe)
         #expect(decoder.parameterSets == sets)
         for unit in [keyframe, delta] {
             let picture = try decoder.decode(annexB: unit)

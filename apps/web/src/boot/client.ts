@@ -1,5 +1,6 @@
 import {
   Client,
+  screenTail,
   type ClientOptions,
   type Credential,
   type Storage,
@@ -18,6 +19,8 @@ export function browserClientOptions(options: {
   credential(): Promise<Credential>;
   /** An account device's fresh grant, to keep its sockets open (ADR 0114). */
   grant?: (() => Promise<string>) | undefined;
+  /** A grant the daemon or relay refused: the app's grant cache drops it (`grant-cache.ts`). */
+  grantRefused?: ClientOptions["grantRefused"];
   storage: Storage;
   readSnapshots?: ClientOptions["readSnapshots"];
   /** The desktop's own daemon: the identity its current home names (`localHostId`). */
@@ -35,8 +38,11 @@ export function browserClientOptions(options: {
     transport: options.transport,
     credential: options.credential,
     ...(options.grant ? { grant: options.grant } : {}),
+    ...(options.grantRefused ? { grantRefused: options.grantRefused } : {}),
     storage: options.storage,
     ...(options.readSnapshots ? { readSnapshots: options.readSnapshots } : {}),
+    // A thread paints from one screenful; the rest of its window pages in behind it.
+    openTail: screenTail,
     scheduler: {
       set(delayMs, callback) {
         const timer = setTimeout(callback, delayMs);
@@ -46,6 +52,8 @@ export function browserClientOptions(options: {
     random: () => Math.random(),
     id: () => crypto.randomUUID(),
     now: () => Date.now(),
+    // Liveness deadlines run on a clock that never jumps (ADR 0150).
+    monotonic: () => performance.now(),
     ...(options.report ? { report: options.report } : {}),
   };
 }

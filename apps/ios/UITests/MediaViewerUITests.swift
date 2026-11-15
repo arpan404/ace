@@ -178,7 +178,7 @@ import XCTest
     private func launchIntoThread(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-attachments"] + extra
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 25))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springboard.alerts.buttons["Allow"]

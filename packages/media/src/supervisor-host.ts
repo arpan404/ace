@@ -63,6 +63,9 @@ export const systemMediaClock: MediaClock = {
   },
 };
 
+/** The real wall clock, in Unix ms: media tickets expire on it, on both sides. */
+export const systemWallClock = (): number => Date.now();
+
 /** The platform CSPRNG: the lane secret comes from here unless a test injects its own. */
 export function secureRandomBytes(length: number): Uint8Array {
   return new Uint8Array(randomBytes(length));

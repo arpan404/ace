@@ -123,7 +123,7 @@ fn a_cancelled_probe_returns_at_once_and_starts_nothing() {
 }
 
 #[test]
-fn past_its_deadline_the_worker_stops_starting_trials() {
+fn past_its_deadline_the_worker_keeps_going_and_every_step_arrives_late() {
     let _turn = turn();
     // Let any earlier worker finish so this probe starts its own.
     std::thread::sleep(Duration::from_millis(500));
@@ -136,10 +136,34 @@ fn past_its_deadline_the_worker_stops_starting_trials() {
         .iter()
         .filter(|c| c.state == TrialState::Ok)
         .count();
+    let mut late = 0;
+    // The channel closes once the worker has run every trial.
+    while let Ok(capability) = report.late.recv_timeout(Duration::from_secs(5)) {
+        assert_eq!(capability.state, TrialState::Ok);
+        late += 1;
+    }
+    assert_eq!(on_time + late, 7, "{on_time} on time, {late} late");
+}
+
+#[test]
+fn cancelled_past_its_deadline_the_worker_stops_starting_trials() {
+    let _turn = turn();
+    std::thread::sleep(Duration::from_millis(500));
+    let cancel = ProbeCancel::default();
+    let report = probe(&ProbeOptions {
+        deadline: Duration::from_millis(5),
+        cancel: cancel.clone(),
+        ..ProbeOptions::default()
+    });
+    cancel.cancel();
+    let on_time = report
+        .capabilities
+        .iter()
+        .filter(|c| c.state == TrialState::Ok)
+        .count();
     let started = Instant::now();
     let mut late = 0;
-    // The channel closes when the worker stops; only the trial already
-    // inside VideoToolbox may still report.
+    // Only the trial already inside VideoToolbox may still report.
     while let Ok(capability) = report.late.recv_timeout(Duration::from_secs(5)) {
         assert_eq!(capability.state, TrialState::Ok);
         late += 1;

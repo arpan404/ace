@@ -36,6 +36,9 @@ struct TerminalOutputPatch: Decodable, Sendable {
     var bracketedPaste: Bool { session.read { $0.modes.bracketedPaste } }
     /// Every row of history and screen as text (copy, find, tests).
     var text: String { session.read { $0.text } }
+    /// This stream's output as it arrived, escapes and all, for exporting (`TerminalRawLog`).
+    @ObservationIgnored private(set) var raw = TerminalRawLog()
+    var rawLog: String { raw.text }
     var title: String { _ = revision; return session.read { $0.title } }
     var fullScreen: Bool { _ = revision; return session.read { $0.usingAlternate } }
 
@@ -44,6 +47,7 @@ struct TerminalOutputPatch: Decodable, Sendable {
         offset = 0
         problem = nil
         exited = false
+        raw.clear()
         session = TerminalSession(columns: size.columns, rows: size.rows)
         revision += 1
     }
@@ -63,6 +67,7 @@ struct TerminalOutputPatch: Decodable, Sendable {
             // Duplicate frames on reconnect are discarded by canonical PTY byte offsets.
             let fresh = start >= offset ? data : String(decoding: Array(data.utf8.dropFirst(offset - start)), as: UTF8.self)
             offset = end
+            raw.append(fresh)
             let stream = streamId
             session.feed(fresh) { [weak self] replies in
                 guard let self, self.streamId == stream else { return }
@@ -91,14 +96,20 @@ struct TerminalOutputPatch: Decodable, Sendable {
         return true
     }
 
-    /// Clear terminal: history and screen go; the line the cursor is on stays.
-    func clear() { session.change { $0.clearHistory() } }
+    /// Clear terminal: history and screen go; the line the cursor is on stays. The raw log
+    /// starts again too, as on the web.
+    func clear() {
+        raw.clear()
+        session.change { $0.clearHistory() }
+    }
 
     /// Wait for parsing (tests).
     func settle() { session.settle() }
 
     private func gap() {
+        let marker = "\r\n\u{1b}[0m[Earlier output unavailable]\r\n"
+        raw.append(marker)
         session.resetParser()
-        session.feed("\r\n\u{1b}[0m[Earlier output unavailable]\r\n") { _ in }
+        session.feed(marker) { _ in }
     }
 }
