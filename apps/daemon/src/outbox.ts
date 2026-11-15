@@ -3,9 +3,10 @@ import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.
 import { WebSocket } from "ws";
 import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
-import { WireEncoder, eventFrameBytes } from "./wire-encoder.ts";
+import { WireEncoder, eventFrameBytes, wholeEvents, type EventShape } from "./wire-encoder.ts";
 import { mayCompress } from "./compression-policy.ts";
-import { FrameHolder, isDelta, mayHold } from "./frame-holder.ts";
+import { FrameHolder, frameHoldFor, isDelta, mayHold } from "./frame-holder.ts";
+import { trackLink } from "./link-estimate.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
 // Service envelopes can contain a 1 MiB artifact plus metadata. Events have a smaller budget.
@@ -93,6 +94,10 @@ export class Outbox {
   private delay: DeliveryRuntime["delay"];
   /** Set once the client's hello says it unpacks frames (`framing: ["lines"]`). */
   private holder: FrameHolder | undefined;
+  /** What this client's hello said it takes in place of whole events. */
+  private shape: EventShape = wholeEvents;
+  /** Samples this socket's link estimate after each write, once frames are packed. */
+  private sampleLink: (() => void) | undefined;
   constructor(
     socket: MainSocket,
     options: PressureOptions,
@@ -114,12 +119,27 @@ export class Outbox {
   releaseHeld(): void {
     this.holder?.release();
   }
-  packFrames(): void {
-    this.holder ??= new FrameHolder((text) => this.transmit(text, true), this.delay);
+  /** From now on send events in `shape`: the hello asked for trimmed item events or short deltas. */
+  shapeEvents(shape: EventShape): void {
+    this.shape = shape;
+  }
+  /**
+   * `remote`: the socket is not loopback, so a backlog on it holds deltas longer
+   * (`frameHoldFor`); loopback always holds 16 ms.
+   */
+  packFrames(remote = false): void {
+    if (this.holder) return;
+    const link = trackLink(this.socket, remote);
+    this.sampleLink = link.sample;
+    this.holder = new FrameHolder(
+      (text) => this.transmit(text, true),
+      this.delay,
+      () => frameHoldFor(link.view),
+    );
   }
   send(message: ServerMessage | PluginServerMessage): void {
     if (message.type === "events") {
-      for (const frame of this.encoder.split(message)) this.sendOne(frame);
+      for (const frame of this.encoder.split(message, this.shape)) this.sendOne(frame);
     } else if (message.type === "snapshot" || message.type === "entities.page") {
       const encoded = this.encoder.encode(message);
       const bytes = Buffer.byteLength(encoded);
@@ -169,7 +189,7 @@ export class Outbox {
   private sendOne(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
-      const charge = this.encoder.encodedBytes(message);
+      const charge = this.encoder.encodedBytes(message, this.shape);
       if (charge > eventFrameBytes) {
         this.resync();
         return;
@@ -198,7 +218,7 @@ export class Outbox {
       this.tick();
       return;
     }
-    const encoded = this.encoder.encode(message);
+    const encoded = this.encoder.encode(message, this.shape);
     this.sendSerialized(message, encoded, Buffer.byteLength(encoded));
   }
   /** Queue a message already encoded as `encoded`, of `charge` UTF-8 bytes. */
@@ -264,13 +284,16 @@ export class Outbox {
         encoded =
           frame.type === "serialized"
             ? frame.encoded
-            : this.encoder.encode({
-                type: "events",
-                subscriptionId: frame.subscriptionId,
-                afterSeq: frame.afterSeq,
-                throughSeq: frame.throughSeq,
-                events: frame.events,
-              });
+            : this.encoder.encode(
+                {
+                  type: "events",
+                  subscriptionId: frame.subscriptionId,
+                  afterSeq: frame.afterSeq,
+                  throughSeq: frame.throughSeq,
+                  events: frame.events,
+                },
+                this.shape,
+              );
       // A serialized frame was measured when it was queued.
       const bytes = frame.type === "serialized" ? frame.chargedBytes : Buffer.byteLength(encoded);
       if (bytes > replyFrameBytes) {
@@ -301,6 +324,7 @@ export class Outbox {
       if (error) this.socket.terminate();
       else this.flush();
     });
+    this.sampleLink?.();
   }
   tick(now = this.now()): void {
     if (this.socket.bufferedAmount > this.options.hardLimit) {

@@ -114,6 +114,35 @@ import Testing
         #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
     }
 
+    @Test func aNewNetworkInterfaceAsksEveryMachineToCheckItsSocketNow() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        // The same network coming back says only that it is online.
+        fixture.model.network(online: true, interfaceChanged: false)
+        #expect(fixture.sessions.started.allSatisfy { !$0.invoked.joined().contains(#""type":"wake""#) })
+        // Wi-Fi to cellular: a socket still marked ready on Wi-Fi must prove itself now.
+        fixture.model.network(online: true, interfaceChanged: true)
+        #expect(fixture.sessions.started.allSatisfy { $0.invoked.joined().contains(#""type":"wake""#) })
+    }
+
+    @Test func everyInterfaceChangeWakesEveryMachineAtOnceHoweverOftenTheyCome() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let wakes = { fixture.sessions.started.map { $0.invoked.filter { $0.contains(#""type":"wake""#) }.count } }
+        // Wi-Fi and cellular trading places every second: the shared client joins wakes close
+        // together into one ping and never moves an earlier deadline, so each change goes
+        // straight through and none waits for another.
+        for step in 1...4 {
+            fixture.model.network(online: true, interfaceChanged: true)
+            #expect(wakes() == [step, step])
+            fixture.scheduler.advance(1_000)
+        }
+        fixture.model.wake()
+        #expect(wakes() == [5, 5])
+    }
+
     @Test func pairingConnectsTheNewMachineBesideTheOthersAndStoresItsGrant() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
         defer { fixture.cleanUp() }

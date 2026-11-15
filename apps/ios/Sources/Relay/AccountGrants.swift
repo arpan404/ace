@@ -1,8 +1,10 @@
 import Foundation
 
-/// Device grants for one account machine's runtime. Every relay connection fetches a fresh one
-/// (`fresh`); the hello on that connection presents the same grant (`current`) unless it is
-/// about to lapse. Grants are never stored: they live five minutes and only in memory.
+/// Device grants for one account machine's runtime. A relay connection and the hello on it
+/// present the kept grant while it has more than `margin` left (`current`), so a reconnect
+/// costs no backend round trip before its socket opens; one the relay or daemon refused is
+/// dropped (`discard`), and an open socket's refresh always fetches anew (`fresh`). Grants are
+/// never stored: they live five minutes and only in memory.
 final class AccountGrants: @unchecked Sendable {
     /// A grant this close to expiry is not offered again.
     static let margin: Double = 60_000
@@ -30,9 +32,18 @@ final class AccountGrants: @unchecked Sendable {
         return grant.token
     }
     func current() async throws(AccountGrantError) -> String {
-        let kept = lock.withLock { latest }
-        if let kept, kept.expiresAt - now() > Self.margin { return kept.token }
+        if let kept = kept() { return kept }
         return try await fresh()
+    }
+    /// The kept grant, if it has more than `margin` left; never fetches.
+    func kept() -> String? {
+        let kept = lock.withLock { latest }
+        guard let kept, kept.expiresAt - now() > Self.margin else { return nil }
+        return kept.token
+    }
+    /// `token` was refused: the next connection fetches a new grant. A newer one is kept.
+    func discard(_ token: String) {
+        lock.withLock { if latest?.token == token { latest = nil } }
     }
 }
 
