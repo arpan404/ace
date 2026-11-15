@@ -88,10 +88,11 @@ function draw(parts: readonly Part[], weight: IconWeight, ink: string, id: strin
     const extra =
       part.dashed && typeof part.outline !== "string" ? dashes(part.outline.r, stroke) : {};
     const drawn = element(part.outline, { ...paintProps(paint, stroke, ink), ...extra }, key);
-    if (!part.hole || paint === "cut" || paint === "cutSpot") return drawn;
+    if ((!part.hole && !part.gap) || paint === "cut" || paint === "cutSpot") return drawn;
     const holeId = `${id}-h${key}`;
-    defs.push(
-      mask(holeId, [
+    const holes: ReactNode[] = [];
+    if (part.hole)
+      holes.push(
         createElement("circle", {
           key: "h",
           cx: part.hole.cx,
@@ -99,8 +100,18 @@ function draw(parts: readonly Part[], weight: IconWeight, ink: string, id: strin
           r: part.hole.r,
           fill: "black",
         }),
-      ]),
-    );
+      );
+    if (part.gap)
+      holes.push(
+        createElement("path", {
+          key: "g",
+          d: part.gap.path,
+          stroke: "black",
+          strokeWidth: part.gap.width,
+          strokeLinecap: "round",
+        }),
+      );
+    defs.push(mask(holeId, holes));
     return createElement("g", { key, mask: `url(#${holeId})` }, drawn);
   };
 

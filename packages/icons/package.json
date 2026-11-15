@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
-    "sheet": "bun sheet/write-sheet.ts"
+    "sheet": "bun sheet/write-sheet.ts",
+    "index": "bun sheet/write-index.ts"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

@@ -1,10 +1,12 @@
-/** ace's icons, one module each so a page loads only the ones it draws. */
+/** ace's icons, one module each so a page loads only the ones it draws. Written by sheet/write-index.ts. */
 export { glyph, type Icon, type IconProps, type IconWeight } from "./glyph.ts";
+export { circle, detail, dot, line, plussed, shape, slashed, spot, type Part } from "./parts.ts";
 export { ArchiveIcon } from "./glyphs/archive.ts";
 export { ArrowClockwiseIcon } from "./glyphs/arrow-clockwise.ts";
 export { ArrowSquareOutIcon } from "./glyphs/arrow-square-out.ts";
 export { ArrowUpIcon } from "./glyphs/arrow-up.ts";
 export { BellIcon } from "./glyphs/bell.ts";
+export { BellSlashIcon } from "./glyphs/bell-slash.ts";
 export { BookOpenIcon } from "./glyphs/book-open.ts";
 export { CaretDownIcon } from "./glyphs/caret-down.ts";
 export { CaretLeftIcon } from "./glyphs/caret-left.ts";
@@ -12,13 +14,14 @@ export { CaretRightIcon } from "./glyphs/caret-right.ts";
 export { CaretUpIcon } from "./glyphs/caret-up.ts";
 export { ChatCircleIcon } from "./glyphs/chat-circle.ts";
 export { ChatsCircleIcon } from "./glyphs/chats-circle.ts";
-export { CheckIcon } from "./glyphs/check.ts";
 export { CheckCircleIcon } from "./glyphs/check-circle.ts";
+export { CheckIcon } from "./glyphs/check.ts";
 export { CircleDashedIcon } from "./glyphs/circle-dashed.ts";
 export { ClockIcon } from "./glyphs/clock.ts";
 export { CopyIcon } from "./glyphs/copy.ts";
 export { DotsThreeIcon } from "./glyphs/dots-three.ts";
 export { FileIcon } from "./glyphs/file.ts";
+export { FolderPlusIcon } from "./glyphs/folder-plus.ts";
 export { FolderSimpleIcon } from "./glyphs/folder-simple.ts";
 export { GearSixIcon } from "./glyphs/gear-six.ts";
 export { GitBranchIcon } from "./glyphs/git-branch.ts";
@@ -42,6 +45,6 @@ export { TerminalWindowIcon } from "./glyphs/terminal-window.ts";
 export { TrashIcon } from "./glyphs/trash.ts";
 export { TrayIcon } from "./glyphs/tray.ts";
 export { UserIcon } from "./glyphs/user.ts";
-export { WarningIcon } from "./glyphs/warning.ts";
 export { WarningCircleIcon } from "./glyphs/warning-circle.ts";
+export { WarningIcon } from "./glyphs/warning.ts";
 export { XIcon } from "./glyphs/x.ts";

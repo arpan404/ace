@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polygon } from "../geometry.ts";
-import { detail, shape } from "../parts.ts";
+import { detail, shape, type Part } from "../parts.ts";
 
-/** A project: a folder with its tab. */
-export const FolderSimpleIcon = /* @__PURE__ */ glyph("FolderSimple", () => [
+/** A folder with its tab; also the base of "new project". */
+export const folder = (): Part[] => [
   shape(
     polygon([
       [2.5, 4.5, 3.5],
@@ -15,4 +15,7 @@ export const FolderSimpleIcon = /* @__PURE__ */ glyph("FolderSimple", () => [
     ]),
   ),
   detail("M3 10.75h18"),
-]);
+];
+
+/** A project: a folder. */
+export const FolderSimpleIcon = /* @__PURE__ */ glyph("FolderSimple", folder);
