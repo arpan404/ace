@@ -14,7 +14,7 @@ test("a delegated row in a narrow column keeps its status visible while its meta
           name="Relay protocol reference"
           meta={meta}
           state="working"
-          stale={false}
+          stale={undefined}
           elapsed="1m 26s"
           detail="Writing"
           detailKind="live"
@@ -49,7 +49,7 @@ test("a done delegated child in a folded group keeps Done visible and truncates 
               name="Relay protocol reference"
               meta={meta}
               state="done"
-              stale={false}
+              stale={undefined}
               elapsed="18m 55s"
               detail={result}
               detailKind="result"
@@ -83,7 +83,7 @@ test("a delegated row on another machine keeps its status visible with the machi
           meta={meta}
           machine="MacBook Pro Rijan"
           state="working"
-          stale={false}
+          stale={undefined}
           elapsed="1m 26s"
           detail="Writing"
           detailKind="live"

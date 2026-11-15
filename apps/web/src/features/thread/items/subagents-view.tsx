@@ -4,7 +4,7 @@ import { useSidebar } from "@ace/client-react";
 import { rollupSubagent, subagentTerminal, turnSubagents, type SubagentState } from "@ace/ui-core";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { useCallback, useMemo, useState } from "react";
-import { useThreadLiveState } from "../lib/live-state.ts";
+import { useSubagentsFresh } from "../lib/live-state.ts";
 import {
   listedSubagentState,
   readSubagentGroup,
@@ -107,7 +107,8 @@ const none: readonly never[] = [];
 
 function Group(props: { threadId: string; entries: readonly SubagentEntry[] }) {
   const { entries } = props;
-  const live = useThreadLiveState(props.threadId);
+  // Rows roll up the parent copy and the children's list rows: current only while both are.
+  const live = { fresh: useSubagentsFresh(props.threadId) };
   const [open, setOpen] = useState(false);
   if (!entries.length) return null;
   const states = entries.map((entry) => entry.state);

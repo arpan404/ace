@@ -1,6 +1,6 @@
 import { subagentTerminal, type DelegationResult } from "@ace/ui-core";
 import { useState } from "react";
-import { useThreadLiveState } from "../lib/live-state.ts";
+import { useSubagentsFresh } from "../lib/live-state.ts";
 import { ModelFacing } from "./model-facing.tsx";
 import { useReceiptDelivery, useReceiptEntries } from "./receipt-entries.ts";
 import { SubagentFold, SubagentSection } from "./subagent-fold.tsx";
@@ -19,7 +19,8 @@ export function DelegationCard(props: {
   deliveredAt?: number | undefined;
 }) {
   const entries = useReceiptEntries(props.threadId, props.results, props.deliveredAt);
-  const live = useThreadLiveState(props.threadId);
+  // Rows roll up the parent copy and the children's list rows: current only while both are.
+  const live = { fresh: useSubagentsFresh(props.threadId) };
   const [open, setOpen] = useState(false);
   if (!entries.length) return null;
   const [only] = entries;

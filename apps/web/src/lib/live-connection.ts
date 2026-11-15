@@ -60,6 +60,17 @@ export function currentNow(client: ClientApi, threadId?: string): boolean {
 export const syncingLabel = "Syncing…";
 
 /**
+ * The words a surface shows instead of any state, terminal ones included, while what it reads
+ * isn't current (`fresh` from the gate that matches its data): the connection's word, else
+ * "Syncing…". Undefined while fresh. A done or failed thread can be resumed, so no state is
+ * safe to claim from a stale copy.
+ */
+export function useStaleWord(fresh: boolean): string | undefined {
+  const connection = useLiveConnection();
+  return fresh ? undefined : (connection.staleLabel ?? syncingLabel);
+}
+
+/**
  * The one gate for anything that shows a thread's live state or acts on it (features read it
  * through `useThreadLiveState`). A thread's copy is `fresh` only while the connection is ready,
  * the daemon has confirmed the copy (not one read back from disk) and its subscription has caught

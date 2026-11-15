@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
 import { ProvidersLead } from "./agent-lead.tsx";
 import { subagentTones } from "./agent-row.tsx";
+import { useStaleWord } from "@/lib/live-connection.ts";
 import { SubagentElapsed } from "./subagent-row.tsx";
 
 const groupTones: Record<SubagentGroupStatus, string> = {
@@ -73,7 +74,11 @@ export function SubagentFold(props: {
   const body = useId();
   const states = entries.map((entry) => entry.state);
   const running = states.some((state) => !subagentTerminal(state));
-  const title = subagentGroupTitle(states);
+  const stale = useStaleWord(props.fresh);
+  // A stale group claims no state, not even that they all ran: just how many and the stale words.
+  const title = stale
+    ? `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`
+    : subagentGroupTitle(states);
   const { startedAt, endedAt } = subagentSpan(entries);
   const status = subagentGroupStatus(states);
   return (
@@ -96,22 +101,23 @@ export function SubagentFold(props: {
           <span
             id={`${body}-status`}
             role="status"
-            data-tone={groupTones[status]}
+            data-tone={stale === undefined ? groupTones[status] : undefined}
             className={groupStyles.counts}
           >
-            {!props.fresh && running && "Last seen: "}
-            {subagentGroupCounts(states).map((part, index) => (
-              <span key={part.state}>
-                {index > 0 && <span className={groupStyles.separator}> · </span>}
-                <span data-tone={subagentTones[part.state]} className="text-(--tone-text)">
-                  {part.count} {part.word}
+            {stale}
+            {stale === undefined &&
+              subagentGroupCounts(states).map((part, index) => (
+                <span key={part.state}>
+                  {index > 0 && <span className={groupStyles.separator}> · </span>}
+                  <span data-tone={subagentTones[part.state]} className="text-(--tone-text)">
+                    {part.count} {part.word}
+                  </span>
                 </span>
-              </span>
-            ))}
+              ))}
           </span>
         </span>
         <span className={groupStyles.time}>
-          {startedAt > 0 && (
+          {startedAt > 0 && stale === undefined && (
             <SubagentElapsed
               startedAt={startedAt}
               endedAt={endedAt}

@@ -21,6 +21,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
 import { AgentRowContents, agentRowStyles, type AgentRowParts } from "./agent-row.tsx";
+import { useStaleWord } from "@/lib/live-connection.ts";
 import { LostChildAction } from "./lost-child-action.tsx";
 
 export { subagentTones } from "./agent-row.tsx";
@@ -83,21 +84,22 @@ export function SubagentRow(props: {
     elsewhere: entry.machine !== undefined,
     host,
   });
-  const status = subagentLabels[entry.state];
+  const stale = useStaleWord(props.fresh);
+  const status = stale ?? subagentLabels[entry.state];
   const label = entry.machine
     ? `${host ? "Open " : ""}${entry.title} on ${entry.machine}, ${status}`
     : entry.childThreadId
       ? `Open ${entry.title}'s thread, ${status}`
       : `Open ${entry.title}, ${status}`;
-  const terminal = subagentTerminal(entry.state);
   const parts: AgentRowParts = {
     mark: { provider: entry.provider, model: entry.model, ...account },
     name: entry.title,
     meta,
     machine: entry.machine,
     state: entry.state,
-    stale: !props.fresh && !terminal,
-    elapsed: (
+    stale,
+    // How long it ran, or runs, is the state's too: nothing while it isn't current.
+    elapsed: stale === undefined && (
       <SubagentElapsed
         startedAt={entry.startedAt}
         endedAt={entry.endedAt}

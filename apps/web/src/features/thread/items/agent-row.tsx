@@ -66,8 +66,11 @@ export interface AgentRowParts {
   /** Where it runs, when that is another machine. */
   machine?: string | undefined;
   state: SubagentState;
-  /** The state is last seen: ace lost touch with the thread. */
-  stale: boolean;
+  /**
+   * What it reads isn't current: these words ("Reconnecting…", "Syncing…") stand in for the
+   * state, any state, terminal ones included.
+   */
+  stale: string | undefined;
   elapsed?: ReactNode;
   /** The second line, and what it says. */
   detail?: ReactNode;
@@ -147,8 +150,11 @@ export function AgentRowContents(props: AgentRowParts) {
           {props.detail}
         </span>
       </span>
-      <span data-tone={subagentTones[props.state]} className={agentRowStyles.state}>
-        {props.stale ? `Last seen: ${status}` : status}
+      <span
+        data-tone={props.stale === undefined ? subagentTones[props.state] : undefined}
+        className={agentRowStyles.state}
+      >
+        {props.stale ?? status}
         {props.elapsed && <span className={agentRowStyles.time}>{props.elapsed}</span>}
       </span>
     </>

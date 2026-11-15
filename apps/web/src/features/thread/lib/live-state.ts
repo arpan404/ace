@@ -1,4 +1,4 @@
-import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { useLiveList, useThreadFreshness } from "@/lib/live-connection.ts";
 import { threadIsRunning } from "@ace/ui-core";
 import { useThreadMeta } from "@ace/client-react";
 
@@ -8,6 +8,16 @@ import { useThreadMeta } from "@ace/client-react";
  * confirmed yet (read back from disk). While it isn't `fresh`, show `staleLabel` instead of live
  * status and hold actions on what is shown.
  */
+/**
+ * A subagent's state as its rows show it: rolled up from the parent thread's copy and, for a
+ * delegated child, the child's own list row, so it is current only while both are.
+ */
+export function useSubagentsFresh(threadId: string): boolean {
+  const thread = useThreadFreshness(threadId).fresh;
+  const list = useLiveList();
+  return thread && list;
+}
+
 export function useThreadLiveState(threadId: string) {
   const { fresh, staleLabel, isFresh } = useThreadFreshness(threadId);
   const status = useThreadMeta(threadId)?.status;
