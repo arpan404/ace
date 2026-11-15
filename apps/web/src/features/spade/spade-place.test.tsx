@@ -9,7 +9,7 @@ beforeEach(() => localStorage.clear());
 const now = () => Date.now();
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
-test("Spade heads the list, then each bot with what it asks or its last message", async () => {
+test("Spade is the list's first row, then each bot with what it asks or its last message", async () => {
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({
@@ -30,8 +30,14 @@ test("Spade heads the list, then each bot with what it asks or its last message"
   });
   const list = await roster();
   await waitFor(() =>
-    expect(list.getAllByRole("link").map((row) => row.textContent)).toEqual([
-      "Spade",
+    // The rows, not the icon links above them (Apps, plugins and skills).
+    expect(
+      list
+        .getAllByRole("link")
+        .filter((link) => !link.hasAttribute("aria-label"))
+        .map((row) => row.textContent),
+    ).toEqual([
+      "SpadeNo messages yet",
       "InboxWaiting for you",
       "GardenYou: Water the tomatoes at 6",
     ]),
