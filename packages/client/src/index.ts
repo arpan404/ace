@@ -3,7 +3,7 @@ export type { CursorAuthQuery } from "./client.ts";
 export { Client } from "./client.ts";
 export { ClientCore } from "./client-core.ts";
 export { commandAdmissionError, type CommandAdmissionEvidence } from "./command-admission.ts";
-export { ClientError, defaultLimits } from "./types.ts";
+export { ClientError, defaultLimits, screenTail } from "./types.ts";
 export type {
   ClientOptions,
   ConnectionState,
@@ -17,6 +17,7 @@ export type {
   IntentRecords,
   Scheduler,
   Limits,
+  OpenTail,
   RequestOptions,
   TextReadOptions,
 } from "./types.ts";
