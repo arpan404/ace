@@ -109,6 +109,7 @@ const view = (state: BrowserState): BrowserView => ({
   annotation: state.annotation,
   features: state.features,
   recording: state.recording,
+  acceleration: state.acceleration,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {

@@ -7,6 +7,7 @@ import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
+import { degradedSentence } from "@/lib/video/degraded.tsx";
 
 const thread = "thread-settings";
 
@@ -129,7 +130,7 @@ async function watching(initial: string | undefined, poster?: MediaPoster) {
         "type" in message &&
         message.type === "browser.ack",
     );
-  return { preview, wire, link, subscribes, mainAcks, posters };
+  return { preview, wire, link, subscribes, mainAcks, posters, daemon };
 }
 
 test("the browser's video subscribes on the media connection, comes by it and is acked there", async () => {
@@ -171,4 +172,15 @@ test("the poster shows before video, and the first picture replaces it", async (
   expect(preview.frame(thread)?.sequence).toBe(-1);
   link.deliver(video(1, true));
   await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(1));
+});
+
+test("the browser's view carries the degraded sentence exactly while its video is degraded", async () => {
+  const { preview, daemon } = await watching("mc_aaaaaaaaaa");
+  const sentence = () => degradedSentence(preview.view(thread)?.acceleration);
+  const reason = "Video runs on the processor here: this computer has no hardware video encoder.";
+  const steps = [{ step: "encode", backend: "cpu", hardware: false, readbacks: 1, uploads: 0 }];
+  daemon.browser.setAcceleration(thread, { steps, degraded: true, reason });
+  await waitFor(() => expect(sentence()).toBe(reason));
+  daemon.browser.setAcceleration(thread, { steps, degraded: false });
+  await waitFor(() => expect(sentence()).toBeUndefined());
 });
