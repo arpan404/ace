@@ -42,7 +42,10 @@ export interface ScheduleChild {
 
 /** What the scheduler remembers of one child; nothing of this survives a restart. */
 export interface ChildRecord {
-  /** When a read of it was last answered (a view, or the machine saying it doesn't hold it). */
+  /**
+   * When the last answered read of it went out (a view, or the machine saying it doesn't hold
+   * it): what it was then is known, not what it is when the answer arrives.
+   */
   lastAnsweredAt?: number;
   /** When it was last asked. */
   lastAskedAt?: number;
@@ -273,28 +276,38 @@ export type CallOutcome =
 
 export interface FoldResult {
   records: Map<string, ChildRecord>;
-  /** Settled children whose read was answered at or after their 24 h mark: they leave tracking. */
+  /**
+   * Settled children whose read went out at or after their 24 h mark and was answered: they leave
+   * tracking. An answer proves a child's state only as of when its read was sent.
+   */
   ended: string[];
 }
 
 const backoff = (failures: number, config: ScheduleConfig) =>
   Math.min(config.retryCapMs, config.pollMs * 2 ** Math.min(failures - 1, 30));
 
-/** Folds one call's outcome, at `now`, into the records of the children it asked about. */
+/**
+ * Folds one call's outcome into the records of the children it asked about. `at.sent` is when the
+ * call went out, `at.now` when its outcome came back. What an answer says of a child holds as of
+ * when it was sent: that decides whether it was the final check, and when the child counts as
+ * last read. What is learned when the outcome arrives (a failure, being implicated) starts its
+ * waits from then.
+ */
 export function foldCall(
   records: Records,
   children: readonly ScheduleChild[],
   ids: readonly string[],
   outcome: CallOutcome,
-  now: number,
+  at: { sent: number; now: number },
   config: ScheduleConfig,
 ): FoldResult {
+  const { sent, now } = at;
   const next = new Map(records);
   const byId = new Map(children.map((child) => [child.id, child]));
   const ended: string[] = [];
   const answered = (id: string) => {
     const child = byId.get(id);
-    if (child?.settled && child.settledAt !== null && now - child.settledAt >= RECHECK_WINDOW_MS)
+    if (child?.settled && child.settledAt !== null && sent - child.settledAt >= RECHECK_WINDOW_MS)
       ended.push(id);
   };
   for (const id of ids) {
@@ -307,7 +320,7 @@ export function foldCall(
       next.set(id, {
         ...rest,
         failures: 0,
-        lastAnsweredAt: now,
+        lastAnsweredAt: sent,
         suspect: ids.length > 1 && rec.suspect,
       });
       answered(id);
@@ -336,7 +349,7 @@ export function foldCall(
         failures,
         retryAt: now + backoff(failures, config),
         machineWide: outcome.kind === "failed" && outcome.machineWide === true,
-        ...(outcome.kind === "not_found" ? { lastAnsweredAt: now } : {}),
+        ...(outcome.kind === "not_found" ? { lastAnsweredAt: sent } : {}),
       });
       // The machine saying it doesn't hold the child is its answer for it.
       if (outcome.kind === "not_found") answered(id);

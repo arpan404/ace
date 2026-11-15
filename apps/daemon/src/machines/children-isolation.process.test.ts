@@ -140,7 +140,7 @@ async function parentWatching(machines: Awaited<ReturnType<typeof remote>>[], ti
     transport: machineRequest,
     connections,
     now: f.clock.now,
-    reachable: (machine) => wired.ledger?.machineReachable(machine),
+    reachable: (machine, sentAt) => wired.ledger?.machineReachable(machine, sentAt),
     log: () => {},
   });
   const ledger = new MachineChildren({

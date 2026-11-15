@@ -219,23 +219,23 @@ export class ChildLiveness {
     }
   }
   /**
-   * Its machine reported it: the lease renews, and a child that had lost contact resumes, its
-   * parent holding it again until it ends.
+   * Its machine reported it in answer to a read sent at `sentAt`: the lease renews as of then
+   * (what the answer proves holds from when it was asked), and a child that had lost contact
+   * resumes, its parent holding it again until it ends.
    */
-  seen(row: ChildRow): ChildRow {
-    const now = this.deps.now();
+  seen(row: ChildRow, sentAt: number): ChildRow {
     if (row.silent_since === null) {
       // One write a tenth of a lease at most, not one per poll.
-      if (now - (row.seen_at ?? 0) >= this.leaseMs / 10) this.deps.ledger.seen(row.id, now);
+      if (sentAt - (row.seen_at ?? 0) >= this.leaseMs / 10) this.deps.ledger.seen(row.id, sentAt);
       return row;
     }
     const name = this.deps.label(row.machine);
     this.deps.store.atomic(() => {
-      this.deps.ledger.seen(row.id, now);
+      this.deps.ledger.seen(row.id, sentAt);
       this.parentRow(row, name, undefined, "start");
     });
     this.deps.emit([row.id]);
-    return { ...row, seen_at: now, silent_since: null };
+    return { ...row, seen_at: Math.max(row.seen_at ?? 0, sentAt), silent_since: null };
   }
   /**
    * A settled child stopped here without confirmation, read again: how it really ended there is

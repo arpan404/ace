@@ -132,6 +132,8 @@ export class MachineChildren implements RemoteChildren {
    * child's failed read is the machine's only when nothing was heard from it around that read.
    */
   private heardAt = new Map<string, number>();
+  /** For each machine that is down, when the first read that found it so went out. */
+  private downSince = new Map<string, number>();
   /** Status calls on their way. */
   private running = new Set<Promise<void>>();
   /**
@@ -465,12 +467,17 @@ export class MachineChildren implements RemoteChildren {
     this.arm();
   }
   /**
-   * A call to the machine got through, of any kind: it is up. If it was down, its episode ends
-   * and children whose reads failed while it was down are asked again next poll. A child whose
-   * own read failed while the machine answered keeps its wait: only its own answer ends that.
+   * A call to the machine sent at `sentAt` got through, of any kind: it is heard from now. If it
+   * was down and the call went out once it was, it is back: its episode ends and children whose
+   * reads failed while it was down are asked again next poll. A call sent before the outage
+   * proves nothing of now. A child whose own read failed while the machine answered keeps its
+   * wait: only its own answer ends that.
    */
-  machineReachable(machine: string): void {
+  machineReachable(machine: string, sentAt: number = this.deps.now()): void {
     this.heardAt.set(machine, this.deps.now());
+    const since = this.downSince.get(machine);
+    if (since === undefined || sentAt < since) return;
+    this.downSince.delete(machine);
     const failures = this.reach.succeeded(machine);
     if (failures === 0) return;
     this.deps.log("Machine children reachable again", { machine, attempts: failures + 1 });
@@ -482,8 +489,9 @@ export class MachineChildren implements RemoteChildren {
     const heard = this.heardAt.get(machine) ?? Number.NEGATIVE_INFINITY;
     return heard < startedAt - 2 * this.deps.pollMs;
   }
-  /** A status call failed while the machine was down: logged once per episode. */
-  private unreached(machine: string, error: unknown) {
+  /** A status call sent at `sentAt` failed while the machine was down: logged once per episode. */
+  private unreached(machine: string, sentAt: number, error: unknown) {
+    if (!this.downSince.has(machine)) this.downSince.set(machine, sentAt);
     if (this.reach.failed(machine, this.deps.now()) === 1)
       this.deps.log("Machine children unreachable", { machine, error: String(error) });
   }
@@ -611,7 +619,7 @@ export class MachineChildren implements RemoteChildren {
         ids.map((id) => ThreadId.parse(id)),
       );
       outcome = { kind: "answered" };
-      this.machineReachable(machine);
+      this.machineReachable(machine, startedAt);
     } catch (error) {
       // The machine saying it holds no record of a child is its answer for that child; any
       // other failure is no answer. A working child stays as last seen, saying why; a settled
@@ -620,8 +628,8 @@ export class MachineChildren implements RemoteChildren {
       const machineWide = this.down(machine, startedAt);
       outcome = refusedNotFound(error) ? { kind: "not_found" } : { kind: "failed", machineWide };
       // A refusal for a child it doesn't hold is the machine answering.
-      if (outcome.kind === "not_found") this.machineReachable(machine);
-      if (machineWide) this.unreached(machine, error);
+      if (outcome.kind === "not_found") this.machineReachable(machine, startedAt);
+      if (machineWide) this.unreached(machine, startedAt, error);
       const reason = unreadReason(this.deps.label(machine), error);
       const working = ids.filter((id) => rows.get(id)?.settled === 0);
       for (const id of working) this.unreachable.set(id, reason);
@@ -644,8 +652,8 @@ export class MachineChildren implements RemoteChildren {
         for (const view of views) {
           const row = rows.get(view.threadId);
           if (!row) continue;
-          if (row.settled === 1) this.recheck(row, view);
-          else this.update(row, view);
+          if (row.settled === 1) this.recheck(row, view, startedAt);
+          else this.update(row, view, startedAt);
         }
         // A slow sibling machine must not hold a result already received from this one.
         this.results.drain();
@@ -659,12 +667,12 @@ export class MachineChildren implements RemoteChildren {
       children,
       ids,
       outcome,
-      this.deps.now(),
+      { sent: startedAt, now: this.deps.now() },
       this.schedule,
     );
     this.records.set(machine, folded.records);
     try {
-      // Read at or after their 24 h mark: they leave tracking now, never before.
+      // Read with a read sent at or after their 24 h mark: they leave tracking now, never before.
       this.ledger.endRecheck(
         folded.ended.flatMap((id) => {
           const settledAt = rows.get(id)?.settled_at;
@@ -715,7 +723,7 @@ export class MachineChildren implements RemoteChildren {
    * A settled child re-read: work started on its machine reopens it, so its parent reads it
    * running and waits again; a different result from that work reaches the parent.
    */
-  private recheck(polled: ChildRow, view: MachineThreadView) {
+  private recheck(polled: ChildRow, view: MachineThreadView, sentAt: number) {
     const row = this.ledger.row(polled.id);
     if (
       !row ||
@@ -736,16 +744,19 @@ export class MachineChildren implements RemoteChildren {
     if (outcome === "ignore") return;
     if (outcome === "reopen") this.reopenSettled(row);
     const current = this.ledger.row(row.id);
-    if (current) this.update(current, view);
+    if (current) this.update(current, view, sentAt);
   }
-  /** Applies a status reply read under `polled`; one from before newer work is dropped. */
-  private update(polled: ChildRow, view: MachineThreadView) {
+  /**
+   * Applies a status reply read under `polled`, its read sent at `sentAt`; one from before newer
+   * work is dropped.
+   */
+  private update(polled: ChildRow, view: MachineThreadView, sentAt: number) {
     const current = this.ledger.row(polled.id);
     if (!current || current.generation !== polled.generation) return;
     // A reply read before its pairing went is never applied to a lost or abandoned child.
     if (current.lost_at !== null) return;
     // Any reply is proof of life, even one that changes nothing else.
-    const row = this.liveness.seen(current);
+    const row = this.liveness.seen(current, sentAt);
     if (this.ledger.hasMessages(row.id)) return;
     this.unreachable.delete(row.id);
     if (view.notice) this.results.notice(row, view.notice);

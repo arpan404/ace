@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { RECHECK_POLLS, RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS } from "./child-recheck.ts";
 import {
   asksAlone,
@@ -20,6 +20,9 @@ import {
  * unpaired, mixed) driven turn by turn, with restarts mid-run.
  */
 
+// Each property simulates machines of up to 1,000 children for many minutes, turn by turn.
+vi.setConfig({ testTimeout: 30_000 });
+
 const POLL = 1000;
 const MINUTE = 60_000;
 /** A call that times out takes this long to come back (a status read's own timeout). */
@@ -31,7 +34,9 @@ type Behaviour =
   | { kind: "poisons" }
   | { kind: "times_out" }
   | { kind: "not_found" }
-  | { kind: "flapping" };
+  | { kind: "flapping" }
+  /** Answered, but each reply arrives `ms` after its read went out, after later events. */
+  | { kind: "delayed"; ms: number };
 
 interface SimChild extends ScheduleChild {
   behaviour: Behaviour;
@@ -49,7 +54,7 @@ function random(seed: number) {
   };
 }
 
-const kinds: Behaviour["kind"][] = [
+const kinds: Exclude<Behaviour["kind"], "delayed">[] = [
   "healthy",
   "fails",
   "poisons",
@@ -98,6 +103,8 @@ interface Trace {
   calls: { at: number; ids: string[] }[];
   /** Children the scheduler let go of, and when. */
   ended: Map<string, number>;
+  /** For each child let go of, when the read that ended it went out. */
+  endedBy: Map<string, number>;
   /** When each child's read was last answered, by the simulated machine. */
   answeredAt: Map<string, number[]>;
   /** Isolation breaches: a call mixing a child whose call failed with others. */
@@ -136,6 +143,7 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
     asked: new Map(),
     calls: [],
     ended: new Map(),
+    endedBy: new Map(),
     answeredAt: new Map(),
     breaches: [],
   };
@@ -144,20 +152,28 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
   const pending: { at: number; started: number; ids: string[]; result: CallOutcome }[] = [];
   /** When the machine last answered any call, as the shell keeps it. */
   let answeredAt = Number.NEGATIVE_INFINITY;
+  /** When the read that began the machine's current down episode went out, if it is down. */
+  let downSince: number | undefined;
   const fold = (ids: string[], given: CallOutcome, now: number, started = now) => {
     // A failure while nothing else there answered is the machine's (as the shell marks it).
-    const result: CallOutcome =
-      given.kind === "failed"
-        ? { kind: "failed", machineWide: answeredAt < started - 2 * POLL }
-        : given;
-    const folded = foldCall(records, tracked, ids, result, now, config);
+    const machineWide = answeredAt < started - 2 * POLL;
+    const result: CallOutcome = given.kind === "failed" ? { kind: "failed", machineWide } : given;
+    if (result.kind === "failed" && machineWide) downSince ??= started;
+    const folded = foldCall(records, tracked, ids, result, { sent: started, now }, config);
     records = folded.records;
     if (result.kind !== "failed") {
       answeredAt = now;
-      // The directory's recovery callback, as wired in the daemon: the machine answered.
-      records = machineBack(records, now);
+      // The directory's recovery callback, as wired in the daemon: a call sent once the machine
+      // was down got through, so it is back. One sent before then proves nothing of now.
+      if (downSince !== undefined && started >= downSince) {
+        records = machineBack(records, now);
+        downSince = undefined;
+      }
     }
-    for (const id of folded.ended) trace.ended.set(id, now);
+    for (const id of folded.ended) {
+      trace.ended.set(id, now);
+      trace.endedBy.set(id, started);
+    }
     tracked = tracked.filter((child) => !folded.ended.includes(child.id));
     if (result.kind === "answered") {
       for (const id of ids) {
@@ -194,8 +210,16 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
         asks.set(id, (asks.get(id) ?? 0) + 1);
       }
       const result = outcome(ids, byId, asks);
+      const delay = Math.max(
+        0,
+        ...ids.map((id) => {
+          const behaviour = byId.get(id)?.behaviour;
+          return behaviour?.kind === "delayed" ? behaviour.ms : 0;
+        }),
+      );
       if (ids.some((id) => byId.get(id)?.behaviour.kind === "times_out"))
         pending.push({ at: now + TIMEOUT_MS, started: now, ids, result: { kind: "failed" } });
+      else if (delay > 0) pending.push({ at: now + delay, started: now, ids, result });
       else fold(ids, result, now);
     }
   }
@@ -245,7 +269,7 @@ test("a. holds on machines of up to 1,000 children, all working, all settled or 
       );
     }
   }
-}, 30_000);
+});
 
 test("a. any child that answers when asked alone is asked within the bound, whatever the others do", () => {
   for (const seed of seeds) {
@@ -318,13 +342,16 @@ test("d. no child leaves tracking without an answered check after its 24 h mark;
   for (const seed of seeds) {
     const children = generate(seed, 30, 0);
     const trace = simulate(children, 20 * MINUTE, [9 * MINUTE]);
-    for (const [id, at] of trace.ended) {
+    for (const [id, sent] of trace.endedBy) {
       const child = children.find((entry) => entry.id === id);
       if (!child?.settled || child.settledAt === null) throw new Error(`${id} ended unsettled`);
-      expect(at - child.settledAt, `seed ${seed} ${id}`).toBeGreaterThanOrEqual(RECHECK_WINDOW_MS);
+      // The read that ended it went out at or after its mark, whenever its answer came.
+      expect(sent - child.settledAt, `seed ${seed} ${id}`).toBeGreaterThanOrEqual(
+        RECHECK_WINDOW_MS,
+      );
       expect(child.paired, `seed ${seed} ${id}`).toBe(true);
       // Either a view came back, or the machine said it doesn't hold it: an answer either way.
-      expect(["healthy", "not_found", "flapping", "poisons"], `${seed} ${id}`).toContain(
+      expect(["healthy", "not_found", "flapping", "poisons", "delayed"], `${seed} ${id}`).toContain(
         child.behaviour.kind,
       );
     }
@@ -333,6 +360,83 @@ test("d. no child leaves tracking without an answered check after its 24 h mark;
       expect(trace.ended.has(child.id)).toBe(false);
     }
   }
+});
+
+test("d. with replies arriving long after their reads, only a read sent at or after the 24 h mark ends tracking", () => {
+  for (const seed of seeds) {
+    const next = random(seed * 31);
+    // Settled children whose marks fall during the run; most answer only seconds to a minute
+    // after each read, so many replies to reads sent before a mark arrive after it.
+    const children = generate(seed, 40, 0, "settled", 0.3).map((child) =>
+      Object.assign({}, child, {
+        settledAt: -RECHECK_WINDOW_MS + Math.floor(next() * 10 * MINUTE),
+        unconfirmed: false,
+        behaviour:
+          next() < 0.7
+            ? ({ kind: "delayed", ms: 2_000 + Math.floor(next() * 60_000) } as Behaviour)
+            : child.behaviour,
+      }),
+    );
+    const trace = simulate(children, 20 * MINUTE, [12 * MINUTE + 4000]);
+    expect(trace.endedBy.size, `seed ${seed}`).toBeGreaterThan(0);
+    for (const [id, sent] of trace.endedBy) {
+      const child = children.find((entry) => entry.id === id);
+      expect(sent - (child?.settledAt ?? Infinity), `seed ${seed} ${id}`).toBeGreaterThanOrEqual(
+        RECHECK_WINDOW_MS,
+      );
+    }
+    // And every child whose mark passed early enough was let go of, by such a read.
+    for (const child of children)
+      if (
+        child.paired &&
+        child.behaviour.kind === "delayed" &&
+        (child.settledAt ?? 0) < -2 * MINUTE
+      )
+        expect(trace.endedBy.has(child.id), `seed ${seed} ${child.id}`).toBe(true);
+  }
+});
+
+test("an answer counts as of when its read went out: a reply to a read sent before the mark is an ordinary re-check", () => {
+  const config = defaultScheduleConfig(POLL, 0);
+  const settledAt = 0;
+  const mark = settledAt + RECHECK_WINDOW_MS;
+  const child: ScheduleChild = {
+    id: "c",
+    settled: true,
+    settledAt,
+    unconfirmed: false,
+    paired: true,
+  };
+  const records = new Map<string, ChildRecord>();
+  const answered: CallOutcome = { kind: "answered" };
+  // Sent a second before the mark, answered a minute after it.
+  const late = foldCall(
+    records,
+    [child],
+    ["c"],
+    answered,
+    { sent: mark - 1000, now: mark + 60_000 },
+    config,
+  );
+  expect(late.ended).toEqual([]);
+  // Its next check is due at once (past the mark, from when that read went out), and ends it.
+  const due = nextDue([child], late.records, mark + 60_000, config) ?? Infinity;
+  expect(due).toBeLessThanOrEqual(mark + 60_000);
+  // Sent at the mark, however late its answer: the final check.
+  const final = foldCall(
+    records,
+    [child],
+    ["c"],
+    answered,
+    { sent: mark, now: mark + 60_000 },
+    config,
+  );
+  expect(final.ended).toEqual(["c"]);
+  // The machine saying it doesn't hold it counts the same way.
+  const refused: CallOutcome = { kind: "not_found" };
+  expect(
+    foldCall(records, [child], ["c"], refused, { sent: mark - 1, now: mark + 5 }, config).ended,
+  ).toEqual([]);
 });
 
 test("e. an unconfirmed stop, or a child past its window, keeps to the fast pace", () => {

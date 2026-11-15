@@ -203,7 +203,7 @@ export function startMachines(context: ServiceContext): void {
   });
 
   // Bound once the children exist below: a machine answering again ends their wait on it.
-  let machineReachable: ((machine: string) => void) | undefined;
+  let machineReachable: ((machine: string, sentAt?: number) => void) | undefined;
   // One kept-open, pinned connection per paired machine, so a call costs one round trip.
   // Every socket hand-over checks the pairing is still saved, through one kept-open reader.
   const saved = new SavedPairings(config.dataDir, record("warn"));
@@ -216,7 +216,7 @@ export function startMachines(context: ServiceContext): void {
   const directory = new MachineDirectory({
     connections,
     now,
-    reachable: (machine) => machineReachable?.(machine),
+    reachable: (machine, sentAt) => machineReachable?.(machine, sentAt),
     // Read again only when the pairings file changes, not on every call and poll.
     profiles: cachedProfiles({
       stamp: () => fileStamp(join(config.dataDir, "cli-profiles.sqlite")),
@@ -386,7 +386,7 @@ export function startMachines(context: ServiceContext): void {
     log: record("warn"),
   });
   resources.own(() => children.close());
-  machineReachable = (machine) => children.machineReachable(machine);
+  machineReachable = (machine, sentAt) => children.machineReachable(machine, sentAt);
   // New input on a stopped parent may resume it: what waits for it is tried at once.
   resources.own(
     store.subscribe((events) => {

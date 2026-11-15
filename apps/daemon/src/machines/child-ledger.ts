@@ -450,13 +450,15 @@ export class ChildLedger {
     return this.all(`SELECT * FROM machine_children WHERE ${tracked} AND machine=?`, machine);
   }
   /**
-   * Children read at or after their 24 h mark leave the re-check for good: their re-check window
-   * closes (`settled_at` null), unless they settled again since they were read.
+   * Children whose answered read went out at or after their 24 h mark leave the re-check for
+   * good: their re-check window closes (`settled_at` null), unless they settled again since they
+   * were read, or their pairing went meanwhile (the person is asked about them; their answer, not
+   * this read, decides).
    */
   endRecheck(rows: readonly { id: string; settledAt: number }[]): void {
     this.store.atomic((db) => {
       const end = db.prepare(
-        "UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1 AND settled_at=?",
+        "UPDATE machine_children SET settled_at=NULL WHERE id=? AND settled=1 AND settled_at=? AND lost_at IS NULL",
       );
       for (const row of rows) end.run(row.id, row.settledAt);
     });

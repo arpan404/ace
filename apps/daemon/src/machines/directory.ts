@@ -30,8 +30,11 @@ export interface DirectoryDeps {
   log(message: string, fields: Record<string, unknown>): void;
   /** The tool groups other machines serve here changed, e.g. a Mac now lends its simulators. */
   served?(): void;
-  /** A call to the machine got through, of any kind: it is up, and loops waiting on it go now. */
-  reachable?(machine: string): void;
+  /**
+   * A call to the machine, sent at `sentAt` by `now` when there is one, got through, of any
+   * kind: it is up, and loops waiting on it go now.
+   */
+  reachable?(machine: string, sentAt?: number): void;
   /** Times short reads, so a slow link gets longer timeouts; without it they stay fixed. */
   now?(): number;
 }
@@ -224,7 +227,7 @@ export class MachineDirectory {
         this.timing.answered(machine, at - started, at);
       }
       // Any call getting through says the machine is up: loops waiting on it go now.
-      this.deps.reachable?.(machine);
+      this.deps.reachable?.(machine, started);
       const failures = routine ? this.failing.succeeded(key) : 0;
       if (failures > 0)
         this.deps.log("Machine calls to another device work again", {

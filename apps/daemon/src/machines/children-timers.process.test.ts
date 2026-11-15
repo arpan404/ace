@@ -374,3 +374,109 @@ it("a child whose first read after a backlog fails loses contact only a lease af
   expect(failedOnce.size).toBe(400);
   expect([...lost]).toEqual([]);
 });
+
+/** Runs the earliest timer at its time without waiting for the calls it made (one may be held). */
+async function nextHeld(h: Harness) {
+  let earliest = 0;
+  h.timers.forEach((timer, index) => {
+    if (timer.at < (h.timers[earliest]?.at ?? Infinity)) earliest = index;
+  });
+  const [timer] = h.timers.splice(earliest, 1);
+  if (timer) h.timers.unshift(timer);
+  await h.step();
+}
+
+/** Holds the next status reply and steps until its read has gone out; returns when it went. */
+async function holdNextRead(h: Harness) {
+  const held = h.holdNextStatus();
+  const before = h.asked.length;
+  while (h.asked.length === before) await nextHeld(h);
+  return { held, sent: h.clock.now };
+}
+
+it("d. a reply to a read sent before the 24 h mark that arrives after it is an ordinary re-check", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await next(h);
+  const mark = h.clock.now + RECHECK_WINDOW_MS;
+  // Checked every five minutes by then: the next check goes out before its mark.
+  await run(h, mark - 6 * 60_000);
+  const { held, sent } = await holdNextRead(h);
+  expect(sent).toBeLessThan(mark);
+  // It starts again there before its mark; the reply on its way still says done, and arrives late.
+  h.report(id, working);
+  h.clock.now = mark + 30_000;
+  await held.release();
+  await h.children.flush();
+  // Not the final check: it is read again, and its parent sees it working.
+  await run(h, h.clock.now + 60_000);
+  expect(h.state(id)).toBe("working");
+});
+
+it("c. a success sent before its machine went down doesn't end the waits the outage caused", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const child = h.add("child");
+  h.report(child, working);
+  await run(h, h.clock.now + 2_000);
+  const beforeOutage = h.clock.now;
+  h.reads.error = new MachineFailure("offline");
+  await run(h, h.clock.now + 3 * 60_000);
+  // Right after a failed read, at its 30 s wait: a call sent before the outage gets through.
+  const before = h.asked.length;
+  while (h.asked.length === before) await next(h);
+  h.reads.error = undefined;
+  h.report(child, done("Done."));
+  h.children.machineReachable("studio", beforeOutage);
+  const calls = await run(h, h.clock.now + 3 * POLL);
+  expect(timesOf(calls, child)).toEqual([]);
+  // A call sent now gets through: the machine is back, and its child is read at once.
+  h.children.machineReachable("studio", h.clock.now);
+  await run(h, h.clock.now + 2 * POLL);
+  expect(h.state(child)).toBe("done");
+});
+
+it("d. a final check whose reply arrives after the machine was unpaired leaves the person's question open", async () => {
+  const first = machine(undefined, { pollMs: POLL });
+  const id = first.add("child");
+  first.report(id, done("Done."));
+  await run(first, first.clock.now + 5_000);
+  first.children.close();
+  const h = machine(first.home, { pollMs: POLL, startAt: first.clock.now + 2 * RECHECK_WINDOW_MS });
+  h.report(id, done("Done."));
+  // Its final check goes out; before the reply arrives the machine is unpaired, and the person is
+  // asked about the child.
+  const { held } = await holdNextRead(h);
+  h.pairings.set("studio", undefined);
+  await nextHeld(h);
+  await nextHeld(h);
+  await held.release();
+  await h.children.flush();
+  // The person hasn't answered: the child is not let go of as if they had.
+  expect(h.children.child(id)?.abandoned).toBe(false);
+  // Paired again, it is checked and let go of then.
+  h.pairings.delete("studio");
+  await run(h, h.clock.now + 6 * 60_000);
+  expect(h.children.child(id)?.abandoned).toBe(false);
+  expect(h.timers).toEqual([]);
+});
+
+it("e. a reply to a read sent before a cancel, arriving after it, never counts as reading the stop", async () => {
+  const h = machine(undefined, { pollMs: POLL, stopPlan: [{ action: "cancel", waitMs: 2_000 }] });
+  const id = h.add("child");
+  h.report(id, working);
+  await run(h, h.clock.now + 2_000);
+  const { held } = await holdNextRead(h);
+  // Its machine stops it at once on the cancel; the reply on its way still says working.
+  h.answers.cancel = async (cancelled) => {
+    h.report(cancelled, { state: "cancelled", status: { state: "done" }, result: "Stopped." });
+  };
+  h.children.stop(id);
+  h.clock.now += 5_000;
+  await held.release();
+  await h.children.flush();
+  const contacts = new Set<string | undefined>();
+  await run(h, h.clock.now + 20_000, () => contacts.add(h.children.watched(id)?.view.contact));
+  expect(contacts.has("unconfirmed")).toBe(false);
+  expect(h.state(id)).toBe("cancelled");
+});
