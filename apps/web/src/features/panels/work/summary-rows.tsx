@@ -109,6 +109,8 @@ function RowFrame(
   return (
     <div
       data-row-frame=""
+      data-part="list-row"
+      data-variant="agent"
       className="group/row relative flex min-w-0 flex-wrap items-center rounded-md hover:bg-accent"
     >
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- Enter opens it through the tree's key handler */}

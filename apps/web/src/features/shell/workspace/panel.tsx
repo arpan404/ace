@@ -163,7 +163,11 @@ export function WorkspacePanel(props: {
           actions={actions}
         />
         {/* The showing tab's own actions. */}
-        <div className="flex shrink-0 items-center justify-end gap-0.5">
+        <div
+          data-part="panel-toolbar"
+          data-variant={shown ? `${shown.kind}-actions` : undefined}
+          className="flex shrink-0 items-center justify-end gap-0.5"
+        >
           {shown && shownKind && (
             <Suspense fallback={null}>
               {createElement(shownKind.actions(), { scope: props.scope, tab: shown })}

@@ -199,6 +199,9 @@ function TreeRowView(props: {
   return (
     <div
       role="treeitem"
+      data-part="list-row"
+      data-state={props.current ? "selected" : undefined}
+      data-variant={folder ? "folder" : "file"}
       aria-level={row.depth + 1}
       aria-expanded={folder ? row.open : undefined}
       aria-selected={props.current}
