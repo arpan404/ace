@@ -45,14 +45,18 @@ type Subscribe = { type: string; media?: { connection: string } };
 const subscribes = (requested: unknown[]) =>
   (requested as Subscribe[]).filter((value) => value.type === "browser.subscribe");
 
-async function opened(bound: string | undefined) {
+async function opened(
+  bound: string | undefined,
+  /** `serves`: the daemon answers without `media`, keeping the view on the main socket. */
+  daemon: "binds" | "refuses" | "serves" = "binds",
+) {
   const media = connection();
   media.bind(bound);
-  const browser = await live();
+  const browser = await live(daemon === "serves" ? {} : { media: daemon });
   browser.view.useMedia(media.route);
   browser.view.action({ kind: "open", threadId: "web", viewport });
   await until(() => browser.sink.read("browser:view")?.state != null, "browser state");
-  await until(() => subscribes(browser.requested).length === 1, "subscribe");
+  await until(() => subscribes(browser.requested).length >= 1, "subscribe");
   // The subscribe's reply has landed.
   await new Promise((resolve) => setTimeout(resolve, 0));
   return { ...browser, media };
@@ -105,4 +109,22 @@ test("without a media connection the view is delivered and acknowledged on the m
   view.action({ kind: "ack", sequence: 2 });
   expect(media.carried).toEqual([]);
   expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 2 })]);
+});
+
+test("a daemon that serves the view on its main socket keeps its acks there", async () => {
+  const { requested, sent, view, media } = await opened("mc_aaaaaaaa", "serves");
+  expect(subscribes(requested)[0]?.media).toEqual({ connection: "mc_aaaaaaaa" });
+  view.action({ kind: "ack", sequence: 6 });
+  expect(media.carried).toEqual([]);
+  expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 6 })]);
+});
+
+test("a refused media connection subscribes the view again on the main socket", async () => {
+  const { requested, sent, view, media } = await opened("mc_aaaaaaaa", "refuses");
+  await until(() => subscribes(requested).length === 2, "subscribe without the connection");
+  expect(subscribes(requested)[1]?.media).toBeUndefined();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  view.action({ kind: "ack", sequence: 8 });
+  expect(media.carried).toEqual([]);
+  expect(sent).toEqual([expect.objectContaining({ type: "browser.ack", sequence: 8 })]);
 });

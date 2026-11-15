@@ -117,7 +117,7 @@ test("a new main session closes the old media connection and asks for a new one"
 test("a daemon that refuses media.connect keeps every picture on the main socket", async () => {
   const asked = nativeSockets();
   const main = session(async () => {
-    throw new ClientError("unknown_type", "Unknown message type");
+    throw new ClientError("protocol", "Unknown message type");
   });
   const media = phoneMedia(main.owner, { schedule: never, now: () => 0, codecs: () => [] });
   await later();

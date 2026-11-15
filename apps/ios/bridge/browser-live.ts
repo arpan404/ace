@@ -520,7 +520,9 @@ export class BrowserLive {
     watch.subscribing = true;
     const generation = watch.generation;
     const h264Only = this.#h264Only;
+    const binding = this.#media.route?.binding()?.connection;
     const { media } = this.#media.fields(watch.threadId);
+    let refused = false;
     void this.#owner
       .request({
         type: "browser.subscribe",
@@ -535,12 +537,19 @@ export class BrowserLive {
         (reply) => {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
+            // A connection the daemon won't bind for this view: it goes on the main socket.
+            if (this.#media.refused(watch.threadId, new Error(reply.error ?? ""))) {
+              refused = true;
+              return;
+            }
             watch.error = reply.error ?? "browser_failed";
             this.#putView(watch);
             return;
           }
           watch.error = undefined;
           watch.subscribed = true;
+          // Delivery by the media connection only when the daemon's answer says so.
+          this.#media.subscribed(watch.threadId, reply.media);
           // The menu's note names the machine's default; read again on each new subscription.
           void this.#engine.readDefault();
           watch.retry?.();
@@ -552,9 +561,9 @@ export class BrowserLive {
       )
       .finally(() => {
         watch.subscribing = false;
-        // The binding moved while this subscribe was on its way: name the new one.
-        const moved = media?.connection !== this.#media.route?.binding()?.connection;
-        if (h264Only !== this.#h264Only || (moved && this.#watch === watch)) {
+        // The binding moved while this subscribe was on its way, or the daemon refused it.
+        const moved = binding !== this.#media.route?.binding()?.connection;
+        if (h264Only !== this.#h264Only || ((moved || refused) && this.#watch === watch)) {
           watch.subscribed = false;
           this.#subscribe(watch);
         }

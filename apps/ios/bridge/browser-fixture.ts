@@ -25,6 +25,12 @@ export async function liveBrowser(
     browser?: boolean;
     read?: ChunkReader;
     names?: Record<string, string>;
+    /**
+     * How the daemon answers a subscribe naming a media connection (ADR 0147 §4): `binds` says
+     * so in its reply, `refuses` refuses it as another session's, and by default it serves the
+     * view on the main socket as the fake daemon does.
+     */
+    media?: "binds" | "refuses";
     devices?: { storage: KeyValueStorage; ready: Promise<void> };
     context?: Pick<
       BrowserThreadContext,
@@ -43,7 +49,17 @@ export async function liveBrowser(
   const owner: BrowserOwner = {
     request: (message, requestOptions) => {
       requested.push(message);
-      return client.request(message, requestOptions);
+      const named = message.type === "browser.subscribe" ? message.media : undefined;
+      if (named && options.media === "refuses")
+        return Promise.resolve({
+          type: "browser.result",
+          requestId: "refused",
+          ok: false,
+          error: "media-connection: that media connection isn't this session's",
+        }) as ReturnType<typeof client.request>;
+      const reply = client.request(message, requestOptions);
+      if (!named || options.media !== "binds") return reply;
+      return reply.then((value) => ({ ...value, media: { connection: named.connection } }));
     },
     send: (message) => {
       sent.push(message);

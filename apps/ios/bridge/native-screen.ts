@@ -1,10 +1,9 @@
-import { nativeVideoCodecs } from "./video-codecs.ts";
 import { ScreenClientError, ScreenStreamClient } from "@ace/client/screen-stream";
 import { ScreenAck, ScreenOperation, ScreenState } from "@ace/protocol";
 import { z } from "zod";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { scheduler } from "./host.ts";
-import { MediaViews } from "./media-views.ts";
+import { HeldStreams } from "./held-streams.ts";
 import { phoneScreenSessions, type ScreenAgentLabel } from "./screen-view.ts";
 import {
   nativeFeatureChannel,
@@ -38,15 +37,10 @@ export function screenFailure(error: unknown): { message: string; code?: string 
 
 /** A dedicated screen channel. Native video bypasses JavaScript and input is never replayed. */
 export class NativeScreen {
-  #h264Only = new Set<string>();
-  /** Which apps' pictures come by the media connection, and where their acks go. */
-  readonly #views = new MediaViews((sessionId) => {
-    if (!this.client.getSnapshot().connected) return;
-    void this.client.request(this.#subscribe({ sessionId })).catch(() => {});
-  });
+  /** The apps this phone watches live; the shared client decides how their pictures arrive. */
+  readonly #streams: HeldStreams;
   readonly client: ScreenStreamClient;
   readonly connection: NativeFeatureConnection;
-  #ack: ((value: z.infer<typeof ScreenAck>) => Promise<void>) | undefined;
   readonly label: ScreenAgentLabel;
   readonly #machine: () => Promise<string | undefined>;
   constructor(
@@ -61,36 +55,30 @@ export class NativeScreen {
       id: config.id,
       schedule: (callback, delay) => scheduler.set(delay, callback),
     });
+    this.#streams = new HeldStreams(this.client);
     this.connection = new NativeFeatureConnection({
       state: () => this.client.getSnapshot(),
       watch: (listener) => this.client.watch(listener),
       end: () => this.client.disconnect(),
       begin: () => {
-        const channel = nativeFeatureChannel(config, "screen");
-        this.#ack = (value) => channel.send(value);
-        this.client.connect(channel);
+        this.client.connect(nativeFeatureChannel(config, "screen"));
       },
     });
   }
   /** Take the apps' pictures by this media connection while it has a binding (ADR 0147 §4). */
   useMedia(route: MediaRoute | undefined): void {
-    this.#views.use(route);
-  }
-  /** A watching view's subscribe: this phone's decoders, and the media connection if open. */
-  #subscribe<T extends { sessionId: string }>(operation: T) {
-    return {
-      ...operation,
-      op: "subscribe" as const,
-      codecs: this.#h264Only.has(operation.sessionId) ? ["avc1.42E033"] : nativeVideoCodecs(),
-      ...this.#views.subscribe(operation.sessionId),
-    };
+    this.#streams.useMedia(route);
   }
   async request(raw: z.infer<typeof NativeScreenRequest>, signal: AbortSignal): Promise<unknown> {
     await this.connection.ready(signal);
     if (raw.type === "screen.request") {
-      const operation =
-        raw.operation.op === "subscribe" ? this.#subscribe(raw.operation) : raw.operation;
-      return this.client.request(operation, { signal });
+      // A watching view holds the stream; the shared client subscribes it, on the media
+      // connection when there is one, and again whenever that changes.
+      if (raw.operation.op === "subscribe") {
+        this.#streams.hold(raw.operation.sessionId);
+        return null;
+      }
+      return this.client.request(raw.operation, { signal });
     }
     const states = z
       .array(ScreenState)
@@ -101,23 +89,20 @@ export class NativeScreen {
   handle(action: z.infer<typeof NativeScreenControl>): void {
     if (action.type === "native.screen.close") {
       this.connection.close();
-      this.#ack = undefined;
-      this.#views.reset();
+      this.#streams.clear();
     } else if (action.type === "screen.ack") {
-      const { fallback, ...wire } = action;
-      if (!this.#views.ack(action.sessionId, wire)) void this.#ack?.(wire).catch(() => {});
-      if (fallback && !this.#h264Only.has(action.sessionId)) {
-        this.#h264Only.add(action.sessionId);
-        const operation = this.#subscribe({ sessionId: action.sessionId });
-        void this.client.request(operation).catch(() => {});
-      }
+      this.#streams.ack(
+        action.sessionId,
+        action.streamId,
+        action.sequence,
+        action.keyframe === true,
+      );
+      if (action.fallback) this.#streams.fallBack();
+    } else if (action.type === "native.screen.unwatch") {
+      this.#streams.release(action.sessionId);
     } else if (this.client.getSnapshot().connected) {
-      if (action.type === "native.screen.unwatch") this.#views.forget(action.sessionId);
-      const operation =
-        action.type === "native.screen.unwatch"
-          ? { op: "unsubscribe" as const, sessionId: action.sessionId }
-          : { op: "controller" as const, sessionId: action.sessionId, controller: "none" as const };
-      void this.client.request(operation).catch(() => {});
+      const operation = { op: "controller" as const, sessionId: action.sessionId };
+      void this.client.request({ ...operation, controller: "none" }).catch(() => {});
     }
   }
 }

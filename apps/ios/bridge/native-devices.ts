@@ -1,6 +1,5 @@
-import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { MediaRoute } from "@ace/browser/live-view";
-import { MediaViews } from "./media-views.ts";
+import { HeldStreams } from "./held-streams.ts";
 import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
@@ -124,16 +123,11 @@ export interface NativeDevicesOptions {
 const retryMs = 10_000;
 
 export class NativeDevices {
-  #h264Only = new Set<string>();
-  /** Which devices' pictures come by the media connection, and where their acks go. */
-  readonly #views = new MediaViews((deviceId) => {
-    if (!this.client.getSnapshot().connected) return;
-    void this.client.request(this.#subscribe({ deviceId })).catch(() => {});
-  });
+  /** The devices this phone watches live; the shared client decides how their pictures arrive. */
+  readonly #streams: HeldStreams;
   readonly client: DeviceClient;
   readonly connection: NativeFeatureConnection;
   readonly options: NativeDevicesOptions | undefined;
-  #ack: ((value: z.infer<typeof DeviceAck>) => Promise<void>) | undefined;
   #view: ViewWatch | undefined;
   #stopView: (() => void) | undefined;
   #closed = false;
@@ -159,29 +153,19 @@ export class NativeDevices {
       id: config.id,
       schedule: (callback, delay) => scheduler.set(delay, callback),
     });
+    this.#streams = new HeldStreams(this.client);
     this.connection = new NativeFeatureConnection({
       state: () => this.client.getSnapshot(),
       watch: (listener) => this.client.watch(listener),
       end: () => this.client.disconnect(),
       begin: () => {
-        const channel = nativeFeatureChannel(config, "devices");
-        this.#ack = (value) => channel.send(value);
-        this.client.connect(channel);
+        this.client.connect(nativeFeatureChannel(config, "devices"));
       },
     });
   }
   /** Take the devices' pictures by this media connection while it has a binding (ADR 0147 §4). */
   useMedia(route: MediaRoute | undefined): void {
-    this.#views.use(route);
-  }
-  /** A watching view's subscribe: this phone's decoders, and the media connection if open. */
-  #subscribe<T extends { deviceId: string }>(operation: T) {
-    return {
-      ...operation,
-      op: "subscribe" as const,
-      codecs: this.#h264Only.has(operation.deviceId) ? ["avc1.42E033"] : nativeVideoCodecs(),
-      ...this.#views.subscribe(operation.deviceId),
-    };
+    this.#streams.useMedia(route);
   }
   async request(raw: z.infer<typeof NativeDeviceRequest>, signal: AbortSignal): Promise<unknown> {
     await this.connection.ready(signal);
@@ -208,9 +192,13 @@ export class NativeDevices {
     if (operation.op === "screenshot") throw new Error("Use the native live view");
     if (operation.op === "controller") return this.#controller(operation, raw.threadId);
     if (controlled.has(operation.op)) return this.#act(operation, raw.threadId);
-    return this.client.request(
-      operation.op === "subscribe" ? this.#subscribe(operation) : operation,
-    );
+    // A watching view holds the stream; the shared client subscribes it, on the media
+    // connection when there is one, and again whenever that changes.
+    if (operation.op === "subscribe") {
+      this.#streams.hold(operation.deviceId);
+      return null;
+    }
+    return this.client.request(operation);
   }
   handle(action: z.infer<typeof NativeDeviceControl>): void {
     switch (action.type) {
@@ -218,20 +206,19 @@ export class NativeDevices {
         this.#closeView();
         this.#closeLogs();
         this.connection.close();
-        this.#ack = undefined;
-        this.#views.reset();
+        this.#streams.clear();
         return;
       case "devices.ack":
-        {
-          const { fallback, ...wire } = action;
-          if (!this.#views.ack(action.deviceId, wire)) void this.#ack?.(wire).catch(() => {});
-          if (fallback && !this.#h264Only.has(action.deviceId)) {
-            this.#h264Only.add(action.deviceId);
-            void this.client
-              .request(this.#subscribe({ deviceId: action.deviceId }))
-              .catch(() => {});
-          }
-        }
+        this.#streams.ack(
+          action.deviceId,
+          action.streamId,
+          action.sequence,
+          action.keyframe === true,
+        );
+        if (action.fallback) this.#streams.fallBack();
+        return;
+      case "native.devices.unwatch":
+        this.#streams.release(action.deviceId);
         return;
       case "native.devices.view":
         this.#watchView(action);
@@ -245,13 +232,8 @@ export class NativeDevices {
         return;
       default:
         if (!this.client.getSnapshot().connected) return;
-        if (action.type === "native.devices.unwatch") this.#views.forget(action.deviceId);
         void this.client
-          .request(
-            action.type === "native.devices.unwatch"
-              ? { op: "unsubscribe", deviceId: action.deviceId }
-              : { op: "controller", deviceId: action.deviceId, controller: "none" },
-          )
+          .request({ op: "controller", deviceId: action.deviceId, controller: "none" })
           .catch(() => {});
     }
   }
