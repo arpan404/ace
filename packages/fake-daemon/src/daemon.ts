@@ -490,6 +490,10 @@ export class FakeDaemon implements Host {
    * Seed what a long-running daemon's services hold: decks, automations and their runs,
    * installed plugins and the forge's pull requests. Threads a seed links to must exist.
    */
+  /** The Suit library (ADR 0150). */
+  get suits(): import("./suits-wire.ts").FakeSuits {
+    return this.servicesWire.suits;
+  }
   seedServices(seed: ServicesSeed): void {
     this.servicesWire.seed(seed);
   }

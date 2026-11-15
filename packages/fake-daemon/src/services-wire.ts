@@ -34,6 +34,7 @@ import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeAutomationWire, type AutomationSeed } from "./automation-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
+import { FakeSuits } from "./suits-wire.ts";
 import { fakePreviewSuggestions } from "./preview-suggestions.ts";
 import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
 export type { FakeWireSession } from "./service-context.ts";
@@ -108,6 +109,8 @@ export class FakeServicesWire {
   readonly files: FakeFilesWire;
   private automations: FakeAutomationWire;
   private plugins = new FakePluginsWire();
+  /** The Suit library (ADR 0150): tests set its folders and send an agent's `suitActive`. */
+  readonly suits = new FakeSuits();
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
@@ -187,6 +190,10 @@ export class FakeServicesWire {
     const machineUpdate = this.machineUpdate.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
     const skills = skillSession(this.skills, emit);
+    // Pushes only reach a signed-in socket, as the daemon's do.
+    const suits = this.suits.session((message) => {
+      if (owner) emit(message);
+    });
     const browser = fakeBrowserSession(
       this.browser,
       this.host,
@@ -234,6 +241,7 @@ export class FakeServicesWire {
         stopUsing?.();
         catalog.close();
         skills.close();
+        suits.close();
         picker?.abort();
         stopProjects();
 
@@ -531,6 +539,10 @@ export class FakeServicesWire {
               ok: true,
               health: fakeHealth(this.host.now(), this.host.threads().length),
             });
+            return;
+          }
+          if (message.type === "suitRequest") {
+            suits.handle(message);
             return;
           }
           if (message.type === "pluginRequest") {

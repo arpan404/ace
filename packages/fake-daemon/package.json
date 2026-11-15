@@ -27,6 +27,7 @@
     "@ace/provider-kit": "workspace:*",
     "@ace/search": "workspace:*",
     "@ace/settings": "workspace:*",
+    "@ace/suits": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "@ace/usage": "workspace:*",
     "@ace/workspace": "workspace:*",
