@@ -120,6 +120,12 @@ export class LaneRecords {
     return plains;
   }
 
+  /** Bytes of a record that has started arriving and not finished: at an end, a cut record. */
+  get partial(): boolean {
+    return this.#raw.length > 0;
+  }
+
+  /** Wipes both keys and drops what was buffered; nothing seals or opens after. */
   close(): void {
     this.#closed = true;
     this.#send.destroy();

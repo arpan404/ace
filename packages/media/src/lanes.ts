@@ -185,17 +185,23 @@ export function authenticateLane(
       if (listener) listener(chunk);
       else held.push(chunk);
     };
-    const end = (error?: Error) => {
-      if (ended) return;
-      ended = error ? { error } : {};
-      for (const next of ends.splice(0)) next(error);
-    };
-    const fail = (error: Error) => {
+    /**
+     * The one way the lane ends, whatever ends it (an end of the socket, a record that fails to
+     * open, an explicit destroy): it is marked failed and its keys are wiped first, then the
+     * handshake is rejected or the open lane's consumers are told, once.
+     */
+    const terminate = (error?: Error) => {
+      if (phase === "failed") return;
+      const before = phase;
       phase = "failed";
       expected.fill(0);
       records?.close();
-      reject(error);
+      if (before !== "open")
+        return reject(error ?? new Error(`The ${lane} lane closed during authentication`));
+      ended = error ? { error } : {};
+      for (const next of ends.splice(0)) next(error);
     };
+    const fail = (error: Error) => terminate(error);
     const sealedSocket: LaneSocket = {
       write(chunk, done) {
         if (!records || phase !== "open") {
@@ -213,7 +219,10 @@ export function authenticateLane(
         if (ended) next(ended.error);
         else ends.push(next);
       },
-      destroy: () => socket.destroy(),
+      destroy() {
+        terminate();
+        socket.destroy();
+      },
     };
     /** Opens what arrived; the first plaintext must be exactly the accept byte. */
     const received = (chunk: Uint8Array) => {
@@ -222,10 +231,7 @@ export function authenticateLane(
         plains = records?.open(chunk) ?? [];
       } catch {
         socket.destroy();
-        const error = new Error(`A ${lane} lane record failed to open`);
-        if (phase === "accept") return fail(error);
-        phase = "failed";
-        return end(error);
+        return terminate(new Error(`A ${lane} lane record failed to open`));
       }
       for (const plain of plains) {
         if (phase === "accept") {
@@ -264,9 +270,9 @@ export function authenticateLane(
       received(rest);
     });
     socket.onEnd((error) => {
-      if (phase === "open") return end(error);
-      if (phase === "failed") return;
-      fail(error ?? new Error(`The ${lane} lane closed during authentication`));
+      // A record cut off by the end is an integrity failure, never a clean end.
+      const cut = records?.partial === true;
+      terminate(error ?? (cut ? new Error(`The ${lane} lane ended inside a record`) : undefined));
     });
     socket.write(hello, () => hello.fill(0));
   });
