@@ -77,7 +77,7 @@ export function WhenPopover(props: {
         sideOffset={10}
         aria-label="When it runs"
         finalFocus={props.returnFocus}
-        className="flex max-h-[min(36rem,var(--available-height))] w-72 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
+        className="flex max-h-[min(36rem,var(--available-height))] w-80 max-w-[calc(100vw-2rem)] flex-col overflow-y-auto p-1"
       >
         <WhenFields form={form} onChange={props.onChange} errors={props.errors} now={now} />
       </PopoverContent>
