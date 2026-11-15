@@ -22,14 +22,23 @@ export class FrameReader {
   #emptied: (() => void)[] = [];
   /** How the reader closes a socket it refuses a frame from; `socket.close` by default. */
   #refuse: (code: number) => void;
+  #sensitive: () => boolean;
+  /** Frames taken while `sensitive`: zero-filled once forwarded. */
+  #marked = new WeakSet<Uint8Array>();
   constructor(
     socket: WebSocket,
     options: {
       permit?: () => Promise<void> | undefined;
       onFrame?: (bytes: number) => boolean;
       refuse?: (code: number) => void;
+      /**
+       * Whether a frame arriving now is first-flight material (a client not yet paired): such a
+       * frame is zero-filled once forwarded (`wipeWhenSent`), as everything dropped always is.
+       */
+      sensitive?: () => boolean;
     } = {},
   ) {
+    this.#sensitive = options.sensitive ?? (() => false);
     this.#socket = socket;
     this.#refuse = options.refuse ?? ((code) => socket.close(code));
     this.#permit = options.permit ?? (() => undefined);
@@ -41,38 +50,62 @@ export class FrameReader {
         return;
       }
       if (this.#error) return;
-      this.#take(
-        Array.isArray(data)
-          ? Buffer.concat(data)
-          : data instanceof ArrayBuffer
-            ? Buffer.from(data)
-            : data,
-      );
+      if (Array.isArray(data)) {
+        // A fragmented message: one buffer of its own, and the fragments wiped at once.
+        const whole = Buffer.concat(data);
+        for (const fragment of data) fragment.fill(0);
+        this.#take(whole);
+      } else this.#take(data instanceof ArrayBuffer ? Buffer.from(data) : data);
     });
     socket.on("close", () => this.fail(new Error("Relay connection closed")));
     socket.on("error", (error) => this.fail(error));
   }
   /**
    * A client's first frame that came in its upgrade request (ADR 0155, step 3): taken exactly as
-   * if it had arrived as a frame, before any that did.
+   * if it had arrived as a frame, before any that did. The reader owns `frame` from here, the
+   * same buffer and no copy: it is zero-filled when dropped or once forwarded.
    */
   inject(frame: Uint8Array): void {
-    if (this.#error) return;
-    this.#take(Buffer.from(frame));
+    if (this.#error) {
+      frame.fill(0);
+      return;
+    }
+    this.#take(
+      Buffer.isBuffer(frame)
+        ? frame
+        : Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength),
+    );
+  }
+  /**
+   * Zero-fills `frame` once `written` settles, if it was taken while `sensitive`: a client's
+   * first-flight frame, after the socket has finished sending it.
+   */
+  wipeWhenSent(frame: Uint8Array, written: Promise<unknown>): void {
+    if (!this.#marked.has(frame)) return;
+    this.#marked.delete(frame);
+    void written.then(
+      () => frame.fill(0),
+      () => frame.fill(0),
+    );
   }
   #take(frame: Buffer): void {
     {
       const socket = this.#socket;
-      if (!this.#onFrame(frame.length)) return;
+      if (!this.#onFrame(frame.length)) {
+        frame.fill(0);
+        return;
+      }
       if (
         frame.length > FRAME_LIMIT ||
         this.#bytes + frame.length > QUEUE_LIMIT ||
         this.#queue.length >= 256
       ) {
+        frame.fill(0);
         this.fail(new Error("Frame queue limit"));
         this.#refuse(1009);
         return;
       }
+      if (this.#sensitive()) this.#marked.add(frame);
       if (this.#pending) {
         const pending = this.#pending;
         this.#pending = undefined;
@@ -113,6 +146,8 @@ export class FrameReader {
   }
   fail(error: Error): void {
     this.#error = error;
+    // What is dropped is wiped: a client's queued first-flight frames above all.
+    for (const frame of this.#queue) frame.fill(0);
     this.#queue = [];
     this.#bytes = 0;
     this.#pending?.reject(error);

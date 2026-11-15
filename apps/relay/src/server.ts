@@ -249,13 +249,13 @@ export async function startRelay(options: RelayOptions = {}) {
         // before the offer goes out, so no join can pair the client ahead of it.
         if (upgraded) {
           connection.fromUpgrade = true;
-          // The reader holds its own copy as the early frame; this one is wiped at once.
+          // The one buffer moves to the reader, which wipes it when forwarded or dropped.
           connection.reader.inject(upgraded);
-          upgraded.fill(0);
         }
         await apply(actions);
       }
-      upgraded?.fill(0);
+      // Not taken (an unknown purpose): wiped here.
+      if (upgraded && !connection.fromUpgrade) upgraded.fill(0);
     } else if (url.pathname === "/join")
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
@@ -362,6 +362,8 @@ export async function startRelay(options: RelayOptions = {}) {
         client: url.pathname === "/client",
         paired: false,
         reader: new FrameReader(ws, {
+          // A client's frames before it is paired are first-flight material.
+          sensitive: () => connection.client && !connection.paired,
           permit: () => throttle.wait(peerBudget, abort.signal),
           // A frame the reader refuses (text, over its queue) from a client not yet paired
           // turns it away like any other refusal; anything else closes as before.

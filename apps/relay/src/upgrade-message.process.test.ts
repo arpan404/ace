@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { keyPair } from "@ace/secure-channel";
 import { startRelay } from "./server.ts";
+import { FrameReader } from "./socket.ts";
 import { EARLY_FRAME, NK_UPGRADE_MESSAGE, UPGRADE_MESSAGE } from "./wire.ts";
 import { Offer, address, json, openPeer, register } from "./testing/peer.ts";
 
@@ -17,10 +18,11 @@ const entry = (bytes: Uint8Array) =>
   UPGRADE_MESSAGE.prefix + Buffer.from(bytes).toString("base64url");
 const first = new Uint8Array(32).map((_, i) => i + 1);
 
-async function relayWithHost() {
-  const relay = await startRelay();
+async function relayWithHost(limits: { ticketTimeoutMs?: number } = {}) {
+  const relay = await startRelay({ limits });
   cleanups.push(() => relay.close());
-  const daemon = await register(relay.url, keyPair());
+  const keys = keyPair();
+  const daemon = await register(relay.url, keys);
   cleanups.push(() => daemon.close());
   const offer = async () =>
     Offer.parse(json(daemon.transport.receive.decrypt(await daemon.next()))).ticket;
@@ -43,7 +45,7 @@ async function relayWithHost() {
     cleanups.push(() => joined.close());
     return joined;
   };
-  return { relay, daemon, offer, client, join };
+  return { relay, keys, daemon, offer, client, join };
 }
 
 const within = (next: Promise<Buffer>, ms = 300) =>
@@ -252,4 +254,86 @@ it("an upgrade that never completes leaves no entry behind", async () => {
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(h.relay.upgradeEntries()).toBe(0);
   expect(h.relay.earlyHeld()).toMatchObject({ reserved: 0, frames: 0 });
+});
+
+// Every exit of a first message taken from the upgrade wipes the one buffer the relay holds it
+// in (the reader's, handed over without a copy).
+
+/** The buffers the relay hands its readers as early frames, from here on. */
+function handedOver() {
+  const taken: Uint8Array[] = [];
+  const real = FrameReader.prototype.inject;
+  const spy = vi.spyOn(FrameReader.prototype, "inject");
+  spy.mockImplementation(function (this: FrameReader, frame: Uint8Array) {
+    taken.push(frame);
+    real.call(this, frame);
+  });
+  cleanups.push(() => spy.mockRestore());
+  return taken;
+}
+const zero = (bytes: Uint8Array | undefined) =>
+  bytes !== undefined && bytes.every((byte) => byte === 0);
+const until = async (check: () => boolean) => {
+  for (let n = 0; n < 200 && !check(); n++) await new Promise((resolve) => setTimeout(resolve, 10));
+  return check();
+};
+const nkClientOf = async (h: Awaited<ReturnType<typeof relayWithHost>>) => {
+  const client = await openPeer(
+    address(h.relay.url, "/client", { hostId: h.daemon.hostId, [EARLY_FRAME.query]: "1" }),
+    nkOffer(nkFirst),
+  );
+  cleanups.push(() => client.close());
+  return client;
+};
+
+it("forwarded: the host gets the message, then the relay's buffer is wiped", async () => {
+  const taken = handedOver();
+  const h = await relayWithHost();
+  const client = await nkClientOf(h);
+  expect(taken).toHaveLength(1);
+  const joined = await h.join(await h.offer());
+  expect([...(await joined.next())]).toEqual([...nkFirst]);
+  expect(await until(() => zero(taken[0]))).toBe(true);
+  void client;
+});
+
+it.each([
+  [
+    "expired",
+    async (h: Awaited<ReturnType<typeof relayWithHost>>) => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      h.relay.sweep();
+    },
+  ],
+  [
+    "rejected by the host",
+    async (h: Awaited<ReturnType<typeof relayWithHost>>) => {
+      const ticket = await h.offer();
+      await h.daemon.send(
+        h.daemon.transport.send.encrypt(
+          new TextEncoder().encode(JSON.stringify({ type: "reject", ticket })),
+        ),
+      );
+    },
+  ],
+  [
+    "its host replaced",
+    async (h: Awaited<ReturnType<typeof relayWithHost>>) => {
+      const again = await register(h.relay.url, h.keys);
+      cleanups.push(() => again.close());
+    },
+  ],
+  [
+    "disconnected",
+    async (_h: unknown, client: Awaited<ReturnType<typeof openPeer>>) => {
+      client.socket.terminate();
+    },
+  ],
+] as const)("%s before pairing: the relay's buffer is wiped", async (_name, exit) => {
+  const taken = handedOver();
+  const h = await relayWithHost({ ticketTimeoutMs: 200 });
+  const client = await nkClientOf(h);
+  expect(zero(taken[0])).toBe(false);
+  await exit(h, client);
+  expect(await until(() => zero(taken[0]))).toBe(true);
 });

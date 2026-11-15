@@ -64,18 +64,35 @@ export const NK_UPGRADE_MESSAGE = {
   maxBytes: Math.floor(((UPGRADE_MESSAGE.entryBytes - "ace.n1.".length) * 3) / 4),
 } as const;
 
-/** One entry's message, canonical unpadded base64url of `min` to `max` bytes, or undefined. */
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * `encoded`, canonical unpadded base64url of `min` to `max` bytes, decoded into one fresh Buffer
+ * the caller owns (and zero-fills when done), or undefined. Canonical form is checked on the
+ * text (alphabet, length, unused trailing bits), so no second decoded copy is ever made.
+ */
+export function decodeFirstMessage(encoded: string, min: number, max: number): Buffer | undefined {
+  const tail = encoded.length % 4;
+  if (!encoded.length || tail === 1 || !/^[A-Za-z0-9_-]+$/.test(encoded)) return undefined;
+  const bytes = Math.floor((encoded.length * 3) / 4);
+  if (bytes < min || bytes > max) return undefined;
+  // The last character's bits past the final byte must be zero, or the text isn't canonical.
+  const last = BASE64URL.indexOf(encoded.at(-1) ?? "");
+  if ((tail === 2 && (last & 0x0f) !== 0) || (tail === 3 && (last & 0x03) !== 0)) return undefined;
+  const message = Buffer.alloc(bytes);
+  if (message.write(encoded, 0, "base64url") !== bytes) {
+    message.fill(0);
+    return undefined;
+  }
+  return message;
+}
+
+/** One entry's message by `decodeFirstMessage`, or undefined. */
 function decodeEntry(offered: string[], prefix: string, min: number, max: number) {
   const entries = offered.filter((entry) => entry.startsWith(prefix));
   const [entry] = entries;
   if (entries.length !== 1 || !entry || entry.length > UPGRADE_MESSAGE.entryBytes) return undefined;
-  const encoded = entry.slice(prefix.length);
-  if (!encoded.length || !/^[A-Za-z0-9_-]+$/.test(encoded)) return undefined;
-  const bytes = Uint8Array.from(Buffer.from(encoded, "base64url"));
-  // Canonical only: the bytes encode back to the same text.
-  if (bytes.length < min || bytes.length > max) return undefined;
-  if (Buffer.from(bytes).toString("base64url") !== encoded) return undefined;
-  return bytes;
+  return decodeFirstMessage(entry.slice(prefix.length), min, max);
 }
 
 /**
@@ -84,9 +101,7 @@ function decodeEntry(offered: string[], prefix: string, min: number, max: number
  * nothing. Called only after room is reserved, so an upgrade without room never has an entry
  * decoded.
  */
-export function takenUpgradeMessage(
-  header: string,
-): { message: Uint8Array; echo: string } | undefined {
+export function takenUpgradeMessage(header: string): { message: Buffer; echo: string } | undefined {
   if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
   const offered = header.split(",").map((entry) => entry.trim());
   if (offered.includes(NK_UPGRADE_MESSAGE.subprotocol)) {
@@ -109,22 +124,17 @@ export function takenUpgradeMessage(
  * no `ace.v2`, nothing kept or forwarded. Called only after room is reserved, so an upgrade
  * without room never has its entry decoded.
  */
-export function upgradeMessage(header: string): Uint8Array | undefined {
+export function upgradeMessage(header: string): Buffer | undefined {
   if (header.length > UPGRADE_MESSAGE.headerBytes) return undefined;
   const offered = header.split(",").map((entry) => entry.trim());
   if (!offered.includes(UPGRADE_MESSAGE.subprotocol)) return undefined;
   const entries = offered.filter((entry) => entry.startsWith(UPGRADE_MESSAGE.prefix));
-  const [entry] = entries;
-  if (entries.length !== 1 || !entry || entry.length > UPGRADE_MESSAGE.entryBytes) return undefined;
-  const encoded = entry.slice(UPGRADE_MESSAGE.prefix.length);
-  if (encoded.length !== UPGRADE_MESSAGE.messageCharacters || !/^[A-Za-z0-9_-]+$/.test(encoded))
+  if (entries[0]?.length !== UPGRADE_MESSAGE.prefix.length + UPGRADE_MESSAGE.messageCharacters)
     return undefined;
-  const bytes = Uint8Array.from(Buffer.from(encoded, "base64url"));
-  // Canonical only: exactly the first message's length, encoding back to the same text.
-  if (
-    bytes.length !== UPGRADE_MESSAGE.messageBytes ||
-    Buffer.from(bytes).toString("base64url") !== encoded
-  )
-    return undefined;
-  return bytes;
+  return decodeEntry(
+    offered,
+    UPGRADE_MESSAGE.prefix,
+    UPGRADE_MESSAGE.messageBytes,
+    UPGRADE_MESSAGE.messageBytes,
+  );
 }

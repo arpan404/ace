@@ -33,6 +33,8 @@ export function pairStreams(
           throw new Error("Relay buffer cap");
         const written = sendFrame(destination.socket, frame);
         void written.catch(close);
+        // A client's first-flight frame is zero-filled once the socket has sent it.
+        source.reader.wipeWhenSent(frame, written);
         stats.forwardedFrames++;
         stats.peakBufferedBytes = Math.max(
           stats.peakBufferedBytes,

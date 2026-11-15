@@ -212,7 +212,10 @@ export class RelayObject extends DurableObject<Env> {
         // frame and its reservation in one step (`#release`), and anything it sends after that
         // finds no attachment and is dropped.
         const actions = this.#routing().early(attachment.id, frame.length);
-        if (actions.length) return this.#apply(actions);
+        if (actions.length) {
+          frame.fill(0);
+          return this.#apply(actions);
+        }
         // Held for the daemon's join: in memory, and marked in the attachment, so an eviction
         // before the join is noticed rather than forwarding nothing.
         this.#held.set(attachment.id, frame);
@@ -373,8 +376,13 @@ export class RelayObject extends DurableObject<Env> {
         client.send(new Uint8Array([capable ? EARLY_FRAME.capableMarker : PAIRED_MARKER]));
         // The client's early frame is the first thing the joining daemon reads. Sent, it is no
         // longer held here, so its room comes back now.
-        if (action.early && held) host.send(held);
-        else if (action.early) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
+        if (action.early && held) {
+          // `send` copies the bytes into the outgoing message, so the held copy is wiped now.
+          host.send(held);
+          held.fill(0);
+        } else if (action.early) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
+        // Not forwarded (a pairing without the early flag): wiped as it is let go.
+        else held?.fill(0);
         this.#routing().releaseEarly(action.client);
         continue;
       }
