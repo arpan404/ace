@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { keepBrowserEngine, moveBrowserEngine, type ClientApi } from "@ace/client";
+import {
+  keepBrowserEngine,
+  moveBrowserEngine,
+  type ClientApi,
+  type StreamMessage,
+} from "@ace/client";
 import {
   BrowserScreenshotSet,
   BrowserState,
@@ -29,7 +34,7 @@ import { LivePicture } from "./live-picture.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
 import { readBrowserLogs } from "@ace/ui-core";
 import { PageStates } from "./page-states.ts";
-import { ThreadVideos } from "./thread-videos.ts";
+import { ThreadVideos, type BrowserVideoChunk } from "./thread-videos.ts";
 import { ThreadAudio } from "./thread-audio.ts";
 import {
   webAudioOutput,
@@ -43,6 +48,27 @@ import {
   type VideoDecoderFactory,
   type VideoSupport,
 } from "@/lib/video/codecs.ts";
+import type { MediaConnection } from "@ace/client/media";
+import { imagePoster, type PosterDecoder } from "@/lib/video/poster.ts";
+import {
+  channelPath,
+  mediaRetryCooldownMs,
+  mediaSubscribeDeadlineMs,
+  MediaSubscriptions,
+  type MediaRoute,
+} from "@ace/browser/live-view";
+
+/**
+ * How long a subscribe naming a media connection stays correlated with its reply: past the view's
+ * own deadline (`mediaSubscribeDeadlineMs`), so a late reply still settles its delivery.
+ */
+const lateReplyMs = 120_000;
+
+/** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
+export type PreviewMedia = Pick<
+  MediaConnection,
+  "binding" | "settled" | "watch" | "onStream" | "ack"
+>;
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
@@ -99,6 +125,7 @@ const view = (state: BrowserState): BrowserView => ({
   annotation: state.annotation,
   features: state.features,
   recording: state.recording,
+  acceleration: state.acceleration,
 });
 
 const wireInput = (input: ForwardedInput): BrowserInput => {
@@ -154,9 +181,20 @@ interface Watch {
   generation: number;
   count: number;
   subscribed: boolean;
-  subscribing: boolean;
+  /**
+   * The generation whose subscribe is in flight and gates the next one. Released when that
+   * generation ends (an invalidation) or its deadline passes, though its request stays open for
+   * a late reply.
+   */
+  subscribing: number | undefined;
   /** Cancels the next poll. */
   cancel: (() => void) | undefined;
+  /** Cancels the retry of a failed subscribe waiting on the ladder (`mediaRetryDelaysMs`). */
+  retry: (() => void) | undefined;
+  /** An event already skipped this ladder step's wait: the next one waits it out. */
+  skipped: boolean;
+  /** The ladder is spent and `retry` is its cooldown, which no event skips. */
+  cooling: boolean;
 }
 
 export interface PreviewOptions {
@@ -179,6 +217,13 @@ export interface PreviewOptions {
   audioOutput?: AudioOutputFactory | null;
   /** Local time in ms on the speaker's clock; omitted: `performance.now()`. */
   clock?: () => number;
+  /**
+   * The daemon connection's media connection: with a binding, video subscribes name it, comes
+   * by it and is acked on it. Omitted: everything stays on the client's socket.
+   */
+  media?: PreviewMedia;
+  /** Decodes a subscribe's poster; omitted: `createImageBitmap`. */
+  poster?: PosterDecoder;
 }
 
 /**
@@ -227,6 +272,22 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (!shown?.emulation) send();
   };
   const frames = new Map<string, LivePicture>();
+  const media = binaryFrames ? options.media : undefined;
+  /**
+   * Each thread's video delivery, shared with the screen and device channels: one generation per
+   * subscribe, video held either way until its reply settles it, refusals, failures and timeouts.
+   * It names the media connection only while this client decodes video at all.
+   */
+  let decodesVideo = false;
+  const route: MediaRoute | undefined = media && {
+    binding: () => (decodesVideo ? media.binding() : undefined),
+    codecs: () => [],
+    watch: (listener) => media.watch(listener),
+    onStream: (listener) => media.onStream(listener),
+    ack: (message) => media.ack(message),
+  };
+  const deliveries = new MediaSubscriptions<BrowserVideoChunk>();
+  deliveries.use(route);
   /** Each thread's tabs' last pictures from when they were shown (split view's other half). */
   const stills = new Map<string, Map<string, LivePicture>>();
   /** The shown tab changed: its picture stays as that tab's still instead of being dropped. */
@@ -318,13 +379,18 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     captures.delete(threadId);
     videos.delete(threadId);
     sounds.delete(threadId);
+    deliveries.forget(threadId);
   };
   /**
    * The thread's stream starts over (a reconnect, a pause, another backend). Its last picture
    * stays until the new stream's first keyframe replaces it.
    */
+  /** A subscribe's delivery ends (a new socket, unsubscribed, disposed): its reply changes nothing. */
+  const endDelivery = (threadId: string) => deliveries.end(threadId);
   const invalidate = (threadId: string, watch: Watch) => {
     watch.generation++;
+    stopRetry(watch);
+    endDelivery(threadId);
     videos.reset(threadId);
     sounds.reset(threadId);
     // The next subscription sends every tab's page state again.
@@ -351,19 +417,64 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
    * known, what it shows. A client that decodes none still subscribes, for the tabs and the
    * page's state; it shows no picture.
    */
-  const subscribe = async (threadId: string) => {
+  const subscribe = async (threadId: string, deadline?: () => void): Promise<unknown> => {
     if (disposed) throw new Error("preview_disposed");
     const codecs = await videos.codecs();
     if (disposed) throw new Error("preview_disposed");
+    // A first subscribe waits for the media connection to open or give up, so it names it.
+    if (codecs.length) await media?.settled();
+    if (disposed) throw new Error("preview_disposed");
     const viewport = captures.get(threadId);
-    const reply = await request({
-      type: "browser.subscribe",
-      threadId: ThreadId.parse(threadId),
-      ...(binaryFrames ? { binaryFrames: true } : {}),
-      ...(viewport ? { viewport } : {}),
-      ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
-    });
-    if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    decodesVideo = codecs.length > 0;
+    // This subscribe supersedes any still in flight: their replies change nothing from here on.
+    const { generation, fields } = deliveries.begin(threadId);
+    const binding = fields.media;
+    // No answer in time: the thread's video is the socket's until its reply comes, if it does.
+    const cancelDeadline = binding
+      ? later(() => {
+          deliveries.abandon(threadId, generation);
+          if (deliveries.generation(threadId) === generation) deadline?.();
+        }, mediaSubscribeDeadlineMs)
+      : undefined;
+    let reply: Awaited<
+      ReturnType<typeof request<{ type: "browser.subscribe"; threadId: ThreadId }>>
+    >;
+    try {
+      reply = await request(
+        {
+          type: "browser.subscribe",
+          threadId: ThreadId.parse(threadId),
+          ...(binaryFrames ? { binaryFrames: true } : {}),
+          ...(viewport ? { viewport } : {}),
+          ...(codecs.length ? { video: { codecs: [...codecs] } } : {}),
+          ...(binding ? { media: binding } : {}),
+        },
+        binding ? { timeoutMs: lateReplyMs } : undefined,
+      );
+    } catch (error) {
+      deliveries.failed(threadId, generation, error);
+      throw error;
+    } finally {
+      cancelDeadline?.();
+    }
+    if (!reply.ok) {
+      const error = new Error(reply.error ?? "browser_failed");
+      // A connection the daemon won't bind for this session: subscribe on the socket instead.
+      // Any other failure keeps (or falls back to) a delivery, and the poll tries again.
+      if (deliveries.failed(threadId, generation, error) === "resubscribe")
+        return subscribe(threadId, deadline);
+      throw error;
+    }
+    if (deliveries.generation(threadId) !== generation) return reply.result;
+    // Only a reply naming the connection moves the video there (ace-media may not serve it).
+    // Video that came the settled way while the reply was on its way (the daemon replays a page's
+    // last picture before answering) shows now; the rest is dropped.
+    const settled = deliveries.subscribed(threadId, generation, reply.media);
+    const decode = captures.get(threadId)?.nativeShown !== true;
+    for (const { frame } of settled.pictures) videos.receive(threadId, frame, decode);
+    if (settled.ask) ack(threadId, settled.ask.frame.sequence, true);
+    const poster = deliveries.poster(threadId);
+    if (poster) void showPoster(threadId, generation, poster);
     return reply.result;
   };
   /** A person's browser command, in the tab it names (else the one shown). */
@@ -436,15 +547,65 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }).catch(() => {});
   };
   /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
+  /**
+   * A subscribe failed: try again on the shared ladder. Once it is spent, the connection isn't
+   * named any more and the regular poll subscribes on the socket.
+   */
+  const retryLater = (threadId: string, watch: Watch) => {
+    watch.retry?.();
+    const delay = deliveries.retryDelay(threadId);
+    // Spent: the connection isn't named again, and the next try (the socket's) waits out the
+    // cooldown, as does every one after it while they keep failing.
+    if (delay === undefined) deliveries.giveUp(threadId);
+    watch.skipped = false;
+    watch.cooling = delay === undefined;
+    watch.retry = later(() => {
+      watch.retry = undefined;
+      watch.cooling = false;
+      if (watches.get(threadId) === watch) poll(threadId);
+    }, delay ?? mediaRetryCooldownMs);
+  };
+  /** The waiting retry (and its step) ends: an invalidation, an unmount, a dispose. */
+  const stopRetry = (watch: Watch) => {
+    watch.retry?.();
+    watch.retry = undefined;
+    watch.skipped = false;
+    watch.cooling = false;
+  };
+  /**
+   * Something changed that a subscribe may now succeed on (an agent opened the browser, the page
+   * opened or switched engine, the page shows again): a retry waiting on the ladder goes at once.
+   */
+  const pollNow = (threadId: string, watch: Watch) => {
+    // At most one event skips each ladder step's wait, and none skips the cooldown: a page
+    // shown and hidden over and over never turns into a request each time.
+    if (watch.retry && !watch.cooling && !watch.skipped) {
+      watch.retry();
+      watch.retry = undefined;
+      watch.skipped = true;
+    }
+    watch.cancel?.();
+    poll(threadId);
+  };
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
     if (disposed || !watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
-    if (!watch.subscribed && !watch.subscribing) {
-      watch.subscribing = true;
+    if (!watch.subscribed && watch.subscribing !== watch.generation && !watch.retry) {
       const generation = watch.generation;
+      watch.subscribing = generation;
       const reported = captures.get(threadId);
-      void subscribe(threadId)
+      const ours = () => watches.get(threadId) === watch && watch.generation === generation;
+      const ungate = () => {
+        if (watch.subscribing === generation) watch.subscribing = undefined;
+      };
+      // No answer in time: the thread's video is the socket's, and the poll isn't held up by a
+      // request still open for its late reply.
+      const deadline = () => {
+        if (ours()) watch.subscribed = true;
+        ungate();
+      };
+      void subscribe(threadId, deadline)
         .then(
           () => {
             // A view that left and came back meanwhile (a tab replaced by another, a remount)
@@ -458,10 +619,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
             } else if (!current && !disposed)
               void call("browser.unsubscribe", threadId).catch(() => {});
           },
-          () => {},
+          () => {
+            if (!ours()) return;
+            watch.subscribed = false;
+            retryLater(threadId, watch);
+          },
         )
         .finally(() => {
-          watch.subscribing = false;
+          ungate();
           // State can follow the initial frame. Replay resets that viewer's backpressure
           // without acknowledging a decode from a previous lifetime.
           if (watches.get(threadId) === watch && watch.generation !== generation) poll(threadId);
@@ -471,8 +636,48 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     watch.cancel?.();
     watch.cancel = later(() => poll(threadId), retryMs);
   };
+  /** The poster shows until the first video picture replaces it, never over one. */
+  const showPoster = async (
+    threadId: string,
+    generation: number,
+    poster: { width: number; height: number; jpeg: string },
+  ) => {
+    // The delivery and the view it was decoded for: it shows only if both are still current.
+    const watch = watches.get(threadId);
+    const picture = await (options.poster ?? imagePoster)(poster);
+    if (!picture) return;
+    const stale =
+      disposed ||
+      !watch ||
+      watches.get(threadId) !== watch ||
+      deliveries.generation(threadId) !== generation;
+    if (stale || frames.has(threadId)) return picture.close();
+    const { width, height } = captureOf(threadId);
+    frames.set(
+      threadId,
+      new LivePicture(
+        { width, height, codedWidth: poster.width, codedHeight: poster.height },
+        picture,
+      ),
+    );
+    changed(threadId);
+  };
   /** ACKs video chunks up to `sequence` (cumulative); `keyframe` asks for a fresh start. */
   const ack = (threadId: string, sequence: number, keyframe: boolean) => {
+    // The decoder is reset whenever the delivery changes, so what it acks is the current one's.
+    const way = deliveries.way(threadId, deliveries.generation(threadId) ?? 0);
+    // Video of a connection that has since closed is acked nowhere, never on another one.
+    if (way === "stale") return;
+    if (way === "media") {
+      media?.ack({
+        type: "browser.ack",
+        threadId: ThreadId.parse(threadId),
+        sequence,
+        video: true,
+        ...(keyframe ? { keyframe: true as const } : {}),
+      });
+      return;
+    }
     try {
       client.send({
         type: "browser.ack",
@@ -548,17 +753,52 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   try {
     stops.push(client.onMessage(receive));
-    const stopStream = client.onStream?.((message) => {
-      if (message.kind === "browser.video" && !disposed)
-        videos.receive(
-          message.threadId,
-          message.chunk,
-          captures.get(message.threadId)?.nativeShown !== true,
-        );
-      else if (message.kind === "browser.audio" && !disposed && watches.has(message.threadId))
+    /** Stream messages that came by `path`: only the way the thread's subscribe expects. */
+    /**
+     * Stream messages that came by `path`: video only the way the thread's subscribe expects (held
+     * either way until its reply settles it), sound likewise.
+     */
+    const onStream = (path: string) => (message: StreamMessage) => {
+      if (disposed) return;
+      if (message.kind === "browser.video") {
+        const stamped = deliveries.arrive(message.threadId, path, message.chunk);
+        if (stamped)
+          videos.receive(
+            message.threadId,
+            stamped.frame,
+            captures.get(message.threadId)?.nativeShown !== true,
+          );
+      } else if (
+        message.kind === "browser.audio" &&
+        watches.has(message.threadId) &&
+        deliveries.expects(message.threadId, path)
+      )
         sounds.receive(message.threadId, message.chunk);
-    });
+    };
+    const stopStream = client.onStream?.(onStream(channelPath));
     if (stopStream) stops.push(stopStream);
+    if (media) {
+      // Pieces on the media connection are of the connection it has now.
+      stops.push(
+        media.onStream((message) => {
+          const connection = media.binding()?.connection;
+          if (connection) onStream(connection)(message);
+        }),
+      );
+      // A new binding (opened, lost, reopened with a new id): every watched thread subscribes
+      // again with it, as after a new socket.
+      stops.push(
+        media.watch(() => {
+          if (client.state !== "ready") return;
+          for (const [threadId, watch] of watches) {
+            watch.subscribed = false;
+            invalidate(threadId, watch);
+            watch.cancel?.();
+            poll(threadId);
+          }
+        }),
+      );
+    }
     // A drop, or a move to another socket (ADR 0114), ends the daemon's subscriptions there.
     const socket = client.connectionGeneration();
     let current = socket.getSnapshot();
@@ -580,8 +820,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         if (!visibility.visible()) return;
         for (const [threadId, watch] of watches) {
           if (seen(threadId)) videos.settle(threadId);
-          watch.cancel?.();
-          poll(threadId);
+          pollNow(threadId, watch);
         }
       }),
     );
@@ -593,9 +832,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         browsing = threads;
         for (const threadId of started) {
           const watch = watches.get(threadId);
-          if (!watch || watch.subscribed || watch.subscribing) continue;
-          watch.cancel?.();
-          poll(threadId);
+          if (!watch || watch.subscribed || watch.subscribing === watch.generation) continue;
+          pollNow(threadId, watch);
         }
       }),
     );
@@ -630,10 +868,14 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       disposed = true;
       lifetime.abort();
       for (const stop of stops) stop();
-      for (const watch of watches.values()) watch.cancel?.();
+      for (const watch of watches.values()) {
+        watch.cancel?.();
+        stopRetry(watch);
+      }
       watches.clear();
       for (const threadId of new Set([...frames.keys(), ...stills.keys()])) release(threadId);
       videos.dispose();
+      deliveries.reset();
       sounds.dispose();
       views.clear();
       pages.clear();
@@ -661,7 +903,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           generation: 0,
           count: 1,
           subscribed: false,
-          subscribing: false,
+          subscribing: undefined,
+          retry: undefined,
+          skipped: false,
+          cooling: false,
           cancel: undefined,
         };
         watches.set(threadId, watch);
@@ -679,6 +924,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         });
       };
       function stop() {
+        // Nobody watches any more: a view that comes back starts afresh (its ladder, what it
+        // refused), not where this one gave up.
+        deliveries.forget(threadId);
+        stopRetry(current);
         watches.delete(threadId);
         current.cancel?.();
         // The subscription ends: a later view's stream starts from its own keyframe, and a
@@ -735,8 +984,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           views.set(threadId, view(state.data));
           changed(threadId);
         }
-        watch.cancel?.();
-        poll(threadId);
+        pollNow(threadId, watch);
       }
       return state.success ? view(state.data) : undefined;
     },
@@ -849,8 +1097,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         if (!watch) return;
         views.set(threadId, view(state));
         changed(threadId);
-        watch.cancel?.();
-        poll(threadId);
+        pollNow(threadId, watch);
       });
     },
     annotate,

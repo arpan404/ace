@@ -73,6 +73,8 @@ export interface DevicesView {
   personActive: boolean;
   /** Where the agent using it last acted, in device points. */
   agentPointer: AgentPointer | undefined;
+  /** What the selected device's live video runs on while ace-media carries it (ADR 0148). */
+  acceleration: DeviceState["acceleration"];
   stateLoaded: boolean;
   /** Every device's controller and holder, for the list's tiles. */
   controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
@@ -232,6 +234,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     activity: state?.activity,
     personActive: state?.controller === "agent" && state.personActive === true,
     agentPointer: state?.controller === "agent" ? state.agentPointer : undefined,
+    acceleration: state?.acceleration,
     stateLoaded: state !== undefined,
     controllers: new Map(
       snapshot.states.map((entry) => [
