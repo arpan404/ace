@@ -207,6 +207,8 @@
 
 [data-part="thread-row"] {
   counter-increment: stage;
+  position: relative;
+  padding-left: 22px;
   border-radius: 0;
   margin-block: 3px;
   transition: background-color 80ms steps(2);
@@ -217,8 +219,8 @@
 [data-part="thread-row"]::before {
   content: counter(stage, decimal-leading-zero);
   position: absolute;
-  left: -2px;
-  top: 6px;
+  left: 4px;
+  top: 9px;
   font-family: var(--suit-display);
   font-size: 9px;
   line-height: 1;
@@ -231,7 +233,7 @@
 }
 [data-part="thread-row"][data-state="active"]::before {
   content: "";
-  left: -14px;
+  left: 5px;
   top: 50%;
   width: 10px;
   height: 14px;
@@ -294,6 +296,21 @@
     2px 0 0 0 var(--suit-ink);
 }
 
+[data-page="pulls"] [data-part="header-title"]::before,
+[data-page="pull"] [data-part="header-title"]::before,
+[data-page="issues"] [data-part="header-title"]::before,
+[data-page="issue"] [data-part="header-title"]::before,
+[data-page="inbox"] [data-part="header-title"]::before,
+[data-page="review"] [data-part="header-title"]::before {
+  content: "QUEST";
+}
+[data-page="settings"] [data-part="header-title"]::before {
+  content: "OPTIONS";
+}
+[data-page="new-thread"] [data-part="header-title"]::before {
+  content: "NEW GAME";
+}
+
 [data-part="header"] [data-part="icon-button"],
 [data-part="header"] [data-part="button"] {
   border-radius: 0;
@@ -354,6 +371,7 @@
   --suit-f: #221e52;
   --suit-h: #322d70;
   padding: 18px 76px 16px 20px;
+  overflow: visible;
   margin-left: auto;
   max-width: min(100%, 36rem);
 }
@@ -467,6 +485,9 @@
   border-left: 3px solid var(--status-working);
   border-radius: 0;
 }
+[data-part="working-line"][data-state="waiting"] {
+  border-left-color: var(--status-needs-you);
+}
 
 /* While an agent works, a stepped loading bar runs along the composer's top edge. */
 @keyframes loading-bar {
@@ -480,16 +501,16 @@
 [data-part="app"]:has([data-part="working-line"][data-state="working"]) [data-part="composer"]::before {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  top: -15px;
-  height: 6px;
+  left: 6px;
+  right: 6px;
+  top: 6px;
+  height: 4px;
   background: repeating-linear-gradient(
       90deg,
       var(--status-working) 0 12px,
       transparent 12px 24px
     )
-    0 0 / 24px 6px repeat-x;
+    0 0 / 24px 4px repeat-x;
   opacity: 0.85;
   animation: loading-bar 0.6s steps(4) infinite;
 }
@@ -499,13 +520,14 @@
 [data-part="question-card"] {
   border: 3px double currentColor;
   border-radius: 0;
+  padding: 6px 10px;
   font-family: var(--font-sans);
 }
-[data-part="composer"]:has([data-part="approval-strip"])::after,
-[data-part="composer"]:has([data-part="question-card"][data-state="waiting"])::after {
-  content: "CHOOSE ▼";
+[data-part="main"]:has([data-part="approval-strip"][data-state="waiting"]) [data-part="composer"]::after,
+[data-part="main"]:has([data-part="question-card"][data-state="waiting"]) [data-part="composer"]::after {
+  content: "▲ CHOOSE";
   position: absolute;
-  top: -12px;
+  top: -11px;
   right: 18px;
   padding: 4px 7px 3px;
   font-family: var(--suit-display);
@@ -696,6 +718,17 @@
 [data-part="kbd"] {
   --suit-s: var(--suit-ink);
 }
+/* A state pill keeps ace's fill; the Suit only squares it off with an ink rim. */
+[data-part="badge"][data-variant] {
+  border-radius: 0;
+  background: revert-layer;
+  color: revert-layer;
+  box-shadow:
+    0 -2px 0 0 var(--suit-ink),
+    0 2px 0 0 var(--suit-ink),
+    -2px 0 0 0 var(--suit-ink),
+    2px 0 0 0 var(--suit-ink);
+}
 [data-part="branch-chip"] {
   font-family: var(--font-mono);
 }
@@ -824,7 +857,58 @@
   border-top: 2px dashed #2b2766;
 }
 
-/* The pull request list is the quest board. */
+/* The pull request list is the quest board: a tag on its box, and its own plate over the sidebar's. */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"],
+[data-page="inbox"] [data-part="card"] {
+  position: relative;
+  overflow: visible;
+}
+[data-page="pulls"] [data-part="card"]::before,
+[data-page="issues"] [data-part="card"]::before,
+[data-page="inbox"] [data-part="card"]::before {
+  content: "QUEST BOARD";
+  position: absolute;
+  top: -14px;
+  left: 14px;
+  z-index: 1;
+  padding: 5px 8px 4px;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: var(--color-tint-foreground);
+  background: var(--color-tint);
+  box-shadow:
+    0 -2px 0 0 var(--suit-ink),
+    0 2px 0 0 var(--suit-ink),
+    -2px 0 0 0 var(--suit-ink),
+    2px 0 0 0 var(--suit-ink);
+}
+[data-part="sidebar"]::before {
+  content: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 294px;
+  height: 45px;
+  pointer-events: none;
+  background: no-repeat 0 0 / 294px 45px;
+}
+[data-page="pulls"] [data-part="sidebar"]::before,
+[data-page="pull"] [data-part="sidebar"]::before,
+[data-page="issues"] [data-part="sidebar"]::before,
+[data-page="issue"] [data-part="sidebar"]::before,
+[data-page="inbox"] [data-part="sidebar"]::before,
+[data-page="review"] [data-part="sidebar"]::before {
+  content: "";
+  background-image: url("assets/sprites/plate-quests.svg");
+}
+[data-page="settings"] [data-part="sidebar"]::before {
+  content: "";
+  background-image: url("assets/sprites/plate-options.svg");
+}
 [data-page="pulls"] [data-part="page-title"]::before,
 [data-page="issues"] [data-part="page-title"]::before {
   content: "QUEST BOARD ▸ ";
@@ -848,8 +932,22 @@
 [data-part="pr-row"][data-variant="merged"] {
   --suit-f: #151238;
 }
-[data-page="pull"] [data-part="pr-header"] [data-part="page-title"] {
+/* Long titles and prose read in the interface and reading faces, never the display face. */
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"],
+[data-page="automation"] [data-part="page-title"],
+[data-page="skill"] [data-part="page-title"] {
+  font-family: var(--font-sans);
+  font-weight: 700;
   text-transform: none;
+  letter-spacing: 0;
+  font-size: 20px;
+}
+[data-part="card"][data-variant="description"],
+[data-part="review-comment"] {
+  font-family: var(--font-prose);
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 [data-page="pull"][data-variant="merged"] [data-part="page-title"]::after {
   content: " ★ CLEAR";

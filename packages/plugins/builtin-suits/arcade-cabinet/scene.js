@@ -188,8 +188,11 @@ function drawText(text, x, y, scale, colour) {
   }
 }
 
+// The main column sits right of the sidebar, so the celebration centres there, not on the window.
+const centreX = () => Math.round(cols * (cols > 300 ? 0.62 : 0.5));
+
 function startConfetti() {
-  const cx = cols / 2;
+  const cx = centreX();
   const cy = rows * 0.42;
   for (let i = 0; i < maxConfetti; i++) {
     const angle = random() * Math.PI * 2;
@@ -205,7 +208,7 @@ function startConfetti() {
 function drawClear(since, dt) {
   const t = since / clearMs;
   // Rays: eight stepped spokes that grow, then fade with the banner.
-  const cx = Math.round(cols / 2);
+  const cx = centreX();
   const cy = Math.round(rows * 0.42);
   const reach = Math.min(1, since / 400) * Math.min(cols, rows) * 0.45;
   const fade = since > clearMs - 600 ? (clearMs - since) / 600 : 1;
@@ -226,7 +229,7 @@ function drawClear(since, dt) {
     fill(confettiColours[confColour[i]], confX[i], confY[i], 2, 2);
   }
   // The banner: STAGE CLEAR! in a plate, popping in over two steps.
-  const scale = cols > 260 ? 3 : 2;
+  const scale = cols > 200 ? 2 : 1;
   const text = "STAGE CLEAR!";
   const textW = text.length * 6 * scale - scale;
   const textH = 7 * scale;
