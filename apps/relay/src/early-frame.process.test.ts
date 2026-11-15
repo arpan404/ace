@@ -200,3 +200,53 @@ it("16 clients that each send two full frames and never answer the close hold at
   // Room came back only once the sockets were gone.
   expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
 });
+
+/** 16 early clients the relay turns away for `misbehave`, each reading nothing after. */
+async function turnedAway(
+  misbehave: (client: Awaited<ReturnType<typeof openPeer>>) => unknown,
+  query: Record<string, string> = {},
+) {
+  const h = await relayWithHost();
+  for (let n = 0; n < EARLY_FRAME.hostFrames; n++) {
+    const client = await openPeer(
+      address(h.relay.url, "/client", {
+        hostId: h.daemon.hostId,
+        [EARLY_FRAME.query]: "1",
+        ...query,
+      }),
+      [EARLY_FRAME.subprotocol, EARLY_FRAME.neutral],
+    );
+    cleanups.push(() => client.close());
+    await misbehave(client);
+    // It never answers the relay's close.
+    client.socket.pause();
+  }
+  return h;
+}
+
+/** Waits until the host's early room is all free again, and how long that took. */
+async function freed(h: Awaited<ReturnType<typeof relayWithHost>>): Promise<number> {
+  const started = Date.now();
+  while (h.relay.earlyHeld().reserved > 0 && Date.now() - started < 5_000)
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(h.relay.earlyHeld()).toEqual({ reserved: 0, frames: 0, bytes: 0, queuedBytes: 0 });
+  return Date.now() - started;
+}
+
+it("clients asking for an unknown purpose hold no early room, even when they never answer the close", async () => {
+  const h = await turnedAway(() => {}, { purpose: "bogus" });
+  expect(await freed(h)).toBeLessThan(1_500);
+  expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
+});
+
+it("clients turned away for a text frame give their room back within the deadline, unanswered", async () => {
+  const h = await turnedAway((client) => client.socket.send("not binary"));
+  expect(await freed(h)).toBeLessThan(1_500);
+  expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
+});
+
+it("clients turned away for an oversized message give their room back within the deadline, unanswered", async () => {
+  const h = await turnedAway((client) => client.send(new Uint8Array(EARLY_FRAME.frameBytes + 1)));
+  expect(await freed(h)).toBeLessThan(1_500);
+  expect((await h.client()).socket.protocol).toBe(EARLY_FRAME.subprotocol);
+});

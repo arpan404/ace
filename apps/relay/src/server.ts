@@ -56,6 +56,8 @@ type Connection = {
   paired: boolean;
   /** Its early frame is held: reading it is paused until pairing (ADR 0155). */
   earlyHold?: (() => void) | undefined;
+  /** It is being turned away (`turnAway`): closed, and cut at the deadline. */
+  cutting?: boolean;
 };
 /**
  * A client the relay closes before it is paired gets this long to finish the close; then its
@@ -135,14 +137,7 @@ export async function startRelay(options: RelayOptions = {}) {
       if (!connection) continue;
       if (action.type === "close") {
         if (connection.client && !connection.paired) {
-          // Nothing of an unpaired client is kept once it is turned away: its queued frames go
-          // now, it is read no more, and its socket is cut after a short deadline whatever it
-          // does. Its reservation comes back when the socket is gone.
-          connection.reader.fail(new Error("Closed by the relay"));
-          connection.socket.pause();
-          connection.socket.close(action.code, action.reason);
-          const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => connection.socket.terminate());
-          connection.socket.once("close", cut);
+          turnAway(connection, action.code, action.reason);
           continue;
         }
         connection.socket.close(action.code, action.reason);
@@ -172,6 +167,26 @@ export async function startRelay(options: RelayOptions = {}) {
       );
     }
   }
+  /**
+   * Every way a client is turned away before it is paired ends here (ADR 0155): its queued
+   * frames go now, it is read no more, and its socket is cut after a short deadline whatever it
+   * does, so withholding the close answer holds nothing. Its early-frame reservation comes back
+   * when the socket is gone (`routing.close`).
+   */
+  function turnAway(connection: Connection, code: number, reason: string): void {
+    if (connection.cutting) return;
+    connection.cutting = true;
+    connection.reader.fail(new Error("Closed by the relay"));
+    connection.socket.pause();
+    try {
+      connection.socket.close(code, reason);
+    } catch {
+      connection.socket.terminate();
+      return;
+    }
+    const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => connection.socket.terminate());
+    connection.socket.once("close", cut);
+  }
   async function route(id: string, url: URL, connection: Connection): Promise<void> {
     if (url.pathname === "/host") {
       const control = await respondHandshake(connection.socket, connection.reader, {
@@ -196,7 +211,7 @@ export async function startRelay(options: RelayOptions = {}) {
       }
     } else if (url.pathname === "/client") {
       const purpose = clientPurpose(url);
-      if (purpose === "invalid") connection.socket.close(1008, "Unknown purpose");
+      if (purpose === "invalid") turnAway(connection, 1008, "Unknown purpose");
       else
         await apply(
           routing.request(
@@ -260,6 +275,7 @@ export async function startRelay(options: RelayOptions = {}) {
       .map((protocol) => protocol.trim());
     if (
       url.pathname === "/client" &&
+      clientPurpose(url) !== "invalid" &&
       offered.includes(EARLY_FRAME.subprotocol) &&
       !connections.has(id) &&
       routing.reserveEarly(id, url.searchParams.get("hostId") ?? "")
@@ -287,6 +303,12 @@ export async function startRelay(options: RelayOptions = {}) {
         paired: false,
         reader: new FrameReader(ws, {
           permit: () => throttle.wait(peerBudget, abort.signal),
+          // A frame the reader refuses (text, over its queue) from a client not yet paired
+          // turns it away like any other refusal; anything else closes as before.
+          refuse: (code) =>
+            connection.client && !connection.paired
+              ? turnAway(connection, code, "")
+              : ws.close(code),
           onFrame: (bytes) => {
             connection.lastActivity = clock.now();
             // Before pairing, a client may send one frame it reserved room for; any other is
@@ -306,7 +328,16 @@ export async function startRelay(options: RelayOptions = {}) {
         }),
       };
       connections.set(id, connection);
-      ws.on("error", () => {});
+      // The socket library closes on a protocol error it finds itself (a message over the
+      // frame size, a bad frame) and then waits for the answer: a client not yet paired is cut
+      // at the deadline instead.
+      ws.on("error", () => {
+        if (!connection.client || connection.paired || connection.cutting) return;
+        connection.cutting = true;
+        connection.reader.fail(new Error("Socket error"));
+        const cut = clock.schedule(UNPAIRED_CLOSE_MS, () => ws.terminate());
+        ws.once("close", cut);
+      });
       let controlQueue: Promise<void> = Promise.resolve();
       let controls = 0;
       function acceptControl(data: Buffer, reply: () => void): void {

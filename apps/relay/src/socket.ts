@@ -20,20 +20,24 @@ export class FrameReader {
   #onFrame: (bytes: number) => boolean;
   /** Waiting for the queue to be empty (`whenEmpty`). */
   #emptied: (() => void)[] = [];
+  /** How the reader closes a socket it refuses a frame from; `socket.close` by default. */
+  #refuse: (code: number) => void;
   constructor(
     socket: WebSocket,
     options: {
       permit?: () => Promise<void> | undefined;
       onFrame?: (bytes: number) => boolean;
+      refuse?: (code: number) => void;
     } = {},
   ) {
     this.#socket = socket;
+    this.#refuse = options.refuse ?? ((code) => socket.close(code));
     this.#permit = options.permit ?? (() => undefined);
     this.#onFrame = options.onFrame ?? (() => true);
     socket.on("message", (data, binary) => {
       if (!binary) {
         this.fail(new Error("Binary frames required"));
-        socket.close(1003);
+        this.#refuse(1003);
         return;
       }
       if (this.#error) return;
@@ -49,7 +53,7 @@ export class FrameReader {
         this.#queue.length >= 256
       ) {
         this.fail(new Error("Frame queue limit"));
-        socket.close(1009);
+        this.#refuse(1009);
         return;
       }
       if (this.#pending) {
