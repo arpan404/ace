@@ -7,5 +7,6 @@ import { userCircle } from "./user-circle.ts";
  */
 export function reviewed(mark: string): Part[] {
   const hole = circle(18, 18, 6.35);
-  return [...userCircle().map((part) => ({ ...part, hole })), line(mark)];
+  // The ring's parts are built fresh for this icon, so each takes the hole in place.
+  return [...userCircle().map((part) => Object.assign(part, { hole })), line(mark)];
 }
