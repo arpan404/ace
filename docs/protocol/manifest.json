@@ -37,8 +37,8 @@
       "sha256": "b78c24311ad81ef639ad36f39383b90bf0a04fc8f5235bd6c6820d9b496126e4"
     },
     "requests.md": {
-      "bytes": 117810,
-      "sha256": "8555aa1b6e00048f6f1011bf5e1a8c65ac5ce09ae6e8bc9c43bcba383452d236"
+      "bytes": 117875,
+      "sha256": "3af9e19535f955fa56b867e79cbfaceb61f301a17d6ab433b820b114b87dc93c"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -917,8 +917,8 @@
       "sha256": "213740b5214753b95aa6b308056df25518570519a4989a1dfcc2ba77de50e14a"
     },
     "schema/ClientMessage.json": {
-      "bytes": 64325,
-      "sha256": "dd9b3f3b52cb8d8f006c46b17df55e3f401c805c60a0e5f467d9c6cf879331f8"
+      "bytes": 64443,
+      "sha256": "5ccb159a67a69db352ae7afb498a16b4ee945af56e7182e52e085b734523a95c"
     },
     "schema/Command.json": {
       "bytes": 477,
@@ -1021,8 +1021,8 @@
       "sha256": "a5faf5a0456afa98ebf60bb00d417bb39cdb3ee2dad5b2349d07e524441f97dd"
     },
     "schema/CoreClientMessage.json": {
-      "bytes": 8030,
-      "sha256": "c2b44554615238378b8bddc35e66a64c376c884c257da67da8b0397d92c884c2"
+      "bytes": 8148,
+      "sha256": "c59ea36484ce94315bc87c32c7c5f6de2411ebf94f7672df9e179d6cfa69fa23"
     },
     "schema/CoreServerMessage.json": {
       "bytes": 17003,
@@ -1245,8 +1245,8 @@
       "sha256": "355fa7a2779ddf8c31f12d5db7130d24569fa4eab161eb76421b40af655d946e"
     },
     "schema/EntitiesPage.json": {
-      "bytes": 3987,
-      "sha256": "7db5981a4294f67d34689a0073c5b558f0f4ce40a150a972d5728d8d790726bd"
+      "bytes": 6675,
+      "sha256": "ca1f3d4531992031b693d4b0b061159f8f391ce6529567f13d3bbd36b29c034d"
     },
     "schema/EntityCollection.json": {
       "bytes": 233,
@@ -5313,10 +5313,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1068636,
-      "sha256": "c73fdc38aca5c9fdc2c5bef20813d49c5ca2ff4b13917d1172a9b7e62bac2283"
+      "bytes": 1069774,
+      "sha256": "cd4ad4398e52d0f721b663cf20f70e1a5d32beeb8964d77961ea7f9f66dafc12"
     }
   },
-  "input": "77669d2dd5205545d685889b54cb110aceaa947f94e73cd7fef217316ac8a983",
+  "input": "31dc612bc9ac331ab2f12bd993be992d599bd222b46979d9a6e6697534e7351b",
   "version": 1
 }
