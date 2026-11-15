@@ -95,7 +95,7 @@ export async function decodeInChromium(
       const errors = [];
       let decoded = 0, width = 0, height = 0;
       if (typeof VideoDecoder === "undefined")
-        return { decoded, width, height, errors: ["no VideoDecoder (secure context: " + isSecureContext + ")"] };
+        return { decoded, width, height, errors: ["no VideoDecoder (secure context: " + isSecureContext + ", " + location.href + ", " + navigator.userAgent + ")"] };
       const decoder = new VideoDecoder({
         output: (frame) => { decoded++; width = frame.codedWidth; height = frame.codedHeight; frame.close(); },
         error: (error) => errors.push(String(error)),
