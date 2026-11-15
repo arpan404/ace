@@ -2,20 +2,20 @@
 
 /* Scanlines in every region, under the content: two px of dark every four. */
 [data-part="app"] {
-  --phosphor-scanlines: repeating-linear-gradient(
+  --suit-phosphor-scanlines: repeating-linear-gradient(
     0deg,
     rgba(0, 0, 0, 0.22) 0px,
     rgba(0, 0, 0, 0.22) 1px,
     transparent 1px,
     transparent 3px
   );
-  --phosphor-glow: 0 0 6px rgba(120, 255, 160, 0.35);
+  --suit-phosphor-glow: 0 0 6px rgba(120, 255, 160, 0.35);
 }
 
 [data-part="transcript"],
 [data-part="sidebar"],
 [data-part="composer"] {
-  background-image: var(--phosphor-scanlines);
+  background-image: var(--suit-phosphor-scanlines);
 }
 
 /* Glowing text: a soft halo, never a second colour. */
@@ -26,7 +26,7 @@
 [data-part="composer-input"],
 [data-part="tool-row"],
 [data-part="empty-state"] {
-  text-shadow: var(--phosphor-glow);
+  text-shadow: var(--suit-phosphor-glow);
 }
 
 [data-part="sidebar"] {

@@ -2,20 +2,20 @@
 
 /* Grid paper in each region: a fine 20 px grid under a 100 px one, drawn in the text colour. */
 [data-part="app"] {
-  --blueprint-fine: color-mix(in srgb, var(--color-foreground) 4%, transparent);
-  --blueprint-major: color-mix(in srgb, var(--color-foreground) 8%, transparent);
-  --blueprint-grid:
-    linear-gradient(var(--blueprint-major) 1px, transparent 1px),
-    linear-gradient(90deg, var(--blueprint-major) 1px, transparent 1px),
-    linear-gradient(var(--blueprint-fine) 1px, transparent 1px),
-    linear-gradient(90deg, var(--blueprint-fine) 1px, transparent 1px);
+  --suit-blueprint-fine: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  --suit-blueprint-major: color-mix(in srgb, var(--color-foreground) 8%, transparent);
+  --suit-blueprint-grid:
+    linear-gradient(var(--suit-blueprint-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--suit-blueprint-major) 1px, transparent 1px),
+    linear-gradient(var(--suit-blueprint-fine) 1px, transparent 1px),
+    linear-gradient(90deg, var(--suit-blueprint-fine) 1px, transparent 1px);
 }
 
 [data-part="transcript"],
 [data-part="sidebar"],
 [data-part="header"],
 [data-part="rail"] {
-  background-image: var(--blueprint-grid);
+  background-image: var(--suit-blueprint-grid);
   background-size:
     100px 100px,
     100px 100px,
