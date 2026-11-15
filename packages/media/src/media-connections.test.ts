@@ -367,3 +367,41 @@ test("a poster asks only for the epochs its producer vouches were clear, and a p
   await viewers.poster("v1");
   expect(asked.find((m) => m.type === "still.poster")).toMatchObject({ clear: [] });
 });
+
+test("a view's grant is closed when its producer leaves ace-media, and again on unbind only if open", async () => {
+  const h = harness();
+  const live: { producer: IngestProducer; path: string }[] = [];
+  const viewers = new MediaViewers({
+    connections: h.connections,
+    live: () => live,
+    send: (message) => {
+      h.sent.push({ message, payload: new Uint8Array(0) });
+      return true;
+    },
+    id: () => "poster-1",
+    schedule: () => () => {},
+    now: () => 0,
+  });
+  const grant = granted(await h.connections.connect(phone("a")));
+  const tab = producer("t1");
+  live.push({ producer: tab, path: "path-1" });
+  viewers.bind({
+    viewer: "v1",
+    requester: phone("a"),
+    connection: grant.connection,
+    target: { kind: "browser", threadId: "t1" },
+    codecs: ["avc1.42E033"],
+    viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
+    local: true,
+    audio: false,
+    shows: (p) => p.threadId === "t1",
+  });
+  const closes = () => h.sent.filter((s) => s.message.type === "viewer.close").length;
+  // The route moved the producer back to the daemon: ace-media's view must go with it.
+  viewers.live(tab, undefined);
+  expect(closes()).toBe(1);
+  expect(viewers.granted("v1")).toBe(false);
+  // Unbinding now closes nothing more: that grant is already gone.
+  viewers.unbind("v1");
+  expect(closes()).toBe(1);
+});

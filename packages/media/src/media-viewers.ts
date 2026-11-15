@@ -55,6 +55,7 @@ const posterRetryMs = 50;
 
 type Held = {
   intent: ViewIntent;
+  /** The source id the view is granted under in ace-media now; undefined: no grant held there. */
   path: string | undefined;
   /** The producer streaming the source at `path`: it vouches for which epochs were clear. */
   producer: IngestProducer | undefined;
@@ -130,8 +131,12 @@ export class MediaViewers {
   live(producer: IngestProducer, path: string | undefined): void {
     for (const held of this.#held.values()) {
       if (!held.intent.shows(producer)) continue;
-      if (path === undefined) held.path = undefined;
-      else if (held.path !== path) this.#grant(held, path, producer);
+      if (path === undefined) {
+        // The producer left ace-media (a route flip, a refusal): its grant there goes too, or
+        // ace-media would keep a view of a source nobody streams to.
+        if (held.path) this.#options.send({ type: "viewer.close", viewer: held.intent.viewer });
+        held.path = undefined;
+      } else if (held.path !== path) this.#grant(held, path, producer);
     }
   }
 
