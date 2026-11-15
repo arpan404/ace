@@ -201,3 +201,95 @@ it.each(["chronological", "active-first"] as const)(
     );
   },
 );
+
+/** A seeded generator, so a failing case can be run again. */
+function random(seed: number) {
+  let state = seed >>> 0;
+  const next = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 2 ** 32;
+  };
+  return { next, int: (low: number, high: number) => low + Math.floor(next() * (high - low + 1)) };
+}
+
+/** One request on the asking thread, its provider frames `bytes` long. */
+const ask = (id: string, bytes: number) => ({
+  ...approval(id, `make ${id}`),
+  raw: [{ type: "tool_use", data: { input: "x".repeat(bytes) } }],
+});
+const answer = (id: string) => ({
+  type: "interaction.closed" as const,
+  interaction: id,
+  state: "resolved" as const,
+  resolution: { kind: "approval" as const, optionId: `${id}:allow` },
+});
+
+it.each(
+  (["active-first", "chronological"] as const).flatMap((entityPages) =>
+    [1, 2, 3, 4, 5, 6].map((seed) => ({ entityPages, seed })),
+  ),
+)(
+  "generated thread $seed: the row counts and shows the pending requests, whatever their number and size ($entityPages daemon)",
+  async ({ entityPages, seed }) => {
+    const r = random(seed);
+    const kib = 1024;
+    const bytes = () => {
+      const roll = r.next();
+      return roll < 0.6
+        ? r.int(10, 400)
+        : roll < 0.9
+          ? r.int(4 * kib, 60 * kib)
+          : r.int(130 * kib, 300 * kib);
+    };
+    const pending = new Set(["first"]);
+    let made = 0;
+    const history = (daemon: FakeDaemon) => {
+      // Some threads hold more pending requests than one page's 200 entries.
+      const count = seed % 3 === 0 ? r.int(201, 230) : r.int(0, 40);
+      for (let index = 0; index < count; index++) {
+        const id = `ask-${made++}`;
+        daemon.apply(asking, [ask(id, seed % 3 === 0 ? r.int(10, 200) : bytes())]);
+        pending.add(id);
+        if (r.next() < 0.4) {
+          daemon.apply(asking, [answer(id)]);
+          pending.delete(id);
+        }
+      }
+    };
+    const { daemon, latest } = await phone({ entityPages, history });
+    // While the phone reads: requests answered and new ones asked.
+    for (let round = 0; round < 6; round++) {
+      await new Promise((wake) => setTimeout(wake, r.int(0, 5)));
+      for (const id of pending)
+        if (r.next() < 0.05) {
+          daemon.apply(asking, [answer(id)]);
+          pending.delete(id);
+        }
+      if (r.next() < 0.5) {
+        const id = `ask-${made++}`;
+        daemon.apply(asking, [ask(id, bytes())]);
+        pending.add(id);
+      }
+    }
+    await vi.waitFor(
+      () => {
+        const row = latest(asking) as
+          | { total: number; requests: { command: string }[] }
+          | undefined;
+        expect(row?.total).toBe(pending.size);
+        expect(row?.requests).toHaveLength(Math.min(8, pending.size));
+        // Each shown is pending, whole enough to answer: its command is its own.
+        const commands = new Set(
+          [...pending].map((id) =>
+            id === "first" ? "bun run test:changed --with-process" : `make ${id}`,
+          ),
+        );
+        for (const request of row?.requests ?? []) expect(commands.has(request.command)).toBe(true);
+      },
+      { timeout: 4000 },
+    );
+  },
+);

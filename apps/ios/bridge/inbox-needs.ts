@@ -138,7 +138,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   const held = new Set<string>();
 
   const interactions = async (threadId: string) => {
-    // By id: an interaction answered between two pages comes again, older, in its new state.
+    // By id, the latest copy kept: one answered between two pages comes again in its new state.
     const found = new Map<string, Interaction>();
     let before = newest;
     for (;;) {
@@ -152,7 +152,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       });
       const { page: result } = reply;
       if (result.collection !== "interactions") break;
-      for (const entry of result.entries) if (!found.has(entry.id)) found.set(entry.id, entry);
+      for (const entry of result.entries) found.set(entry.id, entry);
       const want = needsSignature(store.thread(threadId)) ? waitingCount(threadId) : 0;
       if (pendingOf([...found.values()]).length >= want) break;
       // The daemon says there is nothing older; a cursor that did not move would read the same
