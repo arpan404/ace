@@ -1925,8 +1925,10 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
     reaches it (`select::dmabuf_use`): the stream moves to shared memory, where only the region
     is copied out. Applying the crop in VPP (`surface_region`) would need a `media-vaapi` change.
   - NVENC: the DMA-BUF becomes an `EGLImage` on the NVIDIA EGL device (surfaceless OpenGL 3.3
-    context, current on the capture thread), bound to a texture; one framebuffer blit crops and
-    scales it into the texture NVENC encodes (`NV_ENC_DEVICE_TYPE_OPENGL`). Shared memory is one
+    context, current on the capture thread), bound to a texture. The crop is copied exactly into a
+    staging texture with a one-pixel border of its own edges, and one linear blit scales that
+    into the texture NVENC encodes (`NV_ENC_DEVICE_TYPE_OPENGL`), so filtering never reads past
+    the crop (tested on Mesa's software EGL device with `ACE_E2_GL=1`). Shared memory is one
     `glTexSubImage2D`. Written from the Khronos specs; compiled, never run here.
   - Last resort: the visible region copied once, scaled on the CPU (`media_codec::CpuScaler`),
     encoded by Chrome; AVCC output becomes Annex B with the parameter sets before each IDR.
@@ -1934,16 +1936,22 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
     hardware video encoder."
 - **Stream control.** `stream.configure`, `stream.keyframe` and `stream.image` follow E3's
   contract. Video is encoded only while someone watches and the view asked for H.264, at its
-  fps (up to 60); stills then come only on `stream.image`. Each picture is stamped with the
-  epoch the helper holds when its buffer arrives. The `stream.configure` reply also carries
+  fps (up to 60); stills then come only on `stream.image`. Epochs are applied on the capture clock with the
+  daemon's `epochPrivate` (unsaid is private), and each arrival is resolved against them once,
+  by `media_ingest::epochs` (the rule E1 wrote, now shared by both helpers): ties go private,
+  and redelivery keeps the picture's epoch. Frame identity is the visible region's position and
+  pixels; a cached still of another region is dropped. The `stream.configure` reply also carries
   `acceleration` (K2's shape) once the stream has run, for A1 to pick up.
 - **Ingest** (`media/ingest.rs`). The writer, route, retirement and framing are E1's sans-IO
   `media-ingest` crate; the helper only drives it: one tokio task owns the `Route`, and units
   from the capture thread and switches from `stream.configure` reach it through one queue, so
   a switch keeps its exact boundary. Units wait at most 8 MiB (`ADMIT_LIMIT`); past it video
-  is dropped to the next keyframe and one is asked for, so a stalled route never grows the
-  helper. Connection reports and close have a queue of their own, served first; close is
-  terminal (connects cancelled, connections destroyed, the task gone). Each connection has a writer task and a reader (EOF means
+  is dropped to the next keyframe and one is asked for, again once the queue is down to half if
+  a keyframe is still owed, so a stalled route never grows the helper nor leaves a still
+  desktop frozen. The daemon socket's video queue has the same 8 MiB budget, keyframes included,
+  and the same recovery. Connection reports and close have a queue of their own, served first; close is
+  terminal (connects cancelled, connections destroyed, the task gone). Each connection has a
+  writer task and a reader (EOF means
   ace-media closed it), and a 100 ms tick judges deadlines. A cut sends video back to the
   daemon's socket at once and says so with `stream.ingest`. The helper never calls
   `legacy_still`: its boundary is the last video unit, which is what the daemon's merge waits for.
