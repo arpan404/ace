@@ -156,6 +156,8 @@ export interface ServerOptions {
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
   browser?: BrowserService;
+  /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
+  mediaDelivery?: () => import("./services/media.ts").DaemonDelivery | undefined;
   userBrowser?: import("./user-browser.ts").UserBrowserService;
   review?: ReviewPort;
   replayLimit?: number;

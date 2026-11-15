@@ -1,3 +1,4 @@
+import type { MediaLinkHint, MediaSubscribed } from "@ace/protocol";
 import type { IngestProducer } from "./ingest-sources.ts";
 import type { MediaConnections } from "./media-connections.ts";
 import type { FromMedia, ToMedia } from "./wire.ts";
@@ -171,4 +172,63 @@ export class MediaViewers {
     }
     this.#posters.clear();
   }
+}
+
+/** What a bridge needs of the daemon's delivery to bind subscribes (browser, screen, devices). */
+export type MediaDeliveryPort = {
+  /** Whether ace-media delivers this kind's viewers now (setting, health and route). */
+  serves(kind: import("./routes.ts").SourceKind): boolean;
+  bind(intent: ViewIntent): boolean;
+  granted(viewer: string): boolean;
+  poster(viewer: string): Promise<MediaPosterBytes | undefined>;
+  configure(viewer: string, viewport: ViewViewport, audio: boolean): void;
+  pause(viewer: string, paused: boolean): void;
+  unbind(viewer: string): void;
+};
+
+/** A client's viewport in ace-media's terms. */
+export function viewViewport(viewport: {
+  width: number;
+  height: number;
+  devicePixelRatio: number;
+}): ViewViewport {
+  const whole = (n: number) => Math.max(1, Math.min(0xffffffff, Math.round(n)));
+  return {
+    width: whole(viewport.width),
+    height: whole(viewport.height),
+    dpr: viewport.devicePixelRatio,
+    scale: 1,
+  };
+}
+
+/**
+ * The client's parsed link hint for `viewer.open`, built field by field (the wire's is strict, so
+ * a newer client's extra field never fails the grant).
+ */
+export function viewLink(hint: MediaLinkHint | undefined): ViewerOpen["link"] {
+  if (!hint) return undefined;
+  const link: NonNullable<ViewerOpen["link"]> = {};
+  if (hint.effectiveType !== undefined) link.effectiveType = hint.effectiveType.slice(0, 64);
+  if (hint.downlinkKbps !== undefined) link.downlinkKbps = hint.downlinkKbps;
+  if (hint.rttMs !== undefined) link.rttMs = hint.rttMs;
+  if (hint.saveData !== undefined) link.saveData = hint.saveData;
+  if (hint.expensive !== undefined) link.expensive = hint.expensive;
+  if (hint.constrained !== undefined) link.constrained = hint.constrained;
+  return Object.keys(link).length ? link : undefined;
+}
+
+/** The subscribe reply's `media`: the connection, and the poster when there is one. */
+export function mediaSubscribed(
+  connection: string,
+  poster: MediaPosterBytes | undefined,
+): MediaSubscribed {
+  if (!poster || poster.jpeg.length === 0 || poster.jpeg.length > 48 * 1024) return { connection };
+  return {
+    connection,
+    poster: {
+      width: poster.width,
+      height: poster.height,
+      jpeg: Buffer.from(poster.jpeg).toString("base64"),
+    },
+  };
 }

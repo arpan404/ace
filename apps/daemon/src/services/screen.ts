@@ -202,6 +202,8 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
         send: context.send,
         // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
         pictureEncoder: () => context.options.browser?.videoEncoder(),
+        // Subscribes naming a media connection go to ace-media (D1) while it serves screens.
+        delivery: { session: context.sessionId, port: () => context.options.mediaDelivery?.() },
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>
