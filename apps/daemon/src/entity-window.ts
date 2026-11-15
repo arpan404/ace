@@ -185,9 +185,9 @@ export class EntityWindow {
     const trust = this.trust;
     const statement = this.rows.bind(this);
     /** Read lazily: a page stops at its first row past its bound. */
-    const rows = (active: 0 | 1) =>
+    const rows = (isActive: 0 | 1) =>
       function* (below: number, most: number) {
-        const predicate = `w.active=${active} AND w.created_seq<?`;
+        const predicate = `w.active=${isActive} AND w.created_seq<?`;
         for (const row of statement(
           thread.id,
           collection,
