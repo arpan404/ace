@@ -221,4 +221,31 @@ describe("device pictures across a media rebind", () => {
     view.client.disconnect();
     expect(view.pendingTimers()).toBe(0);
   });
+
+  it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    view.move("mc_bbbbbbbbbb");
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.pendingTimers()).toBe(1); // the new subscribe's own deadline
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
+
+  it("a released device's retry stops waiting on the clock", async () => {
+    const view = setup();
+    const release = view.client.retainStream(deviceId);
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    release();
+    expect(view.pendingTimers()).toBe(1); // the unsubscribe's own deadline
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(1);
+  });
 });

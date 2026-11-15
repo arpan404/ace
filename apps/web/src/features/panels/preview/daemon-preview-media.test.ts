@@ -6,7 +6,11 @@ import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import type { PosterDecoder } from "@/lib/video/poster.ts";
-import { mediaRetryDelaysMs, mediaSubscribeDeadlineMs } from "@ace/browser/live-view";
+import {
+  mediaRetryCooldownMs,
+  mediaRetryDelaysMs,
+  mediaSubscribeDeadlineMs,
+} from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -83,6 +87,7 @@ type Daemon =
   | "replays here"
   | "replays, answers later"
   | "fails"
+  | "fails everything"
   | "refuses";
 
 function withMediaReplies(
@@ -99,7 +104,10 @@ function withMediaReplies(
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
           const named =
             input.type === "browser.subscribe" && "media" in input ? input.media : undefined;
-          if (named && daemon === "fails") {
+          if (
+            input.type === "browser.subscribe" &&
+            ((named && daemon === "fails") || daemon === "fails everything")
+          ) {
             // It reaches the daemon (and the record), which answers that it is too busy.
             await target.request(input, options);
             return { type: "browser.result", requestId: "r", ok: false, error: "busy" };
@@ -142,6 +150,9 @@ async function watching(
   answer: Daemon = "binds",
   decodePoster?: PosterDecoder,
 ) {
+  /** The page's visibility, flipped by the test (`flap`). */
+  let pageShown = true;
+  const seen = new Set<() => void>();
   /** The view's timers, fired by the test (`fire`) by their delay. */
   const timers = new Set<{ run: () => void; ms: number }>();
   const daemon = new FakeDaemon({ clock: () => 1000 });
@@ -174,7 +185,13 @@ async function watching(
         timers.add(timer);
         return () => void timers.delete(timer);
       },
-      visibility: { visible: () => true, watch: () => () => {} },
+      visibility: {
+        visible: () => pageShown,
+        watch: (listener) => {
+          seen.add(listener);
+          return () => void seen.delete(listener);
+        },
+      },
       videoDecoder: decoder.factory,
       videoSupport: () => Promise.resolve(["hvc1.1.6.L153.B0", "avc1.42E033"]),
       media: link.media,
@@ -223,6 +240,13 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** The page is hidden, then shown again. */
+    flap() {
+      for (const visible of [false, true]) {
+        pageShown = visible;
+        for (const listener of Array.from(seen)) listener();
+      }
+    },
     /** How many timers of this delay are waiting. */
     pending: (ms: number) => Array.from(timers).filter((timer) => timer.ms === ms).length,
     /** Every timer of this delay runs. */
@@ -414,8 +438,8 @@ test("a failing subscribe is retried on the shared ladder, then the view settles
     await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
   }
   expect(view.subscribes().map(named)).toEqual(Array(5).fill("mc_aaaaaaaaaa"));
-  // The ladder is spent: the next try is the socket's, and it is served there.
-  view.fire(5_000);
+  // The ladder is spent: after the cooldown, the next try is the socket's.
+  view.fire(mediaRetryCooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(6));
   expect(named(view.subscribes()[5]!)).toBeUndefined();
 });
@@ -438,4 +462,43 @@ test("a rebind subscribes at once even while the old subscribe is still open", a
   // Connection A goes away before its subscribe is answered; the answer never comes.
   view.link.move("mc_bbbbbbbbbb");
   await waitFor(() => expect(view.subscribes().map(named)).toContain("mc_bbbbbbbbbb"));
+});
+
+test("hiding and showing the page again and again stays within the retry ladder and its cooldown", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails everything");
+  const storm = async (times: number) => {
+    for (let index = 0; index < times; index++) {
+      view.flap();
+      await settle();
+    }
+  };
+  await settle();
+  // A flap may skip one wait per ladder step: the first try and one per step, then nothing.
+  await storm(30);
+  expect(view.subscribes()).toHaveLength(1 + mediaRetryDelaysMs.length);
+  // Past the ladder, the cooldown holds however often the page flaps.
+  await storm(30);
+  expect(view.subscribes()).toHaveLength(1 + mediaRetryDelaysMs.length);
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(2 + mediaRetryDelaysMs.length));
+  // The socket fails too: one more try per cooldown, flapping or not.
+  await storm(30);
+  expect(view.subscribes()).toHaveLength(2 + mediaRetryDelaysMs.length);
+});
+
+test("an unmounted view's retry stops waiting on the clock", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+  view.unwatch();
+  await settle();
+  expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
+});
+
+test("a disposed preview's retries stop waiting on the clock", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+  view.preview.dispose();
+  expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
 });

@@ -358,4 +358,19 @@ describe("screen pictures across a media rebind", () => {
     again.client.disconnect();
     expect(again.pendingTimers()).toBe(0);
   });
+
+  it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.reply(view.subscribes[0]!, "fails");
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    // The binding moves: the stream subscribes again at once, so the waiting retry goes.
+    view.move("mc_bbbbbbbbbb");
+    expect(view.subscribes).toHaveLength(2);
+    expect(view.pendingTimers()).toBe(1); // the new subscribe's own deadline
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+  });
 });

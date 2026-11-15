@@ -62,6 +62,12 @@ interface Delivery {
 /** Waits before a failed subscribe is tried again, by attempt; then it stays on the channel. */
 export const mediaRetryDelaysMs = [1_000, 2_000, 5_000, 10_000] as const;
 
+/**
+ * Once the retries are spent, how long a source waits before it is tried again (on the
+ * channel). Nothing skips it: not a page shown again, nor an agent opening the browser.
+ */
+export const mediaRetryCooldownMs = 30_000;
+
 /** What a failed subscribe leaves to do: subscribe again now, later, or nothing. */
 export type FailedSubscribe = "resubscribe" | "retry" | "ignore";
 
