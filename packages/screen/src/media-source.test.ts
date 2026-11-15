@@ -3,7 +3,8 @@ import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import type { IngestProducer } from "@ace/media/ingest-sources";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { FrameDecoder, framePacket, wireFrame, type Frame } from "./frames.ts";
-import { egressScreenFrame, helperEncodesVideo, ScreenMediaSource } from "./media-source.ts";
+import { helperEncodesVideo } from "./helper-codecs.ts";
+import { egressScreenFrame, ScreenMediaSource } from "./media-source.ts";
 
 const settings: ScreenStreamSettings = {
   codec: "h264",
@@ -95,7 +96,8 @@ it("an egress unit without the helper's stamp, or not H.264, is no screen frame"
 });
 
 /** A screen session's media source with a scripted helper and a stand-in for ace-media. */
-function session(platform = "macos") {
+function session(platform = "macos", helperCodecs: string[] = ["jpeg", "h264"]) {
+  let recording = false;
   const accepted: Frame[] = [];
   const replies: { ingest: "on" | "off"; boundary: number | null }[] = [];
   const sent: unknown[] = [];
@@ -104,6 +106,8 @@ function session(platform = "macos") {
   const source = new ScreenMediaSource({
     sessionId: "s1",
     platform,
+    codecs: helperCodecs,
+    daemonNeedsVideo: () => recording,
     helper: {
       capabilities: undefined,
       permissions: async () => ({ screenRecording: true, accessibility: true }),
@@ -162,6 +166,9 @@ function session(platform = "macos") {
     });
   return {
     source,
+    record: (on: boolean) => {
+      recording = on;
+    },
     accepted,
     replies,
     sent,
@@ -372,4 +379,108 @@ it("legacy viewers and ace-media's views share the helper's one stream, and neit
     fps: 60,
     bitrate: 8_000_000,
   });
+});
+
+const hevcMain = "hvc1.1.6.L153.B0";
+const hevcView = { id: 0, codec: hevcMain, width: 1280, height: 800, fps: 30, bitrate: 900_000 };
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+const lastCodec = (sent: unknown[]) => {
+  const last = sent.at(-1);
+  if (typeof last !== "object" || last === null || !("settings" in last)) return undefined;
+  const configured = last.settings;
+  return typeof configured === "object" && configured !== null && "codec" in configured
+    ? configured.codec
+    : undefined;
+};
+
+it("a Mac helper whose hardware HEVC trial worked tells ace-media it encodes H.264 and HEVC, H.264 first", () => {
+  expect(session("macos", ["jpeg", "h264", "hevc"]).codecs).toEqual([["avc1.42E033", hevcMain]]);
+  // Only the Mac helper encodes HEVC toward ace-media.
+  expect(session("windows", ["jpeg", "h264", "hevc"]).codecs).toEqual([["avc1.42E033"]]);
+});
+
+it("ace-media's plan in HEVC runs the Mac helper's stream in HEVC toward its ingest", async () => {
+  const s = session("macos", ["jpeg", "h264", "hevc"]);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point(s.address("p1"));
+  s.producer().want?.([hevcView]);
+  await settled();
+  expect(s.sent.at(-1)).toMatchObject({
+    op: "stream.configure",
+    settings: { codec: "hevc", maxWidth: 1280, maxHeight: 800, fps: 30, bitrate: 900_000 },
+    ingest: { socket: "/run/m1i.sock" },
+  });
+  // Back on the daemon's socket, which carries H.264 only.
+  await s.producer().point(undefined);
+  await settled();
+  expect(s.sent.at(-1)).not.toHaveProperty("ingest");
+  expect(lastCodec(s.sent)).toBe("h264");
+});
+
+it("the shared stream stays H.264 while a legacy viewer watches, and turns HEVC when it leaves", async () => {
+  const s = session("macos", ["jpeg", "h264", "hevc"]);
+  await s.source.configure(settings);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point(s.address("p1"));
+  s.producer().want?.([hevcView]);
+  await settled();
+  expect(lastCodec(s.sent)).toBe("h264");
+  // The legacy viewer leaves (its JPEG request): ace-media's views alone, in HEVC, at their size.
+  expect(await s.source.configure({ ...settings, codec: "jpeg" })).toEqual({ codec: "h264" });
+  expect(s.sent.at(-1)).toMatchObject({ settings: { codec: "hevc", maxWidth: 1280, fps: 30 } });
+  // A legacy viewer comes back: H.264 before its request returns.
+  await s.source.configure(settings);
+  expect(lastCodec(s.sent)).toBe("h264");
+});
+
+it("a recording keeps the shared stream H.264, since the daemon records the frames egress hands back", async () => {
+  const s = session("macos", ["jpeg", "h264", "hevc"]);
+  s.replies.push({ ingest: "on", boundary: null });
+  await s.producer().point(s.address("p1"));
+  s.producer().want?.([hevcView]);
+  await settled();
+  expect(lastCodec(s.sent)).toBe("hevc");
+  s.record(true);
+  await s.source.recodec();
+  expect(lastCodec(s.sent)).toBe("h264");
+  s.record(false);
+  await s.source.recodec();
+  expect(lastCodec(s.sent)).toBe("hevc");
+});
+
+it("an HEVC plan stays H.264 for a helper without HEVC, or while any view wants H.264", async () => {
+  const plain = session("macos");
+  plain.replies.push({ ingest: "on", boundary: null });
+  await plain.producer().point(plain.address("p1"));
+  plain.producer().want?.([hevcView]);
+  await settled();
+  expect(lastCodec(plain.sent)).toBe("h264");
+  const mixed = session("macos", ["jpeg", "h264", "hevc"]);
+  mixed.replies.push({ ingest: "on", boundary: null });
+  await mixed.producer().point(mixed.address("p1"));
+  mixed.producer().want?.([hevcView, { ...hevcView, id: 1, codec: "avc1.42E033", width: 640 }]);
+  await settled();
+  expect(lastCodec(mixed.sent)).toBe("h264");
+});
+
+it("an egress unit in HEVC is no frame for the daemon's H.264 consumers", () => {
+  const unit = egressScreenFrame("s1", {
+    kind: 1,
+    flags: 1,
+    ageUs: 0,
+    width: 2,
+    height: 2,
+    displayWidth: 2,
+    displayHeight: 2,
+    scale: 1000,
+    rotation: 0,
+    codec: 3,
+    encode: 0,
+    epoch: 1,
+    codecString: hevcMain,
+    description: new Uint8Array(0),
+    extension: encodeProducerStamp({ sequence: 1, timestamp: 1, scale: 1 }),
+    payload: new Uint8Array(annexB),
+  });
+  expect(unit).toBeUndefined();
 });

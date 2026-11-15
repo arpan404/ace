@@ -6,7 +6,7 @@ import type { Session } from "./session.ts";
 import type { ScreenOptions } from "./options.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
-import { helperEncodesVideo, videoOnlyToMedia } from "./media-source.ts";
+import { helperEncodesVideo, videoOnlyToMedia } from "./helper-codecs.ts";
 import { readTree, findElements } from "./semantic.ts";
 const StreamCodec = z.object({ codec: z.enum(["jpeg", "h264"]) });
 type ObservationPorts = {

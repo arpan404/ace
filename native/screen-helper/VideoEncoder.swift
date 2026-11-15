@@ -21,6 +21,8 @@ struct EncodedVideo {
     let keyframe: Bool
     /// The WebCodecs codec string, from the SPS; keyframes only.
     let codec: String?
+    /// What the payload is; HEVC only ever goes to ace-media's ingest.
+    var format: VideoCodec = .h264
     let width: Int
     let height: Int
     let scale: Double
@@ -36,6 +38,8 @@ struct EncodedVideo {
 
 /// The daemon socket's framing: length, JSON header, then Annex B.
 func legacyFramePacket(_ unit: EncodedVideo, sessionId: String, version: Int) -> Data? {
+    // The daemon's socket and its viewers are H.264 only.
+    guard unit.format == .h264 else { return nil }
     var header: [String: Any] = ["version": version, "sessionId": sessionId, "width": unit.width, "height": unit.height,
         "codec": "h264", "keyframe": unit.keyframe, "bytes": unit.payloadBytes, "scale": unit.scale]
     if let codec = unit.codec { header["videoCodec"] = codec }
@@ -50,9 +54,11 @@ func legacyFramePacket(_ unit: EncodedVideo, sessionId: String, version: Int) ->
 }
 
 /// Hardware encoder with one outstanding sample. No B frames, lookahead or raw-pixel queue.
-/// H.264 High at a fixed level, so a refine keyframe never changes the decoder configuration.
+/// H.264 High at a fixed level, so a refine keyframe never changes the decoder configuration;
+/// HEVC Main for ace-media's ingest when the daemon asks for it.
 final class VideoEncoder {
     private var session: VTCompressionSession?
+    private var codec = VideoCodec.h264
     private var size = CGSize.zero
     private let lock = NSLock()
     private var busy = false
@@ -85,6 +91,13 @@ final class VideoEncoder {
     }
 
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
+    /// The codec of the next picture. A change closes the session, so the next picture opens one
+    /// at a keyframe with the new codec's parameter sets.
+    func use(_ next: VideoCodec) {
+        guard next != codec else { return }
+        close(); codec = next; requestKeyframe()
+    }
+    var running: VideoCodec { codec }
     /// A sample is being encoded: the next one would be refused as busy.
     var busyNow: Bool { lock.lock(); defer { lock.unlock() }; return busy }
     /// A new bit rate for the running session from its next frame: no new session and no
@@ -119,7 +132,7 @@ final class VideoEncoder {
             kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true,
             kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true
         ]
-        let status = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264,
+        let status = VTCompressionSessionCreate(allocator: nil, width: Int32(width), height: Int32(height), codecType: codec.codecType,
             encoderSpecification: specification as CFDictionary, imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: { context, frame, status, _, sample in
                 guard let frame else { return }
@@ -140,13 +153,16 @@ final class VideoEncoder {
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
         // High (8x8 transforms, CABAC) keeps text edges at a given bitrate better than Baseline.
-        // Level 5.1 covers every capture size (up to 4096×2304) and every client decoder.
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel, value: kVTProfileLevel_H264_High_5_1)
+        // Level 5.1 covers every capture size (up to 4096×2304) and every client decoder. HEVC
+        // Main is 8-bit 4:2:0, what ScreenCaptureKit's NV12 is; its level follows the size.
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ProfileLevel,
+            value: codec == .h264 ? kVTProfileLevel_H264_High_5_1 : kVTProfileLevel_HEVC_Main_AutoLevel)
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: keyframeInterval as CFNumber)
         configure(bitrate: bitrate, fps: fps)
         return VTCompressionSessionPrepareToEncodeFrames(session) == noErr
     }
-    /// Applies a frame's QP cap when it differs from the session's (51 is H.264's ceiling: no cap).
+    /// Applies a frame's QP cap when it differs from the session's (51 is the ceiling of both
+    /// H.264 and HEVC: no cap).
     private func apply(_ settings: VideoEncoderSettings, to session: VTCompressionSession) {
         guard settings.maxFrameQP != appliedQP else { return }
         VTSessionSetProperty(session, key: kVTCompressionPropertyKey_MaxAllowedFrameQP, value: (settings.maxFrameQP ?? 51) as CFNumber)
@@ -186,16 +202,16 @@ final class VideoEncoder {
         let key = attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool != true
         let prefix: [UInt8] = [0, 0, 0, 1]
         var parameterSets: [(UnsafePointer<UInt8>, Int)] = []
-        var codec = "avc1.640033"
+        let produced = self.codec
+        var codec = produced.fallbackString
         if key {
-            for index in 0..<2 {
-                var pointer: UnsafePointer<UInt8>?
-                var length = 0
-                guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
-                    parameterSetSizeOut: &length, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
-                    let pointer else { return }
-                parameterSets.append((pointer, length))
-                if index == 0, length >= 4 { codec = String(format: "avc1.%02X%02X%02X", pointer[1], pointer[2], pointer[3]) }
+            guard let sets = Self.parameterSets(format, produced) else { return }
+            parameterSets = sets
+            if produced == .h264, let (sps, length) = sets.first, length >= 4 {
+                codec = String(format: "avc1.%02X%02X%02X", sps[1], sps[2], sps[3])
+            } else if produced == .hevc, let (sps, length) = sets.first(where: { $0.1 > 0 && hevcNALType($0.0[0]) == 33 }),
+                      let named = hevcCodecString(sps: Array(UnsafeBufferPointer(start: sps, count: length))) {
+                codec = named
             }
         }
         let sampleBytes = CMBlockBufferGetDataLength(block)
@@ -214,9 +230,29 @@ final class VideoEncoder {
             guard copied, Self.startCodes(&packet, from: start) else { return nil }
             return packet
         }
-        units(EncodedVideo(keyframe: key, codec: key ? codec : nil, width: Int(size.width), height: Int(size.height), scale: entry.scale,
+        units(EncodedVideo(keyframe: key, codec: key ? codec : nil, format: produced, width: Int(size.width), height: Int(size.height), scale: entry.scale,
             sequence: entry.sequence, timestamp: entry.timestamp, epoch: entry.epoch, capturedAt: entry.capturedAt,
             payloadBytes: payloadBytes, packet: packet))
+    }
+    /// A keyframe's parameter sets in order: SPS and PPS for H.264, VPS, SPS and PPS for HEVC.
+    private static func parameterSets(_ format: CMFormatDescription, _ codec: VideoCodec) -> [(UnsafePointer<UInt8>, Int)]? {
+        var sets: [(UnsafePointer<UInt8>, Int)] = []
+        var count = codec == .h264 ? 2 : 3
+        var index = 0
+        while index < count {
+            var pointer: UnsafePointer<UInt8>?
+            var length = 0, total = 0
+            let status = codec == .h264
+                ? CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
+                    parameterSetSizeOut: &length, parameterSetCountOut: &total, nalUnitHeaderLengthOut: nil)
+                : CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format, parameterSetIndex: index, parameterSetPointerOut: &pointer,
+                    parameterSetSizeOut: &length, parameterSetCountOut: &total, nalUnitHeaderLengthOut: nil)
+            guard status == noErr, let pointer, length > 0 else { return nil }
+            sets.append((pointer, length))
+            if index == 0 { count = max(count, min(total, 8)) }
+            index += 1
+        }
+        return sets
     }
     /// Rewrites each 4-byte big-endian NAL length from `start` on as a start code; false when the
     /// lengths do not tile the sample exactly.

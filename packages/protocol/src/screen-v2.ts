@@ -113,10 +113,11 @@ export const ScreenCapabilities = z
         ]),
       )
       .max(8),
+    /** `hevc`: a Mac helper whose hardware HEVC encode trial worked, for ace-media's ingest. */
     codecs: z
-      .array(z.enum(["jpeg", "h264"]))
+      .array(z.enum(["jpeg", "h264", "hevc"]))
       .min(1)
-      .max(2),
+      .max(3),
     permissions: z.object({
       screen: z.enum(["granted", "denied", "prompt", "n/a"]),
       input: z.enum(["granted", "denied", "prompt", "n/a"]),
