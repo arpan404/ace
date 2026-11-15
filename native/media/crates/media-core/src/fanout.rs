@@ -9,7 +9,7 @@
 //! that must not fire on a healthy link: each chunk is due by its send time, plus the bytes in
 //! flight up to it at the relay's floor rate, two round trips and a second (`deadline`). Past
 //! it, the chunk is lost: freed, reported (`Event::Lost`) and a keyframe owed. Time is passed in.
-use crate::link_rate::LINK_FLOOR;
+use crate::link_rate::{LINK_FLOOR, UNKNOWN_ROUND_TRIP_MS};
 use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece {
@@ -40,8 +40,7 @@ pub enum Event {
     /// Chunks went unacked past their deadline: they are lost.
     Lost,
 }
-/// A round trip taken for deadlines until the owner knows the link's.
-pub const UNKNOWN_ROUND_TRIP_MS: f64 = 1_000.0;
+
 const DEADLINE_SLACK_MS: f64 = 1_000.0;
 /// When a chunk sent `at`, with `bytes` in flight up to and including it, is due: those bytes
 /// at the relay's floor rate (never the current rate), two round trips and a second.
@@ -97,12 +96,9 @@ impl Viewer {
     pub fn set_round_trip(&mut self, ms: Option<f64>) {
         self.round_trip = ms;
     }
-    /// When the earliest chunk in flight is due; None when none is in flight.
+    /// When the earliest chunk in flight (its head: deadlines only grow) is due.
     pub fn next_deadline(&self) -> Option<f64> {
-        self.inflight
-            .iter()
-            .map(|(_, _, due)| *due)
-            .reduce(f64::min)
+        self.inflight.front().map(|(_, _, due)| *due)
     }
     /// Whether chunks of `generation` are still on the wire.
     pub fn owes(&self, generation: u64) -> bool {
@@ -358,10 +354,17 @@ impl Viewer {
             }
             self.queue.pop_front();
             self.queued_bytes -= piece.bytes;
+            // Never before the chunk ahead of it: the transport is ordered, so deadlines only
+            // grow along the window, and expiry need only look at its head.
             let due = deadline(
                 now,
                 self.inflight_bytes.saturating_add(piece.bytes),
                 self.round_trip,
+            )
+            .max(
+                self.inflight
+                    .back()
+                    .map_or(f64::NEG_INFINITY, |(_, _, due)| *due),
             );
             self.inflight.push_back((piece, self.generation, due));
             // `fits` bounded this, or the window was empty.

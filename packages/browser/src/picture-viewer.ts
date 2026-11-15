@@ -93,6 +93,8 @@ export class PictureViewer {
       ...(ports.window ? { window: ports.window } : {}),
     });
     this.#fanout.add("viewer", { send: (waiting) => this.#send(waiting) });
+    // Bounded from the start, before any round trip is measured (ADR 0150 at a 1 s default).
+    if (this.#link) this.#fanout.bound("viewer", this.#link.backlogBytes);
   }
   /** A picture from the source's capture. */
   push(picture: CapturedPicture): void {

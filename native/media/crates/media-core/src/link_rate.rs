@@ -39,6 +39,8 @@ pub struct LinkHint {
 pub const OUTSTANDING_SENDS: usize = 512;
 /// Bytes in flight may hold the link's rate for its round trip plus this long, no more.
 pub const BACKLOG_MS: f64 = 300.0;
+/// A round trip taken before one is measured (fanout's deadlines take the same).
+pub const UNKNOWN_ROUND_TRIP_MS: f64 = 1_000.0;
 const FLOOR_WINDOW_MS: f64 = 10_000.0;
 const STEP_MS: f64 = 200.0;
 const QUEUED_MS: f64 = 80.0;
@@ -248,17 +250,15 @@ impl LinkRate {
     }
     /// The most bytes a viewer should have in flight (ADR 0150): the rate over the path's round
     /// trip (the floor) plus max(`BACKLOG_MS`, that round trip plus `STALL_MS`), so one tail-loss
-    /// recovery never drops deltas; unbounded until a round trip is known.
-    pub fn backlog_bytes(&self) -> Option<usize> {
-        // The path's round trip (the floor): a queue must not widen its own bound.
-        self.floor
+    /// recovery never drops deltas. Before a round trip is known it is taken as 1 s.
+    pub fn backlog_bytes(&self) -> usize {
+        let rtt = self
+            .floor
             .front()
             .map(|c| c.1)
             .or(self.smoothed)
-            .map(|rtt| {
-                ((self.rate / 8.0) * ((rtt + BACKLOG_MS.max(rtt + STALL_MS)) / 1000.0)).round()
-                    as usize
-            })
+            .unwrap_or(UNKNOWN_ROUND_TRIP_MS);
+        ((self.rate / 8.0) * ((rtt + BACKLOG_MS.max(rtt + STALL_MS)) / 1000.0)).round() as usize
     }
     /// Chunks went unacked past their deadline (`fanout`): a loss, cut as a drop with a queue,
     /// once a round trip.

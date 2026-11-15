@@ -15,7 +15,8 @@ type FanoutOp =
   | { restart: true }
   | { pause: true }
   | { time: number }
-  | { roundTrip: number | null };
+  | { roundTrip: number | null }
+  | { due: true };
 
 const piece = (sequence: number, key: boolean, length: number): FanoutOp => ({
   publish: { sequence, key, bytes: { length } },
@@ -49,6 +50,7 @@ function fanoutScenario(name: string, window: VideoWindow, ops: FanoutOp[]) {
       else fanout.acknowledge("v", op.ack, op.generation);
     } else if ("time" in op) now = op.time;
     else if ("roundTrip" in op) fanout.roundTrip("v", op.roundTrip ?? undefined);
+    else if ("due" in op) events.push({ due: fanout.nextDeadline("v") ?? null });
     else if ("pause" in op) fanout.assign("v", undefined);
     else if ("forget" in op) fanout.forget("v", op.forget);
     else if ("refuse" in op) accepting = !op.refuse;
@@ -222,6 +224,24 @@ export function fanoutEdges() {
         { flush: true },
       ],
     ),
+    // A round trip learned mid-window: the next chunk would date earlier than the two ahead of
+    // it, but on an ordered transport it is due no sooner, so the head stays the earliest.
+    fanoutScenario("a round trip learned mid-window", { frames: 5, bytes: 1000 }, [
+      { assign: true },
+      piece(1, true, 10),
+      piece(2, false, 10),
+      { due: true },
+      { time: 100 },
+      { roundTrip: 100 },
+      piece(3, false, 10),
+      { due: true },
+      { time: 1_302 },
+      { flush: true },
+      { due: true },
+      { time: 3_002 },
+      { flush: true },
+      { due: true },
+    ]),
     // Expiry runs inside an ack and a forget too: a late one finds its neighbours lost.
     fanoutScenario("a late ack past a deadline", { frames: 3, bytes: 1000 }, [
       { assign: true },
@@ -534,6 +554,12 @@ export function linkRateEdges() {
         { ack: { sequence: 1, at: 320 } },
         { ack: { sequence: 3, at: 400 } },
       ],
+      phoneLimits,
+    ),
+    // Before any round trip, the bound takes it as 1 s: 2.2 s of the rate, not megabytes.
+    rateScenario(
+      "the bound before a round trip",
+      [{ sent: { sequence: 0, bytes: 1_000, at: 0 } }],
       phoneLimits,
     ),
     // Drops while a loss stalls the link: no cut.

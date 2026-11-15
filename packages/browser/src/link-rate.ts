@@ -71,6 +71,8 @@ const headroom = 1.3;
 const provenWindowMs = 30_000;
 /** Bytes in flight may hold the link's rate for its round trip plus at least this long. */
 export const backlogMs = 300;
+/** A round trip taken before one is measured (fanout's deadlines take the same). */
+export const unknownRoundTripMs = 1_000;
 
 /**
  * Sends awaiting an ack that are remembered; past this the oldest is forgotten. A viewer's
@@ -152,13 +154,11 @@ export class LinkRate {
    * The most bytes a viewer should have in flight (ADR 0150, amending ADR 0149): the rate for the
    * path's round trip (the floor) plus max(`backlogMs`, the round trip plus `stallMs`). One TCP
    * tail-loss recovery takes about a round trip plus the 200 ms minimum RTO, and a stall that
-   * long must not drop deltas. Unbounded until a round trip is known.
+   * long must not drop deltas. Before a round trip is known it is taken as 1 s, as fanout's
+   * deadlines take it, so a first window is never the frame window's megabytes.
    */
-  get backlogBytes(): number | undefined {
-    // The path's round trip (the floor), not the smoothed one: a queue must not widen its own
-    // bound.
-    const rtt = this.#floor[0]?.rtt ?? this.#smoothed;
-    if (rtt === undefined) return undefined;
+  get backlogBytes(): number {
+    const rtt = this.#floor[0]?.rtt ?? this.#smoothed ?? unknownRoundTripMs;
     return Math.round((this.#rate / 8) * ((rtt + Math.max(backlogMs, rtt + stallMs)) / 1000));
   }
   /**

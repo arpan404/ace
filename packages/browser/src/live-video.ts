@@ -162,6 +162,9 @@ export class LiveVideo {
         ),
       scale: existing?.scale ?? new PictureScale(),
     });
+    // Bounded from the start, before any round trip is measured (ADR 0150 at a 1 s default).
+    const rate = this.viewers.get(id)?.link;
+    if (rate && !existing) this.fanout.bound(id, rate.backlogBytes);
   }
   configure(id: string, capture: CaptureViewer): void {
     const viewer = this.viewers.get(id);

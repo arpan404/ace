@@ -42,7 +42,7 @@ fn sixty_fps_pacing_allocates_nothing_after_viewer_construction() {
             },
         );
         rate.acknowledged(sequence, now + 20.0 + (sequence % 7) as f64);
-        viewer.bound(rate.backlog_bytes());
+        viewer.bound(Some(rate.backlog_bytes()));
         viewer.acknowledge_through(sequence, 0.0, |_| true, |_| {});
         black_box(scale.update(PictureLink {
             link: rate.rate(),

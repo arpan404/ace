@@ -318,6 +318,23 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received).toHaveLength(2);
   });
 
+  it("a chunk sent after a shorter round trip is learned is never due before the ones ahead of it", () => {
+    const { fanout, lost, clock, viewer } = setup({ frames: 5, bytes: 10_000 });
+    viewer("phone");
+    fanout.publish("e1", numbered(1, true));
+    fanout.publish("e1", numbered(2, false));
+    const head = fanout.nextDeadline("phone") ?? 0;
+    // A 100 ms round trip learned at 100 ms would date the next chunk at about 1,300 ms; on an
+    // ordered transport it can't be due before the two ahead of it (about 3,000 ms).
+    clock.now = 100;
+    fanout.roundTrip("phone", 100);
+    fanout.publish("e1", numbered(3, false));
+    expect(fanout.nextDeadline("phone")).toBe(head);
+    clock.now = 1_302;
+    fanout.flush();
+    expect(lost).toEqual([]);
+  });
+
   it("knows when its earliest chunk in flight is due, for an owner with no other wake-up", () => {
     const { fanout, viewer } = setup({ frames: 3, bytes: 10_000 });
     viewer("phone");

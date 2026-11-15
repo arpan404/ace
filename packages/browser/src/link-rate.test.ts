@@ -150,7 +150,8 @@ describe("a viewer's link rate", () => {
 
   it("bounds the bytes in flight to the rate over the round trip plus one tail-loss stall", () => {
     const rate = new LinkRate(phone);
-    expect(rate.backlogBytes).toBeUndefined();
+    // Before a round trip is known it is taken as 1 s: 1 + max(0.3, 1.2) = 2.2 s of the rate.
+    expect(rate.backlogBytes).toBe(Math.round((rate.rate / 8) * 2.2));
     for (let index = 0; index < 5; index++) {
       rate.sent(index, 100, index * 100);
       rate.acknowledged(index, index * 100 + 300);

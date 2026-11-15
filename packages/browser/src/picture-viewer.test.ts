@@ -243,3 +243,39 @@ describe("a source whose capture goes idle", () => {
     advance(10_000);
   });
 });
+
+describe("a viewer that learns its round trip mid-window", () => {
+  it("wakes once at the head's deadline, not every millisecond", () => {
+    let now = 0;
+    const scheduled: number[] = [];
+    const timers: { at: number; run: () => void }[] = [];
+    const viewer = new PictureViewer(streamKinds.deviceFrame, deviceId, {
+      messageId: () => 1,
+      now: () => now,
+      after(ms, run) {
+        scheduled.push(now + ms);
+        const timer = { at: now + ms, run };
+        timers.push(timer);
+        return () => timers.splice(timers.indexOf(timer), 1);
+      },
+      keyframe: () => {},
+      link: { min: 150_000, max: 20_000_000, initial: 4_000_000 },
+      write: () => true,
+    });
+    viewer.push(frame(1, { key: true }));
+    viewer.push(frame(2));
+    viewer.push(frame(3));
+    // At 100 ms an ack of the first teaches a 100 ms round trip; the fourth is sent after it.
+    now = 100;
+    viewer.ack("capture-1", 1);
+    viewer.push(frame(4));
+    // Run the clock to 3.1 s, firing whatever is due.
+    const fired = scheduled.length;
+    for (now = 100; now <= 3_100; now++)
+      for (const timer of timers.filter((candidate) => candidate.at <= now)) {
+        timers.splice(timers.indexOf(timer), 1);
+        timer.run();
+      }
+    expect(scheduled.length - fired).toBeLessThanOrEqual(3);
+  });
+});

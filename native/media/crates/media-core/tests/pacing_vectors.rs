@@ -348,6 +348,9 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
                 viewer.forget(generation, now, send, event);
             } else if let Some(time) = op["time"].as_f64() {
                 now = time;
+            } else if op.get("due").is_some() {
+                log.borrow_mut()
+                    .push(json!({ "due": viewer.next_deadline() }));
             } else if let Some(round_trip) = op.get("roundTrip") {
                 viewer.set_round_trip(round_trip.as_f64());
             } else if let Some(refuse) = op["refuse"].as_bool() {
@@ -395,17 +398,13 @@ fn link_rate_replays_edges_the_3g_link_loss_stalls_queueing_and_hints() {
             assert_eq!(rate.rate(), n(out, "rate"), "{name} step {index}");
             assert_eq!(rate.probing(), b(out, "probing"), "{name} step {index}");
             // A byte count from float round trips: a last-bit difference may flip a .5 tie.
-            match (rate.backlog_bytes(), out["backlogBytes"].as_u64()) {
-                (Some(actual), Some(expected)) => {
-                    assert!(
-                        (actual as i64 - expected as i64).abs() <= 1,
-                        "{name} step {index}"
-                    )
-                }
-                (actual, expected) => {
-                    assert_eq!(actual.map(|v| v as u64), expected, "{name} step {index}")
-                }
-            }
+            let expected = out["backlogBytes"]
+                .as_u64()
+                .unwrap_or_else(|| panic!("{name} step {index}"));
+            assert!(
+                (rate.backlog_bytes() as i64 - expected as i64).abs() <= 1,
+                "{name} step {index}"
+            );
             match (rate.rtt(), out["rtt"].as_f64()) {
                 (Some(actual), Some(expected)) => {
                     assert!((actual - expected).abs() < 1e-10, "{name} step {index}")
@@ -456,7 +455,7 @@ fn fanout_and_link_together_carry_a_loss_into_the_rate() {
                 let (backlog, rtt) = {
                     let mut rate = rate.borrow_mut();
                     rate.acknowledged(ack, now.get());
-                    (rate.backlog_bytes(), rate.rtt())
+                    (Some(rate.backlog_bytes()), rate.rtt())
                 };
                 viewer.bound(backlog);
                 viewer.set_round_trip(rtt);

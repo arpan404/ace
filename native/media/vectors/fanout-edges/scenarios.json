@@ -1349,6 +1349,123 @@
     ]
   },
   {
+    "name": "a round trip learned mid-window",
+    "window": {
+      "frames": 5,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "due": true
+      },
+      {
+        "time": 100
+      },
+      {
+        "roundTrip": 100
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "due": true
+      },
+      {
+        "time": 1302
+      },
+      {
+        "flush": true
+      },
+      {
+        "due": true
+      },
+      {
+        "time": 3002
+      },
+      {
+        "flush": true
+      },
+      {
+        "due": true
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "due": 3000.5333333333333
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "due": 3000.5333333333333
+      },
+      {
+        "due": 3000.5333333333333
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "due": null
+      }
+    ]
+  },
+  {
     "name": "a late ack past a deadline",
     "window": {
       "frames": 3,

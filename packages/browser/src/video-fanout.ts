@@ -1,4 +1,4 @@
-import { linkFloor } from "./link-rate.ts";
+import { linkFloor, unknownRoundTripMs } from "./link-rate.ts";
 
 /*
  * Encoded video to each viewer, at the pace that viewer acknowledges (ADR 0088). Pure: no
@@ -54,8 +54,6 @@ export interface VideoWindow {
   bytes: number;
 }
 
-/** A round trip taken for deadlines until the owner knows the link's. */
-export const unknownRoundTripMs = 1_000;
 /** Beyond its send time and two round trips, a chunk may be this late before it is lost. */
 const deadlineSlackMs = 1_000;
 
@@ -151,11 +149,9 @@ export class VideoFanout<C extends VideoPiece> {
     const viewer = this.viewers.get(id);
     if (viewer) viewer.roundTrip = ms;
   }
-  /** When the viewer's earliest chunk in flight is due; undefined when none is in flight. */
+  /** When the viewer's earliest chunk in flight (its head: deadlines only grow) is due. */
   nextDeadline(id: string): number | undefined {
-    const inflight = this.viewers.get(id)?.inflight;
-    if (!inflight?.length) return undefined;
-    return Math.min(...inflight.map((entry) => entry.deadline));
+    return this.viewers.get(id)?.inflight[0]?.deadline;
   }
   remove(id: string): void {
     const viewer = this.viewers.get(id);
@@ -352,10 +348,11 @@ export class VideoFanout<C extends VideoPiece> {
         sequence: chunk.sequence,
         bytes: chunk.bytes.length,
         generation: viewer.generation,
-        deadline: deadline(
-          this.options.now(),
-          viewer.inflightBytes + chunk.bytes.length,
-          viewer.roundTrip,
+        // Never before the chunk ahead of it: the transport is ordered, so deadlines only grow
+        // along the window, and expiry need only look at its head.
+        deadline: Math.max(
+          deadline(this.options.now(), viewer.inflightBytes + chunk.bytes.length, viewer.roundTrip),
+          viewer.inflight.at(-1)?.deadline ?? -Infinity,
         ),
       };
       viewer.inflight.push(entry);
