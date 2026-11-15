@@ -17,9 +17,10 @@ import { expandShortDeltas, shortDeltasFraming } from "@ace/projection/short-del
 
 /**
  * Frame shapes this client reads (hello `framing`): several messages per frame, one per line,
- * and streamed deltas in short form (`short-deltas`), made whole by `decode`.
+ * streamed deltas in short form (`short-deltas`), made whole by `decode`, and paced replays
+ * (`paced-replay`), each piece acknowledged by the connection once handed on.
  */
-export const supportedFraming: readonly string[] = ["lines", shortDeltasFraming];
+export const supportedFraming: readonly string[] = ["lines", shortDeltasFraming, "paced-replay"];
 
 export type ServiceWire = typeof import("./service-wire.ts");
 
