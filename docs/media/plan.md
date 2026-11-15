@@ -2391,10 +2391,18 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`, and
     (a revocation) escalates a graceful close in progress. The engine keeps closing streams with
     their owners until the shell reports them closed, so a revocation or a connection close
     still reaches them.
-  - Each socket keeps a second handle on its descriptor that makes the final close, after every
-    task has ended. It resets unless a graceful close completed, so a graceful close that runs
-    out of time resets too.
-  - Shutdown waits for closes in progress, within its budget.
+  - Each stream's `Finale`, made at dial, holds a second handle on its socket (a duplicated
+    descriptor, or `SOCKET` on Windows; the dial fails without one) and whether a revocation
+    forced the close. An escalation sets it, and the final close decides and closes, under one
+    lock, so a force lands before the close or finds it done.
+  - The final close sets the handle's own linger either way, since on Windows each duplicate
+    keeps its own: zero and on when it resets (forced, or a graceful close that ran out of
+    time), off when a graceful close completed.
+  - The writer's half is released without tokio's shutdown-on-drop, and the graceful finish
+    sends no FIN of its own. Darwin refuses socket options once both directions are shut, and a
+    FIN can't be taken back, so our FIN comes with the final close.
+  - Shutdown (`shell/shutdown.rs`) keeps every phase inside one deadline: relay closes, then
+    both lanes together, and no lane drain once the budget is spent.
   - A priority gate (`shell/priority_gate.rs`) holds each answer only for the closes its own
     message made. It is released once every task that owned those sockets has ended, so
     `revoked` and `closed` say what they mean. An answer with no closes (an epoch ack) goes at
