@@ -188,21 +188,32 @@ then.
 | Method and path                               | Body                                                                       | Answer                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
-| `POST /agents`                                | `{name, task?, model?, avatar?, access?}`                                  | `201 {"agent"}`; `model` defaults like the main agent's    |
+| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
 | `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
-| `GET /models`                                 |                                                                            | `{"endpoints":[Endpoint],"presets":[Preset],"fast_model"}` |
+| `GET /models`                                 |                                                                            | `{"endpoints","presets","fast_model","new_bot_model", …}` |
 | `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}` | `201 {"endpoint"}`                                         |
 | `PATCH /endpoints/{id}`                       | same fields but `preset`                                                   | `200 {"endpoint"}`                                         |
 | `DELETE /endpoints/{id}`                      |                                                                            | `204` (its keychain key goes too); `409 {error, agents}`   |
 | `GET /endpoints/{id}/models`                  |                                                                            | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
 | `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                     | `200 {"endpoint"}`                                         |
 | `DELETE /endpoints/{id}/models?id=<model id>` |                                                                            | `204`; `404` if not saved                                  |
-| `PUT /settings`                               | `{"fast_model": "endpoint/model" \| null}`                                 | `204`                                                      |
+| `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`           | `204`                                                      |
 | `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                    | as before (ADR 0119)                                       |
 | `POST /conversations`                         |                                                                            | `410`: create an agent instead                             |
 
+- A new bot's `model`, when the body names none: `new_bot_model` (the person's choice in Settings,
+  answered by `GET /models`, set with `PUT /settings`; `null` clears it), else the person's first
+  usable model. A template's own model kind still wins over it, and an imported bot whose model
+  isn't here gets it too.
+- `first_message`: `{"text", "images"?: [{"data"}]}` (images as for messages) makes the bot and
+  sends it this as its first message, the new-bot conversation's one call. Both happen, or
+  neither: a message Spade can refuse before the bot exists (empty, too long, too many images)
+  answers as `POST /conversations/{id}/messages` would and makes nothing; one refused as it is
+  sent (a cap reached, `402`; storage) deletes the bot again before answering. The answer's
+  `agent` is read after the send, so its `state` is already `working`. Files and voice go in
+  later messages.
 - Avatar in a body: `{"kind":"image","data":"<base64 or data: URL>"}` (PNG, JPEG, GIF or WebP,
   3.75 MB at most, stored like attached images) or a character face. An absent avatar, or
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see

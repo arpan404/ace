@@ -93,3 +93,103 @@ async fn a_finished_reply_is_not_seen_until_the_person_marks_it_and_the_mark_sur
     );
     Ok(())
 }
+
+async fn bots(spade: &Spade) -> Result<usize> {
+    let (_, body) = spade.get("/v1/agents").await?;
+    Ok(body["agents"].as_array().map_or(0, Vec::len))
+}
+
+#[tokio::test]
+async fn a_bot_made_with_its_first_message_starts_on_it_and_a_refused_message_makes_no_bot()
+-> Result {
+    let spade = Spade::start(vec![Script::reply("On it."), title()], Vec::new()).await?;
+    let (status, body) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Trips", "first_message": { "text": "Plan a weekend in Oslo" } }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let made = &body["agent"];
+    assert_eq!(made["model"], "fake/m", "Spade's default model");
+    assert_eq!(made["access"], "ask", "the new-bot level");
+    let conversation = made["conversation"].as_str().unwrap_or_default();
+    let events = spade.wait_for(conversation, "reply_finished").await?;
+    assert_eq!(events[0]["type"], "user_message", "{events:?}");
+    assert_eq!(events[0]["text"], "Plan a weekend in Oslo");
+
+    let before = bots(&spade).await?;
+    let (status, body) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Empty", "first_message": { "text": "   " } }),
+        )
+        .await?;
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(bots(&spade).await?, before, "nothing was made");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_first_message_refused_once_the_bot_exists_takes_the_bot_back() -> Result {
+    // No money to spend: the message is refused as it is sent, after the bot was made.
+    let options = support::Options {
+        cap_usd: 0.0,
+        ..support::Options::default()
+    };
+    let spade = Spade::start_with(Vec::new(), Vec::new(), options).await?;
+    let before = bots(&spade).await?;
+    let (status, body) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Trips", "model": "fake/m", "first_message": { "text": "Go" } }),
+        )
+        .await?;
+    assert_eq!(status, 402, "{body}");
+    assert_eq!(bots(&spade).await?, before, "the bot went with its message");
+    Ok(())
+}
+
+#[tokio::test]
+async fn new_bots_start_on_the_model_the_person_chose_for_them() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let (_, models) = spade.get("/v1/models").await?;
+    assert_eq!(models["new_bot_model"], Value::Null, "{models}");
+    let (status, body) = spade
+        .put("/v1/settings", json!({ "new_bot_model": "fake/other" }))
+        .await?;
+    assert_eq!(status, 204, "{body}");
+    let (_, models) = spade.get("/v1/models").await?;
+    assert_eq!(models["new_bot_model"], "fake/other");
+    let (status, body) = spade.post("/v1/agents", json!({ "name": "Trips" })).await?;
+    assert_eq!(
+        (status, &body["agent"]["model"]),
+        (201, &json!("fake/other"))
+    );
+    let (status, body) = spade
+        .put("/v1/settings", json!({ "new_bot_model": "not a model" }))
+        .await?;
+    assert_eq!(status, 400, "{body}");
+
+    let (status, body) = spade
+        .put("/v1/settings", json!({ "new_bot_model": null }))
+        .await?;
+    assert_eq!(status, 204, "{body}");
+    let (status, body) = spade.post("/v1/agents", json!({ "name": "Inbox" })).await?;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(
+        body["agent"]["model"], "fake/m",
+        "back to the first usable model"
+    );
+
+    spade
+        .put("/v1/settings", json!({ "new_bot_model": "fake/other" }))
+        .await?;
+    let spade = spade.restart(Vec::new(), Vec::new()).await?;
+    let (_, models) = spade.get("/v1/models").await?;
+    assert_eq!(
+        models["new_bot_model"], "fake/other",
+        "kept across a restart"
+    );
+    Ok(())
+}

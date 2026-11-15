@@ -642,6 +642,23 @@ impl Engine {
         &self.models
     }
 
+    /// What can be told of a new bot's first message before the bot exists: it says something,
+    /// isn't too long and carries no more images than a message may. The rest (caps) is checked
+    /// as it is sent.
+    pub fn check_first_message(&self, first: &Outgoing) -> Result<(), SendError> {
+        if first.images.len() > crate::images::MOST_IMAGES {
+            return Err(SendError::TooManyImages);
+        }
+        let text = first.text.trim();
+        if text.is_empty() && first.images.is_empty() {
+            return Err(SendError::Empty);
+        }
+        if text.chars().count() > self.limits.longest_message {
+            return Err(SendError::TooLong);
+        }
+        Ok(())
+    }
+
     fn check_message(&self, id: &str, text: &str, attached: usize) -> Result<(), SendError> {
         let text = text.trim();
         if text.is_empty() && attached == 0 {
