@@ -7,6 +7,7 @@ import type { DeviceRuntime } from "./runtime.ts";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import type { Actor } from "./lease.ts";
 import { mirrorDeviceController } from "./screen-controller.ts";
+import type { DeviceMedia } from "./media-paths.ts";
 
 export interface LifecycleOptions {
   platform: DevicePlatform;
@@ -21,6 +22,8 @@ export interface LifecycleOptions {
   recordingAvailable?(): boolean;
   recordingLimitBytes?: number;
   capture?: typeof startCapture;
+  /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
+  media?: DeviceMedia;
 }
 export interface LifecycleOwner {
   enabled(): boolean;
@@ -92,6 +95,7 @@ export async function startDevice(
       signal: controller.signal,
       platform: options.platform,
       ...(options.screen ? { screen: options.screen } : {}),
+      ...(options.media ? { media: options.media } : {}),
       runtime: options.runtime,
       env: options.env,
       publish(frame) {

@@ -26,7 +26,15 @@ export async function publishHistory(
   let worker: Worker | undefined;
   try {
     const publication = spawnWorker(new URL("./history-publish-worker.ts", import.meta.url), {
-      workerData: { databasePath, archivePath, threadId, at, cancellation },
+      // The worker's store keeps the daemon's trust record under the daemon's own build key.
+      workerData: {
+        databasePath,
+        archivePath,
+        threadId,
+        at,
+        cancellation,
+        storedTrustBuild: store.storedTrustBuild ?? null,
+      },
     });
     worker = publication;
     let failure: unknown;

@@ -5,6 +5,7 @@ import {
   recoverMutationLeases,
   mutationState,
   clearStaleLeases,
+  healRepositories,
   healRepository,
   settleOwnLeases,
   type LeaseProbe,
@@ -216,6 +217,10 @@ export class GitCli {
   /** Retire stale leases and remove Git lock files no live Git process holds. */
   heal(path: string) {
     return healRepository(path, this.leaseProbe);
+  }
+  /** `heal` for every checkout in one sweep, sharing its process listing. */
+  healAll(paths: readonly string[], failed: (path: string, error: unknown) => void) {
+    return healRepositories(paths, failed, this.leaseProbe);
   }
   recoverCleanup(path: string) {
     return recoverMutationLeases(

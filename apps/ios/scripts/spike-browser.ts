@@ -124,12 +124,27 @@ const Control = z.object({
   ]),
 });
 
-/** `POST /browser {action}`: the page asks for something, or the agent comes and goes. */
+/**
+ * `POST /browser {action}`: the page asks for something, or the agent comes and goes. `GET
+ * /browser` reads the fixture browser back.
+ */
 export async function browserControl(
   daemon: FakeDaemon,
   request: Request,
 ): Promise<Response | undefined> {
-  if (new URL(request.url).pathname !== "/browser" || request.method !== "POST") return undefined;
+  if (new URL(request.url).pathname !== "/browser") return undefined;
+  // `GET /browser`: the fixture browser's engine and its shown page, for UI tests to check.
+  if (request.method === "GET") {
+    const view = daemon.browser.view(browserThread);
+    const shown = view?.tabs?.find((tab) => tab.tabId === view.activeTabId);
+    return Response.json({
+      backend: view?.backend ?? null,
+      closed: view?.closed ?? true,
+      url: shown?.url ?? null,
+      tabs: view?.tabs?.map((tab) => tab.url) ?? [],
+    });
+  }
+  if (request.method !== "POST") return undefined;
   const { action } = Control.parse(await request.json());
   const browser = daemon.browser;
   const tabId = browser.view(browserThread)?.activeTabId ?? "";

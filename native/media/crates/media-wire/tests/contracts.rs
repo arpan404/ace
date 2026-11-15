@@ -1,6 +1,6 @@
 use media_wire::{
     control::{ControlFrame, FromMedia, ToMedia, lane},
-    frame::{Egress, MediaFrame},
+    frame::{Egress, EgressEnd, MediaFrame, egress_end},
     keys::{KeyBlock, crc32c},
 };
 use serde_json::{Value, json};
@@ -212,8 +212,8 @@ fn control_rejects_malformed_contracts_and_preserves_opaque_metadata()
 -> Result<(), Box<dyn std::error::Error>> {
     for bad in [
         json!({"type":"ping","id":"x".repeat(65)}),
-        json!({"type":"source.epoch","source":"s","seq":9007199254740992u64,"epoch":1}),
-        json!({"type":"record.epochs","source":"s","seq":0,"decided":4,"clear":[[4,2]],"discard":[]}),
+        json!({"type":"source.epoch","source":"s","seq":9007199254740992u64,"epoch":1,"followsPrivate":false}),
+        json!({"type":"record.epochs","source":"s","recording":"r","seq":0,"decided":4,"clear":[[4,2]],"discard":[]}),
         json!({"type":"unknown"}),
     ] {
         assert!(serde_json::from_value::<ToMedia>(bad).is_err());
@@ -310,5 +310,86 @@ fn checked_control_values_always_round_trip_and_refuse_out_of_range_construction
     assert!(Protocol::new(2).is_err());
     round_trip(Loopback::new(true)?, json!(true))?;
     assert!(Loopback::new(false).is_err());
+    Ok(())
+}
+#[derive(serde::Deserialize)]
+struct FrameVector {
+    name: String,
+    direction: String,
+    lane: String,
+    hex: String,
+}
+fn reencode<M: media_wire::control::Message>(
+    bytes: &[u8],
+    lane: media_wire::control::Lane,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let frame = ControlFrame::<M>::decode(bytes, lane).map_err(|_| "decode")?;
+    let mut out = frame.header(lane).map_err(|_| "encode")?;
+    out.extend_from_slice(&frame.payload);
+    Ok(out)
+}
+#[test]
+fn shared_control_frame_bytes_decode_and_reencode_exactly() -> Result<(), Box<dyn std::error::Error>>
+{
+    use media_wire::control::Lane;
+    let mut vectors: Vec<FrameVector> = Vec::new();
+    for entry in fs::read_dir(root().join("control-frames"))? {
+        let file: Vec<FrameVector> = serde_json::from_slice(&fs::read(entry?.path())?)?;
+        vectors.extend(file);
+    }
+    assert!(vectors.iter().any(|v| v.name == "session.link"));
+    for v in vectors {
+        let bytes = hex(&v.hex)?;
+        let lane = if v.lane == "priority" {
+            Lane::Priority
+        } else {
+            Lane::Normal
+        };
+        let out = if v.direction == "ToMedia" {
+            reencode::<ToMedia>(&bytes, lane)?
+        } else {
+            reencode::<FromMedia>(&bytes, lane)?
+        };
+        assert_eq!(out, bytes, "{}", v.name);
+    }
+    Ok(())
+}
+
+#[test]
+fn the_egress_end_marker_matches_the_shared_bytes_and_says_whether_the_stream_was_cut()
+-> Result<(), Box<dyn std::error::Error>> {
+    let fixtures: Vec<Value> =
+        serde_json::from_slice(&fs::read(root().join("frame/egress-end.json"))?)?;
+    assert_eq!(fixtures.len(), 2);
+    for f in fixtures {
+        let bytes = hex(f["hex"].as_str().ok_or("hex")?)?;
+        let handle: u32 = f["handle"].as_u64().ok_or("handle")?.try_into()?;
+        let sequence: u32 = f["sequence"].as_u64().ok_or("sequence")?.try_into()?;
+        let interrupted = f["interrupted"].as_bool().ok_or("interrupted")?;
+        assert_eq!(egress_end(handle, sequence, interrupted), bytes);
+        let egress = Egress::decode(&bytes).map_err(|_| "decode")?;
+        assert_eq!((egress.handle, egress.sequence), (handle, sequence));
+        assert_eq!(egress.frame.end(), Some(EgressEnd { interrupted }));
+    }
+    // A unit is never an end marker.
+    let unit = MediaFrame {
+        kind: 1,
+        flags: 8,
+        age_us: 0,
+        width: 2,
+        height: 2,
+        display_width: 2,
+        display_height: 2,
+        scale: 1000,
+        rotation: 0,
+        codec: 2,
+        encode: 0,
+        epoch: 0,
+        codec_string: String::new(),
+        description: Vec::new(),
+        extension: Vec::new(),
+        payload: vec![1],
+    };
+    assert_eq!(unit.end(), None);
     Ok(())
 }

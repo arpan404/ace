@@ -1,5 +1,6 @@
 import { ScreenId, ScreenTarget, ScreenAction, ScreenBundle } from "./screen-base.ts";
 import { z } from "zod";
+import { MediaCapability } from "./media-acceleration.ts";
 import { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 export { ScreenKey, ScreenKeyModifiers } from "./screen-keys.ts";
 
@@ -119,6 +120,8 @@ export const ScreenCapabilities = z
      * (Linux on KDE, and Wayland portals without RemoteDesktop such as Hyprland's).
      */
     watchOnly: z.string().min(1).max(500).optional(),
+    /** Capture → encode, from a trial at helper start (ADR 0148). Absent from older helpers. */
+    encoders: z.array(MediaCapability).max(16).optional(),
   })
   .passthrough();
 export type ScreenCapabilities = z.infer<typeof ScreenCapabilities>;

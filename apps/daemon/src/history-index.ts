@@ -61,7 +61,7 @@ export class HistoryIndex {
   private texts: ItemTextStore;
   private readBytes: ReadBytes;
   private archiveOutput: ArchiveOutput;
-  /** Revisions from `trust.from` on were written by this build and are read as stored. */
+  /** Which revisions are read as stored, by their sequence (`isTrusted`). */
   private readonly trust: StoredTrust;
   constructor(
     db: DatabaseSync,
@@ -178,7 +178,7 @@ export class HistoryIndex {
     const row = this.statement(
       "SELECT seq,item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(id, through);
-    return row ? storedItem(Number(row.seq), String(row.item), this.trust.from) : undefined;
+    return row ? storedItem(Number(row.seq), String(row.item), this.trust) : undefined;
   }
   /** A replay revision refers to durable text streams, never a full canonical message body. */
   searchItem(
@@ -230,6 +230,8 @@ export class HistoryIndex {
       // Text items carry the sources their preview was just given; any other item's preview
       // policy is the identity, so it is taken from the event instead of a stored copy.
       // The item store seeded that preview from this event's item just before (event-writer.ts).
+      // No trust check: the row is the one this transaction wrote from the validated event, so
+      // it is never a row an older build left, whatever its item's sequence.
       const item = hasTextPreview(p.item)
         ? justWrittenItem(
             String(
@@ -249,7 +251,10 @@ export class HistoryIndex {
               "SELECT s.id,s.size FROM item_text_targets t JOIN item_text_streams s ON s.id=t.stream_id WHERE t.item_id=? AND s.thread_id=?",
             ).get(p.itemId, event.threadId);
       if (!row) return;
-      // Columns of the daemon's own stream tables, read as stored (ADR 0125).
+      // Columns of the daemon's own stream tables, read as stored (ADR 0125). No trust check:
+      // they are an id and a byte count, not a body any schema shapes, and every build has
+      // written them the same way (the id it made, the size it summed), so an older build's row
+      // reads the same as this one's.
       const stream = { id: String(row.id), size: Number(row.size) };
       // A message ending in an attachment acquires a new append target on its first delta.
       if (p.field !== "output" && !this.hasVersion(stream.id, event.seq)) {
@@ -320,7 +325,7 @@ export class HistoryIndex {
       );
     if (!row) throw new Error("Item completion boundary is unavailable");
     const throughSeq = count.parse(row.seq);
-    return { throughSeq, item: storedItem(throughSeq, String(row.item), this.trust.from) };
+    return { throughSeq, item: storedItem(throughSeq, String(row.item), this.trust) };
   }
   stream(threadId: ThreadId, streamId: string, through: number) {
     const version = this.latest(streamId, through);

@@ -94,7 +94,8 @@ import XCTest
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
         screenshot("chat-picker")
         app.buttons["project.chat"].tap()
-        XCTAssertTrue(app.buttons["Project, none"].waitForExistence(timeout: 10))
+        // The pill reads "Project" with what's chosen as its value: VoiceOver says "Project, No project".
+        XCTAssertTrue(projectPill(app, "No project").waitForExistence(timeout: 10))
         // A chat runs in its own folder: no worktree strip, no project files to mention.
         XCTAssertFalse(app.buttons["newThread.worktree"].exists)
         let message = element(app, "newThread.message")
@@ -105,8 +106,13 @@ import XCTest
         screenshot("chat-ready")
         app.buttons["newThread.start"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.staticTexts["Chat"].waitForExistence(timeout: 15))
         screenshot("chat-started")
+        // The header shows the model alone; the title menu's first row says where it runs: "Chat · <machine>".
+        app.threadTitle().tap()
+        let place = app.titleMenuItem("thread.title.work", label: "Chat")
+        XCTAssertTrue(place.waitForExistence(timeout: 10))
+        XCTAssertTrue(place.label.hasPrefix("Chat"), place.label)
+        screenshot("chat-place")
     }
 
     func testAProfileCreatedFromTheDraftIsOfferedOnReturnAndSuppliesItsInstructions() {
@@ -218,7 +224,7 @@ import XCTest
         screenshot("addproject-search")
         app.buttons["folder.notes"].tap()
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "newThread.project", "notes")).firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(projectPill(app, "notes").waitForExistence(timeout: 15))
         screenshot("addproject-selected")
     }
 
@@ -277,7 +283,9 @@ import XCTest
         screenshot("newthread-files-folder")
         app.buttons["file.docs/runbook.md"].tap()
         XCTAssertTrue(element(app, "preview.markdown").waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Relay runbook"].exists)
+        // markit draws each block as a text view whose value is its words, not as a static text.
+        let heading = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Relay runbook", "Relay runbook")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 10))
         // A project's own folder is read-only before the thread exists.
         XCTAssertFalse(app.buttons["file.edit"].exists)
         screenshot("newthread-files-preview")
@@ -291,6 +299,10 @@ import XCTest
     }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+    /// The project pill once it shows `project`: its label stays "Project", the choice is its value.
+    private func projectPill(_ app: XCUIApplication, _ project: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ AND value == %@", "newThread.project", project)).firstMatch
+    }
     private func launch(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra

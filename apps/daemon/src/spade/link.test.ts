@@ -22,6 +22,10 @@ function machine() {
     nonces: 1,
     /** What `/health` says Spade is still setting up, if anything. */
     setup: undefined as string | undefined,
+    /** How many times the service manager was asked. */
+    serviceReads: 0,
+    /** Each wait before the next look, as the link scheduled it. */
+    waits: [] as number[],
   };
   const link = new SpadeLink({
     dataDir: "/ace/spade",
@@ -39,7 +43,10 @@ function machine() {
       },
       alive: (pid) => world.alive.has(pid),
       nonce: () => (world.nonces++).toString(16).padStart(32, "0"),
-      serviceState: async () => world.service,
+      serviceState: async () => {
+        world.serviceReads++;
+        return world.service;
+      },
       watch: (_directory, changed) => {
         world.watched = changed;
         return () => {
@@ -48,7 +55,10 @@ function machine() {
       },
       now: () => world.now,
       platform: "darwin",
-      after: () => () => {},
+      after: (ms) => {
+        world.waits.push(ms);
+        return () => {};
+      },
     },
   });
   const seen: SpadeStatus[] = [];
@@ -227,4 +237,54 @@ test("nothing but the registered, running Spade that proves its token is ready o
   await link.refresh();
   expect(link.status()).toEqual({ state: "ready", version: "0.4.0" });
   expect(arrived).toEqual([4100]);
+});
+
+test("a running Spade that keeps proving itself is not asked of the service manager again", async () => {
+  const { link, world, spadeStarts } = machine();
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+  await link.refresh();
+  expect(link.status().state).toBe("ready");
+  const reads = world.serviceReads;
+  for (let look = 0; look < 10; look++) await link.refresh();
+  expect(world.serviceReads).toBe(reads);
+  expect(link.status().state).toBe("ready");
+
+  // It stops answering: the service manager is asked again and its answer counts.
+  world.answering.clear();
+  world.service = "stopped";
+  await link.refresh();
+  expect(world.serviceReads).toBe(reads + 1);
+  expect(link.status()).toMatchObject({
+    state: "failed",
+    reason: expect.stringContaining("not running"),
+  });
+});
+
+test("a Spade that stays down is looked at less and less, up to a minute, and its files wake the link", async () => {
+  const { link, world, spadeStarts } = machine();
+  world.service = "stopped";
+  // Turning on looks once; then nine more looks.
+  link.setEnabled(true);
+  for (let look = 0; look < 9; look++) await link.refresh();
+  expect(world.waits).toEqual([
+    1000, 2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000, 60_000, 60_000,
+  ]);
+
+  // A change in Spade's directory looks at once, and the waits start short again.
+  world.waits.length = 0;
+  world.service = "running";
+  world.watched?.();
+  await link.refresh();
+  expect(world.waits[0]).toBe(1000);
+
+  // Running but silent within its start grace: looked at every second until it answers.
+  world.waits.length = 0;
+  for (let look = 0; look < 3; look++) await link.refresh();
+  expect(world.waits).toEqual([1000, 1000, 1000]);
+  spadeStarts(41, 4100);
+  await link.refresh();
+  expect(link.status().state).toBe("ready");
+  expect(world.waits.at(-1)).toBe(5000);
 });

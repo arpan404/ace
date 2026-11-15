@@ -232,7 +232,7 @@ export class PayloadStore {
         return;
       }
       // Every output delta reads its shell item: one this build created is read as stored.
-      const item = storedItem(Number(row.created_seq), String(row.item), this.trust.from);
+      const item = storedItem(Number(row.created_seq), String(row.item), this.trust);
       if (p.field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
         const streamId = item.call.detail.output?.streamId ?? outputStreamId(item.id);
         this.statement(

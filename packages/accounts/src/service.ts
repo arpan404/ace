@@ -55,6 +55,7 @@ export class AccountService {
     });
   }
   private registry: AccountRegistry;
+  private freshen: ((signal: AbortSignal) => Promise<void>) | undefined;
   private now: () => number;
   private timeZone: string;
   private safety: MigrationSafety;
@@ -75,8 +76,14 @@ export class AccountService {
     cursorEnv?: NodeJS.ProcessEnv;
     safety?: MigrationSafety;
     resolveAcpLogin?: AcpLoginResolver;
+    /**
+     * Before a session picks its account by quota: limits read again when they are old, waiting a
+     * few seconds at most and never past `signal`. Pinned and selected accounts don't wait.
+     */
+    freshen?: (signal: AbortSignal) => Promise<void>;
   }) {
     this.registry = options.registry;
+    this.freshen = options.freshen;
     this.now = options.now;
     this.timeZone = options.timeZone;
     // Libraries can mutate process.env after startup (sharp adds VIPSHOME). A moving
@@ -286,6 +293,10 @@ export class AccountService {
       throw new Error("An Antigravity session needs the account it runs on");
     const provider =
       adapter.provider === "antigravity" ? "acp" : AccountProvider.parse(adapter.provider);
+    // Choosing by quota: an old reading may hold an account that has room again, or miss one that
+    // has none. Bounded by the freshener; a slow CLI never holds the turn longer.
+    if (!assignment.instanceId && provider !== "acp" && this.freshen)
+      await this.freshen(context.signal).catch(() => {});
     const chosen = assignment.instanceId
       ? this.registry.get(assignment.instanceId)?.instance
       : pickInstance(

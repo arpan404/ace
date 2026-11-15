@@ -124,6 +124,9 @@
     "packages/settings/src/containment.test.ts": "TODO cleanup (5.1s in the 2026-10 timing run)"
   },
   "process": {
+    "packages/browser/src/media-video.process.test.ts": "Two real-Chrome streams through the ace-media binary (a tab with route flips and a kill, and a VideoToolbox-encoded screencast): about 30 s on a loaded Mac",
+    "packages/devices/src/frame-encoder-media.process.test.ts": "Builds the Swift screen helper when its sources changed, then streams a picture file through it and the ace-media binary with four route flips and a kill: about 30 s on a loaded Mac",
+    "packages/screen/src/helper-identity.native.process.test.ts": "Builds the Swift screen helper when its sources changed (about 30 s), then reads its signature",
     "apps/daemon/src/publication-assignments.process.test.ts": "TODO cleanup (327.3s in the 2026-10 timing run)",
     "apps/daemon/src/tool-results.process.test.ts": "TODO cleanup (245.8s in the 2026-10 timing run)",
     "packages/git/src/escaped-descendants.process.test.ts": "TODO cleanup (234.3s in the 2026-10 timing run)",

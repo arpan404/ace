@@ -136,6 +136,11 @@ export interface ClientApi {
    * it on its first render, before the lease reconciles it. It may be behind (`syncing`).
    */
   cachedThread?(id: string): ThreadSource | undefined;
+  /**
+   * The store of a thread this client still has, leased or cached, without making it the most
+   * recently used: for checks that must not themselves keep a thread cached.
+   */
+  peekThread?(id: string): ThreadReader | undefined;
   /** Likewise for `threads()`. */
   cachedThreads?(): SidebarSource | undefined;
   threadsWindow(input: {

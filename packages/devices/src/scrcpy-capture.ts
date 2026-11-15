@@ -23,6 +23,10 @@ import { H264Jpeg } from "./h264-jpeg.ts";
 import { ScrcpyClipboard } from "./scrcpy-clipboard.ts";
 import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import { startHostFrames, type HostFrames } from "./host-frames.ts";
+import { DeviceVideoPaths, type DeviceMedia } from "./media-paths.ts";
+import { IngestWriter } from "@ace/media/ingest-writer";
+import { encodeProducerStamp } from "@ace/media/producer-stamp";
+import type { MediaFrame } from "@ace/media/frame";
 
 /** Control bytes queued in the socket before input is refused rather than delayed. */
 const controlBacklog = 256 * 1024;
@@ -40,6 +44,8 @@ type Link = {
   startedAt: number;
   /** The picture encoded on the host; the server then runs control only. */
   frames: HostFrames | undefined;
+  /** The host-encoded picture's way through ace-media, while the daemon has one. */
+  paths: DeviceVideoPaths | undefined;
 };
 
 /** The picture's size: the host-encoded one's, else what scrcpy's stream said. */
@@ -96,6 +102,8 @@ export async function scrcpyCapture(options: {
    * the picture comes from scrcpy as before.
    */
   host?: { grpc: EmulatorGrpc; encoder: string; directory: string };
+  /** ace-media (ADR 0147, phase 2): the host-encoded picture streams into it while routed. */
+  media?: DeviceMedia;
 }): Promise<DeviceCapture> {
   const { runtime, platform, device } = options;
   const transport = await platform.captureTransport(device);
@@ -181,6 +189,95 @@ export async function scrcpyCapture(options: {
       packet,
     });
   };
+  // ace-media (ADR 0147, phase 2): the daemon keeps scrcpy's sockets and, while the route says
+  // so, forwards each unit unchanged to ace-media's ingest; egress brings it back. One source
+  // for the capture's life, so a server restart (new viewer settings) doesn't reopen it.
+  let forward: IngestWriter | undefined;
+  /** Moving to ace-media: units stay on the daemon's path until the device's next keyframe,
+   * which is the first unit forwarded (ace-media's egress drops anything before one). */
+  let awaitingKey:
+    | {
+        writer: IngestWriter;
+        started: (boundary: number | null) => void;
+        failed: (error: Error) => void;
+      }
+    | undefined;
+  let forwarded = 0;
+  const media = options.media;
+  let scrcpyPaths: DeviceVideoPaths | undefined;
+  const pathsFor = () =>
+    (scrcpyPaths ??= media
+      ? new DeviceVideoPaths({
+          media,
+          source: `scrcpy:${options.streamId}`,
+          kind: "scrcpy",
+          origin: { kind: "scrcpy", host: "127.0.0.1", port: 0 },
+          deviceId: device.id,
+          emit: (unit) => publishVideo(unit),
+          switch: async (address) => {
+            if (address) {
+              const writer: IngestWriter = new IngestWriter({
+                socket: address.socket,
+                token: address.token.slice(),
+                onClosed: () => {
+                  if (awaitingKey?.writer === writer) {
+                    // Gone before the switch happened: video stays on the daemon's path.
+                    awaitingKey.failed(new Error("ace-media closed the ingest connection"));
+                    awaitingKey = undefined;
+                    return;
+                  }
+                  if (forward !== writer) return;
+                  // ace-media went away: the units come straight back to the daemon.
+                  forward = undefined;
+                  scrcpyPaths?.ingestClosed();
+                  keyframe();
+                },
+                onKeyframe: () => keyframe(),
+                after: runtime.after,
+              });
+              const keyed = Promise.withResolvers<number | null>();
+              awaitingKey = { writer, started: keyed.resolve, failed: keyed.reject };
+              keyframe();
+              // A device that never answers still moves: from its next unit on.
+              const cancel = runtime.after(keyframeRetryMs, () => {
+                if (awaitingKey?.writer !== writer) return;
+                awaitingKey = undefined;
+                forward = writer;
+                keyed.resolve(forwarded > 0 ? forwarded - 1 : null);
+              });
+              const boundary = await keyed.promise.finally(cancel);
+              return { ingest: "on", boundary };
+            }
+            const previous = forward ?? awaitingKey?.writer;
+            awaitingKey?.started(forwarded > 0 ? forwarded - 1 : null);
+            awaitingKey = undefined;
+            forward = undefined;
+            // Every queued unit is written, then the connection ends cleanly: ace-media's end
+            // marker follows the last one.
+            previous?.finish();
+            return { ingest: "off", boundary: null };
+          },
+          keyframe: () => keyframe(),
+          schedule: (callback, ms) => runtime.after(ms, callback),
+        })
+      : undefined);
+  /** A unit off scrcpy's video socket: to ace-media while routed there, else handed on. */
+  const forwardVideo = (unit: VideoUnit) => {
+    const number = forwarded++;
+    if (awaitingKey && unit.keyframe) {
+      // The switch: everything before this went the daemon's way.
+      forward = awaitingKey.writer;
+      awaitingKey.started(number > 0 ? number - 1 : null);
+      awaitingKey = undefined;
+    }
+    if (forward && !forward.closed) {
+      forward.write(scrcpyFrame(unit, number));
+      return;
+    }
+    const paths = pathsFor();
+    if (paths) paths.daemon({ ...unit, sequence: number });
+    else publishVideo(unit);
+  };
   const publishImage = (payload: Buffer, width: number, height: number) => {
     const display = displayFor(width, height);
     const header = {
@@ -201,6 +298,7 @@ export async function scrcpyCapture(options: {
   /** Starts a server run and makes it the current link before any of its video is read. */
   const connect = async (): Promise<void> => {
     let current: Link | undefined;
+    let paths: DeviceVideoPaths | undefined;
     const box = (maxSize: number) => maxSize || longEdge;
     const wanted = profileFor(settings, transport, scid());
     const frames = options.host
@@ -213,14 +311,43 @@ export async function scrcpyCapture(options: {
           env: options.env,
           unit: (unit) => {
             if (!current) return;
+            if (paths) return paths.daemon(unit);
             current.streaming = true;
             if (!stopped && link === current) publishVideo(unit);
           },
           failed: (error) => {
             if (current) lost(current, error);
           },
+          ingestClosed: () => paths?.ingestClosed(),
         }).catch(() => undefined)
       : undefined;
+    if (frames && media)
+      paths = new DeviceVideoPaths({
+        media,
+        source: `emulator:${options.streamId}`,
+        kind: "emulator-frames",
+        origin: {
+          kind: "emulator-frames",
+          path: frames.file,
+          width: shortEdge,
+          height: longEdge,
+          stride: shortEdge * 4,
+        },
+        deviceId: device.id,
+        emit: (unit) => {
+          if (!current) return;
+          current.streaming = true;
+          if (!stopped && link === current) publishVideo(unit);
+        },
+        switch: (address) =>
+          frames.ingest(
+            address
+              ? { socket: address.socket, token: Buffer.from(address.token).toString("base64") }
+              : undefined,
+          ),
+        keyframe: () => frames.keyframe(),
+        schedule: (callback, ms) => runtime.after(ms, callback),
+      });
     const profile: ServerProfile = { ...wanted, video: frames === undefined };
     const connection = await startScrcpyServer({
       adb: transport.adb,
@@ -233,6 +360,7 @@ export async function scrcpyCapture(options: {
       env: options.env,
       ...(options.signal ? { signal: options.signal } : {}),
     }).catch(async (error: unknown) => {
+      paths?.close();
       await frames?.stop();
       throw error;
     });
@@ -240,6 +368,7 @@ export async function scrcpyCapture(options: {
       connection,
       profile,
       frames,
+      paths,
       startedAt: runtime.now(),
       clipboard: new ScrcpyClipboard({
         send: (message) => send(message, started),
@@ -249,7 +378,7 @@ export async function scrcpyCapture(options: {
       units: new ScrcpyVideoUnits(
         (unit) => {
           started.streaming = true;
-          if (!stopped && link === started) publishVideo(unit);
+          if (!stopped && link === started) forwardVideo(unit);
         },
         () => {},
       ),
@@ -307,6 +436,7 @@ export async function scrcpyCapture(options: {
   const disconnect = async (current: Link | undefined) => {
     if (!current) return;
     current.clipboard.close();
+    current.paths?.close();
     await Promise.all([current.frames?.stop(), current.connection.close()]);
   };
   const setImages = async (images: boolean) => {
@@ -341,6 +471,11 @@ export async function scrcpyCapture(options: {
     const current = link;
     link = undefined;
     await restarting?.catch(() => {});
+    forward?.close();
+    awaitingKey?.writer.close();
+    awaitingKey = undefined;
+    forward = undefined;
+    scrcpyPaths?.close();
     const results = await Promise.allSettled([disconnect(current), jpeg?.stop()]);
     jpeg = undefined;
     terminated = true;
@@ -461,5 +596,27 @@ export async function scrcpyCapture(options: {
         await current.clipboard.write(text, false);
       },
     },
+  };
+}
+
+/** A scrcpy unit as the MediaFrame the daemon forwards: the producer stamp keeps its sequence. */
+function scrcpyFrame(unit: VideoUnit, sequence: number): MediaFrame {
+  return {
+    kind: 1,
+    flags: unit.keyframe ? 1 : 0,
+    ageUs: 0,
+    width: unit.width,
+    height: unit.height,
+    displayWidth: unit.width,
+    displayHeight: unit.height,
+    scale: 1000,
+    rotation: 0,
+    codec: 1,
+    encode: 0,
+    epoch: 0,
+    codecString: unit.keyframe ? unit.videoCodec : "",
+    description: new Uint8Array(0),
+    extension: encodeProducerStamp({ sequence, timestamp: Number(unit.pts) / 1000, scale: 1 }),
+    payload: unit.payload,
   };
 }

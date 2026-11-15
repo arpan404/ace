@@ -1,11 +1,11 @@
 import { open, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { FrameDecoder } from "@ace/screen";
 import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import { streamScreen, type ScreenStream } from "./emulator-grpc.ts";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
-import type { VideoUnit } from "./scrcpy-video.ts";
+import { startFrameEncoder } from "./frame-encoder.ts";
+import type { DaemonUnit, Switched } from "./media-paths.ts";
 
 /**
  * An Android emulator's screen encoded on the host (the Mac's hardware H.264 encoder) instead of
@@ -21,12 +21,19 @@ import type { VideoUnit } from "./scrcpy-video.ts";
 const startupMs = 5000;
 
 export interface HostFrames {
+  /** The shared picture file the encoder reads. */
+  readonly file: string;
   /** The newest picture's size (0 × 0 until the first). */
   readonly size: { width: number; height: number };
   /** Pictures fit a `box` × `box` square: the long edge of the picture, either orientation. */
   resize(box: number): void;
   bitrate(bitrate: number): void;
   keyframe(): void;
+  /**
+   * Sends the encoder's units to ace-media's ingest (`socket` with its base64 `token`), or back
+   * to stdout. Resolves once it has switched, with the last sequence the previous path took.
+   */
+  ingest(address: { socket: string; token: string } | undefined): Promise<Switched>;
   stop(): Promise<void>;
 }
 
@@ -42,8 +49,11 @@ export async function startHostFrames(options: {
   bitrate: number;
   runtime: Pick<DeviceRuntime, "spawn" | "id" | "after">;
   env: NodeJS.ProcessEnv;
-  unit(unit: VideoUnit): void;
+  /** A unit off the encoder's stdout, with its sequence. */
+  unit(unit: DaemonUnit): void;
   failed(error: unknown): void;
+  /** The encoder's ingest connection failed: its units come on stdout again. */
+  ingestClosed?(): void;
 }): Promise<HostFrames> {
   const file = join(options.directory, `emulator-frames-${options.runtime.id()}.rgba`);
   const handle = await open(file, "w", 0o600);
@@ -54,7 +64,6 @@ export async function startHostFrames(options: {
   }
   let stopped = false;
   let size = { width: 0, height: 0 };
-  let codec = "avc1.640033";
   /** Settled by the first picture, or the first failure: only a working stream is handed out. */
   const ready = Promise.withResolvers<void>();
   let started = false;
@@ -63,47 +72,16 @@ export async function startHostFrames(options: {
     if (!started) return ready.reject(error);
     options.failed(error);
   };
-  const encoder = options.runtime.spawn({
-    command: options.encoder,
-    args: ["--encode-frames", file],
+  const encoder = startFrameEncoder({
+    encoder: options.encoder,
+    file,
+    runtime: options.runtime,
     env: options.env,
-    name: "emulator-encoder",
+    unit: options.unit,
+    failed: fail,
+    ...(options.ingestClosed ? { ingestClosed: options.ingestClosed } : {}),
   });
-  encoder.stderr.resume();
-  const command = (value: object) => {
-    if (!stopped && encoder.stdin.writable) encoder.stdin.write(`${JSON.stringify(value)}\n`);
-  };
-  encoder.stdin.on("error", () => {});
-  const decoder = new FrameDecoder((frame) => {
-    const header = frame.header;
-    if (header.codec !== "h264" || stopped) return;
-    if (header.videoCodec) codec = header.videoCodec;
-    options.unit({
-      payload: frame.payload,
-      keyframe: header.keyframe === true,
-      videoCodec: codec,
-      width: header.width,
-      height: header.height,
-      pts: BigInt(Math.round(header.timestamp * 1000)),
-    });
-  });
-  encoder.stdout.on("data", (chunk: Buffer) => {
-    try {
-      decoder.push(chunk);
-    } catch (error) {
-      fail(error);
-    }
-  });
-  void encoder.exited.then(() =>
-    fail(
-      new DeviceError(
-        "command_failed",
-        "The emulator's encoder stopped",
-        "Start the device view again.",
-      ),
-    ),
-  );
-  command({ op: "bitrate", bitrate: options.bitrate });
+  encoder.bitrate(options.bitrate);
 
   let stream: ScreenStream | undefined;
   const watch = (box: number) => {
@@ -122,8 +100,7 @@ export async function startHostFrames(options: {
           started = true;
           ready.resolve();
         }
-        command({
-          op: "frame",
+        encoder.frame({
           seq: notice.seq,
           width: notice.width,
           height: notice.height,
@@ -135,20 +112,21 @@ export async function startHostFrames(options: {
   };
   watch(options.box);
   const frames: HostFrames = {
+    file,
     get size() {
       return size;
     },
     resize: (box) => {
       if (!stopped) watch(box);
     },
-    bitrate: (bitrate) => command({ op: "bitrate", bitrate }),
-    keyframe: () => command({ op: "keyframe" }),
+    bitrate: (bitrate) => encoder.bitrate(bitrate),
+    keyframe: () => encoder.keyframe(),
+    ingest: (address) => encoder.ingest(address),
     async stop() {
       if (stopped) return;
       stopped = true;
       stream?.close();
-      encoder.stdin.end();
-      await encoder.stop({ graceMs: 1000 }).catch(() => {});
+      await encoder.stop();
       await rm(file, { force: true });
     },
   };

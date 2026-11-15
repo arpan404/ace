@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { MediaAcceleration } from "./media-acceleration.ts";
+import { MediaLinkHint } from "./media-link.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -422,11 +424,18 @@ export const BrowserState = z.object({
   recording: z.object({ by: BrowserTabActor }).optional(),
   /**
    * Optional page features this daemon supports, such as `annotate`; `page-cursor`: agents'
-   * cursors are drawn in the page itself, so clients draw none over frames. Unknown names are kept.
+   * cursors are drawn in the page itself, so clients draw none over frames. `engines`: the
+   * daemon reports which engines can open now, and `embedded-engine` is there while the desktop
+   * app's can. Unknown names are kept.
    */
   features: z.array(z.string().max(64)).max(32).optional(),
   /** Set while the live video can't start and is being retried; absent once video plays. */
   video: BrowserVideoStatus.optional(),
+  /**
+   * What the shown tab's live video runs on while ace-media carries it (ADR 0148). Beside `video`
+   * rather than in it: `video` exists only while the video is retrying.
+   */
+  acceleration: MediaAcceleration.optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({
@@ -477,6 +486,13 @@ export const BrowserCaptureViewport = z.object({
    * gets the page's sound as stream kind `browserAudio`. Absent or false: muted, no audio bytes.
    */
   audio: z.boolean().optional(),
+  /**
+   * The view is hidden or backgrounded (ADR 0149): while true it is sent no video and no
+   * sound. Its next picture after false is a keyframe. Absent: showing.
+   */
+  paused: z.boolean().optional(),
+  /** What the client knows of its link; it only lowers where the viewer's video starts. */
+  link: MediaLinkHint.optional(),
   width: dimension,
   height: dimension,
   devicePixelRatio: z.number().finite().min(1).max(4),

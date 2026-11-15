@@ -107,6 +107,18 @@ impl MediaFrame {
         Ok(frame)
     }
 }
+/// One egress frame: the 12-byte header (magic, source handle, sequence), then the frame.
+pub fn encode_egress(
+    handle: u32,
+    sequence: u32,
+    frame: &MediaFrame,
+) -> Result<Vec<u8>, InvalidFrame> {
+    let mut b = b"ACEE".to_vec();
+    b.extend_from_slice(&handle.to_be_bytes());
+    b.extend_from_slice(&sequence.to_be_bytes());
+    b.extend(frame.encode()?);
+    Ok(b)
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct Egress {
     pub handle: u32,
@@ -115,11 +127,7 @@ pub struct Egress {
 }
 impl Egress {
     pub fn encode(&self) -> Result<Vec<u8>, InvalidFrame> {
-        let mut b = b"ACEE".to_vec();
-        b.extend_from_slice(&self.handle.to_be_bytes());
-        b.extend_from_slice(&self.sequence.to_be_bytes());
-        b.extend(self.frame.encode()?);
-        Ok(b)
+        encode_egress(self.handle, self.sequence, &self.frame)
     }
     pub fn decode(b: &[u8]) -> Result<Self, InvalidFrame> {
         if b.len() < 56 || &b[..4] != b"ACEE" {
@@ -131,4 +139,52 @@ impl Egress {
             frame: MediaFrame::decode(&b[12..])?,
         })
     }
+}
+
+/// `MediaFrame` kind 4: the end of a source.
+pub const KIND_END: u8 = 4;
+/// On an egress end marker: the producer's connection ended without its end frame, or the
+/// stream was otherwise cut, so units may be missing before it.
+pub const FLAG_INTERRUPTED: u32 = 8;
+
+/// What an egress end marker says: no more units follow for its handle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EgressEnd {
+    pub interrupted: bool,
+}
+
+impl MediaFrame {
+    /// The end marker this frame is, if it is one (kind 4 with no payload).
+    pub fn end(&self) -> Option<EgressEnd> {
+        (self.kind == KIND_END && self.payload.is_empty()).then_some(EgressEnd {
+            interrupted: self.flags & FLAG_INTERRUPTED != 0,
+        })
+    }
+}
+
+/// The egress end marker for `handle` (docs/media/plan.md, "Egress format"): sent after the
+/// last unit of a producer connection that ended, or of a source the daemon closed, so the
+/// daemon closes the handle only once every earlier unit has arrived. `sequence` is the next
+/// unit's, so a gap before it shows.
+pub fn egress_end(handle: u32, sequence: u32, interrupted: bool) -> Vec<u8> {
+    let frame = MediaFrame {
+        kind: KIND_END,
+        flags: if interrupted { FLAG_INTERRUPTED } else { 0 },
+        age_us: 0,
+        width: 0,
+        height: 0,
+        display_width: 0,
+        display_height: 0,
+        scale: 1000,
+        rotation: 0,
+        codec: 0,
+        encode: 0,
+        epoch: 0,
+        codec_string: String::new(),
+        description: Vec::new(),
+        extension: Vec::new(),
+        payload: Vec::new(),
+    };
+    // An empty kind-4 frame always encodes.
+    encode_egress(handle, sequence, &frame).unwrap_or_default()
 }

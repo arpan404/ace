@@ -60,12 +60,19 @@ test("control boundaries reject malformed grants while opaque metadata retains u
   expect(ToMedia.parse(metadata)).toEqual(metadata);
   expect(ToMedia.safeParse({ type: "ping", id: "x".repeat(65) }).success).toBe(false);
   expect(
-    ToMedia.safeParse({ type: "source.epoch", source: "s", seq: 2 ** 53, epoch: 1 }).success,
+    ToMedia.safeParse({
+      type: "source.epoch",
+      source: "s",
+      seq: 2 ** 53,
+      epoch: 1,
+      followsPrivate: false,
+    }).success,
   ).toBe(false);
   expect(
     ToMedia.safeParse({
       type: "record.epochs",
       source: "s",
+      recording: "r",
       seq: 0,
       decided: 4,
       clear: [[4, 2]],
@@ -111,4 +118,31 @@ test.each(BoundaryCases)("shared control boundary: $name", ({ direction, accept,
   const parsed = schema.safeParse(input);
   expect(parsed.success).toBe(accept);
   if (parsed.success) expect(parsed.data).toEqual(input);
+});
+
+const frameDirectory = new URL("../../../native/media/vectors/control-frames/", import.meta.url);
+const FrameVectors = z
+  .array(
+    z.strictObject({
+      name: z.string(),
+      direction: z.enum(["ToMedia", "FromMedia"]),
+      lane: z.enum(["normal", "priority"]),
+      hex: z.string(),
+    }),
+  )
+  .parse(
+    readdirSync(frameDirectory).flatMap((name): unknown[] =>
+      JSON.parse(readFileSync(new URL(name, frameDirectory), "utf8")),
+    ),
+  );
+test.each(FrameVectors)("shared control frame bytes: $name", ({ direction, lane, hex }) => {
+  const bytes = Uint8Array.from(Buffer.from(hex, "hex"));
+  const { message, payload } = (direction === "ToMedia" ? decodeToMedia : decodeFromMedia)(
+    bytes,
+    lane,
+  );
+  const encoded = encodeControl(message, payload, lane);
+  expect(Buffer.from(encoded.header).toString("hex") + Buffer.from(payload).toString("hex")).toBe(
+    hex,
+  );
 });

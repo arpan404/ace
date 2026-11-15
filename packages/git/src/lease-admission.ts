@@ -1,7 +1,7 @@
 import { realpath, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { MutationLease } from "@ace/provider-kit/cleanup";
-import { clearLeftoverLocks, lockGraceMs } from "./git-locks.ts";
+import { clearLeftoverLocks, gitCommonDirectory, lockGraceMs } from "./git-locks.ts";
 import { touches, type GitProcess, type GitProcessScan } from "./git-processes.ts";
 import {
   ownedByThisProcess,
@@ -322,4 +322,37 @@ export async function healRepository(
   if (!evidence) return [];
   const before = new Date((await evidence.now()).getTime() - graceMs);
   return clearLeftoverLocks(path, memo(probe), before);
+}
+
+/**
+ * The periodic sweep over many checkouts: `healRepository` for each, with one process listing
+ * shared by the whole sweep (taken only if some lock is old enough to remove) and each
+ * repository's locks cleared once, however many of its worktrees are listed. The grace cutoff is
+ * read before the listing, so every Git that could have written an older lock is in it.
+ * Returns the removed lock files; a checkout that can't be healed is reported to `failed`.
+ */
+export async function healRepositories(
+  paths: readonly string[],
+  failed: (path: string, error: unknown) => void,
+  probe: LeaseProbe = defaultProbe,
+  graceMs = 60_000,
+): Promise<string[]> {
+  const evidence = probe.evidence;
+  const before = evidence ? new Date((await evidence.now()).getTime() - graceMs) : undefined;
+  const scan = memo(probe);
+  const cleared = new Set<string>();
+  const removed: string[] = [];
+  for (const path of paths) {
+    try {
+      await mutationState(path, probe);
+      if (!before) continue;
+      const common = await gitCommonDirectory(path);
+      if (!common || cleared.has(common)) continue;
+      cleared.add(common);
+      removed.push(...(await clearLeftoverLocks(path, scan, before)));
+    } catch (error) {
+      failed(path, error);
+    }
+  }
+  return removed;
 }

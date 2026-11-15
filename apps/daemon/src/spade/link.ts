@@ -3,6 +3,7 @@ import type { SpadeStatus } from "@ace/protocol";
 import { checkSpadeProof, type SpadeHealth } from "@ace/service/spade";
 import type { SpadeConnection } from "./forward.ts";
 import {
+  spadeStartGraceMs,
   readSpadeServerFile,
   readTokenFile,
   spadeAnswering,
@@ -39,8 +40,11 @@ export interface SpadeLinkOptions {
   /** `<ACE_HOME>/spade`: `server.json` and `token` live here. */
   dataDir: string;
   runtime: SpadeLinkRuntime;
-  /** How often to look again while Spade isn't ready, and while it is. */
-  pollMs?: { waiting: number; ready: number };
+  /**
+   * How often to look again while Spade isn't ready, and while it is. While it stays silent past
+   * its start grace, the wait doubles from `waiting` up to `idle`.
+   */
+  pollMs?: { waiting: number; ready: number; idle?: number };
   healthTimeoutMs?: number;
 }
 export interface SpadeReady {
@@ -49,7 +53,7 @@ export interface SpadeReady {
   generation: number;
 }
 
-const defaultPoll = { waiting: 1000, ready: 5000 };
+const defaultPoll = { waiting: 1000, ready: 5000, idle: 60_000 };
 
 /**
  * The daemon's view of the Spade service (ADR 0123). The daemon doesn't run Spade: it reads the
@@ -73,6 +77,8 @@ export class SpadeLink {
   private live: (SpadeReady & { key: string }) | undefined;
   private generation = 0;
   private silentSince: number | undefined;
+  /** Looks in a row that found Spade not answering past its start grace: the backoff. */
+  private misses = 0;
   private readonly listeners = new Set<(status: SpadeStatus) => void>();
   private readonly endings = new Set<(generation: number) => void>();
   private readonly arrivals = new Set<(ready: SpadeReady) => void>();
@@ -146,8 +152,13 @@ export class SpadeLink {
     if (this.closed || enabled === this.facts.enabled) return;
     this.facts = { ...this.facts, enabled };
     this.silentSince = undefined;
+    this.misses = 0;
     if (enabled) {
-      this.stopWatch = this.options.runtime.watch(this.options.dataDir, () => this.refresh());
+      // A change to server.json or the token is worth a look now, whatever the backoff.
+      this.stopWatch = this.options.runtime.watch(this.options.dataDir, () => {
+        this.misses = 0;
+        void this.refresh();
+      });
     } else {
       this.stopWatch?.();
       this.stopWatch = undefined;
@@ -159,7 +170,8 @@ export class SpadeLink {
   /** Turning on is underway (`installing`), or failed with `problem`; cleared with undefined. */
   setSwitch(input: { installing?: boolean; problem?: string | undefined }): void {
     this.facts = { ...this.facts, installing: input.installing ?? false, problem: input.problem };
-    this.refresh();
+    this.misses = 0;
+    void this.refresh();
   }
   /**
    * Looks again now. A call during a look waits for one more look after it, and calls made
@@ -195,9 +207,6 @@ export class SpadeLink {
   private async look(): Promise<void> {
     const { runtime, dataDir } = this.options;
     if (!this.facts.enabled) return this.apply(this.facts, undefined);
-    const service = await runtime.serviceState().catch((error: unknown) => ({
-      error: error instanceof Error ? error.message : String(error),
-    }));
     const text = await runtime.readText(join(dataDir, "server.json"));
     const read = text === undefined ? undefined : readSpadeServerFile(text);
     const named = read?.ok ? read.endpoint : undefined;
@@ -223,6 +232,17 @@ export class SpadeLink {
             ? "ok"
             : "wrong"
         : undefined;
+    // The service manager is asked only when Spade isn't answering as the instance already seen
+    // running: one that keeps proving itself is still the running service, and launchctl or
+    // systemctl would be a process every few seconds for nothing.
+    const same =
+      endpoint && token && this.live?.key === `${endpoint.pid}@${endpoint.port}:${token}`;
+    const service =
+      same && proof === "ok" && this.facts.service === "running"
+        ? "running"
+        : await runtime.serviceState().catch((error: unknown) => ({
+            error: error instanceof Error ? error.message : String(error),
+          }));
     const now = runtime.now();
     if (this.closed || !this.facts.enabled) return;
     const facts: SpadeFacts = {
@@ -240,9 +260,18 @@ export class SpadeLink {
     facts.silentForMs = this.silentSince === undefined ? 0 : now - this.silentSince;
     const answering = spadeAnswering(facts) && endpoint && token ? { endpoint, token } : undefined;
     this.apply(facts, answering);
-    const poll = this.options.pollMs ?? defaultPoll;
+    const poll = { ...defaultPoll, ...this.options.pollMs };
+    // Starting up (installing, or within the start grace) is looked at often; a Spade that stays
+    // down is looked at less and less, and the directory watch still wakes the link at once.
+    const settling =
+      facts.installing || (this.silentSince !== undefined && facts.silentForMs < spadeStartGraceMs);
+    if (answering || settling) this.misses = 0;
+    else this.misses++;
+    const wait = answering
+      ? poll.ready
+      : Math.min(poll.waiting * 2 ** Math.max(0, this.misses - 1), poll.idle);
     this.cancelTimer?.();
-    this.cancelTimer = runtime.after(answering ? poll.ready : poll.waiting, () => {
+    this.cancelTimer = runtime.after(wait, () => {
       void this.refresh();
     });
   }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WindowRest } from "./window-rest.ts";
 import { BrowserDialog, type BrowserTab } from "@ace/protocol";
 import type { BackendOpen, BrowserCdp } from "./backend.ts";
 import type { Schedule } from "./cdp-connection.ts";
@@ -27,6 +28,8 @@ const Navigated = z.object({
     url: z.string(),
     urlFragment: z.string().optional(),
     parentId: z.string().optional(),
+    /** On Chrome's error page (`chrome-error://`): the address that failed to load. */
+    unreachableUrl: z.string().optional(),
   }),
 });
 const SameDocument = z.object({ frameId: z.string(), url: z.string() });
@@ -83,6 +86,8 @@ interface Tab {
   /** Idle long enough that its page was dropped; it reopens at its address on next use. */
   discarded?: boolean | undefined;
   reviving?: Promise<void> | undefined;
+  /** Hides and shows its page while idle; a new one with each target. */
+  windowRest?: WindowRest | undefined;
   release(): void;
   stops: (() => void)[];
 }
@@ -182,7 +187,12 @@ export class ChromeTabs {
     await Promise.all(tabs.map((tab) => this.reopen(tab)));
     this.request.changed?.();
   }
-  /** Loads a recreated tab's last address; a slow page fails on its own without the others. */
+  /**
+   * Loads a recreated tab's last address. The tab is back whether or not its page loads: a page
+   * whose server is gone (a stopped dev server) or that is slow shows what a browser would, and
+   * neither fails the other tabs nor the restart, which would otherwise be tried again and again.
+   * Only the browser closing under it fails.
+   */
   private async reopen(tab: Tab): Promise<void> {
     if (tab.url === "about:blank") return;
     const deadline = new AbortController();
@@ -192,6 +202,8 @@ export class ChromeTabs {
     );
     try {
       await navigateCdp(tab.cdp, tab.url, AbortSignal.any([this.request.signal, deadline.signal]));
+    } catch (error) {
+      if (this.request.signal.aborted || this.stopped) throw error;
     } finally {
       cancel();
     }
@@ -397,6 +409,20 @@ export class ChromeTabs {
   discarded(id: string): boolean {
     return this.tabs.get(id)?.discarded === true;
   }
+  /**
+   * Hides an idle tab's page (its window minimized, focus emulation off), or shows it again
+   * (`window-rest.ts`). A hidden page draws no frames, which a frozen page still does for its CSS
+   * animations; its scripts keep running. Each call waits for the changes asked before it.
+   */
+  rest(id: string, resting: boolean): Promise<void> {
+    const tab = this.tabs.get(id);
+    if (!tab?.target || tab.discarded || !tab.windowRest) return Promise.resolve();
+    return tab.windowRest.set(resting);
+  }
+  /** Whether the tab's page is hidden by `rest`, about to be, or partly so after a failed show. */
+  resting(id: string): boolean {
+    return this.tabs.get(id)?.windowRest?.resting === true;
+  }
   /** Whether an agent uses this tab (ADR 0067, collaboration). */
   agentUse(id: string, active: boolean): void {
     const tab = this.tabs.get(id);
@@ -568,7 +594,10 @@ export class ChromeTabs {
     on("Page.frameNavigated", (raw) => {
       const parsed = Navigated.safeParse(raw);
       if (!parsed.success || parsed.data.frame.parentId) return;
-      tab.url = (parsed.data.frame.url + (parsed.data.frame.urlFragment ?? "")).slice(0, 8192);
+      // A page that failed to load keeps its address, as a browser's address bar does, so a
+      // reload or a restart tries it again rather than Chrome's error page.
+      const { frame } = parsed.data;
+      tab.url = (frame.unreachableUrl ?? frame.url + (frame.urlFragment ?? "")).slice(0, 8192);
       this.navigated(tab);
     });
     on("Page.navigatedWithinDocument", (raw) => {
@@ -648,6 +677,9 @@ export class ChromeTabs {
     if (!host || this.stopped) throw new Error("Browser closed");
     tab.target = target;
     tab.binding++;
+    // A new target opens in a new, shown window; changes queued for the old one are dropped.
+    tab.windowRest?.retire();
+    tab.windowRest = new WindowRest((method, params) => tab.cdp.send(method, params));
     tab.cdp.bind(host.instance.connection.session(target.sessionId));
     const stopPopups = host.instance.targets.popups(target.targetId, (popup) =>
       tab.popups.arrived(popup),

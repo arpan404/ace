@@ -82,6 +82,8 @@ type Run = {
   priority?: LaneWriter;
   sockets: LaneSocket[];
   ready?: Ready;
+  /** `ready.capabilities`, replaced whole by each `capabilities.changed`. */
+  capabilities?: MediaCapabilities;
   up: boolean;
   dead: boolean;
   stopping: boolean;
@@ -137,9 +139,17 @@ export class MediaSupervisor {
     return this.snapshot().health;
   }
 
-  /** What `ready` reported for the running process. */
+  /** What the running process reported last: `ready`, then each `capabilities.changed`. */
   capabilities(): MediaCapabilities | undefined {
-    return this.#accepting() ? this.#run?.ready?.capabilities : undefined;
+    return this.#accepting() ? this.#run?.capabilities : undefined;
+  }
+
+  /**
+   * Where producers stream into the running process (`ready.ingest`). It changes on every start,
+   * so producers are given it again with each configure.
+   */
+  ingest(): Ready["ingest"] | undefined {
+    return this.#accepting() ? this.#run?.ready?.ingest : undefined;
   }
 
   snapshot(): MediaSnapshot {
@@ -296,6 +306,7 @@ export class MediaSupervisor {
       case "ready":
         if (run.ready) return this.#kill(run, "protocol");
         run.ready = message;
+        run.capabilities = message.capabilities;
         if (message.version !== this.#options.version) {
           this.#options.log("error", "ace-media version mismatch", {
             expected: this.#options.version,
@@ -305,6 +316,10 @@ export class MediaSupervisor {
         }
         void this.#openLanes(run, message.control.socket);
         return;
+      case "capabilities.changed":
+        if (!run.ready) return this.#kill(run, "protocol");
+        run.capabilities = message.capabilities;
+        break;
       case "pong":
         run.health.pong(message.id);
         run.stats = message.stats;

@@ -170,8 +170,27 @@ export function currentPlace(entry: ThreadListEntry, now: number): ThreadPlace |
 const live: ReadonlySet<InboxBand> = new Set(["needs-you", "running", "unseen", "idle"]);
 
 /**
+ * The daemon's place under the list's own sort (`sortBy`), or undefined when only the shared
+ * rule can say. Each daemon places its threads under its own `threads.sortBy`, so another
+ * machine's threads may come ranked by a sort this list doesn't use: sorted by hand or by
+ * creation, every unpinned Inbox thread ranks by that key here, whoever placed it; sorted by
+ * activity, a thread its daemon listed by hand is placed again. Pinned, Snoozed and Settled
+ * places don't depend on the sort.
+ */
+function inSort(
+  place: ThreadPlace,
+  entry: ThreadListEntry,
+  sortBy: HomeSort | undefined,
+): ThreadPlace | undefined {
+  if (sortBy === undefined || place.tab !== "inbox" || place.band === "pinned") return place;
+  if (sortBy === "activity") return place.band === "listed" ? undefined : place;
+  return { tab: "inbox", band: "listed", rank: [homeListKey(sortBy)(entry)] };
+}
+
+/**
  * Each entry's place as the panel shows it: the daemon's, else `placeThread` on the fallback
- * clock. Worked out once per entry snapshot: entries are replaced, never changed.
+ * clock. With a `sortBy` the fallback names, every machine's threads rank under it (`inSort`).
+ * Worked out once per entry snapshot: entries are replaced, never changed.
  */
 export function placeReader(
   input: PlaceReaderInput,
@@ -180,7 +199,10 @@ export function placeReader(
   return (entry) => {
     const hit = known.get(entry);
     if (hit) return hit.place;
-    let place = currentPlace(entry, input.fallback.now) ?? placeThread(entry, input.fallback);
+    const placed = currentPlace(entry, input.fallback.now);
+    let place =
+      (placed && inSort(placed, entry, input.fallback.sortBy)) ??
+      placeThread(entry, input.fallback);
     if (input.unconfirmed && place?.band !== undefined && live.has(place.band))
       place = { ...place, band: "idle", rank: [activityOf(entry)] };
     known.set(entry, { place });

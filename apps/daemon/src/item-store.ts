@@ -184,7 +184,7 @@ export class ItemStore {
   private materialize(id: string, body: unknown, created: unknown): Item {
     // Stream rows instead of retaining their objects.
     return this.withChunks(
-      storedItem(Number(created), String(body), this.trust.from),
+      storedItem(Number(created), String(body), this.trust),
       this.statement(
         "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
       ).iterate(id),
@@ -258,7 +258,7 @@ export class ItemStore {
       items.set(
         id,
         this.withChunks(
-          storedItem(Number(row.created_seq), String(row.item), this.trust.from),
+          storedItem(Number(row.created_seq), String(row.item), this.trust),
           chunks.get(id) ?? [],
         ),
       );

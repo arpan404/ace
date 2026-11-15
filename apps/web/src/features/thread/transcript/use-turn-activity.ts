@@ -1,5 +1,7 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThreadMeta, useThreadUnconfirmed } from "@ace/client-react";
+import { useThreadUnconfirmed } from "@ace/client-react";
+import { useThreadField } from "@ace/client-react/thread-field";
+import { threadProvider, threadRootAgentId, threadStatus } from "@/lib/thread-fields.ts";
 import { readTurnActivity, sameActivity, type TurnActivity } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
 import { pauseLabel, providerNames } from "@ace/ui-core";
@@ -31,9 +33,9 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
   const live = useLiveConnection();
   const unconfirmed = useThreadUnconfirmed(enabled ? threadId : undefined);
   const labels = useStepLabels();
-  const meta = useThreadMeta(threadId);
-  const rootId = meta?.rootAgentId ?? "";
-  const status = meta?.status;
+  const rootId = useThreadField(threadId, threadRootAgentId) ?? "";
+  const status = useThreadField(threadId, threadStatus);
+  const provider = useThreadField(threadId, threadProvider);
   const keys = useMemo<readonly ThreadKey[]>(
     () =>
       enabled
@@ -58,7 +60,7 @@ export function useTurnActivity(threadId: string, enabled = true): TurnActivity 
     : activity?.tone === "paused"
       ? {
           ...activity,
-          label: pauseLabel(meta ? providerNames[meta.provider] : undefined, undefined),
+          label: pauseLabel(provider ? providerNames[provider] : undefined, undefined),
         }
       : activity;
 }

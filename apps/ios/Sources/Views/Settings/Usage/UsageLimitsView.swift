@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Limits, account first, as the web Usage page lists them: each provider's accounts once, each
-/// with its windows beneath it. Every figure says what is left; only a spent window or running
-/// ahead of pace takes a status colour.
+/// with its windows beneath it. Every figure says what is left; a window this pace runs out before
+/// its reset is red with when it runs out, and a lasting one marks what its pace leaves at the reset.
 struct UsageLimitsView: View {
     let limits: UsageLimitsReply
     /// Redeems one banked reset and answers with what happened.
@@ -76,6 +76,8 @@ private struct UsageLimitAccount: View {
 private struct UsageLimitWindow: View {
     let window: UsageLimitsReply.Window
     private var out: Bool { !window.stale && window.leftPercent == 0 }
+    /// Out, or running out before the reset at this pace (`limitWhen`): the figure, bar and words go red.
+    private var runsOut: Bool { out || window.when?.runsOut == true }
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             HStack(alignment: .firstTextBaseline) {
@@ -87,7 +89,7 @@ private struct UsageLimitWindow: View {
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
                         Text("\(Int(window.leftPercent))%").font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong)).monospacedDigit()
-                            .foregroundStyle(out ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
+                            .foregroundStyle(runsOut ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                         Text("left").font(AceDesign.Typeface.meta)
                             .foregroundStyle(AceDesign.Ink.subtle)
                     }
@@ -101,7 +103,8 @@ private struct UsageLimitWindow: View {
                 Spacer(minLength: AceDesign.Space.related)
                 VStack(alignment: .trailing, spacing: AceTheme.Spacing.none) {
                     Text(resetWords).monospacedDigit()
-                        .foregroundStyle(out ? AceTheme.StatusText.failed : AceDesign.Ink.subtle)
+                        .foregroundStyle(runsOut ? AceTheme.StatusText.failed : AceDesign.Ink.subtle)
+                        .accessibilityLabel(window.when?.spoken ?? resetWords)
                     if window.stale || window.old {
                         Text("\(window.stale ? "Read" : "As of") \(relative(window.observedAt))")
                             .foregroundStyle(AceDesign.Ink.subtle)
@@ -114,6 +117,10 @@ private struct UsageLimitWindow: View {
     }
     /// The meter's drawing: a thin bar, and the dash a stale reading draws instead.
     private static let meterHeight: CGFloat = 3
+    /// The pace part's amber, and the gap that parts it from what will be left.
+    private static let paceWash: Double = 0.55
+    private static let notch: CGFloat = 2
+    private static func share(_ percent: Double) -> CGFloat { CGFloat(min(1, max(0, percent / 100))) }
     private static let staleLine: CGFloat = 2
     private static let staleDash: [CGFloat] = [3, 3]
     /// What is left as a hairline meter; a stale reading is a dashed line with no figure.
@@ -122,16 +129,27 @@ private struct UsageLimitWindow: View {
             Line().stroke(AceTheme.Colours.separator, style: StrokeStyle(lineWidth: Self.staleLine, dash: Self.staleDash)).frame(height: Self.staleLine)
         } else {
             GeometryReader { box in
+                let left = box.size.width * Self.share(window.leftPercent)
+                // Where this pace leaves it at the reset; what lies between is what the pace still uses.
+                let marker = runsOut ? nil : window.leftAtReset.map { box.size.width * Self.share($0) }
                 ZStack(alignment: .leading) {
                     AceDesign.Shape.control.fill(out ? AceTheme.StatusText.failed.opacity(AceDesign.Ink.recede) : AceTheme.Colours.separator)
-                    AceDesign.Shape.control.fill(AceDesign.Ink.primary)
-                        .frame(width: box.size.width * min(1, max(0, window.leftPercent / 100)))
+                    if let marker, marker < left {
+                        AceDesign.Shape.control.fill(AceDesign.Status.needsYou.opacity(Self.paceWash))
+                            .frame(width: left)
+                        AceDesign.Shape.control.fill(AceDesign.Ink.primary)
+                            .frame(width: max(0, marker - Self.notch / 2))
+                    } else {
+                        AceDesign.Shape.control.fill(runsOut ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
+                            .frame(width: left)
+                    }
                 }
             }
             .frame(height: Self.meterHeight)
         }
     }
     private var resetWords: String {
+        if let when = window.when, when.runsOut, !out { return when.text }
         if window.stale { return window.resetsAt.map { "Reset \(relative($0))" } ?? "Reset since this reading" }
         guard let resets = window.resets else { return "Reset not reported" }
         return out ? resets.replacingOccurrences(of: "Resets in", with: "Back in") : resets

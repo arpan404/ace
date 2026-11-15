@@ -53,21 +53,6 @@ export interface UsageChart {
   days: UsageChartDay[];
 }
 
-export interface UsageBreakdownLine {
-  key: string;
-  name: string;
-  provider: string | null;
-  hue: UsageHue | null;
-  ink: boolean;
-  /** The metric's figure: tokens, or cost ("Unpriced" when ace has no price). */
-  figure: string;
-  share: string;
-  /** The other figure, beside the share: cost on Tokens, tokens on Cost. */
-  other: string;
-  /** The line's length against the largest line, 0 to 1. */
-  fraction: number;
-}
-
 export interface UsageMetricView {
   total: string;
   growth: UsageGrowth;
@@ -79,15 +64,12 @@ export interface UsageMetricView {
   chart: UsageChart;
   totals: { label: string; value: string }[];
   types: { title: string; parts: { key: string; label: string; value: number; text: string }[] };
-  byModel: UsageBreakdownLine[];
-  byDay: UsageBreakdownLine[];
-  /** On Cost, models ace has no price for fold into one quiet line. */
-  unpriced: { label: string; lines: UsageBreakdownLine[] } | null;
+  /** Any tokens in the range: false draws the empty state instead of zeroes. */
+  hasUsage: boolean;
 }
 
 export interface UsageNames {
   provider(id: string): string;
-  model(provider: string, model: string): string;
 }
 
 const typeOrder = ["input", "cacheRead", "cacheWrite", "output"] as const;
@@ -168,49 +150,6 @@ export function usageMetricView(
   if (report.unpricedTokens > 0)
     totals.push({ label: "Unpriced tokens", value: formatTokens(report.unpricedTokens) });
   const typeValues = money ? report.costTypes : report.tokenTypes;
-  const whole = money ? report.usd : report.tokens;
-  const line = (
-    key: string,
-    name: string,
-    provider: string | null,
-    tokens: number,
-    usd: number | null,
-  ) => ({
-    key,
-    name,
-    provider,
-    ...look(provider),
-    figure: money ? (usd === null ? "Unpriced" : formatUsd(usd)) : formatTokens(tokens),
-    share: formatShare(money ? (usd ?? 0) : tokens, whole),
-    other: money ? `${formatTokens(tokens)} tokens` : usd === null ? "Unpriced" : formatUsd(usd),
-    metric: money ? (usd ?? 0) : tokens,
-    priced: usd !== null,
-    tokens,
-  });
-  const models = report.models
-    .map((model) =>
-      line(
-        model.key,
-        names.model(model.provider, model.model),
-        model.provider,
-        model.tokens,
-        model.usd,
-      ),
-    )
-    .toSorted((a, b) => b.metric - a.metric);
-  const dayLines = report.days
-    .filter((day) => day.tokens > 0)
-    .map((day) => line(day.day, dayTitle.format(at(day.day)), null, day.tokens, day.usd))
-    .toReversed();
-  const priced = money ? models.filter((entry) => entry.priced) : models;
-  const unpriced = money ? models.filter((entry) => !entry.priced) : [];
-  const finish = (lines: typeof models) => {
-    const top = Math.max(1, ...lines.map((entry) => (entry.priced || !money ? entry.metric : 0)));
-    return lines.map(({ metric: amount, priced: hasPrice, tokens: _tokens, ...rest }) => ({
-      ...rest,
-      fraction: hasPrice || !money ? amount / top : 0,
-    }));
-  };
   const sessionWord = `${pluralCount(report.sessions, "session")}${report.sessionsCapped ? "+" : ""}`;
   return {
     total: format(value(report)),
@@ -258,16 +197,6 @@ export function usageMetricView(
         return { key, label: typeNames[key], value: amount, text: format(amount) };
       }),
     },
-    byModel: finish(priced),
-    byDay: finish(dayLines),
-    unpriced:
-      unpriced.length > 0
-        ? {
-            label: `${unpriced.length} unpriced ${unpriced.length === 1 ? "model" : "models"} · ${formatTokens(
-              unpriced.reduce((sum, entry) => sum + entry.tokens, 0),
-            )} tokens`,
-            lines: finish(unpriced),
-          }
-        : null,
+    hasUsage: report.tokens > 0,
   };
 }

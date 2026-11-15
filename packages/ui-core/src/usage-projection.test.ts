@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { projectedLeft } from "./usage-limits.ts";
 import type { AccountWindow } from "./usage-limits.ts";
-import { limitDetails, limitTime, roundEstimate } from "./usage-projection.ts";
+import { limitDetails, limitTime, limitWhen, roundEstimate } from "./usage-projection.ts";
 
 const now = Date.parse("2026-11-11T16:00:00Z");
 const minute = 60_000;
@@ -82,4 +82,22 @@ test("a reading older than its reset says only that, and how old it is", () => {
   expect(
     read(limitDetails(window({ stale: true, resetsAt: now - hour }), now, "UTC", "en-GB")),
   ).toEqual({ Now: "Not used since its reset", Reset: "1h ago", Read: "2m ago" });
+});
+
+test("a window's row says when it runs out at this pace, when it is out, or when it resets", () => {
+  const when = (extra: Partial<AccountWindow>) => limitWhen(window(extra), now, "UTC", "en-GB");
+  // The run-out is an estimate: kept short on the row, said in full to a screen reader.
+  expect(when({ runsOutAt: now + 52 * minute, leftAtReset: null })).toEqual({
+    text: "Out around 16:50",
+    spoken: "Runs out around 16:50",
+    runsOut: true,
+  });
+  expect(when({ leftPercent: 0, leftAtReset: null })).toMatchObject({
+    text: "Out until 20:00",
+    runsOut: true,
+  });
+  expect(when({})).toEqual({ text: "Resets 20:00", spoken: "Resets 20:00", runsOut: false });
+  expect(when({ leftPercent: 100 })).toMatchObject({ text: "Fresh", runsOut: false });
+  expect(when({ stale: true })).toMatchObject({ text: "Not used since its reset", runsOut: false });
+  expect(when({ resetsAt: null })).toMatchObject({ text: "Reset not reported" });
 });

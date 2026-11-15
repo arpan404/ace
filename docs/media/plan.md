@@ -92,10 +92,12 @@ TypeScript implementation (below).
 - **Parsing.** Annex B start-code scanning, AVCC/HVCC length prefixes, and NAL types for H.264
   (5 IDR, 7 SPS, 8 PPS) and H.265 (19/20 IDR, 21 CRA, 32 VPS, 33 SPS, 34 PPS).
 - **Conversions.** `avcC` and `hvcC` records to and from parameter sets (14496-15 §5.3, §8.3).
-- **Writers.** SPS/PPS/VPS writers with exp-Golomb coding (H.264 §7.3.2, H.265 §7.3.2), used
-  where VA-API needs packed headers.
-- **Tests.** Vectors of parameter sets taken from the platform encoders' output in process tests,
-  plus round trips.
+- **Writers.** SPS/PPS/VPS and slice header writers with exp-Golomb coding (H.264 §7.3.2,
+  §7.3.3; H.265 §7.3.2, §7.3.6), each with a reader, used where VA-API takes packed headers.
+  `media-vaapi` packs SPS/PPS (and the VPS) and leaves slice headers to the driver.
+- **Tests.** `vectors/bitstream/videotoolbox.json`: parameter sets, slice headers and records
+  from VideoToolbox on the Mac (`videotoolbox.swift` regenerates them). Each must parse and
+  write back bit for bit. Plus round trips of the sets ace's encoders write.
 
 ### media-mp4 (pure)
 
@@ -170,7 +172,12 @@ probe found no hardware for it, and then the source says so.
 "timed-out" | "failed", maxWidth, maxHeight}`.
   - `hardware` is what the session itself reports (VideoToolbox's
     `UsingHardwareAccelerated…` properties, an MFT's `MFT_ENUM_FLAG_HARDWARE`, a VA entrypoint,
-    NVENC). It is never inferred from the chip family.
+    NVENC). It is never inferred from the chip family. VideoToolbox sessions that don't
+    report the property (low-latency encode and JPEG sessions on macOS 27 return
+    `kVTPropertyNotSupportedErr`) are opened with hardware required first; one that opens
+    under that requirement counts as the session's answer, and one that doesn't is not
+    hardware. `VTPixelTransferSession` reports nothing, so its `scale` step is
+    `hardware: false`.
 - **The helpers** report the same for capture → encode in their hello.
 - **The probe never ranks.**
 
@@ -253,6 +260,59 @@ table, including timed-out trials and the ranking cache.
   most 8 MiB on the normal lane, 64 KiB on the priority lane), then `u32 BE JSON length`, the
   JSON message in UTF-8, then an optional binary payload (the rest of the frame).
 - **Exit.** ace-media exits within 1 s of stdin closing.
+- **As built in M7** (`native/media/crates/ace-media`: the pure `engine`, `auth`, `secret` and
+  `probe`, and the I/O in `shell`).
+  - **Sockets.** The control and ingest sockets are `m<pid>c.sock` and `m<pid>i.sock` in
+    `init.runtimeDir`, removed at exit. ace-media refuses (exit 1) a runtime directory that is a
+    symlink, is owned by another user or isn't mode 0700, and binds its sockets under a 0177
+    umask, so they are never reachable by anyone else. A path longer than `sun_path` allows is
+    a start failure. The control socket keeps accepting after both lanes are up and closes
+    every later connection after its hello, unanswered; at most 8 connections may be sending a
+    hello at once.
+  - **Grant order.** Grants on the normal lane arrive with non-decreasing `issued` (one FIFO, one
+    monotonic sequence); one older than a grant already seen is refused as `revoked`. So a
+    revocation is forgotten once a later grant arrives. Past 4,096 outstanding revocations the
+    oldest is dropped and every grant at or below its `issued` is refused (fail closed).
+  - **Closed ids.** `connection.close`, `relay.close`, revocations and expiry remember the closed
+    connection and stream ids for the process's lifetime, and a grant naming one is refused
+    (`unknown-connection`) before any ticket is stored or key imported. Past 65,536 remembered
+    ids ace-media exits 1, so the restart ends every connection.
+  - **Limits.** 256 open sources and 65,536 handles (`source.status ended` with reason
+    `source-limit`); 1,024 connections (a refused `media.ticket` gets `connection.closed` with
+    reason `limit`), 4,096 viewers (logged) and 1,024 relay streams (`relay.failed` `limit`).
+    Outbound lanes hold at most 32 MiB (normal) and 1 MiB (priority) of queued bytes; past
+    that, or on a failed write, ace-media exits 1. Neither lane ever waits for the other.
+  - **Producers before their hello.** At most 64 producer connections, 16 of them without an
+    accepted hello; more are closed at accept. A connection has 2 s from accept (the WebSocket
+    handshake included) to send its hello, and may send only what a hello needs: the hello
+    frame's header announces its size, so a larger first frame is refused unread, and a
+    WebSocket client may send 8 KiB of upgrade request and one hello message. The token is
+    read into wiped buffers on every path. A shared buffer inside the WebSocket library can't
+    be wiped from outside; it is reused for the next message.
+  - **Exit codes.** 0 after stdin EOF or `shutdown`; 2 when the first message isn't a valid `init`
+    or any normal-lane frame is invalid; 1 when a socket lane drops or a socket can't be bound.
+  - **Secrets.** Tickets and ingest tokens live in one locked 64 KiB slab (2,048 slots), compared
+    in constant time and wiped when used, closed or revoked; a full slab refuses the grant. The
+    lane secret has a locked page of its own until both lanes are up.
+  - **Ingest status.** `source.open` reports `starting`; the first unit `playing`; a producer
+    connection that closes without an end frame `retrying` with `attempts`; an end frame `ended`.
+    Tokens are single use, so a producer that reconnects needs the daemon to reopen the source.
+    The origins ace-media must read itself (`simulator`, `scrcpy`, `emulator-frames`) report
+    `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
+  - **Not built yet, failing at once so the daemon falls back:** `relay.dial` (`relay.failed`
+    `relay-unavailable`, D2), and, on Windows, `record.start` (`record.failed`
+    `recorder-unavailable`). F2 built `still.take`; see "F2 notes". A recording's
+    frames pass through `media-core::privacy` and `record.epochs` is answered with
+    `epochs.applied` either way. F1 built the recorder; see "F1 notes". `listen` is accepted and its payload wiped (D1);
+    `ready.listen.loopbackPort` is 0.
+  - **Probe.** One trial today, M5's CPU path (`jpeg-decode`, `jpeg-encode`, `scale` on `cpu`,
+    never `hardware`). Backends add a `probe::Trial`; trials run on threads of their own and
+    `ready` waits at most the 2 s trial deadline.
+  - **Windows.** The lanes on named pipes with a current-user ACL are not built; the binary exits
+    1 there.
+  - **Acceptance.** `bun run check:media` builds the binary and runs `@ace/media`'s supervisor
+    process test against it. `cargo run --release -p ace-media --example ingest` measures the
+    ingest budget: 0.37 % of a core for 60 fps of 33 KB units on the Mac (0.04 % idle).
 
 ### Types
 
@@ -293,12 +353,18 @@ table, including timed-out trials and the ranking cache.
 | `source.codecs`    | normal   | `source, codecs[]` (what the producer's encoder supports, from its probe)                                                                                                                                                                                                                                                                                    | —                                                                         |
 | `source.picture`   | normal   | `source, ageMs, epoch` (private-context screencast frame, ADR 0147 §2.2)                                                                                                                                                                                                                                                                                     | the base64 JPEG text as received                                          |
 | `source.epoch`     | priority | `source, seq, epoch, followsPrivate` (K2) (only for sources ace-media reads itself, where ace-media is the producer; see "Recording privacy barrier")                                                                                                                                                                                                        | —                                                                         |
-| `record.epochs`    | priority | `source, seq, decided, clear: [from, to][], discard: [from, to][]` (decisions on epochs up to `decided`, applied in `seq` order)                                                                                                                                                                                                                             | —                                                                         |
+| `record.epochs`    | priority | `source, recording, seq, decided, clear: [from, to][], discard: [from, to][]` (decisions on epochs up to `decided`, applied in `seq` order, for that recording only)                                                                                                                                                                                         | —                                                                         |
 | `source.close`     | normal   | `source`                                                                                                                                                                                                                                                                                                                                                     | —                                                                         |
+| `source.egress`    | normal   | `source, on` (G1: send this source's units back on the egress lane; off until sent)                                                                                                                                                                                                                                                                          | —                                                                         |
+| `source.encodes`   | normal   | `source, encodes: EncodeSpec[]` (E4: the encodes ace-media runs for a JPEG source it encodes itself, `tab-pictures` or `user-tab`, while the daemon still plans them; replaces the list, empty stops)                                                                                                                                                        | —                                                                         |
+| `source.key`       | normal   | `source, encode` (E4: that encode's next unit is a keyframe)                                                                                                                                                                                                                                                                                                 | —                                                                         |
 | `media.ticket`     | normal   | `connection, owner, issued, expiresAt` (single use, 30 s)                                                                                                                                                                                                                                                                                                    | the 32-byte ticket                                                        |
-| `viewer.open`      | normal   | `viewer, connection, owner, issued, source, codecs[], viewport: {width, height, dpr, scale}, local, audio`                                                                                                                                                                                                                                                   | —                                                                         |
+| `viewer.open`      | normal   | `viewer, connection, owner, issued, source, codecs[], viewport: {width, height, dpr, scale}, local, audio, link?` (K3: `link` is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`, the client's word; it only picks the starting step)                                                                                         | —                                                                         |
 | `viewer.configure` | normal   | `viewer, viewport, audio`                                                                                                                                                                                                                                                                                                                                    | —                                                                         |
 | `viewer.close`     | normal   | `viewer`                                                                                                                                                                                                                                                                                                                                                     | —                                                                         |
+| `viewer.pause`     | normal   | `viewer` (K3: the view is hidden or backgrounded; nothing is sent to it)                                                                                                                                                                                                                                                                                     | —                                                                         |
+| `viewer.resume`    | normal   | `viewer` (K3: its first picture is a keyframe)                                                                                                                                                                                                                                                                                                               | —                                                                         |
+| `session.link`     | normal   | `session, rttMs, backlogBytes` (K3: the main session's smoothed round trip and queued bytes, every 500 ms while it has a media connection)                                                                                                                                                                                                                   | —                                                                         |
 | `relay.dial`       | normal   | `stream, url` (the `/join` address with the relay's `media` ticket: rendezvous only)                                                                                                                                                                                                                                                                         | —                                                                         |
 | `relay.out`        | normal   | `stream`                                                                                                                                                                                                                                                                                                                                                     | one handshake or welcome frame, already sealed by the daemon              |
 | `relay.pull`       | normal   | `stream` (deliver the next inbound frame to the daemon)                                                                                                                                                                                                                                                                                                      | —                                                                         |
@@ -314,29 +380,30 @@ table, including timed-out trials and the ranking cache.
 
 ### ace-media → daemon (`FromMedia`)
 
-| Message                         | Lane     | Fields                                                                                                                                                                                                                  | Payload           |
-| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `ready`                         | normal   | `protocol, version, pid, capabilities: [{step, codec, backend, hardware, zeroCopy, maxWidth, maxHeight}] (see "Acceleration"), ingest: {socket, websocketPort}, control: {socket}, listen: {loopbackPort, remotePort?}` | —                 |
-| `pong`                          | normal   | `id, stats: {sources, viewers, connections, cpuMs, rssBytes, bytesOut, priorityLagMs}`                                                                                                                                  | —                 |
-| `revoked` / `closed`            | priority | `id` (every matching socket shut, its keys zeroed, its queued grants dropped)                                                                                                                                           | —                 |
-| `epoch.applied`                 | priority | `source, seq, epoch` (ace-media, as producer, now stamps `epoch`)                                                                                                                                                       | —                 |
-| `epochs.applied`                | priority | `source, seq, written, dropped`                                                                                                                                                                                         | —                 |
-| `source.status`                 | normal   | `source, status: "starting" \| "playing" \| "retrying" \| "ended", reason?, attempts?, acceleration: {path, backend, zeroCopy, reason?}`                                                                                | —                 |
-| `source.want`                   | normal   | `source, encodes: EncodeSpec[]` (the daemon applies it: `aceVideo.encodes`, `ace.video.encodes`, the helper's `stream.configure`, scrcpy's options)                                                                     | —                 |
-| `source.keyframe`               | normal   | `source, encode, reason: "viewer" \| "drop" \| "resume"`                                                                                                                                                                | —                 |
-| `source.audio`                  | normal   | `source, on`                                                                                                                                                                                                            | —                 |
-| `viewer.playing`                | normal   | `viewer, playing`                                                                                                                                                                                                       | —                 |
-| `viewer.stats`                  | normal   | `viewer, rate, fps, dropped, rttMs` (1 Hz)                                                                                                                                                                              | —                 |
-| `connection.open`               | normal   | `connection, kind: "direct" \| "relay", owner`                                                                                                                                                                          | —                 |
-| `connection.closed`             | normal   | `connection, reason`                                                                                                                                                                                                    | —                 |
-| `grant.refused`                 | normal   | `kind, id, reason: "owner" \| "revoked" \| "expired" \| "unknown-connection"`                                                                                                                                           | —                 |
-| `relay.dialed` / `relay.failed` | normal   | `stream` / `stream, reason`                                                                                                                                                                                             | —                 |
-| `relay.in`                      | normal   | `stream` (answers one `relay.pull`)                                                                                                                                                                                     | one inbound frame |
-| `record.part`                   | normal   | `recording, path, index, bytes, durationMs, gaps`                                                                                                                                                                       | —                 |
-| `record.done` / `record.failed` | normal   | `recording, parts[]` / `recording, reason`                                                                                                                                                                              | —                 |
-| `still.done`                    | normal   | `request, width, height`                                                                                                                                                                                                | the JPEG          |
-| `still.failed`                  | normal   | `request, reason`                                                                                                                                                                                                       | —                 |
-| `log`                           | normal   | `level, message, fields` (never keys, tokens, tickets or picture bytes; `relay.keys`, `listen` and `init` payloads are never logged on either side)                                                                     | —                 |
+| Message                         | Lane     | Fields                                                                                                                                                                                                                          | Payload           |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `ready`                         | normal   | `protocol, version, pid, capabilities: [{step, codec?, backend, hardware, zeroCopy, state, maxWidth, maxHeight}] (see "Acceleration"), ingest: {socket, websocketPort}, control: {socket}, listen: {loopbackPort, remotePort?}` | —                 |
+| `capabilities.changed`          | normal   | `capabilities` (the whole list again, same entries as `ready`; replaces it)                                                                                                                                                     | —                 |
+| `pong`                          | normal   | `id, stats: {sources, viewers, connections, cpuMs, rssBytes, bytesOut, priorityLagMs}`                                                                                                                                          | —                 |
+| `revoked` / `closed`            | priority | `id` (every matching socket shut, its keys zeroed, its queued grants dropped)                                                                                                                                                   | —                 |
+| `epoch.applied`                 | priority | `source, seq, epoch` (ace-media, as producer, now stamps `epoch`)                                                                                                                                                               | —                 |
+| `epochs.applied`                | priority | `source, seq, written, dropped`                                                                                                                                                                                                 | —                 |
+| `source.status`                 | normal   | `source, status: "starting" \| "playing" \| "retrying" \| "ended", reason?, attempts?, acceleration?: {steps: [{step, backend, hardware, readbacks, uploads}], degraded, reason?} (K2)`                                         | —                 |
+| `source.want`                   | normal   | `source, encodes: EncodeSpec[]` (the daemon applies it: `aceVideo.encodes`, `ace.video.encodes`, the helper's `stream.configure`, scrcpy's options)                                                                             | —                 |
+| `source.keyframe`               | normal   | `source, encode, reason: "viewer" \| "drop" \| "resume"`                                                                                                                                                                        | —                 |
+| `source.audio`                  | normal   | `source, on`                                                                                                                                                                                                                    | —                 |
+| `viewer.playing`                | normal   | `viewer, playing`                                                                                                                                                                                                               | —                 |
+| `viewer.stats`                  | normal   | `viewer, rate, fps, dropped, rttMs` (1 Hz)                                                                                                                                                                                      | —                 |
+| `connection.open`               | normal   | `connection, kind: "direct" \| "relay", owner`                                                                                                                                                                                  | —                 |
+| `connection.closed`             | normal   | `connection, reason`                                                                                                                                                                                                            | —                 |
+| `grant.refused`                 | normal   | `kind, id, reason: "owner" \| "revoked" \| "expired" \| "unknown-connection"`                                                                                                                                                   | —                 |
+| `relay.dialed` / `relay.failed` | normal   | `stream` / `stream, reason`                                                                                                                                                                                                     | —                 |
+| `relay.in`                      | normal   | `stream` (answers one `relay.pull`)                                                                                                                                                                                             | one inbound frame |
+| `record.part`                   | normal   | `recording, path, index, bytes, durationMs, gaps`                                                                                                                                                                               | —                 |
+| `record.done` / `record.failed` | normal   | `recording, parts[]` / `recording, reason`                                                                                                                                                                                      | —                 |
+| `still.done`                    | normal   | `request, width, height, steps[]` (`steps` as in `source.status.acceleration`: the path the still took, with its copies)                                                                                                        | the JPEG          |
+| `still.failed`                  | normal   | `request, reason`                                                                                                                                                                                                               | —                 |
+| `log`                           | normal   | `level, message, fields` (never keys, tokens, tickets or picture bytes; `relay.keys`, `listen` and `init` payloads are never logged on either side)                                                                             | —                 |
 
 ### Ingest framing (`MediaFrame` v1)
 
@@ -370,6 +437,11 @@ H   ..   payload
 - **Shared codec.** The codec lives in `media-wire::frame`, and in TypeScript in
   `packages/media/src/frame.ts`, which is portable (no Node built-ins) so the video extension's
   bundle includes it. Vectors live in `vectors/frame/`.
+- **Producer stamp.** A producer that needs its own frame header rebuilt after egress adds a
+  header extension: u16 tag 1, u16 length 24, then u64 its frame sequence, f64 its capture
+  time (Unix ms) and f64 its exact scale (`packages/media/src/producer-stamp.ts`). ace-media
+  passes extensions through untouched. The Mac screen helper sends it on every unit, so the
+  daemon's legacy consumers get the same frame header and packet the helper socket carries.
 - **Restarts.** The ingest socket path and WebSocket port change on every ace-media start.
   Producers learn them from the daemon with each `stream.configure` or capture start, so a
   restart never leaves a producer writing to a dead address.
@@ -643,6 +715,34 @@ ace-media.
     mid-stream and with it unavailable. Each case asserts that a viewer gets pictures, a
     recording decodes, and a still returns.
 
+- **As built in G1** (`packages/media/src/{routes,route-watch,egress}.ts`; the engine's
+  `egress` module and the shell's egress lane in `ace-media`).
+  - **Telling ace-media.** The daemon turns a source's egress on or off with `source.egress`
+    (normal lane, after `source.open`; off by default). ace-media holds no route of its own.
+  - **Capabilities.** `mediaRoutes` takes `RouteCapabilities`: the source kinds whose
+    producers can stream into ace-media (E1–E4) and whether ace-media records (F1), makes stills
+    (F2) and serves viewers (D1). `builtRouteCapabilities` has none of them, so every `auto`
+    acts as `legacy` until the PR that lands a piece turns its flag on.
+  - **Watching.** `RouteWatch` keeps the current table. The daemon calls `update()` on a setting
+    change and from the supervisor's `replay` and `onExit`, and reconfigures the kinds
+    `onChange` lists, so a producer routed to a dead ace-media is pointed back at the daemon at
+    once.
+  - **Writer.** Each unit of a source with egress on takes the next sequence, sent or dropped.
+    Video goes through one `ChunkGate` per encode id (at most 16 per source; a forgotten one is
+    logged and starts again at a keyframe), and a unit is copied into its egress bytes only once
+    its gate lets it through. The first unit of an encode after egress turns on must be a
+    keyframe (else `source.keyframe` `resume`), and a refused send asks for one with `drop`.
+    Audio and pictures are never gated and never open a video gate. An empty lane always takes
+    one frame, so a keyframe larger than 4 MiB still passes once the lane drains. A full egress
+    never ends the process; a dropped or failed egress lane does.
+  - **Router.** `EgressRouter` mints handles (from 1, never reused while the daemon lives) and
+    keeps each handle's source kind. For every unit it reads the kind's live route through the
+    callback it was built with (`RouteWatch.routes()[kind]`), so it holds no copy that can
+    drift: once the route moves the producer back to the daemon, units ace-media sent before
+    it heard `source.egress` off are dropped, never delivered twice. It dispatches to the
+    consumers the route keeps in the daemon, marks a unit after a sequence gap, and counts
+    invalid frames, unknown and closed handles, gaps, and those unrouted units.
+
 ### Supervision (`@ace/media` `MediaSupervisor`)
 
 **Injected.** Spawn, clock, timers, random (for jitter), the binary's path and the runtime folder.
@@ -672,7 +772,9 @@ ace-media.
   `KILL_ON_JOB_CLOSE`.
 - **Effects of a restart** (ADR 0147 §5.7):
   - every media connection closes;
-  - sources reopen, with `source.status: retrying` until their first unit;
+  - sources reopen, and the daemon shows them as retrying until their first unit. ace-media holds
+    no state across restarts, so the new process reports a replayed source `starting`, then
+    `playing` at its first unit;
   - recordings continue in a new part;
   - pending stills fail and fall back to their legacy path.
 - **Revocation deadline** (ADR 0147 §5.6).
@@ -932,6 +1034,64 @@ FALSE)`.
   of 16), and credit fragments. The Rust implementation must produce the same ciphertext byte
   for byte.
 
+## 3G (ADR 0149)
+
+**The target link:**
+
+- 400 kbit/s to 1.6 Mbit/s down;
+- 300–500 ms round trip;
+- 1–2 % loss;
+- the phone reaching the Mac only through the relay, with TCP on both legs.
+
+These three PRs start now, in parallel. M2b merges after N1, which measures it.
+
+| PR                                              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Tests                                                                                                                                                                                                                                                               | Acceptance                                                                                                                     |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **N1** 3G bench profile                         | `packages/browser/bench/video-link.ts`, `packages/browser/bench/link-model.ts` (new). The 3G profile of `native/media/bench` is a follow-up once M2b's Rust side lands                                                                                                                                                                                                                                                                                                                                                                   | **Profiles:** `3g-400`, `3g-800` and `3g-1600` (`ACE_VIDEO_LINK_PROFILE`): 400k / 800k / 1.6M down and ½ that up, at 300–500 ms round trip with 30 ms jitter. **Loss** is 1–2 %, modelled as TCP does it on each leg: a lost segment stalls its leg for one round trip, and a tail loss for a 200 ms minimum RTO; either loss cuts the window to 0.7, CUBIC's multiplicative decrease (beta 0.7). **Slow start:** both legs start at 10 segments and double per round trip. **A competing flow** shares the down link: a main-session burst every 10 s of 25 % of the link's average over those 10 s (125 KB at 400k, 250 KB at 800k, 500 KB at 1.6M). **Reports:** time to first picture (subscribe → first decoded frame, and → poster once F2 lands), glass-to-glass delay (capture timestamp → decode, p50/p95), and tap-to-picture (input sent → first frame showing it, p50/p95), next to fps and bit rate | the link model is pure, with tables in `link-model.test.ts`: loss stalls, slow start, the competing flow's share                                                                                                                                                    | report-only until M2b lands. It then enforces the "3G targets" below, at 400k and 1.6M                                         |
+| **M2b** 3G pacing, TypeScript and Rust together | TS: `packages/browser/src/{link-rate,video-policy,video-scale,video-fanout,picture-viewer,quantizer-control}.ts`, `packages/devices/src/{stream-profile,stream-control}.ts`. Rust: `media-core/src/{link_rate,plan,scale,fanout,keyframes,quantizer,screen_profile,device_control}.rs`. The vectors, regenerated by the browser and devices exporters                                                                                                                                                                                    | The relay floor drops to about 150 kbit/s (from 500 kbit/s). Frame rate steps 60 → 30 → 15 → 8 → 5 fps before the picture scales down, for screens and browser tabs. Screen and device profiles follow the link, with no 1 Mbit/s floor; the relay device profile is no longer fixed at 1080 × 2160 / 5 Mbit/s. The backlog is bounded in time: bytes in flight ≤ link capacity × (RTT + 300 ms). The estimator is loss-tolerant. Starts low on a K3 hint. The keyframe cap and its coupling with scale (decision 3) go into `keyframes`/`quantizer` and `scale`                                                                                                                                                                                                                                                                                                                                                 | the drift tests and the Rust replay pass on the regenerated vectors. New vector scenarios: a 400 kbit/s link, a 2 % loss link, a stall of one RTO that must not cut, persistent queueing that must cut, a hint-led start, and the step order (fps first, then size) | `video-link.ts` on the 3G profiles meets the "3G targets"; the default 25 Mbit/s profile stays at a 60 fps median and p10 ≥ 59 |
+| **K3** Link hint, pause and the session signal  | `packages/protocol`: `link?` on `BrowserCaptureViewport` and on the device and screen subscribes, and `paused?` on viewport reports. `media-wire::control`: `viewer.open.link`, `viewer.pause` / `viewer.resume`, `session.link {session, rttMs, backlogBytes}`, with fixtures. The daemon's viewer sinks for today's path. The web hint (`apps/web/src/lib/video/link-hint.ts`: `navigator.connection` and `Save-Data`). The iOS hint, through the host contract (`NWPathMonitor` `isExpensive` / `isConstrained`, plus a measured RTT) | **The hint** is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`. It is bounded, untrusted and parsed at the boundary. It only picks the starting step. **Pause and resume:** a hidden or backgrounded client pauses its viewers explicitly; nothing is sent while paused, and a resume gets a keyframe. **The session signal:** the daemon sends the main session's smoothed RTT and backlog every 500 ms while a media connection exists                                                                                                                                                                                                                                                                                                                                                                                                                                         | protocol and fixture round trips; a paused viewer receives no bytes; a hint can lower the start but never raise the rate above what was measured                                                                                                                    | a hidden phone tab costs 0 video bytes                                                                                         |
+
+**Changes to existing rows:**
+
+- **Keyframe cap.** About rate × 0.5 s, coupled with scale, on every encoder.
+  - Today's encoders get it now, in M2b's policy and its encoder hooks: the video extension's
+    offscreen encoder (also run by the desktop's encoder page), and the Swift helper's
+    `VideoEncoder.swift` (`kVTCompressionPropertyKey_DataRateLimits` and keyframe QP).
+  - B1–B5 must enforce the same cap. Each B row's tests gain this one: at the floor rate, no
+    keyframe exceeds rate × 0.5 s, and the picture is smaller instead.
+- **D1, D2, C1 and C2: open with the main session.**
+  - The media connection opens together with the main session, and subscribes travel with the
+    hello.
+  - This is coordinated with the main-session handshake work already in progress (subscribes in
+    the hello, tickets in the welcome), so the media ticket comes back in the main session's
+    welcome.
+- **F2 and D1: a poster.** The subscribe reply carries a viewport-sized poster still of
+  10–20 KB, made by F2's still path and sent by D1. It shows within about 1 s on the 3G profiles.
+- **D1 and D2: video's share of the relay.**
+  - Video takes at most about 70 % of the link estimate.
+  - It is cut as soon as `session.link` shows the main session's RTT inflating (smoothed RTT
+    above 1.5 × its 10 s minimum), and climbs back once that settles.
+  - D2's tests gain: a main-session burst during video keeps the main session's p95 RTT
+    within 1.5 × its idle value.
+- **C2.** Its acceptance becomes the 3G targets, measured on the phone over the relay.
+- **The handshake (note).** The planned one-round-trip relay handshake (Noise IK, with the hello
+  in the first message) is the daemon's handshake. `media-noise` never handshakes and needs
+  only the key block to stay as it is, so `media-noise`, M4 and D2's key hand-over are unaffected.
+
+**3G targets.** These are estimates, until N1 confirms them.
+
+| Link       | Picture                                                                               | Lag (glass to glass) | Start                                       |
+| ---------- | ------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------- |
+| 400 kbit/s | 640–720 px wide at 5–10 fps while scrolling; a sharp frame 0.5–1 s after motion stops | 0.8–1.5 s            | poster within about 1 s, video by about 2 s |
+| 1.6 Mbit/s | about 720p at 15 fps                                                                  | 0.6–1 s              | —                                           |
+
+**Out of reach on TCP through a Worker,** and not targets:
+
+- tolerating loss in less than one round trip per lost packet;
+- a picture faster than one round trip plus one frame;
+- sharp 30–60 fps at 400 kbit/s;
+- any lossy datagram lane.
+
 ## Pull requests
 
 Each PR owns the paths listed and nothing else. "Needs" means it merges after those. PRs in the
@@ -961,24 +1121,24 @@ depend on it.
 
 ### Wave 2 (needs K1; parallel, disjoint files)
 
-| PR                            | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Bench and acceptance                                                         |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| **M1** Envelope and headers   | `media-core/src/{envelope,headers}.rs` only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | every envelope and header vector byte-identical                                                                                                                                                                                                                                                                                                                                                                                                                                             | `bench/envelope`: ≥ 10 GB/s piece split, single core, Apple M-series         |
-| **M2** Pacing core            | `media-core/src/{fanout,link_rate,scale,plan,gate,keyframes,quantizer,device_control,screen_profile}.rs` only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | every pacing vector replayed with identical decisions                                                                                                                                                                                                                                                                                                                                                                                                                                       | `bench/fanout`: 100 viewers × 60 fps decisions ≤ 1 % of a core               |
-| **M8** Privacy barrier core   | `media-core/src/privacy.rs`, `vectors/privacy/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | every ordering in "Recording privacy barrier", as pure scenarios: frames and decisions in both arrival orders, decisions with `seq` gaps and out of order, a delayed priority lane, late acknowledgements making an epoch discarded, held frames and overflow, late keyframes from discarded epochs, read-time stamping within 100 ms of the epoch after a private one, audio, a restart replay; the daemon-side decision rule in `packages/media/src/epochs.ts` against the same scenarios | none                                                                         |
-| **M4** Noise transport        | `media-noise`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | TS transcripts reproduced byte for byte, across a rekey; flow-credit vectors; state installed from a key block continues a TS-started stream exactly                                                                                                                                                                                                                                                                                                                                        | `bench/seal`: ChaCha20-Poly1305 ≥ 1.5 GB/s single core (TS today ≈ 240 MB/s) |
-| **M6** Supervisor and lanes   | `packages/media/src/{supervisor,lanes}.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | backoff, jitter, crash-loop window, idle shutdown, version mismatch, missed pongs, lane authentication; revocation answered and the kill at 250 ms with a fake child that stops answering; priority messages overtake a saturated normal lane (fake child, injected clock)                                                                                                                                                                                                                  | none                                                                         |
-| **K2** Contracts for ADR 0148 | `media-wire::control` (`source.epoch` gains `followsPrivate: boolean`, so ace-media stamping its own reads can apply the 100 ms rule after a private epoch (decided in M8, #1970); `ready.capabilities` as the list of steps with `state`, replacing K1's `{encoders, decoders, stills}` shape; `capabilities.changed`, `source.status.acceleration` with steps, copies and `degraded`, the helper-hello capability fields); `packages/media/src/wire.ts` and `vectors/control/` fixtures; `packages/protocol` (`acceleration` on `BrowserState.video`, `ScreenState` and `DeviceState`) and the regenerated protocol docs | every new fixture round-trips in Rust and parses in Zod, including `source.epoch` with `followsPrivate` true and false; protocol schemas accept the new optional fields, and older clients ignore them                                                                                                                                                                                                                                                                                      | none                                                                         |
+| PR                            | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Bench and acceptance                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **M1** Envelope and headers   | `media-core/src/{envelope,headers}.rs` only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | every envelope and header vector byte-identical                                                                                                                                                                                                                                                                                                                                                                                                                                             | `bench/envelope`: ≥ 10 GB/s piece split, single core, Apple M-series         |
+| **M2** Pacing core            | `media-core/src/{fanout,link_rate,scale,plan,gate,keyframes,quantizer,device_control,screen_profile}.rs` only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | every pacing vector replayed with identical decisions                                                                                                                                                                                                                                                                                                                                                                                                                                       | `bench/fanout`: 100 viewers × 60 fps decisions ≤ 1 % of a core               |
+| **M8** Privacy barrier core   | `media-core/src/privacy.rs`, `vectors/privacy/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | every ordering in "Recording privacy barrier", as pure scenarios: frames and decisions in both arrival orders, decisions with `seq` gaps and out of order, a delayed priority lane, late acknowledgements making an epoch discarded, held frames and overflow, late keyframes from discarded epochs, read-time stamping within 100 ms of the epoch after a private one, audio, a restart replay; the daemon-side decision rule in `packages/media/src/epochs.ts` against the same scenarios | none                                                                         |
+| **M4** Noise transport        | `media-noise`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | TS transcripts reproduced byte for byte, across a rekey; flow-credit vectors; state installed from a key block continues a TS-started stream exactly                                                                                                                                                                                                                                                                                                                                        | `bench/seal`: ChaCha20-Poly1305 ≥ 1.5 GB/s single core (TS today ≈ 240 MB/s) |
+| **M6** Supervisor and lanes   | `packages/media/src/{supervisor,lanes}.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | backoff, jitter, crash-loop window, idle shutdown, version mismatch, missed pongs, lane authentication; revocation answered and the kill at 250 ms with a fake child that stops answering; priority messages overtake a saturated normal lane (fake child, injected clock)                                                                                                                                                                                                                  | none                                                                         |
+| **K2** Contracts for ADR 0148 | `media-wire::control` (`source.epoch` gains `followsPrivate: boolean`, so ace-media stamping its own reads can apply the 100 ms rule after a private epoch (decided in M8, #1970); `ready.capabilities` as the list of steps with `state`, replacing K1's `{encoders, decoders, stills}` shape; `capabilities.changed`, `source.status.acceleration` with steps, copies and `degraded`, the helper-hello capability fields); `packages/media/src/wire.ts` and `vectors/control/` fixtures; `packages/protocol` (`acceleration` on `BrowserState`, beside `video`, on `ScreenState` and `DeviceState`; `encoders` in `ScreenCapabilities`, see "K2 contract clarifications") and the regenerated protocol docs | every new fixture round-trips in Rust and parses in Zod, including `source.epoch` with `followsPrivate` true and false; protocol schemas accept the new optional fields, and older clients ignore them                                                                                                                                                                                                                                                                                      | none                                                                         |
 
 ### Wave 3 (parallel)
 
 | PR                                | Needs          | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Tests                                                                                                                                                                                                                                                                                                                                           | Bench and acceptance                                                                                                   |
 | --------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **M7** ace-media core             | M1, M5, M6, M8 | `crates/ace-media` (runtime, normal and priority lanes with lane authentication, ingest socket/pipe, loopback WS ingest with origin and token checks, sources, epochs, health, idle, revocation bookkeeping with `issued`)                                                                                                                                                                                                                                                                                                                                    | one process test: `@ace/media` supervises the real binary; a fake producer streams; kill -9 → restart within backoff, sources replayed, `source.status` retrying then playing; the priority lane answered within 50 ms p99 while the normal lane is saturated                                                                                   | idle RSS ≤ 15 MB; ingest 60 fps 33 KB units ≤ 1 % of a core                                                            |
+| **M7** ace-media core             | M1, M5, M6, M8 | `crates/ace-media` (runtime, normal and priority lanes with lane authentication, ingest socket/pipe, loopback WS ingest with origin and token checks, sources, epochs, health, idle, revocation bookkeeping with `issued`)                                                                                                                                                                                                                                                                                                                                    | one process test: `@ace/media` supervises the real binary; a fake producer streams; kill -9 → restart within backoff, sources replayed, `source.status` starting then playing; the priority lane answered within 50 ms p99 while the normal lane is saturated                                                                                   | idle RSS ≤ 15 MB; ingest 60 fps 33 KB units ≤ 1 % of a core                                                            |
 | **B1** VideoToolbox backend       | M5             | `media-vt` (encode, decode with destination size, Metal scale/convert via `CVMetalTextureCache` with `VTPixelTransferSession`/vImage only as CPU fallback, VT JPEG decode and encode, transcode, `CVPixelBufferPool`s); its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                           | encode H.264/HEVC at 1280×800 and 2560×1600, forced keyframe, rate change in place, decode back to size; transcode (decode → scale → encode) with no CPU copy; JPEG decode and encode report `hardware` exactly when their sessions report hardware use; the probe reports `zeroCopy` truthfully (a test forces a CPU copy and expects `false`) | `bench/encode --backend vt`: 2560×1600 HEVC ≥ 100 fps, 1080p H.264 ≥ 240 fps; Mac numbers in "Acceleration acceptance" |
 | **B2** Media Foundation backend   | M5             | `media-mf` (D3D11 video processor, hardware MFTs with D3D11 input, DXVA decode, hardware MJPEG decode/encode MFTs where present, WIC as CPU fallback, texture rings); its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                             | the same as B1 on a GPU machine; on the Windows VM: the software MFT path and no MFT reported; staging readbacks counted and 0 on the hardware path                                                                                                                                                                                             | VM: 1080p30 software H.264 ≥ 30 fps (labelled fallback); GPU numbers in "Acceleration acceptance"                      |
 | **B3** VA-API backend + bitstream | M5             | `media-vaapi` (encode, VPP, DMA-BUF import, VA JPEG decode and encode, surface pools), `media-bitstream`; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                                                                                         | SPS/PPS/VPS writer vectors; on an Intel or AMD host: encode → decode round trip from an imported DMA-BUF with no CPU copy; VA JPEG decode/encode where the driver lists them; with `libva` absent: reports no backend, no crash                                                                                                                 | Linux Intel/AMD numbers in "Acceleration acceptance"                                                                   |
-| **B4** Last-resort encoder        | M5             | `media-chrome` (Chrome for Testing over its own `--remote-debugging-pipe`, the video extension's `openPictures`), used only when the probe found no hardware encoder at all; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                      | JPEG pictures in → H.264 units out; Chrome crash → restarted, encode resumes at a keyframe; never chosen on a machine whose probe lists a hardware encoder; the source reports `path: "fallback-encoder"`                                                                                                                                       | parity with today's encoder Chrome (60 fps at 1280×800), reported on a VM                                              |
+| **B4** Last-resort encoder        | M5             | `media-chrome` (Chrome for Testing over its own `--remote-debugging-pipe`, running its own encoder page fed binary pictures over loopback WebSockets; see "B4 notes"), used only when the probe found no hardware encoder at all; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                 | JPEG pictures in → H.264 units out; Chrome crash → restarted, encode resumes at a keyframe; never chosen on a machine whose probe lists a hardware encoder; the source reports its encode step with `backend: "chrome"`                                                                                                                         | parity with today's encoder Chrome (60 fps at 1280×800), reported on a VM                                              |
 | **B5** NVENC/NVDEC backend        | M5             | `media-nv`: own `#[repr(C)]` bindings for one pinned API version, written from NVIDIA's public docs; run-time loading of the driver's libraries (Linux `libnvidia-encode.so.1`, `libnvcuvid.so.1`, `libcuda.so.1`; Windows `nvEncodeAPI64.dll`, `nvcuvid.dll`, `nvcuda.dll`); NVENC with OpenGL (Linux) and D3D11 (Windows) input; NVDEC (H.264/HEVC only; never its hybrid JPEG) with output scaling; only the P1–P7 presets with tuning info; the developer-only `ACE_NV_HEADERS` layout check; its `probe()` (one bounded availability trial, cancellable) | on an NVIDIA host: encode → decode round trip from a GL texture made from a DMA-BUF, with no CPU copy; NVDEC still at the requested size; a missing or too-old driver → no backend, no crash; `cargo deny` and a repo check that no NVIDIA header or binary is committed                                                                        | Linux NVIDIA numbers in "Acceleration acceptance"; on Windows NVIDIA, the MFT-vs-NVENC result recorded                 |
 
 ### Wave 4: phase 1 (parallel)
@@ -997,14 +1157,26 @@ G1 merges first: it makes `encode: auto` a complete route while `delivery` is st
 then run in parallel and turn `encode: auto` on only through G1's routes. A1 follows E1–E4,
 because it consumes their hellos and the backends' probes.
 
-| PR                                        | Needs                | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Bench and acceptance                                                                                                                                        |
-| ----------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **G1** Egress and routes                  | M7                   | the egress lane in `ace-media`; `packages/media/src/{routes,egress}.ts` (the egress header, dispatch by source handle to the deliverer, the legacy recorder and the legacy still maker); `source.open` handles; pointing producers back at the daemon when ace-media is unavailable                                                                                                                                                                                                                                                                            | `routes.test.ts` (every setting combination × health × capabilities); a process test where a fake producer sends to ace-media, the egress returns the units, and a legacy viewer, the legacy recorder and the legacy still maker all get them; two interleaved sources with equal encode ids reach only their own consumers; unknown and closed handles dropped; a full egress drops to the next keyframe; the egress connection idles and carries again without reopening; ace-media killed → the producer reconfigured to the daemon within 2 s                                         | egress adds ≤ 1 ms p95 per unit; daemon CPU for one 16 Mbit/s stream unchanged from today's direct route ± 1 %                                              |
-| **E1** Windows helper encodes             | B2, B5, G1, K2       | `native/screen-helper-windows` (the hello's capability fields; WGC texture → D3D11 video processor → MFT, or NVENC where measured better; texture ring)                                                                                                                                                                                                                                                                                                                                                                                                        | its hello reports capture → encode capability (K2 fields), from a trial at helper start; VM: the software MFT stream decodes in the web client's WebCodecs over legacy delivery (through egress); the no-MFT VM falls back to the last-resort encoder and says so; on a GPU machine: 0 staging readbacks per frame; epochs stamped at capture                                                                                                                                                                                                                                             | Windows numbers in "Acceleration acceptance" (today: JPEG + encoder Chrome at 30–60 % per viewer)                                                           |
-| **E2** Linux helper encodes               | B3, B5, G1, K2       | `native/screen-helper-linux` (the hello's capability fields; DMA-BUF → VA surface, or → GL texture for NVENC; VPP or GL blit)                                                                                                                                                                                                                                                                                                                                                                                                                                  | its hello reports capture → encode capability (K2 fields); GNOME and Hyprland on Intel, AMD and NVIDIA; DMA-BUF zero-copy paths, plus the shared-memory upload path, reported `zeroCopy: false`; no VA-API and no NVIDIA → the last-resort encoder, said so; through egress to legacy delivery                                                                                                                                                                                                                                                                                            | Linux numbers in "Acceleration acceptance"                                                                                                                  |
-| **E3** Mac and device producers to ingest | B1, G1, K2           | `native/screen-helper` (the hello's capability fields, ingest writer, epochs, `420v` at the encode size straight to VT), `packages/devices` (serve-sim, scrcpy and emulator sources opened in ace-media), the Simulator transcode in `media-vt` (VT decode at the target size → VT encode, no CPU copy)                                                                                                                                                                                                                                                        | its hello reports capture → encode capability (K2 fields); the Mac screen, Simulator (passthrough and transcode) and Android stream through ace-media and egress with the same headers as today; the screen path and the transcode report `hardware` and `zeroCopy`; **the screen helper's designated requirement equals `identity.txt`**                                                                                                                                                                                                                                                 | Simulator 59 fps passthrough with ace-media ≤ 1 % of a core; Mac screen and transcode numbers in "Acceleration acceptance"                                  |
-| **E4** Browser producers to ingest        | B1–B5, G1            | `packages/browser/video-extension/offscreen.ts` (MediaFrame over loopback WS, epochs), `apps/desktop/src/main/browser/video-encoder.ts` + preload, `chrome-video.ts` (start arguments carry the ingest URL, token and epoch), private-context `source.picture` forwarding, the `packages/browser-extension` native host → ingest, JPEG-source encode in ace-media with hardware JPEG decode straight into encoder surfaces; setting `media.encode`                                                                                                             | tab, embedded, private-context and "Use my Chrome" tabs stream through ace-media and egress; ingest refused for a wrong origin or a reused token; JPEG sources report `hardware` exactly where the probe observed a hardware JPEG decoder, and otherwise the C path of the expectations with one upload                                                                                                                                                                                                                                                                                   | `video-link.ts` unchanged or better over egress (median 60, p10 ≥ 59); "Use my Chrome" numbers in "Acceleration acceptance", with no encoder Chrome running |
-| **A1** Capabilities and fallback state    | K2, M7, B1–B5, E1–E4 | `native/media/crates/ace-media/src/{probe,rank,acceleration}.rs` (bounded trials with deadlines and cancellation, `capabilities.changed`, the ranking benchmark and its cache, per-source steps and `degraded`); `packages/media/src/acceleration.ts` (the daemon's store of capabilities and per-source acceleration); the state field only in `packages/browser/src/live-video.ts` (`status()`), `packages/screen/src/bridge.ts` and `packages/devices/src/bridge.ts`; `apps/daemon/src/doctor/media.ts`, registered in `apps/daemon/src/doctor/features.ts` | each backend faked absent in turn → the expected `cpu` or `fallback-encoder` step, and `degraded` only where the rule says (NVIDIA CPU JPEG is not degraded; a hardware-listed step on the CPU is); a fake backend that lists a codec but fails its trial frame → no hardware; a trial that hangs → `timed-out` within 2 s, `ready` within 3 s, and a late success arrives as `capabilities.changed`; the ranking runs only while no source is open, is cancelled when one opens, is cached per adapter, driver and settings, and falls back to the deterministic choice without a result | probe ≤ 3 s at worst, ≤ 500 ms on a warm machine; ranking ≤ 20 s total, once per key                                                                        |
+| PR                                        | Needs                | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Tests                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Bench and acceptance                                                                                                                                        |
+| ----------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **G1** Egress and routes                  | M7                   | the egress lane in `ace-media`; `packages/media/src/{routes,egress}.ts` (the egress header, dispatch by source handle to the deliverer, the legacy recorder and the legacy still maker); `source.open` handles; pointing producers back at the daemon when ace-media is unavailable                                                                                                                                                                                                                                                                            | `routes.test.ts` (every setting combination × health × capabilities); a process test where a fake producer sends to ace-media, the egress returns the units, and a legacy viewer, the legacy recorder and the legacy still maker all get them; two interleaved sources with equal encode ids reach only their own consumers; unknown and closed handles dropped; a full egress drops to the next keyframe; the egress connection idles and carries again without reopening; ace-media killed → the producer reconfigured to the daemon within 2 s                               | egress adds ≤ 1 ms p95 per unit; daemon CPU for one 16 Mbit/s stream unchanged from today's direct route ± 1 %                                              |
+| **E1** Windows helper encodes             | B2, B5, G1, K2       | `native/screen-helper-windows` (the hello's capability fields; WGC texture → D3D11 video processor → MFT, or NVENC where measured better; texture ring)                                                                                                                                                                                                                                                                                                                                                                                                        | its hello reports capture → encode capability (K2 fields), from a trial at helper start; VM: the software MFT stream decodes in the web client's WebCodecs over legacy delivery (through egress); the no-MFT VM falls back to the last-resort encoder and says so; on a GPU machine: 0 staging readbacks per frame; epochs stamped at capture                                                                                                                                                                                                                                   | Windows numbers in "Acceleration acceptance" (today: JPEG + encoder Chrome at 30–60 % per viewer)                                                           |
+| **E2** Linux helper encodes               | B3, B5, G1, K2       | `native/screen-helper-linux` (the hello's capability fields; DMA-BUF → VA surface, or → GL texture for NVENC; VPP or GL blit)                                                                                                                                                                                                                                                                                                                                                                                                                                  | its hello reports capture → encode capability (K2 fields); GNOME and Hyprland on Intel, AMD and NVIDIA; DMA-BUF zero-copy paths, plus the shared-memory upload path, reported `zeroCopy: false`; no VA-API and no NVIDIA → the last-resort encoder, said so; through egress to legacy delivery                                                                                                                                                                                                                                                                                  | Linux numbers in "Acceleration acceptance"                                                                                                                  |
+| **E3** Mac and device producers to ingest | B1, G1, K2           | `native/screen-helper` (the hello's capability fields, ingest writer, epochs, `420v` at the encode size straight to VT), `packages/devices` (serve-sim, scrcpy and emulator sources opened in ace-media), the Simulator transcode in `media-vt` (VT decode at the target size → VT encode, no CPU copy)                                                                                                                                                                                                                                                        | its hello reports capture → encode capability (K2 fields); the Mac screen, Simulator (passthrough and transcode) and Android stream through ace-media and egress with the same headers as today; the screen path and the transcode report `hardware` and `zeroCopy`; **the screen helper's designated requirement equals `identity.txt`**                                                                                                                                                                                                                                       | Simulator 59 fps passthrough with ace-media ≤ 1 % of a core; Mac screen and transcode numbers in "Acceleration acceptance"                                  |
+| **E4** Browser producers to ingest        | B1–B5, G1            | `packages/browser/video-extension/offscreen.ts` (MediaFrame over loopback WS, epochs), `apps/desktop/src/main/browser/video-encoder.ts` + preload, `chrome-video.ts` (start arguments carry the ingest URL, token and epoch), private-context `source.picture` forwarding, the `packages/browser-extension` native host → ingest, JPEG-source encode in ace-media with hardware JPEG decode straight into encoder surfaces; setting `media.encode`                                                                                                             | tab, embedded, private-context and "Use my Chrome" tabs stream through ace-media and egress; ingest refused for a wrong origin or a reused token; JPEG sources report `hardware` exactly where the probe observed a hardware JPEG decoder, and otherwise the C path of the expectations with one upload                                                                                                                                                                                                                                                                         | `video-link.ts` unchanged or better over egress (median 60, p10 ≥ 59); "Use my Chrome" numbers in "Acceleration acceptance", with no encoder Chrome running |
+| **A1** Capabilities and fallback state    | K2, M7, B1–B5, E1–E4 | `native/media/crates/ace-media/src/{probe,rank,acceleration}.rs` (bounded trials with deadlines and cancellation, `capabilities.changed`, the ranking benchmark and its cache, per-source steps and `degraded`); `packages/media/src/acceleration.ts` (the daemon's store of capabilities and per-source acceleration); the state field only in `packages/browser/src/live-video.ts` (`status()`), `packages/screen/src/bridge.ts` and `packages/devices/src/bridge.ts`; `apps/daemon/src/doctor/media.ts`, registered in `apps/daemon/src/doctor/features.ts` | each backend faked absent in turn → the expected `cpu` or `chrome` step, and `degraded` only where the rule says (NVIDIA CPU JPEG is not degraded; a hardware-listed step on the CPU is); a fake backend that lists a codec but fails its trial frame → no hardware; a trial that hangs → `timed-out` within 2 s, `ready` within 3 s, and a late success arrives as `capabilities.changed`; the ranking runs only while no source is open, is cancelled when one opens, is cached per adapter, driver and settings, and falls back to the deterministic choice without a result | probe ≤ 3 s at worst, ≤ 500 ms on a warm machine; ranking ≤ 20 s total, once per key                                                                        |
+
+**B5 notes.** `media-nv`'s NVENC 12.0 layouts are ace's own declaration, not yet checked against
+NVIDIA's headers or a real GPU, and a wrong offset under a version the driver accepts could
+corrupt memory. Until both checks below have passed, the backend is off by default. Its probe
+reports `unavailable` with the reason "unverified layout" and never opens the driver. Only the
+development opt-in `ACE_MEDIA_NV=1` turns it on, and nothing in a release build sets it. To turn
+it on by default, remove the gate after:
+
+1. one passing run of the developer-only `ACE_NV_HEADERS` layout check;
+2. B5's acceptance above on real NVIDIA hardware.
+
+Until then, NVIDIA Linux machines take the last-resort encoder, and the machine says so.
 
 ### Wave 6: phase 3
 
@@ -1018,7 +1190,7 @@ acceptance with the real web and iOS clients is C1's and C2's, and Q1 runs after
 | **D1** Delivery in ace-media | M2, E3, E4, A1 | viewers, plans and `source.want` in `ace-media`; the direct listener (loopback, and TLS from `listen`); `media.connect`, `MediaConnections` and `media.ticket` in the daemon; `viewer.*` wiring in `packages/browser` (`live-video.ts` becomes a thin driver), `packages/screen` (`bridge.ts`), `packages/devices` (`bridge.ts`); protocol additions; the standalone test client; setting `media.delivery` | with the test client: a tab, a screen and a device on one media connection; **the direct negative authorization tests** from "Media connection authorization"; revoke closes the connection within 250 ms; ace-media restart → picture back within 2 s p95                                                                                                                                                                                              | new `packages/browser/bench/media-link.ts` beside `video-link.ts`, driven by the test client, in `check:perf`: median ≥ 59 fps, p10 ≥ 55 on the default link; daemon `bytesOut` for video = 0; the local hop adds ≤ 2 ms p95                                                  |
 | **D2** Relay media streams   | D1, M4         | `apps/relay` (self-hosted) and `apps/cloud` (Worker): the `media` purpose and tickets, the `media` host feature; `apps/daemon/src/files-relay.ts`: the handshake through ace-media and `relay.keys`; `packages/secure-channel` `exportInto`/`exportState`; relay streams in `ace-media`                                                                                                                    | process test with the real self-hosted relay and the test client: handshake through ace-media, keys handed over with no frame lost or duplicated, a rekey crossed; **the relay negative authorization tests**; the key scans and the zeroed block from "Key hand-over"; revocation within 50 ms p99 under a saturated normal lane and a full egress; a stopped child killed at 250 ms; ace-media kill → the client reconnects and resumes at a keyframe | 10 relay viewers at 16 Mbit/s: ace-media ≤ 5 % of a core in total (≤ 0.5 % per viewer, native AEAD with SIMD, sealing into pooled buffers, 0 allocations per frame), daemon CPU within 1 % of no viewers; `bench/seal` ≥ 1.5 GB/s per core on the Mac, ≥ 1.2 GB/s on x86 AVX2 |
 | **C1** Web media connection  | D1, D2         | `apps/web/src/lib/video/*`, the media connection in `packages/client*`, HEVC pictures; the degraded sentence in the web live views (`apps/web/src/features/computer-use/live-view.tsx`, the browser panel's and the device screen's status lines)                                                                                                                                                          | the sentence shows exactly when `degraded` is true; reconnect and resubscribe; acks routed; legacy delivery still works against a daemon with `media.delivery: legacy`                                                                                                                                                                                                                                                                                  | `media-link.ts` rerun with the real web client: the same numbers as D1                                                                                                                                                                                                        |
-| **C2** iOS media connection  | D1, D2, I1     | `apps/ios/**`: the media socket in Swift, bridge routing; the degraded sentence in the iOS live views                                                                                                                                                                                                                                                                                                      | the same as C1 (including the sentence) on a simulator over the relay                                                                                                                                                                                                                                                                                                                                                                                   | 60 fps median on the phone-link profile of `video-link.ts`                                                                                                                                                                                                                    |
+| **C2** iOS media connection  | D1, D2, I1     | `apps/ios/**`: the media socket in Swift, bridge routing; the degraded sentence in the iOS live views                                                                                                                                                                                                                                                                                                      | the same as C1 (including the sentence) on a simulator over the relay                                                                                                                                                                                                                                                                                                                                                                                   | the 3G targets of "3G" (ADR 0149) on the `3g-400` and `3g-1600` profiles, measured on the phone over the relay (replaces "60 fps on the phone-link profile")                                                                                                                  |
 | **Q1** Route matrix          | C1, C2, F1, F2 | `packages/media/src/routes.process.test.ts`, which joins `test:process`                                                                                                                                                                                                                                                                                                                                    | all 16 setting combinations end to end with ace-media healthy, including `encode` and `delivery` on `auto` with `recordings` and `stills` on `legacy` (fed by egress); the four corner combinations also with ace-media killed mid-stream and with it unavailable; each asserts a viewer gets pictures (web and iOS bridge), a recording decodes with its privacy barrier held, and a still returns                                                     | must pass on the release candidate before any X PR merges                                                                                                                                                                                                                     |
 
 ### Wave 7: deletion (one PR per phase, after a release ships with `auto` as the default and needs no fallback, and Q1 passed on that release)
@@ -1140,3 +1312,377 @@ For scale, today's measurements (ADR 0147's Context): the Linux and Windows scre
   for every optional field. Identifiers must be well-formed Unicode and contain at most 64
   scalar values. Rust constrained values have private storage and checked constructors, so
   constructing a value cannot bypass the same validation its deserializer applies.
+
+## K2 contract clarifications
+
+- `source.epoch.followsPrivate` is a required boolean: true when the epoch before this one was
+  private. ace-media uses it only for the sources it reads itself, to keep reads within 100 ms of
+  applying the epoch on the private one.
+- A capability entry (`ready.capabilities`, `capabilities.changed`) is `{step, codec?, backend,
+hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `decode`,
+  `jpeg-decode`, `jpeg-encode`, `scale`; `backend` one of `vt`, `mf`, `vaapi`, `nv`, `chrome`
+  (the last-resort encoder), `cpu`; `state` one of `ok`, `timed-out`, `failed`. On the control
+  lanes these are closed sets, rejected when unknown, like every K1 contract. `codec` is the
+  WebCodecs codec string, absent for `scale`. `maxWidth` and `maxHeight` are u32 and 0 when the
+  trial didn't succeed. A step running on the last-resort encoder is `encode` with
+  `backend: "chrome"`; there is no separate `path` field.
+- `capabilities.changed` carries the whole list, which replaces the one from `ready`. It is
+  sent only after `ready`; one before it is a protocol error. The supervisor's `capabilities()`
+  and snapshot report the latest list, and the message still reaches the daemon's handler.
+- `source.status.acceleration` is optional: absent until the source has chosen its steps.
+  It is `{steps: [{step, backend, hardware, readbacks, uploads}], degraded, reason?}`, with
+  `readbacks` and `uploads` as u32 counts and `reason` an open string. Explicit null is rejected
+  for `acceleration`, `acceleration.reason` and a capability's `codec`, as for every K1 optional.
+- Client-facing copies live in `packages/protocol/src/media-acceleration.ts`: `MediaAcceleration`
+  (the same shape) on `BrowserState.acceleration`, `ScreenState.acceleration` and
+  `DeviceState.acceleration`, and `MediaCapability` (the capability entry) as
+  `ScreenCapabilities.encoders`, the helpers' capture → encode report in their hello. Unlike the
+  control lanes these keep step, backend and state as open strings, so a newer daemon's names
+  never fail an older client. On the browser it sits beside `video`, not inside it:
+  `BrowserState.video` exists only while the live video retries, and making it present while
+  playing would fail older clients, whose schema requires `status: "retrying"`.
+
+## B4 notes
+
+- **Its own page, not the video extension.** `media-chrome` serves `assets/encoder.html` at
+  `http://127.0.0.1:<port>/<token>/` and the page opens two WebSockets back to it: pictures in,
+  chunks out, both binary, so nothing is base64 in JSON. The token is random per browser and
+  reaches Chrome only over the debugging pipe (`Target.createTarget`); the sockets take only the
+  page's origin, and the listener closes once both are open. The extension's `openPictures` stays
+  with the daemon's encoder Chrome until X2 removes it.
+- **Pictures.** JPEG as it is (`jpeg_picture`, decoded by Chrome's `ImageDecoder`), or CPU
+  RGBA, BGRA, NV12 and RGB (widened to RGBX). Output is AVCC with the avcC description on
+  keyframes, Constrained Baseline at the lowest level that holds the size and rate. The page asks
+  for `prefer-software`, so `hardware: false` is true of what runs.
+- **Fixed command line.** Callers pass the executable and the profile root, never switches: the
+  sandbox, web security, the debugging transport and the profile can't be changed from outside.
+- **Lifetime.** A guard owns Chrome and its profile from the moment it exists, on every path.
+  Chrome runs in its own process group (Unix) or a kill-on-close job (Windows), and cleanup ends
+  the whole tree. If ace-media dies, Chrome exits because its debugging pipe closes (checked on
+  macOS and Windows); Linux also sets `PR_SET_PDEATHSIG`, from a reaper thread that lives as
+  long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
+  `SingletonLock` holder gone) are reclaimed at start.
+- **Bounds.** The page's request head is read under an absolute deadline (one second per
+  client), and the token is compared in constant time. Unread replies from the pipe (16), page
+  events (256) and chunk bytes (64 MiB) are bounded; past a bound the session ends with the
+  reason, like a protocol error.
+- **Supervision.** At most three pictures in flight, then `Backpressure`. A browser that exits
+  or crashes is replaced on the next picture, configured the same way, and that picture is a
+  keyframe. Deaths and failed launches both count, and a failed launch is retried after a
+  doubling backoff (pictures get `Backpressure` meanwhile). After three in a row with no chunk
+  the encoder gives up for good. `poll_result` reports a browser death or a page encoder failure
+  once, after the units already out.
+- **Selection.** `last_resort_needed` is true only when no other backend's encode trial is
+  hardware and `ok`. The trial (`probe`) runs on its own thread and returns `timed-out` at its
+  deadline; the abandoned thread closes its browser.
+- **Windows.** Chrome takes the pipe from C runtime descriptors 3 and 4, handed over through
+  `STARTUPINFO.lpReserved2`, with a `STARTUPINFOEX` handle list so only those handles and `NUL`
+  are inherited. Chrome and Edge are found where the daemon looks (Program Files, LocalAppData,
+  `PATH`).
+- **Measured** on the M-series Mac (shared, load average 16–38 during the runs), Chrome for
+  Testing 153, `cargo run --release -p media-chrome --example encode`, 10 s after 2 s warm-up:
+
+  | Input                         | fps out | CPU, Chrome's processes | CPU, ace-media side | Latency p50 / p95 |
+  | ----------------------------- | ------- | ----------------------- | ------------------- | ----------------- |
+  | 1920×1080 JPEG q80 @ 30, 6 Mb | 30.1    | 79 % of a core          | 0.9 %               | 11 / 19 ms        |
+  | 1920×1080 RGBA @ 30, 6 Mb     | 28.1    | 79 % of a core          | 5.7 %               | 12 / 129 ms       |
+  | 1280×800 JPEG q80 @ 60, 8 Mb  | 60.1    | 77 % of a core          | 1.0 %               | 6 / 11 ms         |
+
+  Cold start to a configured encoder is 0.4–0.7 s and the probe trial 0.65 s here.
+
+  On the Windows 11 ARM64 VM (VMware, 8 vCPU, Edge, native build): 1920×1080 JPEG q80 @ 30
+  gave 30.1 fps out, p50/p95 13/21 ms; 1280×800 JPEG q80 @ 60 gave 60.1 fps, 7/11 ms. The bench
+  doesn't measure CPU on Windows. Cold start there is 1.3–1.5 s and the probe trial 1.7 s, close
+  to the probe's 2 s deadline, so a slower VM's first trial may time out; a late success then
+  arrives as `capabilities.changed`. An x64 Windows VM and a Linux VM are still unmeasured.
+
+## E4 notes
+
+- **Producers.** The video extension's offscreen document (and the desktop's
+  `app://video-encoder` page, which runs the same bundle) gets `aceVideo.ingest(capture, {url,
+token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. With a target it
+  opens `ws://127.0.0.1:<port>/ingest`, sends the hello and then one binary `MediaFrame` per
+  chunk (`video-extension/ingest.ts`), stamped by a read-time `ReadStamper`; until the socket is
+  open, and after it fails, chunks go to the daemon as before. Each chunk goes one way only, and
+  every switch asks each encode for a keyframe. The sink owns the token bytes and zeroes them
+  once the hello is sent and on every earlier end (a failed connect, a close before `open`, a
+  failed send, the capture leaving). On the daemon's path the producer says `moved` (`ingest`
+  or `daemon`), ordered with its chunks there: the last thing before its chunks leave, the
+  first thing after they come back, and also when a socket that never opened is dropped.
+  Encode specs carry `id`, the encode id in the frames.
+- **Desktop encoder page.** Its policy admits `connect-src` to ace-media's current endpoint
+  only (`encoder-policy.ts`), and its partition lets through only its own files and that
+  endpoint's `/ingest`. The page is made for the endpoint it was loaded with; `ace.video.reach`
+  (sent before a capture opens) and each `ace.video.ingest` name the current one, and a page
+  made for another endpoint goes, its captures with it, so the daemon reopens them on a page
+  that can reach ace-media.
+- **The egress end marker** (`media_wire::frame::egress_end`, `encodeEgressEnd`, vectors in
+  `vectors/frame/egress-end.json`). A kind-4 `MediaFrame` on egress after a handle's last unit,
+  with the next sequence, flag 8 (`interrupted`) when the stream was cut. ace-media sends it
+  when a producer's end frame arrives, when its connection drops (interrupted), when the daemon
+  closes a source that still streams, and when a JPEG source's encoder fails (interrupted). A
+  closed JPEG source keeps delivering while its encoder thread drains (`Drain`: every encoder
+  flushed, its held output handed over, then `Drained`); only then is its marker clean. An
+  encoder that can't flush, or a drain past 2 s, ends it interrupted. Every encoder has a token
+  of its own, carried by each command, unit, report and `Drained`; a word whose token isn't the
+  source's live or draining encoder's is dropped, so a source reopened under the same id never
+  takes an earlier encoder's output or acknowledgement. The shell keeps each closed encoder
+  thread until it exits: one still running 2 s after its close is stuck, and counts against
+  the source limit and the picture encoder limit (32) until it exits. Two stuck and ace-media
+  exits (`Effect::Fatal`), so the supervisor restarts it and the OS frees what they hold. It is queued past the lane's bound, so a full egress never loses
+  it. The router hands it to the source's consumers whatever the route says now, and any unit
+  lost in the handle's life (a sequence gap, or a first unit that isn't sequence 0) makes it
+  interrupted.
+- **Shared sources** (`packages/media/src/ingest-sources.ts`, `IngestSources`, for every
+  producer kind: E3's helper and devices move onto it). Each open gets a fresh ace-media id
+  (the path's name), single-use token and egress handle; the producer is pointed once
+  ace-media reports the source `starting`, with `{url, socket, token, epoch, path}`. A route
+  change, `retrying`, a refusal or ace-media leaving points the producer back first; then the
+  old path keeps delivering, under the route it was opened with, until its end marker. Only
+  then is its handle closed and `source.close` sent (at once for the sources ace-media reads
+  itself, whose pictures share the close's lane). A marker that never comes within 2 s, or
+  ace-media exiting, reports the path `interrupted`, never clean. Reconnects stop after three
+  in a row until the route changes; a source ended with a reason stays on the daemon.
+- **Path merge** (`packages/media/src/path-merge.ts`, used by both producer kinds). A switch
+  holds the new path's units until the old path's ordered end: ace-media's end marker, or the
+  producer's `moved` on the daemon's path. A clean end releases them in order; an interrupted
+  end, or none within 1 s, starts each encode at its next keyframe and drops what the old path
+  still sends. Holding more than 32 MiB settles the same way. A switch abandoned before the old
+  path ended keeps the old path. The screen
+  helper's sequence boundary maps to `ended` once its boundary unit has been handed on.
+- **Daemon wiring** (`packages/media/src/runtime.ts`, `packages/browser/src/media-video.ts`,
+  `apps/daemon/src/services/media.ts`). `mediaVideoHost` wraps a backend's `VideoHost` by its
+  `mediaKind`: tab and embedded captures keep their encoder and stream, both paths through one
+  merge; screencast captures (`tab-pictures`, `user-tab`) send `source.picture` and
+  `source.encodes` and never start the encoder Chrome. A screencast capture opened while
+  ace-media is still starting uses the encoder Chrome and holds a source that brings ace-media
+  up, then ends so the next capture goes there. Codecs ace-media can't encode, or a source
+  ace-media ends, keep that host on the encoder Chrome. `media.encode` is a global-only setting,
+  default `legacy`; the daemon builds its `MediaRuntime` the first time it is `auto` and the
+  binary is found.
+- **ace-media** (`crates/ace-media/src/encode`, `trials.rs`, `shell/pictures.rs`). A JPEG
+  source with encodes gets a thread of its own: base64 decoded, JPEG decoded at each encode's
+  size, encoded, units out on egress with their picture's epoch and age, and the source's steps
+  on `source.status.acceleration`. The backend comes from the probe (`encode::select`): a
+  hardware encoder whose trial worked, else the last-resort Chrome encoder for H.264 only,
+  never a software encoder of ace-media's own, using F2's VideoToolbox trial on macOS. B4's
+  trial runs after `ready` only when `last_resort_needed`, its result arriving as
+  `capabilities.changed`. The picture text is decoded with F2's `engine::base64`. On this Mac (M4 Max) the JPEG decode is VideoToolbox's hardware
+  session into the encoder's surfaces, 0 readbacks and 0 uploads.
+- **Not built here.** Media Foundation, VA-API and NVENC are not wired into the JPEG encoder
+  yet (their probes aren't in the binary either; A1), so Windows and Linux use the last-resort
+  encoder or stay legacy. The `packages/browser-extension` native host still hands "Use my
+  Chrome" pictures to the daemon, which forwards them as `source.picture`. The daemon issues no
+  epochs to browser producers beyond the one at open (recordings stay legacy until F1's
+  follow-up). A flip of a screencast source reopens its capture (it has one path at a time),
+  a short gap that resumes at a keyframe.
+
+## F1 notes
+
+- **The recorder** (`crates/ace-media/src/record`, Unix only for now). `assemble` is pure and
+  decides parts and fragments; `files` writes them and recovers what a crash left. Video
+  `MediaFrame`s of codecs 1 to 4 are recorded without re-encoding: Annex B units become 4-byte
+  length-prefixed samples, with parameter sets and delimiters moved out and `avcC`/`hvcC` built
+  from the keyframe's own parameter sets (byte-identical to VideoToolbox's records for the
+  fixtures). Any other video codec (JPEG, PNG, VP8, VP9) fails the recording with
+  `unsupported-codec`, so the daemon keeps those on the legacy path. Opus (codec 9) is the only
+  audio; its packets are timed by their own TOC durations from where audio starts, re-anchored
+  after a gap.
+- **Time.** A sample's time is when it was captured on ace-media's monotonic clock: arrival
+  less the frame's `age`. Video uses 90 kHz and never goes backwards. Every part starts at 0.
+- **Parts.** `part-NNNN.mp4` in the recording's directory, and `part-NNNN.jsonl` for the
+  pointer track when `pointerTrack` is set. `record.start.maxBytes` bounds each part (kept between
+  64 KiB and 512 MiB, so a part always holds a whole fragment; a part that got none is
+  removed rather than closed); the daemon keeps any total budget itself, from the `record.part` sizes. A part also
+  ends at `record.cut`, when the picture's configuration changes, and when audio first appears
+  in a part without an audio track. Each closed part is reported with `record.part`;
+  `record.done.parts` lists every part this process wrote.
+- **Writes.** A fragment is one unbuffered `write`, so `kill -9` keeps every earlier fragment.
+  A part is synced when it closes, not per fragment (on macOS a sync is `F_FULLFSYNC`, which
+  would stall the engine's loop).
+- **The directory** is created 0700, or an existing one of this user tightened to 0700; a
+  symlink or another user's directory fails `directory-invalid`. Part files are created new,
+  owner-only, with `O_NOFOLLOW`. Two live recordings may not share an id
+  (`recording-exists`) or a directory (`directory-in-use`).
+- **Recovery** (`record/recover.rs`). On `record.start` only regular files named
+  `part-<n>.mp4` (four or more digits) that begin with this muxer's `ftyp`
+  (`media_mp4::FILE_TYPE`) are touched, opened with `O_NOFOLLOW`; anything else is left, but
+  its number is never reused. They are scanned by box headers only
+  (`media_mp4::recovery_prefix_by`): a part a crash cut is truncated to its last whole
+  fragment and its pointer track to the whole lines within that time, one with no fragment is
+  removed with its track, and every remaining part is reported with `record.part` before the
+  recording continues in the next index with one gap counted.
+- **Failures.** On a recorder error every part `finish` closed that wasn't reported yet goes
+  out as `record.part` before `record.failed`.
+- **The pointer track.** The daemon stamps `record.meta` with `ReadStamper`, as a read-time
+  producer stamps a frame, so a change reaching it within 100 ms of a resume keeps the private
+  epoch. ace-media holds it until the barrier decides that epoch (`Barrier::decided`); it is
+  written for a clear epoch and dropped for a discarded or forgotten one. Lines are `{"t": ms from the part's start, "epoch", "data"}`.
+- **Decisions name their recording.** `record.epochs` carries `recording` (a contract change in
+  F1), and a recording's barrier takes only its own: `seq` restarts with every recording, and a
+  source's epochs may restart when it is reopened, so a stopped recording's late decisions
+  must never reach the next one. They ride the priority lane and can overtake `source.open` and
+  `record.start`: up to 64 per recording not yet started are kept (and answered) and handed to
+  its barrier at `record.start`; those for a recording that ended in this process (the last
+  4,096 remembered) are dropped. The daemon's `MediaRecording` sends nothing once it ended.
+- **The daemon side** (`packages/media`): `epochs.ts` (`EpochLedger`, the decision rule, and
+  `ReadStamper`, checked against `vectors/privacy/read-stamping.json`); `tee.ts`, the frames
+  the daemon has copied into ace-media's ingest, stamped at read time and acknowledged at once,
+  connecting only once ace-media reports the source `starting`; `recordings.ts`
+  (`recordingRoute`, and `MediaRecording`, which drives one recording across restarts).
+  `recordings.process.test.ts` runs them against the real binary in `check:media`.
+- **Not wired yet.** No daemon composition root constructs a `MediaSupervisor`, and
+  `media.recordings` is not yet a stored setting, so every recording still takes the legacy
+  path (`session-recording.ts` in screen and browser, `recording-feed.ts` and `video.ts` in
+  devices). Moving each of them onto `MediaRecording` with a tee, the browser recording onto
+  the tab's video encode, the playback checks in Chrome and Windows' player, and the 1080p60
+  CPU bench remain for F1's follow-up.
+
+## F2 notes
+
+- **The current picture** (`ace-media` `engine/stills.rs`, pure). A JPEG source keeps its
+  latest picture: an ingest picture, or `source.picture`'s base64 text decoded at the input
+  (bounded by the 8 MiB lane frame; text that isn't padded standard base64 leaves no picture).
+  A video source keeps the units its still maker hasn't been given yet:
+  - **One encode.** Stills follow the encode whose keyframe started the current group; other
+    encodes' units are ignored until one of them sends a keyframe, which starts a new group.
+  - **Its configuration.** A group's configuration is its encode, `MediaFrame` codec (which
+    also fixes Annex B or length-prefixed) and coded size. Each keyframe decodes with one
+    record: the parameter sets in the stream (Annex B) win, then the record the frame carries,
+    then the one kept from the last keyframe of the same configuration, since producers send
+    it only when it changes (`record::video::encoded` applies the same order for recordings and
+    the maker). That record is the one kept, so parameter sets that change in band are followed;
+    any other configuration drops it. A delta whose configuration differs ends the group.
+  - **Bounds.** Past 120 units or 32 MiB undecoded the group is dropped, and the next still
+    sends `source.keyframe` (`drop`) once and waits for the keyframe. VP8, VP9 and PNG sources
+    fail `unsupported-codec`.
+- **The maker** (`ace-media` `stills/`). A fixed set of threads (cores − 1, 1 to 8), never the
+  tokio threads; a source's jobs always go to the same thread, in order, because each continues
+  the decoder the one before left. Four jobs queue per thread; past that a still fails `busy`.
+  A job's units are always decoded, so the decoder stays in step, but one past its deadline is
+  not encoded.
+  - **macOS** (`stills/vt.rs`, B1): VT decode with the destination size set to the still's, then
+    VT JPEG where its session is hardware, else one readback and M5's encoder. A later still of
+    the same group at a smaller size is scaled by `VTPixelTransferSession` (reported
+    `hardware: false`); a larger one answers `needs-keyframe`, and the engine sends
+    `source.keyframe` and takes the request again from the new group, so a still is never
+    scaled up. A group whose keyframe this decoder never saw (after a backend change) answers
+    `needs-keyframe` the same way. JPEG sources use VT JPEG decode where the probe found it hardware, else the CPU
+    path end to end.
+  - **Everywhere else, and JPEG sources without hardware JPEG** (`stills/cpu.rs`, M5): one
+    planar transcode. A video source here fails `decode-unavailable` (ace-media has no software
+    H.264/HEVC decoder), so the legacy still maker answers. The Media Foundation, VA-API and
+    NVDEC still backends plug into the same `StillBackend` seam once ace-media runs on Windows
+    and its B2, B3 and B5 decoders are wired into its probe; until then those machines take this
+    path.
+  - **The probe** now runs B1's VideoToolbox trial beside the CPU one (`probe::trials`), with
+    B1's own deadline and shared worker. A trial publishes its whole list each time it learns
+    more: the last list by the deadline goes into `ready`, and each later one goes out as
+    `capabilities.changed` as soon as it is published, not when the trial ends. The still path
+    is chosen from the list (`stills::Choice`), and a `capabilities.changed` that changes the
+    choice replaces each maker thread's backend between jobs.
+- **Failures, so the daemon falls back in time.** `no-source`, `no-picture`, `invalid` (box
+  under 2 px or quality outside 1–100), `busy`, `unsupported-codec`, `decode-unavailable`,
+  `decode-failed` (which also drops the group), `deadline` (checked on every 100 ms tick and by
+  the maker), `source-closed` (every request for the source, waiting or with the maker),
+  `shutdown`. Each job carries a token of its own, and a result counts only if the request is
+  still waiting on that token: one from before a close, a deadline or a reused request id is
+  dropped, so a closed or reopened source never gets a still from before.
+- **The poster** (`stills/poster.rs`, consumed by D1): the still path at the viewer's viewport,
+  then the highest JPEG quality from 10 to 90 whose size is at most 20 KB, stopping at the first
+  of at least 10 KB; a picture too busy for 20 KB at quality 10 is made ¾ the size, up to three
+  times. VideoToolbox's JPEG quality has a floor (about 46 KB for a 388 × 844 screen whatever the
+  quality asked), so on the Mac a poster is converted to BGRA on the GPU, read back once per
+  size tried and searched on the CPU encoder; its encode step reports every readback it took.
+- **The daemon side** (`packages/media/src/stills.ts`): `stillRoute` (`media.stills` is
+  `legacy` by default; `auto` only while ace-media is healthy), and `MediaStills`, which sends
+  `still.take` and answers with ace-media's JPEG, or calls the caller's legacy still maker on
+  `still.failed`, at the deadline, when the message can't be sent, or when ace-media goes away,
+  and only once.
+- **Measured** on the owner's M4 Max (macOS 27.0, build 26A434), `cargo run --release -p
+ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 722 × 1568:
+  - `--path gpu` (HEVC, one new delta per still): p95 4.3 ms, median 3.9 ms at load 32 on 16
+    cores; a second run p95 5.9 ms at load 19. Decode, scale and JPEG all VideoToolbox hardware,
+    0 / 0 copies. The first still of a group (keyframe and a new decoder session) has a median
+    of 9.9 ms.
+  - `--path cpu` (JPEG source): p95 11.6 ms, median 9.7 ms at load 30; 14.4 ms at load 36.
+  - Posters of the 1206 × 2622 test screen at 390 × 844, 768 × 1024, 1280 × 800 and 1920 × 1080
+    viewports: 17.7–19.2 KB on both paths (`tests/still_paths.rs`).
+- **Not wired yet.** As with F1, no daemon composition root constructs a `MediaSupervisor`, and
+  `media.stills` is not yet a stored setting, so every still still takes the legacy path
+  (`simulator-frames.ts` and `simulator-jpeg.ts` through `Bun.Image`, `h264-jpeg.ts` and
+  `android-screenrecord.ts` through ffmpeg, `one-off-screenshot.ts`, `model-capture.ts`), and
+  `builtRouteCapabilities.stills` stays false. Moving each of them onto `MediaStills`, the
+  Windows and Linux numbers, and the daemon RSS check over 10 min of stills at 2 fps from three
+  simulators remain for F2's follow-up.
+
+## E3 notes
+
+- **Built: the Mac screen.** `stream.configure` carries `ingest: {socket, token}` (the token
+  base64) and `epoch`; each request is the whole state, so an absent `ingest` means the helper
+  socket. While `ingest` is set the helper writes its H.264 units to ace-media as MediaFrames
+  with the producer stamp; JPEG stills stay on the helper socket. The helper stamps each
+  picture with the epoch it holds at the ScreenCaptureKit callback (0 before any is given),
+  asks ScreenCaptureKit for `420v` at the encode size while streaming video (BGRA for stills),
+  and leaves the VideoToolbox session as it was. Its hello's `encoders` comes from one
+  bounded trial frame (NV12 IOSurface into a hardware H.264 session) at the first hello.
+- **Switching paths.** The helper picks the path per unit under one lock, so a switch has an
+  exact boundary: its reply says `switched` and `boundary`, the last sequence the previous
+  path took, and the new path starts at a keyframe. A switch away from ace-media finishes the
+  old connection: every queued unit is written, then it closes cleanly. The screen's
+  `ScreenMediaSource` (`packages/screen/src/media-source.ts`) runs video through the shared
+  `PathMerge` (see "E4 notes"): leaving the helper socket, that path ends once its boundary
+  has been delivered; leaving ace-media, the old path ends with ace-media's end marker, after
+  its last unit, which `IngestSources` waits for before closing the handle. Stills always take
+  the helper socket, so they stay out of the merge and keep their own order; the screen
+  manager takes a media source's video and stills each in their own order, keeping the newest
+  as `latest`. A failed ingest connection (ace-media killed) sends video back to the helper
+  socket at once, said with a `stream.ingest` event, and the merge treats the old path as cut:
+  video starts again at the helper's next keyframe. The measured fallback on the M4 Max was
+  milliseconds, well inside the 2 s bound.
+- **Wiring.** Screens use the shared `IngestSources` through the daemon's one `startMedia`
+  (`apps/daemon/src/services/media.ts`), which the browser shares. A screen session is long
+  lived, so it is `attach`ed: a session started while `media.encode` is `legacy` waits there
+  and is added once the runtime starts, so it moves when the setting turns `auto`.
+  `platformRouteCapabilities(platform)` adds `screen` to this build's ingest kinds on macOS
+  only; the daemon passes it to `MediaRuntime`.
+- **Tests.** `media-ingest.native.process.test.ts` (real helper, real ace-media, the screen
+  manager's legacy viewer: headers, epochs, four route flips with no hole or repeat in the
+  helper's sequence, `kill -9` back to the helper socket within 2 s and onto the restarted
+  process); `media-backlog.process.test.ts` (real ace-media and a scripted helper: a flip back
+  while 300 units are still queued on the old connection, which loses and repeats none); and `helper-identity.native.process.test.ts` (the built app's designated
+  requirement equals `identity.txt`) run from `check:media` on macOS; the first only with
+  `ACE_SCREEN_INTEGRATION=1`, since it shows a fixture window.
+- **Devices (E3b).** Each device's video goes through `DeviceVideoPaths`
+  (`packages/devices/src/media-paths.ts`): the shared `PathMerge`, and egress units turned back
+  into the units the capture publishes as before. A path that ends interrupted asks its
+  producer for the keyframe its successor needs.
+  - **Android emulators on a Mac.** `--encode-frames` takes `{"op":"ingest","socket","token"}` on
+    stdin (no socket: back to stdout) and uses the helper's `IngestRoute`; each switch is
+    answered on stderr with its boundary. `emulator-frames` sources are fed over ingest; the
+    origin's path and size name the frame file the helper encodes. A switch's keyframe may
+    re-encode the last picture, the one picture that can show twice.
+  - **Android devices (scrcpy).** The daemon keeps both scrcpy sockets, opened in the same order
+    and at startup as before, and while routed forwards each unit unchanged through
+    `IngestWriter` (`packages/media/src/ingest-writer.ts`). A move to ace-media keeps units on
+    the daemon's path until the device's next keyframe, the first unit forwarded; a move back
+    writes what is queued and an end frame, so ace-media's marker is clean (a connection that
+    only closes is a cut path).
+  - **Simulators.** ace-media reads serve-sim's `/stream.avcc` itself (`serve_sim.rs`, the
+    reader in `shell/readers.rs`), over loopback only, and stamps the source's epoch as it
+    reads. serve-sim sends one stream to every subscription, so a switch cuts the old path,
+    recorded as an interrupted end, and starts the new one at a fresh keyframe; nothing older
+    repeats. `IngestSources` closes these sources in ace-media at once when they move back.
+  - **The Simulator transcode.** A viewer too small for serve-sim's stream gets `source.encodes`
+    while ace-media reads it: its reader decodes at the viewer's size and encodes again in
+    VideoToolbox (`media_vt::VtTranscoder`, `shell/sim_transcode.rs`), reporting decode, scale
+    and encode with their copies. The screen helper's `--transcode` stays for the daemon's own
+    path until phase 2's deletion.
+- **Not built or measured yet.** A run on a real Android device (scrcpy is tested against the
+  fake device only); the Simulator 59 fps bench (no window with the shared Mac's load under
+  24); epochs beyond each source's opening one until F1's wiring issues them.
+- **Clean handoffs.** A writer the helper's `IngestRoute` retires (the Mac screen and
+  `--encode-frames`) writes its queue, then the end-of-source frame, then closes, so ace-media's
+  marker for that path is clean and a planned switch hands over without a forced keyframe.
+  Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
+  without one.

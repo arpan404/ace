@@ -3,11 +3,14 @@ import { ItemId, ThreadId, type TextSource } from "@ace/protocol";
 import { z } from "zod";
 
 import { readNativeItem } from "./native-item.ts";
+import { bubbleWords } from "./thread-messages.ts";
 
 export const NativeMessageRequest = z.object({
   type: z.literal("native.message"),
   threadId: ThreadId,
   itemId: ItemId,
+  /** The bubble's words (`bubbleWords`) rather than the item's whole text. */
+  bubble: z.boolean().optional(),
 });
 
 /** Full prose is read on demand, from the item's authenticated source, never a caller URL. */
@@ -33,15 +36,23 @@ export async function readNativeMessage(
   let size = 0;
   for (const part of parts) {
     if (part.source && part.source.bytes > part.text.length * 2) {
+      const chunks: string[] = [];
       for await (const chunk of owner.text(part.source, { signal })) {
         size += chunk.length;
         if (size > limit) throw new Error("This message is too large to display on the phone");
-        output.push(chunk);
+        chunks.push(chunk);
       }
+      output.push(chunks.join(""));
     } else {
       size += part.text.length;
       output.push(part.text);
     }
   }
-  return { text: output.join("") };
+  if (!request.bubble || item.type !== "message") return { text: output.join("") };
+  // The same item with every text part whole, read as its bubble reads it.
+  let next = 0;
+  const whole = item.parts.map((part) =>
+    part.type === "text" ? { ...part, text: output[next++] ?? part.text } : part,
+  );
+  return { text: bubbleWords({ ...item, parts: whole }) };
 }

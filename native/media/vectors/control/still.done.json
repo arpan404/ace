@@ -4,6 +4,11 @@
     "type": "still.done",
     "request": "source-1",
     "width": 1,
-    "height": 1
+    "height": 1,
+    "steps": [
+      { "step": "decode", "backend": "vt", "hardware": true, "readbacks": 0, "uploads": 0 },
+      { "step": "scale", "backend": "vt", "hardware": true, "readbacks": 0, "uploads": 0 },
+      { "step": "jpeg-encode", "backend": "cpu", "hardware": false, "readbacks": 1, "uploads": 0 }
+    ]
   }
 }

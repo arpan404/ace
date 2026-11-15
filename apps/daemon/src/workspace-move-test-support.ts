@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Command, type ThreadId } from "@ace/protocol";
 import { transitionHarness } from "./engine/transition-test-support.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
+import type { WorkspaceGit } from "./workspace-roots.ts";
 
 /*
  * A real Git project with the transition engine and a workspace runtime over it, for checkout
@@ -16,7 +17,7 @@ const execute = promisify(execFile);
 export async function git(root: string, ...args: string[]) {
   return (await execute("git", ["-C", root, ...args])).stdout.trim();
 }
-export async function fixture() {
+export async function fixture(options: { gitService?: WorkspaceGit } = {}) {
   let runtime: WorkspaceRuntime | undefined;
   const h = transitionHarness({
     assertWorkspaceAvailable: async (cwd, id) => runtime?.assertCheckoutPresent(id, cwd),
@@ -33,6 +34,7 @@ export async function fixture() {
   const data = await mkdtemp(join(tmpdir(), "ace-move-data-"));
   const open = () =>
     new WorkspaceRuntime(h.store, data, () => 1000, {
+      ...(options.gitService ? { gitService: options.gitService } : {}),
       changeWorkspace: (id, commandId, effect, reservation, commit) =>
         h.engine.changeWorkspace(id, commandId, effect, reservation, commit),
     });
