@@ -1,5 +1,6 @@
-import { agentSettingTitles } from "@ace/ui-core";
+import { agentSettingTitles, mediaPipelineSwitch } from "@ace/ui-core";
 import { z } from "zod";
+import { mediaPipelineRowId } from "./settings-page-media.ts";
 import { settingsPages, type RowSpec } from "./settings-page-rows.ts";
 
 /*
@@ -28,6 +29,8 @@ function rowOf(spec: RowSpec): { row: string; title: string } {
       return { row: `roles.${spec.role}`, title: agentSettingTitles[`roles.${spec.role}`] };
     case "utilityModel":
       return { row: "generation.model", title: agentSettingTitles["generation.model"] };
+    case "mediaPipeline":
+      return { row: mediaPipelineRowId, title: mediaPipelineSwitch.title };
   }
 }
 
