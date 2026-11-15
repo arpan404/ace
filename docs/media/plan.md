@@ -1686,3 +1686,79 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   marker for that path is clean and a planned switch hands over without a forced keyframe.
   Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
   without one.
+
+## E2 notes
+
+- **Encoder choice** (`native/screen-helper-linux/src/media/select.rs`, pure). VA-API (Intel,
+  AMD), then NVENC (NVIDIA), then the last-resort Chrome encoder (`media-chrome`, run by the
+  helper itself), H.264 only (the screen frame header names `avc1` alone). B3 and B5 have not
+  passed on real hardware yet, so VA-API is routed to only with `ACE_SCREEN_VAAPI=1` and NVENC
+  only with B5's `ACE_MEDIA_NV=1`; without them every Linux machine takes the last resort, and
+  says so. Removing the VA-API gate is a one-line change in `select.rs`/`trials.rs` once the
+  hardware runs below pass.
+- **The hello** (`trials.rs`). At helper start, on a thread of its own: VA-API's trial (gated),
+  NVENC's (gated), and the Chrome trial only when neither worked (`last_resort_needed`). The
+  hello waits for them at most 5 s from start. `encoders` lists every trial that ran, the chosen
+  one first; `codecs` gains `h264` only when one worked. `zeroCopy` is the driver's DMA-BUF
+  import, and false once the running capture turns out to be shared memory.
+- **Capture** (`pipewire.c`). With an encoder that imports DMA-BUFs (VA-API, NVENC) opened on
+  the capture thread first, the stream offers BGRx/BGRA/RGBx/RGBA as DMA-BUFs with the linear
+  modifier, then as shared memory. A DMA-BUF the device can't import (another GPU's) makes the
+  stream ask for shared memory only, and the producer renegotiates. The newest buffer is held
+  (handed back once a newer one replaces it), so a keyframe, a still, or someone starting to
+  watch encodes the current picture without waiting for the desktop to change, and a picture
+  that arrives too soon waits without a copy. Tiled modifiers (an EGL/VA modifier query) are
+  not offered yet.
+- **Paths per backend** (`encoder.rs`, `gl.rs`).
+  - VA-API: a DMA-BUF is imported as a VA surface (`DRM_PRIME_2`) and VPP converts and scales
+    it: 0 readbacks, 0 uploads. Shared memory is uploaded once (`uploads: 1`). VPP takes the
+    whole buffer: a GNOME window's crop is applied on the shared-memory path only.
+  - NVENC: the DMA-BUF becomes an `EGLImage` on the NVIDIA EGL device (surfaceless OpenGL 3.3
+    context, current on the capture thread), bound to a texture; one framebuffer blit crops and
+    scales it into the texture NVENC encodes (`NV_ENC_DEVICE_TYPE_OPENGL`). Shared memory is one
+    `glTexSubImage2D`. Written from the Khronos specs; compiled, never run here.
+  - Last resort: the visible region copied once, scaled on the CPU (`media_codec::CpuScaler`),
+    encoded by Chrome; AVCC output becomes Annex B with the parameter sets before each IDR.
+    `degraded`, with the sentence "Video runs on the processor here: this computer has no
+    hardware video encoder."
+- **Stream control.** `stream.configure`, `stream.keyframe` and `stream.image` follow E3's
+  contract. Video is encoded only while someone watches and the view asked for H.264, at its
+  fps (up to 60); stills then come only on `stream.image`. Each picture is stamped with the
+  epoch the helper holds when its buffer arrives. The `stream.configure` reply also carries
+  `acceleration` (K2's shape) once the stream has run, for A1 to pick up.
+- **Ingest** (`media/ingest.rs`). The writer, route, retirement and framing are E1's sans-IO
+  `media-ingest` crate; the helper only drives it: one tokio task owns the `Route`, and units
+  from the capture thread and switches from `stream.configure` reach it through one queue, so
+  a switch keeps its exact boundary. Each connection has a writer task and a reader (EOF means
+  ace-media closed it), and a 100 ms tick judges deadlines. A cut sends video back to the
+  daemon's socket at once and says so with `stream.ingest`. The helper never calls
+  `legacy_still`: its boundary is the last video unit, which is what the daemon's merge waits for.
+- **Daemon** (`packages/screen`). Linux screens are an ingest kind (`platformRouteCapabilities`).
+  A Linux session's `ScreenMediaSource` asks its helper for H.264 only toward ace-media; on the
+  daemon's path it asks for JPEG, so `media.encode: legacy` keeps today's path exactly (the
+  daemon's encoder Chrome turns the pictures into video). The helper is launched with
+  `--data-dir`, where ace's own Chrome for Testing lives.
+- **Tested here** (Apple-silicon Mac; Linux in a Debian 13 container and a Debian 13 Lima VM,
+  no GPU): the helper's unit tests and the ingest shell against real sockets (route flips with
+  no unit lost or repeated and clean end frames, ace-media's connection dropping → the
+  daemon's socket at once, a refused connection); `tests/computer/run-video.sh` and
+  `media-ingest.linux.process.test.ts` in headless GNOME through the real portal and PipeWire on
+  shared memory with the last-resort encoder. See the PR for which of these ran green.
+- **Owed on real hardware** (none can run without the GPU):
+  1. Intel (iHD) and AMD (radeonsi), GNOME (Ubuntu 25.04, Fedora 43, Debian 13) and Omarchy
+     (Hyprland): build the helper (`native/screen-helper-linux/build.sh`) and ace-media
+     (`cargo build --release -p ace-media` in `native/media`); run
+     `ACE_SCREEN_VAAPI=1 ACE_E2_EXPECT=vaapi tests/computer/run-video.sh` and expect `capture:
+DMA-BUF` on stderr and the hello's first encoder `vaapi`, `hardware` and `zeroCopy` true;
+     then, in the desktop session, `ACE_SCREEN_VAAPI=1 ACE_SCREEN_INTEGRATION=1
+ACE_MEDIA_TEST_BINARY=… ACE_LINUX_HELPER=… bun --bun x vitest run
+src/media-ingest.linux.process.test.ts` in `packages/screen`. Record the "Acceleration
+     acceptance" Linux columns (1080p60 and 4K30 CPU per stream, copies 0 / 0 on DMA-BUF, 0 / 1 on
+     shared memory) with distribution, kernel, Mesa and `intel-media-driver` versions.
+  2. NVIDIA (driver ≥ 590): after B5's `ACE_NV_HEADERS` layout check passes, the same with
+     `ACE_MEDIA_NV=1 ACE_E2_EXPECT=nv`; expect the GL path (`capture: DMA-BUF`, 0 / 0).
+  3. A two-GPU laptop (Intel + NVIDIA): the screen is captured on one GPU; check that a DMA-BUF
+     the other can't import falls back to shared memory (`capture: shared memory`) and keeps
+     streaming.
+  4. A window share on GNOME with VA-API on DMA-BUF: check whether the encoded picture shows the
+     window's surroundings (no crop on that path yet).
