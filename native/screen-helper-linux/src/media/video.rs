@@ -188,6 +188,11 @@ impl Video {
         self.control.settings().filter(StreamSettings::video)
     }
 
+    /// The encoder this stream opens, if there is one.
+    pub fn backend(&self) -> Option<Backend> {
+        self.choice.as_ref().map(|(backend, _)| *backend)
+    }
+
     /// Takes the keyframe request, if any.
     pub fn take_key(&self) -> bool {
         self.control.take_key()

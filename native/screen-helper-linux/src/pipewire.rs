@@ -2,6 +2,7 @@ use crate::{
     media::{
         encoder::{Captured, Input},
         pixels::{SPA_BGRA, SPA_RGBA},
+        select::{DmaBufUse, dmabuf_use},
         stream::encode_size,
         video::{Stamp, StreamControl, Video, VideoSink},
     },
@@ -332,6 +333,16 @@ impl Frames {
         let Some(captured) = captured(raw, pts) else {
             return;
         };
+        // A DMA-BUF whose crop the encoder can't apply never reaches it: the stream moves to
+        // shared memory, where only the region is copied out (`media::select::dmabuf_use`).
+        if raw.dmabuf != 0
+            && self.video.backend().is_none_or(|backend| {
+                dmabuf_use(backend, (raw.width, raw.height), captured.region) != DmaBufUse::Encode
+            })
+        {
+            self.shared_memory();
+            return;
+        }
         let (_, _, rw, rh) = captured.region;
         let size = encode_size(rw, rh, settings);
         let (logical_shown, _) = self.logical(raw.width, rw, rh);

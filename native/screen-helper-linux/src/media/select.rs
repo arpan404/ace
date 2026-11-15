@@ -114,6 +114,28 @@ pub fn acceleration(backend: Backend, capture: Capture) -> Acceleration {
     }
 }
 
+/// What a DMA-BUF picture may be used for. A window shared inside a larger buffer
+/// (`SPA_META_VideoCrop`) must never send what lies outside its region.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DmaBufUse {
+    /// The encoder takes it as it is: uncropped, or it applies the crop itself.
+    Encode,
+    /// It can't apply the crop: the stream moves to shared memory, cropped on the CPU.
+    SharedMemory,
+}
+
+/// The rule for a `buffer`-sized DMA-BUF whose visible region is `region` (left, top, width,
+/// height) on `backend`. NVENC's GL blit crops; VA-API's VPP is given the whole surface, so a
+/// cropped buffer never reaches it; the last resort takes only shared memory.
+pub fn dmabuf_use(backend: Backend, buffer: (u32, u32), region: (u32, u32, u32, u32)) -> DmaBufUse {
+    let whole = region == (0, 0, buffer.0, buffer.1);
+    match backend {
+        Backend::Nv => DmaBufUse::Encode,
+        Backend::Vaapi if whole => DmaBufUse::Encode,
+        _ => DmaBufUse::SharedMemory,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +236,35 @@ mod tests {
         assert_eq!(fallback.reason.as_deref(), Some(LAST_RESORT_REASON));
         assert!(fallback.steps.iter().all(|s| !s.hardware));
         assert_eq!(fallback.steps[1].backend, Backend::Chrome);
+    }
+
+    #[test]
+    fn a_cropped_dma_buf_reaches_only_an_encoder_that_crops_it() {
+        let window = (0, 0, 410, 666);
+        let whole = (0, 0, 1280, 800);
+        // VA-API's VPP takes the whole surface: a window inside a larger buffer goes to shared
+        // memory, where only its region is copied out.
+        assert_eq!(
+            dmabuf_use(Backend::Vaapi, (1280, 800), window),
+            DmaBufUse::SharedMemory
+        );
+        assert_eq!(
+            dmabuf_use(Backend::Vaapi, (1280, 800), (25, 25, 1230, 750)),
+            DmaBufUse::SharedMemory
+        );
+        assert_eq!(
+            dmabuf_use(Backend::Vaapi, (1280, 800), whole),
+            DmaBufUse::Encode
+        );
+        // NVENC's GL blit reads only the region.
+        assert_eq!(
+            dmabuf_use(Backend::Nv, (1280, 800), window),
+            DmaBufUse::Encode
+        );
+        // The last resort never takes GPU buffers.
+        assert_eq!(
+            dmabuf_use(Backend::Chrome, (1280, 800), whole),
+            DmaBufUse::SharedMemory
+        );
     }
 }

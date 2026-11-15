@@ -4,7 +4,7 @@
 //! Annex B the daemon's viewers take.
 use super::gl::{DmaPlane, GL_TEXTURE_2D, GlImporter};
 use super::pixels::{drm_format, pixel_format, region_picture};
-use super::select::Capture;
+use super::select::{Capture, DmaBufUse, dmabuf_use};
 use super::stream::{StreamSettings, annex_b, encode_size, encode_spec};
 use media_bitstream::avcc::AvcConfig;
 use media_codec::{CodecError, EncodeSpec, Encoder, Picture, PlatformPicture, Scaler, Size};
@@ -178,6 +178,18 @@ impl ScreenEncoder {
                     modifier,
                 },
             ) => {
+                // VPP is given the whole surface: a buffer with a crop would send what lies
+                // outside the shared region. The capture moves such a stream to shared memory.
+                if dmabuf_use(
+                    Backend::Vaapi,
+                    (picture.width, picture.height),
+                    picture.region,
+                ) != DmaBufUse::Encode
+                {
+                    return Err(CodecError::Unsupported(
+                        "a cropped DMA-BUF on VA-API".into(),
+                    ));
+                }
                 let drm = drm_format(picture.format)
                     .ok_or_else(|| CodecError::Unsupported("pixel format".into()))?;
                 let surface = media_vaapi::Surface::import(
@@ -197,8 +209,6 @@ impl ScreenEncoder {
                         }],
                     },
                 )?;
-                // VPP converts and scales the whole buffer: a window's crop is applied only on
-                // the shared-memory path for now.
                 encoder.encode(surface.into_picture(picture.pts_us), key)
             }
             (Engine::Va { encoder, .. }, Input::Shared { bytes, stride }) => {
