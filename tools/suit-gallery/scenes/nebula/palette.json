@@ -1,0 +1,13 @@
+{
+  "name": "Nebula",
+  "glass": "rgba(14, 9, 26, 0.52)",
+  "glassStrong": "rgba(14, 9, 26, 0.64)",
+  "edge": "rgba(230, 180, 255, 0.10)",
+  "ink": "#F1EEF7",
+  "muted": "rgba(238, 232, 246, 0.72)",
+  "subtle": "rgba(226, 218, 240, 0.50)",
+  "accent": "#E58BC9",
+  "accentInk": "#1C0716",
+  "blur": "34px",
+  "saturate": "1.5"
+}

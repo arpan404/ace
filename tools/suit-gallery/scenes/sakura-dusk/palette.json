@@ -1,0 +1,13 @@
+{
+  "name": "Sakura Dusk",
+  "glass": "rgba(24, 16, 30, 0.50)",
+  "glassStrong": "rgba(24, 16, 30, 0.62)",
+  "edge": "rgba(255, 200, 220, 0.12)",
+  "ink": "#F8F0F2",
+  "muted": "rgba(246, 234, 238, 0.74)",
+  "subtle": "rgba(238, 222, 230, 0.52)",
+  "accent": "#F4A6BF",
+  "accentInk": "#2A0C16",
+  "blur": "30px",
+  "saturate": "1.3"
+}
