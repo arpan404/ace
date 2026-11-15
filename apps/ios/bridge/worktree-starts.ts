@@ -9,6 +9,7 @@ import {
   worktreeActionWords,
   worktreeHeadline,
   worktreeNote,
+  worktreeRefusal,
   worktreeRefusalWords,
   worktreeSpeaks,
   worktreeStepRows,
@@ -57,7 +58,18 @@ function startWords(send: PendingSend): { message: string; workspaceId: string }
 const isWorktreeStart = (send: PendingSend) =>
   send.payload.type === "thread.create" && send.payload.mode === "worktree";
 
-const gone = "That start has already finished.";
+const finished = "That start has already finished.";
+
+/**
+ * A start known to have stopped: its last progress stopped, or its receipt refused it for the
+ * worktree's sake. One just sent that the daemon hasn't made yet is neither.
+ */
+function stoppedStart(state: WorktreeCreationState, code: string | undefined): boolean {
+  const progress = state.progress;
+  if (progress) return progress.state === "cancelled" || progress.state === "failed";
+  return code !== undefined && worktreeRefusal(code);
+}
+
 const unsaved = "Couldn't save that on this phone. Your message is still here.";
 
 /** The newest lines of the daemon's log the phone keeps on the card. */
@@ -126,10 +138,12 @@ export class WorktreeStarts {
   }
 
   /**
-   * Back to New thread on a stopped start, answered on `receipt:<requestId>`. Its Unsent row is
-   * set aside on this phone first (saved), then the daemon forgets the start; only then is it
-   * taken back and its card goes. A refusal puts the row back, and nothing is sent while another
-   * action on the start is still on its way.
+   * Back to New thread on a stopped start, answered on `receipt:<requestId>`. The daemon forgets
+   * the start first; a daemon that already has (`not_found`) counts as having taken it. Only
+   * then is its Unsent row set aside on this phone and the start taken back, so nothing needs
+   * undoing: a refusal or a lost connection changes nothing here, and a save that fails leaves
+   * the card with its words for Back again, which then needs only the phone's step. Nothing is
+   * sent while another action on the start is still on its way.
    */
   async giveBack(commandId: string, requestId: string): Promise<void> {
     const answer = (message: string) =>
@@ -141,15 +155,16 @@ export class WorktreeStarts {
       }));
     const entry = this.#followed.get(commandId);
     const state = this.#store.state(commandId).getSnapshot();
-    const progress = state.progress;
-    const stopped = progress?.state === "cancelled" || progress?.state === "failed";
-    if (!entry || entry.returned || !stopped) return answer(gone);
+    if (!entry || entry.returned || !stoppedStart(state, entry.code)) return answer(finished);
     if (state.sending) return answer(worktreeRefusalWords.busy);
-    if (!this.#kept || !(await this.#kept.dismiss(commandId))) return answer(unsaved);
-    const result = await this.#store.act(commandId, "dismiss");
-    if (result !== "accepted") {
-      await this.#kept.restore(commandId);
-      return answer(worktreeRefusalWords[result]);
+    if (!state.gone) {
+      const result = await this.#store.act(commandId, "dismiss");
+      if (result !== "accepted" && result !== "not_found")
+        return answer(worktreeRefusalWords[result]);
+    }
+    if (!this.#kept || !(await this.#kept.dismiss(commandId))) {
+      this.#emit(commandId, this.#store.state(commandId).getSnapshot());
+      return answer(unsaved);
     }
     entry.returned = true;
     this.#emit(commandId, this.#store.state(commandId).getSnapshot());
@@ -178,6 +193,7 @@ export class WorktreeStarts {
 
   #card(state: WorktreeCreationState, entry: Entry) {
     const progress = state.progress;
+    if (state.gone) return this.#goneCard(state, entry);
     if (!progress || progress.state === "done" || progress.state === "local") return null;
     if (!worktreeSpeaks(progress, entry.code)) return null;
     const stopped = progress.state === "cancelled" || progress.state === "failed";
@@ -213,6 +229,31 @@ export class WorktreeStarts {
       workspaceId: entry.workspaceId,
       /** It stopped and nothing is on its way: the message can go back to New thread. */
       canReturn: stopped && progress.cleanupComplete && !state.sending,
+    };
+  }
+
+  /**
+   * A start the daemon no longer has, though this phone still holds its words: there is
+   * nothing to retry or continue, only Back to New thread, which then needs no daemon. One the
+   * receipt refused for the message's own reason says so there instead.
+   */
+  #goneCard(state: WorktreeCreationState, entry: Entry) {
+    if (!stoppedStart(state, entry.code)) return null;
+    const preview = this.#preview;
+    return {
+      headline: "Worktree start gone",
+      running: false,
+      failed: false,
+      steps: [],
+      note: "Your computer no longer has this start. Your message is still here.",
+      refused: "",
+      locked: false,
+      actions: [],
+      sending: state.sending ?? "",
+      details: [],
+      message: preview(entry.message, 100_000),
+      workspaceId: entry.workspaceId,
+      canReturn: !state.sending,
     };
   }
 }
