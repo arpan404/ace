@@ -1,6 +1,6 @@
 # 0157: A request too large to send whole goes as a summary that says so
 
-Date: 2026-11-15. Status: proposed. Amends [ADR 0006](0006-large-payloads.md), decision 3: a
+Date: 2026-11-15. Status: accepted. Amends [ADR 0006](0006-large-payloads.md), decision 3: a
 snapshot still carries every pending request, but one too large goes summarized.
 
 ## Context
