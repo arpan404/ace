@@ -14,6 +14,8 @@ import Testing
         var mayCapture = true
         var mayCorrect = true
         var now = 0.0
+        /// A focused open's landing, consulted the way the feed consults it.
+        var landing = TranscriptFocusLanding()
 
         init(rows: [String], origin: CGFloat = 0) {
             for (index, id) in rows.enumerated() { layOut(id, y: CGFloat(index) * 100) }
@@ -27,7 +29,8 @@ import Testing
             send(.laidOut(id, CGRect(x: 0, y: y, width: 320, height: height)))
         }
         mutating func send(_ event: TranscriptPlaceKeeper.Event) {
-            let facts = TranscriptPlaceKeeper.Facts(held: held, inset: 0, mayCapture: mayCapture, mayCorrect: mayCorrect)
+            let facts = TranscriptPlaceKeeper.Facts(held: held, inset: 0, focusLanding: landing.holdsPlace,
+                                                    mayCapture: mayCapture, mayCorrect: mayCorrect)
             for action in keeper.next(event, facts: facts, now: now) {
                 switch action {
                 case .hold(let id, let top): held = TranscriptHeldAnchor(rowID: id, itemID: nil, top: top)
@@ -179,6 +182,18 @@ import Testing
         feed.mayCapture = false
         for step in 1...50 { feed.send(.origin(CGFloat(-step))) }
         #expect(feed.held == nil)
+        #expect(feed.corrections.isEmpty)
+    }
+
+    @Test func aFocusLandingKeepsThePlaceFromTheRowHeldBeforeIt() {
+        // Reading row b, then a focused open: rows growing above b must not pull the reader back
+        // to b while the focus is on its way.
+        var feed = Feed(rows: ["a", "b", "c"])
+        feed.held = TranscriptHeldAnchor(rowID: "b", itemID: nil, top: 100)
+        feed.landing.jumped(to: "item.f", now: 0)
+        feed.layOut("a", y: 0, height: 160)
+        feed.layOut("b", y: 160)
+        feed.send(.phase(.idle))
         #expect(feed.corrections.isEmpty)
     }
 }
