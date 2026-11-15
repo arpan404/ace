@@ -187,6 +187,67 @@ describe("requests sent with their thread", () => {
     expect(JSON.stringify(many).length).toBeLessThan(wholeRequestChars);
   });
 
+  it.each([
+    [
+      "a long decline beside many short options",
+      approval("short", [
+        { id: `deny-${"x".repeat(48_000)}`, label: "Deny", kind: "deny" },
+        ...Array.from({ length: 63 }, (_, index) => ({
+          id: `${index}-${"s".repeat(1000)}`,
+          label: "l".repeat(256),
+          kind: "deny",
+        })),
+      ]),
+    ],
+    [
+      "a decline id that escapes to six times its length",
+      approval("short", [{ id: "\u0000".repeat(40_000), label: "Deny", kind: "deny" }]),
+    ],
+    [
+      "texts that escape to six times their length",
+      {
+        kind: "plan_review",
+        title: "\u0001".repeat(4000),
+        summary: "\u0001".repeat(4000),
+        markdown: "\u0001".repeat(70_000),
+        todos: Array.from({ length: 40 }, () => ({
+          content: "\u0001".repeat(400),
+          status: "pending",
+        })),
+      },
+    ],
+  ])("%s still makes a summary within the bound", (_name, request) => {
+    const summary = summarizeInteraction(interaction(request));
+    expect(summary.truncated).toBeDefined();
+    expect(JSON.stringify(summary).length).toBeLessThan(wholeRequestChars);
+    expect(InteractionRequest.safeParse(summary.request).success).toBe(true);
+  });
+
+  it("the least summary still keeps a decline whose id fits", () => {
+    const escaping = "\u0001".repeat(4000);
+    const summary = summarizeInteraction(
+      interaction({
+        ...approval(escaping.repeat(18), [
+          { id: "allow", label: "\u0001".repeat(256), kind: "allow_once" },
+          { id: "deny", label: "\u0001".repeat(256), kind: "deny" },
+        ]),
+        // Every part at its cut, each escaping to six times its length: over the summary bound.
+        title: escaping,
+        target: {
+          tool: "Edit",
+          access: "write",
+          command: escaping,
+          cwd: escaping,
+          paths: Array.from({ length: 8 }, () => escaping),
+        },
+      }),
+    );
+    if (summary.request.kind !== "approval") throw new Error("not an approval");
+    expect(summary.request.target).toBeUndefined();
+    expect(summary.request.options.map((option) => option.id)).toEqual(["deny"]);
+    expect(JSON.stringify(summary).length).toBeLessThan(wholeRequestChars);
+  });
+
   it("an address too long to send whole is left out, never cut", () => {
     const summary = summarizeInteraction(interaction(oversized.elicitation));
     if (summary.request.kind !== "elicitation") throw new Error("not an elicitation");

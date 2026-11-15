@@ -34,8 +34,12 @@ const mostPaths = 8;
 const mostTodos = 32;
 const longestUrl = 8192;
 const longestId = 1024;
-/** Code units of decline ids longer than `longestId` a summary keeps, so a no always goes. */
+/** Code units of JSON for decline ids longer than `longestId` a summary keeps (escaped). */
 const longDeclineIds = 48 * 1024;
+/** The most a summarized request's JSON may be; the interaction around it adds little. */
+const summaryChars = 60 * 1024;
+/** Each text's length in the least summary (`leastRequest`). */
+const leastChars = 256;
 
 /** The length `truncated.chars` counts: the request's JSON in UTF-16 code units. */
 export function requestChars(request: InteractionRequest): number {
@@ -59,7 +63,7 @@ export function summarizeInteraction(interaction: Interaction): Interaction {
   if (chars <= wholeRequestChars) return interaction;
   return {
     ...interaction,
-    request: summarizeRequest(interaction.request),
+    request: boundedRequest(interaction.request),
     raw: [],
     truncated: { chars },
   };
@@ -102,6 +106,56 @@ export function answerRefusal(
   if (interaction.truncated !== undefined) return "request_not_read";
   if (readWhole) return undefined;
   return requestChars(interaction.request) > wholeRequestChars ? "request_not_read" : undefined;
+}
+
+/**
+ * The summary, or when even that is over `summaryChars` as JSON (escaping can make a cut text up
+ * to six times longer, and many short parts add up) the least that still names the request and
+ * a way to decline it.
+ */
+function boundedRequest(request: InteractionRequest): InteractionRequest {
+  const summary = summarizeRequest(request);
+  return JSON.stringify(summary).length <= summaryChars ? summary : leastRequest(request);
+}
+
+function leastRequest(request: InteractionRequest): InteractionRequest {
+  switch (request.kind) {
+    case "approval": {
+      const decline = request.options.find(
+        (option) =>
+          !option.kind.startsWith("allow") && JSON.stringify(option.id).length <= longDeclineIds,
+      );
+      return {
+        kind: "approval",
+        title: cut(request.title, leastChars),
+        options: decline
+          ? [{ id: decline.id, label: cut(decline.label, leastChars), kind: decline.kind }]
+          : [],
+      };
+    }
+    case "question":
+      // Dismissing names no question.
+      return { kind: "question", questions: [] };
+    case "plan_review":
+      return {
+        kind: "plan_review",
+        ...some(request.title, leastChars, (title) => ({ title })),
+        markdown: cut(request.markdown, leastChars),
+      };
+    case "elicitation":
+      return {
+        kind: "elicitation",
+        server: cut(request.server, leastChars),
+        message: cut(request.message, leastChars),
+      };
+    case "browser_help":
+      return {
+        kind: "browser_help",
+        tabId: request.tabId,
+        reason: request.reason,
+        message: cut(request.message, leastChars),
+      };
+  }
 }
 
 function summarizeRequest(request: InteractionRequest): InteractionRequest {
@@ -223,10 +277,11 @@ function summarizeTarget(target: ApprovalTarget): ApprovalTarget {
 }
 
 /**
- * The first `mostOptions` options, then any later declines, in order: a decline always goes. An
- * id is never cut, since the answer names it: an option whose id is longer than `longestId` is
- * left out, but for declines while their long ids come to at most `longDeclineIds`, so even a
- * request whose only decline has a huge id can be declined from its summary.
+ * The first `mostOptions` options, then any later declines, in order. An id is never cut, since
+ * the answer names it: an option whose id is longer than `longestId` is left out, but for
+ * declines while their long ids come to at most `longDeclineIds` as JSON, so a request whose only
+ * decline has a long id can still be declined from its summary. A decline whose id is longer
+ * than that is declined where the request was read whole.
  */
 function keptOptions<O extends { id: string; kind: string }>(options: readonly O[]): O[] {
   const kept: O[] = [];
@@ -236,8 +291,9 @@ function keptOptions<O extends { id: string; kind: string }>(options: readonly O
     const declines = !option.kind.startsWith("allow");
     if (index >= mostOptions && !declines) continue;
     if (option.id.length > longestId) {
-      if (!declines || longIds + option.id.length > longDeclineIds) continue;
-      longIds += option.id.length;
+      const chars = JSON.stringify(option.id).length;
+      if (!declines || longIds + chars > longDeclineIds) continue;
+      longIds += chars;
     }
     kept.push(option);
   }

@@ -37,9 +37,10 @@ offered "Approve plan", and a file edit's input or a browser script can be cut.
    is `summarizeInteraction` in `@ace/projection/interaction-summary`.
 2. **A summary is bounded and keeps what an answer names.** Each text is cut to a few KiB and ends
    in "…", arrays keep their first entries, and parts with no bound of their own (a tool's input,
-   an elicitation's schema, permission updates, a URL too long to keep whole) are left out. Every
-   option id goes, and every decline goes even past the option cap, so a person can always say no.
-   A summary is under 64 Ki code units however large the request.
+   an elicitation's schema, permission updates, a URL too long to keep whole) are left out. Ids
+   are never cut, and declines go even past the option cap, so a person can say no from a
+   summary. A summary's JSON is under 64 Ki code units however large the request: one that
+   escaping or many parts would take over falls back to the request's title and its first decline.
 3. **`interaction.read` reads the whole request** as pages of its JSON (64 Ki code units each)
    with a `version`, the SHA-256 of that JSON; a reader whose pages differ in `version` starts
    again. A copy that is itself a summary (another machine's request mirrored here) can't be read
@@ -66,8 +67,9 @@ offered "Approve plan", and a file edit's input or a browser script can be cut.
   machine that asked.
 - An id is never cut, since answers name it. An option or question whose id is longer than 1 Ki
   code units is left out of the summary, except declines, which are kept while their long ids
-  come to at most 48 Ki code units: a request whose only decline has a huge id can still be
-  declined from its summary.
+  come to at most 48 Ki code units of JSON. A request whose every decline has an id longer than
+  that can't be declined from its summary: the phone shows it with no answer, and the web
+  declines it once it has read it whole.
 - A snapshot's active requests are still bounded only by their count: about 500 requests just
   under the bound would reach the stream budget. Accepted; no such thread is known.
 
