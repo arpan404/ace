@@ -203,29 +203,32 @@ describe("named routes", () => {
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
   });
 
-  it("on a Mac the screen streams into ace-media too, with egress feeding its legacy consumers; elsewhere it stays on the daemon", () => {
+  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere, with egress feeding their legacy consumers; elsewhere they stay on the daemon", () => {
     const auto: MediaSettings = {
       encode: "auto",
       delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };
-    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin")).screen).toEqual({
-      producer: "ace-media",
-      tee: false,
-      egress: true,
-      deliverer: "legacy",
-      recorder: "legacy",
-      stills: "legacy",
-    });
-    for (const platform of ["linux", "win32"])
+    const mac = mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin"));
+    for (const kind of ["screen", "emulator-frames", "simulator"] as const)
+      expect(mac[kind]).toEqual({
+        producer: "ace-media",
+        tee: false,
+        egress: true,
+        deliverer: "legacy",
+        recorder: "legacy",
+        stills: "legacy",
+      });
+    for (const platform of ["darwin", "linux"])
       expect(
-        mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).screen,
-      ).toMatchObject({ producer: "daemon", tee: false, egress: false });
-    for (const kind of ["simulator", "scrcpy", "emulator-frames"] as const)
-      expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin"))[kind]).toMatchObject(
-        { producer: "daemon" },
-      );
+        mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
+      ).toMatchObject({ producer: "ace-media", egress: true });
+    for (const platform of ["linux", "win32"])
+      for (const kind of ["screen", "emulator-frames"] as const)
+        expect(
+          mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
+        ).toMatchObject({ producer: "daemon", tee: false, egress: false });
   });
 });
 

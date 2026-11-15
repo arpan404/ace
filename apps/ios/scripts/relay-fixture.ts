@@ -14,7 +14,8 @@ import type { ClientMessage } from "@ace/protocol";
  * `machine_code_wrong`; the right one gets `pong`, then a large deflated message when the hello
  * offered `deflate-raw`, then `pong` for every later message. A hello that asks for credit gets
  * flow control, as from the daemon; device `ios-stream` gets 8 MB of text instead of the deflated
- * message, which arrives whole only if the phone returns credit.
+ * message, which arrives whole only if the phone returns credit. A hello presenting the grant
+ * `fixture-refused` is refused as the daemon refuses a grant it won't take: `unauthorized`.
  */
 const out = process.argv[2] ?? "/tmp/ace-relay-fixture.json";
 /** Text deflate can't shrink, so a stream really fills the flow window. */
@@ -34,6 +35,12 @@ const host = await connectHostToRelay({
   hostKeys,
   onClientChannel: async (channel) => {
     const first = await channel.receive();
+    if (first.type === "hello" && first.grant === "fixture-refused") {
+      channel.authorize();
+      await channel.send({ type: "error", code: "unauthorized", message: "Valid hello required" });
+      channel.close();
+      return;
+    }
     if (first.type !== "hello" || first.grant !== "fixture-grant") return channel.close();
     if (first.machineCode !== "2468") {
       const code = first.machineCode === undefined ? "machine_code_required" : "machine_code_wrong";

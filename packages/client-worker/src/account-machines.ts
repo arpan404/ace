@@ -32,10 +32,25 @@ export interface AccountMachineOptions {
   /** This app's device id on the account: the subject of its device grants. */
   deviceId: string;
   /**
-   * A fresh five-minute device grant, called once per connection attempt; for example
-   * `aceAccountClient(...).grant(session, { kind: "device", subject: deviceId }, signal)`.
+   * A five-minute device grant for `machine` (its host id), called once per connection attempt;
+   * for example `aceAccountClient(...).grant(session, { kind: "device", subject: deviceId },
+   * signal)`. An app may keep one and give it to several machines while it is young.
    */
-  grant(): Promise<string>;
+  grant(machine?: string): Promise<string>;
+  /**
+   * The daemon or the relay refused `grant`, one `grant(machine)` gave; never called for an
+   * ordinary drop. An app that keeps grants drops it if it is still the kept one, and returns
+   * true when `machine` had it from its cache rather than fetched for that attempt, so the
+   * client tries once more with a fresh grant; false (or absent) makes the refusal final, as
+   * without a cache.
+   */
+  grantRefused?(grant: string, machine?: string): boolean;
+  /**
+   * `machine` (its host id) no longer needs the record of how it got its grant: its connection
+   * was welcomed, or the machine was closed or removed. An app that keeps such records drops
+   * this one.
+   */
+  grantSettled?(machine: string): void;
   socket(url: string, protocols?: string[]): PortableSocket;
   /**
    * Hear network changes (a browser's `online`), each a cue to look for a better path (ADR
@@ -75,6 +90,12 @@ export interface AccountMachineOptions {
     credential(): Promise<Credential>;
     /** A fresh device grant, sent on each open socket before its grant runs out (ADR 0114). */
     grant(): Promise<string>;
+    /**
+     * The daemon or the relay refused `grant`, a device grant this client presented. True when
+     * it came from the app's cache, so a fresh one is worth one more try
+     * (`AccountMachineOptions.grantRefused`).
+     */
+    grantRefused?(grant: string): boolean;
     /**
      * This install's pairing of the same daemon, when the account machine stands in for it
      * (ADR 0115): sends its outbox still holds are this client's to take over
@@ -176,6 +197,7 @@ export function accountRoutes(input: {
       schedule: (callback, delayMs) => input.scheduler.set(delayMs, callback),
       refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
       welcomed: () => gate.welcomed(),
+      grantRefused: (grant) => account.grantRefused?.(grant, hostId) ?? false,
     }),
   });
   const home = relay(input.relayUrl, "account");

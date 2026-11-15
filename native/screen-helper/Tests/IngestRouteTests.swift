@@ -16,6 +16,26 @@ final class IngestRouteTests: XCTestCase {
 
     private func route() -> IngestRoute { IngestRoute(legacy: { _ in }, now: { 0 }) }
 
+    func testAStillAfterTheLastVideoUnitNeverBecomesTheSwitchBoundary() throws {
+        let listener = try Listener()
+        var legacy: [UInt64] = []
+        let route = IngestRoute(legacy: { legacy.append($0.sequence) }, now: { 0 })
+        route.publish(unit(1, bytes: 100, keyframe: true))
+        route.publish(unit(2, bytes: 100))
+        // A still goes out on the daemon's socket after the last video unit, numbered after it.
+        var stills = 0
+        route.legacyStill { stills += 1 }
+        let moved = try route.route(to: (listener.path, token))
+        listener.accept()
+        XCTAssertEqual(legacy, [1, 2])
+        XCTAssertEqual(stills, 1)
+        // The daemon compares the boundary with video sequences: a still's would never arrive,
+        // and the switch would wait out its limit and end interrupted.
+        XCTAssertEqual(moved.switched, true)
+        XCTAssertEqual(moved.boundary, 2, "the boundary is the last video unit on the daemon's path")
+        route.close()
+    }
+
     func testUnitsQueuedBehindABlockedReaderStillReachItAfterTheRouteMovesOn() throws {
         let listener = try Listener()
         let route = route()
@@ -30,7 +50,8 @@ final class IngestRouteTests: XCTestCase {
         XCTAssertTrue(ended)
         var expected = 44 + 32
         for unit in units { expected += 44 + 28 + unit.payloadBytes + (unit.keyframe ? 11 : 0) }
-        XCTAssertEqual(received.count, expected, "the replaced writer drained before it closed")
+        XCTAssertEqual(received.count, expected + 44, "the replaced writer drained before it closed")
+        XCTAssertTrue(isEndFrame(received.suffix(44)), "a planned switch is a clean end: nothing lost")
     }
 
     func testAReplacedWriterThatFailsLeavesItsSuccessorAlone() throws {
@@ -70,6 +91,7 @@ final class IngestRouteTests: XCTestCase {
         let (received, ended) = listener.readToEnd()
         XCTAssertTrue(ended)
         XCTAssertLessThan(received.count, 3 << 20)
+        XCTAssertFalse(isEndFrame(received.suffix(44)), "a writer closed at the limit ends interrupted")
     }
 
     /// Timers the test fires itself.

@@ -3637,6 +3637,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 | framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| nextTicket | no | `true` |  |
 
 Example:
 
@@ -3650,6 +3651,7 @@ Example:
     "deviceId": "example",
     "proof": "48_XvIOnPTR8UBnvp2rGBLUAgPBAhLhbuik0T4oBOIO"
   },
+  "nextTicket": true,
   "protocolVersion": 1,
   "type": "hello"
 }

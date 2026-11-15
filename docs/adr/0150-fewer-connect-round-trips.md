@@ -1,0 +1,122 @@
+# 0150: Fewer round trips to the first content
+
+Status: accepted. Date: 2026-11-14. Decided by: the owner (networking audit, 2026-11-14: every
+connection feels instant on 3G). Amends [ADR 0114](0114-fastest-path.md) (race stagger, pings,
+pong deadline) and the paired socket ticket of [ADR 0070](0070-runtime-remote-access.md).
+
+## Context
+
+On 3G a round trip costs about 400 ms. Counted from code, a paired device on a direct path
+(LAN or Tailscale) needed 8 round trips between "connect" and the first replay frame: TCP, TLS
+and the WebSocket upgrade; then a ticket exchange on a new HTTP connection (TCP, TLS, POST);
+then the hello and its welcome; then the subscribe and its replay. Through ace's relay, the
+web client also fetched a new account grant on every connect, once per raced path. A single
+late pong failed the active path over, which on a relay-only phone is a whole reconnect, and a
+fixed 150 ms race stagger dialed every path every time.
+
+## Decision
+
+1. **Read subscribes go with the hello.** The daemon handles a socket's messages in order and
+   nothing after the hello before its welcome (`socket-input.ts`, `server.ts`), as daemons
+   already in the field do. So the client sends its thread and sidebar subscribes right after
+   the hello. Commands, the outbox replay and read markers still wait for the welcome and the
+   host binding. A thread subscribe resuming from a cursor records the database it assumed (the
+   last welcome's, or the one its disk copy was kept under); when the welcome names another,
+   the client unsubscribes it before any of its frames are applied and subscribes from scratch.
+2. **The ticket exchange overlaps the dial.** The socket credential is asked for when the socket
+   starts dialing, not when it opens; a raced path asks for its route's credential as it starts.
+   A relay attempt fetches its own, as before, since it needs it to dial.
+3. **The welcome hands over the next ticket.** A hello that opens with a ticket may set
+   `nextTicket: true`. The daemon then puts one fresh ticket in the welcome
+   (`welcome.ticket: { ticket, ttlMs }`). It is issued from the same pool as an exchanged one:
+   one use, 60 s, bound to the device and its credential generation, voided by revocation and by
+   pairing the install again, and counted against the device's quota (a spent quota just hands
+   none over). Only clients that ask get one, so the pool doesn't fill with tickets older clients
+   ignore; relayed sockets get none. The client keeps it in memory only, strips it from the
+   welcome it passes on, and uses it for its next hello if it has at least 15 s left by both
+   its monotonic clock and the wall clock: the iOS uptime clock stands still while the phone
+   sleeps, which the wall clock catches, and the monotonic clock catches a wall clock set back.
+   A handed ticket the daemon refuses (it restarted) is replaced by an exchange at once, never a
+   stop, and an exchanged ticket refused after it is final.
+4. **The web client keeps its account grant.** Grants are kept in memory only, in the window's
+   account options (`grant-cache.ts`), for one ace session: an account switch or a sign-out
+   forgets them. Concurrent asks share one fetch, so a race fetches once. A grant is reused until
+   two minutes before it runs out, never past the five minutes a grant lives, and only while it
+   is that young by both clocks: the forward-only clock (`performance.now()`) stands still while
+   the laptop sleeps, which the wall clock catches, and the wall clock can be set back, which
+   the forward-only clock catches. The margin stays above the grant keeper's 60 s refresh lead. The daemon's or the relay's refusal
+   is the authority, and only a refusal evicts a grant: the client names the exact grant it
+   presented (`ClientOptions.grantRefused`) when the daemon refuses a hello that carried it, or
+   refuses the socket's latest refresh (a late answer to an earlier refresh names nothing). An
+   ordinary drop or timeout names nothing, so a flaky link keeps reusing a healthy grant. A
+   browser can't tell the relay refusing a grant at the WebSocket upgrade from a dropped link,
+   so the relay route names a grant only after two attempts in a row that offered that same
+   grant failed before their WebSocket opened. An attempt whose upgrade succeeded resets that
+   count, however it ends after (a pairing or Noise handshake that times out during a daemon or
+   relay outage says nothing of the grant). The cache drops a named grant only if it is still the
+   kept one, so one machine's refusal never evicts a newer grant another machine fetched.
+   Whether a refusal earns a retry depends on where that machine's grant came from, not on
+   whether it is still kept: the cache remembers the last grant it gave each machine (by host
+   id) and whether it came from the cache. A machine whose refused grant came from the cache
+   gets one retry with a fresh grant, however many machines shared it and in whatever order
+   their refusals come, and concurrent retries share one fetch. A grant fetched fresh for that
+   machine's attempt and refused is final, as before.
+5. **Liveness scales to the link.** The pong deadline is four smoothed round trips, at least 2 s
+   and at most 10 s. With a warm standby one miss fails over; without one, two misses in a row.
+6. **The race stagger scales too.** It is 1.5 times how long the last race took to open its
+   winner, between 150 ms and 2 s. A path that fails fast still lets the next one start at once.
+7. **Timers.** A socket the path manager pings carries no second ping loop: the connection's
+   heartbeat stands down (a wake probe still runs). Hidden windows ping every 25 s (was 15 s): a
+   keep-alive under the 30 s after which many NATs and phone carriers forget an idle mapping.
+   The interval runs from one ping to the next whatever the round trip, and each ping keeps its
+   own failure deadline (item 5). With no standby, a path that goes silent while hidden is
+   dropped within 25 s + 2 pong deadlines: 29 s on a fast link, 45 s at the 10 s cap (19 s
+   before, when one miss was enough). A connect's single 120 s deadline is now one per stage (the socket
+   opening; the hello waiting for its welcome): 30 s, or four times what that stage took last
+   time, at most 120 s. A daemon that says `starting` still gets the whole 120 s. A wake
+   (`ClientApi.wake()`, when the app comes back to the front) probes the active socket at once,
+   and only the pong for the probe's own ping answers it: the daemon answers a socket's pings in
+   order, so the client pairs the nth pong with the nth ping, with nothing new on the wire. A
+   pong or any other frame already on its way before the wake proves nothing. The ping count
+   belongs to the socket and lives as long as it does: a standby promoted to active brings the
+   pings it sent and still owes pongs for, and only a new socket starts from zero. A probe waits
+   the active path's pong deadline (four smoothed round trips, at least 2 s, at most 10 s, from
+   the path manager's link estimate), or 5 s while nothing has measured the link, so a healthy
+   slow link is not dropped at every wake. Wakes coalesce forwards, so every wake is
+   covered by a ping sent at or after it: a wake with no ping in the last 300 ms pings now; a
+   wake inside that window sends nothing yet and owes one ping, sent when the window ends, whose
+   probe covers every wake since the last ping. At most one ping goes out per 300 ms, an
+   answered probe is gone at once and never covers a later wake, and each probe keeps its own
+   deadline, which nothing moves. With deadlines of at most 10 s that bounds the probes waiting
+   at once to about 34, under the 64 pongs a socket may owe; a ping the socket still refuses
+   keeps its probe's deadline, and the socket is dropped at it unless a later ping is answered
+   first. The regular beat is never left off with nothing in its place. So a socket that died
+   while the app was away, or at a wake, is dropped and redialed within 300 ms plus that link's
+   probe deadline of that wake (at most 10.3 s; 5.3 s before any measurement), however many
+   wakes follow. The regular idle beat still counts any frame as liveness. This logic is a pure
+   state machine (`heartbeat-machine.ts`) with `Heartbeat` as its shell, checked by properties
+   over random wakes, pong delays and death times. The shell always runs on a monotonic clock
+   (`ClientOptions.monotonic`: `performance.now()` in the web app, the host's uptime clock on
+   iOS, `performance.now()` by default where the connection is composed), never the wall
+   clock; and whatever a host passes in, time it reads never goes backwards: a source that
+   jumps back carries on from where it was, as if no time passed in the jump. Its one timer is
+   armed for the machine's next deadline and kept as it is while an input leaves that deadline
+   unchanged, so frames never move the regular beat's cadence, and a timer that fires late
+   reads the time it fired at.
+
+The client keeps one link estimate, the active path's smoothed round trip, readable through
+`ClientApi.linkEstimate()` for other features.
+
+## Consequences
+
+- Direct path, measured with a scripted daemon behind a delaying proxy (TLS not modelled):
+  first connect 6 → 3 flights, reconnect 5 → 3 with no exchange. With TLS 1.3: 8 → 4.
+- Once the exchange overlaps the dial, the handed ticket saves little latency; it saves the
+  extra HTTP connection, its bytes and its radio time, and the case where the exchange is slower
+  than the dial. It only helps within the ticket's 60 s life.
+- Security: every path stays authenticated and identity-pinned; the hello still carries one
+  short-lived, one-use credential; the handed ticket is never written to disk or logs. The
+  subscribes sent before the welcome name only thread ids and cursors, to the endpoint that
+  already received the credential, and the welcome's host check still drops a wrong daemon.
+- Older daemons ignore `nextTicket` and never hand a ticket over; older clients never ask and
+  ignore an unknown welcome field.
