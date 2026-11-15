@@ -28299,19 +28299,91 @@ Example:
 | version | yes | `2` |  |
 | id | yes | [ScreenId.json](schema/ScreenId.json) |  |
 | person | no | boolean |  |
+| op | yes | `"stream.configure"` |  |
+| settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
+| ingest | no | [ScreenStreamIngest.json](schema/ScreenStreamIngest.json) |  |
+| epoch | no | integer | {"minimum":0,"maximum":4294967295} |
+
+Example:
+
+```json
+{
+  "epoch": 6,
+  "id": "kzFY7okOwg",
+  "ingest": {
+    "socket": "example",
+    "token": "examplexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  "op": "stream.configure",
+  "settings": {
+    "bitrate": 128001,
+    "codec": "h264",
+    "fps": 9,
+    "maxHeight": 67,
+    "maxWidth": 65
+  },
+  "version": 2
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | `2` |  |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
+| op | yes | `"stream.keyframe"` |  |
+
+Example:
+
+```json
+{
+  "id": "84a13h08Aco_VrXhmcFdnUwhxN45Q1Q9v-CrOjkhqEmGY9DL6PttynrPnGpdo",
+  "op": "stream.keyframe",
+  "version": 2
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | `2` |  |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
+| op | yes | `"stream.image"` |  |
+
+Example:
+
+```json
+{
+  "id": "UxH40bFqE-JvtpRgk4t7A-e4rO0sYWPmZVGnilFVDqTOZDS",
+  "op": "stream.image",
+  "version": 2
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | `2` |  |
+| id | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| person | no | boolean |  |
 | op | yes | `"permissions"` |  |
 
 Example:
 
 ```json
 {
-  "id": "kzFY7okOwg",
+  "id": "H1c7X6jKI74R3nLehThZOoYPmPVR6ROBqH",
   "op": "permissions",
   "version": 2
 }
 ```
 
-### Variant 3
+### Variant 6
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28325,14 +28397,14 @@ Example:
 
 ```json
 {
-  "id": "84a13h08Aco_VrXhmcFdnUwhxN45Q1Q9v-CrOjkhqEmGY9DL6PttynrPnGpdo",
+  "id": "tuJ_U0Z4M3naClFdfJ7R1",
   "op": "permissions.request",
-  "permission": "screenRecording",
+  "permission": "accessibility",
   "version": 2
 }
 ```
 
-### Variant 4
+### Variant 7
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28345,13 +28417,13 @@ Example:
 
 ```json
 {
-  "id": "UxH40bFqE-JvtpRgk4t7A-e4rO0sYWPmZVGnilFVDqTOZDS",
+  "id": "fZecRTEm",
   "op": "targets",
   "version": 2
 }
 ```
 
-### Variant 5
+### Variant 8
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28369,14 +28441,15 @@ Example:
 {
   "allowlist": [],
   "bundleId": "example",
-  "id": "H1c7X6jKI74R3nLehThZOoYPmPVR6ROBqH",
+  "id": "4sLfNNiGUW3RLguaboICq-977RH2sDKiP2X9ltYppyWj2BQyyDkgbhATah",
   "op": "open.url",
+  "person": false,
   "url": "example",
   "version": 2
 }
 ```
 
-### Variant 6
+### Variant 9
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28392,7 +28465,7 @@ Example:
 
 ```json
 {
-  "id": "tuJ_U0Z4M3naClFdfJ7R1",
+  "id": "QWgiKGY0YSmbjeo_-ewuDoRS2SCpAyJxhO14Svh3Bjqr3",
   "op": "menu.press",
   "path": [
     "example"
@@ -28401,7 +28474,7 @@ Example:
 }
 ```
 
-### Variant 7
+### Variant 10
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28414,13 +28487,13 @@ Example:
 
 ```json
 {
-  "id": "fZecRTEm",
+  "id": "CpNmHzDi2OHwUci986kmQEADXTyOIuIM",
   "op": "stop",
   "version": 2
 }
 ```
 
-### Variant 8
+### Variant 11
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28440,22 +28513,19 @@ Example:
 {
   "allowlist": [],
   "fps": 6,
-  "id": "4sLfNNiGUW3RLguaboICq-977RH2sDKiP2X9ltYppyWj2BQyyDkgbhATah",
+  "id": "Pj0FY131pglh6sXzHmNS0ZoR9X3n2t8fZUEdTlQPY55NHg3eo",
   "op": "start",
-  "person": false,
-  "sessionId": "XwnK_j2askEsON9w5IFjIaRWQgNQJOoG",
+  "sessionId": "vBXzBrG2Cm23xTSpiw211Y-eAOl",
   "target": {
-    "bundleIds": [
-      "example"
-    ],
-    "displayId": 6,
-    "kind": "display"
+    "bundleId": "example",
+    "kind": "window",
+    "windowId": 7
   },
   "version": 2
 }
 ```
 
-### Variant 9
+### Variant 12
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28470,19 +28540,18 @@ Example:
 ```json
 {
   "action": {
-    "deltaX": 6,
-    "deltaY": 3,
-    "kind": "scroll",
-    "x": 5,
-    "y": 2
+    "button": "left",
+    "kind": "click",
+    "x": 6,
+    "y": 1
   },
-  "id": "QWgiKGY0YSmbjeo_-ewuDoRS2SCpAyJxhO14Svh3Bjqr3",
+  "id": "3QtC28nHlk2Xvv3AJwZ0NJG6dX80Uy92v8AhmjvbMhyEHMN5vFoX5z90uLs68C",
   "op": "action",
   "version": 2
 }
 ```
 
-### Variant 10
+### Variant 13
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28498,13 +28567,13 @@ Example:
 ```json
 {
   "active": true,
-  "id": "CpNmHzDi2OHwUci986kmQEADXTyOIuIM",
+  "id": "oh2MSOmDx_2YdoMwD3pCou",
   "op": "watch",
   "version": 2
 }
 ```
 
-### Variant 11
+### Variant 14
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28522,14 +28591,19 @@ Example:
 ```json
 {
   "allowlist": [],
-  "id": "Pj0FY131pglh6sXzHmNS0ZoR9X3n2t8fZUEdTlQPY55NHg3eo",
-  "maxDepth": 4,
+  "id": "BOvIVVHjtcHCEqRxFcBKbe8C4YYM-o7urGJ_",
   "op": "ui.tree",
+  "person": true,
+  "target": {
+    "bundleId": "example",
+    "kind": "window",
+    "windowId": 1
+  },
   "version": 2
 }
 ```
 
-### Variant 12
+### Variant 15
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28546,25 +28620,21 @@ Example:
 
 ```json
 {
-  "allowlist": [],
-  "id": "3QtC28nHlk2Xvv3AJwZ0NJG6dX80Uy92v8AhmjvbMhyEHMN5vFoX5z90uLs68C",
+  "id": "GoWs_poL_v3XOBiEQ1xl_ZvOtUkPwMbj8NntQd",
   "op": "ui.find",
   "query": {
     "role": "example",
     "text": "example"
   },
   "target": {
-    "bundleIds": [
-      "example"
-    ],
-    "displayId": 2,
-    "kind": "display"
+    "bundleId": "example",
+    "kind": "app"
   },
   "version": 2
 }
 ```
 
-### Variant 13
+### Variant 16
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28585,20 +28655,20 @@ Example:
 ```json
 {
   "action": "setValue",
-  "allowlist": [],
-  "id": "oh2MSOmDx_2YdoMwD3pCou",
+  "id": "TVppcwJr7zIBdEoGTaJtXJN3yToqoRc6F2jxjbcG0_v-EOPrW1I",
   "name": "example",
   "op": "ui.act",
-  "ref": "k6JUsN7U",
-  "target": {
-    "kind": "chooser"
+  "range": {
+    "length": 1,
+    "location": 8
   },
+  "ref": "yF4c1805Sy5jGOxwk",
   "value": false,
   "version": 2
 }
 ```
 
-### Variant 14
+### Variant 17
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28613,16 +28683,15 @@ Example:
 
 ```json
 {
-  "id": "BOvIVVHjtcHCEqRxFcBKbe8C4YYM-o7urGJ_",
+  "id": "emYz5cInhoH",
   "op": "pointer.move",
-  "person": true,
   "version": 2,
-  "x": 0,
-  "y": 2
+  "x": 7,
+  "y": 3
 }
 ```
 
-### Variant 15
+### Variant 18
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28638,7 +28707,7 @@ Example:
 
 ```json
 {
-  "id": "GoWs_poL_v3XOBiEQ1xl_ZvOtUkPwMbj8NntQd",
+  "id": "sTrv8j45drmgmzdDORldmddzo",
   "op": "pointer.click",
   "version": 2,
   "x": 1,
@@ -28646,7 +28715,7 @@ Example:
 }
 ```
 
-### Variant 16
+### Variant 19
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28665,17 +28734,18 @@ Example:
 
 ```json
 {
-  "id": "TVppcwJr7zIBdEoGTaJtXJN3yToqoRc6F2jxjbcG0_v-EOPrW1I",
+  "button": "left",
+  "id": "7_85zbk",
   "op": "pointer.drag",
-  "toX": 3,
-  "toY": 5,
+  "toX": 8,
+  "toY": 4,
   "version": 2,
-  "x": 8,
-  "y": 2
+  "x": 6,
+  "y": 8
 }
 ```
 
-### Variant 17
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28690,14 +28760,16 @@ Example:
 
 ```json
 {
-  "id": "emYz5cInhoH",
+  "id": "jGB2ChFbRSFE5djpres1",
   "key": "example",
+  "modifiers": [],
   "op": "key.press",
+  "person": false,
   "version": 2
 }
 ```
 
-### Variant 18
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28711,14 +28783,14 @@ Example:
 
 ```json
 {
-  "id": "sTrv8j45drmgmzdDORldmddzo",
+  "id": "s3_891uqp-TUTx9cA-EHWCDPq3Goeshds",
   "op": "text.type",
   "text": "example",
   "version": 2
 }
 ```
 
-### Variant 19
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -28735,11 +28807,12 @@ Example:
 
 ```json
 {
-  "dx": 8,
+  "dx": 1,
   "dy": 8,
-  "id": "7_85zbk",
+  "id": "fwG_6U-Kt6cesv3by0sz",
   "op": "scroll",
-  "version": 2
+  "version": 2,
+  "y": 4
 }
 ```
 

@@ -3,7 +3,7 @@ import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import type { IngestProducer } from "@ace/media/ingest-sources";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { FrameDecoder, framePacket, wireFrame, type Frame } from "./frames.ts";
-import { egressScreenFrame, ScreenMediaSource } from "./media-source.ts";
+import { egressScreenFrame, helperEncodesVideo, ScreenMediaSource } from "./media-source.ts";
 
 const settings: ScreenStreamSettings = {
   codec: "h264",
@@ -101,6 +101,7 @@ function session() {
   let producer: IngestProducer | undefined;
   const source = new ScreenMediaSource({
     sessionId: "s1",
+    platform: "macos",
     helper: {
       capabilities: undefined,
       permissions: async () => ({ screenRecording: true, accessibility: true }),
@@ -230,4 +231,14 @@ it("a flip back to the helper socket while ace-media still has the old path's un
   s.source.daemonFrame(s.video(8));
   expect(order(s.accepted, "h264")).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
   expect(s.source.stale).toBe(0);
+});
+
+it("a helper streams its own video only where it encodes H.264: the Mac, and Windows with a Media Foundation encoder", () => {
+  const helper = (platform: string, codecs: ("jpeg" | "h264")[]) => ({ platform, codecs });
+  expect(helperEncodesVideo(helper("macos", ["jpeg", "h264"]))).toBe(true);
+  expect(helperEncodesVideo(helper("windows", ["jpeg", "h264"]))).toBe(true);
+  // No MFT: JPEG only, so the daemon's last-resort encoder makes the video.
+  expect(helperEncodesVideo(helper("windows", ["jpeg"]))).toBe(false);
+  expect(helperEncodesVideo(helper("linux-wayland", ["jpeg", "h264"]))).toBe(false);
+  expect(helperEncodesVideo(undefined)).toBe(false);
 });

@@ -224,11 +224,35 @@ describe("named routes", () => {
       expect(
         mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
       ).toMatchObject({ producer: "ace-media", egress: true });
-    for (const platform of ["linux", "win32"])
-      for (const kind of ["screen", "emulator-frames"] as const)
+    for (const [platform, kinds] of [
+      ["linux", ["screen", "emulator-frames"]],
+      ["win32", ["emulator-frames", "simulator"]],
+    ] as const)
+      for (const kind of kinds)
         expect(
           mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
         ).toMatchObject({ producer: "daemon", tee: false, egress: false });
+  });
+
+  it("on Windows the screen helper's Media Foundation video streams into ace-media, with egress feeding its legacy consumers", () => {
+    const auto: MediaSettings = {
+      encode: "auto",
+      delivery: "legacy",
+      recordings: "legacy",
+      stills: "legacy",
+    };
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("win32")).screen).toEqual({
+      producer: "ace-media",
+      tee: false,
+      egress: true,
+      deliverer: "legacy",
+      recorder: "legacy",
+      stills: "legacy",
+    });
+    for (const health of ["restarting", "unavailable"] as const)
+      expect(mediaRoutes(auto, health, platformRouteCapabilities("win32")).screen.producer).toBe(
+        "daemon",
+      );
   });
 });
 
