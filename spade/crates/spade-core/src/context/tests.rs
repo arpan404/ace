@@ -195,15 +195,13 @@ fn the_next_prompt_repeats_the_previous_one_and_adds_to_its_end() {
     ];
     let before = prompt(SYSTEM, tools.clone(), &events);
     events.push(step("r1", "Done.", &[]));
-    events.push(Event::Known(Known::SkillsIndexed {
-        text: "Skills: release, deploy".into(),
-    }));
+    assert!(
+        !crate::skills::index_due(&events),
+        "no new skill index before the next compaction"
+    );
     let after = prompt(SYSTEM, tools, &events);
 
-    assert_eq!(
-        before.system, after.system,
-        "the skill index stays the first one"
-    );
+    assert_eq!(before.system, after.system);
     assert_eq!(before.tools, after.tools);
     assert_eq!(after.messages[..before.messages.len()], before.messages[..]);
     assert!(
