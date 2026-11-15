@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { pageReplyBytes } from "./reply-bounds.ts";
 
 /*
@@ -5,7 +6,9 @@ import { pageReplyBytes } from "./reply-bounds.ts";
  * its stored JSON. A reader asks for page after page of the same request, so the request is held
  * in memory while it is read: reading it from storage for each page would parse all of it again
  * every time. A held copy is checked against storage whenever any interaction was written since,
- * and a changed request reads under a new `version`, so a reader never joins two of them.
+ * and a changed request reads under a new `version`, so a reader never joins two of them. The
+ * version is the request JSON's SHA-256, so an answer naming it (`readWhole`) names exactly what
+ * the person was shown.
  */
 
 /** UTF-16 code units of request JSON one page holds: about one raw page's worth of JSON. */
@@ -34,7 +37,7 @@ interface Held {
   threadId: string;
   id: string;
   text: string;
-  version: number;
+  version: string;
   writes: number;
 }
 
@@ -42,7 +45,6 @@ export class InteractionReads {
   private readonly source: RequestSource;
   /** Least recently read first. */
   private held: Held[] = [];
-  private versions = 0;
   constructor(source: RequestSource) {
     this.source = source;
   }
@@ -61,13 +63,18 @@ export class InteractionReads {
     const last = held.text.charCodeAt(end - 1);
     if (end < total && end - 1 > start && last >= 0xd800 && last <= 0xdbff) end--;
     return {
-      version: String(held.version),
+      version: held.version,
       offset: start,
       nextOffset: end,
       total,
       text: held.text.slice(start, end),
       eof: end === total,
     };
+  }
+  /** The version `id`'s request reads under now, if it can be read whole. */
+  version(threadId: string, id: string): string | undefined {
+    const held = this.current(threadId, id);
+    return typeof held === "string" ? undefined : held.version;
   }
   private current(
     threadId: string,
@@ -88,7 +95,10 @@ export class InteractionReads {
       threadId,
       id,
       text: stored.text,
-      version: found?.text === stored.text ? found.version : ++this.versions,
+      version:
+        found?.text === stored.text
+          ? found.version
+          : createHash("sha256").update(stored.text).digest("hex"),
       writes,
     };
     this.held.push(entry);

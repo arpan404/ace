@@ -137,11 +137,19 @@ export async function admitCommand(command: Command, admission: CommandAdmission
 }
 
 /** Why a client's answer to a request is refused before it runs, if it is. */
-function unreadAnswer(command: Command, store: Pick<Store, "getInteraction">) {
+function unreadAnswer(
+  command: Command,
+  store: Pick<Store, "getInteraction" | "interactionRequestVersion">,
+) {
   const payload = command.payload;
   if (payload.type !== "interaction.resolve") return undefined;
   const asked = store.getInteraction(payload.interactionId);
-  return asked && answerRefusal(asked, payload.resolution, payload.readWhole === true);
+  if (!asked || !answerRefusal(asked, payload.resolution, false)) return undefined;
+  // Shown whole only if what was shown is the request as it is now.
+  const shown =
+    payload.readWhole !== undefined &&
+    payload.readWhole === store.interactionRequestVersion(asked.threadId, asked.id);
+  return answerRefusal(asked, payload.resolution, shown);
 }
 
 /** Whether a client's command names a Spade bot's hidden session as its thread or its source. */

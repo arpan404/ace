@@ -68,8 +68,8 @@ export interface AnswerTarget {
    * hasn't been read whole here: only a decline goes then.
    */
   unread?: InteractionRequest | undefined;
-  /** The request was read whole and shown: a yes to it says so (`readWhole`). */
-  readWhole?: boolean | undefined;
+  /** The `version` of the request read whole and shown: a yes to it names it (`readWhole`). */
+  readWhole?: string | undefined;
 }
 
 /**
@@ -94,7 +94,7 @@ export function sendAnswer(
     interactionId,
     resolution,
     send,
-    target.readWhole === true,
+    target.readWhole,
   );
   if (!live.ok) return "stale";
   pendingAnswers.set(interactionId, withoutSecrets(target.questions, resolution));

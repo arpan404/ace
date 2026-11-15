@@ -80,6 +80,7 @@ import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 import { entityPage } from "./entity-pages.ts";
 import { answerRefusal } from "@ace/projection/interaction-summary";
+import { requestPage } from "./summarized-requests.ts";
 import { piControlResult } from "./pi-control.ts";
 import { scopeRefusal } from "./request-scopes.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
@@ -1317,7 +1318,10 @@ export class FakeDaemon implements Host {
             return { commandId, ok: false, error: "already_resolved" };
           const pending = host.interaction(key);
           if (!pending) return { commandId, ok: false, error: "not_found" };
-          const refused = answerRefusal(pending, payload.resolution, payload.readWhole === true);
+          const shown =
+            payload.readWhole !== undefined &&
+            payload.readWhole === requestPage(pending, 0).version;
+          const refused = answerRefusal(pending, payload.resolution, shown);
           if (refused) return { commandId, ok: false, error: refused };
           this.apply(host.id, [
             {

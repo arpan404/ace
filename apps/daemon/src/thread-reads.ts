@@ -219,6 +219,11 @@ export class ThreadReads {
     if (!this.source.readThread(threadId)) return "interaction_not_found";
     return this.requests.read(threadId, interactionId, offset);
   }
+  /** The version a request reads under now (`interaction.data`), to check an answer against. */
+  interactionRequestVersion(threadId: ThreadId, interactionId: string) {
+    this.source.flush();
+    return this.requests.version(threadId, interactionId);
+  }
   readItems(threadId: ThreadId, before: number, limit: number) {
     this.source.flush();
     if (!this.source.readThread(threadId)) throw new Error("Unknown thread");

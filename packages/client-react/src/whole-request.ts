@@ -11,11 +11,11 @@ import { useClient } from "./context.ts";
 export type WholeRequest =
   | { status: "whole"; request: InteractionRequest }
   | { status: "loading" }
-  | { status: "loaded"; request: InteractionRequest }
+  | { status: "loaded"; request: InteractionRequest; version: string }
   | { status: "failed"; code: string; retry(): void };
 
 type Outcome =
-  | { status: "loaded"; request: InteractionRequest }
+  | { status: "loaded"; request: InteractionRequest; version: string }
   | { status: "failed"; code: string };
 
 /**
@@ -31,8 +31,11 @@ export function useWholeRequest(
   const summarized = interaction?.truncated !== undefined;
   const interactionId = interaction?.id ?? "";
   const [attempt, setAttempt] = useState(0);
-  // Which read an outcome answers: another request (or a retry) never shows an earlier one's.
-  const read = `${threadId}\n${interactionId}\n${interaction?.truncated?.chars}\n${attempt}`;
+  // Which read an outcome answers: another request (or a retry) never shows an earlier one's. A
+  // request opened again under the same id shows as another summary; the daemon refuses a yes to
+  // it under the old version either way. Summaries are small, so naming one by its JSON is cheap.
+  const summary = summarized ? JSON.stringify([interaction.truncated, interaction.request]) : "";
+  const read = `${threadId}\n${interactionId}\n${summary}\n${attempt}`;
   const [outcome, setOutcome] = useState<{ read: string; outcome: Outcome }>();
   useEffect(() => {
     if (!summarized) return;
@@ -41,7 +44,7 @@ export function useWholeRequest(
       if (!abort.signal.aborted) setOutcome({ read, outcome: next });
     };
     client.readInteraction({ threadId, interactionId }, { signal: abort.signal }).then(
-      (request) => settle({ status: "loaded", request }),
+      ({ request, version }) => settle({ status: "loaded", request, version }),
       (error: unknown) => settle({ status: "failed", code: failure(error) }),
     );
     return () => abort.abort();

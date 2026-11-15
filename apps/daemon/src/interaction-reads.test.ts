@@ -43,7 +43,7 @@ test("pages join into the stored request and never end inside a two-unit charact
   }
 });
 
-test("a request written again unchanged keeps its version, and a changed one gets a new one", () => {
+test("a request's version names its JSON: unchanged it stays, changed it moves", () => {
   const { reads, write } = storage({ big: { text: '"one"' } });
   const first = readAll(reads, "big")[0]?.version;
   write("other", '"x"');

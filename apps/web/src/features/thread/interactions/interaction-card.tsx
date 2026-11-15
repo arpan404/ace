@@ -97,7 +97,7 @@ export function InteractionCard(props: {
     identity,
     questions: interaction?.request.kind === "question" ? interaction.request.questions : [],
     unread: summary?.truncated && !shownWhole(whole) ? summary.request : undefined,
-    readWhole: summary?.truncated !== undefined && shownWhole(whole),
+    readWhole: whole?.status === "loaded" ? whole.version : undefined,
   });
   const { failed } = sender;
   const answer: Answer = (resolution) => {

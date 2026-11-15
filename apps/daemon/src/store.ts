@@ -1322,6 +1322,9 @@ export class Store {
   readInteractionRequest(...read: Parameters<ThreadReads["readInteractionRequest"]>) {
     return this.threadReads.readInteractionRequest(...read);
   }
+  interactionRequestVersion(...read: Parameters<ThreadReads["interactionRequestVersion"]>) {
+    return this.threadReads.interactionRequestVersion(...read);
+  }
   getInteraction(id: string) {
     return this.threadReads.getInteraction(id);
   }

@@ -37,31 +37,35 @@ async function opened() {
   return { daemon, client, summary, stored };
 }
 
-const allow = (interaction: Interaction, readWhole?: true) => ({
+const allow = (interaction: Interaction, readWhole?: string) => ({
   type: "interaction.resolve" as const,
   interactionId: InteractionId.parse(interaction.id),
   resolution: { kind: "approval" as const, optionId: "allow" },
-  ...(readWhole ? { readWhole } : {}),
+  ...(readWhole === undefined ? {} : { readWhole }),
 });
 
 test("a request too large for its thread arrives summarized and reads whole", async () => {
   const f = await opened();
   expect(f.summary.truncated?.chars).toBe(JSON.stringify(f.stored.request).length);
   expect(JSON.stringify(f.summary.request).length).toBeLessThan(64 * 1024);
-  expect(await f.client.readInteraction({ threadId, interactionId: f.summary.id })).toEqual(
-    f.stored.request,
-  );
+  const read = await f.client.readInteraction({ threadId, interactionId: f.summary.id });
+  expect(read.request).toEqual(f.stored.request);
   await f.client.close();
 });
 
-test("allowing a summarized request needs it read whole; denying it doesn't", async () => {
+test("allowing a summarized request needs the version it was read whole under", async () => {
   const f = await opened();
   expect(await f.client.command(allow(f.summary))).toMatchObject({
     ok: false,
     error: "request_not_read",
   });
+  expect(await f.client.command(allow(f.summary, "another-version"))).toMatchObject({
+    ok: false,
+    error: "request_not_read",
+  });
   expect(f.daemon.interactionOf(threadId, f.summary.id)?.state).toBe("pending");
-  expect(await f.client.command(allow(f.summary, true))).toMatchObject({ ok: true });
+  const { version } = await f.client.readInteraction({ threadId, interactionId: f.summary.id });
+  expect(await f.client.command(allow(f.summary, version))).toMatchObject({ ok: true });
   expect(f.daemon.interactionOf(threadId, f.summary.id)?.state).toBe("resolved");
   await f.client.close();
 });

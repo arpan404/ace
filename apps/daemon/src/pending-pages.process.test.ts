@@ -362,17 +362,15 @@ test("reading a request of a thread that holds no such request is refused", asyn
   expect(read.error).toContain('"type":"error"');
 });
 
-test("an affirmative answer to a summarized request goes only once the whole was shown", async () => {
+test("an affirmative answer to a summarized request goes only once the request as it is was shown whole", async () => {
   const { f, client } = await setup();
-  for (const id of ["first", "second"])
+  const open = (id: string, description: string) =>
     f.store.appendEvents(f.thread.id, [
-      {
-        type: "interaction.opened",
-        interaction: approval(f.thread.id, id, "d".repeat(400 * 1024)),
-      },
+      { type: "interaction.opened", interaction: approval(f.thread.id, id, description) },
     ]);
+  for (const id of ["first", "second", "replaced"]) open(id, "d".repeat(400 * 1024));
   let count = 0;
-  const answer = async (id: string, option: "allow" | "deny", shownWhole: boolean) => {
+  const answer = async (id: string, option: "allow" | "deny", shown?: string) => {
     const commandId = CommandId.parse(`answer-${++count}`);
     client.send({
       type: "command",
@@ -383,16 +381,26 @@ test("an affirmative answer to a summarized request goes only once the whole was
           type: "interaction.resolve",
           interactionId: InteractionId.parse(id),
           resolution: { kind: "approval", optionId: `${id}:${option}` },
-          ...(shownWhole ? { readWhole: true as const } : {}),
+          ...(shown === undefined ? {} : { readWhole: shown }),
         },
       },
     });
     return client.until((sent) => sent.includes(`"commandId":"${commandId}"`));
   };
-  expect(await answer("first", "allow", false)).toContain("request_not_read");
+  const version = async (id: string) => {
+    const [only] = (await readWhole(client, f.thread.id, id)).versions;
+    return only ?? "";
+  };
+  expect(await answer("first", "allow")).toContain("request_not_read");
+  expect(await answer("first", "allow", "not-a-version")).toContain("request_not_read");
   expect(f.store.getInteraction("first")?.state).toBe("pending");
-  expect(await answer("first", "allow", true)).toContain('"ok":true');
-  expect(await answer("second", "deny", false)).toContain('"ok":true');
+  expect(await answer("first", "allow", await version("first"))).toContain('"ok":true');
+  expect(await answer("second", "deny")).toContain('"ok":true');
+  // Read whole, then replaced by another request before the answer: what was shown is gone.
+  const shown = await version("replaced");
+  open("replaced", "e".repeat(400 * 1024));
+  expect(await answer("replaced", "allow", shown)).toContain("request_not_read");
   expect(f.store.getInteraction("first")?.state).toBe("resolved");
   expect(f.store.getInteraction("second")?.state).toBe("resolved");
+  expect(f.store.getInteraction("replaced")?.state).toBe("pending");
 });

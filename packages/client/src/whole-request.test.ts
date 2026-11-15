@@ -49,7 +49,7 @@ test("a summarized request reads whole from its pages, joined in order", async (
   const whole = f.client.readInteraction(target);
   const offsets: number[] = [];
   for (let at = 0; at < json.length; at += 100) offsets.push((await f.answer(json, 100)).offset);
-  expect(await whole).toEqual(plan);
+  expect((await whole).request).toEqual(plan);
   expect(offsets).toEqual(offsets.map((_, index) => index * 100));
   await f.client.close();
 });
@@ -66,7 +66,8 @@ test("a request replaced while it was read is read again from the start", async 
   for (let at = 0; at < again.length; at += 100)
     offsets.push((await f.answer(again, 100, "v2")).offset);
   expect(offsets[0]).toBe(0);
-  expect(await whole).toEqual(replaced);
+  // Read under the version an answer to it names.
+  expect(await whole).toEqual({ request: replaced, version: "v2" });
   await f.client.close();
 });
 

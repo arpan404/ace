@@ -611,7 +611,8 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
   /**
    * A page of the request's JSON (`InteractionRequest`), `text` from `offset` to `nextOffset` of
    * `total` UTF-16 code units. `version` names the request a page is from: a reader whose pages
-   * differ in it starts again from 0, as the request was replaced meanwhile.
+   * differ in it starts again from 0, as the request was replaced meanwhile. An answer to it
+   * echoes it as `readWhole`.
    */
   z.object({
     type: z.literal("interaction.data"),

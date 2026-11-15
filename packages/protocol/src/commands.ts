@@ -162,11 +162,12 @@ export const CommandPayload = z.discriminatedUnion("type", [
     interactionId: InteractionId,
     resolution: InteractionResolution,
     /**
-     * The person was shown the whole request, read with `interaction.read` (ADR 0156). Without
-     * it, a client's affirmative answer to a request too large to send whole is refused
-     * (`request_not_read`); a decline or cancel never needs it.
+     * The `version` of the `interaction.read` pages the person was shown whole (ADR 0156). A
+     * client's affirmative answer to a request too large to send whole is refused
+     * (`request_not_read`) without it, or when the request is no longer that version; a decline
+     * or cancel never needs it.
      */
-    readWhole: z.literal(true).optional(),
+    readWhole: z.string().min(1).max(64).optional(),
   }),
   z.object({ type: z.literal("background_task.stop"), taskId: BackgroundTaskId }),
 ]);

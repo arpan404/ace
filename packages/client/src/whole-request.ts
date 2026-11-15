@@ -10,6 +10,12 @@ export interface WholeRequestInput {
   interactionId: string;
 }
 
+/** A request read whole, and the `version` it read under, which an answer to it echoes. */
+export interface ReadRequest {
+  request: InteractionRequest;
+  version: string;
+}
+
 /** How many times a read starts again because the request changed while it was read. */
 const mostRestarts = 3;
 
@@ -42,10 +48,10 @@ export function checkedPage(
  */
 export async function readWholeRequest(
   page: (offset: number) => Promise<InteractionData>,
-): Promise<InteractionRequest> {
+): Promise<ReadRequest> {
   for (let restarts = 0; restarts <= mostRestarts; restarts++) {
-    const text = await readOneVersion(page);
-    if (text !== undefined) return parsedRequest(text);
+    const read = await readOneVersion(page);
+    if (read !== undefined) return { request: parsedRequest(read.text), version: read.version };
   }
   throw new ClientError("stale", "The request kept changing while it was read");
 }
@@ -53,7 +59,7 @@ export async function readWholeRequest(
 /** The joined text of one version of the request, or undefined when it changed midway. */
 async function readOneVersion(
   page: (offset: number) => Promise<InteractionData>,
-): Promise<string | undefined> {
+): Promise<{ text: string; version: string } | undefined> {
   const first = await page(0);
   const parts = [first.text];
   let last = first;
@@ -64,7 +70,7 @@ async function readOneVersion(
     parts.push(next.text);
     last = next;
   }
-  return parts.join("");
+  return { text: parts.join(""), version: first.version };
 }
 
 function parsedRequest(text: string): InteractionRequest {

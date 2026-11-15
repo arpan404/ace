@@ -22,14 +22,13 @@ import type {
   RegistryResult,
   ServerMessage,
   TextSource,
-  InteractionRequest,
   ThreadListView,
   ThreadView,
 } from "@ace/protocol";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
-import type { WholeRequestInput } from "./whole-request.ts";
+import type { ReadRequest, WholeRequestInput } from "./whole-request.ts";
 import type { StreamMessage } from "@ace/browser/stream";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
@@ -231,7 +230,7 @@ export interface ClientApi {
    * Fails as `daemon` with the daemon's code when it can't be read here (`read_denied`,
    * `interaction_not_found`, `request_not_whole_here`), `stale` when it kept changing.
    */
-  readInteraction(input: WholeRequestInput, options?: RequestOptions): Promise<InteractionRequest>;
+  readInteraction(input: WholeRequestInput, options?: RequestOptions): Promise<ReadRequest>;
   text(source: TextSource, options?: TextReadOptions): AsyncGenerator<string>;
   output(
     payload: { streamId: string; offset: number; limit: number },
