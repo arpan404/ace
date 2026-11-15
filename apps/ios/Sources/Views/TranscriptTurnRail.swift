@@ -16,7 +16,6 @@ struct TranscriptTurnRail: View {
     let reading: TurnRailPlace
     /// Room below the rail: the composer, which floats over the feed's foot.
     let bottom: CGFloat
-    let jump: (Int) -> Void
     @State private var page: TurnsPage?
     @State private var scrub: Int?
     /// The finger on the edge band, while it is there.
@@ -82,7 +81,7 @@ struct TranscriptTurnRail: View {
             let step = direction == .increment ? 1 : direction == .decrement ? -1 : 0
             selection.pick(min(max(current + step, 1), count))
         }
-        .accessibilityAction { jump(current) }
+        .accessibilityAction { reading.ask(turn: current, count: count) }
         .accessibilityIdentifier("transcript.turnRail")
     }
 
@@ -108,7 +107,7 @@ struct TranscriptTurnRail: View {
                         scrub = nil
                         guard let lifted, let picked = turn(lifted) else { return }
                         selection.pick(picked)
-                        jump(picked)
+                        reading.ask(turn: picked, count: count)
                     }
             )
             .accessibilityHidden(true)
@@ -133,12 +132,15 @@ struct TranscriptTurnRail: View {
     }
 }
 
-/// What the feed tells the rail: where the top of the transcript is as a scroll settles, and
-/// whether the keyboard is up. Written only when a value changes, so the rail re-renders only then,
-/// and read only by the rail, so the feed never re-renders for it.
+/// What the feed and the rail tell each other: where the top of the transcript is as a scroll
+/// settles and whether the keyboard is up, which only the rail reads and which is written only
+/// when it changes; and the turn picked on the rail, which only the feed reads.
 @MainActor @Observable final class TurnRailPlace {
     private(set) var place: TurnRail.Place?
     private(set) var keyboardUp = false
+    /// The turn last picked on the rail, which the feed brings into view.
+    private(set) var request: TurnRail.JumpRequest?
+    func ask(turn: Int, count: Int) { request = TurnRail.JumpRequest(id: (request?.id ?? 0) + 1, turn: turn, count: count) }
     func settle(_ new: TurnRail.Place?) { if new != place { place = new } }
     func keyboard(up: Bool) { if up != keyboardUp { keyboardUp = up } }
 }

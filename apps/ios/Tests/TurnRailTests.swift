@@ -97,6 +97,15 @@ import Testing
         #expect(TurnRail.readerPlace(rows, top: 6)?.ordinal(of: 9) == 9)
         #expect(TurnRail.readerPlace(rows, top: 7)?.ordinal(of: 9) == 9)
     }
+    @Test func aHeldTurnIsFoundByItsAsk() {
+        let rows: [TurnRail.Mark] = [.answer, .ask, .head(7), .answer, .ask, .head(8), .answer, .ask, .answer]
+        #expect(TurnRail.askIndex(of: 7, in: rows, count: 9) == 1)
+        #expect(TurnRail.askIndex(of: 8, in: rows, count: 9) == 4)
+        // The running turn's ask, after the last settled log.
+        #expect(TurnRail.askIndex(of: 9, in: rows, count: 9) == 7)
+        // A turn outside the rows held has to be read in.
+        #expect(TurnRail.askIndex(of: 3, in: rows, count: 9) == nil)
+    }
     @Test func aTurnWithoutALogIsCountedFromTheNextOne() {
         // Turn 4 answered without steps; turn 5 has a log.
         let rows: [TurnRail.Mark] = [.ask, .answer, .ask, .head(5), .answer]
@@ -121,6 +130,14 @@ import Testing
         #expect(!notifies(place, read: { _ = place.place }, change: { place.settle(.turn(3)) }))
         #expect(notifies(place, read: { _ = place.place }, change: { place.settle(.turn(4)) }))
         #expect(place.place == .turn(4))
+    }
+    @Test func eachTurnPickedReachesTheFeedOnceEvenTheSameTurnAgain() {
+        let place = TurnRailPlace()
+        place.ask(turn: 2, count: 9)
+        let first = place.request
+        #expect(first?.turn == 2 && first?.count == 9)
+        #expect(notifies(place, read: { _ = place.request }, change: { place.ask(turn: 2, count: 9) }))
+        #expect(place.request != first)
     }
     @Test func theKeyboardReachesTheRailOnlyWhenItRisesOrFalls() {
         let place = TurnRailPlace()

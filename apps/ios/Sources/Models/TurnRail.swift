@@ -100,6 +100,20 @@ enum TurnRail {
         case answer
     }
 
+    /// The index of turn `turn`'s ask among `rows`, in a thread of `count` turns; nil when the
+    /// rows held don't include it.
+    static func askIndex(of turn: Int, in rows: [Mark], count: Int) -> Int? {
+        rows.indices.first { rows[$0] == .ask && readerPlace(rows, top: $0)?.ordinal(of: count) == turn }
+    }
+
+    /// A turn picked on the rail, for the feed to bring into view. `id` tells two picks of the
+    /// same turn apart.
+    struct JumpRequest: Equatable, Sendable {
+        let id: Int
+        let turn: Int
+        let count: Int
+    }
+
     /// Where the row at `top` sits: in a settled turn, or that many asks before the newest.
     enum Place: Equatable {
         case turn(Int)

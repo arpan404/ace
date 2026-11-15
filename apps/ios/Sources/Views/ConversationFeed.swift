@@ -329,6 +329,8 @@ struct ConversationFeed: View {
             .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
             .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
             .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
+            // Only the rail's pick is read here, so its other state never re-renders the feed.
+            .onChange(of: railPlace?.request) { _, request in if let request { railJump(request, proxy: proxy) } }
             .onChange(of: thread.loaded) { _, loaded in threadLoaded(loaded, proxy: proxy) }
     }
     /// Type size, density, the feed's size and the connection.
@@ -588,17 +590,29 @@ struct ConversationFeed: View {
         guard let top = currentTopRow() else { return nil }
         let rows = TranscriptFeedRow.rows(shown)
         guard let index = rows.firstIndex(where: { $0.id == top.rowID }) else { return nil }
-        let marks = rows.map { row -> TurnRail.Mark in
-            if row.block.row.kind == "user" { return .ask }
-            return row.block.row.ordinal.map(TurnRail.Mark.head) ?? .answer
-        }
-        return TurnRail.readerPlace(marks, top: index)
+        return TurnRail.readerPlace(rows.map(Self.mark), top: index)
     }
     /// Scrolls the turn's ask to the top and holds it, never the turn the reader left, refreshed
     /// to where it lands (`TranscriptPlaceKeeper`).
     private func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
         keep(.jumped(row.id), proxy: proxy)
         withAnimation { proxy.scrollTo(row.id, anchor: .top) }
+    }
+    /// A turn picked on the rail: held already, its ask scrolls to the top as a turn key's does
+    /// (`jump(to:proxy:)`, which the place keeper follows); otherwise the history window opens
+    /// at it, as the Turns list's does.
+    private func railJump(_ request: TurnRail.JumpRequest, proxy: ScrollViewProxy) {
+        setFollowing(false)
+        let rows = TranscriptFeedRow.rows(shown)
+        if let index = TurnRail.askIndex(of: request.turn, in: rows.map(Self.mark), count: request.count) {
+            jump(to: rows[index], proxy: proxy)
+        } else {
+            reading.jump(toTurn: request.turn, model: model, live: thread)
+        }
+    }
+    private static func mark(_ row: TranscriptFeedRow) -> TurnRail.Mark {
+        if row.block.row.kind == "user" { return .ask }
+        return row.block.row.ordinal.map(TurnRail.Mark.head) ?? .answer
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {

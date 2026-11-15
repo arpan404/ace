@@ -124,11 +124,9 @@ struct ThreadView: View {
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, behind: $behind, jumps: jumps, railPlace: railPlace)
             // Over the feed, not in it: the rail shares neither the transcript's scroll view nor its
-            // layout, and picking a turn opens it as the Turns list does.
+            // layout. The feed brings a picked turn into view (`railPlace`).
             .overlay {
-                TranscriptTurnRail(model: model, threadId: thread.id, behind: behind, reading: railPlace, bottom: barHeight) { turn in
-                    model.focusOnOpen = ThreadFocus(thread: thread.id, item: "", turn: turn)
-                }
+                TranscriptTurnRail(model: model, threadId: thread.id, behind: behind, reading: railPlace, bottom: barHeight)
             }
             .markdownShelf(threadId: thread.id)
     }
