@@ -192,6 +192,32 @@ and checks that nothing overflows its region at three window sizes. The result c
 agent through `suit_apply` as `SuitProblem`s plus screenshots of the app in the Suit, so the
 agent fixes what the person would have seen before the person ever sees it.
 
+How it runs (added 2026-11-14):
+
+- **Asking.** After a preview or keep passes the static checks, the daemon sends `suitCheck
+{ checkId, suitId }` to every socket that may read the calling thread. A client that shows
+  that Suit runs the check and answers once with the one-way `suitReport { report }`
+  (`SuitLiveReport`: problems, the widths measured, parts it couldn't check, and a screenshot or
+  why there is none). The daemon takes a report only from a socket it asked, for that check.
+- **Waiting.** `suit_apply` waits at most 9 s for reports, and 1.5 s more once the first one
+  lands, so a device without a live check (a phone) doesn't hold the agent. With no report it
+  says only the static checks ran and points the agent at ace's browser.
+- **Reading the scene.** The host may send a scene `sample { id, columns, rows }` (at most
+  32 × 32); the runtime averages the canvas into that grid and answers `sample` with its RGBA
+  bytes. The scene's code takes no part and the sandbox is unchanged: nothing reaches into the
+  frame. A canvas the runtime can't read (it drew an image, which taints it under the opaque
+  origin) answers nothing, and the text over it is reported as unchecked, never guessed.
+- **Contrast.** Each text-bearing part's text and icon colours are composited over every layer
+  up to the first opaque one: background colours, gradient stops (worst stop counts), element
+  opacity and, under a scene, the sampled cells beneath the text. Text needs 4.5:1 (3:1 when
+  large), icons 3:1.
+- **Widths.** A page can't resize its window, so the narrower widths (1024 and 760 px, when
+  the window is wider) are simulated by narrowing the app's container for a moment; media
+  queries keep the real width, and problems say which widths were simulated.
+- **Screenshots.** The desktop app captures its own window (`window.capture`, a JPEG under the
+  socket's frame limit). A browser tab can't capture itself without asking the person, so it
+  sends none and says so.
+
 ### On the fly
 
 The daemon watches each Suit folder; any saved change re-runs the checks and pushes the new Suit

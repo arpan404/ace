@@ -1,0 +1,106 @@
+/* Blueprint: grid paper and linework. Every selector names a published part (docs/design/suit-parts.md). */
+
+/* Grid paper in each region: a fine 20 px grid under a 100 px one, drawn in the text colour. */
+[data-part="app"] {
+  --blueprint-fine: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  --blueprint-major: color-mix(in srgb, var(--color-foreground) 8%, transparent);
+  --blueprint-grid:
+    linear-gradient(var(--blueprint-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--blueprint-major) 1px, transparent 1px),
+    linear-gradient(var(--blueprint-fine) 1px, transparent 1px),
+    linear-gradient(90deg, var(--blueprint-fine) 1px, transparent 1px);
+}
+
+[data-part="transcript"],
+[data-part="sidebar"],
+[data-part="header"],
+[data-part="rail"] {
+  background-image: var(--blueprint-grid);
+  background-size:
+    100px 100px,
+    100px 100px,
+    20px 20px,
+    20px 20px;
+}
+
+/* The sidebar's grid is offset half a cell, like a second sheet laid beside the first. */
+[data-part="sidebar"] {
+  background-position: 10px 10px;
+  border-inline-end: 1px solid var(--color-border-strong);
+}
+
+[data-part="header"] {
+  border-block-end: 1px solid var(--color-border-strong);
+}
+
+[data-part="header-title"],
+[data-part="panel-header"] {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* Threads: a drafted box around the open one, no fill. */
+[data-part="thread-row"] {
+  border: 1px solid transparent;
+  border-radius: 0;
+}
+
+[data-part="thread-row"][data-state="active"],
+[data-part="thread-row"][data-state="selected"] {
+  border-color: var(--color-border-strong);
+  border-style: dashed;
+}
+
+/* Flat messages: the person's notes are marked with a leader line, the agent's are plain. */
+[data-part="message-user"] {
+  border-inline-start: 2px solid var(--color-foreground);
+  border-radius: 0;
+  padding-inline-start: 12px;
+}
+
+[data-part="message-agent"] {
+  border-radius: 0;
+}
+
+[data-part="turn-divider"] {
+  border-block-start: 1px dashed var(--color-border-strong);
+}
+
+/* Tool rows and code as callouts: hairline boxes on a solid sheet. */
+[data-part="tool-row"],
+[data-part="tool-output"],
+[data-part="code-block"],
+[data-part="diff"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0;
+}
+
+[data-part="tool-row"]::before {
+  content: "◇ ";
+}
+
+[data-part="composer"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0;
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--color-foreground) 10%, transparent);
+}
+
+[data-part="button"],
+[data-part="input"],
+[data-part="select"],
+[data-part="badge"],
+[data-part="kbd"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"] {
+  border-radius: 0;
+}
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"] {
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 6px 6px 0 color-mix(in srgb, var(--color-foreground) 12%, transparent);
+}

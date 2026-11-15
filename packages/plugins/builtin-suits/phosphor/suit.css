@@ -1,0 +1,96 @@
+/* Phosphor: a green terminal. Every selector names a published part (docs/design/suit-parts.md). */
+
+/* Scanlines in every region, under the content: two px of dark every four. */
+[data-part="app"] {
+  --phosphor-scanlines: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.22) 0px,
+    rgba(0, 0, 0, 0.22) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  --phosphor-glow: 0 0 6px rgba(120, 255, 160, 0.35);
+}
+
+[data-part="transcript"],
+[data-part="sidebar"],
+[data-part="composer"] {
+  background-image: var(--phosphor-scanlines);
+}
+
+/* Glowing text: a soft halo, never a second colour. */
+[data-part="message-agent"],
+[data-part="message-user"],
+[data-part="thread-title"],
+[data-part="header-title"],
+[data-part="composer-input"],
+[data-part="tool-row"],
+[data-part="empty-state"] {
+  text-shadow: var(--phosphor-glow);
+}
+
+[data-part="sidebar"] {
+  border-inline-end: 1px solid var(--color-border-strong);
+}
+
+[data-part="header"] {
+  border-block-end: 1px dashed var(--color-border);
+}
+
+[data-part="header-title"],
+[data-part="sidebar-tabs"] [data-part="tab"],
+[data-part="panel-header"] {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The open thread reads as reversed video's quieter cousin: an outline. */
+[data-part="thread-row"][data-state="active"],
+[data-part="thread-row"][data-state="selected"] {
+  outline: 1px solid var(--color-border-strong);
+  outline-offset: -1px;
+}
+
+[data-part="thread-row"][data-state="active"]::before,
+[data-part="thread-row"][data-state="selected"]::before {
+  content: "> ";
+}
+
+/* Flat messages: the person's lines carry a prompt. */
+[data-part="message-user"]::before {
+  content: "$ ";
+  opacity: 0.8;
+}
+
+[data-part="tool-row"]::before {
+  content: "# ";
+  opacity: 0.8;
+}
+
+[data-part="tool-row"],
+[data-part="tool-output"],
+[data-part="code-block"] {
+  border: 1px solid var(--color-border);
+}
+
+[data-part="composer"] {
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 0 18px -6px rgba(120, 255, 160, 0.35);
+}
+
+[data-part="composer"]:focus-within {
+  border-color: var(--color-foreground);
+}
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"] {
+  border: 1px solid var(--color-border-strong);
+  box-shadow: 0 0 24px -8px rgba(120, 255, 160, 0.4);
+}
+
+[data-part="menu-item"]:hover {
+  outline: 1px solid var(--color-border-strong);
+  outline-offset: -1px;
+}

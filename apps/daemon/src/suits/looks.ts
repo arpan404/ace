@@ -1,5 +1,5 @@
 import type { ThreadId } from "@ace/protocol";
-import type { SuitActive, SuitId } from "@ace/protocol/suits";
+import type { SuitActive, SuitId, SuitLiveCheck } from "@ace/protocol/suits";
 
 /*
  * Where an agent's `suit_apply` lands (ADR 0150). The Suit a device shows (`appearance.suit`)
@@ -23,6 +23,8 @@ export interface LookSocket {
   /** Whether this socket may hear about `threadId` (read scope and thread access). */
   hears(threadId: ThreadId): boolean;
   send(active: SuitActive): void;
+  /** Asks the device behind the socket to check the Suit it shows (`suitCheck`). */
+  check(check: SuitLiveCheck): void;
 }
 
 interface Preview {
@@ -95,6 +97,20 @@ export class SuitLooks {
     const keepId = this.#id();
     this.#deliver(targets, { kind: "keep", suitId: suit, keepId });
     return { restore: () => this.#deliver(targets, { kind: "restore", keepId }) };
+  }
+
+  /**
+   * Asks every connected socket that may read `threadId` (the ones a preview or keep from it
+   * reached) to run the live check; returns the sockets asked.
+   */
+  askCheck(threadId: ThreadId, check: SuitLiveCheck): LookSocket[] {
+    const asked: LookSocket[] = [];
+    for (const socket of this.#sockets)
+      if (socket.hears(threadId)) {
+        socket.check(check);
+        asked.push(socket);
+      }
+    return asked;
   }
 
   #readers(threadId: ThreadId): Set<string | LookSocket> {

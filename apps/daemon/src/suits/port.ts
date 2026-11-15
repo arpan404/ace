@@ -1,5 +1,6 @@
 import type { SuitPort } from "@ace/mcp-server";
 import type { SuitResponse } from "@ace/protocol/suits";
+import type { SuitLiveChecks } from "./live-checks.ts";
 import type { SuitLooks } from "./looks.ts";
 
 /** What the port needs of the Suit library. */
@@ -9,11 +10,13 @@ export interface SuitChecks {
 
 /**
  * `suit_apply`'s view of the daemon (ADR 0150): checks from the library, looks through the hub.
- * Both are read when called, so the tool works once the Suit service is up.
+ * Live checks go to the devices that may read the thread and come back through `checks`. All
+ * are read when called, so the tool works once the Suit service is up.
  */
 export function daemonSuitPort(
   library: () => SuitChecks | undefined,
   looks: () => SuitLooks | undefined,
+  liveChecks: () => SuitLiveChecks | undefined = () => undefined,
 ): SuitPort {
   const hub = () => {
     const found = looks();
@@ -35,6 +38,16 @@ export function daemonSuitPort(
     async keep(caller, id) {
       const { restore } = hub().keep(caller.threadId, id);
       return { restore: async () => restore() };
+    },
+    async liveCheck(caller, id, signal) {
+      const live = liveChecks();
+      const devices = looks();
+      if (!live || !devices) return [];
+      return live.run(
+        id,
+        (checkId) => devices.askCheck(caller.threadId, { checkId, suitId: id }),
+        signal,
+      );
     },
   };
 }

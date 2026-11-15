@@ -53,7 +53,7 @@ const signColour = Array.from({ length: maxSigns }, () => magenta);
 let signs = 0;
 
 // A fixed seed keeps the city the same on every load, so a still frame never jumps.
-let seed = 2077;
+let seed = 4099;
 function random() {
   seed = (seed * 16807) % 2147483647;
   return (seed - 1) / 2147483646;
@@ -119,7 +119,7 @@ function towers(g, base, minH, maxH, body, windowAlpha, near) {
 }
 
 function paintCity() {
-  seed = 2077;
+  seed = 4099;
   flickers = 0;
   signs = 0;
   city = surface(Math.round(width * ratio), Math.round(height * ratio));

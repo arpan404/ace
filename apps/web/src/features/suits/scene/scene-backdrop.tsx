@@ -156,6 +156,8 @@ function SceneFrame(props: {
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       title="Suit scene"
+      // Where the live check finds the scene to sample (`live/scene-sample.ts`).
+      data-suit-scene-frame="app"
       aria-hidden="true"
       tabIndex={-1}
       className="pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"

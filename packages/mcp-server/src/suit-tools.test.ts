@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { AgentId, ThreadId, type McpAttribution } from "@ace/protocol";
-import type { SuitId, SuitProblem } from "@ace/protocol/suits";
+import type { SuitId, SuitLiveReport, SuitProblem } from "@ace/protocol/suits";
 import {
   CredentialRegistry,
   SuitPreviews,
@@ -20,6 +20,8 @@ const contrast: SuitProblem = {
 /** The daemon as the tool sees it: a library on disk and what the person's devices show. */
 function daemon(library: Record<string, SuitProblem[]>) {
   const devices = { kept: null as SuitId | null, preview: null as SuitId | null };
+  /** What the devices report when asked to check a Suit as rendered. */
+  const live: { reports: SuitLiveReport[]; asked: SuitId[] } = { reports: [], asked: [] };
   const port: SuitPort = {
     async validate(id) {
       const problems = library[id];
@@ -47,14 +49,22 @@ function daemon(library: Record<string, SuitProblem[]>) {
         },
       };
     },
+    async liveCheck(_caller, id) {
+      live.asked.push(id);
+      return live.reports.filter((report) => report.suitId === id);
+    },
   };
-  return { port, devices, shows: () => devices.preview ?? devices.kept };
+  return { port, devices, live, shows: () => devices.preview ?? devices.kept };
 }
 
 const Result = z.object({
   status: z.string(),
   suit: z.string().nullable(),
-  problems: z.array(z.object({ field: z.string().nullable(), message: z.string() })),
+  problems: z.array(
+    z.object({ check: z.string(), field: z.string().nullable(), message: z.string() }),
+  ),
+  next: z.string(),
+  live: z.object({ source: z.string(), devices: z.array(z.string()) }).optional(),
 });
 
 const caller = (thread: string): McpAttribution => ({
@@ -87,8 +97,10 @@ function tool(library: Record<string, SuitProblem[]>) {
         principal,
         new AbortController().signal,
       );
+      const images = (result.content ?? []).filter((part) => part.type === "image");
       return {
         failed: result.isError === true,
+        images,
         ...Result.parse(result.structuredContent),
       };
     },
@@ -159,4 +171,55 @@ it("an unknown Suit, or keep with nothing previewed, tells the agent what to pas
   expect(missing).toMatchObject({ failed: true, status: "not-found" });
   const keep = await suits.apply({ mode: "keep" });
   expect(keep).toMatchObject({ failed: true, status: "nothing-to-do" });
+});
+
+const report = (overrides: Partial<SuitLiveReport>): SuitLiveReport => ({
+  checkId: "check-1",
+  suitId: "neon-dusk",
+  client: "desktop",
+  scheme: "dark",
+  widths: [1440, 1024, 760],
+  problems: [],
+  unchecked: [],
+  screenshot: null,
+  ...overrides,
+});
+
+it("a preview comes back with what the devices saw as rendered, and their screenshots as images", async () => {
+  const suits = tool({ "neon-dusk": [] });
+  const covered: SuitProblem = {
+    scheme: "dark",
+    check: "protected",
+    field: "working-line",
+    message: "working-line is covered at its centre by something else.",
+  };
+  suits.live.reports = [
+    report({
+      problems: [covered],
+      screenshot: { mimeType: "image/jpeg", data: "AAAA", width: 1440, height: 900 },
+    }),
+  ];
+  const result = await suits.apply({ mode: "preview", id: "neon-dusk" });
+  expect(result).toMatchObject({ failed: false, status: "previewing" });
+  expect(result.problems).toEqual([
+    expect.objectContaining({ check: "protected", field: "working-line" }),
+  ]);
+  expect(result.live).toEqual({ source: "live", devices: ["desktop, dark, at 1440/1024/760 px"] });
+  expect(result.images).toEqual([{ type: "image", mimeType: "image/jpeg", data: "AAAA" }]);
+  // Live problems don't take the preview down: the person sees it while the agent fixes it.
+  expect(suits.shows()).toBe("neon-dusk");
+});
+
+it("when no device answers the live check, the preview says only the static checks ran", async () => {
+  const suits = tool({ "warm-paper": [] });
+  const result = await suits.apply({ mode: "preview", id: "warm-paper" });
+  expect(result.live?.source).toBe("static");
+  expect(result.next).toMatch(/only the static checks ran/);
+  expect(result.images).toEqual([]);
+});
+
+it("a refused Suit is never sent to the devices to check", async () => {
+  const suits = tool({ "neon-dusk": [contrast] });
+  await suits.apply({ mode: "preview", id: "neon-dusk" });
+  expect(suits.live.asked).toEqual([]);
 });

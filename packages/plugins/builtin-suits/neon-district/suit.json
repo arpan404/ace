@@ -2,8 +2,8 @@
   "format": 1,
   "id": "neon-district",
   "name": "Neon District",
-  "description": "A rain-soaked megacity at night: magenta and cyan neon, flickering windows, and signs that flash when a pull request merges. Dark only.",
-  "version": "1",
+  "description": "A rain-soaked city at night: magenta and cyan neon, a rainy window in the sidebar, terminal tool rows and signs that flash when a pull request merges. Dark only.",
+  "version": "2",
   "base": "midnight",
   "dark": {
     "canvas": "#0B0912",
@@ -36,8 +36,76 @@
       "com": "#8A80A3",
       "punc": "#9D93B4"
     },
-    "glass": { "blur": 22, "saturate": 170 }
+    "glass": {
+      "blur": 22,
+      "saturate": 170
+    }
   },
-  "shape": { "radius": 0.6, "border": 1 },
-  "motion": { "speed": 0.9 }
+  "fonts": {
+    "mono": {
+      "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace"
+    }
+  },
+  "shape": {
+    "radius": 0.6,
+    "border": 1
+  },
+  "motion": {
+    "speed": 0.9
+  },
+  "layout": {
+    "sidebar": "left",
+    "rail": "shown",
+    "composer": "floating",
+    "header": "bar",
+    "messages": "cards",
+    "toolRows": "terminal"
+  },
+  "scenes": {
+    "app": "scene.js",
+    "sidebar": "sidebar.js"
+  },
+  "reveal": {
+    "app": 0.55,
+    "sidebar": 0.45,
+    "header": 0.3,
+    "composer": 0.2
+  },
+  "labels": {
+    "composer-placeholder": "Wire in a task, or ask the street\u2026",
+    "empty-transcript": "The street is quiet. Start a run.",
+    "empty-sidebar": "No runs on the wire yet.",
+    "working-word": "Running",
+    "send": "Transmit"
+  },
+  "ornaments": [
+    {
+      "slot": "corner-top-left",
+      "asset": "assets/frame-top-left.svg"
+    },
+    {
+      "slot": "corner-top-right",
+      "asset": "assets/frame-top-right.svg"
+    },
+    {
+      "slot": "corner-bottom-left",
+      "asset": "assets/frame-bottom-left.svg"
+    },
+    {
+      "slot": "corner-bottom-right",
+      "asset": "assets/frame-bottom-right.svg"
+    },
+    {
+      "slot": "sidebar-header",
+      "asset": "assets/sign-plate.svg"
+    },
+    {
+      "slot": "composer-top",
+      "asset": "assets/composer-edge.svg"
+    },
+    {
+      "slot": "empty-state",
+      "asset": "assets/empty-sign.svg"
+    }
+  ]
 }

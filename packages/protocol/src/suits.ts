@@ -217,6 +217,16 @@ export const SceneHostMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pause") }),
   z.object({ type: z.literal("resume") }),
   z.object({ type: z.literal("signal"), signal: SceneSignal }),
+  /**
+   * Asks for the canvas as it is now, averaged down to a `columns` × `rows` grid, for the live
+   * contrast check. The scene draws nothing extra; the runtime answers with `sample`.
+   */
+  z.object({
+    type: z.literal("sample"),
+    id: z.number().int().nonnegative(),
+    columns: z.number().int().min(1).max(32),
+    rows: z.number().int().min(1).max(32),
+  }),
 ]);
 export type SceneHostMessage = z.infer<typeof SceneHostMessage>;
 
@@ -225,6 +235,14 @@ export const SceneMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("drawn"), time: z.number() }),
   z.object({ type: z.literal("error"), message: z.string().max(500) }),
+  /** The answer to a host `sample`: RGBA bytes, row by row, `columns × rows × 4` of them. */
+  z.object({
+    type: z.literal("sample"),
+    id: z.number().int().nonnegative(),
+    columns: z.number().int().min(1).max(32),
+    rows: z.number().int().min(1).max(32),
+    pixels: z.array(z.number().int().min(0).max(255)).max(32 * 32 * 4),
+  }),
 ]);
 export type SceneMessage = z.infer<typeof SceneMessage>;
 
@@ -311,6 +329,53 @@ export const SuitActive = z.discriminatedUnion("kind", [
 ]);
 export type SuitActive = z.infer<typeof SuitActive>;
 
+/*
+ * The live check (ADR 0150, "Shown perfectly"). After an agent's preview or keep, the daemon
+ * asks the devices showing it to check the Suit as rendered (`suitCheck`); each answers once
+ * with a `suitReport`. The daemon waits a bounded time and falls back to the static checks.
+ */
+export const SuitCheckId = z.string().min(1).max(80);
+
+export const SuitLiveCheck = z.strictObject({ checkId: SuitCheckId, suitId: SuitId });
+export type SuitLiveCheck = z.infer<typeof SuitLiveCheck>;
+
+/** Kept under the socket's 1 MiB frame with room for the problems. */
+export const maxSuitScreenshotChars = 900_000;
+
+export const SuitScreenshot = z.strictObject({
+  mimeType: z.enum(["image/png", "image/jpeg"]),
+  /** Base64, no data: prefix. */
+  data: z.string().min(1).max(maxSuitScreenshotChars),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+export type SuitScreenshot = z.infer<typeof SuitScreenshot>;
+
+export const SuitLiveReport = z.strictObject({
+  checkId: SuitCheckId,
+  suitId: SuitId,
+  /** Which client ran it: the desktop app can capture its window, a browser tab can't. */
+  client: z.enum(["desktop", "web"]),
+  scheme: z.enum(["light", "dark"]),
+  /** Window widths in CSS px the layout was measured at; narrower ones are simulated. */
+  widths: z.array(z.number().int().positive()).max(8),
+  /** `live-contrast`, `protected` and `overflow` problems; `field` is the part's name. */
+  problems: z.array(SuitProblem).max(200),
+  /** Parts whose background is an image the check can't read, so their contrast wasn't checked. */
+  unchecked: z.array(z.string().max(80)).max(100),
+  screenshot: SuitScreenshot.nullable(),
+  /** Why there is no screenshot, when there isn't one. */
+  screenshotNote: z.string().max(300).optional(),
+});
+export type SuitLiveReport = z.infer<typeof SuitLiveReport>;
+
+/** A device's answer to `suitCheck`. One-way: the daemon never replies. */
+export const SuitReportMessage = z.strictObject({
+  type: z.literal("suitReport"),
+  report: SuitLiveReport,
+});
+export type SuitReportMessage = z.infer<typeof SuitReportMessage>;
+
 export const SuitServerMessage = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("suitResult"),
@@ -321,5 +386,7 @@ export const SuitServerMessage = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("suitsChanged"), suits: SuitsChanged.shape.suits }),
   /** Pushed to the devices an agent's preview, keep or revert is for (`SuitActive`). */
   z.strictObject({ type: z.literal("suitActive"), active: SuitActive }),
+  /** Asks a device that shows `suitId` to run the live check and answer with `suitReport`. */
+  z.strictObject({ type: z.literal("suitCheck"), check: SuitLiveCheck }),
 ]);
 export type SuitServerMessage = z.infer<typeof SuitServerMessage>;

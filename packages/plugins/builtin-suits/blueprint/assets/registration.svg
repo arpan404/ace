@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+  <g fill="none" stroke="currentColor" stroke-opacity="0.4" stroke-width="1">
+    <circle cx="14" cy="14" r="7"/>
+    <path d="M14 1 V27 M1 14 H27"/>
+  </g>
+</svg>

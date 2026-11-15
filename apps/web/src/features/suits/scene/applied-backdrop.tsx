@@ -51,6 +51,7 @@ export function AppliedSuitBackdrop(props: {
       */}
       <div
         aria-hidden="true"
+        data-suit-veil=""
         className="pointer-events-none fixed inset-0 -z-10 bg-sidebar"
         style={{ opacity: "calc(1 - var(--suit-app-reveal, 0.65))" }}
       />

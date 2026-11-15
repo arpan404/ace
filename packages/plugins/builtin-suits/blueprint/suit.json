@@ -1,0 +1,80 @@
+{
+  "format": 1,
+  "id": "blueprint",
+  "name": "Blueprint",
+  "description": "A technical drawing: grid paper in every region, chalk-white linework on drafting blue, dimension lines and a title block. Whiteprint by day.",
+  "version": "1",
+  "base": "midnight",
+  "light": {
+    "canvas": "#F3F6FA",
+    "sidebar": "#E9EFF6",
+    "surface": "#EEF3F9",
+    "raised": "#FFFFFF",
+    "hover": "#E4EBF4",
+    "active": "#D9E3EF",
+    "border": "#C3D1E2",
+    "borderStrong": "#9FB3CC",
+    "faint": "#6B819E",
+    "subtle": "#4A607D",
+    "muted": "#3A4F6B",
+    "text": "#12243D",
+    "code": "#E8EEF6",
+    "accent": "#2E3A48",
+    "accentHover": "#1F2833",
+    "accentFg": "#F3F6FA",
+    "accentText": "#2E3A48",
+    "glass": null
+  },
+  "dark": {
+    "canvas": "#10294A",
+    "sidebar": "#0C2240",
+    "surface": "#133159",
+    "raised": "#173866",
+    "hover": "#163562",
+    "active": "#1D4074",
+    "border": "#2C5287",
+    "borderStrong": "#3E68A3",
+    "faint": "#7F9CC4",
+    "subtle": "#A9C0DD",
+    "muted": "#C8D8EC",
+    "text": "#F2F6FB",
+    "code": "#0B1F3B",
+    "accent": "#F5F1E6",
+    "accentHover": "#FFFFFF",
+    "accentFg": "#10294A",
+    "accentText": "#F5F1E6",
+    "glass": null
+  },
+  "fonts": {
+    "ui": { "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace" },
+    "prose": { "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace" },
+    "mono": { "system": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace" }
+  },
+  "shape": { "radius": 0.2, "border": 1, "density": "comfortable" },
+  "motion": { "speed": 0.8 },
+  "layout": {
+    "sidebar": "left",
+    "rail": "shown",
+    "composer": "docked",
+    "header": "bar",
+    "messages": "flat",
+    "toolRows": "detailed"
+  },
+  "labels": {
+    "composer-placeholder": "Specify the next change…",
+    "empty-transcript": "Blank sheet. Draft the first line.",
+    "empty-sidebar": "No drawings on file.",
+    "working-word": "Drafting",
+    "send": "Issue"
+  },
+  "ornaments": [
+    { "slot": "transcript-top", "asset": "assets/dimension-line.svg" },
+    { "slot": "sidebar-footer", "asset": "assets/title-block.svg" },
+    { "slot": "composer-top", "asset": "assets/scale-bar.svg" },
+    { "slot": "empty-state", "asset": "assets/section-mark.svg" },
+    { "slot": "corner-top-left", "asset": "assets/registration.svg" },
+    { "slot": "corner-top-right", "asset": "assets/registration.svg" },
+    { "slot": "corner-bottom-left", "asset": "assets/registration.svg" },
+    { "slot": "corner-bottom-right", "asset": "assets/registration.svg" }
+  ]
+}

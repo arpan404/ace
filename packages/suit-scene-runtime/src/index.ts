@@ -2,7 +2,9 @@
  * The scene runtime (ADR 0150, "Scenes"): the script a Suit's sandbox page loads before the
  * Suit's own `scene.js`. It is the only thing that talks to ace. It hears the host's messages
  * (`SceneHostMessage` in `@ace/protocol/suits`), makes the one canvas, and answers with
- * `ready`, `drawn` and `error` (`SceneMessage`).
+ * `ready`, `drawn` and `error` (`SceneMessage`). On a host `sample` it averages the canvas down
+ * to a small grid and answers `sample` with its RGBA bytes, for ace's live contrast check; the
+ * scene itself takes no part, and a canvas it can't read answers nothing.
  *
  * A scene author writes:
  *
@@ -75,6 +77,19 @@ export const sceneRuntimeScript = `(function (g) {
     } catch (error) { fail(error); return; }
     if (!failed) reply({ type: 'ready' });
   }
+  // The canvas averaged to columns x rows by the browser's own scaler; null when unreadable.
+  function shrink(columns, rows) {
+    try {
+      var small = doc.createElement('canvas');
+      small.width = columns; small.height = rows;
+      var context = small.getContext('2d');
+      if (!context) return null;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(canvas, 0, 0, columns, rows);
+      return Array.prototype.slice.call(context.getImageData(0, 0, columns, rows).data);
+    } catch (error) { return null; }
+  }
   function finite(value) { return typeof value === 'number' && isFinite(value); }
   g.addEventListener('error', function (event) { fail(event.error || event.message); });
   g.addEventListener('unhandledrejection', function (event) { fail(event.reason); });
@@ -126,6 +141,14 @@ export const sceneRuntimeScript = `(function (g) {
       case 'resume':
         call(data.type, []);
         return;
+      case 'sample': {
+        if (!started) return;
+        var columns = Math.floor(data.columns), rows = Math.floor(data.rows);
+        if (!(columns >= 1 && columns <= 32 && rows >= 1 && rows <= 32) || !finite(data.id)) return;
+        var pixels = shrink(columns, rows);
+        if (pixels) reply({ type: 'sample', id: data.id, columns: columns, rows: rows, pixels: pixels });
+        return;
+      }
       case 'tick': {
         if (!started || !finite(data.time)) return;
         var time = data.time;

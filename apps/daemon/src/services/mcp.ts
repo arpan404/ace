@@ -132,6 +132,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     daemonSuitPort(
       () => services.suits,
       () => services.suitLooks,
+      () => services.suitChecks,
     ),
   );
   const mcp = await startDaemonMcp(
