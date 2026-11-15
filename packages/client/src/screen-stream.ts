@@ -9,14 +9,16 @@ import {
 } from "@ace/protocol";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
 import {
+  channelPath,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
   type MediaRoute,
   type SourcePicture,
+  type Stamped,
 } from "@ace/browser/live-view";
 import type { MediaPoster } from "@ace/protocol";
-import type { StreamMessage } from "@ace/browser/stream";
+import type { PictureChunk, StreamMessage } from "@ace/browser/stream";
 import { authenticatedChannel, type AuthenticatedChannelOptions } from "./device-transport.ts";
 import { ScreenClientError } from "./screen.ts";
 
@@ -50,8 +52,8 @@ export interface ScreenStreamClientOptions {
   schedule(callback: () => void, delayMs: number): () => void;
 }
 type Pending = {
-  /** The session a `subscribe` named, for the poster its reply brings. */
-  subscribe?: string;
+  /** The session and generation a `subscribe` opened, matched by its reply (`MediaSubscriptions`). */
+  subscribe?: { sessionId: string; generation: number };
   resolve(data: unknown): void;
   reject(error: Error): void;
   cancel(): void;
@@ -180,6 +182,13 @@ export class ScreenStreamClient {
     operation: ScreenOperation,
     options: { timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<unknown> {
+    return this.send(operation, options, undefined);
+  }
+  private send(
+    operation: ScreenOperation,
+    options: { timeoutMs?: number; signal?: AbortSignal },
+    generation: number | undefined,
+  ): Promise<unknown> {
     if (!this.snapshot.connected || !this.transport)
       return Promise.reject(failure("internal", "Screen connection is not ready"));
     if (this.pending.size >= 32) return Promise.reject(failure("busy", "Screen request limit"));
@@ -206,7 +215,9 @@ export class ScreenStreamClient {
         options.timeoutMs ?? defaultTimeoutMs(operation),
       );
       this.pending.set(requestId, {
-        ...(operation.op === "subscribe" ? { subscribe: operation.sessionId } : {}),
+        ...(operation.op === "subscribe" && generation !== undefined
+          ? { subscribe: { sessionId: operation.sessionId, generation } }
+          : {}),
         resolve,
         reject,
         cancel: () => {
@@ -259,7 +270,10 @@ export class ScreenStreamClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
-    if (this.media.ack(picture.sourceId, message)) return;
+    const way = this.media.way(picture.sourceId, picture.generation);
+    // A picture of an earlier subscribe: its ack belongs to a delivery that is gone.
+    if (way === "stale") return;
+    if (way === "media") return void this.media.route?.ack(message);
     try {
       void Promise.resolve(transport.send(message)).catch(() => {});
     } catch {
@@ -267,11 +281,18 @@ export class ScreenStreamClient {
     }
   }
   private readonly streams = new SharedStreams();
+  /** Whether `picture` is of its source's current subscribe: an older one is never drawn. */
+  current(picture: SourcePicture): boolean {
+    return this.media.current(picture.sourceId, picture.generation);
+  }
   private subscribe(sessionId: string): void {
-    void this.request({ op: "subscribe", sessionId, ...this.media.fields(sessionId) }).catch(
+    const { generation, fields } = this.media.begin(sessionId);
+    // What the earlier subscribe delivered and nobody drew yet is stale now.
+    this.pictures.discardSource(sessionId);
+    void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
       (error: unknown) => {
         // A connection the daemon won't bind here: the stream goes on this channel instead.
-        if (this.media.refused(sessionId, error)) this.subscribe(sessionId);
+        if (this.media.refused(sessionId, generation, error)) this.subscribe(sessionId);
       },
     );
   }
@@ -290,24 +311,40 @@ export class ScreenStreamClient {
     );
   }
   private receiveMedia(message: StreamMessage): void {
-    if (
-      message.kind === "screen.frame" &&
-      this.snapshot.connected &&
-      this.states.get(message.sourceId)?.lifecycle === "live"
-    )
-      this.pictures.publish({ ...message.frame, sourceId: message.sourceId });
+    const connection = this.media.route?.binding()?.connection;
+    if (message.kind === "screen.frame" && connection && this.snapshot.connected)
+      this.publishPicture(message.sourceId, message.frame, connection);
   }
+  /** A live picture that came by `path`, stamped with its delivery's generation, else dropped. */
+  private publishPicture(sourceId: string, frame: PictureChunk, path: string): void {
+    if (this.states.get(sourceId)?.lifecycle !== "live") return;
+    const stamped = this.media.arrive(sourceId, path, frame);
+    if (stamped)
+      this.pictures.publish({ ...stamped.frame, sourceId, generation: stamped.generation });
+  }
+  /**
+   * What a subscribe's reply released: the pictures that came its settled way while it was on its
+   * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
+   */
+  private release(
+    sourceId: string,
+    released: { pictures: readonly Stamped[]; needsKeyframe: boolean },
+  ): void {
+    for (const { frame, generation } of released.pictures)
+      this.pictures.publish({ ...frame, sourceId, generation });
+    const first = released.pictures[0];
+    if (released.needsKeyframe && first)
+      this.ack({ ...first.frame, sourceId, generation: first.generation }, true);
+  }
+
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
       if (!isStreamPiece(message)) throw failure("internal", "Invalid screen frame");
       const envelope = this.assembler.push(message);
       // Kinds this client doesn't draw are skipped, never fatal.
       const decoded = envelope && decodeStreamMessage(envelope);
-      if (
-        decoded?.kind === "screen.frame" &&
-        this.states.get(decoded.sourceId)?.lifecycle === "live"
-      )
-        this.pictures.publish({ ...decoded.frame, sourceId: decoded.sourceId });
+      if (decoded?.kind === "screen.frame")
+        this.publishPicture(decoded.sourceId, decoded.frame, channelPath);
       return;
     }
     const decoded = ScreenServerMessage.safeParse(message);
@@ -322,9 +359,13 @@ export class ScreenStreamClient {
       request.cancel();
       if (!frame.ok) request.reject(new ScreenClientError(frame));
       else {
-        if (request.subscribe) {
-          this.media.subscribed(request.subscribe, frame.media);
-          if (this.media.poster(request.subscribe)) this.publish({ ...this.snapshot });
+        const opened = request.subscribe;
+        if (opened) {
+          this.release(
+            opened.sessionId,
+            this.media.subscribed(opened.sessionId, opened.generation, frame.media),
+          );
+          if (this.media.poster(opened.sessionId)) this.publish({ ...this.snapshot });
         }
         try {
           const state = ScreenState.safeParse(frame.data);

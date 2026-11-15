@@ -68,7 +68,7 @@ interface FakeRelay {
   closed: number | undefined;
 }
 
-function harness(replies: unknown[], options: { relay?: boolean } = {}) {
+function harness(replies: unknown[], options: { relay?: boolean; admissionMs?: number } = {}) {
   const clock = new Clock();
   const sockets: FakeSocket[] = [];
   const relays: FakeRelay[] = [];
@@ -99,6 +99,7 @@ function harness(replies: unknown[], options: { relay?: boolean } = {}) {
           },
         }
       : {}),
+    ...(options.admissionMs === undefined ? {} : { admissionMs: options.admissionMs }),
     schedule: clock.schedule,
     now: () => clock.now,
   });
@@ -369,5 +370,52 @@ describe("media connection", () => {
     await clock.advance(250);
     relays[1]!.events.welcome();
     expect(changes).toEqual(["mc_aaaaaaaaaa", undefined, "mc_bbbbbbbbbb"]);
+  });
+
+  it("waits the legacy interval after ace-media refuses a direct hello, not the drop backoff", async () => {
+    const { media, sockets, clock, asked } = harness([granted("mc_aaaaaaaaaa")]);
+    media.start();
+    await flush();
+    sockets[0]!.events.open();
+    sockets[0]!.events.close(4401);
+    expect(media.state).toEqual({ state: "legacy", reason: "refused" });
+    await clock.advance(29_999);
+    expect(asked()).toBe(1);
+    await clock.advance(1);
+    expect(asked()).toBe(2);
+  });
+
+  it("gives up on a relay stream that is never welcomed and tries again", async () => {
+    const { media, relays, clock, asked } = harness([granted("mc_aaaaaaaaaa", null)], {
+      relay: true,
+      admissionMs: 3_000,
+    });
+    media.start();
+    await flush();
+    await clock.advance(2_999);
+    expect(relays[0]!.closed).toBeUndefined();
+    await clock.advance(1);
+    expect(relays[0]!.closed).toBeDefined();
+    // Its late welcome changes nothing; a fresh attempt follows on the drop backoff.
+    relays[0]!.events.welcome();
+    expect(media.binding()).toBeUndefined();
+    await clock.advance(250);
+    expect(asked()).toBe(2);
+    expect(relays).toHaveLength(2);
+  });
+
+  it("stops waiting for a welcome once the connection stops", async () => {
+    const { media, relays, clock } = harness([granted("mc_aaaaaaaaaa", null)], {
+      relay: true,
+      admissionMs: 3_000,
+    });
+    media.start();
+    await flush();
+    media.stop();
+    const closed = relays[0]!.closed;
+    await clock.advance(10_000);
+    expect(relays).toHaveLength(1);
+    expect(relays[0]!.closed).toBe(closed);
+    expect(clock.timers).toEqual([]);
   });
 });

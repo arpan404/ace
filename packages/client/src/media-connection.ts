@@ -69,6 +69,8 @@ export interface MediaConnectionOptions {
    * `media.connect` that gives no `url`. Absent, or answering undefined: such a grant goes legacy.
    */
   relay?(): OpenMediaRelay | undefined;
+  /** How long a relay stream may wait for its welcome; `mediaAdmissionMs` unless given. */
+  admissionMs?: number;
   /** Runs `run` after `ms`; the result cancels it. */
   schedule(run: () => void, ms: number): () => void;
   /** A monotonic clock in ms, for the round trip the pings report. */
@@ -83,6 +85,11 @@ export const mediaLegacyRetryMs = 30_000;
 export const mediaSettleMs = 2_000;
 /** A socket that opened but hasn't been welcomed by then is dropped and tried again. */
 export const mediaWelcomeMs = 5_000;
+/**
+ * How long a relay stream may take from its hello to the daemon's welcome: D2's own deadline,
+ * offer to keys. A stream still unwelcomed then is closed and a fresh attempt follows.
+ */
+export const mediaAdmissionMs = 10_000;
 export const mediaPingMs = 5_000;
 
 /** The 37-byte hello: `"ACEC"`, the version, the ticket's 32 bytes. */
@@ -225,7 +232,14 @@ export class MediaConnection {
           welcomed = true;
           this.#opened(epoch, granted);
         },
-        close: (code) => this.#closed(epoch, code),
+        close: (code) => {
+          if (!current()) return;
+          if (welcomed) return this.#closed(epoch, code);
+          // Never welcomed: ace-media turned the ticket down (or wasn't there to take it). Asking
+          // again at once would only be refused again; delivery stays legacy until the next ask.
+          this.#socket = undefined;
+          this.#legacy(code === mediaCloseCodes.refused ? "refused" : "unwelcomed");
+        },
       });
     } catch {
       this.#retry("unreachable");
@@ -237,11 +251,16 @@ export class MediaConnection {
     if (!open) return this.#legacy("relay");
     const current = () => epoch === this.#epoch;
     let welcomed = false;
+    // Accepted but never welcomed or closed: give the stream up and try afresh.
+    const cancelAdmission = this.#after(this.#options.admissionMs ?? mediaAdmissionMs, () => {
+      if (current() && !welcomed) this.#drop("admission");
+    });
     try {
       this.#socket = open(ticket, {
         welcome: () => {
           if (!current() || welcomed) return;
           welcomed = true;
+          cancelAdmission();
           this.#opened(epoch, granted);
         },
         message: (data) => {
@@ -249,6 +268,7 @@ export class MediaConnection {
         },
         close: (code) => {
           if (!current()) return;
+          cancelAdmission();
           // Refused before its welcome: the ticket won't open a stream; delivery stays legacy.
           if (welcomed) return this.#closed(epoch, code);
           this.#socket = undefined;
@@ -317,12 +337,17 @@ export class MediaConnection {
       if (epoch === this.#epoch) void this.#open();
     });
   }
-  #after(ms: number, run: () => void): void {
+  /** Runs `run` after `ms` unless cancelled first, or by `#reset` (a stop, a new attempt). */
+  #after(ms: number, run: () => void): () => void {
     const cancel = this.#options.schedule(() => {
       this.#timers.delete(cancel);
       run();
     }, ms);
     this.#timers.add(cancel);
+    return () => {
+      this.#timers.delete(cancel);
+      cancel();
+    };
   }
   #settle(): void {
     const settled = this.#settled;

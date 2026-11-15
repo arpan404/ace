@@ -105,7 +105,8 @@ export function LiveView(props: {
         if (!disposed) setNoVideo("The live view stopped. Open the app again.");
       },
       show: (image, picture) => {
-        if (disposed) return;
+        // A picture of a subscribe since replaced (a media rebind) is never drawn.
+        if (disposed || !session.current(picture)) return;
         drawUpright(element, context, image, picture);
         const was = shownRef.current;
         if (was.width !== picture.width || was.height !== picture.height)

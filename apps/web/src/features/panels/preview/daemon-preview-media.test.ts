@@ -69,13 +69,19 @@ afterEach(() => {
 });
 
 /** Adds `media` to the daemon's `browser.subscribe` replies, as a daemon delivering by ace-media does. */
-type Daemon = "binds" | "serves here" | "refuses";
+/**
+ * How the daemon answers a subscribe naming a connection. `replays here` serves it on the socket
+ * as `serves here` does, but first replays the page's last picture (a keyframe) on the socket,
+ * before the reply, as the browser bridge does.
+ */
+type Daemon = "binds" | "serves here" | "replays here" | "refuses";
 
 function withMediaReplies(
   api: ClientApi,
   poster: MediaPoster | undefined,
   daemon: Daemon,
   refused: unknown[],
+  replay: () => void,
 ) {
   return new Proxy(api, {
     get(target, key) {
@@ -93,7 +99,13 @@ function withMediaReplies(
             };
           }
           const reply = await target.request(input, options);
-          if (input.type !== "browser.subscribe" || !named || daemon === "serves here")
+          if (named && daemon === "replays here") replay();
+          if (
+            input.type !== "browser.subscribe" ||
+            !named ||
+            daemon === "serves here" ||
+            daemon === "replays here"
+          )
             return reply;
           return {
             ...reply,
@@ -122,17 +134,20 @@ async function watching(
   const decoder = instantDecoder();
   const posters: MediaPoster[] = [];
   const refused: unknown[] = [];
-  const preview = daemonPreview(withMediaReplies(wire.api, poster, answer, refused), {
-    schedule: () => () => {},
-    visibility: { visible: () => true, watch: () => () => {} },
-    videoDecoder: decoder.factory,
-    videoSupport: () => Promise.resolve(["hvc1.1.6.L153.B0", "avc1.42E033"]),
-    media: link.media,
-    poster: async (shown) => {
-      posters.push(shown);
-      return { sequence: -1, draw() {}, close() {} };
+  const preview = daemonPreview(
+    withMediaReplies(wire.api, poster, answer, refused, () => wire.stream(video(1, true))),
+    {
+      schedule: () => () => {},
+      visibility: { visible: () => true, watch: () => () => {} },
+      videoDecoder: decoder.factory,
+      videoSupport: () => Promise.resolve(["hvc1.1.6.L153.B0", "avc1.42E033"]),
+      media: link.media,
+      poster: async (shown) => {
+        posters.push(shown);
+        return { sequence: -1, draw() {}, close() {} };
+      },
     },
-  });
+  );
   const stop = preview.watch(thread);
   disposers.push(() => {
     stop();
@@ -229,4 +244,24 @@ test("a refused connection subscribes again on the socket", async () => {
   // The one the daemon took names no connection.
   expect(subscribes()).toHaveLength(1);
   expect(subscribes()[0]).not.toHaveProperty("media");
+});
+
+test("video that still comes on the socket after the view moved to the media connection is dropped", async () => {
+  const { preview, wire, link, mainAcks } = await watching("mc_aaaaaaaaaa");
+  // The socket's subscription from before: neither drawn nor acked anywhere.
+  wire.stream(video(1, true));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(preview.frame(thread)).toBeUndefined();
+  expect(mainAcks()).toEqual([]);
+  expect(link.acks).toEqual([]);
+  link.deliver(video(2, true));
+  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(2));
+});
+
+test("a page's last picture replayed on the socket before the reply shows once the reply settles there", async () => {
+  const { preview, link, mainAcks } = await watching("mc_aaaaaaaaaa", undefined, "replays here");
+  // The page is static: nothing follows the replayed keyframe.
+  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(1));
+  await waitFor(() => expect(mainAcks()).toContainEqual(expect.objectContaining({ sequence: 1 })));
+  expect(link.acks).toEqual([]);
 });

@@ -181,7 +181,8 @@ export function DeviceScreen(props: {
       );
     };
     const show = (picture: PictureImage, shown: DevicePicture) => {
-      if (disposed) return;
+      // A picture of a subscribe since replaced (a media rebind) is never drawn.
+      if (disposed || !session.client.current(shown)) return;
       const { width, height } = drawUpright(element, context, picture, shown);
       element.dataset["frame"] = String(shown.sequence);
       latestFrame.current?.({
