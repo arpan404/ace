@@ -67,6 +67,8 @@ describe("an approval sent summarized", () => {
     expect(row.summarized).toBe(
       "This request is too large to review on the phone. Open it on your computer to approve it.",
     );
+    // The strip above the composer says so under its sentence.
+    expect(row.strip.detail).toBe(row.summarized);
   });
 
   it("is denied from the inbox but never allowed", () => {

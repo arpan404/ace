@@ -160,6 +160,8 @@ export function interactionRow(asked: Interaction, reader: RequestReader, fallba
         request.questions.some((question) => question.options.length > optionLimit)),
     ...approval(interaction, base.command),
     questions: questions(interaction),
-    strip: stripOf(interaction, reader, base.command),
+    strip: summarized
+      ? { ...stripOf(interaction, reader, base.command), detail: summarized }
+      : stripOf(interaction, reader, base.command),
   };
 }
