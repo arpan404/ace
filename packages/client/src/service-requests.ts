@@ -189,7 +189,9 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                                   ? Replies<"items.page">
                                                                   : Q["type"] extends "output.read"
                                                                     ? Replies<"output.data">
-                                                                    : Reply;
+                                                                    : Q["type"] extends "interaction.read"
+                                                                      ? Replies<"interaction.data">
+                                                                      : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "cli.request": ["cli.result"],
@@ -313,6 +315,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "items.page": ["items.page"],
   "entities.page": ["entities.page"],
   "output.read": ["output.data"],
+  "interaction.read": ["interaction.data"],
 };
 function isServiceResponse<Q extends ServiceRequest>(
   query: Q,

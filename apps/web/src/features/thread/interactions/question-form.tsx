@@ -26,6 +26,8 @@ export function QuestionForm(props: {
   aside?: ReactNode;
   questions: readonly Question[];
   disabled: boolean;
+  /** Answers can't go yet (not read whole): only Skip does. */
+  declinesOnly?: boolean | undefined;
   onAnswer: Answer;
 }) {
   const draft = useQuestionDraft(props.interactionId);
@@ -38,7 +40,8 @@ export function QuestionForm(props: {
   const last = index === count - 1;
   const answered = (question: Question | undefined) => isAnswered(question, draft);
   const complete = props.questions.every(answered);
-  const ready = !props.disabled && answered(current) && (!last || complete);
+  const ready =
+    !props.disabled && answered(current) && (!last || (complete && !props.declinesOnly));
   const go = (at: number) => edit((before) => ({ ...before, at }));
   const advance = () => {
     if (!ready) return;
@@ -165,7 +168,13 @@ export function QuestionForm(props: {
               variant="primary"
               disabled={!ready}
               title={
-                ready ? undefined : last && !complete ? "Answer every question" : "Pick an answer"
+                ready
+                  ? undefined
+                  : last && !complete
+                    ? "Answer every question"
+                    : last && props.declinesOnly && answered(current)
+                      ? "Wait for the whole request to load"
+                      : "Pick an answer"
               }
             >
               Continue

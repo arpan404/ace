@@ -1316,14 +1316,14 @@ export class Store {
   snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
     return this.threadReads.snapshotThread(id, tail);
   }
-  readEntityPage(
-    threadId: ThreadId,
-    collection: import("@ace/protocol").EntityCollection,
-    before: number,
-    limit: number,
-    maxBytes?: number,
-  ) {
-    return this.threadReads.readEntityPage(threadId, collection, before, limit, maxBytes);
+  readEntityPage(...page: Parameters<ThreadReads["readEntityPage"]>) {
+    return this.threadReads.readEntityPage(...page);
+  }
+  readInteractionRequest(...read: Parameters<ThreadReads["readInteractionRequest"]>) {
+    return this.threadReads.readInteractionRequest(...read);
+  }
+  interactionRequestVersion(...read: Parameters<ThreadReads["interactionRequestVersion"]>) {
+    return this.threadReads.interactionRequestVersion(...read);
   }
   getInteraction(id: string) {
     return this.threadReads.getInteraction(id);

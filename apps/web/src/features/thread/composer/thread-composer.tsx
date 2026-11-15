@@ -339,6 +339,8 @@ export function ThreadComposer({
             interactionId,
             identity: request ? requestIdentity(request) : undefined,
             questions: [],
+            // A summarized request is allowed on its card, once read whole.
+            unread: request?.truncated ? request.request : undefined,
           },
           { kind: "approval", optionId },
         );

@@ -48,6 +48,19 @@
     },
     "toolCallId": {
       "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "truncated": {
+      "properties": {
+        "chars": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chars"
+      ],
+      "type": "object"
     }
   },
   "required": [

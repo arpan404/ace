@@ -1783,6 +1783,62 @@
     },
     {
       "properties": {
+        "eof": {
+          "type": "boolean"
+        },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "interaction.data",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "interactionId",
+        "version",
+        "offset",
+        "nextOffset",
+        "total",
+        "text",
+        "eof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "itemSeqs": {
           "additionalProperties": {
             "exclusiveMinimum": 0,

@@ -10115,6 +10115,28 @@ Example:
 }
 ```
 
+### interaction.read
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"interaction.read"` |  |
+| requestId | yes | string | {"minLength":1} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
+| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "interactionId": "example",
+  "offset": 4,
+  "requestId": "example",
+  "threadId": "example",
+  "type": "interaction.read"
+}
+```
+
 ### items.page
 
 | Field | Required | Type | Constraints |
@@ -10129,8 +10151,8 @@ Example:
 
 ```json
 {
-  "before": 5,
-  "limit": 4,
+  "before": 1,
+  "limit": 10,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -10153,10 +10175,9 @@ Example:
 
 ```json
 {
-  "before": 10,
-  "collection": "agents",
-  "limit": 3,
-  "maxBytes": 16387,
+  "before": 8,
+  "collection": "backgroundTasks",
+  "limit": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -10177,7 +10198,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 8,
+    "at": 7,
     "id": "example"
   },
   "requestId": "example",
@@ -10806,6 +10827,38 @@ Example:
 }
 ```
 
+### interaction.data
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"interaction.data"` |  |
+| requestId | yes | string |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
+| version | yes | string | {"minLength":1,"maxLength":64} |
+| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| nextOffset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| text | yes | string |  |
+| eof | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "eof": false,
+  "interactionId": "example",
+  "nextOffset": 8,
+  "offset": 8,
+  "requestId": "example",
+  "text": "example",
+  "threadId": "example",
+  "total": 3,
+  "type": "interaction.data",
+  "version": "example"
+}
+```
+
 ### items.page
 
 Semantic rule: itemSeqs holds the creation sequence of every item.
@@ -10825,11 +10878,12 @@ Example:
 
 ```json
 {
+  "itemSeqs": {},
   "items": [],
-  "itemsBefore": 7,
+  "itemsBefore": null,
   "omitted": [],
   "requestId": "example",
-  "seq": 8,
+  "seq": 0,
   "threadId": "example",
   "type": "items.page"
 }
@@ -10881,7 +10935,7 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "grantTtlMs": 1,
+    "grantTtlMs": 3,
     "ok": true
   },
   "type": "account.grant.refresh.result"
@@ -16041,6 +16095,7 @@ Example:
 | createdAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
 | closedAt | no | [Timestamp.json](schema/Timestamp.json) |  |
 | raw | no | array | {"default":[],"items":{"$ref":"https://ace.local/protocol/v1/RawPayload.json"}} |
+| truncated | no | object | {"properties":{"chars":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["chars"]} |
 
 Example:
 
@@ -16057,7 +16112,10 @@ Example:
     "title": "example"
   },
   "state": "resolved",
-  "threadId": "example"
+  "threadId": "example",
+  "truncated": {
+    "chars": 1
+  }
 }
 ```
 

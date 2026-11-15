@@ -236,6 +236,10 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var help: HelpRequest? = nil
     /// The request as its strip above the composer says it (`StripLine`); nil from older bridges.
     var strip: StripLineRow? = nil
+    /// Why only declines are offered: the daemon sent a summary, too large to review on the
+    /// phone (ADR 0157); "" or nil when the request came whole.
+    var summarized: String? = nil
+    var tooLargeToApprove: Bool { !(summarized ?? "").isEmpty }
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String

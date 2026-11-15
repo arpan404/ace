@@ -3904,6 +3904,38 @@ Example:
 }
 ```
 
+### interaction.data
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"interaction.data"` |  |
+| requestId | yes | string |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
+| version | yes | string | {"minLength":1,"maxLength":64} |
+| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| nextOffset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| total | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| text | yes | string |  |
+| eof | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "eof": false,
+  "interactionId": "example",
+  "nextOffset": 6,
+  "offset": 1,
+  "requestId": "example",
+  "text": "example",
+  "threadId": "example",
+  "total": 6,
+  "type": "interaction.data",
+  "version": "example"
+}
+```
+
 ### items.page
 
 Semantic rule: itemSeqs holds the creation sequence of every item.
@@ -3924,9 +3956,9 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 3,
   "requestId": "example",
-  "seq": 1,
+  "seq": 3,
   "threadId": "example",
   "type": "items.page"
 }
@@ -3978,8 +4010,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "grantTtlMs": 8,
-    "ok": true
+    "code": "example",
+    "message": "example",
+    "ok": false
   },
   "type": "account.grant.refresh.result"
 }

@@ -85,7 +85,7 @@ struct QuestionCard: View {
                 .id(question.id)
             }
             if interaction.unanswerable == true {
-                Text("This question has more choices than fit here. Answer it on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(interaction.tooLargeToApprove ? interaction.summarized ?? "" : "This question has more choices than fit here. Answer it on your machine.").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
             RequestActions {
                 Button(questions.count > 1 ? "Skip these questions" : "Skip this question") { answer([:], true) }

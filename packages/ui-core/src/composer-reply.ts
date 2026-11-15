@@ -1,4 +1,5 @@
 import type { Interaction, InteractionResolution } from "@ace/protocol";
+import { sentSummarized } from "@ace/projection/interaction-summary";
 import { answerOf, isAnswered, type QuestionDraft } from "./question-draft.ts";
 
 /**
@@ -7,16 +8,17 @@ import { answerOf, isAnswered, type QuestionDraft } from "./question-draft.ts";
  * answered so, and only when the words can be its answer: they answer the question on screen
  * (in place of a single pick, beside several) and every other question not answered yet, while
  * the picks made on the card stay. When the question on screen, or one still unanswered, takes
- * no free text, the message stays a message; so does one with no words. Pure.
+ * no free text, the message stays a message; so does one with no words, and one to a question
+ * too large to send whole (ADR 0157): its answer goes on its card, once it shows it whole. Pure.
  */
 export function composerReply(
-  interaction: Pick<Interaction, "state" | "blocking" | "request"> | undefined,
+  interaction: Pick<Interaction, "state" | "blocking" | "request" | "truncated"> | undefined,
   draft: QuestionDraft,
   text: string,
 ): InteractionResolution | undefined {
   const words = text.trim();
   if (!words || !interaction?.blocking || interaction.state !== "pending") return undefined;
-  if (interaction.request.kind !== "question") return undefined;
+  if (interaction.request.kind !== "question" || sentSummarized(interaction)) return undefined;
   const { questions } = interaction.request;
   const current = questions[Math.min(Math.max(draft.at, 0), questions.length - 1)];
   if (!current?.allowOther) return undefined;

@@ -141,6 +141,36 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
       });
       break;
     }
+    case "interaction.read": {
+      if (!authorize("read") || options.canReadThread?.(device, message.threadId) === false) {
+        fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
+        break;
+      }
+      const page = options.store.readInteractionRequest(
+        message.threadId,
+        message.interactionId,
+        message.offset,
+      );
+      if (typeof page === "string") {
+        fail(
+          page,
+          page === "interaction_not_found"
+            ? "This thread has no such request"
+            : "This request came from another machine too large to read whole here",
+          false,
+          { requestId: message.requestId },
+        );
+        break;
+      }
+      send({
+        type: "interaction.data",
+        requestId: message.requestId,
+        threadId: message.threadId,
+        interactionId: message.interactionId,
+        ...page,
+      });
+      break;
+    }
     case "entities.page": {
       if (
         !authorize("read") ||

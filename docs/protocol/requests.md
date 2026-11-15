@@ -3751,6 +3751,28 @@ Example:
 }
 ```
 
+### interaction.read
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"interaction.read"` |  |
+| requestId | yes | string | {"minLength":1} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
+| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "interactionId": "example",
+  "offset": 2,
+  "requestId": "example",
+  "threadId": "example",
+  "type": "interaction.read"
+}
+```
+
 ### items.page
 
 | Field | Required | Type | Constraints |
@@ -3765,8 +3787,8 @@ Example:
 
 ```json
 {
-  "before": 3,
-  "limit": 4,
+  "before": 1,
+  "limit": 1,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
@@ -3789,9 +3811,9 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "collection": "agents",
-  "limit": 2,
+  "before": 9,
+  "collection": "backgroundTasks",
+  "limit": 7,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -3812,7 +3834,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 7,
+    "at": 2,
     "id": "example"
   },
   "requestId": "example",
