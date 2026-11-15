@@ -30,6 +30,7 @@ import { importPlugin } from "./import.ts";
 import { PluginClientOperations } from "./client-operations.ts";
 import { Registry } from "./registry.ts";
 import { spadeView } from "./spade-view.ts";
+import { readSpadeFile } from "./spade-file.ts";
 import { jsonSize, reviewBytes, reviewPage } from "./review-pages.ts";
 import { reviewPlugin, validateComponents } from "./review.ts";
 import type { PluginSnapshot } from "./types.ts";
@@ -347,6 +348,13 @@ export class PluginManager {
     const snapshot = (await this.installed()).find((entry) => entry.install.name === wanted);
     if (!snapshot) throw new Error("Plugin not installed");
     return spadeView(snapshot, this.client.availability(wanted));
+  }
+  /** One file of an accepted plugin's skill, for Spade (ADR 0151). */
+  async spadeFile(name: string, path: string) {
+    const wanted = PluginName.parse(name);
+    const snapshot = (await this.installed()).find((entry) => entry.install.name === wanted);
+    if (!snapshot) throw new Error("Plugin not installed");
+    return readSpadeFile(snapshot, path);
   }
   catalog(offset: number, limit: number) {
     return this.client.catalog(offset, limit);

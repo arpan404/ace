@@ -71,6 +71,11 @@ export class PluginService {
           type: "plugins.spade",
           plugin: await this.manager.spade(request.name),
         });
+      case "plugins.spadeFile":
+        return PluginResponse.parse({
+          type: "plugins.spadeFile",
+          ...(await this.manager.spadeFile(request.name, request.path)),
+        });
       case "plugins.catalog":
         return PluginResponse.parse({
           type: "plugins.catalog",

@@ -87,3 +87,34 @@ test("a component too large for the answer is listed without its text", async ()
     await f.close();
   }
 });
+
+test("Spade lists a plugin skill's other files and reads each one as accepted, and nothing else", async () => {
+  const f = await fixture();
+  try {
+    await f.manager.accept(await f.prepare());
+    const service = new PluginService(f.manager);
+    const answer = await service.handle({ type: "plugins.spade", name: "sample" });
+    if (answer.type !== "plugins.spade") throw new Error(`unexpected ${answer.type}`);
+    const review = answer.plugin.components.find((entry) => entry.name === "review");
+    expect(review?.files).toEqual([
+      expect.objectContaining({ path: "references/checklist.md", bytes: 23, executable: false }),
+    ]);
+    const file = await service.handle({
+      type: "plugins.spadeFile",
+      name: "sample",
+      path: "skills/review/references/checklist.md",
+    });
+    if (file.type !== "plugins.spadeFile") throw new Error(`unexpected ${file.type}`);
+    expect(Buffer.from(file.content, "base64").toString()).toBe("Check failure behavior.");
+    expect(file.hash).toBe(review?.files?.[0]?.hash);
+    // A file that is not a skill's (a script the hooks run) is never sent this way.
+    await expect(
+      service.handle({ type: "plugins.spadeFile", name: "sample", path: "scripts/start.js" }),
+    ).rejects.toThrow("Not a file of this plugin's skills");
+    await expect(
+      service.handle({ type: "plugins.spadeFile", name: "sample", path: "skills/review/SKILL.md" }),
+    ).rejects.toThrow("Not a file of this plugin's skills");
+  } finally {
+    await f.close();
+  }
+});

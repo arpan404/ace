@@ -107,6 +107,19 @@ export type PluginComponent = z.infer<typeof PluginComponent>;
  * names in a command; Spade runs commands there and never reads the folder itself. A
  * component's `text` is absent when it did not fit the answer, with `omitted` saying so.
  */
+/** The most files of one plugin skill Spade is told about, and the largest one. */
+export const pluginSpadeFileLimits = { files: 200, bytes: 1024 * 1024 } as const;
+/**
+ * One of a plugin skill's files besides `SKILL.md`: its path in the skill's folder, as accepted.
+ * Spade fetches it with `plugins.spadeFile`.
+ */
+export const PluginSpadeFile = z.strictObject({
+  path: z.string().min(1).max(512),
+  bytes: z.number().int().nonnegative().max(pluginSpadeFileLimits.bytes),
+  hash: PluginHash,
+  executable: z.boolean(),
+});
+export type PluginSpadeFile = z.infer<typeof PluginSpadeFile>;
 export const PluginSpadeComponent = z.strictObject({
   kind: PluginComponent.shape.kind,
   name: PluginName,
@@ -115,6 +128,8 @@ export const PluginSpadeComponent = z.strictObject({
   title: z.string().min(1).max(200).optional(),
   text: z.string().max(262144).optional(),
   omitted: z.string().max(200).optional(),
+  /** A skill's other files (hidden ones, and past the limits, left out). */
+  files: z.array(PluginSpadeFile).max(pluginSpadeFileLimits.files).optional(),
 });
 export type PluginSpadeComponent = z.infer<typeof PluginSpadeComponent>;
 export const PluginSpade = z.strictObject({
@@ -129,6 +144,15 @@ export type PluginSpade = z.infer<typeof PluginSpade>;
 export const PluginRequest = z.discriminatedUnion("type", [
   /** One accepted plugin for Spade's bots (ADR 0151). Read scope. */
   z.strictObject({ type: z.literal("plugins.spade"), name: PluginName }),
+  /**
+   * One file of an accepted plugin's skill, by its path in the plugin, read and checked against
+   * the accepted hash by the daemon (ADR 0151). Read scope.
+   */
+  z.strictObject({
+    type: z.literal("plugins.spadeFile"),
+    name: PluginName,
+    path: z.string().min(1).max(1024),
+  }),
   PluginSkillAvailability.extend({ type: z.literal("plugins.skillAvailability") }),
   z.strictObject({
     type: z.literal("plugins.availability"),
@@ -187,6 +211,14 @@ export const PluginRequest = z.discriminatedUnion("type", [
 ]);
 export const PluginResponse = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("plugins.spade"), plugin: PluginSpade }),
+  z.strictObject({
+    type: z.literal("plugins.spadeFile"),
+    path: z.string().min(1).max(1024),
+    hash: PluginHash,
+    executable: z.boolean(),
+    /** The content, base64. */
+    content: z.string().max(Math.ceil(pluginSpadeFileLimits.bytes / 3) * 4),
+  }),
   z.strictObject({
     type: z.literal("plugins.skillAvailability"),
     availability: PluginSkillAvailability,

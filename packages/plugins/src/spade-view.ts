@@ -2,6 +2,7 @@ import type { PluginAvailability, PluginSpade, PluginSpadeComponent } from "@ace
 import { componentTitle } from "./component-title.ts";
 import { normalizePath } from "./manifest.ts";
 import { executionsOf } from "./review.ts";
+import { skillFiles } from "./spade-file.ts";
 import type { PluginSnapshot } from "./types.ts";
 
 /** The most text one component carries; a longer one is listed without it. */
@@ -37,6 +38,7 @@ export function spadeView(snapshot: PluginSnapshot, availability: PluginAvailabi
         description: entry.description ?? "",
         ...(title && title !== entry.name ? { title } : {}),
         ...(fits ? { text } : { omitted: "Too large to send with the plugin." }),
+        ...(kind === "skill" ? { files: skillFiles(snapshot, normalizePath(entry.path)) } : {}),
       });
     }
   return {
