@@ -380,6 +380,10 @@ enum BridgePatch: Decodable, Sendable {
     case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
+    /// This machine's Suits as Look-grid rows (`bridge/suit-library.ts`).
+    case suits([PhoneSuitRow])
+    /// An agent's preview, keep or revert for this device, in the order it was sent.
+    case suitActive(SuitActive)
     /// The mark this runtime's machine chose, its own id and the paths it serves
     /// (`bridge/machine-identity.ts`).
     case machineIdentity(MachineIdentityPatch)
@@ -426,7 +430,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, suits, active }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -511,6 +515,8 @@ enum BridgePatch: Decodable, Sendable {
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
+        case "suits.list": self = .suits(try box.decode([PhoneSuitRow].self, forKey: .suits))
+        case "suits.active": self = .suitActive(try box.decode(SuitActive.self, forKey: .active))
         case "machine.identity": self = .machineIdentity(try MachineIdentityPatch(from: decoder))
         case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
                                                     lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))

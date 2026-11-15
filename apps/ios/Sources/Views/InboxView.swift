@@ -59,9 +59,11 @@ struct InboxView: View {
     @State private var placeRestored = false
 
     private var current: ClientModel? { openMachine.flatMap(inbox.client) }
+    /// The Suit this phone wears, read from whichever machine lists it (ADR 0150).
+    private var followingSuits: some View { sheets.modifier(SuitFollow(inbox: inbox)) }
 
     var body: some View {
-        sheets
+        followingSuits
             // An outside app's sign-in opens over whatever the person is doing (ADR 0122).
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))

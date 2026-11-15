@@ -25,12 +25,16 @@ struct CustomAccent: Codable, Equatable, Sendable {
 /// The generated theme holds no palette state of its own: widget extensions never
 /// register a model and keep the shared token defaults.
 @MainActor @Observable final class NativePaletteModel {
+    typealias Pair = NativePalette.Pair
     private(set) var palette: NativePalette
     /// The chosen theme and accent (Settings › Appearance); colour only, kept on this phone.
     private(set) var theme: String
     private(set) var accent: String
     /// The last custom colour picked, with its fit; nil until one is picked.
     private(set) var custom: CustomAccent?
+    /// The Suit on screen's colour roles (ADR 0150), over every theme, accent and older palette;
+    /// nil while no Suit applies. Status colours are never roles, so they stay ace's.
+    private(set) var suit: [String: Pair]?
     @ObservationIgnored private let defaults: UserDefaults
     static let key = "ace.palette"
     static let themeKey = "ace.theme"
@@ -74,9 +78,11 @@ struct CustomAccent: Codable, Equatable, Sendable {
         defaults.set("custom", forKey: Self.accentKey)
         accent = "custom"
     }
-    /// A role's colours as this phone shows them: an earlier custom palette, then the theme's.
+    /// Shows a Suit's colours, or the theme again with nil.
+    func wear(suit next: [String: Pair]?) { if suit != next { suit = next } }
+    /// A role's colours as this phone shows them: a Suit's, an earlier custom palette, then the theme's.
     func pair(for key: String) -> NativePalette.Pair? {
-        palette.colours[key] ?? preview(key, theme: theme, accent: accent)
+        suit?[key] ?? palette.colours[key] ?? preview(key, theme: theme, accent: accent)
     }
     /// A role's colours in any theme and accent, the custom one included, for picker previews.
     func preview(_ key: String, theme: String, accent: String) -> NativePalette.Pair? {

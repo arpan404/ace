@@ -195,13 +195,21 @@ struct PhoneAppearance: ViewModifier {
 
     @AppStorage("ace.appearance") private var appearance = "system"
     @State private var palette = NativePaletteModel(defaults: .standard)
+    @State private var suits = SuitLookModel(defaults: .standard)
     func body(content: Content) -> some View {
         content
             // Set on the window, not with `preferredColorScheme`: that leaves an open sheet
             // (Settings itself) in the old mode and doesn't always return to System.
             .background { WindowInterfaceStyle(style: Self.style(appearance)) }
             .environment(palette)
-            .onAppear { NativePaletteBridge.model = palette }
+            .environment(suits)
+            .onAppear {
+                SuitLooks.model = suits
+                SuitWear.apply(suits.applied, to: palette)
+                NativePaletteBridge.model = palette
+            }
+            // A Suit's colours, faces and shape, or the theme again (ADR 0150), fading across.
+            .onChange(of: suits.applied) { _, suit in LookCrossfade.run { SuitWear.apply(suit, to: palette) } }
             // Reading the palette here keeps this root invalidated on save/reset, so every
             // active view re-resolves its colours without resetting navigation identity.
             .onChange(of: palette.palette) { _, _ in NativePaletteBridge.model = palette }

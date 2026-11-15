@@ -24,7 +24,7 @@ import UIKit
         static let control = Capsule(style: .continuous)
         /// A field that grows with its text (the composer's): a capsule while one line tall,
         /// then concentric with the container it sits in.
-        static let field = TextCapsule(maxRadius: Corner.field)
+        static var field: TextCapsule { TextCapsule(maxRadius: Corner.field) }
         /// A container (the composer block, a strip, a floating bar, a grouped list, a sheet's
         /// content): concentric with the screen's corners, or with its own container.
         static var container: AnyShape {
@@ -42,20 +42,20 @@ import UIKit
             return AnyShape(RoundedRectangle(cornerRadius: Corner.nested(in: Corner.device, inset: Space.margin), style: .continuous))
         }
         /// The person's message: a capsule for a short line, then concentric with the page.
-        static let bubble = TextCapsule(maxRadius: Corner.field)
+        static var bubble: TextCapsule { TextCapsule(maxRadius: Corner.field) }
     }
 
     /// The radii the shapes above resolve to where the system can't work them out itself. Views
-    /// never use these directly: they name a `Shape`.
+    /// never use these directly: they name a `Shape`. A Suit's corner scale multiplies them.
     enum Corner {
         /// The iPhone's display corner, for systems before iOS 26's concentric shapes.
-        static let device: CGFloat = 44
+        @MainActor static var device: CGFloat { 44 * SuitShape.shared.radius }
         /// The smallest a container's corner gets once concentric math runs out (deep nesting).
-        static let containerFloor: CGFloat = 22
+        @MainActor static var containerFloor: CGFloat { 22 * SuitShape.shared.radius }
         /// A page block at the margin: the display corner less the margin, never sharper.
-        static let blockFloor: CGFloat = 18
+        @MainActor static var blockFloor: CGFloat { 18 * SuitShape.shared.radius }
         /// A growing field's corner once it wraps: concentric inside the composer block.
-        static let field: CGFloat = 22
+        @MainActor static var field: CGFloat { 22 * SuitShape.shared.radius }
         /// A drawn glyph's own corners (the Stop square, a file-status box).
         static let glyphStop: CGFloat = 2
         static let glyph: CGFloat = 6
@@ -301,7 +301,7 @@ extension AceDesign.Size {
     static let rowInset: CGFloat = 12
     static let listInset: CGFloat = 8
     /// A pressed or open row's soft fill.
-    static let rowCorner: CGFloat = 16
+    @MainActor static var rowCorner: CGFloat { 16 * SuitShape.shared.radius }
     /// Between a title and the lines around it.
     static let rowLineGap: CGFloat = 2
     /// The three lines' heights: project and status, title, branch.
@@ -331,7 +331,7 @@ extension AceDesign.Size {
     static let settingsRow: CGFloat = 48
     static let groupGlyph: CGFloat = 18
     static let chevron: CGFloat = 11
-    static let groupCorner: CGFloat = 22
+    @MainActor static var groupCorner: CGFloat { 22 * SuitShape.shared.radius }
     /// The header's glass capsule (More, Pull requests, Search): each cell drawn this wide and
     /// the capsule this tall, every button still a 44pt target.
     static let headerBar: CGFloat = 36
@@ -356,7 +356,7 @@ extension AceDesign.Size {
     static let navButton: CGFloat = 36
     static let navGlyph: CGFloat = 17
     /// The person's bubble's corners.
-    static let bubbleCorner: CGFloat = 19
+    @MainActor static var bubbleCorner: CGFloat { 19 * SuitShape.shared.radius }
     /// A transcript step's glyph, and the line it sits on.
     static let stepGlyph: CGFloat = 13
     static let stepRow: CGFloat = 24
@@ -364,7 +364,7 @@ extension AceDesign.Size {
     static let chip: CGFloat = 28
     static let chipGlyph: CGFloat = 13
     /// The composer block's corners, its + glyph and the send or stop circle.
-    static let blockCorner: CGFloat = 26
+    @MainActor static var blockCorner: CGFloat { 26 * SuitShape.shared.radius }
     static let plusGlyph: CGFloat = 18
     static let send: CGFloat = 32
     /// The arrow in the send circle.
@@ -536,7 +536,7 @@ extension AceDesign.Size {
     /// A diff's line-number column: room for four digits.
     static let lineNumber: CGFloat = 32
     /// A hairline: a divider, a diff's comment rail, the image-diff split.
-    static let hairline: CGFloat = 1
+    @MainActor static var hairline: CGFloat { SuitShape.shared.border }
     static let rail: CGFloat = 2
     /// A drawn glyph's stroke (a file-status box).
     static let glyphStroke: CGFloat = 1.5

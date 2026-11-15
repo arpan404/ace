@@ -203,7 +203,8 @@ lines.push(`    }
     }
     static func uiFont(_ style: TypeStyle, relativeTo: UIFont.TextStyle, traits: UITraitCollection) -> UIFont {
         let weight: UIFont.Weight = style.weight >= 600 ? .semibold : .regular
-        return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
+        let face = SuitFaces.shared.face(monospaced: false, prose: false).flatMap { UIFont(name: $0, size: style.size) }
+        return UIFontMetrics(forTextStyle: relativeTo).scaledFont(for: face ?? .systemFont(ofSize: style.size, weight: weight), compatibleWith: traits)
     }
     static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {
         let style = Typography.body
@@ -222,6 +223,7 @@ lines.push(`    }
     @ScaledMetric private var lineHeight: CGFloat
     @ScaledMetric private var tracking: CGFloat
     @Environment(\\.transcriptScale) private var scale
+    @Environment(\\.aceProse) private var prose
 
     init(style: AceTheme.TypeStyle, relativeTo: Font.TextStyle, design: Font.Design) {
         self.style = style
@@ -233,15 +235,22 @@ lines.push(`    }
 
     func body(content: Content) -> some View {
         let size = size * scale
-        return content.font(.system(size: size, weight: AceTheme.fontWeight(style.weight), design: design))
+        let weight = AceTheme.fontWeight(style.weight)
+        // A Suit's face for this slot (\`SuitFaces\`), else SF Pro or SF Mono.
+        let face = SuitFaces.shared.face(monospaced: design == .monospaced, prose: prose)
+        let font = face.map { Font.custom($0, fixedSize: size).weight(weight) } ?? .system(size: size, weight: weight, design: design)
+        let drawn = face.flatMap { UIFont(name: $0, size: size) } ?? UIFont.systemFont(ofSize: size)
+        return content.font(font)
             .tracking(tracking * scale)
-            .lineSpacing(max(AceTheme.Spacing.none, lineHeight * scale - UIFont.systemFont(ofSize: size).lineHeight))
+            .lineSpacing(max(AceTheme.Spacing.none, lineHeight * scale - drawn.lineHeight))
     }
 }
 
 extension EnvironmentValues {
     /// The transcript's size relative to Dynamic Type (Settings › Appearance): 1 everywhere else.
     @Entry var transcriptScale: CGFloat = 1
+    /// Inside the reading column, where a Suit's transcript face applies: false everywhere else.
+    @Entry var aceProse = false
 }
 
 extension View {

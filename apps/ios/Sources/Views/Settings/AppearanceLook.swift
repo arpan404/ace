@@ -27,9 +27,11 @@ struct PhoneLookEnvironment: ViewModifier {
     @AppStorage(PhoneLook.reduceMotionKey) private var reduceMotion = false
     @AppStorage(PhoneLook.solidKey) private var solid = false
     @AppStorage(PhoneLook.densityKey) private var density = "comfortable"
+    @Environment(SuitLookModel.self) private var suits: SuitLookModel?
     func body(content: Content) -> some View {
         content
-            .environment(\.aceDensityId, density)
+            // A Suit's density stands over the device's while the Suit shows.
+            .environment(\.aceDensityId, suits?.applied?.density ?? density)
             .environment(\.aceReduceMotion, systemReduceMotion || reduceMotion)
             .environment(\.aceSolidSurfaces, solid)
     }
@@ -38,7 +40,7 @@ struct PhoneLookEnvironment: ViewModifier {
 /// The transcript's text size, relative to Dynamic Type. Applied to the reading column only.
 struct TranscriptTextSize: ViewModifier {
     @AppStorage(PhoneLook.transcriptKey) private var size = "default"
-    func body(content: Content) -> some View { content.environment(\.transcriptScale, PhoneLook.scale(size)) }
+    func body(content: Content) -> some View { content.environment(\.transcriptScale, PhoneLook.scale(size)).environment(\.aceProse, true) }
 }
 
 /// A look change fades from the old colours to the new across the whole window, open sheets
