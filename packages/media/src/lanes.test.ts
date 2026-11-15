@@ -183,6 +183,7 @@ const vectors = z
         tag: z.number(),
         serverProof: z.string(),
         clientProof: z.string(),
+        transcript: z.string(),
         acceptRecord: z.string(),
         firstRecord: z.string(),
       }),
@@ -204,7 +205,9 @@ if (!priority) throw new Error("no priority vector");
 
 /** ace-media's end of a lane opened with the shared vectors' nonces. */
 function mediaEnd(tag: number): LaneRecords {
-  const keys = deriveLaneKeys(secret, tag, clientNonce, serverNonce);
+  const entry = vectors.cases.find((candidate) => candidate.tag === tag);
+  if (!entry) throw new Error(`no vector for tag ${tag}`);
+  const keys = deriveLaneKeys(secret, bytes(entry.transcript));
   return new LaneRecords(keys.toDaemon, keys.toMedia);
 }
 

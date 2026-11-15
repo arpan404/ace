@@ -9,7 +9,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { encodeEgress } from "../frame.ts";
-import { deriveLaneKeys, LaneRecords } from "../lane-records.ts";
+import { deriveLaneKeys, LaneRecords, laneTranscript } from "../lane-records.ts";
 import { controlFrameReader, laneAccepted } from "../lanes.ts";
 import { decodeToMedia, encodeControl, type ControlLane, type FromMedia } from "../wire.ts";
 
@@ -55,7 +55,13 @@ function mac(key: Uint8Array, ...parts: Uint8Array[]): Uint8Array {
 function serveLane(socket: Socket): void {
   let buffered = new Uint8Array(0);
   let challenge:
-    | { tag: number; expected: Uint8Array; clientNonce: Uint8Array; serverNonce: Uint8Array }
+    | {
+        tag: number;
+        expected: Uint8Array;
+        clientNonce: Uint8Array;
+        serverNonce: Uint8Array;
+        serverProof: Uint8Array;
+      }
     | undefined;
   let records: LaneRecords | undefined;
   let reader: ReturnType<typeof controlFrameReader> | undefined;
@@ -94,28 +100,28 @@ function serveLane(socket: Socket): void {
       if (!valid || !known) return void socket.destroy();
       const clientNonce = buffered.slice(5, 37);
       const serverNonce = new Uint8Array(randomBytes(32));
+      const serverProof = mac(known, label("server"), Uint8Array.of(tag), clientNonce);
       challenge = {
         tag,
         clientNonce,
         serverNonce,
+        serverProof,
         expected: mac(known, label("client"), Uint8Array.of(tag), clientNonce, serverNonce),
       };
-      socket.write(
-        Uint8Array.from([
-          ...mac(known, label("server"), Uint8Array.of(tag), clientNonce),
-          ...serverNonce,
-        ]),
-      );
+      socket.write(Uint8Array.from([...serverProof, ...serverNonce]));
       buffered = buffered.subarray(37);
     }
     if (buffered.length < 32 || !known) return;
-    const { tag, expected, clientNonce, serverNonce } = challenge;
+    const { tag, expected, clientNonce, serverNonce, serverProof } = challenge;
     // The proof is compared in constant time, as ace-media does.
     if (!timingSafeEqual(buffered.subarray(0, 32), expected) || lanes.has(tag))
       return void socket.destroy();
     lanes.add(tag);
     // From here every byte is a record, the accept byte first.
-    const keys = deriveLaneKeys(known, tag, clientNonce, serverNonce);
+    const keys = deriveLaneKeys(
+      known,
+      laneTranscript(tag, clientNonce, serverNonce, serverProof, buffered.subarray(0, 32)),
+    );
     records = new LaneRecords(keys.toDaemon, keys.toMedia);
     if (lanes.size === 2) secret?.fill(0);
     sealed.write(Uint8Array.of(laneAccepted));

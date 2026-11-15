@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createConnection } from "node:net";
-import { deriveLaneKeys, LaneRecords } from "./lane-records.ts";
+import { deriveLaneKeys, LaneRecords, laneTranscript } from "./lane-records.ts";
 import { encodeControl, type ControlLane, type ToMedia } from "./wire.ts";
 
 /**
@@ -253,10 +253,13 @@ export function authenticateLane(
       expected.fill(0);
       const serverNonce = reply.slice(proofBytes, proofBytes + nonceBytes);
       const rest = reply.subarray(proofBytes + nonceBytes);
-      const keys = deriveLaneKeys(secret, tag[0] ?? 0, nonce, serverNonce);
-      records = new LaneRecords(keys.toMedia, keys.toDaemon);
       phase = "accept";
       const answer = proof(secret, clientLabel, tag, nonce, serverNonce);
+      const keys = deriveLaneKeys(
+        secret,
+        laneTranscript(tag[0] ?? 0, nonce, serverNonce, presented, answer),
+      );
+      records = new LaneRecords(keys.toMedia, keys.toDaemon);
       socket.write(answer, () => answer.fill(0));
       received(rest);
     });

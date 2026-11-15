@@ -32,12 +32,22 @@ fn vector() -> Vector {
     }
 }
 
+/// The vector's handshake transcript for `tag`.
+fn transcript(v: &Vector, tag: u8) -> Vec<u8> {
+    let case = v
+        .cases
+        .iter()
+        .find(|case| case["tag"].as_u64() == Some(u64::from(tag)))
+        .unwrap();
+    hex(case["transcript"].as_str().unwrap())
+}
+
 /// Both ends of one lane with the same keys.
 fn pair<const N: u64>(tag: u8) -> (Records<N>, Records<N>) {
     let v = vector();
     let secret = LaneSecret::from_payload(&v.secret).unwrap();
-    let media = Records::media_side(derive(&secret, tag, &v.client, &v.server)).unwrap();
-    let daemon = Records::daemon_side(derive(&secret, tag, &v.client, &v.server)).unwrap();
+    let media = Records::media_side(derive(&secret, &transcript(&v, tag))).unwrap();
+    let daemon = Records::daemon_side(derive(&secret, &transcript(&v, tag))).unwrap();
     (media, daemon)
 }
 
@@ -58,7 +68,7 @@ fn keys_and_records_are_the_shared_vectors_for_both_lanes() {
     let secret = LaneSecret::from_payload(&v.secret).unwrap();
     for case in &v.cases {
         let tag = u8::try_from(case["tag"].as_u64().unwrap()).unwrap();
-        let keys = derive(&secret, tag, &v.client, &v.server);
+        let keys = derive(&secret, &transcript(&v, tag));
         assert_eq!(
             keys.to_media[..],
             hex(case["toMediaKey"].as_str().unwrap())[..]

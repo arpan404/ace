@@ -52,6 +52,25 @@ pub fn client_message(
     message
 }
 
+/// The whole handshake, bound into the lane's record keys: magic, tag, both nonces, then
+/// ace-media's proof and the daemon's.
+pub fn transcript(
+    tag: u8,
+    client_nonce: &[u8; NONCE_LEN],
+    server_nonce: &[u8; NONCE_LEN],
+    server_proof: &[u8; PROOF_LEN],
+    client_proof: &[u8; PROOF_LEN],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HELLO_LEN + NONCE_LEN + 2 * PROOF_LEN);
+    out.extend_from_slice(MAGIC);
+    out.push(tag);
+    out.extend_from_slice(client_nonce);
+    out.extend_from_slice(server_nonce);
+    out.extend_from_slice(server_proof);
+    out.extend_from_slice(client_proof);
+    out
+}
+
 /// The daemon's hello: `None` for an unknown tag.
 pub fn hello(tag: u8, client_nonce: &[u8; NONCE_LEN]) -> Option<[u8; HELLO_LEN]> {
     if tag != TAG_PRIORITY && tag != TAG_EGRESS {
@@ -117,6 +136,19 @@ mod tests {
             assert_eq!(
                 client_message(tag, &client, &server),
                 bytes(case["clientMessage"].as_str().unwrap())
+            );
+            let proof = |key: &str| -> [u8; PROOF_LEN] {
+                bytes(case[key].as_str().unwrap()).try_into().unwrap()
+            };
+            assert_eq!(
+                transcript(
+                    tag,
+                    &client,
+                    &server,
+                    &proof("serverProof"),
+                    &proof("clientProof")
+                ),
+                bytes(case["transcript"].as_str().unwrap())
             );
         }
     }

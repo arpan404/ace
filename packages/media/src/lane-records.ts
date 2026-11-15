@@ -4,8 +4,8 @@ import { CipherState, MAX_MESSAGE } from "@ace/secure-channel";
 /**
  * Lanes after their hello (`ace_media::lane_cipher`, plan "K1 contract clarifications"): every
  * byte, ace-media's accept byte included, in authenticated encryption. Keys: HKDF-SHA256 from
- * the lane secret, salt `"ace-media lane v1 keys"`, over the authenticated transcript (tag, both
- * nonces) and a direction label. Records: a u16 BE length, then ChaCha20-Poly1305 from
+ * the lane secret, salt `"ace-media lane v1 keys"`, over the whole handshake transcript (magic,
+ * tag, both nonces, both proofs) and a direction label. Records: a u16 BE length, then ChaCha20-Poly1305 from
  * `@ace/secure-channel`'s Noise CipherState, whose nonces are the per-direction sequence numbers;
  * each direction rekeys every `laneRekeyInterval` records, as ace-media's transport does. A
  * record that fails to open (modified, out of sequence, replayed, injected) closes the lane for
@@ -20,21 +20,31 @@ const toDaemonLabel = new TextEncoder().encode("media to daemon");
 
 export type LaneKeys = { toMedia: Uint8Array; toDaemon: Uint8Array };
 
-export function deriveLaneKeys(
-  secret: Uint8Array,
+/** The whole handshake, bound into the record keys: magic, tag, both nonces, both proofs. */
+export function laneTranscript(
   tag: number,
   clientNonce: Uint8Array,
   serverNonce: Uint8Array,
-): LaneKeys {
+  serverProof: Uint8Array,
+  clientProof: Uint8Array,
+): Uint8Array {
+  return Uint8Array.from([
+    0x41,
+    0x43,
+    0x45,
+    0x4c,
+    tag,
+    ...clientNonce,
+    ...serverNonce,
+    ...serverProof,
+    ...clientProof,
+  ]);
+}
+
+export function deriveLaneKeys(secret: Uint8Array, transcript: Uint8Array): LaneKeys {
   const key = (label: Uint8Array) =>
     new Uint8Array(
-      hkdfSync(
-        "sha256",
-        secret,
-        salt,
-        Uint8Array.from([tag, ...clientNonce, ...serverNonce, ...label]),
-        32,
-      ),
+      hkdfSync("sha256", secret, salt, Uint8Array.from([...transcript, ...label]), 32),
     );
   return { toMedia: key(toMediaLabel), toDaemon: key(toDaemonLabel) };
 }

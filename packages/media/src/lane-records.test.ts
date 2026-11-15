@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { deriveLaneKeys, LaneRecords, maxRecordPlain } from "./lane-records.ts";
+import { deriveLaneKeys, LaneRecords, laneTranscript, maxRecordPlain } from "./lane-records.ts";
 
 const vectors = z
   .object({
@@ -11,6 +11,9 @@ const vectors = z
     cases: z.array(
       z.object({
         tag: z.number(),
+        serverProof: z.string(),
+        clientProof: z.string(),
+        transcript: z.string(),
         toMediaKey: z.string(),
         toDaemonKey: z.string(),
         acceptRecord: z.string(),
@@ -31,10 +34,17 @@ const secret = hex(vectors.secret);
 const client = hex(vectors.clientNonce);
 const server = hex(vectors.serverNonce);
 
+/** The vector's handshake transcript for `tag`. */
+function transcript(tag: number): Uint8Array {
+  const entry = vectors.cases.find((candidate) => candidate.tag === tag);
+  if (!entry) throw new Error(`no vector for tag ${tag}`);
+  return hex(entry.transcript);
+}
+
 /** The daemon's and ace-media's ends of one lane (each end wipes the keys it is given). */
 function pair(tag: number, interval?: number) {
-  const ours = deriveLaneKeys(secret, tag, client, server);
-  const theirs = deriveLaneKeys(secret, tag, client, server);
+  const ours = deriveLaneKeys(secret, transcript(tag));
+  const theirs = deriveLaneKeys(secret, transcript(tag));
   return {
     daemon: new LaneRecords(ours.toMedia, ours.toDaemon, interval),
     media: new LaneRecords(theirs.toDaemon, theirs.toMedia, interval),
@@ -44,7 +54,11 @@ function pair(tag: number, interval?: number) {
 describe("lane records", () => {
   for (const entry of vectors.cases)
     it(`derive the keys and seal the first records of the shared vectors (tag ${entry.tag})`, () => {
-      const keys = deriveLaneKeys(secret, entry.tag, client, server);
+      // The whole handshake is bound into the keys.
+      expect(
+        laneTranscript(entry.tag, client, server, hex(entry.serverProof), hex(entry.clientProof)),
+      ).toEqual(hex(entry.transcript));
+      const keys = deriveLaneKeys(secret, hex(entry.transcript));
       expect(Buffer.from(keys.toMedia).toString("hex")).toBe(entry.toMediaKey);
       expect(Buffer.from(keys.toDaemon).toString("hex")).toBe(entry.toDaemonKey);
       const { daemon, media } = pair(entry.tag);

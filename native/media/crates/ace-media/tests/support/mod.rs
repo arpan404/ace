@@ -353,7 +353,12 @@ pub fn lane(path: &str, tag: u8, secret: [u8; 32]) -> Option<SealedLane> {
     let proof = ring::hmac::sign(&key, &lane::client_message(tag, &nonce, &server_nonce));
     let _ = socket.write_all(proof.as_ref());
     let held = ace_media::secret::LaneSecret::from_payload(&secret)?;
-    let keys = ace_media::lane_cipher::derive(&held, tag, &nonce, &server_nonce);
+    let mut server_proof = [0u8; 32];
+    server_proof.copy_from_slice(&reply[..32]);
+    let mut client_proof = [0u8; 32];
+    client_proof.copy_from_slice(proof.as_ref());
+    let transcript = lane::transcript(tag, &nonce, &server_nonce, &server_proof, &client_proof);
+    let keys = ace_media::lane_cipher::derive(&held, &transcript);
     let records = ace_media::lane_cipher::Records::daemon_side(keys).ok()?;
     let mut sealed = SealedLane {
         stream: socket,

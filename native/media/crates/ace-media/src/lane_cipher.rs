@@ -3,8 +3,8 @@
 //! so a process that relays the hello between the daemon and ace-media (a squatting instance of
 //! a Windows pipe name) can neither read a lane nor get a frame of its own accepted.
 //!
-//! Keys: HKDF-SHA256 from the lane secret, salt [`KEY_SALT`], over the authenticated transcript
-//! (the tag and both nonces) and a direction label, one key each way. Records: a u16 BE length,
+//! Keys: HKDF-SHA256 from the lane secret, salt [`KEY_SALT`], over the whole handshake transcript
+//! (magic, tag, both nonces, both proofs) and a direction label, one key each way. Records: a u16 BE length,
 //! then a ChaCha20-Poly1305 record from `media-noise`'s transport (Noise CipherState nonces,
 //! which are the per-direction sequence numbers; rekeyed every [`media_noise::REKEY_INTERVAL`]
 //! records, far before a nonce could repeat). A record that fails to open (modified, out of
@@ -12,7 +12,6 @@
 //! `vectors/lane/proofs.json`.
 use crate::secret::LaneSecret;
 use media_noise::{Error, Transport};
-use media_wire::lane::NONCE_LEN;
 use zeroize::Zeroizing;
 
 pub const KEY_SALT: &[u8] = b"ace-media lane v1 keys";
@@ -29,15 +28,9 @@ pub struct LaneKeys {
     pub to_daemon: Zeroizing<[u8; 32]>,
 }
 
-/// The lane's keys from the secret and the hello's transcript.
-pub fn derive(
-    secret: &LaneSecret,
-    tag: u8,
-    client_nonce: &[u8; NONCE_LEN],
-    server_nonce: &[u8; NONCE_LEN],
-) -> LaneKeys {
-    let key =
-        |label: &[u8]| secret.derive_key(KEY_SALT, &[&[tag], client_nonce, server_nonce, label]);
+/// The lane's keys from the secret and the whole handshake (`media_wire::lane::transcript`).
+pub fn derive(secret: &LaneSecret, transcript: &[u8]) -> LaneKeys {
+    let key = |label: &[u8]| secret.derive_key(KEY_SALT, &[transcript, label]);
     LaneKeys {
         to_media: key(TO_MEDIA),
         to_daemon: key(TO_DAEMON),

@@ -86,7 +86,13 @@ impl LaneAuth {
             .copy_from_slice(&secret.mac(&lane::server_message(tag, &client_nonce))[..]);
         reply[PROOF_LEN..].copy_from_slice(&server_nonce);
         let expected = secret.mac(&lane::client_message(tag, &client_nonce, &server_nonce));
-        let keys = Some(derive(secret, tag, &client_nonce, &server_nonce));
+        // Bound to the whole handshake: the proof the daemon must answer with is in it, so a
+        // lane whose proof differs never shares its keys.
+        let mut server_proof = [0u8; PROOF_LEN];
+        server_proof.copy_from_slice(&reply[..PROOF_LEN]);
+        let transcript =
+            lane::transcript(tag, &client_nonce, &server_nonce, &server_proof, &expected);
+        let keys = Some(derive(secret, &transcript));
         Some(Challenge {
             lane,
             reply,
