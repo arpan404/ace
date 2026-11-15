@@ -13,7 +13,7 @@ use ace_media::stills::poster::{POSTER_MAX_BYTES, POSTER_MIN_BYTES, poster};
 use ace_media::stills::vt::{VtOptions, VtStills};
 use ace_media::stills::{StillBackend, make};
 use media_codec::*;
-use media_vt::{ProbeOptions, VtEncoder};
+use media_vt::VtEncoder;
 use media_wire::control::{Backend, Capability, Id, SourceStep, Step, TrialState};
 use std::sync::Arc;
 
@@ -26,9 +26,9 @@ const BOX: Size = Size {
     height: 1568,
 };
 
-fn probed() -> Vec<Capability> {
-    media_vt::probe(&ProbeOptions::default()).capabilities
-}
+#[path = "support/probed.rs"]
+mod probed;
+use probed::probed;
 
 fn hardware(capabilities: &[Capability], step: Step) -> bool {
     capabilities

@@ -1,3 +1,4 @@
+import type { AccelerationSubject, SourceAcceleration } from "./acceleration.ts";
 import type { EgressRouter, LegacyConsumers } from "./egress.ts";
 import {
   sourceRoute,
@@ -102,6 +103,11 @@ export type IngestSourcesOptions = {
    * ace-media follow it (D1).
    */
   onLive?: (producer: IngestProducer, path: string | undefined) => void;
+  /** A source's `source.status.acceleration`; undefined once its path ends. */
+  acceleration?: (
+    subject: AccelerationSubject,
+    acceleration: SourceAcceleration | undefined,
+  ) => void;
 };
 
 /** Reconnects after the producer's connection ended, before the source stays on the daemon. */
@@ -134,6 +140,8 @@ type Entry = {
   failed: boolean;
   reopens: number;
   closed: boolean;
+  /** The path whose acceleration report stands for this source. */
+  acceleratedBy?: string | undefined;
 };
 
 /** One open in ace-media: an id, its token until pointed, and its egress handle. */
@@ -296,6 +304,10 @@ export class IngestSources {
     if (message.type === "source.want") {
       if (entry.state === "ingest") entry.producer.want?.(message.encodes);
       return;
+    }
+    if (message.acceleration) {
+      entry.acceleratedBy = path.id;
+      this.#options.acceleration?.(entry.producer, message.acceleration);
     }
     this.#status(entry, path, message);
   }
@@ -490,6 +502,10 @@ export class IngestSources {
   #finish(path: Path, interrupted: boolean, close: boolean): void {
     if (!this.#paths.has(path.id)) return;
     this.#paths.delete(path.id);
+    if (path.entry.acceleratedBy === path.id) {
+      path.entry.acceleratedBy = undefined;
+      this.#options.acceleration?.(path.entry.producer, undefined);
+    }
     path.draining?.();
     path.draining = undefined;
     this.#options.router.close(path.handle);

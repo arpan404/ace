@@ -36,7 +36,7 @@ pub use encoder::VtEncoder;
 #[cfg(target_os = "macos")]
 pub use jpeg::{JpegPath, VtJpeg};
 #[cfg(target_os = "macos")]
-pub use probe::{ProbeCancel, ProbeOptions, ProbeReport, TrialInput, probe};
+pub use probe::{LATE_LIMIT, ProbeCancel, ProbeOptions, ProbeReport, TrialInput, probe};
 #[cfg(target_os = "macos")]
 pub use surface::{PixelPool, VtFormat, VtSurface, read_back, read_back_into};
 #[cfg(target_os = "macos")]

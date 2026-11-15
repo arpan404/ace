@@ -1,5 +1,6 @@
 import type { EgressUnit } from "@ace/media/egress";
 import type { IngestAddress, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import type { MediaAccelerationStore } from "@ace/media/acceleration";
 import { PathMerge } from "@ace/media/path-merge";
 import type {
   CaptureEvents,
@@ -41,6 +42,33 @@ export interface BrowserMedia {
   pictureCodecs(): readonly string[];
   /** ace-media's ingest WebSocket now, while it runs. */
   endpoint(): string | undefined;
+  /** ace-media's reports of what each source runs on (ADR 0148). */
+  acceleration?: Pick<MediaAccelerationStore, "of" | "watch"> | undefined;
+}
+
+/**
+ * The capture's ace-media report: `acceleration()` reads it, and `events.accelerated` hears each
+ * change, until the capture closes.
+ */
+function reported(
+  handle: VideoCaptureHandle,
+  media: BrowserMedia,
+  source: string,
+  events: CaptureEvents,
+): VideoCaptureHandle {
+  const store = media.acceleration;
+  if (!store) return handle;
+  const unwatch = store.watch((change) => {
+    if (change.kind === "source" && change.source === source) events.accelerated?.();
+  });
+  return {
+    ...handle,
+    acceleration: () => store.of(source),
+    close: () => {
+      unwatch();
+      handle.close();
+    },
+  };
 }
 
 type Ids = { threadId?: string; tabId?: string };
@@ -222,8 +250,9 @@ async function streamed(
   const ingest = handle.ingest?.bind(handle);
   if (!ingest) return handle;
   const encodeIds = new EncodeIds();
+  const name = `capture-${++captures}`;
   const source = media.add({
-    source: `capture-${++captures}`,
+    source: name,
     kind,
     origin: { kind },
     ...ids,
@@ -262,7 +291,7 @@ async function streamed(
     },
   });
   if (!source) return handle;
-  return {
+  const routed: VideoCaptureHandle = {
     encodes: (specs) => handle.encodes(encodeIds.stamp(specs)),
     keyframe: (key) => handle.keyframe(key),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
@@ -272,6 +301,7 @@ async function streamed(
       handle.close();
     },
   };
+  return reported(routed, media, name, events);
 }
 
 /**
@@ -391,8 +421,9 @@ function pictureCapture(options: {
     source?.close();
     events.ended(reason);
   };
+  const name = `capture-${++captures}`;
   source = options.media.add({
-    source: `capture-${++captures}`,
+    source: name,
     kind: options.kind,
     origin: { kind: options.kind },
     ...options.ids,
@@ -418,7 +449,7 @@ function pictureCapture(options: {
   });
   const opened = source;
   if (!opened) return undefined;
-  return {
+  const handle: VideoCaptureHandle = {
     encodes: (specs) => {
       if (!open) return;
       if (!options.canEncode(specs.map((spec) => spec.codec))) {
@@ -451,4 +482,5 @@ function pictureCapture(options: {
       opened.close();
     },
   };
+  return reported(handle, options.media, name, events);
 }
