@@ -88,6 +88,7 @@ function run(
   return handOverMediaStream(link.daemon, {
     hostKeys: host,
     ephemeralKey: keyPair(),
+    signal: new AbortController().signal,
     admit: async () => admit(),
   });
 }
@@ -161,4 +162,36 @@ it("anything but a hello as the first message ends the stream without admission"
     type: "error",
     code: "unauthorized",
   });
+});
+
+it("a hand-over cancelled while admission is pending exports no keys and sends nothing, even when admission then admits", async () => {
+  const link = wire();
+  const cancel = new AbortController();
+  const admission = Promise.withResolvers<MediaAdmission<string>>();
+  let seen: AbortSignal | undefined;
+  const done = handOverMediaStream(link.daemon, {
+    hostKeys: host,
+    ephemeralKey: keyPair(),
+    signal: cancel.signal,
+    admit: (_hello, signal) => {
+      seen = signal;
+      return admission.promise;
+    },
+  });
+  const client = await clientHandshake(link);
+  link.client.send(client.send.encrypt(jsonFragment(hello({ flowControl: ["credit"] }))));
+  while (!seen) await new Promise((resolve) => setTimeout(resolve, 0));
+  cancel.abort();
+  // Admission is told, and its late answer changes nothing.
+  expect(seen.aborted).toBe(true);
+  admission.resolve({ ok: true, welcome, grant: "mc_late" });
+  const result = await done;
+  expect(result).toEqual({ ok: false, reason: "cancelled" });
+  expect("block" in result).toBe(false);
+  // Neither a flow start nor a welcome was sealed for the client: the ciphers were spent.
+  const nothing = await Promise.race([
+    link.client.next().then(() => "frame"),
+    new Promise((resolve) => setTimeout(() => resolve("nothing"), 20)),
+  ]);
+  expect(nothing).toBe("nothing");
 });

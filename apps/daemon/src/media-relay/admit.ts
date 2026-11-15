@@ -36,10 +36,13 @@ export function mediaHelloAdmission(options: {
   hostId: string;
   claim: MediaTicketClaim;
 }): AdmitMediaHello {
-  return async (hello) => {
+  return async (hello, signal) => {
     if (hello.channel !== "media" || hello.mediaTicket === undefined)
       return { ok: false, refusal: refused };
     const admitted = await relayHello(hello, options);
+    // Given up while the credential was checked (an account grant can take a while): the
+    // ticket is left unclaimed.
+    if (signal.aborted) return { ok: false };
     if (!admitted.device) return { ok: false, refusal: admitted.refusal ?? refused };
     const account = admitted.stillAdmitted !== undefined;
     if (

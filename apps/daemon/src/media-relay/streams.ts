@@ -15,7 +15,11 @@ import { handOverMediaStream, type MediaAdmission, type StreamPipe } from "./han
 type Message<T extends ToMedia["type"]> = Extract<ToMedia, { type: T }>;
 export type MediaGrant = Pick<Message<"relay.keys">, "connection" | "owner" | "issued">;
 type Hello = Parameters<Parameters<typeof handOverMediaStream>[1]["admit"]>[0];
-export type AdmitMediaHello = (hello: Hello) => Promise<MediaAdmission<MediaGrant>>;
+/** Admits a hello; `signal` aborts when the stream was given up, and nothing is granted then. */
+export type AdmitMediaHello = (
+  hello: Hello,
+  signal: AbortSignal,
+) => Promise<MediaAdmission<MediaGrant>>;
 
 /** What the streams need from ace-media's supervisor. */
 export type MediaRelayLink = {
@@ -165,10 +169,13 @@ export class MediaRelayStreams {
   ): Promise<string | undefined> {
     let joined = false;
     const deadline = Promise.withResolvers<never>();
-    const cancel = this.#clock.setTimeout(
-      () => deadline.reject(new Error("handover deadline")),
-      HANDOVER_DEADLINE_MS,
-    );
+    // The deadline cancels the hand-over itself, not only the wait for it: its keys are destroyed
+    // and admission is told, so nothing it finishes later is granted or exported.
+    const given = new AbortController();
+    const cancel = this.#clock.setTimeout(() => {
+      given.abort();
+      deadline.reject(new Error("handover deadline"));
+    }, HANDOVER_DEADLINE_MS);
     const within = <T>(work: Promise<T>) => Promise.race([work, deadline.promise]);
     deadline.promise.catch(() => {});
     try {
@@ -191,13 +198,17 @@ export class MediaRelayStreams {
           return within(pull.promise);
         },
       };
-      const result = await within(
-        handOverMediaStream(pipe, {
-          hostKeys: this.#hostKeys,
-          ephemeralKey: this.#ephemeral(),
-          admit,
-        }),
-      );
+      const handover = handOverMediaStream(pipe, {
+        hostKeys: this.#hostKeys,
+        ephemeralKey: this.#ephemeral(),
+        signal: given.signal,
+        admit,
+      });
+      // A result that arrives after the stream was given up is wiped, never read.
+      void handover.then((late) => {
+        if (given.signal.aborted && late.ok) late.block.fill(0);
+      });
+      const result = await within(handover);
       if (!result.ok)
         throw result.reason === "refused" || result.reason === "not a hello"
           ? new Refused(result.reason)
@@ -227,6 +238,7 @@ export class MediaRelayStreams {
       return undefined;
     } finally {
       cancel();
+      given.abort();
       this.#pending.delete(stream);
     }
   }

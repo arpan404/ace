@@ -144,15 +144,21 @@ class Sealed {
  * static key, the hello, `admit`'s decision, the flow start (for a client that asked) and the
  * welcome. On success the result holds the 120-byte block, which the caller hands to ace-media
  * and wipes; on any failure every key is destroyed and nothing is returned.
+ *
+ * `signal` cancels it (the hand-over deadline): every key is destroyed at once, admission is
+ * told through the same signal, and nothing is sealed or exported after it, whatever admission
+ * answers later.
  */
 export async function handOverMediaStream<Grant>(
   pipe: StreamPipe,
   options: {
     hostKeys: KeyPair;
     ephemeralKey: KeyPair;
-    admit(hello: Hello): Promise<MediaAdmission<Grant>>;
+    signal: AbortSignal;
+    admit(hello: Hello, signal: AbortSignal): Promise<MediaAdmission<Grant>>;
   },
 ): Promise<HandoverResult<Grant>> {
+  const { signal } = options;
   const noise = new NoiseXX({
     initiator: false,
     staticKey: options.hostKeys,
@@ -160,10 +166,17 @@ export async function handOverMediaStream<Grant>(
     prologue: STREAM_PROLOGUE,
   });
   let sealed: Sealed | undefined;
+  const spend = () => {
+    noise.destroy();
+    sealed?.destroy();
+  };
+  if (signal.aborted) spend();
+  signal.addEventListener("abort", spend, { once: true });
   try {
     if (noise.readMessage(await pipe.next()).length) return failed("handshake payload");
     await pipe.send(noise.writeMessage());
     if (noise.readMessage(await pipe.next()).length) return failed("handshake payload");
+    if (signal.aborted) return failed("cancelled");
     sealed = new Sealed(noise.transport, pipe);
     const hello = ClientMessage.safeParse(JSON.parse(await sealed.receiveJson()));
     if (!hello.success || hello.data.type !== "hello") {
@@ -173,7 +186,8 @@ export async function handOverMediaStream<Grant>(
         .catch(() => {});
       return failed("not a hello");
     }
-    const admitted = await options.admit(hello.data);
+    const admitted = await options.admit(hello.data, signal);
+    if (signal.aborted) return failed("cancelled");
     if (!admitted.ok) {
       if (admitted.refusal) await sealed.sendJson(admitted.refusal).catch(() => {});
       return failed("refused");
@@ -184,14 +198,16 @@ export async function handOverMediaStream<Grant>(
       if (start) await sealed.send(start);
     }
     await sealed.sendJson(admitted.welcome);
+    if (signal.aborted) return failed("cancelled");
     const block = new Uint8Array(120);
     sealed.exportInto(block);
     return { ok: true, block, grant: admitted.grant };
   } catch (error) {
+    if (signal.aborted) return failed("cancelled");
     return failed(error instanceof Error ? error.message : "handover failed");
   } finally {
-    noise.destroy();
-    sealed?.destroy();
+    signal.removeEventListener("abort", spend);
+    spend();
   }
 }
 

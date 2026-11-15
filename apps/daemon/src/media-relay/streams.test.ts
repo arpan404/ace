@@ -19,7 +19,7 @@ const grant = {
   owner: { session: "s1", device: "phone", admission: { kind: "pairing", generation: 1 } },
   issued: 7,
 } as const;
-const admitAll: AdmitMediaHello = async () => ({
+const granted: Awaited<ReturnType<AdmitMediaHello>> = {
   ok: true,
   grant,
   welcome: {
@@ -28,7 +28,8 @@ const admitAll: AdmitMediaHello = async () => ({
     protocolVersion: 1,
     headSeq: 0,
   },
-});
+};
+const admitAll: AdmitMediaHello = async () => granted;
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -243,4 +244,50 @@ it("a stream ace-media couldn't dial turns the relay's ticket down at once; a jo
   joined.advance(HANDOVER_DEADLINE_MS);
   await joined.settle();
   expect(rejected).toBe(1);
+});
+
+it("a stream whose admission outlasts the deadline is closed, and its late admission hands over no keys", async () => {
+  const h = harness();
+  const admission = Promise.withResolvers<Awaited<ReturnType<AdmitMediaHello>>>();
+  let seen: AbortSignal | undefined;
+  h.streams.offer("ws://relay/join?ticket=t", (_hello, signal) => {
+    seen = signal;
+    return admission.promise;
+  });
+  const stream = streamOf(h);
+  h.streams.onMessage({ type: "relay.dialed", stream }, new Uint8Array(0));
+  const client = new NoiseXX({
+    initiator: true,
+    staticKey: keyPair(),
+    ephemeralKey: keyPair(),
+    prologue: STREAM_PROLOGUE,
+  });
+  await h.deliver(stream, client.writeMessage());
+  await h.settle();
+  client.readMessage(h.toClient.shift() ?? new Uint8Array());
+  await h.deliver(stream, client.writeMessage());
+  const hello = JSON.stringify({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: "phone",
+    channel: "media",
+    token: "t",
+    mediaTicket: "A".repeat(43),
+  });
+  await h.deliver(
+    stream,
+    client.transport.send.encrypt(Uint8Array.of(1, ...new TextEncoder().encode(hello))),
+  );
+  expect(seen?.aborted).toBe(false);
+  const outBefore = h.sent.filter((s) => s.message.type === "relay.out").length;
+  h.advance(HANDOVER_DEADLINE_MS);
+  await h.settle();
+  expect(h.closed).toEqual([stream]);
+  expect(seen?.aborted).toBe(true);
+  // Admission finishes after the stream was given up: nothing more goes to ace-media.
+  admission.resolve(granted);
+  await h.settle();
+  await h.settle();
+  expect(h.sent.some((s) => s.message.type === "relay.keys")).toBe(false);
+  expect(h.sent.filter((s) => s.message.type === "relay.out").length).toBe(outBefore);
 });
