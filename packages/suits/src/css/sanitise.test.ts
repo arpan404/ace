@@ -24,6 +24,11 @@ describe("suit.css rules a Suit may write", () => {
       `[data-suit="neon"] [data-part=thread-row][data-state=selected]:hover::before{content:"★";color:#f0f}`,
     ],
     [
+      "one page's rows, by its published page name",
+      `[data-page=pulls] [data-part=pr-row] { border-bottom: 1px dashed #0ff }`,
+      `[data-suit="neon"] [data-page=pulls] [data-part=pr-row]{border-bottom:1px dashed #0ff}`,
+    ],
+    [
       "a scheme joins the Suit's own scope",
       `[data-scheme=dark] [data-part=header] { border-color: #333 }`,
       `[data-suit="neon"][data-scheme=dark] [data-part=header]{border-color:#333}`,
@@ -98,6 +103,12 @@ describe("suit.css rules a Suit may not write", () => {
     ["an element", `[data-part=sidebar] div { color: red }`, 1, /element/],
     ["the universal selector", `[data-part=sidebar] > * { color: red }`, 1, /universal/],
     ["an unknown part", `[data-part=sidebarz] { color: red }`, 1, /not a published part/],
+    [
+      "an unknown page",
+      `[data-page=secret] [data-part=list-row] { color: red }`,
+      1,
+      /published page/,
+    ],
     [
       "a selector that ends off a part",
       `[data-part=sidebar] [data-state=open] { color: red }`,

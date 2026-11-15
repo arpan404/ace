@@ -83,6 +83,48 @@ export const suitParts = [
   "empty-state",
   "scrollbar",
   "divider",
+  // Every full page (PRs, issues, inbox, automations, skills, usage, Spade, projects, devices,
+  // settings, sign-in, …) is built from these, with `data-page` on its `page` naming which.
+  "page",
+  "page-header",
+  "page-title",
+  "page-toolbar",
+  "page-body",
+  "page-section",
+  "list",
+  "list-row",
+  "list-group",
+  "card",
+  "table",
+  "table-row",
+  "stat",
+  "filter-bar",
+  "search-field",
+  "avatar",
+  "label-chip",
+  "progress",
+  "chart",
+  // Side panels: every tab's content (git, files, terminal, browser, preview, notes, …)
+  "panel-body",
+  "terminal-tab",
+  "panel-toolbar",
+  "panel-tab",
+  // Pull requests, issues and code review
+  "pr-header",
+  "pr-row",
+  "issue-row",
+  "review-comment",
+  "review-thread",
+  "check-row",
+  "commit-row",
+  "diff-file",
+  "diff-line",
+  "timeline-item",
+  "branch-chip",
+  "merge-box",
+  // Spade and chats
+  "spade-message",
+  "chat-row",
 ] as const;
 export const SuitPart = z.enum(suitParts);
 export type SuitPart = z.infer<typeof SuitPart>;
@@ -114,13 +156,64 @@ export const suitPartStates = [
   "unread",
 ] as const;
 
+/**
+ * Pages, as `data-page` on the `page` part (and on `app` for the page on screen), so a Suit can
+ * style one page apart from the rest: `[data-page=pulls] [data-part=list-row]`.
+ */
+export const suitPages = [
+  "thread",
+  "new-thread",
+  "chats",
+  "chat",
+  "pulls",
+  "pull",
+  "issues",
+  "issue",
+  "inbox",
+  "review",
+  "automations",
+  "automation",
+  "skills",
+  "skill",
+  "usage",
+  "spade",
+  "projects",
+  "project",
+  "devices",
+  "history",
+  "notifications",
+  "settings",
+  "sign-in",
+  "setup",
+  "connect",
+  "search",
+] as const;
+export const SuitPage = z.enum(suitPages);
+export type SuitPage = z.infer<typeof SuitPage>;
+
 /** Regions that read `--suit-<part>-background` and may host their own scene. */
-export const suitRegions = ["app", "rail", "sidebar", "header", "transcript", "composer"] as const;
+export const suitRegions = [
+  "app",
+  "rail",
+  "sidebar",
+  "header",
+  "transcript",
+  "composer",
+  "right-panel",
+  "page",
+] as const;
 export const SuitRegion = z.enum(suitRegions);
 export type SuitRegion = z.infer<typeof SuitRegion>;
 
 /** Regions a scene may run in. */
-export const SuitSceneRegion = z.enum(["app", "sidebar", "header", "composer"]);
+export const SuitSceneRegion = z.enum([
+  "app",
+  "sidebar",
+  "header",
+  "composer",
+  "right-panel",
+  "page",
+]);
 export type SuitSceneRegion = z.infer<typeof SuitSceneRegion>;
 
 /** Where an ornament (static, sanitised SVG or HTML) may be placed. */
@@ -177,3 +270,53 @@ export type SuitScenes = z.infer<typeof SuitScenes>;
 
 export const SuitLabels = z.partialRecord(SuitLabelKey, z.string().min(1).max(40));
 export type SuitLabels = z.infer<typeof SuitLabels>;
+
+const TerminalHex = z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/);
+const ansiNames = [
+  "black",
+  "red",
+  "green",
+  "yellow",
+  "blue",
+  "magenta",
+  "cyan",
+  "white",
+  "brightBlack",
+  "brightRed",
+  "brightGreen",
+  "brightYellow",
+  "brightBlue",
+  "brightMagenta",
+  "brightCyan",
+  "brightWhite",
+] as const;
+
+/**
+ * The terminal draws on a canvas, so CSS can't reach its text. A Suit sets it here, per scheme;
+ * anything unset is derived from the Suit's palette as for a built-in theme. ANSI colours are
+ * fitted to stay readable on the background, as the theme's are.
+ */
+export const SuitTerminalColours = z.object({
+  background: TerminalHex.optional(),
+  foreground: TerminalHex.optional(),
+  cursor: TerminalHex.optional(),
+  cursorAccent: TerminalHex.optional(),
+  selection: TerminalHex.optional(),
+  ansi: z.partialRecord(z.enum(ansiNames), TerminalHex).optional(),
+});
+export type SuitTerminalColours = z.infer<typeof SuitTerminalColours>;
+
+export const SuitTerminal = z.object({
+  light: SuitTerminalColours.optional(),
+  dark: SuitTerminalColours.optional(),
+  /** A system family or a bundled font's family from `fonts`. */
+  fontFamily: z.string().min(1).max(200).optional(),
+  fontSize: z.number().min(9).max(24).optional(),
+  lineHeight: z.number().min(1).max(2).optional(),
+  letterSpacing: z.number().min(-1).max(4).optional(),
+  cursorStyle: z.enum(["block", "bar", "underline"]).optional(),
+  cursorBlink: z.boolean().optional(),
+  /** How much of the terminal region's background or scene shows behind the text, 0–1. */
+  reveal: z.number().min(0).max(1).optional(),
+});
+export type SuitTerminal = z.infer<typeof SuitTerminal>;

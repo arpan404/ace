@@ -83,7 +83,11 @@ export const suitGuardSheet = [
 
 /** The surface each region's text sits on, for the reveal's readability ceiling. */
 const regionSurface = (palette: Palette, region: SuitRegion): string =>
-  region === "transcript" ? palette.s0 : region === "composer" ? palette.s1 : palette.sidebar;
+  region === "transcript" || region === "page"
+    ? palette.s0
+    : region === "composer"
+      ? palette.s1
+      : palette.sidebar;
 
 /**
  * `--suit-<region>-reveal` for every region in one scheme: the Suit's `reveal` held under what

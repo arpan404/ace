@@ -7,6 +7,7 @@ import {
   SuitScenes,
   SuitOrnamentSlot,
   SuitSceneRegion,
+  SuitTerminal,
 } from "./suit-parts.ts";
 
 /*
@@ -149,6 +150,8 @@ export const SuitManifest = z.looseObject({
   labels: SuitLabels.optional(),
   /** A scene per region; `scene.js` alone means `{ app: "scene.js" }`. */
   scenes: SuitScenes.optional(),
+  /** The terminal's colours, font and cursor (it draws on a canvas, out of CSS's reach). */
+  terminal: SuitTerminal.optional(),
   /** How much of each region's scene or background shows through its surface, 0–1. */
   reveal: z.partialRecord(SuitRegion, z.number().min(0).max(1)).optional(),
   /**

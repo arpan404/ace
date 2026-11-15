@@ -1,5 +1,5 @@
 import { generate, type CssNode, type Selector, type SelectorList } from "css-tree";
-import { protectedSuitParts, suitParts, type SuitPart } from "@ace/protocol/suit-parts";
+import { protectedSuitParts, suitPages, suitParts, type SuitPart } from "@ace/protocol/suit-parts";
 
 /*
  * Which selectors a Suit's CSS may use (ADR 0150, "suit.css"): built only from the published
@@ -8,6 +8,7 @@ import { protectedSuitParts, suitParts, type SuitPart } from "@ace/protocol/suit
  */
 
 const known = new Set<string>(suitParts);
+const pages = new Set<string>(suitPages);
 const guarded = new Set<string>(protectedSuitParts);
 const stateAttributes = new Set(["data-state", "data-variant", "data-scheme"]);
 const attributeValue = /^[a-z0-9-]{1,40}$/;
@@ -83,8 +84,13 @@ function checkCompound(nodes: readonly CssNode[], parts: Set<SuitPart>): string 
           parts.add(value);
           break;
         }
+        if (name === "data-page") {
+          if (node.matcher !== "=" || value === undefined || !pages.has(value))
+            return "a page is selected only as [data-page=<name>] with a published page (see suit-parts)";
+          break;
+        }
         if (!stateAttributes.has(name))
-          return `[${name}] is not part of the styling contract; use data-part, data-state, data-variant or data-scheme`;
+          return `[${name}] is not part of the styling contract; use data-part, data-page, data-state, data-variant or data-scheme`;
         if (value !== undefined && !attributeValue.test(value))
           return `[${name}] takes a short lower-case value`;
         break;

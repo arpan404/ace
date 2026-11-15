@@ -11,7 +11,7 @@ import { contrastRatio, over, parseOpaqueColor, type Rgb } from "@ace/themes";
 /**
  * What each region shows without a `reveal`: the look ace had before regions were tunable. The
  * frame (rail, top bar, the window behind the sidebar) lets 65% of a scene through, the
- * transcript 30%; the sidebar's panel and the composer stay solid.
+ * transcript 30%; the sidebar's panel, the composer and the side panel stay solid; a full page shows 30% like the transcript.
  */
 export const defaultSuitReveal: Readonly<Record<SuitRegion, number>> = {
   app: 0.65,
@@ -20,6 +20,8 @@ export const defaultSuitReveal: Readonly<Record<SuitRegion, number>> = {
   sidebar: 0,
   transcript: 0.3,
   composer: 0,
+  "right-panel": 0,
+  page: 0.3,
 };
 
 /** Body text's WCAG floor. */
