@@ -15,6 +15,7 @@ import { NK_REFUSAL_MS, NK_STREAM_PROLOGUE } from "./wire.ts";
 
 /** An XX first message is exactly this long; anything longer is read as NK. */
 export const XX_FIRST_MESSAGE = 32;
+const noop = () => {};
 
 export type NkAccepted = {
   /** Runs the admitted session on the channel that now carries it. */
@@ -41,7 +42,7 @@ export function refusalDeadline(
   arrivedAt: number,
   signal: AbortSignal,
 ): { reached: Promise<"refused">; cancel(): void } {
-  let cancel = () => {};
+  let cancel: () => void = noop;
   const reached = new Promise<"refused">((resolve) => {
     const finish = () => {
       stop();

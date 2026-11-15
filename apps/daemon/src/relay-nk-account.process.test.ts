@@ -10,7 +10,7 @@ import { DeviceId, type ServerMessage } from "@ace/protocol";
 import { startRelay } from "@ace/relay";
 import { NK_STREAM_PROLOGUE, PAIRED_MARKER } from "@ace/relay/wire";
 import { address, initiate, openPeer, STREAM } from "@ace/relay/testing";
-import { CREDIT_FLAG, NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
+import { NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
 import { machineAccount } from "./account-access/machine-account.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 import { recordedSockets } from "./relay-nk-test-support.ts";

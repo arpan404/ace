@@ -5,7 +5,7 @@ import { address, initiate, openPeer, STREAM } from "@ace/relay/testing";
 import { CREDIT_FLAG, NoiseNK, keyPair, type SessionKeys } from "@ace/secure-channel";
 import type { ServerMessage } from "@ace/protocol";
 import { fixture } from "./socket-test-support.ts";
-import { message } from "./payload-test-support.ts";
+import { message as itemMessage } from "./payload-test-support.ts";
 
 // A returning client opening its relay stream with Noise NK (ADR 0155, step 2), against the
 // real self-hosted relay and the daemon's own relay host: one round trip to the welcome, nothing
@@ -269,7 +269,7 @@ it("a subscription worth several MiB and a busy live stream produce nothing past
   const ticket = (await h.xx()).welcome.ticket?.ticket ?? "";
   const cursor = h.f.store.headSeq();
   const append = (id: string, text: string) =>
-    h.f.store.appendEvents(h.f.thread.id, [{ type: "item.created", item: message(id, text) }]);
+    h.f.store.appendEvents(h.f.thread.id, [{ type: "item.created", item: itemMessage(id, text) }]);
   for (let n = 0; n < 30; n++) append(`big-${n}`, "x".repeat(100 * 1024));
   const request = {
     subscriptionId: "thread",
@@ -283,10 +283,10 @@ it("a subscription worth several MiB and a busy live stream produce nothing past
   let live = 0;
   const writer = setInterval(() => append(`live-${live++}`, "y".repeat(2048)), 10);
   const before: string[] = [];
-  let stop = false;
+  const reader = { stop: false };
   // One reader at a time: this one ends at the first message after `stop`.
   const reading = (async () => {
-    while (!stop) before.push((await opened.channel.receive()).type);
+    while (!reader.stop) before.push((await opened.channel.receive()).type);
   })();
   await new Promise((resolve) => setTimeout(resolve, 600));
   clearInterval(writer);
@@ -296,7 +296,7 @@ it("a subscription worth several MiB and a busy live stream produce nothing past
   expect(sentBefore).toBeLessThan(256 * 1024);
   expect(h.f.store.viewedThreads()).toEqual([]);
   // Confirmed now: the subscription is answered as XX answers the same request.
-  stop = true;
+  reader.stop = true;
   await opened.channel.send({ type: "hello.confirm" });
   await reading;
   expect(before.at(-1)).toBe("hello.confirmed");

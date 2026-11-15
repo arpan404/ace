@@ -6,7 +6,7 @@ import type { EarlySubscribe, ServerMessage } from "@ace/protocol";
 import { createDevThread } from "../commands.ts";
 import { message } from "../payload-test-support.ts";
 import { Store } from "../store.ts";
-import { subscribe } from "../subscription.ts";
+import { subscribe as subscribeXx } from "../subscription.ts";
 import { WireEncoder } from "../wire-encoder.ts";
 import { NK_LIMITS, NkAdmission } from "./admission.ts";
 import { EARLY_REPLAY_BYTES, answerEarly } from "./early-reads.ts";
@@ -85,7 +85,10 @@ it("a snapshot (whole status, agents, interactions, queue) and a sidebar window 
     { subscriptionId: "open", scope: { kind: "thread", threadId: h.thread.id } },
     { subscriptionId: "w", scope: { kind: "threads", window: { limit: 20 } }, paced: true },
   ];
-  expect(h.early(subscribes)).toEqual(subscribes.map((s) => ({ type: "subscribe", ...s })));
+  expect(h.early(subscribes)).toEqual([
+    { type: "subscribe", ...subscribes[0] },
+    { type: "subscribe", ...subscribes[1] },
+  ]);
   expect(h.sent).toEqual([]);
   expect(h.session.remaining()).toEqual(untouched);
   // No snapshot was built: nothing holds the thread.
@@ -106,7 +109,7 @@ it("a small resume is answered as XX answers it, and continues from where it end
   const later = h.early([request]);
   // The same subscribe over XX, on the same store.
   const xx: ServerMessage[] = [];
-  const stop = subscribe(
+  const stop = subscribeXx(
     h.store,
     "t",
     request.scope,

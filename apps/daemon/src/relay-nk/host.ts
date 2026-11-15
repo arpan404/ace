@@ -72,12 +72,12 @@ export function nkHost(options: NkHostOptions): NkHost {
     // Against cached keys only, and without a machine code: nothing here waits on the network,
     // and a machine that asks for a code is answered by refusing NK (the client's XX attempt
     // carries the code as today).
-    const admission = await machine.admitDeviceCached({
+    const verdict = await machine.admitDeviceCached({
       grant: early.grant,
       deviceId: early.deviceId,
     });
-    if (!admission.admitted) return undefined;
-    const { account, expiresAt } = admission;
+    if (!verdict.admitted) return undefined;
+    const { account, expiresAt } = verdict;
     const stillAdmitted = () => machine.stillAdmitted(early.deviceId, account);
     const actor = mainActor({ id: early.deviceId }, stillAdmitted, options);
     if (!actor) return undefined;
