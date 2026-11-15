@@ -433,7 +433,9 @@ async fn a_bot_waiting_on_a_delegated_thread_wakes_when_it_settles() -> Result {
         Duration::from_secs(5),
     )?;
     let watcher = routines::watch_ace(&spade.engine, move || Some(config.clone()));
-    let events = spade.wait_for_count(&conversation, "reply_finished", 2).await?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
     watcher.abort();
     let fired = events
         .iter()
