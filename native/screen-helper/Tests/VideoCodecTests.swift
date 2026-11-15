@@ -75,7 +75,9 @@ final class HEVCEncodeTests: XCTestCase {
         let specification = [kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: true] as CFDictionary
         let status = VTCopySupportedPropertyDictionaryForEncoder(width: 640, height: 360, codecType: kCMVideoCodecType_HEVC,
             encoderSpecification: specification, encoderIDOut: nil, supportedPropertiesOut: &properties)
-        if status != noErr { throw XCTSkip("No hardware HEVC encoder on this Mac (\(status))") }
+        // Only "no such encoder" means the hardware is missing; any other error is a failure.
+        if status == kVTCouldNotFindVideoEncoderErr { throw XCTSkip("No hardware HEVC encoder on this Mac") }
+        XCTAssertEqual(status, noErr, "Asking VideoToolbox for a hardware HEVC encoder failed")
     }
 
     /// The NAL units of an Annex B payload with 4-byte start codes.
