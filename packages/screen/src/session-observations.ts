@@ -6,6 +6,7 @@ import type { Session } from "./session.ts";
 import type { ScreenOptions } from "./options.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
+import { helperEncodesVideo } from "./media-source.ts";
 import { readTree, findElements } from "./semantic.ts";
 const StreamCodec = z.object({ codec: z.enum(["jpeg", "h264"]) });
 type ObservationPorts = {
@@ -15,6 +16,13 @@ type ObservationPorts = {
   releaseUnused(session: Session): void;
   options: ScreenOptions;
 };
+/** Helpers that serve `stream.keyframe` and `stream.image`: every Mac one, and Windows' when it encodes. */
+function streamsOnRequest(session: Session): boolean {
+  return (
+    session.helper.capabilities?.platform === "macos" ||
+    helperEncodesVideo(session.helper.capabilities)
+  );
+}
 /** Pixel leases and fresh semantic reads do not acquire an agent controller. */
 export class SessionObservations {
   private readonly host: HelperHost;
@@ -101,11 +109,7 @@ export class SessionObservations {
     const settings = ScreenStreamSettings.parse(raw);
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (
-      session.helper.capabilities?.platform !== "macos" ||
-      !session.helper.capabilities.codecs.includes("h264")
-    )
-      return { codec: "jpeg" };
+    if (!helperEncodesVideo(session.helper.capabilities)) return { codec: "jpeg" };
     const result = session.media
       ? await session.media.configure(settings)
       : StreamCodec.parse(await session.helper.request({ op: "stream.configure", settings }));
@@ -135,8 +139,7 @@ export class SessionObservations {
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (session.helper.capabilities?.platform === "macos")
-      await session.helper.request({ op: "stream.keyframe" });
+    if (streamsOnRequest(session)) await session.helper.request({ op: "stream.keyframe" });
   }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
@@ -145,7 +148,8 @@ export class SessionObservations {
     const lease = session.pixels.acquire();
     try {
       await lease.ready;
-      if (session.helper.capabilities.platform === "macos") {
+      // A helper that streams video makes a still on request; others send stills anyway.
+      if (streamsOnRequest(session)) {
         session.pixels.invalidateImage();
         await session.helper.request({ op: "stream.image" });
       }

@@ -48,6 +48,19 @@ pub fn private_dir(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Windows: the runtime directory is created if missing and must be a real directory. Its
+/// sockets are named pipes with their own current-user ACL, so its mode is not what keeps
+/// them private.
+#[cfg(not(unix))]
+pub fn private_dir(path: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(path).map_err(|e| format!("runtime dir: {e}"))?;
+    let meta = std::fs::symlink_metadata(path).map_err(|e| format!("runtime dir: {e}"))?;
+    if !meta.file_type().is_dir() {
+        return Err("runtime dir is not a directory".into());
+    }
+    Ok(())
+}
+
 /// While held, new files and sockets are created owner-read-write only, so a socket is never
 /// reachable by anyone else between `bind` and a later `chmod`.
 #[cfg(unix)]

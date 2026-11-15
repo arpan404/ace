@@ -18,15 +18,11 @@ import {
   ScreenUIActOptions,
   ScreenUIFindOptions,
   ScreenUITreeOptions,
+  ScreenStreamIngest,
 } from "./screen-v2.ts";
 
 import { ScreenMeasurementOptions } from "./interaction-measurement.ts";
 
-export const ScreenStreamIngest = z.object({
-  socket: z.string().min(1).max(1024),
-  token: z.string().length(44),
-});
-export type ScreenStreamIngest = z.infer<typeof ScreenStreamIngest>;
 /** The helper's answer to `stream.configure`: where video goes now and, after a switch, the
  * last frame sequence the previous path took (null when it took none). */
 export const ScreenStreamConfigured = z.object({

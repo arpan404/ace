@@ -15,6 +15,7 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
 };
+use windows_core::Interface;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MfFormat {
@@ -70,6 +71,49 @@ impl MfSurface {
     pub fn texture(&self) -> &ID3D11Texture2D {
         &self.texture
     }
+    /// A texture made elsewhere on `device` (a capture frame) as a picture, read in place.
+    ///
+    /// # Safety
+    /// `texture` must be a live `ID3D11Texture2D` pointer. It is AddRef'd here and released
+    /// with the surface; the texture's device is checked against `device`.
+    pub unsafe fn from_raw_texture(
+        device: &MfDevice,
+        texture: *mut std::ffi::c_void,
+    ) -> Result<Self, CodecError> {
+        // SAFETY: The caller guarantees a live texture pointer; `cloned` takes a reference.
+        let texture = unsafe { ID3D11Texture2D::from_raw_borrowed(&texture) }
+            .cloned()
+            .ok_or_else(|| CodecError::InvalidInput("no texture".into()))?;
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        // SAFETY: Reads the descriptor of a live texture.
+        unsafe { texture.GetDesc(&mut desc) };
+        // SAFETY: Returns the owning device, AddRef'd, of a live texture.
+        let owner = unsafe { texture.GetDevice() }.ctx("GetDevice")?;
+        if owner.as_raw() != device.raw_device() {
+            return Err(CodecError::InvalidInput(
+                "texture from another device".into(),
+            ));
+        }
+        let format = match desc.Format {
+            DXGI_FORMAT_B8G8R8A8_UNORM => MfFormat::Bgra,
+            DXGI_FORMAT_NV12 => MfFormat::Nv12,
+            other => return Err(CodecError::Unsupported(format!("texture format {other:?}"))),
+        };
+        let size = Size {
+            width: desc.Width,
+            height: desc.Height,
+        };
+        size.validate()?;
+        Ok(Self {
+            texture,
+            subresource: 0,
+            device: device.clone(),
+            format,
+            size,
+            lease: Arc::new(()),
+        })
+    }
+
     /// Another handle to the same texture, sharing its lease.
     pub fn share(&self) -> Self {
         Self {

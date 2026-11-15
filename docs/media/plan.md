@@ -308,10 +308,28 @@ table, including timed-out trials and the ranking cache.
   - **Probe.** One trial today, M5's CPU path (`jpeg-decode`, `jpeg-encode`, `scale` on `cpu`,
     never `hardware`). Backends add a `probe::Trial`; trials run on threads of their own and
     `ready` waits at most the 2 s trial deadline.
-  - **Windows.** The lanes on named pipes with a current-user ACL are not built; the binary exits
-    1 there.
+  - **Windows.** The control and ingest sockets are named pipes,
+    `\\.\pipe\ace-media-<pid>-<nonce>c` and `…i`, with one 128-bit nonce from the system RNG
+    shared by both, so their names pair like the socket files. Each pipe has a protected DACL,
+    `D:P(A;;GRGW;;;<current user's SID>)`, refuses remote clients and claims its name as the
+    first instance, so a squatter makes start fail rather than receive connections. Two
+    instances always wait and each accepted one is replaced at once, so clients connecting
+    together never see `ERROR_PIPE_BUSY`. `ready` reports the pipe names where Unix reports
+    paths; Node's `net.createConnection` takes either, so the daemon has no Windows branch.
+    One listener type (`shell/listener.rs`, the pipe in `shell/pipe.rs`) serves the lanes and
+    ingest, so the pending-hello slots, the 2 s hello deadline and the budgets are the same
+    code on both. The runtime directory is created if missing and must be a directory, with no
+    mode check (the pipes' ACL keeps them private). `record.start` fails `recorder-unavailable`;
+    stills use the CPU path. The secret vault and key pages are zeroed straight on the heap:
+    `Box::new` built their 64 KiB-aligned values on the stack first, which faults on Windows
+    x64. Verified on the Windows 11 ARM64 VM with an x64 build under emulation (`ring` needs
+    clang for `aarch64-pc-windows-msvc`, which the VM lacks): the Rust unit tests pass,
+    `supervisor.process.test.ts`'s lane, intruder and kill -9 restart tests pass, and
+    `egress.process.test.ts` passed 4 of 4 runs. The saturated-normal-lane revocation p99
+    measured 65–205 ms there against the 50 ms bound; native ARM64 and x64 hardware are
+    unmeasured.
   - **Acceptance.** `bun run check:media` builds the binary and runs `@ace/media`'s supervisor
-    process test against it. `cargo run --release -p ace-media --example ingest` measures the
+    process test against it (on Windows, the supervisor and egress tests). `cargo run --release -p ace-media --example ingest` measures the
     ingest budget: 0.37 % of a core for 60 fps of 33 KB units on the Mac (0.04 % idle).
 
 ### Types
@@ -1655,6 +1673,13 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   while 300 units are still queued on the old connection, which loses and repeats none); and `helper-identity.native.process.test.ts` (the built app's designated
   requirement equals `identity.txt`) run from `check:media` on macOS; the first only with
   `ACE_SCREEN_INTEGRATION=1`, since it shows a fixture window.
+- **Encoder handover.** Before the screen or `--encode-frames` changes its ingest route, it completes
+  submitted VideoToolbox frames on the old route without closing the encoder session. Otherwise
+  a delta submitted before the switch can complete on the new route before its keyframe, and
+  ace-media drops it at the initial keyframe gate. Socket failures are handled on the encoder's
+  owner queue with the same drain before falling back, and the next keyframe is armed before
+  another picture can submit. The drain never holds the route lock. Drain and merge deadlines
+  are unchanged.
 - **Devices (E3b).** Each device's video goes through `DeviceVideoPaths`
   (`packages/devices/src/media-paths.ts`): the shared `PathMerge`, and egress units turned back
   into the units the capture publishes as before. A path that ends interrupted asks its
@@ -1688,3 +1713,183 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   marker for that path is clean and a planned switch hands over without a forced keyframe.
   Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
   without one.
+
+## A1 notes
+
+- **The degraded rule** (`crates/ace-media/src/acceleration.rs`, pure) is the one place a
+  source's `source.status.acceleration` is built: the JPEG encoder (`encode/worker.rs`) and the
+  Simulator transcode (`shell/sim_transcode.rs`) both call `assess(probed, steps)`. A source is
+  degraded when its encode isn't on hardware, or when a step runs on the CPU that a hardware
+  backend listed: an entry whose trial worked on hardware, or one whose trial failed or timed
+  out. A step no hardware backend lists at all (JPEG on NVIDIA, JPEG encode on most AMD) is the
+  machine's path and not degraded. The sentence names the step; the encode's wins.
+- **The probe** (`probe.rs`, extending F2's). Each trial gets a stop flag that ace-media sets
+  when it stops (`Cancel`; the Chrome trial shares it), so an abandoned trial closes its
+  sessions at its next step. `ready` waits at most 3 s (`READY_DEADLINE`) and each trial 2 s;
+  the probe returns as soon as every trial is done. An entry whose trial didn't succeed is
+  never hardware, never zero-copy, and has no size, whatever the backend listed. On Linux the
+  probe now runs B3's VA-API trial and B5's NVENC/NVDEC trial (`probe_linux.rs`); NVENC is
+  still gated off (B5 notes), so it lists nothing and NVIDIA machines take the last-resort
+  encoder. Media Foundation joins when ace-media runs on Windows (no lanes there yet).
+- **Late results always come.** `media-vt`'s worker used to close its gate at the callers'
+  deadline, so on a busy machine every step after the one in flight (decode, after both
+  encodes) was never tried, its `late` channel closed, and VideoToolbox stayed reported absent.
+  Now the deadline bounds only how long `probe` waits: the worker keeps going until
+  cancelled, or `media_vt::LATE_LIMIT` (30 s) past the latest caller's deadline for a driver
+  that hangs, and each late step reaches ace-media as `capabilities.changed`. The still tests
+  and the still bench compare against that final list (`tests/support/probed.rs`), not
+  `ready`'s.
+- **Open sources move to hardware at one cut** (`encode/cutover.rs`). A `capabilities.changed`
+  that brings a hardware path reaches every JPEG source's encoder thread (`Command::Capabilities`,
+  between its commands, as F2's still threads swap backends between jobs). For an encode on the
+  fallback whose codec a hardware encoder now covers, the fallback is flushed on that thread
+  and everything it made goes out: every picture before the cut. A failed flush drops what it
+  still held, and that fallback is never used again. The hardware encoder takes the next
+  picture as a forced keyframe, so the output is fallback pictures before the cut, a hardware
+  keyframe, then hardware deltas, with one keyframe and at most a one-picture gap, once.
+  Until its keyframe is out, the flushed fallback waits idle beside it. A hardware encoder that
+  fails (configure, first picture, first result, no keyframe within 2 s, or any failure after)
+  sends the source back to the fallback, the kept one or a new one, at a keyframe. The source
+  is degraded again and tries hardware again only on the next `capabilities.changed`. It never
+  ends for this unless no fallback can be made. A drain mid cut-over flushes the current
+  encoder and says `Drained` after its units; a rate change reaches the current encoder. A
+  VideoToolbox JPEG decoder built without hardware is built again. The next steps report the
+  new path, so `degraded` and its sentence clear.
+  Nothing ever moves off hardware this way. Every caller sharing `media-vt`'s probe worker
+  cancels only itself, and cancelled callers are let go of at once; the worker stops once none
+  is left. The tests' waits for the final
+  probe answer are bounded (trial deadline + `LATE_LIMIT` + 5 s) and fail naming what's missing.
+- **Usable is what this build constructs.** The probe reports what each backend can do, but
+  only backends in `encode::platform::BUILT_ENCODERS`, the table beside the match in
+  `Platform::encoder` that builds them, choose a JPEG source's encoder or turn the last-resort
+  encoder off (`select::encoder_for`, `select::last_resort_needed`). Today that is VideoToolbox
+  on macOS only: a Linux machine whose VA-API trial works still gets the Chrome trial and the
+  Chrome encoder for H.264 until VA-API is wired into the JPEG encoder and added there. The
+  daemon offers picture codecs (`MediaRuntime.pictureCodecs`, `packages/media/src/
+picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.json` per
+  platform, which a test in `platform.rs` holds equal to `BUILT_ENCODERS`: it never offers HEVC
+  (or H.264) from a backend ace-media can't build there.
+- **Ranking** (`rank.rs`). `Ranker` runs each candidate for at most 10 s, 20 s in all, only
+  while no source is open (`sources(n)`), and a source opening cancels it at once. One owner
+  thread takes the source counts and each run's result as events in order; a run's result is
+  only a proposal, kept (cache and `results`) only if that run's generation was never
+  cancelled and no source is open when it arrives. Whenever nothing is open and nothing runs,
+  the next run starts, so a source that closes before a cancelled run returns doesn't leave it
+  stopped. A kept winner suppresses ranking only if it is one of the current candidates. The winner
+  goes to `<dataDir>/media/encoder-rank.json` under adapter (PCI vendor, device, LUID), driver
+  and settings (codec family, size bucket), read leniently, written whole through a rename.
+  Without a result, `choice` is the first candidate in the caller's order (the MFT on Windows,
+  NVENC on Linux NVIDIA). It needs two hardware encoders on one GPU, which today means Windows,
+  so the shell doesn't construct a `Ranker` yet; that wiring comes with ace-media on Windows.
+- **Doctor.** `ace-media --probe [--data-dir <dir>]` runs the start probe alone (not the Chrome
+  trial) and prints `{probeMs, capabilities, ranking}`. `ace doctor`'s `media.capabilities`
+  and `media.ranking` (`apps/daemon/src/doctor/media.ts`) run it themselves, so they work with
+  the daemon down: the whole table, timed-out and failed trials included, warning when a
+  hardware trial fell back or the probe took over 3 s.
+- **The daemon side** (`packages/media/src/acceleration.ts`). `MediaAccelerationStore` keeps
+  the latest capability list (`ready`, then each `capabilities.changed`) and each source's
+  report under the daemon's name for it and the tab, screen session or device it shows
+  (`IngestSources` hands it on, and clears it when that path ends). Everything goes when
+  ace-media exits. The daemon has one store (`startMedia`), published as
+  `services.mediaAcceleration`. The screen and device bridges add their subject's report to
+  `ScreenState.acceleration` and `DeviceState.acceleration`, and send the state again when it
+  changes; the browser's capture handles read theirs (`VideoCaptureHandle.acceleration`), and
+  `LiveVideo.acceleration()` puts it on `BrowserState.acceleration`. Local sockets and the
+  relay both carry it.
+- **Not built or measured yet.** The probe's times (≤ 3 s at worst, ≤ 500 ms warm) and the
+  ranking's 20 s were not benched: the shared Mac's load stayed far above 24. A debug build
+  under load 100 took 1.1 s cold and 0.6–0.7 s warm. The Linux trial module is type-checked
+  against the real crates but not run on Linux. The live view's sentence for a degraded source
+  is the clients' to show.
+
+## E1 notes
+
+- **Built: the Windows screen.** `native/screen-helper-windows` encodes with Media Foundation
+  through media-mf, as a path dependency, never a second copy: WGC capture frames are copied on
+  the GPU into a three-texture BGRA ring on media-mf's shared device (video support,
+  multithread protected), which frees WGC's buffer at once. The video processor turns that
+  texture into NV12 at the encode size in one blit, and the H.264 MFT takes it. On a hardware
+  MFT the texture goes in through `MFCreateDXGISurfaceBuffer` with no staging readback; the
+  software MFT costs one counted readback. The helper logs both counts once per encoder. media-mf
+  gained `MfDevice::raw_device` and `MfSurface::from_raw_texture` so a caller on another
+  `windows` crate version shares the device. NVENC is not wired in: the plan makes the NVIDIA MFT
+  the deterministic choice until the ranking benchmark (A1) measures `media-nv` better.
+- **Hello.** `codecs` and `encoders` (K2 capability entries for `scale` and `encode`, backend
+  `mf`) come from a trial at helper start: one BGRA texture through the same device, video
+  processor and MFT, bounded to 2 s (`timed-out` past it). No MFT means `state: "failed"`,
+  `maxWidth: 0`, `codecs: ["jpeg"]` and a stderr line saying live view uses the last-resort
+  encoder; the daemon then keeps encoding the helper's stills in the encoder Chrome.
+  `ACE_SCREEN_HELPER_NO_MFT=1` hides Media Foundation for that test. On the VM the hello says
+  scale on the GPU (VMware SVGA 3D's video processor) and encode `hardware: false`,
+  `zeroCopy: false`, `avc1.64001F`.
+- **Protocol.** `ScreenHelperRequestV2` gains `stream.configure` (`settings`, `ingest?`,
+  `epoch?`; the reply as on the Mac: `codec`, `ingest`, `switched`, `boundary`),
+  `stream.keyframe` and `stream.image`. `ScreenStreamIngest` moves to `screen-v2.ts` unchanged.
+  Video runs at up to 60 fps while watched as video and JPEG stills stay at up to 30. On the
+  daemon's pipe, video is ordered (`mailbox.rs`: never coalesced, deltas dropped up to a keyframe
+  past 4 MiB) while stills stay latest-only. A still or keyframe asked for on a screen that
+  doesn't change re-uses the last ring texture.
+- **Epochs by capture time.** `stream.configure` records each epoch with when it was applied in
+  raw QPC ticks, and whether it is private (`epochPrivate`; an epoch it isn't said of counts as
+  private). A picture's 100 ns `SystemRelativeTime` is the range of ticks it may have been taken
+  at, and every epoch that may have been in force during it is a candidate: a private one wins,
+  so a picture at a switch to clear (or rounded across it) stays private. The choice stays with
+  the picture through coalescing, the ring and refreshes.
+- **Late encoder output.** `src/media/pump.rs` keeps each picture's metadata by its timestamp
+  until its unit comes out. While units are owed the capture loop services the encoder every
+  10 ms (`MfEncoder::service`: collect late output, then the stall watchdog), so a hardware MFT
+  that finishes a keyframe after `encode` returned, on a desktop that sends no further picture,
+  still delivers it, with its own capture time, scale and epoch. When the watchdog replaces a
+  stalled MFT, the pump forgets the pictures it held and capture encodes its kept picture again
+  with a keyframe.
+- **Cuts are final** (`src/media/connection.rs`). A cut drops the connection's queue, refuses
+  later writes, and cancels a write in progress; since a cancel (`CancelIoEx`) only ends a write
+  already started, the shell's ticker cancels again until the pump has let go, and the pump
+  checks the cut under the lock it takes each write under. The final flush is cancellable the
+  same way, and a finish still waiting on its reader after 2 s is cut.
+- **The ingest pipe's server is checked.** The daemon passes the ace-media process it started
+  with each ingest address (`IngestAddress.pid`, `ScreenStreamIngest.pid`). The Windows helper
+  requires it and compares `GetNamedPipeServerProcessId` before writing the hello, so a squatting
+  instance of the name gets nothing.
+- **Threat model for the named pipes (accepted).** The DACL admits only the current user and
+  keeps `FILE_CREATE_PIPE_INSTANCE`, which ace-media needs for every further instance it creates
+  (checked on the VM: without it, ace-media's own second instance is refused). So a process
+  running as the same user can create an instance of the name and attract a connection. It
+  cannot get a secret or a frame out of one: every client verifies the server before it sends
+  anything. Producers check `GetNamedPipeServerProcessId` against the ace-media the daemon
+  started, and the daemon's lanes check a proof of the lane secret (separate PR, "ace-media:
+  lanes prove the server before the daemon speaks"). The listener stays as it is: no pool of
+  pre-created instances.
+- **One shared writer and route: `media-ingest`** (`native/media/crates/media-ingest`). It is
+  sans-IO and table-tested, and the Linux helper (E2) takes it too: MediaFrame framing with the
+  producer stamp, one connection's writer (`open` → `finishing` → `ended` | `cut`, the rules of
+  `ingest-writer.ts`), and the route with generation tokens, at most 4 retired writers or 16 MiB,
+  and the 2 s finish deadline. A switch's boundary is the last video unit only: stills never
+  move it. The helper's I/O shell (`src/media/shell.rs`) runs a pump thread per connection, a
+  100 ms ticker and a liveness poll (`PeekNamedPipe`). It is generic over the connection, so
+  its host tests run on Unix sockets. Every switch, and a cut connection, asks for a keyframe:
+  the MFT's GOP is infinite. Before that, the first flip to the daemon's path delivered nothing
+  within 15 s on the VM; with it, each handover takes about 20 ms and ends clean. Why the missing
+  keyframe stalled the handover is not isolated yet.
+- **Transport.** ace-media's lanes and ingest on Windows are current-user named pipes,
+  `\\.\pipe\ace-media-<pid>-<nonce>{c,i}` with `D:P(A;;GRGW;;;<user SID>)`, merged from
+  `ace/build-media-windows-pipes`. The helper opens the ingest pipe read/write with
+  identification-only impersonation; the hello is the same 32-byte-token MediaFrame as on Unix.
+- **Daemon.** `platformRouteCapabilities("win32")` adds `screen`. `helperEncodesVideo`
+  (`packages/screen/src/media-source.ts`) is the one rule for "this helper makes its own
+  video" (the Mac's, or Windows' with an MFT): it opens the shared `ScreenMediaSource`, with its
+  origin's platform from the hello, and gates `configureStream`; `stream.keyframe` and
+  `stream.image` go to every Mac helper and to Windows' when it encodes.
+- **Tested on the VM** (Windows 11 ARM64, software MFT; ace-media built for x64 because `ring`
+  needs clang for ARM64): `media-ingest.native.process.test.ts`, whose Windows cases run from
+  `scripts/vitest-windows-screen.config.ts` with `ACE_MEDIA_TEST_BINARY`. The software MFT's
+  stream through ace-media's ingest pipe and egress reaches the legacy viewer with today's
+  headers, and 30 of those units decode in Edge's WebCodecs at the header's size. Four route
+  flips lose and repeat nothing and end clean. A killed ace-media puts video back on the helper's
+  pipe within 2 s, then onto the restarted process. The no-MFT helper offers JPEG only.
+- **Owed on real hardware:** a GPU machine per vendor (Intel, NVIDIA, AMD, Qualcomm). There,
+  the hello should say `hardware: true`, `zeroCopy: true`, and the helper's log line should
+  report `0 staging readback(s)` per frame. Also owed: the async hardware MFT's real behaviour
+  (media-mf's driving of it is tested on the VM's software MFT only), the "Acceleration
+  acceptance" Windows numbers (1080p60 ≤ 5 % of a core with a GPU; software MFT 1080p30 ≥
+  30 fps on the VM, not benched yet), and x64 Windows.

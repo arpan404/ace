@@ -12,12 +12,26 @@ import type { HelperPort } from "./helper-session.ts";
 import { PathMerge } from "@ace/media/path-merge";
 
 /**
- * A Mac screen session as an ace-media producer (docs/media/plan.md, E3). When the route sends
+ * A Mac or Windows screen session as an ace-media producer (docs/media/plan.md, E3). When the route sends
  * screens to ace-media, the helper is given the ingest socket with each `stream.configure` and
  * writes its H.264 there; ace-media's egress brings the units back as the frames the helper's
  * socket would have carried, header for header, for the daemon's legacy viewer, recorder and
  * stills. Both paths go through one ordered merge, so a route change loses or repeats nothing.
  */
+
+/**
+ * Whether a screen helper makes its own video: the Mac's (VideoToolbox), and Windows' where its
+ * start-up trial found a Media Foundation H.264 encoder. A helper offering only JPEG gets its
+ * video from the daemon's last-resort encoder instead.
+ */
+export function helperEncodesVideo(
+  capabilities: { platform: string; codecs: readonly string[] } | undefined,
+): boolean {
+  return (
+    (capabilities?.platform === "macos" || capabilities?.platform === "windows") &&
+    capabilities.codecs.includes("h264")
+  );
+}
 
 /** Where screen sources are opened in ace-media: the daemon's `IngestSources`. */
 export type ScreenMedia = { add(producer: IngestProducer): IngestSource };
@@ -60,6 +74,8 @@ export function egressScreenFrame(sessionId: string, frame: MediaFrame): Frame |
 
 export type ScreenMediaSourceOptions = {
   sessionId: string;
+  /** The helper's platform, as its hello names it (`macos`, `windows`). */
+  platform: string;
   helper: HelperPort;
   media: ScreenMedia;
   /** A frame from either path, video in sequence order and stills in theirs. */
@@ -104,7 +120,7 @@ export class ScreenMediaSource {
     this.#source = options.media.add({
       source: `screen:${options.sessionId}`,
       kind: "screen",
-      origin: { kind: "screen", platform: "macos" },
+      origin: { kind: "screen", platform: options.platform },
       sessionId: options.sessionId,
       epoch: () => screenOpeningEpoch,
       // The screen's legacy viewer, recorder and stills all hang off the frames the helper
@@ -202,7 +218,11 @@ export class ScreenMediaSource {
   #point(address: IngestAddress | undefined): Promise<void> {
     return this.#serial(async () => {
       this.#address = address && {
-        ingest: { socket: address.socket, token: Buffer.from(address.token).toString("base64") },
+        ingest: {
+          socket: address.socket,
+          token: Buffer.from(address.token).toString("base64"),
+          ...(address.pid ? { pid: address.pid } : {}),
+        },
         path: address.path,
       };
       // No live video yet: the next `stream.configure` carries the address.

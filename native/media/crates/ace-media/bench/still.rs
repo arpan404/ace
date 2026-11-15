@@ -12,6 +12,11 @@
 //! A warm-up of 20 stills, then 3 runs of 200; the p95 is over all 600. Latency is enforced
 //! unless the load average is above 2 × cores or `ACE_MEDIA_BENCH_REPORT_ONLY` is set; a still
 //! that took a slower path than its machine's expected one always fails.
+// The bench needs unix (load average, the still threads); elsewhere it builds to nothing.
+#![cfg_attr(not(unix), allow(unused))]
+#[cfg(target_os = "macos")]
+#[path = "../tests/support/probed.rs"]
+mod probed;
 #[path = "screen.rs"]
 mod screen;
 
@@ -35,6 +40,7 @@ const WARM_UP: usize = 20;
 const RUNS: usize = 3;
 const SAMPLES: usize = 200;
 
+#[cfg(unix)]
 fn load_average() -> f64 {
     let mut loads = [0f64; 3];
     // SAFETY: Writes at most three doubles into the array.
@@ -108,10 +114,10 @@ impl Bench {
 fn gpu() -> Fallible<(Vec<f64>, Option<f64>, ace_media::engine::stills::Made, bool)> {
     use ace_media::engine::stills::StillUnit;
     use ace_media::stills::vt::{VtOptions, VtStills};
-    use media_vt::{ProbeOptions, VtEncoder};
+    use media_vt::VtEncoder;
     use media_wire::control::{Step, TrialState};
 
-    let probed = media_vt::probe(&ProbeOptions::default()).capabilities;
+    let probed = probed::probed();
     let hardware = |step| {
         probed
             .iter()

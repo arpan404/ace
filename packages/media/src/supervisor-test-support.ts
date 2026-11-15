@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import type { ByteSource, LaneSocket } from "./lanes.ts";
 import type { MediaChild, MediaClock, MediaHost, MediaSupervisorOptions } from "./supervisor.ts";
 import { legacyMediaSettings } from "./supervisor.ts";
@@ -398,4 +399,22 @@ export function harness(overrides: Partial<MediaSupervisorOptions> = {}) {
     ...overrides,
   };
   return { host, clock, events, options };
+}
+
+/**
+ * Removes a stopped process's runtime directory. On Windows its files stay held for a moment
+ * after the kill (the process, or the browser its probe started), so a busy directory is retried.
+ */
+export async function removeWhenFree(dir: string, ms = 10_000): Promise<void> {
+  const end = performance.now() + ms;
+  for (;;) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (performance.now() > end || (code !== "EBUSY" && code !== "EPERM")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 }

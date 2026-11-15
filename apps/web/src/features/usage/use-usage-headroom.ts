@@ -1,12 +1,5 @@
 import { UsageQuery } from "@ace/protocol";
-import {
-  railUsage,
-  usageDay,
-  usageHeadroom,
-  usageLimits,
-  type PooledHeadroom,
-  type RailUsage,
-} from "@ace/ui-core";
+import { railUsage, usageDay, usageLimits, type RailUsage } from "@ace/ui-core";
 import { useMemo } from "react";
 import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -16,11 +9,12 @@ import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 
 export interface UsageHeadroom {
-  headroom: PooledHeadroom[];
   rail: RailUsage;
   /** When the freshest limit was read; undefined before any. */
   observedAt: number | undefined;
   now: number;
+  /** Read the accounts again, after a banked reset is spent. */
+  refresh(): Promise<unknown>;
 }
 
 /**
@@ -30,7 +24,8 @@ export interface UsageHeadroom {
  */
 export function useUsageHeadroom(): UsageHeadroom {
   const now = useNow();
-  const accounts = useProviderAccountModels().accounts.data;
+  const accountsQuery = useProviderAccountModels().accounts;
+  const accounts = accountsQuery.data;
   const zone = useUsageTimeZone();
   const observedAt = useMemo(() => {
     let latest: number | undefined;
@@ -67,12 +62,11 @@ export function useUsageHeadroom(): UsageHeadroom {
       ),
     [accounts, minute],
   );
-  const headroom = useMemo(() => usageHeadroom(limits), [limits]);
   const [measure] = useRailMeasure();
   const [pins] = useRailPins();
   const rail = useMemo(
     () => railUsage(limits, used.data, measure, pins),
     [limits, used.data, measure, pins],
   );
-  return { headroom, rail, observedAt, now };
+  return { rail, observedAt, now, refresh: () => accountsQuery.refetch() };
 }
