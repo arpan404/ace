@@ -11,7 +11,7 @@ import XCTest
         try await control(9863, online: true)
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-machines", ports.map(String.init).joined(separator: ",")]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         let first = app.buttons["thread.ios-spike-host-9852.ios-approval"]
         let second = app.buttons["thread.ios-spike-host-9863.ios-approval"]

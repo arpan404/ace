@@ -11,7 +11,7 @@ import XCTest
         try await control(9922, online: true)
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-machines", ports.map(String.init).joined(separator: ",")]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["thread.ios-spike-host-9922.ios-approval"].waitForExistence(timeout: 30))
         app.openBrowseDestination("library.usage")
@@ -57,7 +57,7 @@ import XCTest
         try await control(9922, online: true)
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-machines", ports.map(String.init).joined(separator: ",")]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         // Both machines' threads are listed; the approval row may sit below the fold.
         app.revealRow("thread.ios-spike-host-9922.ios-approval")
