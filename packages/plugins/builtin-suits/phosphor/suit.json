@@ -3,7 +3,7 @@
   "id": "phosphor",
   "name": "Phosphor",
   "description": "A green phosphor terminal: glowing text, scanlines, a slow rolling refresh band, the rail folded into the sidebar and a bare header. Dark only.",
-  "version": "1",
+  "version": "2",
   "base": "midnight",
   "dark": {
     "canvas": "#050B07",
@@ -55,6 +55,39 @@
   },
   "scenes": { "app": "scene.js" },
   "reveal": { "app": 0.35, "sidebar": 0.25 },
+  "terminal": {
+    "dark": {
+      "background": "#040A05",
+      "foreground": "#C8FFD6",
+      "cursor": "#9CF5B4",
+      "cursorAccent": "#040A05",
+      "selection": "#26502FCC",
+      "ansi": {
+        "black": "#08120B",
+        "red": "#FFB8A8",
+        "green": "#9CF5B4",
+        "yellow": "#E8D7A0",
+        "blue": "#73C68C",
+        "magenta": "#B4F0C6",
+        "cyan": "#96E3AB",
+        "white": "#C8FFD6",
+        "brightBlack": "#4F9A66",
+        "brightRed": "#FFD2C6",
+        "brightGreen": "#C8FFD6",
+        "brightYellow": "#F4E6B8",
+        "brightBlue": "#96E3AB",
+        "brightMagenta": "#D4FAE0",
+        "brightCyan": "#B4F0C6",
+        "brightWhite": "#F4FFF6"
+      }
+    },
+    "fontFamily": "ui-monospace, \"SF Mono\", Menlo, Consolas, monospace",
+    "fontSize": 14,
+    "lineHeight": 1.25,
+    "cursorStyle": "block",
+    "cursorBlink": true,
+    "reveal": 0.1
+  },
   "labels": {
     "composer-placeholder": "> type a task_",
     "empty-transcript": "READY.",

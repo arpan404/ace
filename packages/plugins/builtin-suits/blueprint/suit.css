@@ -104,3 +104,175 @@
   border: 1px solid var(--color-border-strong);
   box-shadow: 6px 6px 0 color-mix(in srgb, var(--color-foreground) 12%, transparent);
 }
+
+/* Pages and the side panel are sheets too: the same grid, on the region's own paper. */
+[data-part="app"] {
+  --suit-page-background:
+    linear-gradient(var(--suit-blueprint-major) 1px, transparent 1px) 0 0 / 100px 100px,
+    linear-gradient(90deg, var(--suit-blueprint-major) 1px, transparent 1px) 0 0 / 100px 100px,
+    linear-gradient(var(--suit-blueprint-fine) 1px, transparent 1px) 0 0 / 20px 20px,
+    linear-gradient(90deg, var(--suit-blueprint-fine) 1px, transparent 1px) 0 0 / 20px 20px,
+    var(--color-background);
+  --suit-right-panel-background:
+    linear-gradient(var(--suit-blueprint-fine) 1px, transparent 1px) 10px 10px / 20px 20px,
+    linear-gradient(90deg, var(--suit-blueprint-fine) 1px, transparent 1px) 10px 10px / 20px 20px,
+    var(--color-sidebar);
+  --suit-right-panel-border: 0 solid transparent;
+  --suit-right-panel-shadow: inset 1px 0 0 var(--color-border-strong);
+}
+
+/* The page header is a title block: a ruled strip with the title in drafting capitals. */
+[data-part="page-header"] {
+  border-block-end: 1px solid var(--color-border-strong);
+  box-shadow: 0 3px 0 -2px var(--color-border-strong);
+  padding-block-end: 4px;
+}
+
+[data-part="page-title"] {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+[data-part="page-title"]::before {
+  content: "§ ";
+  opacity: 0.7;
+}
+
+[data-part="page-toolbar"],
+[data-part="filter-bar"] {
+  border-block-end: 1px dashed var(--color-border-strong);
+  border-radius: 0;
+}
+
+[data-part="page-section"] {
+  border-block-start: 1px dashed var(--color-border-strong);
+  border-radius: 0;
+}
+
+/* Lists and tables as schedules on the sheet: hairline boxes, ruled rows, no fill. */
+[data-part="list"],
+[data-part="table"],
+[data-part="card"],
+[data-part="stat"],
+[data-part="empty-state"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0;
+}
+
+[data-part="list"],
+[data-part="table"] {
+  background: var(--color-background);
+}
+
+[data-part="list-group"] {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  border-block-end: 1px solid var(--color-border-strong);
+}
+
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-block-end: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+[data-part="list-row"]:last-child,
+[data-part="table-row"]:last-child {
+  border-block-end-color: transparent;
+}
+
+[data-part="list-row"]:hover,
+[data-part="table-row"]:hover {
+  outline: 1px dashed var(--color-border-strong);
+  outline-offset: -1px;
+}
+
+[data-part="list-row"][data-state="active"],
+[data-part="list-row"][data-state="selected"],
+[data-part="table-row"][data-state="selected"] {
+  outline: 1px solid var(--color-foreground);
+  outline-offset: -1px;
+  box-shadow: inset 3px 0 0 var(--color-foreground);
+}
+
+/* Cards are drawings pinned to the sheet, with the offset shadow of the composer. */
+[data-part="card"] {
+  background: var(--color-background);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--color-foreground) 10%, transparent);
+}
+
+[data-part="card"]:hover {
+  border-color: var(--color-foreground);
+}
+
+[data-part="stat"] {
+  border-style: dashed;
+  letter-spacing: 0.04em;
+}
+
+[data-part="search-field"],
+[data-part="label-chip"],
+[data-part="progress"],
+[data-part="avatar"] {
+  border-radius: 0;
+}
+
+[data-part="search-field"] {
+  border: 1px solid var(--color-border-strong);
+}
+
+[data-part="search-field"]:focus-within {
+  border-color: var(--color-foreground);
+}
+
+[data-part="label-chip"] {
+  border: 1px solid var(--color-border-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+[data-part="progress"] {
+  border: 1px solid var(--color-border-strong);
+}
+
+[data-part="avatar"] {
+  outline: 1px solid var(--color-border-strong);
+  outline-offset: 1px;
+}
+
+/* Side panel: ruled like a detail drawing beside the main sheet. */
+[data-part="panel-toolbar"] {
+  border-block-end: 1px dashed var(--color-border-strong);
+}
+
+[data-part="panel-header"] {
+  border-block-end: 1px solid var(--color-border-strong);
+}
+
+[data-part="panel-tab"],
+[data-part="terminal-tab"] {
+  border: 1px solid transparent;
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+[data-part="panel-tab"]:hover,
+[data-part="terminal-tab"]:hover {
+  border-color: var(--color-border);
+  border-style: dashed;
+}
+
+[data-part="panel-tab"][data-state="selected"],
+[data-part="panel-tab"][data-state="active"],
+[data-part="terminal-tab"][data-state="selected"],
+[data-part="terminal-tab"][data-state="active"] {
+  border-color: var(--color-border-strong);
+  border-style: solid;
+  border-block-end-color: var(--color-background);
+}
+
+[data-part="terminal"] {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 0;
+}
