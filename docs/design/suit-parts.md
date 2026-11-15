@@ -131,6 +131,68 @@ layer keeps them visible, unanimated and in ace's colours whatever `suit.css` sa
 | `scrollbar`        | A scrolling page body with no part of its own (Settings, pages); style its bar with `scrollbar-color` or `::-webkit-scrollbar`. Regions with their own part style theirs through it. |                                |                    |
 | `divider`          | A separator line, in menus and pages.                                                                                                                                                |                                |                    |
 
+## Full pages
+
+Every full page is built from these parts, so a Suit that styles them dresses every page. The
+page's canvas is `page`, with `data-page` naming which page it is; the window's `app` part
+carries the same `data-page`, so `[data-page="usage"] [data-part="sidebar"]` works too. A thread's
+canvas is a `page` as well (`thread` or `chat`).
+
+| Part            | What and where                                                                                                 | States                                                                                                        | Variants                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `page`          | A routed screen's canvas, under the top bar. A region: reads `--suit-page-*`, `reveal.page` and `scenes.page`. |                                                                                                               |                                                             |
+| `page-header`   | The block at a page's top with its title, lede and actions.                                                    |                                                                                                               |                                                             |
+| `page-title`    | A page's title text.                                                                                           |                                                                                                               |                                                             |
+| `page-toolbar`  | A row of a page's actions or view switches.                                                                    |                                                                                                               |                                                             |
+| `page-body`     | A page's main content column.                                                                                  |                                                                                                               |                                                             |
+| `page-section`  | A titled group within a page.                                                                                  |                                                                                                               |                                                             |
+| `list`          | A list of rows on a page.                                                                                      |                                                                                                               |                                                             |
+| `list-group`    | A labelled group of rows in a list (a week in History, a source in Skills).                                    |                                                                                                               |                                                             |
+| `list-row`      | One row in a list.                                                                                             | `selected`, `active`, `open`, `checked`, `disabled`, `unread`; a run's `waiting`, `working`, `done`, `failed` | a run's status, an activity's kind, `file`/`folder`         |
+| `card`          | A boxed item on a page.                                                                                        |                                                                                                               |                                                             |
+| `table`         | A table.                                                                                                       |                                                                                                               |                                                             |
+| `table-row`     | One row of a table.                                                                                            | `selected`                                                                                                    |                                                             |
+| `stat`          | A number tile (a total, a count).                                                                              |                                                                                                               |                                                             |
+| `filter-bar`    | A page's filters row.                                                                                          |                                                                                                               |                                                             |
+| `search-field`  | A page's or a sheet's search field: the search and command sheets' top row, a folder search.                   |                                                                                                               |                                                             |
+| `avatar`        | A bot's or Spade's face.                                                                                       | `working`, `waiting`, `done`                                                                                  | `spade`, `character`, `picture`                             |
+| `label-chip`    | A tag or label pill on a row.                                                                                  |                                                                                                               |                                                             |
+| `progress`      | A progress bar.                                                                                                |                                                                                                               |                                                             |
+| `chart`         | A chart or bar graph (Usage).                                                                                  |                                                                                                               |                                                             |
+| `spade-message` | One message in a Spade, bot or group conversation.                                                             | `working` (being written), `failed`                                                                           | who wrote it: `user`, `spade`, `bot`, `other` (another bot) |
+| `chat-row`      | One chat in the Chats panel.                                                                                   | `active` (open), `unread`                                                                                     |                                                             |
+
+### Pages
+
+`data-page` takes one value from `suitPages`:
+
+| `data-page`                   | Where                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `thread`                      | A thread (and Home, which opens one), a subagent.                                          |
+| `chat`                        | A thread that is a chat.                                                                   |
+| `new-thread`                  | New thread, a fork being started, opening a folder.                                        |
+| `chats`                       | The Chats place with none open.                                                            |
+| `history`                     | History and Archived.                                                                      |
+| `inbox`                       | Code review's Inbox.                                                                       |
+| `pulls`, `pull`               | The pull request list; one pull request or a new one.                                      |
+| `issues`, `issue`             | The issue list; one issue or a new one.                                                    |
+| `review`                      | Reserved for a code review page; no screen uses it yet.                                    |
+| `automations`, `automation`   | Automations with none open; one automation or a new one.                                   |
+| `skills`, `skill`             | Skills' landing page; one skill or a new one.                                              |
+| `usage`                       | Usage.                                                                                     |
+| `spade`                       | Spade, a bot or a group's conversation, and their pages.                                   |
+| `projects`, `project`         | Reserved for project pages; projects open in dialogs today.                                |
+| `devices`                     | Pairing a device.                                                                          |
+| `notifications`               | Reserved; notifications have no page of their own yet.                                     |
+| `settings`                    | Every Settings page.                                                                       |
+| `setup`, `sign-in`, `connect` | Provider setup; signing in and connecting to a machine (outside the main window's routes). |
+| `search`                      | Reserved; search is a sheet (`command-palette`) over the page on screen.                   |
+
+The route each address shows is listed in `apps/web/src/app/route-page.ts`;
+`apps/web/src/features/suits/suit-pages-drift.test.tsx` walks every route and fails when its
+screen stops naming its page.
+
 ## Changes
 
 - Version 1, 2026-11-14: `nav-item` added.
+- Version 1, 2026-11-14: pages carry `data-page`; the `page` region reads `--suit-page-*`, `reveal.page` and `scenes.page`.
