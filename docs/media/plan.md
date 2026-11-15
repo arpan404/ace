@@ -2022,6 +2022,17 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
   engine's relay streams. `apps/cloud/src/media.process.test.ts` covers the Worker, hibernation
   included.
 
+- **Review fixes (#2064).**
+  - The hand-over deadline aborts a signal passed through the hand-over and into admission. On
+    abort the Noise and cipher states are destroyed at once, nothing is sealed, claimed or
+    exported afterwards, and a result that still arrives late is wiped.
+  - One relay port per ace-media runtime (`media-relay/runtime-port.ts`): every delivery lookup
+    returns it, and `watch` returns an unsubscribe, so lookups never add watchers.
+  - `CipherState.exportInto` refuses overlapping key and nonce ranges, writes nothing, and leaves
+    the cipher usable.
+  - Tickets follow D1's ownership rule: `relay.keys`' block is the supervisor's from `send` on
+    (the lane wipes it once written, or at once when refused), and the daemon never touches it
+    after. `claimRelay` refuses an all-zero ticket, as ace-media does.
 - **Owed.**
   - Crossing a rekey on the real stream (2^20 frames) in the process test. The block's frame
     counts are tested, and media-noise aligns TS frames to the rekey boundary after the hand-over.
