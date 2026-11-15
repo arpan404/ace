@@ -1714,19 +1714,22 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   that hangs, and each late step reaches ace-media as `capabilities.changed`. The still tests
   and the still bench compare against that final list (`tests/support/probed.rs`), not
   `ready`'s.
-- **Open sources move to hardware, make-before-break** (`encode/switch.rs`). A
-  `capabilities.changed` that brings a hardware path reaches every JPEG source's encoder thread
-  (`Command::Capabilities`, between its commands, as F2's still threads swap backends between
-  jobs). An encode on the fallback whose codec a hardware encoder now covers starts that
-  encoder beside it, fed the same pictures, while the fallback keeps delivering. If the
-  hardware encoder fails before its first keyframe (configure, first picture or first result)
-  or has none within 2 s, it is dropped: the source stays on the fallback, still degraded, and
-  tries again only on the next `capabilities.changed`; it never ends for it. Its first keyframe
-  starts the handover: the fallback takes no more pictures and is flushed (a failed flush is
-  logged and loses nothing), every unit it makes for an earlier picture goes out, and once none
-  is outstanding (or after another 2 s) the fallback is dropped and the hardware's units follow,
-  keyframe first. A VideoToolbox JPEG decoder built without hardware is built again. The next
-  steps report the new path, so `degraded` and its sentence clear.
+- **Open sources move to hardware at one cut** (`encode/cutover.rs`). A `capabilities.changed`
+  that brings a hardware path reaches every JPEG source's encoder thread (`Command::Capabilities`,
+  between its commands, as F2's still threads swap backends between jobs). For an encode on the
+  fallback whose codec a hardware encoder now covers, the fallback is flushed on that thread
+  and everything it made goes out: every picture before the cut. A failed flush drops what it
+  still held, and that fallback is never used again. The hardware encoder takes the next
+  picture as a forced keyframe, so the output is fallback pictures before the cut, a hardware
+  keyframe, then hardware deltas, with one keyframe and at most a one-picture gap, once.
+  Until its keyframe is out, the flushed fallback waits idle beside it. A hardware encoder that
+  fails (configure, first picture, first result, no keyframe within 2 s, or any failure after)
+  sends the source back to the fallback, the kept one or a new one, at a keyframe. The source
+  is degraded again and tries hardware again only on the next `capabilities.changed`. It never
+  ends for this unless no fallback can be made. A drain mid cut-over flushes the current
+  encoder and says `Drained` after its units; a rate change reaches the current encoder. A
+  VideoToolbox JPEG decoder built without hardware is built again. The next steps report the
+  new path, so `degraded` and its sentence clear.
   Nothing ever moves off hardware this way. Every caller sharing `media-vt`'s probe worker
   cancels only itself, and cancelled callers are let go of at once; the worker stops once none
   is left. The tests' waits for the final

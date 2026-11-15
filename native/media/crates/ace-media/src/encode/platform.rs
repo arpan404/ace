@@ -51,6 +51,19 @@ impl Platform {
             .unwrap_or_default()
     }
 
+    fn chrome(&self) -> Result<Chosen, CodecError> {
+        let options = self
+            .chrome
+            .clone()
+            .ok_or_else(|| CodecError::Unsupported("no Chrome to encode with".into()))?;
+        Ok(Chosen {
+            encoder: Box::new(ChromeEncoder::new(options)),
+            backend: Backend::Chrome,
+            hardware: false,
+            takes_jpeg: Some(jpeg_picture),
+        })
+    }
+
     fn cpu_decode(&mut self, jpeg: &[u8], size: Size) -> Result<Decoded, CodecError> {
         let picture = JpegCodec::decode(&mut self.cpu, jpeg, size.width, size.height)?;
         Ok(Decoded {
@@ -73,22 +86,19 @@ impl Backends for Platform {
                 hardware,
                 takes_jpeg: None,
             }),
-            Some((Backend::Chrome, _)) => {
-                let options = self
-                    .chrome
-                    .clone()
-                    .ok_or_else(|| CodecError::Unsupported("no Chrome to encode with".into()))?;
-                Ok(Chosen {
-                    encoder: Box::new(ChromeEncoder::new(options)),
-                    backend: Backend::Chrome,
-                    hardware: false,
-                    takes_jpeg: Some(jpeg_picture),
-                })
-            }
+            Some((Backend::Chrome, _)) => self.chrome(),
             _ => Err(CodecError::Unsupported(
                 "no encoder for this codec here".into(),
             )),
         }
+    }
+
+    fn fallback(&mut self, codec: Codec) -> Result<Chosen, CodecError> {
+        // The last-resort encoder, H.264 only: what an encode cut over to hardware came from.
+        if codec != Codec::H264 {
+            return Err(CodecError::Unsupported("no fallback for this codec".into()));
+        }
+        self.chrome()
     }
 
     fn decode(&mut self, jpeg: &[u8], size: Size, encoder: Backend) -> Result<Decoded, CodecError> {

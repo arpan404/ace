@@ -87,6 +87,11 @@ pub trait Backends: Send {
     /// The probe's findings changed: drop any decoder built for a path since improved, so the
     /// next picture builds it again.
     fn refresh(&mut self) {}
+    /// A fallback (non-hardware) encoder for `codec`, to go back to when a hardware encoder an
+    /// encode was cut over to fails.
+    fn fallback(&mut self, _codec: Codec) -> Result<Chosen, CodecError> {
+        Err(CodecError::Unsupported("no fallback encoder".into()))
+    }
 }
 
 /// A boxed backend is one: the shell picks the codecs per thread.
@@ -106,6 +111,9 @@ impl Backends for Box<dyn Backends> {
     fn refresh(&mut self) {
         (**self).refresh();
     }
+    fn fallback(&mut self, codec: Codec) -> Result<Chosen, CodecError> {
+        (**self).fallback(codec)
+    }
 }
 
 struct Pending {
@@ -124,13 +132,16 @@ struct Running {
     codec_string: String,
     pending: VecDeque<Pending>,
     steps: Vec<SourceStep>,
+    /// Cut over to hardware in this source's life (`cutover`): its failure goes back to the
+    /// fallback rather than ending the source.
+    moved: bool,
+    /// Cut over, and its first keyframe not out yet.
+    probation: Option<cutover::Probation>,
 }
 
 pub struct Worker<B: Backends> {
     backends: B,
     encodes: BTreeMap<u32, Running>,
-    /// Hardware encoders starting beside an encode's fallback, by encode id.
-    shadows: BTreeMap<u32, switch::Shadow>,
     last_pts: u64,
     epoch: u32,
     reported: Option<Acceleration>,
@@ -262,7 +273,6 @@ impl<B: Backends> Worker<B> {
         Self {
             backends,
             encodes: BTreeMap::new(),
-            shadows: BTreeMap::new(),
             last_pts: 0,
             epoch: 0,
             reported: None,
@@ -285,12 +295,9 @@ impl<B: Backends> Worker<B> {
                 if let Some(running) = self.encodes.get_mut(&id) {
                     running.key_owed = true;
                 }
-                if let Some(shadow) = self.shadows.get_mut(&id) {
-                    shadow.running.key_owed = true;
-                }
             }
             Command::Drain => return self.drain(now_us, out),
-            Command::Capabilities => self.upgrade(now_us),
+            Command::Capabilities => self.upgrade(now_us, out),
         }
         self.poll(now_us, out);
         // After the units, so a source reports its steps once it plays.
@@ -302,9 +309,9 @@ impl<B: Backends> Worker<B> {
     /// Flushes every encoder and takes what it still held. One that can't flush ends the
     /// source as undrainable, so its end is never reported clean.
     fn drain(&mut self, now_us: u64, out: &mut Vec<Output>) {
-        // Closing: a hardware encoder still starting is dropped; the fallback finishes.
-        self.shadows.clear();
         for running in self.encodes.values_mut() {
+            // Closing mid cut-over: the current encoder finishes, the idle fallback goes.
+            running.probation = None;
             if running.chosen.encoder.flush().is_err() {
                 self.failed = true;
                 self.encodes.clear();
@@ -318,25 +325,17 @@ impl<B: Backends> Worker<B> {
         }
     }
 
-    /// The probe's findings changed: an encode a newly found hardware encoder improves starts
-    /// one beside its fallback (`switch`). Never moves off hardware.
-    fn upgrade(&mut self, now_us: u64) {
-        self.backends.refresh();
-        self.start_shadows(now_us);
-    }
-
     fn fail(&mut self, error: &CodecError, out: &mut Vec<Output>) {
         self.failed = true;
         self.encodes.clear();
-        self.shadows.clear();
         out.push(Output::Failed(reason_of(error)));
     }
 
     fn configure(&mut self, specs: Vec<EncodeSpec>, out: &mut Vec<Output>) {
         let wanted: Vec<u32> = specs.iter().map(|s| s.id).collect();
         self.encodes.retain(|id, _| wanted.contains(id));
-        self.shadows.retain(|id, _| wanted.contains(id));
         for wire in specs {
+            let id = wire.id;
             let Some(codec) = family(&wire.codec) else {
                 return self.fail(&CodecError::Unsupported(wire.codec), out);
             };
@@ -346,22 +345,23 @@ impl<B: Backends> Worker<B> {
                 && running.size == spec.size
             {
                 // Only the rate or frame rate changed: the stream goes on without a keyframe.
-                if let Err(error) = running.chosen.encoder.configure(&spec) {
-                    return self.fail(&error, out);
-                }
-                if let Some(shadow) = self.shadows.get_mut(&wire.id)
-                    && shadow.running.chosen.encoder.configure(&spec).is_err()
-                {
-                    self.shadows.remove(&wire.id);
-                }
-                if let Some(shadow) = self.shadows.get_mut(&wire.id) {
-                    shadow.running.wire = wire.clone();
-                }
+                // It reaches whichever encoder is current.
+                let applied = running.chosen.encoder.configure(&spec);
+                let moved = running.moved;
                 running.wire = wire;
-                continue;
+                match applied {
+                    Ok(()) => continue,
+                    // A hardware encoder cut over to that can't take it: back to the fallback,
+                    // which is configured with the new rate.
+                    Err(_) if moved => {
+                        if !self.back_to_fallback(id, out) {
+                            return;
+                        }
+                        continue;
+                    }
+                    Err(error) => return self.fail(&error, out),
+                }
             }
-            // A new encode takes the best encoder there is now: no switch needed.
-            self.shadows.remove(&wire.id);
             let chosen = match self.backends.encoder(codec) {
                 Ok(chosen) => chosen,
                 Err(error) => return self.fail(&error, out),
@@ -382,6 +382,8 @@ impl<B: Backends> Worker<B> {
                     description: None,
                     pending: VecDeque::new(),
                     steps: Vec::new(),
+                    moved: false,
+                    probation: None,
                 },
             );
         }
@@ -409,9 +411,19 @@ impl<B: Backends> Worker<B> {
         };
         let ids: Vec<u32> = self.encodes.keys().copied().collect();
         for id in ids {
-            // While a hardware encoder takes over, the fallback only finishes what it has.
-            if self.shadows.get(&id).is_some_and(switch::Shadow::keyed) {
+            let Some(running) = self.encodes.get_mut(&id) else {
                 continue;
+            };
+            let Err(error) = feed(&mut self.backends, running, &fed) else {
+                continue;
+            };
+            if !running.moved {
+                return self.fail(&error, out);
+            }
+            // The hardware encoder cut over to refused it: the fallback takes this very
+            // picture, as a keyframe.
+            if !self.back_to_fallback(id, out) {
+                return;
             }
             let Some(running) = self.encodes.get_mut(&id) else {
                 continue;
@@ -420,7 +432,6 @@ impl<B: Backends> Worker<B> {
                 return self.fail(&error, out);
             }
         }
-        self.feed_shadows(&fed);
     }
 
     fn report(&mut self, out: &mut Vec<Output>) {
@@ -445,18 +456,36 @@ impl<B: Backends> Worker<B> {
         if self.failed {
             return;
         }
-        self.poll_shadows(now_us, out);
         let mut failure = None;
-        for (id, running) in &mut self.encodes {
-            if self.shadows.get(id).is_some_and(switch::Shadow::keyed) {
+        // Encodes whose cut-over hardware encoder failed, or never sent its keyframe in time.
+        let mut back = Vec::new();
+        for (&id, running) in &mut self.encodes {
+            if running
+                .probation
+                .as_ref()
+                .is_some_and(|p| p.expired(now_us))
+            {
+                back.push(id);
                 continue;
             }
             loop {
                 match running.chosen.encoder.poll_result() {
                     Ok(Some(unit)) => {
-                        out.push(Output::Unit(frame(running, unit, self.epoch, now_us)))
+                        if running.probation.is_some() {
+                            if !unit.key {
+                                // Its output must begin at a keyframe.
+                                back.push(id);
+                                break;
+                            }
+                            running.probation = None;
+                        }
+                        out.push(Output::Unit(frame(running, unit, self.epoch, now_us)));
                     }
                     Ok(None) => break,
+                    Err(_) if running.moved => {
+                        back.push(id);
+                        break;
+                    }
                     Err(error) => {
                         failure = Some(error);
                         break;
@@ -465,7 +494,12 @@ impl<B: Backends> Worker<B> {
             }
         }
         if let Some(error) = failure {
-            self.fail(&error, out);
+            return self.fail(&error, out);
+        }
+        for id in back {
+            if !self.back_to_fallback(id, out) {
+                return;
+            }
         }
     }
 }
@@ -527,8 +561,8 @@ fn frame(running: &mut Running, unit: EncodedUnit, fallback_epoch: u32, now_us: 
     }
 }
 
-#[path = "switch.rs"]
-mod switch;
+#[path = "cutover.rs"]
+mod cutover;
 
 #[cfg(test)]
 #[path = "worker_tests.rs"]

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The move from the fallback onto a late hardware encoder is make-before-break: the hardware
-//! encoder runs beside the fallback until its first keyframe, and the source never loses a
-//! picture or ends because the hardware one didn't start.
+//! The move from the fallback onto a hardware encoder that a late probe result brought is one
+//! cut-over at one picture: the fallback finishes everything before it, the hardware encoder
+//! starts at it with a keyframe, and a hardware encoder that fails sends the source back to
+//! the fallback at a keyframe, never ending it.
 use super::*;
 use media_codec::EncoderCaps;
 use std::sync::{Arc, Mutex};
@@ -11,19 +12,30 @@ const HARDWARE: u8 = 0xA0;
 
 #[derive(Default)]
 struct Knobs {
-    /// Units stay inside until `hold` is cleared.
+    /// Units stay inside until a flush (or `hold` is cleared).
     hold: bool,
     flush_fails: bool,
+    fail_configure: bool,
     fail_first_encode: bool,
     fail_first_poll: bool,
-    /// The encoder produces nothing at all (slow to its first keyframe).
+    /// Results fail once this many units have come out.
+    fail_after: Option<usize>,
+    /// The encoder produces nothing at all.
     silent: bool,
     encodes: usize,
+    out: usize,
 }
 
 type Shared = Arc<Mutex<Knobs>>;
 
-/// FakeEncoder, with its payload tagged by who made it and the knobs above.
+fn knobs(shared: &Shared) -> std::sync::MutexGuard<'_, Knobs> {
+    match shared.lock() {
+        Ok(knobs) => knobs,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// FakeEncoder, each unit's payload naming who made it and its picture: `[tag, pts…]`.
 struct Scripted {
     inner: FakeEncoder,
     tag: u8,
@@ -32,31 +44,25 @@ struct Scripted {
     polled: bool,
 }
 
-impl Scripted {
-    fn knobs(&self) -> std::sync::MutexGuard<'_, Knobs> {
-        match self.knobs.lock() {
-            Ok(knobs) => knobs,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-}
-
 impl Encoder for Scripted {
     fn configure(&mut self, spec: &Spec) -> Result<(), CodecError> {
+        if knobs(&self.knobs).fail_configure {
+            return Err(CodecError::Backend("configure failed".into()));
+        }
         self.inner.configure(spec)
     }
     fn encode(&mut self, picture: Picture, force_key: bool) -> Result<(), CodecError> {
-        let first = {
-            let mut knobs = self.knobs();
+        let fail = {
+            let mut knobs = knobs(&self.knobs);
             knobs.encodes += 1;
             knobs.encodes == 1 && knobs.fail_first_encode
         };
-        if first {
+        if fail {
             return Err(CodecError::Backend("the first submission failed".into()));
         }
         self.inner.encode(picture, force_key)?;
         while let Some(mut unit) = self.inner.poll() {
-            unit.data.insert(0, self.tag);
+            unit.data = [vec![self.tag], unit.pts_us.to_be_bytes().to_vec()].concat();
             self.held.push_back(unit);
         }
         Ok(())
@@ -65,29 +71,31 @@ impl Encoder for Scripted {
         None
     }
     fn poll_result(&mut self) -> Result<Option<EncodedUnit>, CodecError> {
-        let (hold, silent, fail) = {
-            let knobs = self.knobs();
-            (knobs.hold, knobs.silent, knobs.fail_first_poll)
-        };
-        if fail && !self.polled && !self.held.is_empty() {
+        let mut k = knobs(&self.knobs);
+        if k.fail_first_poll && !self.polled && !self.held.is_empty() {
             self.polled = true;
             return Err(CodecError::Backend("the first callback failed".into()));
         }
-        if hold || silent {
+        if k.fail_after.is_some_and(|n| k.out >= n) && !self.held.is_empty() {
+            return Err(CodecError::Backend("the encoder broke".into()));
+        }
+        if k.hold || k.silent {
             return Ok(None);
         }
         let unit = self.held.pop_front();
         self.polled |= unit.is_some();
+        k.out += usize::from(unit.is_some());
         Ok(unit)
     }
     fn caps(&self) -> EncoderCaps {
         self.inner.caps()
     }
     fn flush(&mut self) -> Result<(), CodecError> {
-        if self.knobs().flush_fails {
+        let mut k = knobs(&self.knobs);
+        if k.flush_fails {
             return Err(CodecError::DeadlineExceeded);
         }
-        self.knobs().hold = false;
+        k.hold = false;
         Ok(())
     }
 }
@@ -97,16 +105,18 @@ struct Pair {
     found: bool,
     fallback: Shared,
     hardware: Shared,
+    built: Vec<u8>,
 }
 
-impl Backends for Pair {
-    fn encoder(&mut self, _codec: Codec) -> Result<Chosen, CodecError> {
-        let (tag, knobs, backend) = if self.found {
+impl Pair {
+    fn scripted(&mut self, hardware: bool) -> Chosen {
+        let (tag, knobs, backend) = if hardware {
             (HARDWARE, self.hardware.clone(), Backend::Vt)
         } else {
             (FALLBACK, self.fallback.clone(), Backend::Chrome)
         };
-        Ok(Chosen {
+        self.built.push(tag);
+        Chosen {
             encoder: Box::new(Scripted {
                 inner: FakeEncoder::new(Vec::new()),
                 tag,
@@ -115,9 +125,18 @@ impl Backends for Pair {
                 polled: false,
             }),
             backend,
-            hardware: self.found,
+            hardware,
             takes_jpeg: None,
-        })
+        }
+    }
+}
+
+impl Backends for Pair {
+    fn encoder(&mut self, _codec: Codec) -> Result<Chosen, CodecError> {
+        Ok(self.scripted(self.found))
+    }
+    fn fallback(&mut self, _codec: Codec) -> Result<Chosen, CodecError> {
+        Ok(self.scripted(false))
     }
     fn decode(&mut self, jpeg: &[u8], size: Size, _: Backend) -> Result<Decoded, CodecError> {
         let picture =
@@ -141,12 +160,17 @@ impl Backends for Pair {
     }
 }
 
+/// One unit as the tests read it: who made it, which picture (its pts), and if it's a keyframe.
+type Seen = (u8, u64, bool);
+
 struct Rig {
     worker: Worker<Pair>,
     fallback: Shared,
     hardware: Shared,
     out: Vec<Output>,
     now: u64,
+    /// Each picture's pts, in the order sent.
+    sent: Vec<u64>,
 }
 
 impl Rig {
@@ -156,6 +180,7 @@ impl Rig {
             found: false,
             fallback: fallback.clone(),
             hardware: hardware.clone(),
+            built: Vec::new(),
         });
         let mut rig = Self {
             worker,
@@ -163,6 +188,7 @@ impl Rig {
             hardware,
             out: Vec::new(),
             now: 0,
+            sent: Vec::new(),
         };
         rig.run(Command::Configure(vec![spec(1, 1_000_000)]));
         rig
@@ -171,145 +197,249 @@ impl Rig {
         self.now += 33_000;
         self.worker.command(command, self.now, &mut self.out);
     }
-    fn pictures(&mut self, n: usize) {
-        for _ in 0..n {
-            self.run(picture(1));
-        }
+    /// Sends `n` pictures; returns their pts.
+    fn pictures(&mut self, n: usize) -> Vec<u64> {
+        (0..n)
+            .map(|_| {
+                self.run(picture(1));
+                // `picture` is 2 ms old when sent; pts is its capture time.
+                let pts = self.now - 2_000;
+                self.sent.push(pts);
+                pts
+            })
+            .collect()
     }
     /// The probe's late result: hardware now.
     fn found(&mut self) {
         self.worker.backends.found = true;
         self.run(Command::Capabilities);
     }
-    /// Who made each unit out so far, and whether it was a keyframe.
-    fn units(&self) -> Vec<(u8, bool)> {
+    fn seen(&self) -> Vec<Seen> {
         units(&self.out)
             .iter()
-            .map(|u| (u.payload[0], u.flags & 1 == 1))
+            .map(|u| {
+                let mut pts = [0u8; 8];
+                pts.copy_from_slice(&u.payload[1..9]);
+                (u.payload[0], u64::from_be_bytes(pts), u.flags & 1 == 1)
+            })
             .collect()
     }
-    fn last_report(&self) -> Option<&Acceleration> {
+    fn degraded(&self) -> Option<bool> {
         self.out.iter().rev().find_map(|o| match o {
-            Output::Report(a) => Some(a),
+            Output::Report(a) => Some(a.degraded),
             _ => None,
         })
     }
     fn ended(&self) -> bool {
         self.out.iter().any(|o| matches!(o, Output::Failed(_)))
     }
-}
-
-fn knob(shared: &Shared, change: impl FnOnce(&mut Knobs)) {
-    if let Ok(mut knobs) = shared.lock() {
-        change(&mut knobs);
+    /// No picture out twice or out of order, whoever encoded it.
+    fn in_order(&self) {
+        let seen = self.seen();
+        assert!(
+            seen.windows(2).all(|w| w[0].1 < w[1].1),
+            "pictures out of order or twice: {seen:?}"
+        );
     }
 }
 
 #[test]
-fn the_output_is_fallback_units_then_the_hardware_keyframe_then_hardware_units() {
+fn the_fallback_sends_every_picture_before_the_boundary_then_hardware_starts_at_it_with_a_keyframe()
+{
     let mut rig = Rig::new(Knobs::default());
-    rig.pictures(3);
+    let before = rig.pictures(3);
     rig.found();
-    rig.pictures(3);
-    let units = rig.units();
-    let first_hardware = units.iter().position(|u| u.0 == HARDWARE);
-    let Some(at) = first_hardware else {
-        panic!("never moved to hardware: {units:?}");
-    };
-    assert!(units[..at].iter().all(|u| u.0 == FALLBACK), "{units:?}");
-    assert!(units[at].1, "hardware starts at a keyframe: {units:?}");
-    assert!(units[at..].iter().all(|u| u.0 == HARDWARE), "{units:?}");
-    assert_eq!(units.len(), 6, "one unit per picture: {units:?}");
-    assert!(rig.last_report().is_some_and(|a| !a.degraded));
+    let after = rig.pictures(3);
+    assert_eq!(
+        rig.seen(),
+        [
+            (FALLBACK, before[0], true),
+            (FALLBACK, before[1], false),
+            (FALLBACK, before[2], false),
+            (HARDWARE, after[0], true),
+            (HARDWARE, after[1], false),
+            (HARDWARE, after[2], false),
+        ]
+    );
+    assert_eq!(rig.degraded(), Some(false));
 }
 
 #[test]
-fn a_fallback_whose_flush_fails_with_units_held_loses_none_of_them() {
+fn the_fallbacks_held_output_is_flushed_out_before_the_boundary() {
     let mut rig = Rig::new(Knobs::default());
-    knob(&rig.fallback, |k| {
-        k.hold = true;
-        k.flush_fails = true;
-    });
-    rig.pictures(3);
-    assert!(rig.units().is_empty(), "the fallback is holding its units");
+    knobs(&rig.fallback).hold = true;
+    let before = rig.pictures(3);
+    assert!(rig.seen().is_empty());
     rig.found();
-    rig.pictures(1);
-    // The flush failed, but the fallback's units still arrive; only then does hardware start.
-    assert!(
-        rig.units().is_empty(),
-        "nothing out before the fallback's own units"
-    );
-    knob(&rig.fallback, |k| k.hold = false);
-    rig.pictures(1);
-    let units = rig.units();
+    let after = rig.pictures(1);
     assert_eq!(
-        units,
+        rig.seen(),
         [
-            (FALLBACK, true),
-            (FALLBACK, false),
-            (FALLBACK, false),
-            (HARDWARE, true),
-            (HARDWARE, false)
+            (FALLBACK, before[0], true),
+            (FALLBACK, before[1], false),
+            (FALLBACK, before[2], false),
+            (HARDWARE, after[0], true),
         ]
     );
+}
+
+#[test]
+fn a_failed_fallback_flush_keeps_what_was_out_and_the_keyframe_still_follows() {
+    let mut rig = Rig::new(Knobs::default());
+    let out = rig.pictures(2);
+    {
+        let mut k = knobs(&rig.fallback);
+        k.hold = true;
+        k.flush_fails = true;
+    }
+    rig.pictures(1); // held inside the fallback when its flush fails: dropped
+    rig.found();
+    let after = rig.pictures(2);
+    assert_eq!(
+        rig.seen(),
+        [
+            (FALLBACK, out[0], true),
+            (FALLBACK, out[1], false),
+            (HARDWARE, after[0], true),
+            (HARDWARE, after[1], false),
+        ]
+    );
+    rig.in_order();
     assert!(!rig.ended());
 }
 
+/// After hardware failed: the next unit is a fallback keyframe, the source is degraded again,
+/// it never ended, and nothing came out of order.
+fn back_on_the_fallback(rig: &Rig, keyframe_for: u64) {
+    let seen = rig.seen();
+    let Some(at) = seen.iter().position(|s| s.1 == keyframe_for) else {
+        panic!("no unit for {keyframe_for}: {seen:?}");
+    };
+    assert_eq!(seen[at], (FALLBACK, keyframe_for, true), "{seen:?}");
+    assert!(seen[at..].iter().all(|s| s.0 == FALLBACK), "{seen:?}");
+    assert_eq!(rig.degraded(), Some(true));
+    assert!(!rig.ended());
+    rig.in_order();
+}
+
 #[test]
-fn hardware_failing_its_first_submission_leaves_the_source_on_the_fallback_degraded() {
+fn hardware_failing_to_configure_keeps_the_fallback_with_a_keyframe() {
+    let mut rig = Rig::new(Knobs {
+        fail_configure: true,
+        ..Knobs::default()
+    });
+    rig.pictures(2);
+    rig.found();
+    let after = rig.pictures(2);
+    back_on_the_fallback(&rig, after[0]);
+}
+
+#[test]
+fn hardware_failing_its_first_submission_goes_back_to_the_fallback_at_that_picture() {
     let mut rig = Rig::new(Knobs {
         fail_first_encode: true,
         ..Knobs::default()
     });
     rig.pictures(2);
     rig.found();
-    rig.pictures(3);
-    assert!(!rig.ended(), "the source keeps going");
-    assert!(rig.units().iter().all(|u| u.0 == FALLBACK));
-    assert_eq!(rig.units().len(), 5);
-    assert!(rig.last_report().is_some_and(|a| a.degraded));
+    let after = rig.pictures(2);
+    back_on_the_fallback(&rig, after[0]);
 }
 
 #[test]
-fn hardware_failing_its_first_callback_leaves_the_source_on_the_fallback_degraded() {
+fn hardware_failing_its_first_callback_goes_back_to_the_fallback_at_the_next_picture() {
     let mut rig = Rig::new(Knobs {
         fail_first_poll: true,
         ..Knobs::default()
     });
     rig.pictures(2);
     rig.found();
-    rig.pictures(3);
-    assert!(!rig.ended());
-    assert!(rig.units().iter().all(|u| u.0 == FALLBACK));
-    assert_eq!(rig.units().len(), 5);
-    assert!(rig.last_report().is_some_and(|a| a.degraded));
+    let after = rig.pictures(3);
+    back_on_the_fallback(&rig, after[1]);
     // Not tried again for this source until the next capabilities.changed.
-    let encodes = rig.hardware.lock().map(|k| k.encodes).unwrap_or(0);
+    let encodes = knobs(&rig.hardware).encodes;
     rig.pictures(2);
-    assert_eq!(rig.hardware.lock().map(|k| k.encodes).unwrap_or(0), encodes);
+    assert_eq!(knobs(&rig.hardware).encodes, encodes);
 }
 
 #[test]
-fn a_hardware_encoder_slow_to_its_keyframe_runs_beside_the_fallback_then_is_given_up() {
+fn hardware_failing_after_its_output_goes_back_to_a_rebuilt_fallback_with_a_keyframe() {
+    let mut rig = Rig::new(Knobs {
+        fail_after: Some(2),
+        ..Knobs::default()
+    });
+    rig.pictures(2);
+    rig.found();
+    let after = rig.pictures(5);
+    let seen = rig.seen();
+    assert_eq!(seen[2], (HARDWARE, after[0], true), "{seen:?}");
+    assert_eq!(seen[3], (HARDWARE, after[1], false), "{seen:?}");
+    // The third hardware result fails; that picture is gone, and the next is a fallback keyframe.
+    back_on_the_fallback(&rig, after[3]);
+    assert_eq!(
+        rig.worker.backends.built,
+        [FALLBACK, HARDWARE, FALLBACK],
+        "rebuilt"
+    );
+}
+
+#[test]
+fn hardware_without_a_keyframe_within_two_seconds_goes_back_to_the_fallback() {
     let mut rig = Rig::new(Knobs {
         silent: true,
         ..Knobs::default()
     });
     rig.pictures(1);
     rig.found();
-    // 33 ms a picture: 2 s is about 60 pictures. The fallback delivers every one meanwhile.
-    rig.pictures(30);
-    assert_eq!(rig.units().len(), 31);
-    assert!(rig.units().iter().all(|u| u.0 == FALLBACK));
-    rig.pictures(40);
-    let fed = rig.hardware.lock().map(|k| k.encodes).unwrap_or(0);
-    rig.pictures(5);
-    assert_eq!(
-        rig.hardware.lock().map(|k| k.encodes).unwrap_or(0),
-        fed,
-        "given up past 2 s without a keyframe"
-    );
-    assert_eq!(rig.units().len(), 76);
+    // 33 ms a picture: about 60 make 2 s.
+    rig.pictures(70);
+    let seen = rig.seen();
+    let Some(first) = seen.iter().position(|s| s.1 > rig.sent[0]) else {
+        panic!("nothing after the cut-over: {seen:?}");
+    };
+    assert_eq!(seen[first].0, FALLBACK);
+    assert!(seen[first].2, "back on the fallback at a keyframe");
+    assert_eq!(rig.degraded(), Some(true));
     assert!(!rig.ended());
-    assert!(rig.last_report().is_some_and(|a| a.degraded));
+    rig.in_order();
+}
+
+#[test]
+fn a_drain_mid_cut_over_flushes_the_hardware_encoder_and_says_drained_after_its_units() {
+    let mut rig = Rig::new(Knobs {
+        hold: true,
+        ..Knobs::default()
+    });
+    rig.pictures(2);
+    rig.found();
+    let after = rig.pictures(2);
+    rig.run(Command::Drain);
+    let seen = rig.seen();
+    assert_eq!(
+        &seen[2..],
+        [(HARDWARE, after[0], true), (HARDWARE, after[1], false)]
+    );
+    let drained = rig.out.iter().position(|o| matches!(o, Output::Drained));
+    let last_unit = rig.out.iter().rposition(|o| matches!(o, Output::Unit(_)));
+    assert!(
+        drained.is_some() && drained > last_unit,
+        "Drained after the units"
+    );
+}
+
+#[test]
+fn a_rate_change_mid_cut_over_reaches_the_hardware_encoder() {
+    let mut rig = Rig::new(Knobs {
+        hold: true,
+        ..Knobs::default()
+    });
+    rig.pictures(1);
+    rig.found();
+    rig.run(Command::Configure(vec![spec(1, 500_000)]));
+    let after = rig.pictures(2);
+    knobs(&rig.hardware).hold = false;
+    rig.pictures(1);
+    let seen = rig.seen();
+    assert_eq!(seen[1], (HARDWARE, after[0], true), "{seen:?}");
+    assert!(!rig.ended());
 }
