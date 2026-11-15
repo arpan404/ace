@@ -76,6 +76,8 @@ export function systemStack(stack: string): string | undefined {
 interface FontPlan {
   /** `@font-face` rules for bundled files. */
   faces: string[];
+  /** The same files as family, URL and format. */
+  sources: { family: string; url: string; format: string | undefined }[];
   fonts: ThemeFonts;
 }
 
@@ -83,6 +85,7 @@ function fontPlan(detail: Pick<SuitDetail, "manifest" | "assets">): FontPlan {
   const { manifest, assets } = detail;
   const base = themeSources[suitBaseTheme(manifest)].fonts;
   const faces: string[] = [];
+  const sources: FontPlan["sources"] = [];
   const stack = (slot: keyof ThemeFonts, font: SuitFont | undefined): string => {
     if (!font) return base[slot];
     if ("system" in font) {
@@ -96,19 +99,81 @@ function fontPlan(detail: Pick<SuitDetail, "manifest" | "assets">): FontPlan {
     const format = formats[extension];
     const name = suitFaceName(manifest.id, slot);
     faces.push(
-      `@font-face{font-family:"${name}";src:url("${url}")${format ? ` format("${format}")` : ""};font-display:swap}`,
+      `@font-face{font-family:"${name}";src:url("${url}")${format ? ` format("${format}")` : ""};font-display:fallback}`,
     );
+    sources.push({ family: name, url, format });
     return `"${name}", ${base[slot]}`;
   };
   const fonts = manifest.fonts;
   return {
     faces,
+    sources,
     fonts: {
       ui: stack("ui", fonts?.ui),
       prose: stack("prose", fonts?.prose),
       mono: stack("mono", fonts?.mono),
     },
   };
+}
+
+/**
+ * The Suit's bundled fonts as `@font-face` rules, under the family names its tokens name. Each
+ * waits up to ~100 ms for its file before showing the fallback (`fallback`), so a font the
+ * browser has cached (a reload, or a switch `loadSuitFonts` waited for) is never seen swapping
+ * in, and a slow or missing one never hides text for long.
+ */
+export function suitFontFaces(detail: Pick<SuitDetail, "manifest" | "assets">): string[] {
+  return fontPlan(detail).faces;
+}
+
+/** A bundled font file: the family it serves, its URL and the face it is (weight, style). */
+export interface SuitFontSource {
+  family: string;
+  url: string;
+  format: string | undefined;
+  weight?: string;
+  style?: string;
+}
+
+/** One descriptor's value in an `@font-face` body, unquoted. */
+const descriptor = (body: string, name: string) =>
+  new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;]+)`).exec(body)?.[1]?.trim();
+const unquote = (value: string) => value.replace(/^(["'])(.*)\1$/, "$2");
+
+/**
+ * The `@font-face` rules in the Suit's sanitised suit.css as sources: their family, weight,
+ * style and first file (the daemon has already rewritten it to a served URL). Pure.
+ */
+export function cssFontSources(css: string | null): SuitFontSource[] {
+  if (!css) return [];
+  const sources: SuitFontSource[] = [];
+  for (const [, body = ""] of css.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
+    const family = descriptor(body, "font-family");
+    const src = /url\(\s*(["']?)([^"')\s]+)\1\s*\)/.exec(body)?.[2];
+    const url = src === undefined ? undefined : safeUrl(src);
+    if (!family || !url) continue;
+    const extension = url.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
+    const weight = descriptor(body, "font-weight");
+    const style = descriptor(body, "font-style");
+    sources.push({
+      family: unquote(family),
+      url,
+      format: formats[extension],
+      ...(weight ? { weight } : {}),
+      ...(style ? { style } : {}),
+    });
+  }
+  return sources;
+}
+
+/**
+ * Every bundled font the Suit uses, from `fonts` and from suit.css's `@font-face` rules, for
+ * loading them before the Suit shows.
+ */
+export function suitFontSources(
+  detail: Pick<SuitDetail, "manifest" | "assets"> & { css?: string | null },
+): SuitFontSource[] {
+  return [...fontPlan(detail).sources, ...cssFontSources(detail.css ?? null)];
 }
 
 /** Shape and motion as the scales the shared tokens read. */

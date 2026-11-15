@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeSuit } from "@/test/fake-suits.ts";
 import { themeDeclarations } from "../css.ts";
-import { suitDeclarations, suitStylesheet } from "./suit-css.ts";
+import { suitDeclarations, suitFontSources, suitStylesheet } from "./suit-css.ts";
 
 const synthwave = fakeSuit({
   id: "synthwave",
@@ -111,5 +111,40 @@ describe("a Suit's shape, motion and fonts", () => {
     expect(sheet).not.toContain("@font-face");
     expect(suitDeclarations(suit, "dark")["--font-sans"]).toBe(base["--font-sans"]);
     expect(suitDeclarations(suit, "dark")["--font-mono"]).toBe(base["--font-mono"]);
+  });
+});
+
+describe("the fonts a Suit bundles", () => {
+  it("are every file from `fonts` and from suit.css's @font-face rules, each face apart", () => {
+    const served = "http://127.0.0.1:4242/v1/suits/pixel/h/g/assets/";
+    const pixel = {
+      ...fakeSuit({
+        id: "pixel",
+        dark: { canvas: "#101014" },
+        fonts: {
+          ui: { asset: "assets/ui.woff2", family: "Pixel UI" },
+          prose: { system: "Georgia, serif" },
+        },
+      }),
+      assets: { "assets/ui.woff2": `${served}ui.woff2` },
+      css: [
+        `@layer suit{@font-face{font-family:"Arcade Display";src:url("${served}bold.ttf") format("truetype");font-weight:700}`,
+        `@font-face{font-family:'Arcade Display';src:url(${served}regular.ttf);font-style:italic}`,
+        // A face whose file isn't one a page may load is left out.
+        `@font-face{font-family:"Bad";src:url("javascript:alert(1)")}}`,
+      ].join("\n"),
+    };
+    expect(suitFontSources(pixel)).toEqual([
+      { family: "ace-suit-pixel-ui", url: `${served}ui.woff2`, format: "woff2" },
+      { family: "Arcade Display", url: `${served}bold.ttf`, format: "truetype", weight: "700" },
+      {
+        family: "Arcade Display",
+        url: `${served}regular.ttf`,
+        format: "truetype",
+        style: "italic",
+      },
+    ]);
+    // The tokens' faces wait briefly for a cached file rather than flashing a fallback.
+    expect(suitStylesheet(pixel)).toContain("font-display:fallback");
   });
 });

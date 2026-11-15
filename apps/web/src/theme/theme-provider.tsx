@@ -25,6 +25,7 @@ import {
 import { themesStylesheet, themeStylesheet } from "./css.ts";
 import type { SuitDetail } from "@ace/protocol/suits";
 import { suitDensity, suitPalette, suitSchemes, suitSheets } from "./suits/suit-css.ts";
+import { browserFontLoader, useSuitFontsReady } from "./suits/suit-fonts.ts";
 import { useAppliedSuit, type SuitReport } from "./suits/use-applied-suit.ts";
 import { suitLayoutStylesheet } from "./suits/suit-layout.ts";
 import type { GlassEngine } from "./glass.ts";
@@ -119,7 +120,10 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const [appearance, setAppearance] = useState(() => loadAppearance(storage));
   const system = useSystemPreferences(matchMedia, softwareRendering);
   const suitsOff = props.environment.suitsOff ?? false;
-  const { applied: suit, reportSuits } = useAppliedSuit(storage, appearance.suit, suitsOff);
+  const { applied, reportSuits } = useAppliedSuit(storage, appearance.suit, suitsOff);
+  // A Suit shows once its bundled fonts have loaded, so a switch never flashes a fallback face.
+  const [fontLoader] = useState(() => browserFontLoader(root?.ownerDocument));
+  const suit = useSuitFontsReady(applied, fontLoader);
   const resolved = useMemo(
     () => resolveAppearance(appearance, system, suit),
     [appearance, system, suit],
