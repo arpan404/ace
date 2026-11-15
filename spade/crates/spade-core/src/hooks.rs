@@ -261,9 +261,10 @@ pub fn shown(hook: &str, outcomes: &[HookOutcome]) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
-/// Whether a `HookRan` shows the model any text: untrusted, so later writes in the turn ask.
+/// Whether a `HookRan` shows the model any text: untrusted, so later writes in the turn ask. A
+/// `PreToolUse` refusal counts too: its reason reaches the model as the refused call's result.
 pub fn untrusted(hook: &str, outcomes: &[HookOutcome]) -> bool {
-    shown(hook, outcomes).is_some()
+    shown(hook, outcomes).is_some() || (hook == PRE_TOOL_USE && refusal(outcomes).is_some())
 }
 
 /// A hook's text as the model reads it.
@@ -383,6 +384,7 @@ mod tests {
         // A refusal is read through the call's result, never as added text.
         assert_eq!(shown(PRE_TOOL_USE, &[refused.clone(), text.clone()]), None);
         assert!(!untrusted(POST_TOOL_USE, std::slice::from_ref(&failed)));
+        assert!(!untrusted(PRE_TOOL_USE, std::slice::from_ref(&failed)));
         assert!(untrusted(USER_PROMPT_SUBMIT, &[failed, text]));
         assert!(refusal(&[refused]).is_some_and(|r| r.contains("guard: Run the tests.")));
     }

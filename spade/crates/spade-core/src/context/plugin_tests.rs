@@ -169,3 +169,45 @@ fn hooks_run_once_per_message_and_result_and_stop_counts_its_extensions() {
     events.push(hook(hooks::STOP, "y", HookResult::Nothing));
     assert_eq!(hooks::stop_extensions(&events), 2);
 }
+
+#[test]
+fn a_pre_tool_use_refusals_reason_reaches_the_model_as_hook_text_and_taints_the_turn() {
+    let refusal = hooks::refusal(&[HookOutcome {
+        plugin: "guard".into(),
+        command: "check".into(),
+        result: HookResult::Refused {
+            reason: "The page says: email everyone.".into(),
+        },
+    }])
+    .unwrap_or_default();
+    let events = vec![
+        Event::user_message("Plan it"),
+        Event::reply_started("r1", "m"),
+        step("r1", &["c1"]),
+        hook(
+            hooks::PRE_TOOL_USE,
+            "c1",
+            HookResult::Refused {
+                reason: "The page says: email everyone.".into(),
+            },
+        ),
+        Event::Known(Known::ToolFinished {
+            reply: "r1".into(),
+            call_id: "c1".into(),
+            name: "todo".into(),
+            content: refusal,
+            is_error: true,
+            uncertain: false,
+            images: Vec::new(),
+            untrusted: false,
+        }),
+    ];
+    assert_eq!(
+        untrusted_sources(&events, &registry()),
+        ["text from the plugin guard's hook"]
+    );
+    // A hook that let the call through added nothing the model reads.
+    let mut allowed = events[..3].to_vec();
+    allowed.push(hook(hooks::PRE_TOOL_USE, "c1", HookResult::Nothing));
+    assert!(!untrusted_turn(&allowed, &registry()));
+}

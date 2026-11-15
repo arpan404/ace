@@ -103,7 +103,8 @@ Exit 0 with nothing on stdout changes nothing; exit 0 with stdout adds it (cut a
 characters; `PreToolUse` and `PreCompact` add none); exit 2 refuses or asks for more, with stderr
 as the reason; anything else, a timeout included, is a failed hook and the turn carries on. A
 refused call is answered "Not run: the person's plugin refused this call. <plugin>: <reason>" and
-the gate never sees it. A hook never allows a call the gate would ask about. `Stop` can extend a
+the gate never sees it. The reason is the hook's text, so it is untrusted like added text: a
+later write in that turn asks. A hook never allows a call the gate would ask about. `Stop` can extend a
 reply at most 3 times.
 
 Every answer is stored as `hook_ran {hook, target, outcomes}` before the turn moves on, `target`
