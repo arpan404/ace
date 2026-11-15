@@ -150,13 +150,14 @@ it.runIf(runs)(
     const h264 = () => frames.filter((entry) => entry.frame.header.codec === "h264");
     const stills = (after: number) =>
       frames.filter((entry) => entry.at > after && entry.frame.header.codec === "jpeg");
-    // Calculator changes only when touched: keyframes asked for keep units coming.
+    // Calculator changes only when touched: keyframes asked for keep units coming, at most two a
+    // second (the helper forces one every 500 ms at most), so each wait asks for a few.
     const keyframes = setInterval(() => void manager.requestKeyframe(id).catch(() => {}), 100);
     onTestFinished(() => clearInterval(keyframes));
 
     // Through ace-media: every H.264 frame came on egress, with today's header. The first
     // waits for ace-media to start and the last-resort encoder's Chrome with it.
-    await until(() => h264().length >= 10, 60_000);
+    await until(() => h264().length >= 4, 60_000);
     expect(producers.supervisor.health()).toBe("healthy");
     expect(h264().every((entry) => viaEgress.has(entry.frame.header.sequence))).toBe(true);
     const keyframe = h264().find((entry) => entry.frame.header.keyframe)?.frame;
@@ -180,7 +181,7 @@ it.runIf(runs)(
       producers.settingsChanged();
       await until(() =>
         encode === "auto"
-          ? h264().filter((entry) => entry.at > flipped).length >= 10
+          ? h264().filter((entry) => entry.at > flipped).length >= 4
           : stills(flipped).length >= 1,
       );
     }
@@ -212,7 +213,7 @@ it.runIf(runs)(
     await until(() => direct(killed).length > 0, 5_000);
     expect((direct(killed)[0]?.at ?? Infinity) - killed).toBeLessThan(2_000);
     const before = h264().length;
-    await until(() => h264().length > before + 10, 30_000);
+    await until(() => h264().length > before + 4, 30_000);
     expect(producers.supervisor.snapshot().pid).not.toBe(pid);
     expect(ended.filter((end) => end.at > killed).some((end) => end.interrupted)).toBe(true);
   },

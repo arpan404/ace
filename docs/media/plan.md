@@ -1939,7 +1939,12 @@ picture-codecs.ts`) from the same table, `packages/media/src/picture-encoders.js
   fps (up to 60); stills then come only on `stream.image`. Epochs are applied on the capture clock with the
   daemon's `epochPrivate` (unsaid is private), and each arrival is resolved against them once,
   by `media_ingest::epochs` (the rule E1 wrote, now shared by both helpers): ties go private,
-  and redelivery keeps the picture's epoch. Frame identity is the visible region's position and
+  and redelivery keeps the picture's epoch. The ledger forgets an application only once no
+  picture in flight can need it (Linux as each arrival is resolved, Windows as each newest
+  picture replaces the last); a 4096-entry bound remains, and a picture older than what is kept
+  resolves to a private epoch, never 0. Forced keyframes (the route's, the daemon socket's, the
+  encoder's and the daemon's requests) coalesce while one is owed and come at most every 500 ms
+  on the capture clock, as ace-media's own rule. Frame identity is the visible region's position and
   pixels; a cached still of another region is dropped. The `stream.configure` reply also carries
   `acceleration` (K2's shape) once the stream has run, for A1 to pick up.
 - **Ingest** (`media/ingest.rs`). The writer, route, retirement and framing are E1's sans-IO
