@@ -1,18 +1,7 @@
 /*
- * Alpine Lodge: ace as a mountain lodge on a winter evening (and a bright winter morning). Every
- * selector names a published part (docs/design/suit-parts.md).
- *
- * Materials. Wood is drawn in CSS: a base colour under a few repeating gradients of fine grain
- * lines at prime periods, so it never visibly repeats and the live check can read every stop.
- * Felt is a fine crosshatch; brass is a short metallic gradient; leather is a deep brown with a
- * stitched (dashed) edge. A frame of wood around a surface uses two backgrounds: the surface on
- * the padding box and the wood on the border box, under a transparent border.
- *
- * Places. The sidebar is the lodge's Trail board, its threads carved trail markers; the open
- * trail has its lantern lit. Agents answer in notes pinned to felt, the person writes on a
- * postcard, the work log is a hiking log of waypoints, and the composer is the guest book. The
- * pull requests are the trail conditions board, one pull request a trail map; Settings is the
- * gear room and the side panel a cabinet of drawers. The window shows the valley at dusk.
+ * Alpine Lodge: a mountain lodge on a winter evening (and a bright morning). Wood is CSS grain
+ * (repeating gradients the live check can read), felt a fine crosshatch, brass a short metallic
+ * gradient, leather stitched. Selectors name published parts only (docs/design/suit-parts.md).
  */
 
 @font-face {
@@ -30,11 +19,7 @@
 }
 
 /* ------------------------------------------------------------------ materials */
-
-/*
- * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
- * render outside the app part, so they define them too.
- */
+/* The Suit's variables, also on the floating layers, which render outside the app part. */
 [data-part="app"],
 [data-part="menu"],
 [data-part="popover"],
@@ -64,6 +49,20 @@
   --suit-felt:
     repeating-linear-gradient(45deg, rgb(255 236 210 / 0.022) 0 1px, transparent 1px 3px),
     repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.07) 0 1px, transparent 1px 3px);
+  --suit-tack:
+    radial-gradient(circle at 35% 30%, rgb(255 246 220 / 0.9) 0 1.2px, transparent 2.2px),
+    var(--suit-brass);
+  --suit-stud:
+    radial-gradient(circle at 38% 30%, rgb(255 248 226 / 0.7), transparent 50%), var(--suit-brass);
+  --suit-plate-shadow: inset 0 0 0 1px var(--suit-brass-rim), 0 1px 2px rgb(0 0 0 / 0.35);
+  /* A wood frame on the border box (under a transparent border), and its two dark edges. */
+  --suit-framed:
+    var(--suit-grain-h) border-box,
+    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+  --suit-rim: 0 0 0 1px var(--suit-wood-edge), inset 0 0 0 1px var(--suit-wood-edge);
+  --suit-pane: color-mix(in oklab, var(--color-background) 50%, transparent);
+  --suit-sink: rgb(0 0 0 / 0.45);
+  --suit-frost: rgb(214 224 250 / 0.07);
   --suit-glow: color-mix(in oklab, var(--color-tint) 26%, transparent);
   --suit-wash: color-mix(in oklab, var(--color-tint) 12%, transparent);
   --suit-shadow: 0 10px 30px rgb(0 0 0 / 0.38), 0 2px 6px rgb(0 0 0 / 0.3);
@@ -122,51 +121,21 @@
   --suit-felt:
     repeating-linear-gradient(45deg, rgb(255 255 255 / 0.5) 0 1px, transparent 1px 3px),
     repeating-linear-gradient(-45deg, rgb(110 80 50 / 0.035) 0 1px, transparent 1px 3px);
+  --suit-pane: color-mix(in oklab, var(--color-background) 62%, transparent);
+  --suit-sink: rgb(90 60 30 / 0.25);
+  --suit-frost: rgb(255 255 255 / 0.7);
   --suit-glow: color-mix(in oklab, var(--color-tint) 18%, transparent);
   --suit-wash: color-mix(in oklab, var(--color-tint) 8%, transparent);
   --suit-shadow: 0 10px 28px rgb(80 50 20 / 0.16), 0 2px 6px rgb(80 50 20 / 0.12);
 }
 
 /* ------------------------------------------------------------------ regions */
-
-[data-part="app"] {
-  --suit-rail-background:
-    var(--suit-grain-v), linear-gradient(90deg, var(--suit-wood-edge), var(--suit-wood) 70%);
-  --suit-sidebar-background:
-    var(--suit-grain-v),
-    radial-gradient(120% 40% at 50% 0%, var(--suit-carve-lift), transparent 70%), var(--suit-wood);
-  --suit-header-background: var(--suit-grain-h), var(--suit-wood-2);
-  --suit-right-panel-background: var(--suit-grain-v), var(--suit-wood);
-  /*
-   * The window: the transcript is a pane in a warm wooden frame. The valley shows through the
-   * glass, held back by a wash of the room's own colour so words on it read, and frost gathers
-   * at the pane's edges.
-   */
-  --suit-pane: color-mix(in oklab, var(--color-background) 50%, transparent);
-  /*
-   * The frame is a ridged moulding: a border of its own, so the glass's background is the pane
-   * alone and words over it read against the valley, never against the wood.
-   */
-  --suit-transcript-border: 8px ridge var(--suit-wood-3);
-  --suit-transcript-background: var(--suit-pane);
-  --suit-transcript-shadow:
-    inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(0 0 0 / 0.45),
-    inset 0 0 48px 2px rgb(214 224 250 / 0.07), 0 0 0 1px var(--suit-wood-edge);
-}
-[data-scheme="light"] [data-part="app"],
-[data-part="app"][data-scheme="light"] {
-  --suit-pane: color-mix(in oklab, var(--color-background) 62%, transparent);
-  --suit-transcript-shadow:
-    inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(90 60 30 / 0.25),
-    inset 0 0 48px 4px rgb(255 255 255 / 0.7), 0 0 0 1px var(--suit-wood-edge);
-}
-/* A thread's page lets the pane alone stand between the room and the valley. */
+/* Region wood and the window frame are in suit.json; a thread's page leaves the pane alone. */
 [data-part="page"][data-page="thread"] {
   --suit-page-background: transparent;
 }
 
 /* ------------------------------------------------------------------ type */
-
 [data-part="header-title"],
 [data-part="page-title"],
 [data-part="settings-section"],
@@ -201,7 +170,6 @@
 }
 
 /* ------------------------------------------------------------------ rail: the beam */
-
 [data-part="rail"] {
   box-shadow:
     inset -1px 0 0 var(--suit-wood-edge),
@@ -230,7 +198,6 @@
 }
 
 /* ------------------------------------------------------------------ sidebar: the Trail board */
-
 [data-part="sidebar"] {
   box-shadow:
     inset -1px 0 0 var(--suit-wood-edge),
@@ -248,14 +215,7 @@
   text-shadow: 0 1px 0 var(--suit-carve);
 }
 
-[data-part="thread-list"] {
-  padding-inline: 2px;
-}
-/*
- * Each thread is a carved trail marker: a plank whose right end points down the trail, with a
- * difficulty mark burnt into its left end (the mark's shape only; the status icon keeps ace's
- * colour at the other end).
- */
+/* Each thread is a carved trail marker: a plank pointing down the trail, a mark burnt in. */
 [data-part="thread-row"] {
   --suit-mark-ink: color-mix(in oklab, var(--color-subtle-foreground) 80%, transparent);
   --suit-plank: var(--suit-wood-2);
@@ -277,9 +237,7 @@
     calc(100% - 11px) calc(100% - 2px),
     0 calc(100% - 2px)
   );
-  transition:
-    filter 140ms ease,
-    background-color 140ms ease;
+  transition: background-color 140ms ease;
 }
 [data-part="thread-title"] {
   text-shadow: 0 1px 0 var(--suit-carve);
@@ -287,11 +245,7 @@
 [data-part="thread-row"]:hover {
   --suit-plank: var(--suit-wood-3);
 }
-/*
- * The difficulty mark, by what the trail's status says: a ring for an easy trail at rest, a
- * square while it is being worked, a diamond while it waits on the person and two diamonds where
- * it failed. Shape only; the status icon at the row's end keeps ace's colour.
- */
+/* Difficulty by status, shape only: ring at rest, square worked, diamond waiting, two failed. */
 [data-part="thread-row"]:not([data-state="active"])::before {
   content: "";
   position: absolute;
@@ -365,10 +319,7 @@
   filter: drop-shadow(0 0 5px var(--color-tint));
   pointer-events: none;
 }
-/*
- * By day the markers are birch, near white, so ace's status marks at their ends read at full
- * strength; the open one keeps its lantern and a brass edge instead of a glow.
- */
+/* By day the markers are birch, so ace's status marks read; the open one gets a brass edge. */
 [data-scheme="light"] [data-part="thread-row"],
 [data-scheme="light"] [data-part="thread-row"][data-state="active"] {
   background:
@@ -394,9 +345,6 @@
 }
 [data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
   font-weight: 750;
-}
-[data-part="thread-meta"] {
-  font-size: 11.5px;
 }
 
 /* Inbox, Snoozed, Settled: three small signs on one rail. */
@@ -445,7 +393,6 @@
 }
 
 /* ------------------------------------------------------------------ header: the lodge sign */
-
 [data-part="header"] {
   position: relative;
   box-shadow:
@@ -453,10 +400,7 @@
     inset 0 -2px 0 var(--suit-carve-lift),
     0 3px 8px -4px rgb(0 0 0 / 0.4);
 }
-/*
- * The title is carved into a name board. ace focuses the title when a page opens; the focus
- * ring follows the board's rounded edge, so it reads as the board catching the light.
- */
+/* The title is carved into a name board; ace's focus ring on it follows the board's edge. */
 [data-part="header-title"] {
   font-weight: 650;
   font-size: 15px;
@@ -513,25 +457,9 @@
 [data-page="history"] [data-part="header-title"]::before {
   content: "LOGBOOK";
 }
-[data-page="skills"] [data-part="header-title"]::before,
-[data-page="skill"] [data-part="header-title"]::before {
-  content: "FIELD GUIDE";
-}
-[data-page="automations"] [data-part="header-title"]::before,
-[data-page="automation"] [data-part="header-title"]::before {
-  content: "ROUNDS";
-}
-[data-part="header"] [data-part="icon-button"],
-[data-part="header"] [data-part="button"] {
-  border-radius: 8px;
-}
 
 /* ------------------------------------------------------------------ transcript */
-
-/*
- * Agents answer in notes pinned to a felt board: a felt card with a brass tack, its writer named
- * small across the top.
- */
+/* Agents answer in felt notes pinned to the board, named small across the top. */
 [data-part="message-agent"] {
   position: relative;
   padding: 26px 22px 18px;
@@ -542,22 +470,10 @@
     var(--suit-shadow),
     inset 0 1px 0 var(--suit-carve-lift);
 }
-[data-part="message-agent"]::before {
-  content: "";
-  position: absolute;
-  top: 9px;
-  left: 50%;
-  width: 11px;
-  height: 11px;
-  margin-left: -5.5px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 30%, rgb(255 246 220 / 0.9) 0 1.2px, transparent 2.2px),
-    var(--suit-brass);
-  box-shadow:
-    0 0 0 1px var(--suit-brass-rim),
-    1px 2px 3px rgb(0 0 0 / 0.45);
-  pointer-events: none;
+/* A brass tack pins the note, and the postcard, to the board. */
+[data-part="message-agent"]::before,
+[data-part="message-user"]::before {
+  top: -5px;
 }
 [data-part="message-agent"]::after {
   content: "a note by the fire";
@@ -576,10 +492,7 @@
   font-family: var(--suit-display);
 }
 
-/*
- * The person writes on a postcard: warm card stock, a stamp in the corner with a postmark
- * running across it, and a tack holding it to the board.
- */
+/* The person writes on a postcard: card stock, a stamp and a postmark in the corner. */
 [data-part="message-user"] {
   position: relative;
   padding: 16px 64px 14px 18px;
@@ -639,18 +552,9 @@
   background: var(--color-code);
   font-family: var(--font-mono);
 }
-[data-part="attachment"] {
-  border-radius: 6px;
-  box-shadow: var(--suit-shadow);
-}
 
 /* ------------------------------------------------------------------ work log: the hiking log */
-
-/*
- * A group of steps is one leg of the hike, headed by a painted trail blaze. Each step is a
- * waypoint: a wooden disc with its tool's sign (a map for reading, a compass for searching, an
- * axe for edits, a campfire for commands…), joined to the next by the dashed trail.
- */
+/* The hiking log: a leg headed by a trail blaze, each step a waypoint disc on a dashed trail. */
 [data-part="tool-group-header"] {
   position: relative;
   padding-left: 20px;
@@ -758,23 +662,16 @@
 }
 
 /* ------------------------------------------------------------------ composer: the guest book */
-
-/*
- * The guest book lies open on the desk: a page framed in wood, one ruled line to sign on, and a
- * brass button to send it.
- */
+/* The guest book: a page framed in wood, one ruled line to sign on, a brass send button. */
 [data-part="composer"] {
   position: relative;
   border: 6px solid transparent;
   border-radius: 16px;
   background:
     linear-gradient(var(--color-surface-1), var(--color-surface-1)) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
-  box-shadow:
-    0 0 0 1px var(--suit-wood-edge),
-    inset 0 0 0 1px var(--suit-wood-edge),
-    var(--suit-shadow);
+    var(--suit-framed),
+    var(--color-surface-1);
+  box-shadow: var(--suit-rim), var(--suit-shadow);
   transition: box-shadow 160ms ease;
 }
 [data-part="composer"]:focus-within {
@@ -864,13 +761,10 @@
 }
 
 /* ------------------------------------------------------------------ controls */
-
 [data-part="button"] {
   border-radius: 9px;
   font-weight: 700;
-  transition:
-    background-color 120ms ease,
-    filter 120ms ease;
+  transition: filter 120ms ease;
 }
 /* A secondary button is a small plank. */
 [data-part="button"]:not([data-variant]),
@@ -957,20 +851,13 @@
 [data-part="switch"][data-state="checked"] {
   background: color-mix(in oklab, var(--color-tint) 75%, var(--suit-leather));
 }
-[data-part="switch-thumb"] {
-  background:
-    radial-gradient(circle at 38% 30%, rgb(255 248 226 / 0.7), transparent 50%), var(--suit-brass);
-  box-shadow:
-    inset 0 0 0 1px var(--suit-brass-rim),
-    0 1px 2px rgb(0 0 0 / 0.45);
-}
 /* A slider is a rope with a brass toggle on it. */
 [data-part="slider"] {
   border-radius: 999px;
 }
+[data-part="switch-thumb"],
 [data-part="slider-thumb"] {
-  background:
-    radial-gradient(circle at 38% 30%, rgb(255 248 226 / 0.7), transparent 50%), var(--suit-brass);
+  background: var(--suit-stud);
   box-shadow:
     inset 0 0 0 1px var(--suit-brass-rim),
     0 1px 3px rgb(0 0 0 / 0.45);
@@ -992,16 +879,12 @@
   text-shadow: 0 1px 0 rgb(255 240 200 / 0.4);
   border-radius: 8px;
   background: var(--suit-brass-plate);
-  box-shadow:
-    inset 0 0 0 1px var(--suit-brass-rim),
-    0 1px 2px rgb(0 0 0 / 0.35);
+  box-shadow: var(--suit-plate-shadow);
 }
 [data-part="segmented-thumb"] {
   border-radius: 8px;
   background: var(--suit-brass-plate);
-  box-shadow:
-    inset 0 0 0 1px var(--suit-brass-rim),
-    0 1px 2px rgb(0 0 0 / 0.35);
+  box-shadow: var(--suit-plate-shadow);
 }
 [data-part="tab"] {
   border-radius: 8px;
@@ -1015,10 +898,7 @@
   border-radius: 6px;
   font-weight: 700;
 }
-/*
- * A state pill draws its words in the canvas colour; the lodge's canvas is warm cream, so by
- * day the words on a filled pill are pure white to keep their contrast on ace's fills.
- */
+/* By day a filled state pill writes in white: the lodge's cream canvas is too dim on it. */
 [data-scheme="light"]
   [data-part="badge"]:is([data-variant="open"], [data-variant="merged"], [data-variant="closed"]) {
   color: #ffffff;
@@ -1028,9 +908,6 @@
   border: 1px solid var(--suit-wood-edge);
   border-bottom-width: 2px;
   background: var(--suit-wood-3);
-}
-[data-part="label-chip"] {
-  border-radius: 999px;
 }
 [data-part="branch-chip"] {
   border-radius: 6px;
@@ -1044,16 +921,9 @@
   );
   border-color: transparent;
 }
-[data-part="avatar"] {
-  box-shadow: 0 0 0 1.5px var(--suit-brass-rim);
-}
 
 /* ------------------------------------------------------------------ menus, dialogs: lined boxes */
-
-/*
- * Floating layers are wooden boxes lined with felt: a thin wood rim on the border box, the felt
- * on the padding box.
- */
+/* Floating layers are wooden boxes lined with felt. */
 [data-part="menu"],
 [data-part="popover"],
 [data-part="command-palette"],
@@ -1063,11 +933,10 @@
   background:
     var(--suit-felt) padding-box,
     linear-gradient(var(--color-surface-2), var(--color-surface-2)) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+    var(--suit-framed),
+    var(--color-surface-2);
   box-shadow:
-    0 0 0 1px var(--suit-wood-edge),
-    inset 0 0 0 1px var(--suit-wood-edge),
+    var(--suit-rim),
     0 18px 50px rgb(0 0 0 / 0.45);
 }
 [data-part="dialog"] {
@@ -1076,22 +945,20 @@
 }
 /* Four brass tacks hold a dialog's frame. */
 [data-part="dialog"]::before {
+  --suit-nail: radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px);
   content: "";
   position: absolute;
   inset: -4px;
   border-radius: 14px;
-  background:
-    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 0 0 / 8px 8px no-repeat,
-    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 100% 0 / 8px 8px
-      no-repeat,
-    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 0 100% / 8px 8px
-      no-repeat,
-    radial-gradient(circle, #e4c27f 0 2px, #7a5a24 2.6px, transparent 3.2px) 100% 100% / 8px 8px
-      no-repeat;
+  background: var(--suit-nail), var(--suit-nail), var(--suit-nail), var(--suit-nail);
+  background-position:
+    0 0,
+    100% 0,
+    0 100%,
+    100% 100%;
+  background-size: 8px 8px;
+  background-repeat: no-repeat;
   pointer-events: none;
-}
-[data-part="dialog"] [data-part="page-title"] {
-  font-size: 1.15em;
 }
 [data-part="tooltip"] {
   border-radius: 7px;
@@ -1124,7 +991,6 @@
 }
 
 /* ------------------------------------------------------------------ pages */
-
 [data-part="card"] {
   border-radius: 12px;
 }
@@ -1141,17 +1007,14 @@
 [data-part="list-row"][data-state="active"] {
   background: linear-gradient(90deg, var(--suit-glow), transparent 70%), var(--color-active);
 }
-[data-part="stat"] {
-  font-weight: 600;
-}
 [data-part="page-header"] {
   position: relative;
 }
 
 /* ------------------------------------------------------------------ settings: the gear room */
-
-[data-page="settings"] [data-part="page-header"] [data-part="page-title"]::before {
-  content: "THE GEAR ROOM";
+/* A kicker over a page's title names the room: the gear room, the conditions board, the map. */
+[data-part="page-header"] [data-part="page-title"]::before {
+  white-space: pre;
   display: block;
   margin-bottom: 3px;
   font-family: var(--font-sans);
@@ -1159,6 +1022,9 @@
   font-weight: 800;
   letter-spacing: 0.22em;
   color: var(--color-link);
+}
+[data-page="settings"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "THE GEAR ROOM";
 }
 /* The rooms' list hangs on a peg rail: each page a peg, the open one with the lantern lit. */
 [data-part="nav-item"] {
@@ -1198,10 +1064,7 @@
 [data-part="page-body"] {
   counter-reset: locker;
 }
-/*
- * Each group of settings is a locker in the gear room: a wood frame lined with felt and a brass
- * number plate on its top edge.
- */
+/* Each settings group is a locker: a wood frame, felt lining, a brass number plate. */
 [data-part="card"][data-variant="settings-group"] {
   counter-increment: locker;
   position: relative;
@@ -1210,11 +1073,10 @@
   background:
     var(--suit-felt) padding-box,
     linear-gradient(var(--color-surface-1), var(--color-surface-1)) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+    var(--suit-framed),
+    var(--color-surface-1);
   box-shadow:
-    0 0 0 1px var(--suit-wood-edge),
-    inset 0 0 0 1px var(--suit-wood-edge),
+    var(--suit-rim),
     0 4px 12px -6px rgb(0 0 0 / 0.4);
 }
 [data-part="card"][data-variant="settings-group"]::after {
@@ -1232,9 +1094,7 @@
   color: var(--suit-brass-ink);
   background: var(--suit-brass-plate);
   border-radius: 4px;
-  box-shadow:
-    inset 0 0 0 1px var(--suit-brass-rim),
-    0 1px 2px rgb(0 0 0 / 0.35);
+  box-shadow: var(--suit-plate-shadow);
   pointer-events: none;
 }
 [data-part="settings-section"] {
@@ -1251,23 +1111,12 @@
 }
 
 /* ------------------------------------------------------------------ trail conditions board */
-
 [data-page="pulls"] [data-part="page-header"] [data-part="page-title"]::before,
 [data-page="issues"] [data-part="page-header"] [data-part="page-title"]::before,
 [data-page="inbox"] [data-part="page-header"] [data-part="page-title"]::before {
   content: "TRAIL CONDITIONS";
-  display: block;
-  margin-bottom: 3px;
-  font-family: var(--font-sans);
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.22em;
-  color: var(--color-link);
 }
-/*
- * The list's box is the conditions board by the lift: a wood board with a painted header band,
- * each trail on its own plank with its condition on a plaque at the left.
- */
+/* The conditions board: a painted band, each trail a plank with its condition on a plaque. */
 [data-page="pulls"] [data-part="card"],
 [data-page="issues"] [data-part="card"] {
   position: relative;
@@ -1277,12 +1126,9 @@
   background:
     var(--suit-grain-v) padding-box,
     linear-gradient(var(--suit-wood), var(--suit-wood)) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
-  box-shadow:
-    0 0 0 1px var(--suit-wood-edge),
-    inset 0 0 0 1px var(--suit-wood-edge),
-    var(--suit-shadow);
+    var(--suit-framed),
+    var(--suit-wood);
+  box-shadow: var(--suit-rim), var(--suit-shadow);
 }
 [data-page="pulls"] [data-part="card"]::before,
 [data-page="issues"] [data-part="card"]::before {
@@ -1401,7 +1247,6 @@
 }
 
 /* ------------------------------------------------------------------ a pull request: the trail map */
-
 [data-page="pull"] [data-part="page-header"],
 [data-page="issue"] [data-part="page-header"] {
   padding-bottom: 14px;
@@ -1429,14 +1274,6 @@
 [data-page="pull"] [data-part="page-header"] [data-part="page-title"]::before,
 [data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
   content: "TRAIL MAP  ·  OPEN";
-  display: block;
-  margin-bottom: 4px;
-  font-family: var(--font-sans);
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.22em;
-  white-space: pre;
-  color: var(--color-link);
 }
 [data-page="pull"][data-variant="draft"]
   [data-part="page-header"]
@@ -1461,10 +1298,7 @@
   font-size: 23px;
   line-height: 1.25;
 }
-/*
- * The description is the map card itself: paper with contour lines gathering round a summit in
- * its top corner.
- */
+/* The description is the map card: paper with contour lines round a summit in its corner. */
 [data-part="card"][data-variant="description"] {
   border-radius: 10px;
   border: 1px solid var(--color-border-strong);
@@ -1520,11 +1354,9 @@
   background:
     var(--suit-felt) padding-box,
     linear-gradient(var(--color-surface-1), var(--color-surface-1)) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
-  box-shadow:
-    0 0 0 1px var(--suit-wood-edge),
-    inset 0 0 0 1px var(--suit-wood-edge);
+    var(--suit-framed),
+    var(--color-surface-1);
+  box-shadow: var(--suit-rim);
 }
 [data-part="merge-box"]::before {
   content: "SUMMIT REGISTER";
@@ -1545,10 +1377,6 @@
 [data-part="merge-box"][data-state="closed"]::before {
   content: "TRAIL CLOSED";
 }
-/* The timeline walks the trail: each stop a waypoint on a dashed path. */
-[data-part="timeline-item"] {
-  border-radius: 10px;
-}
 [data-part="check-row"],
 [data-part="commit-row"] {
   border-radius: 7px;
@@ -1562,11 +1390,7 @@
 }
 
 /* ------------------------------------------------------------------ side panel: the cabinet */
-
-/*
- * The side panel is a wooden cabinet: its tabs are drawer fronts with brass pulls, the shown
- * one drawn out a little, and the drawer is lined with felt.
- */
+/* The side panel is a cabinet: drawer-front tabs with brass pulls, the open one drawn out. */
 [data-part="right-panel"] {
   box-shadow:
     inset 1px 0 0 var(--suit-wood-edge),
@@ -1633,9 +1457,6 @@
   font-size: 12px;
   box-shadow: inset 0 -1px 0 var(--color-border);
 }
-[data-part="file-tree"] {
-  font-size: 12.5px;
-}
 /* Each changed file is an index card in the drawer. */
 [data-part="diff-file"] {
   margin: 6px 6px 10px;
@@ -1645,9 +1466,6 @@
   box-shadow: 0 2px 6px -2px rgb(0 0 0 / 0.4);
   overflow: hidden;
 }
-[data-part="diff-line"] {
-  font-family: var(--font-mono);
-}
 /* The terminal sits behind a fire screen: a wood frame with a brass rim. */
 [data-part="terminal-tab"] {
   margin: 6px;
@@ -1656,8 +1474,8 @@
   border-radius: 12px;
   background:
     linear-gradient(#120d09, #120d09) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+    var(--suit-framed),
+    #120d09;
   box-shadow:
     0 0 0 1px var(--suit-wood-edge),
     inset 0 0 0 1px var(--suit-brass-rim);
@@ -1665,12 +1483,11 @@
 [data-scheme="light"] [data-part="terminal-tab"] {
   background:
     linear-gradient(#fbf7f0, #fbf7f0) padding-box,
-    var(--suit-grain-h) border-box,
-    linear-gradient(var(--suit-wood-3), var(--suit-wood-2)) border-box;
+    var(--suit-framed),
+    #fbf7f0;
 }
 
 /* ------------------------------------------------------------------ empty states */
-
 [data-part="empty-state"] {
   font-size: 15px;
   font-weight: 500;

@@ -52,20 +52,20 @@ const palettes = {
     flakeAlpha: 0.7,
   },
   light: {
-    sky: ["#C9DCEC", "#DCE8F1", "#ECF1F4", "#F6F2EC"],
-    glow: "rgba(255,226,180,0.42)",
-    horizon: "rgba(255,214,170,0.30)",
+    sky: ["#A9CBE8", "#C9DFF0", "#EAF0F2", "#F8E9DA"],
+    glow: "rgba(255,214,160,0.45)",
+    horizon: "rgba(255,206,170,0.32)",
     star: "rgba(0,0,0,0)",
-    farRidge: "#C4D0DC",
-    mountain: "#B3C2D2",
-    mountainShade: "#A2B2C4",
-    cap: "rgba(255,255,255,0.85)",
-    pinesFar: "#94A9B4",
-    pinesNear: "#7F949C",
-    snowGround: "#EEF2F5",
-    frost: "rgba(255,255,255,0.55)",
+    farRidge: "#BFD0DF",
+    mountain: "#C7D5E4",
+    mountainShade: "#AFC1D4",
+    cap: "rgba(255,255,255,0.9)",
+    pinesFar: "#9DB5B1",
+    pinesNear: "#84A29C",
+    snowGround: "#F4F6F8",
+    frost: "rgba(255,255,255,0.6)",
     flake: [255, 255, 255],
-    flakeAlpha: 0.85,
+    flakeAlpha: 0.9,
   },
 };
 
@@ -192,7 +192,7 @@ function paintBackdrop(w, h, scheme) {
   g.fillRect(0, h * 0.79, w, h * 0.07);
   g.fillStyle = p.pinesNear;
   pines(g, w, h * 0.99, h * 0.2, 36, 59);
-  g.fillRect(0, h * 0.9, w, h * 0.1);
+  g.fillRect(0, h * 0.87, w, h * 0.13);
 
   // Frost on the pane, gathered at the edges and corners.
   const frost = g.createRadialGradient(
