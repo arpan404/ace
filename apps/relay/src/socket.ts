@@ -173,13 +173,23 @@ export class FrameReader {
     const permit = this.#permit();
     if (!permit) return frame;
     const release = this.hold();
+    let handed = false;
     try {
       await permit;
       if (this.#error) throw this.#error;
+      handed = true;
       return frame;
     } finally {
       release();
+      // Taken off the queue but never handed on (the wait failed, or the reader did meanwhile):
+      // a first-flight frame is wiped here, as `fail` wipes what is still queued.
+      if (!handed) this.#wipeMarked(frame);
     }
+  }
+  /** Zero-fills `frame` now if it was taken while `sensitive`. */
+  #wipeMarked(frame: Uint8Array): void {
+    if (!this.#marked.delete(frame)) return;
+    frame.fill(0);
   }
 }
 export function sendFrame(socket: WebSocket, frame: Uint8Array): Promise<void> {

@@ -17,6 +17,7 @@ import {
 } from "@ace/relay/wire";
 import type { RouteAction } from "@ace/relay/wire";
 import { Attachment, hostAccount, nextExpiry, routeFacts } from "./attachment.ts";
+import { sendPairing } from "./pairing-send.ts";
 import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER } from "./admission.ts";
 import { machineStore } from "./account/machines.ts";
 import { openControl, sealControl } from "./control.ts";
@@ -137,18 +138,26 @@ export class RelayObject extends DurableObject<Env> {
       // keeps it: no closure, attachment or storage.
       const echo = early ? this.#holdUpgradeMessage(request, id) : undefined;
       const held = echo !== undefined;
-      const server = this.#accept(id);
       const offer = actions.find((action) => action.type === "offer");
-      if (offer)
-        this.#save(server.socket, {
-          kind: "waiting",
-          id,
-          ticket,
-          owner: offer.socket,
-          expires: now + limits.ticketTimeoutMs,
-          ...(early ? { early: held ? "held" : "reserved" } : {}),
-          ...(url.searchParams.get(EARLY_FRAME.query) === "1" ? { capable: true } : {}),
-        });
+      let server: { client: WebSocket; socket: WebSocket };
+      try {
+        server = this.#accept(id);
+        if (offer)
+          this.#save(server.socket, {
+            kind: "waiting",
+            id,
+            ticket,
+            owner: offer.socket,
+            expires: now + limits.ticketTimeoutMs,
+            ...(early ? { early: held ? "held" : "reserved" } : {}),
+            ...(url.searchParams.get(EARLY_FRAME.query) === "1" ? { capable: true } : {}),
+          });
+      } catch (failure) {
+        // No attachment records it, so no release would find it: wiped and dropped here.
+        this.#held.get(id)?.fill(0);
+        this.#held.delete(id);
+        throw failure;
+      }
       this.#apply(actions);
       if (offer) await this.#scheduleExpiry();
       // One subprotocol is echoed: ace.v2 says the request's first message was taken, the
@@ -172,9 +181,17 @@ export class RelayObject extends DurableObject<Env> {
    */
   #holdUpgradeMessage(request: Request, id: string): string | undefined {
     const taken = takenUpgradeMessage(request.headers.get("Sec-WebSocket-Protocol") ?? "");
-    if (!taken || this.#routing().early(id, taken.message.length).length) return undefined;
-    this.#held.set(id, taken.message);
-    return taken.echo;
+    if (!taken) return undefined;
+    let kept = false;
+    try {
+      if (this.#routing().early(id, taken.message.length).length) return undefined;
+      this.#held.set(id, taken.message);
+      kept = true;
+      return taken.echo;
+    } finally {
+      // Not kept as the held frame (routing refused it, or threw): wiped here.
+      if (!kept) taken.message.fill(0);
+    }
   }
 
   /** A hibernatable server socket for an upgrade the relay keeps. */
@@ -371,18 +388,23 @@ export class RelayObject extends DurableObject<Env> {
         const capable = waiting?.kind === "waiting" && waiting.capable === true;
         const held = this.#held.get(action.client);
         this.#held.delete(action.client);
-        this.#save(client, { kind: "stream", id: action.client, peer: action.host });
-        this.#save(host, { kind: "stream", id: action.host, peer: action.client });
-        client.send(new Uint8Array([capable ? EARLY_FRAME.capableMarker : PAIRED_MARKER]));
-        // The client's early frame is the first thing the joining daemon reads. Sent, it is no
-        // longer held here, so its room comes back now.
-        if (action.early && held) {
-          // `send` copies the bytes into the outgoing message, so the held copy is wiped now.
-          host.send(held);
-          held.fill(0);
-        } else if (action.early) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
-        // Not forwarded (a pairing without the early flag): wiped as it is let go.
-        else held?.fill(0);
+        // Out of `#held`, so nothing else can wipe it: from here to the end of the sends, a
+        // `finally` does, whether they went or threw.
+        try {
+          this.#save(client, { kind: "stream", id: action.client, peer: action.host });
+          this.#save(host, { kind: "stream", id: action.host, peer: action.client });
+          // The client's early frame is the first thing the joining daemon reads. Sent, it is
+          // no longer held here, so its room comes back now.
+          sendPairing(
+            client,
+            host,
+            capable ? EARLY_FRAME.capableMarker : PAIRED_MARKER,
+            action.early ? held : undefined,
+          );
+          if (action.early && !held) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
+        } finally {
+          held?.fill(0);
+        }
         this.#routing().releaseEarly(action.client);
         continue;
       }

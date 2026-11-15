@@ -236,26 +236,29 @@ export async function startRelay(options: RelayOptions = {}) {
       }
     } else if (url.pathname === "/client") {
       const purpose = clientPurpose(url);
-      if (purpose === "invalid") turnAway(connection, 1008, "Unknown purpose");
-      else {
-        const actions = routing.request(
-          id,
-          url.searchParams.get("hostId") ?? "",
-          createTicket(),
-          clock.now(),
-          purpose,
-        );
-        // The upgrade's first message is the client's early frame, held as one sent at once,
-        // before the offer goes out, so no join can pair the client ahead of it.
-        if (upgraded) {
-          connection.fromUpgrade = true;
-          // The one buffer moves to the reader, which wipes it when forwarded or dropped.
-          connection.reader.inject(upgraded);
+      try {
+        if (purpose === "invalid") turnAway(connection, 1008, "Unknown purpose");
+        else {
+          const actions = routing.request(
+            id,
+            url.searchParams.get("hostId") ?? "",
+            createTicket(),
+            clock.now(),
+            purpose,
+          );
+          // The upgrade's first message is the client's early frame, held as one sent at once,
+          // before the offer goes out, so no join can pair the client ahead of it.
+          if (upgraded) {
+            connection.fromUpgrade = true;
+            // The one buffer moves to the reader, which wipes it when forwarded or dropped.
+            connection.reader.inject(upgraded);
+          }
+          await apply(actions);
         }
-        await apply(actions);
+      } finally {
+        // Not handed to the reader (an unknown purpose, or routing threw first): wiped here.
+        if (upgraded && !connection.fromUpgrade) upgraded.fill(0);
       }
-      // Not taken (an unknown purpose): wiped here.
-      if (upgraded && !connection.fromUpgrade) upgraded.fill(0);
     } else if (url.pathname === "/join")
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
@@ -329,7 +332,13 @@ export async function startRelay(options: RelayOptions = {}) {
       // Out of the upgrade's bookkeeping at once: from here only the held frame has it.
       const message = upgradeTaken.get(id)?.message;
       upgradeTaken.delete(id);
-      accept(ws, { id, url, peer, peerBudget, message });
+      try {
+        accept(ws, { id, url, peer, peerBudget, message });
+      } catch (failure) {
+        // Never reached the connection's reader: wiped here.
+        message?.fill(0);
+        throw failure;
+      }
     });
   };
   /** A completed upgrade: its connection, made apart from the request so nothing keeps it. */

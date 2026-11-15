@@ -77,3 +77,75 @@ it("a frame taken while the client is unpaired is zero-filled once forwarded, an
   await Promise.resolve();
   expect(wiped(later)).toBe(false);
 });
+
+it("a first-flight frame taken while its throttle wait is pending is wiped when the wait fails", async () => {
+  const ws = socket();
+  let refuse!: (error: Error) => void;
+  const reader = new FrameReader(ws, {
+    sensitive: () => true,
+    permit: () => new Promise<void>((_resolve, reject) => (refuse = reject)),
+  });
+  const early = frame(1);
+  ws.emit("message", early, true);
+  const taken = reader.next();
+  await Promise.resolve();
+  refuse(new Error("Disconnected"));
+  await expect(taken).rejects.toThrow();
+  expect(wiped(early)).toBe(true);
+});
+
+it("a first-flight frame whose reader failed during its throttle wait is wiped", async () => {
+  const ws = socket();
+  let allow!: () => void;
+  const reader = new FrameReader(ws, {
+    sensitive: () => true,
+    permit: () => new Promise<void>((resolve) => (allow = resolve)),
+  });
+  const early = frame(1);
+  ws.emit("message", early, true);
+  const taken = reader.next();
+  await Promise.resolve();
+  reader.fail(new Error("Disconnected"));
+  allow();
+  await expect(taken).rejects.toThrow();
+  expect(wiped(early)).toBe(true);
+});
+
+it("a forwarded first-flight frame refused by the relay's buffer cap is wiped", async () => {
+  const { pairStreams } = await import("./forward.ts");
+  const peer = (bufferedAmount: number) => {
+    const ws = Object.assign(socket(), {
+      readyState: 1,
+      OPEN: 1,
+      bufferedAmount,
+      send: (_data: unknown, _options: unknown, done?: (error?: Error) => void) => done?.(),
+      terminate() {},
+    });
+    return ws;
+  };
+  const clientSocket = peer(0);
+  const hostSocket = peer(Number.MAX_SAFE_INTEGER);
+  const client = {
+    socket: clientSocket,
+    reader: new FrameReader(clientSocket, { sensitive: () => true }),
+  };
+  const host = { socket: hostSocket, reader: new FrameReader(hostSocket) };
+  const early = frame(1);
+  clientSocket.emit("message", early, true);
+  pairStreams(
+    client as never,
+    host as never,
+    { maxBufferedBytes: 1024, highWaterBytes: 512 } as never,
+    {
+      peakBufferedBytes: 0,
+      pausedReaders: 0,
+      forwardedFrames: 0,
+      throttledFrames: 0,
+      peakReaderBytes: 0,
+    },
+    undefined,
+  );
+  for (let n = 0; n < 10 && !wiped(early); n++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(wiped(early)).toBe(true);
+});

@@ -29,12 +29,17 @@ export function pairStreams(
     try {
       while (true) {
         const frame = await source.reader.next();
-        if (destination.socket.bufferedAmount + frame.length + 4 > limits.maxBufferedBytes)
-          throw new Error("Relay buffer cap");
-        const written = sendFrame(destination.socket, frame);
+        // A client's first-flight frame is zero-filled once its write settles, or at once when
+        // it never starts (the buffer cap): a `finally` covers everything from here.
+        let written: Promise<void> = Promise.resolve();
+        try {
+          if (destination.socket.bufferedAmount + frame.length + 4 > limits.maxBufferedBytes)
+            throw new Error("Relay buffer cap");
+          written = sendFrame(destination.socket, frame);
+        } finally {
+          source.reader.wipeWhenSent(frame, written);
+        }
         void written.catch(close);
-        // A client's first-flight frame is zero-filled once the socket has sent it.
-        source.reader.wipeWhenSent(frame, written);
         stats.forwardedFrames++;
         stats.peakBufferedBytes = Math.max(
           stats.peakBufferedBytes,
