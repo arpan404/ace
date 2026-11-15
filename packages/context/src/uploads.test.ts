@@ -162,6 +162,20 @@ describe("resumable uploads", () => {
       message: expect.stringContaining("Too many uploads are in progress"),
     });
   });
+  test("cancelling a committed upload forgets the upload but keeps the attachment", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("kept"),
+      id = await f.begin(bytes);
+    await f.chunk(id, bytes);
+    const kept = attachment(await f.commit(id));
+    expect(await f.store.handle("device", { op: "upload.cancel", uploadId: id })).toEqual({
+      kind: "ok",
+    });
+    await expect(f.commit(id)).rejects.toMatchObject({ code: "not_found" });
+    await f.store.collect();
+    const blob = await f.store.attachment("device", thread, kept.sha256);
+    expect(await readFile(blob.path)).toEqual(bytes);
+  });
   test("collection removes only blobs with no remaining thread references", async () => {
     const f = await fixture();
     const bytes = Buffer.from("shared"),
