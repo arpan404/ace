@@ -95,7 +95,7 @@ function noise(table, x) {
 function ridgeline(shape) {
   const random = seeded(shape.seed);
   const table = Array.from({ length: 64 }, random);
-  const heights = new Array(SAMPLES + 1);
+  const heights = Array.from({ length: SAMPLES + 1 }, () => 0);
   let low = 1;
   let high = 0;
   for (let i = 0; i <= SAMPLES; i++) {
