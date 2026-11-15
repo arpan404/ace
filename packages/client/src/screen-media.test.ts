@@ -31,7 +31,6 @@ const picture = (sequence: number, codec = "hvc1.1.6.L153.B0") =>
     Uint8Array.of(0, 0, 0, 1, 0x40),
   );
 
-
 function fakeRoute(initial: string | undefined) {
   let connection = initial;
   const watchers = new Set<() => void>();
@@ -97,7 +96,9 @@ function harness(daemon: Daemon = "binds") {
                   type: "screen.result",
                   requestId,
                   ok: true,
-                  ...(named && daemon === "binds" ? { media: { connection: named.connection } } : {}),
+                  ...(named && daemon === "binds"
+                    ? { media: { connection: named.connection } }
+                    : {}),
                 },
           ),
         ),
@@ -166,7 +167,11 @@ describe("screen pictures by the media connection", () => {
     expect(media.acks).toEqual([
       { type: "screen.ack", sessionId: "app", streamId: "capture-1", sequence: 1 },
     ]);
-    expect(sent.some((m) => typeof m === "object" && m !== null && "type" in m && m.type === "screen.ack")).toBe(false);
+    expect(
+      sent.some(
+        (m) => typeof m === "object" && m !== null && "type" in m && m.type === "screen.ack",
+      ),
+    ).toBe(false);
   });
 
   it("subscribes again with the new connection after the media connection reconnects", () => {

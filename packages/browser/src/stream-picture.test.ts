@@ -58,8 +58,14 @@ describe("pictures on the shared stream", () => {
   it("an HEVC Annex B screen picture arrives with its codec, for a decoder without a description", () => {
     const frame = { ...header, codec: "hvc1.1.6.L153.B0" };
     const payload = Uint8Array.of(0, 0, 0, 1, 0x40, 0x01, 0, 0, 0, 1, 0x42, 0x01);
-    const [message] = receive(encodePicture(streamKinds.screenFrame, 3, "screen-1", frame, payload));
-    expect(message).toEqual({ kind: "screen.frame", sourceId: "screen-1", frame: { ...frame, bytes: payload } });
+    const [message] = receive(
+      encodePicture(streamKinds.screenFrame, 3, "screen-1", frame, payload),
+    );
+    expect(message).toEqual({
+      kind: "screen.frame",
+      sourceId: "screen-1",
+      frame: { ...frame, bytes: payload },
+    });
     const hev1 = { ...header, codec: "hev1.2.4.H120.90" };
     expect(receive(encodeDeviceFrame(4, device, hev1, payload))[0]).toMatchObject({
       frame: { codec: "hev1.2.4.H120.90" },

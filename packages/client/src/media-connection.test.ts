@@ -252,7 +252,9 @@ describe("media connection", () => {
     media.stop();
     expect(sockets[0]!.closed).toBe(1000);
     expect(media.state).toEqual({ state: "off" });
-    sockets[0]!.events.message(JSON.stringify({ type: "media.welcome", connection: "mc_aaaaaaaaaa" }));
+    sockets[0]!.events.message(
+      JSON.stringify({ type: "media.welcome", connection: "mc_aaaaaaaaaa" }),
+    );
     expect(media.binding()).toBeUndefined();
     expect(changes).toEqual(["mc_aaaaaaaaaa", undefined]);
   });
