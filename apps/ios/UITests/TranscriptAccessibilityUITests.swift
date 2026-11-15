@@ -47,7 +47,11 @@ import XCTest
     /// one "Worked for" log and an answer.
     func testSwipingThroughFinishedWorkLogsStaysResponsive() {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        // `--perf-log` logs the feed's layout counts each second under `dev.ace.perf`
+        // (`PerfCounters`), so a hang shows which work never stops; `--perf-probe` hands the
+        // totals to this test, attached below.
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--perf-probe", "--perf-log"]
         app.launch()
         app.revealRow("thread.ios-log-long").tap()
         let transcript = app.scrollViews["transcript"]
@@ -71,6 +75,10 @@ import XCTest
                     && logs.allElementsBoundByIndex.contains { $0.isHittable }
             }
         }
+        let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+        counts.name = "perf counts"
+        counts.lifetime = .keepAlways
+        add(counts)
         XCTAssertTrue(earlier, "the swipes up never showed an earlier turn's finished log")
         // A settled swipe takes about three seconds, its fling included.
         XCTAssertLessThan(slowest, 15, "a swipe through the finished work logs didn't settle")
