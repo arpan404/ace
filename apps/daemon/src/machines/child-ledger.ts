@@ -291,6 +291,16 @@ export class ChildLedger {
         .run(id),
     );
   }
+  /** Every child the person has (or had) a question open about: the poll checks each still stands. */
+  asked(): ChildRow[] {
+    return this.all("SELECT * FROM machine_children WHERE lost_ask IS NOT NULL");
+  }
+  /** Its question is closed, whatever else it is: nothing points at it any more. */
+  clearAsk(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db.prepare("UPDATE machine_children SET lost_key=NULL, lost_ask=NULL WHERE id=?").run(id),
+    );
+  }
   /**
    * Settled children whose machine was unpaired before a check after their 24 h mark: the
    * person is asked about each, and none is re-checked until its machine is paired again.

@@ -13,7 +13,7 @@ use std::time::Duration;
 use support::*;
 
 /// One whole egress frame, or None when nothing came within the socket's read timeout.
-fn read_egress(lane: &mut UnixStream) -> Option<Egress> {
+fn read_egress(lane: &mut support::SealedLane) -> Option<Egress> {
     let mut head = [0u8; 24];
     match lane.read_exact(&mut head) {
         Ok(()) => {}

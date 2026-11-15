@@ -6,7 +6,13 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { Client, relayRoute, ticketCredential, type ReadSnapshotStorage } from "@ace/client";
+import {
+  Client,
+  relayRoute,
+  screenTail,
+  ticketCredential,
+  type ReadSnapshotStorage,
+} from "@ace/client";
 import { browserDeviceSocket } from "@ace/client/devices";
 import { accessRequest, pinnedSocketTransport } from "@ace/daemon/client-access";
 import { DeviceId } from "@ace/protocol";
@@ -79,7 +85,11 @@ export class FileSnapshots implements ReadSnapshotStorage {
 }
 
 export function shapedClient(route: Route, snapshots: FileSnapshots): Client {
+  // What the web app passes (apps/web/src/boot/client.ts): threads open from a screenful that
+  // completes behind it (ADR 0150 era, #2030), and liveness on a clock that never jumps.
   const base = {
+    openTail: screenTail,
+    monotonic: () => performance.now(),
     deviceId: DeviceId.parse(route.deviceId),
     storage: {
       load: async () => null,
@@ -137,6 +147,8 @@ export function shapedClient(route: Route, snapshots: FileSnapshots): Client {
 export interface Span {
   ms: number;
   roundTrips: number;
+  /** TCP connections opened: on the direct path, 2 when a ticket was exchanged, 1 when handed. */
+  connections: number;
   downBytes: number;
   upBytes: number;
   stalls: number;
@@ -155,6 +167,7 @@ export function since(shaper: LinkShaper, from: Mark): Span {
   return {
     ms: Math.round(performance.now() - from.at),
     roundTrips: delta.connections + delta.upFlights,
+    connections: delta.connections,
     downBytes: delta.downBytes,
     upBytes: delta.upBytes,
     stalls: delta.stalls,

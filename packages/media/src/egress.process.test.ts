@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { relayHost } from "./lane-relay-test-support.ts";
 import { removeWhenFree } from "./supervisor-test-support.ts";
 import { EgressRouter, type EgressUnit, type LegacyConsumers } from "./egress.ts";
 import { encodeMediaFrame } from "./frame.ts";
@@ -130,13 +131,17 @@ it.runIf(real)(
     const tokens = new Map<string, Uint8Array>();
     const changes: { at: number; routes: MediaRoutes }[] = [];
 
+    const relay = relayHost(nodeMediaHost(process.env, (path) => ({ command: path, args: [] })));
+    cleanups.push(() => relay.close());
     const supervisor: MediaSupervisor = new MediaSupervisor({
       version: execFileSync(binary, ["--version"]).toString().trim(),
       binary,
       runtimeDir,
       dataDir: runtimeDir,
       settings: () => settings,
-      host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
+      // Every lane through a transparent relay, as a squatting pipe instance could place
+      // itself: it passes the hello and every byte, and must learn nothing of the media.
+      host: relay.host,
       clock: systemMediaClock,
       random: Math.random,
       listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
@@ -228,6 +233,13 @@ it.runIf(real)(
     const before = sources.a.got.deliver.length;
     await until(() => router.drops().closed > 0, deadline, "a frame dropped for the closed source");
     expect(sources.a.got.deliver.length).toBe(before);
+    // The relay carried the units (they arrived), but never a readable byte of them, nor the
+    // control messages' JSON.
+    const egress = Buffer.concat(relay.lanes.flatMap((lane) => lane.toDaemon));
+    const control = Buffer.concat(relay.lanes.flatMap((lane) => lane.toMedia));
+    for (const mark of [0xa, 0xb]) expect(egress.includes(Buffer.alloc(32, mark))).toBe(false);
+    expect(control.includes(Buffer.from('"type"'))).toBe(false);
+    expect(egress.length).toBeGreaterThan(256 * 10);
     supervisor.send({ type: "source.close", source: "a" });
     expect(router.drops().unknown).toBe(0);
 

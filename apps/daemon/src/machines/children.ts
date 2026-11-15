@@ -174,6 +174,8 @@ export class MachineChildren implements RemoteChildren {
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
       unpaired: (row) => this.lostFrom(row.machine)?.(row) ?? false,
+      silent: (row, since) => void this.lost.openSilent(row, since),
+      heard: (row) => this.lost.heard(row),
       unanswered: this.unanswered,
       readSince: (id, at) => (this.readAt.get(id) ?? Number.NEGATIVE_INFINITY) >= at,
       emit: (ids) => this.emit(ids),
@@ -423,6 +425,8 @@ export class MachineChildren implements RemoteChildren {
         // interval, with no call to any machine.
         if (this.ledger.settledLost().length > 0)
           waits.push(this.deps.pollMs * RECHECK_SLOWEST_POLLS);
+        // A question left open that its child no longer explains: closed on the next poll.
+        if (this.lost.stale()) waits.push(this.deps.pollMs);
         delay = waits.length ? Math.min(...waits) : undefined;
       }
     } catch (error) {
@@ -514,6 +518,8 @@ export class MachineChildren implements RemoteChildren {
       );
     // Settled children whose machine was unpaired: watched again once it is paired back.
     this.settledLost();
+    // Questions to the person their child's state no longer explains are closed.
+    this.lost.reconcile();
     const now = this.deps.now();
     // A poll called directly counts as one interval after the last, as one its timer runs does.
     scheduledFor ??= Math.max(now, this.lastRanFor + this.deps.pollMs);
@@ -581,6 +587,9 @@ export class MachineChildren implements RemoteChildren {
         continue;
       }
       if (row.lost_at !== null) this.lost.found(row);
+      // Lost contact and still tracked: its question stays open, opened again if it closed.
+      else if (row.silent_since !== null && row.stop_started_at === null)
+        this.lost.silent(row, row.silent_since);
       add(row);
     }
     for (const row of this.ledger.recheckRows(machine)) add(row);
