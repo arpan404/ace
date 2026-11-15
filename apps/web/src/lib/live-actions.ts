@@ -15,6 +15,7 @@ import { activeRootRun, queueActionPayload, type QueueAction, type StopFence } f
 import { CommandRefused, runCommand } from "./daemon-command.ts";
 import { currentNow } from "./live-connection.ts";
 import type { ListAction } from "./list-actions.ts";
+import type { QueueCopy } from "./server-queue.ts";
 
 /*
  * Every action on what a thread copy shows is built and sent here, and nowhere else in the web
@@ -31,7 +32,12 @@ export type LiveRefusal =
   /** The thread's (or the list's) copy isn't current: it may say what is no longer true. */
   | "stale_copy"
   /** A Stop that could name neither a run nor a cursor: it could stop later work. */
-  | "unfenced";
+  | "unfenced"
+  /**
+   * The queue page a change was decided on is a copy kept from an earlier session that the
+   * daemon hasn't answered since: its messages, ids and revision may no longer be the queue's.
+   */
+  | "unconfirmed_queue";
 export type Live<T> = { ok: true; sent: Promise<T> } | { ok: false; refused: LiveRefusal };
 type Send<T> = (payload: CommandPayload) => Promise<T>;
 
@@ -131,10 +137,14 @@ export function stopTask<T>(
   );
 }
 
-/** The queue revision a change was decided on: the daemon refuses it once the queue moved. */
+/**
+ * The queue page a change was decided on: its revision (the daemon refuses the change once the
+ * queue moved) and the copy itself, which must be one the daemon has answered (`copy`).
+ */
 export interface QueueTarget {
   threadId: string;
   expectedRevision: number;
+  copy: QueueCopy;
 }
 /** One queued message changed, by its id. */
 export type QueueChange =
@@ -176,13 +186,19 @@ function queuePayload(target: QueueTarget, change: QueueChange): CommandPayload 
   }
 }
 
-/** Change one queued message, at the revision it was decided on. */
+/**
+ * Change one queued message, at the revision it was decided on. Checked as it sends: the thread's
+ * copy is current (`stale_copy` if not), and the queue page it was decided on is one the daemon
+ * has answered, not a page kept from an earlier session and not yet re-read
+ * (`unconfirmed_queue` if it is).
+ */
 export function changeQueue<T>(
   client: ClientApi,
   target: QueueTarget,
   change: QueueChange,
   send: Send<T>,
 ): Live<T> {
+  if (target.copy.unconfirmedNow()) return { ok: false, refused: "unconfirmed_queue" };
   return gated(client, { threadId: target.threadId }, queuePayload(target, change), send);
 }
 

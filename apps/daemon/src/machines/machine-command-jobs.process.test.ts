@@ -8,6 +8,7 @@ import { invoke } from "../browser-mcp-test-support.ts";
 import { commandContext } from "../commands.ts";
 import { pairedMachines } from "./machine-test-support.ts";
 import { fleetWindow, sourceProfile } from "./grants-test-support.ts";
+import { machineRequest, type MachineTransport } from "./transport.ts";
 
 /*
  * Background command jobs an agent starts on another machine hold its thread here: it never
@@ -22,8 +23,11 @@ const ToolResult = z.object({
   }),
 });
 
-async function commandsAllowed() {
-  const pair = await pairedMachines({ access: "operate" });
+async function commandsAllowed(sourceTransport?: MachineTransport) {
+  const pair = await pairedMachines({
+    access: "operate",
+    ...(sourceTransport ? { sourceTransport } : {}),
+  });
   const window = await fleetWindow(pair.target);
   await window.set(sourceProfile(pair).deviceId, "commands", "operate");
   await window.close();
@@ -95,7 +99,11 @@ async function pidFrom(path: string): Promise<number> {
 }
 
 it("the calling thread waits while its job on another machine runs, and is done once it ends", async () => {
-  const pair = await commandsAllowed();
+  let reads = 0;
+  const pair = await commandsAllowed((profile, body, options) => {
+    if (body.call.op === "command.jobs") reads++;
+    return machineRequest(profile, body, options);
+  });
   await startJob(pair, "sleep 2; echo built");
   await endTurn(pair);
   // Its own agent finished, but the job there still runs: never done.
@@ -105,6 +113,9 @@ it("the calling thread waits while its job on another machine runs, and is done 
   ]);
   await vi.waitFor(() => expect(state(pair)?.state).toBe("done"), { timeout: 20_000 });
   expect(rows(pair).map((row) => row.status)).toEqual(["completed"]);
+  // While it kept running it was read less often than every 50 ms poll: about 40 reads.
+  expect(reads).toBeGreaterThan(0);
+  expect(reads).toBeLessThan(20);
 }, 40_000);
 
 it("the person's Stop on the row here stops the job on its machine, with every process it started", async () => {

@@ -16,7 +16,7 @@ import {
   type MachineTransportOptions,
 } from "./transport.ts";
 import { LinkTiming } from "./link-timing.ts";
-import { FailureEpisodes, routineCall, routineOps } from "./failure-episodes.ts";
+import { FailureEpisodes, routineCall } from "./failure-episodes.ts";
 import type { MachineConnections } from "./connections.ts";
 
 export interface DirectoryDeps {
@@ -30,8 +30,11 @@ export interface DirectoryDeps {
   log(message: string, fields: Record<string, unknown>): void;
   /** The tool groups other machines serve here changed, e.g. a Mac now lends its simulators. */
   served?(): void;
-  /** A call to a machine whose calls were failing got through: loops waiting on it go now. */
-  reachable?(machine: string): void;
+  /**
+   * A call to the machine, sent at `sentAt` by `now` when there is one, got through, of any
+   * kind: it is up, and loops waiting on it go now.
+   */
+  reachable?(machine: string, sentAt?: number): void;
   /** Times short reads, so a slow link gets longer timeouts; without it they stay fixed. */
   now?(): number;
 }
@@ -223,9 +226,8 @@ export class MachineDirectory {
         const at = clock();
         this.timing.answered(machine, at - started, at);
       }
-      // Any call getting through means the machine is reachable: loops waiting on it go now.
-      if (routineOps.some((each) => this.failing.failing(`${machine}:${each}`)))
-        this.deps.reachable?.(machine);
+      // Any call getting through says the machine is up: loops waiting on it go now.
+      this.deps.reachable?.(machine, started);
       const failures = routine ? this.failing.succeeded(key) : 0;
       if (failures > 0)
         this.deps.log("Machine calls to another device work again", {

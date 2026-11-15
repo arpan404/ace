@@ -69,6 +69,8 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
       return reader.syncing ?? false;
     case "unconfirmed":
       return reader.unconfirmed ?? false;
+    case "filling":
+      return reader.filling ?? false;
     case "thread":
       return reader.thread;
     case "queue":

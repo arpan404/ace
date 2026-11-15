@@ -17,6 +17,14 @@ import type { FrozenThread } from "./thread-cache.ts";
 import { readHistoryBlob } from "./history-storage.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
 
+/** How much transcript a thread snapshot carries: its newest items, by count and bytes. */
+export interface SnapshotTail {
+  items: number;
+  bytes: number;
+}
+/** What a snapshot carries when the subscriber asks for no smaller tail. */
+export const fullTail: SnapshotTail = { items: 200, bytes: 1024 * 1024 };
+
 interface ThreadReadSource {
   db: DatabaseSync;
   cache: ThreadReadCache;
@@ -124,25 +132,54 @@ export class ThreadReads {
    * top level is the caller's own and carries the current head, as a fresh read would: a
    * cached snapshot describes the thread through now, since any write to it evicts the entry.
    */
-  snapshotThread(id: ThreadId): ThreadView {
-    const view = this.sharedSnapshot(id);
+  snapshotThread(id: ThreadId, tail: SnapshotTail = fullTail): ThreadView {
+    const view = this.sharedSnapshot(id, tail);
     return { ...view, seq: this.source.headSeq() };
   }
-  private sharedSnapshot(id: ThreadId): ThreadView {
-    return this.source.cache.readShared(id, "snapshot", () =>
-      loadThreadSnapshot({
-        acquire: () =>
-          this.source.inTransaction()
-            ? this.source.status.snapshot(this.source.getThread(id), this.source.headSeq())
-            : this.acquireThread(id),
-        release: () => {
-          if (!this.source.inTransaction()) this.releaseThread(id);
-        },
-        items: (status) =>
-          this.source.payloads.tail(id, status.thread.rootAgentId, 200, 1024 * 1024),
-        retainAgents: (view) => this.source.status.retainItemAgents(view),
-      }),
-    );
+  /**
+   * Only the transcript is bounded by `tail`: status, agents, interactions and queue are read
+   * whole, so a small snapshot shows the same state as a full one.
+   */
+  private sharedSnapshot(id: ThreadId, tail: SnapshotTail): ThreadView {
+    const full = tail.items >= fullTail.items && tail.bytes >= fullTail.bytes;
+    const key = full ? "snapshot" : JSON.stringify(["snapshot", tail.items, tail.bytes]);
+    return this.source.cache.readShared(id, key, () => {
+      let previewed: readonly string[] = [];
+      const view = this.loadSnapshot(id, tail, (ids) => {
+        previewed = ids;
+      });
+      // A tail with older items left, or an item it could only preview, holds less than a full
+      // snapshot: the client completes it from the full one. One holding every item whole is one.
+      if (!full && (view.itemsBefore !== null || previewed.length))
+        view.partial = { previews: [...previewed] };
+      return view;
+    });
+  }
+  private loadSnapshot(
+    id: ThreadId,
+    tail: SnapshotTail,
+    previewed: (ids: readonly string[]) => void,
+  ): ThreadView {
+    return loadThreadSnapshot({
+      acquire: () =>
+        this.source.inTransaction()
+          ? this.source.status.snapshot(this.source.getThread(id), this.source.headSeq())
+          : this.acquireThread(id),
+      release: () => {
+        if (!this.source.inTransaction()) this.releaseThread(id);
+      },
+      items: (status) => {
+        const page = this.source.payloads.tail(
+          id,
+          status.thread.rootAgentId,
+          tail.items,
+          tail.bytes,
+        );
+        previewed(page.previewed ?? []);
+        return page;
+      },
+      retainAgents: (view) => this.source.status.retainItemAgents(view),
+    });
   }
   readEntityPage(
     threadId: ThreadId,

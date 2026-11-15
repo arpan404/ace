@@ -70,6 +70,13 @@ export const ThreadView = z.object({
   itemSeqs: records(seq.positive()).optional(),
   /** Exclusive item creation-sequence cursor for older history. */
   itemsBefore: seq.positive().nullable().default(null),
+  /**
+   * On a snapshot cut to a `tail` that holds less than a full snapshot would: it has older items
+   * left, or `previews` names items it sent only as a bounded preview (a full snapshot carries
+   * them whole). The client completes the thread by subscribing again with neither a cursor nor
+   * a tail, and the full snapshot replaces this one.
+   */
+  partial: z.object({ previews: z.array(z.string().min(1)).max(200) }).optional(),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -77,12 +84,24 @@ export const ThreadView = z.object({
   usageSnapshots: records(UsageUpdated).default({}),
 });
 export type ThreadView = z.infer<typeof ThreadView>;
+/** One device's read cursor for a thread, as `thread.readState` answers it. */
+export const ThreadReadCursor = z.object({
+  lastSeenSeq: seq,
+  /** When it was last moved; null while the device has never marked the thread read. */
+  updatedAt: z.number().int().nonnegative().nullable(),
+});
+export type ThreadReadCursor = z.infer<typeof ThreadReadCursor>;
 export const ThreadListEntry = Thread.omit({ rootAgentId: true }).extend({
   /**
    * Where the daemon puts the thread in the Threads panel. Absent from older daemons, and from
    * archived or unlisted threads; one this client can't read is dropped, not fatal.
    */
   place: ListedThreadPlace.optional(),
+  /**
+   * The subscribing device's read cursor for the thread, sent again whenever that device marks
+   * it read. Absent from older daemons: the client asks with `thread.readState`.
+   */
+  readState: ThreadReadCursor.optional(),
 });
 export type ThreadListEntry = z.infer<typeof ThreadListEntry>;
 export const ThreadListCursor = z.object({ at: z.number().int().nonnegative(), id: ThreadId });
@@ -110,6 +129,8 @@ export const ThreadListView = z.object({
    * hold means it must subscribe again without `resume`.
    */
   keep: z.array(ThreadId).optional(),
+  /** With `keep`: the subscribing device's read cursor for each kept thread that has one. */
+  reads: records(ThreadReadCursor).optional(),
 });
 export type ThreadListView = z.infer<typeof ThreadListView>;
 export const SnapshotView = z.discriminatedUnion("kind", [ThreadView, ThreadListView]);
@@ -268,15 +289,19 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
        * their defaults), `provider-capabilities` (threads that name their capabilities by a key
        * sent once in `provider.capabilities`), `spade-hidden` (accepts the hidden Spade
-       * error code and live-end reason). Unknown names are ignored; without a name the
-       * daemon sends the full shape.
+       * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
+       * only show, in snapshots, pages, turn steps and live item events, come without them and
+       * marked `rawOmitted`; `item.raw` reads them). Unknown names are ignored; without a name
+       * the daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
       /**
        * Frame packing this client can undo: `lines` lets the daemon put several server messages
        * in one text frame, each one's JSON on its own line (joined by `\n`, which JSON text
-       * never holds raw), in the order they were sent. Unknown names are ignored; without
-       * `lines` every frame holds exactly one message.
+       * never holds raw), in the order they were sent. `short-deltas` lets an events message
+       * name its thread once (`threadId`) and carry each streamed delta as
+       * `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`, without its event id.
+       * Unknown names are ignored; without `lines` every frame holds exactly one message.
        */
       framing: z.array(z.string().max(32)).max(8).optional(),
       /**
@@ -308,6 +333,22 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     /** Request an explicit completion acknowledgement for paced resubscription. */
     paced: z.boolean().optional(),
     afterSeq: seq.optional(),
+    /**
+     * For a thread: any snapshot this subscription sends carries only the newest transcript
+     * items, at most `items` of them in at most `bytes`; status, agents, interactions and queue
+     * stay whole. Older items are read by `items.page` from the snapshot's `itemsBefore`. A
+     * daemon that does not know the field sends its full snapshot.
+     */
+    tail: z
+      .object({
+        items: z.number().int().min(1).max(200),
+        bytes: z
+          .number()
+          .int()
+          .min(1024)
+          .max(1024 * 1024),
+      })
+      .optional(),
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
   z.object({ type: z.literal("command"), command: Command }),

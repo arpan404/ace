@@ -106,7 +106,10 @@ export interface QueueControls {
   /** Every retained entry with this device's optimistic edits applied. */
   allMessages: readonly QueuedMessage[];
   failed: boolean;
-  /** A command for this message is on its way: its pill waits for it. */
+  /**
+   * A command for this message is on its way, or the queue shown is a kept copy the daemon has
+   * not answered yet: its pill waits.
+   */
   busy(messageId: string): boolean;
   /** A queue-wide action (resume, hold, a limit choice) is on its way. */
   acting: boolean;
@@ -144,7 +147,11 @@ export function useQueue(threadId: string): QueueControls {
   const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
   const { storage } = useLayout();
-  const { page, retained, failed, refresh, loadingMore, loadMore } = useServerQueue(threadId);
+  // `unconfirmed`: the page shown is one kept from an earlier session that the daemon hasn't
+  // answered since. It only disables and words the pills (`busy`); `changeQueue` is what refuses
+  // a change decided on such a page, checking `copy` as it sends.
+  const { page, retained, failed, refresh, loadingMore, loadMore, unconfirmed, copy } =
+    useServerQueue(threadId);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
   const inFlight = useRef(new Set<string>());
@@ -159,8 +166,9 @@ export function useQueue(threadId: string): QueueControls {
     });
   /**
    * Show `edit` on the message now; settle it on the receipt, take it back on a refusal. Sent
-   * through `changeQueue`, which refuses it while the thread's copy isn't current, fenced to the
-   * page's revision (or `read`, the revision the person's edit was read at).
+   * through `changeQueue`, which refuses it while the thread's copy isn't current or the page is
+   * an unconfirmed kept copy, fenced to the page's revision (or `read`, the revision the person's
+   * edit was read at).
    */
   const change = async (
     id: string,
@@ -174,14 +182,17 @@ export function useQueue(threadId: string): QueueControls {
     if (!page || inFlight.current.has(id)) return false;
     const live = changeQueue(
       client,
-      { threadId, expectedRevision: read ?? page.revision },
+      { threadId, expectedRevision: read ?? page.revision, copy },
       queued,
       (payload) => runCommand(client, payload, crypto.randomUUID()),
     );
     if (!live.ok) {
       toast.add({
         title: `Couldn't ${failure}`,
-        description: "The queue may have changed. Try again once it's confirmed.",
+        description:
+          live.refused === "unconfirmed_queue"
+            ? "The queue shown is from before. Try again once it's loaded."
+            : "The queue may have changed. Try again once it's confirmed.",
       });
       return false;
     }
@@ -232,7 +243,9 @@ export function useQueue(threadId: string): QueueControls {
     retained,
     allMessages,
     failed,
+    // Unconfirmed, every message waits as if a command for it were on its way.
     busy: (id) => {
+      if (unconfirmed) return true;
       const edit = edits.get(id);
       return !!edit && !edit.settled;
     },
