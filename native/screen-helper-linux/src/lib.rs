@@ -28,5 +28,6 @@ pub mod traversal;
 pub mod writer;
 
 pub mod frame_identity;
+pub mod still_cache;
 pub mod keysym;
 pub mod references;

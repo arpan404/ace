@@ -11,6 +11,7 @@ use crate::{
         ace_pw_shared_memory_only, ace_pw_step,
     },
     protocol::{Result, internal},
+    still_cache::StillCache,
     writer::Publisher,
 };
 use media_codec::PixelFormat;
@@ -63,10 +64,8 @@ impl Control {
     }
 }
 
-/// The last still published, to send again when someone starts watching a still screen.
+/// A still published, kept to send again (`StillCache`).
 struct Published {
-    /// The visible region of the buffer it was made of: a still of another is stale.
-    region: Region,
     jpeg: Vec<u8>,
     width: u32,
     height: u32,
@@ -129,7 +128,8 @@ struct Frames {
     /// The next delivery is the held buffer offered again, not a new one.
     redelivering: bool,
     arrival: Arrival,
-    last: Option<Published>,
+    /// The last still, while it still shows the region the screen shows.
+    last: StillCache<Published>,
     /// Video ran at the last step: leaving it publishes the current picture as a still at once,
     /// so a viewer on stills isn't left waiting for the desktop to change.
     was_video: bool,
@@ -234,14 +234,16 @@ impl Frames {
         let scale = f64::from(ow) / logical_shown;
         self.publisher
             .frame(jpeg.clone(), ow, oh, scale, at, self.generation())?;
-        self.last = Some(Published {
+        self.last.store(
             region,
-            jpeg,
-            width: ow,
-            height: oh,
-            scale,
-            at,
-        });
+            Published {
+                jpeg,
+                width: ow,
+                height: oh,
+                scale,
+                at,
+            },
+        );
         Ok(())
     }
 
@@ -305,9 +307,7 @@ impl Frames {
         self.note_shown(raw.width, raw.height, raw.crop());
         // The window moved or resized inside its buffer: the cached still shows the old region.
         let region = visible_region(raw.width, raw.height, raw.crop());
-        if self.last.as_ref().is_some_and(|last| last.region != region) {
-            self.last = None;
-        }
+        self.last.seen(region);
         let watching = self.watching();
         if let Some(settings) = self.video.active(watching) {
             let key = self.video.take_key();
@@ -394,7 +394,7 @@ impl Frames {
         }
         let owed = if self.video.active(watching).is_some() {
             (self.fresh && self.due())
-                || self.video.control.key_owed()
+                || self.video.control.key_due_in(self.video.now_us()) == Some(0)
                 || self.video.control.still_owed()
         } else {
             watching
@@ -410,7 +410,7 @@ impl Frames {
             return Ok(());
         }
         if !self.holding() && self.control.refresh.swap(false, Ordering::AcqRel) {
-            if let Some(last) = &self.last {
+            if let Some(last) = self.last.replay() {
                 let generation = self.generation();
                 return self.publisher.frame(
                     last.jpeg.clone(),
@@ -429,8 +429,15 @@ impl Frames {
         let watching = self.watching();
         if self.video.active(watching).is_some() {
             let control = &self.video.control;
-            if self.holding() && (control.key_owed() || control.still_owed()) {
+            if self.holding() && control.still_owed() {
                 return 0;
+            }
+            // An owed keyframe wakes the loop when it may be forced, never sooner.
+            if let Some(due_us) = control
+                .key_due_in(self.video.now_us())
+                .filter(|_| self.holding())
+            {
+                return (due_us / 1_000).min(1_000) as i32;
             }
             if self.video.waiting() {
                 return 5;
@@ -449,7 +456,7 @@ impl Frames {
         wait_ms(
             watching,
             self.holding() && self.fresh,
-            refresh && (self.holding() || self.last.is_some()),
+            refresh && (self.holding() || self.last.replay().is_some()),
             self.next.saturating_duration_since(Instant::now()),
         )
     }
@@ -578,7 +585,7 @@ pub fn capture(
         fresh: false,
         redelivering: false,
         arrival: Arrival::default(),
-        last: None,
+        last: StillCache::default(),
         was_video: false,
     };
     let c = unsafe {
@@ -633,7 +640,7 @@ pub fn capture(
                 );
             }
             if let Some(every) = reallocate
-                && frames.last.is_some()
+                && frames.last.replay().is_some()
                 && reallocated.0.elapsed() >= every
             {
                 reallocated = (Instant::now(), 1 - reallocated.1);

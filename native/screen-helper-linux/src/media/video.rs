@@ -20,6 +20,15 @@ const MAX_FAILURES: u32 = 3;
 /// Pictures whose units haven't come back yet, remembered for their stamps.
 const MAX_IN_FLIGHT: usize = 16;
 
+/// Shortest time between forced keyframes, as ace-media's own rule (`media-core::keyframes`).
+pub const KEY_INTERVAL_US: u64 = 500_000;
+
+#[derive(Default)]
+struct KeyPacing {
+    owed: bool,
+    last: Option<u64>,
+}
+
 /// What the runtime tells the capture thread about video, and what it reports back.
 #[derive(Default)]
 pub struct StreamControl {
@@ -27,7 +36,9 @@ pub struct StreamControl {
     /// Epoch applications on the capture clock (µs since the helper started): each picture
     /// takes the one in force when it arrived, with ties to private (`media_ingest::epochs`).
     epochs: Mutex<EpochLedger>,
-    key: AtomicBool,
+    /// Forced keyframes: requests coalesce while one is owed, and one is granted at most every
+    /// [`KEY_INTERVAL_US`] on the capture clock, however many parts of the helper ask.
+    key: Mutex<KeyPacing>,
     still: AtomicBool,
     running: Mutex<Running>,
 }
@@ -68,13 +79,33 @@ impl StreamControl {
         })
     }
     pub fn want_key(&self) {
-        self.key.store(true, Ordering::Release);
+        if let Ok(mut key) = self.key.lock() {
+            key.owed = true;
+        }
     }
     pub fn key_owed(&self) -> bool {
-        self.key.load(Ordering::Acquire)
+        self.key.lock().is_ok_and(|key| key.owed)
     }
-    fn take_key(&self) -> bool {
-        self.key.swap(false, Ordering::AcqRel)
+    /// When an owed keyframe may be forced, in µs from `now_us`: 0 now, `None` if none is owed.
+    pub fn key_due_in(&self, now_us: u64) -> Option<u64> {
+        let key = self.key.lock().ok()?;
+        key.owed.then(|| {
+            key.last
+                .map_or(0, |last| (last + KEY_INTERVAL_US).saturating_sub(now_us))
+        })
+    }
+    /// Takes the owed keyframe at `now_us` on the capture clock, if it may be forced now; an
+    /// earlier request stays owed until the interval since the last one has passed.
+    pub fn take_key(&self, now_us: u64) -> bool {
+        let Ok(mut key) = self.key.lock() else {
+            return false;
+        };
+        let due = key.owed && key.last.is_none_or(|last| now_us >= last + KEY_INTERVAL_US);
+        if due {
+            key.owed = false;
+            key.last = Some(now_us);
+        }
+        due
     }
     pub fn want_still(&self) {
         self.still.store(true, Ordering::Release);
@@ -209,7 +240,7 @@ impl Video {
 
     /// Takes the keyframe request, if any.
     pub fn take_key(&self) -> bool {
-        self.control.take_key()
+        self.control.take_key(self.now_us())
     }
 
     /// Encodes one picture. A DMA-BUF the encoder couldn't import returns `Err`, for the
@@ -388,5 +419,43 @@ mod tests {
         // Later arrivals resolve exactly; history before them is no longer kept.
         assert_eq!(control.resolve_arrival(1_005), 100);
         assert_eq!(control.resolve_arrival(1_006), 100);
+    }
+
+    #[test]
+    fn a_delayed_encoder_under_backpressure_forces_at_most_one_keyframe_per_interval() {
+        let control = StreamControl::default();
+        // Two seconds on the capture clock: backpressure asks for a keyframe every millisecond
+        // (the route, the daemon socket and the encoder's own skips all ask), and the capture
+        // takes one whenever it may.
+        let mut forced = Vec::new();
+        for ms in 0..2_000u64 {
+            control.want_key();
+            if control.take_key(ms * 1_000) {
+                forced.push(ms);
+            }
+        }
+        assert_eq!(
+            forced,
+            [0, 500, 1_000, 1_500],
+            "one forced keyframe per 500 ms, at most"
+        );
+        // A request made between them is kept, not lost: it comes due at the interval.
+        assert!(control.key_owed());
+        assert!(!control.take_key(1_999_000));
+        assert!(control.take_key(2_000_000));
+        assert!(!control.key_owed());
+    }
+
+    #[test]
+    fn requests_while_one_is_owed_coalesce_into_one_keyframe() {
+        let control = StreamControl::default();
+        for _ in 0..10 {
+            control.want_key();
+        }
+        assert!(control.take_key(0));
+        assert!(
+            !control.take_key(600_000),
+            "nothing more was asked after it"
+        );
     }
 }
