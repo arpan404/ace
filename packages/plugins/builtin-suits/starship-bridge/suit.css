@@ -221,12 +221,16 @@
 [data-part="composer"]::before {
   content: "";
   position: absolute;
-  inset: -1px;
+  /*
+   * Inside the border, so a scrolling panel never scrolls because of it; the band stops short
+   * of the square's diagonal by the border's width, so it lands one pixel wide on the cut.
+   */
+  inset: 0;
   z-index: 1;
   background:
-    linear-gradient(135deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 0 0 / var(--suit-c)
+    linear-gradient(135deg, var(--suit-l) 0 calc(50% - 0.4px), transparent 0) 0 0 / var(--suit-c)
       var(--suit-c) no-repeat,
-    linear-gradient(315deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 100% 100% /
+    linear-gradient(315deg, var(--suit-l) 0 calc(50% - 0.4px), transparent 0) 100% 100% /
       var(--suit-c) var(--suit-c) no-repeat;
   pointer-events: none;
 }
