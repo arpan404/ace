@@ -55,6 +55,22 @@ describe("pictures on the shared stream", () => {
     });
   });
 
+  it("an HEVC Annex B screen picture arrives with its codec, for a decoder without a description", () => {
+    const frame = { ...header, codec: "hvc1.1.6.L153.B0" };
+    const payload = Uint8Array.of(0, 0, 0, 1, 0x40, 0x01, 0, 0, 0, 1, 0x42, 0x01);
+    const [message] = receive(encodePicture(streamKinds.screenFrame, 3, "screen-1", frame, payload));
+    expect(message).toEqual({ kind: "screen.frame", sourceId: "screen-1", frame: { ...frame, bytes: payload } });
+    const hev1 = { ...header, codec: "hev1.2.4.H120.90" };
+    expect(receive(encodeDeviceFrame(4, device, hev1, payload))[0]).toMatchObject({
+      frame: { codec: "hev1.2.4.H120.90" },
+    });
+  });
+
+  it("refuses a picture codec that isn't JPEG, H.264 or HEVC", () => {
+    for (const codec of ["vp8", "hvc1", "hvc1.1.6", "hvc1.1.6.X153.B0"])
+      expect(() => receive(encodeDeviceFrame(5, device, { ...header, codec }, bytes(4)))).toThrow();
+  });
+
   it("a landscape iOS JPEG keeps its rotation and scale, and counts as a keyframe", () => {
     const frame = {
       ...header,

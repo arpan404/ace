@@ -17,12 +17,14 @@ import { encodeStream, streamKinds, StreamEnvelopeError } from "./stream-envelop
  *   24 u16  rotation (degrees clockwise that show the picture upright: 0, 90, 180 or 270)
  *   26 u8   flags: bit 0 keyframe (every JPEG is one); bit 1 still (a one-shot screenshot,
  *           outside the live view's ack window: never acked)
- *   27 u8   codec length, then its ASCII (`jpeg`, or a WebCodecs H.264 string `avc1.PPCCLL`)
+ *   27 u8   codec length, then its ASCII (`jpeg`, a WebCodecs H.264 string `avc1.PPCCLL`, or
+ *           an HEVC one, `hvc1.…`/`hev1.…`)
  *   ..  u16  source id length, then its UTF-8
  *   ..  u16  stream id length, then its UTF-8 (the capture; a new one starts over at a keyframe)
  *
- * The payload is the picture's own bytes: a JPEG, or an H.264 access unit in Annex B with its
- * parameter sets in front of every keyframe (no decoder description).
+ * The payload is the picture's own bytes: a JPEG, or an H.264 or HEVC access unit in Annex B
+ * with its parameter sets (HEVC: VPS, SPS and PPS) in front of every keyframe, so the decoder is
+ * configured without a description.
  */
 
 export const pictureRotations = [0, 90, 180, 270] as const;
@@ -36,7 +38,7 @@ export interface PictureChunk {
   height: number;
   scale: number;
   rotation: PictureRotation;
-  /** `jpeg`, or the H.264 codec string the decoder is configured with. */
+  /** `jpeg`, or the H.264 or HEVC codec string the decoder is configured with. */
   codec: string;
   key: boolean;
   streamId: string;
@@ -54,6 +56,12 @@ const text = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).de
 export const PictureCodec = z.union([
   z.literal("jpeg"),
   z.string().regex(/^avc1\.[0-9a-fA-F]{6}$/),
+  // HEVC as WebCodecs names it: profile space and idc, compatibility flags, tier and level,
+  // constraint bytes (`hvc1.1.6.L153.B0`).
+  z
+    .string()
+    .max(64)
+    .regex(/^(?:hvc1|hev1)\.[A-C]?\d{1,2}\.[0-9A-Fa-f]{1,8}\.[LH]\d{1,3}(?:\.[0-9A-Fa-f]{1,2}){0,6}$/),
 ]);
 
 const Header = z.object({
