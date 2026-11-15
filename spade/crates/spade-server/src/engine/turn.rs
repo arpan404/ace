@@ -595,7 +595,10 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
     };
     let steered = events[seen..].iter().any(|e| match e {
         Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. }) => true,
-        Event::Known(known) => spade_core::question::is_late(known),
+        // A wake's note or a job's check-in (ADR 0160) steers like a job's result.
+        Event::Known(known) => {
+            spade_core::question::is_late(known) || spade_core::wake::is_note(known)
+        }
         Event::Unknown(_) => false,
     });
     if steered {

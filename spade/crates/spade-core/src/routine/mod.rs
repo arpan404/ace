@@ -248,6 +248,11 @@ pub fn silent_replies<'a>(events: impl IntoIterator<Item = &'a Event>) -> HashSe
                 inputs = true;
                 only_beats = false;
             }
+            // A wake's note or a job's check-in (ADR 0160) is never a beat.
+            known if crate::wake::is_note(known) => {
+                inputs = true;
+                only_beats = false;
+            }
             Known::StepFinished { reply, text, .. } => {
                 said.entry(reply.as_str()).or_default().push(text.as_str());
             }
