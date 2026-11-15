@@ -1,8 +1,8 @@
 use crate::media::{
+    ingest::{Clock, Ingest, Outlets},
     select::{self, Trials},
     stream::StreamSettings,
     trials::{ChromePlace, Found},
-    ingest::{Clock, Ingest, Outlets},
     video::StreamControl,
 };
 use crate::{
@@ -118,11 +118,10 @@ impl Runtime {
         let _ = capture.wake.write_all(&[1]);
         let to_ingest = target.is_some();
         // Units captured before this point stay on the path they were routed to.
-        let moved = capture
-            .ingest
-            .route(target)
-            .await
-            .map_err(|e| Fault::new("target_gone", format!("Cannot connect ingest socket: {e}")))?;
+        let moved =
+            capture.ingest.route(target).await.map_err(|e| {
+                Fault::new("target_gone", format!("Cannot connect ingest socket: {e}"))
+            })?;
         if moved.switched {
             capture.stream.want_key();
             let _ = capture.wake.write_all(&[1]);
@@ -600,9 +599,20 @@ fn ingest_address(raw: Option<&Value>) -> Result<Option<media_ingest::Address>> 
         return Ok(None);
     };
     let invalid = || Fault::new("bounds", "Invalid ingest address");
-    let socket = raw.get("socket").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 1024).ok_or_else(invalid)?;
-    let text = raw.get("token").and_then(Value::as_str).ok_or_else(invalid)?;
-    let bytes = zeroize::Zeroizing::new(base64::engine::general_purpose::STANDARD.decode(text).map_err(|_| invalid())?);
+    let socket = raw
+        .get("socket")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && s.len() <= 1024)
+        .ok_or_else(invalid)?;
+    let text = raw
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or_else(invalid)?;
+    let bytes = zeroize::Zeroizing::new(
+        base64::engine::general_purpose::STANDARD
+            .decode(text)
+            .map_err(|_| invalid())?,
+    );
     let token: [u8; 32] = bytes.as_slice().try_into().map_err(|_| invalid())?;
     Ok(Some(media_ingest::Address {
         socket: socket.to_owned(),
@@ -628,15 +638,20 @@ fn outlets(
             let _ = (&wake).write_all(&[1]);
         })
     };
-    let (legacy_publisher, legacy_control, legacy_owe) = (publisher.clone(), control.clone(), owe.clone());
+    let (legacy_publisher, legacy_control, legacy_owe) =
+        (publisher.clone(), control.clone(), owe.clone());
     let closed_owe = owe.clone();
     let session = session.to_owned();
     Ok(Outlets {
         legacy: Box::new(move |unit| {
-            let generation = Some(legacy_control.generation.load(Ordering::Acquire)).filter(|g| *g > 0);
-            let sent = crate::media::unit::legacy_packet(&unit, legacy_publisher.session(), generation)
-                .ok()
-                .is_some_and(|packet| legacy_publisher.video(packet, unit.key).unwrap_or(false));
+            let generation =
+                Some(legacy_control.generation.load(Ordering::Acquire)).filter(|g| *g > 0);
+            let sent =
+                crate::media::unit::legacy_packet(&unit, legacy_publisher.session(), generation)
+                    .ok()
+                    .is_some_and(|packet| {
+                        legacy_publisher.video(packet, unit.key).unwrap_or(false)
+                    });
             if !sent {
                 legacy_owe();
             }
@@ -652,4 +667,30 @@ fn outlets(
             }
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ingest_address;
+    use serde_json::json;
+
+    const TOKEN: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+
+    #[test]
+    fn an_ingest_address_with_the_servers_pid_is_taken_and_the_pid_ignored() {
+        // Windows checks the named pipe's server; a Unix socket in the 0700 runtime dir needs no
+        // such check here.
+        let raw = json!({"socket": "/run/user/1000/ace/m42i.sock", "token": TOKEN, "pid": 4242});
+        let address = ingest_address(Some(&raw)).unwrap().unwrap();
+        assert_eq!(address.socket, "/run/user/1000/ace/m42i.sock");
+        assert_eq!(*address.token, [1; 32]);
+        assert!(ingest_address(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_ingest_address_without_a_32_byte_token_is_refused() {
+        let short = json!({"socket": "/run/m.sock", "token": "AQID"});
+        assert!(ingest_address(Some(&short)).is_err());
+        assert!(ingest_address(Some(&json!({"token": TOKEN}))).is_err());
+    }
 }
