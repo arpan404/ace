@@ -489,3 +489,37 @@ it("a read that finds every request says nothing more waits", async () => {
     expect(latest(asking)).toMatchObject({ total: 1, loaded: 1, more: false }),
   );
 });
+
+it("requests waiting in a delegated thread are counted as elsewhere, apart from the ones this row shows", async () => {
+  const { latest } = await phone({
+    history: (fake) =>
+      fake.apply(asking, [
+        {
+          type: "agent.seen",
+          agent: "helper",
+          parent: "root",
+          origin: "ace",
+          fidelity: "full",
+          native: { provider: "claude", nativeId: "helper" },
+          cwd: "/repo",
+          name: "Helper",
+        },
+        // Its work runs in a thread of its own, where two requests wait on the person.
+        {
+          type: "agent.external",
+          agent: "helper",
+          threadId: ThreadId.parse("helper-thread"),
+          status: { state: "needs_you", interactions: 2 },
+        },
+      ]),
+  });
+  await vi.waitFor(() =>
+    expect(latest(asking)).toMatchObject({
+      total: 3,
+      loaded: 1,
+      more: false,
+      elsewhere: 2,
+      requests: [{ command: "bun run test:changed --with-process" }],
+    }),
+  );
+});
