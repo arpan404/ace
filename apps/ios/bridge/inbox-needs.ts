@@ -27,8 +27,10 @@ import { RequestAnswer, requestResolution } from "./thread-requests.ts";
  * a pending one must not hide it; daemons since 2026-11 send pending requests first). A request
  * too large for the daemon to send is counted and shown as one to open on a computer.
  *
- * Guarantee: every request pending both when a read starts and when it ends is shown. One
- * opened during a read changes the thread's count, and that change reads again. A row's
+ * Guarantee: every request pending both when a read starts and when it ends is shown, within
+ * `readsMost` pages. One opened during a read changes the thread's count, and that change reads
+ * again. The total is the daemon's count, never the number read; a read that stops at the cap
+ * before finding them all says so (`more`, with `loaded`), so the row reads "1 of 231, 200 read". A row's
  * requests change only when the
  * daemon's read says so, never on this phone's guess. Answers re-read the request first and go
  * through the durable command path (ADR 0012), as notification actions do.
@@ -41,7 +43,10 @@ const pageSize = 50;
 const pageBytes = 64 * 1024;
 /** Newest first: everything before the end of time. */
 const newest = Number.MAX_SAFE_INTEGER;
-/** A bound on one read's pages, whatever a daemon answers: 200 pages of 50. */
+/**
+ * A bound on one read's pages, whatever a daemon answers: 200 pages (at 64 KiB, 12.5 MiB). A
+ * read that stops here before finding every request the daemon counts says so (`more`).
+ */
 const readsMost = 200;
 
 /** A request the daemon named but could not send, too large for any reply. */
@@ -162,7 +167,13 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   /** Threads whose requests the phone holds, so one that stops waiting is cleared once. */
   const held = new Set<string>();
 
-  const interactions = async (threadId: string): Promise<Waiting[]> => {
+  /**
+   * The thread's pending requests, and whether the read stopped before finding all the daemon
+   * counts while older pages were left (`more`): at `readsMost`, or at a cursor already read.
+   */
+  const interactions = async (
+    threadId: string,
+  ): Promise<{ requests: Waiting[]; more: boolean }> => {
     // By id, the latest copy kept: one answered between two pages comes again in its new
     // state, and a daemon that read a cursor as a fresh start sends some again.
     const found = new Map<string, Interaction | TooLargeRequest>();
@@ -172,6 +183,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       );
     const sent = new Set<number>();
     let before = newest;
+    let more = true;
     for (let page = 0; page < readsMost; page++) {
       sent.add(before);
       const reply = await owner.request({
@@ -187,16 +199,21 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       for (const entry of result.entries) found.set(entry.id, entry);
       for (const entry of result.tooLarge ?? []) found.set(entry.id, entry);
       const want = needsSignature(store.thread(threadId)) ? waitingCount(threadId) : 0;
-      if (pending().length >= want) break;
-      // Nothing older; or a cursor already read, which would read the same pages again.
-      if (result.entitiesBefore === null || sent.has(result.entitiesBefore)) break;
+      if (pending().length >= want || result.entitiesBefore === null) {
+        // Every one counted, or nothing older: all there is to read was read.
+        more = false;
+        break;
+      }
+      // A cursor already read would read the same pages again.
+      if (sent.has(result.entitiesBefore)) break;
       before = result.entitiesBefore;
     }
-    const requests = pending();
-    return [
-      ...pendingOf(requests.filter((entry): entry is Interaction => !("active" in entry))),
-      ...requests.filter((entry): entry is TooLargeRequest => "active" in entry),
+    const all = pending();
+    const requests = [
+      ...pendingOf(all.filter((entry): entry is Interaction => !("active" in entry))),
+      ...all.filter((entry): entry is TooLargeRequest => "active" in entry),
     ];
+    return { requests, more: more && requests.length < waitingCount(threadId) };
   };
   const waitingCount = (threadId: string) => {
     const status = store.thread(threadId)?.status;
@@ -217,7 +234,11 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     return byId;
   };
 
-  const put = (threadId: string, requests: readonly Waiting[], byId: Map<string, Agent>) => {
+  const put = (
+    threadId: string,
+    { requests, more }: { requests: readonly Waiting[]; more: boolean },
+    byId: Map<string, Agent>,
+  ) => {
     const entry = store.thread(threadId);
     const reader = {
       item: () => undefined,
@@ -228,7 +249,11 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     pump.put(`needs:${threadId}`, () => ({
       type: "inbox.needs",
       id: threadId,
-      total: requests.length,
+      // What the daemon counts as waiting, never fewer than were read.
+      total: Math.max(waitingCount(threadId), requests.length),
+      // How many were read, and whether the read stopped before finding them all.
+      loaded: requests.length,
+      more,
       requests: requests
         .slice(0, shownPerThread)
         .map((interaction) =>
@@ -251,6 +276,8 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       type: "inbox.needs",
       id: threadId,
       total: 0,
+      loaded: 0,
+      more: false,
       requests: [],
     }));
   };
@@ -302,7 +329,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   const answer = async (action: Extract<NeedsAction, { type: "needs.answer" }>) => {
     let resolution: Resolution | undefined;
     try {
-      const pending = await interactions(action.threadId);
+      const { requests: pending } = await interactions(action.threadId);
       resolution = needsResolution(
         // A request too large to send is never answered here: it has nothing to answer with.
         pending.find(

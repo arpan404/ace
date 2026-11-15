@@ -459,3 +459,33 @@ it.each([
     expect(pages).toBeGreaterThan(1);
   },
 );
+
+it("a read that stops at its 200 pages counts what the daemon counts and says it read fewer", async () => {
+  // 201 more pending requests of 70 KiB: one to a 64 KiB page, past the 200 pages a read takes.
+  const { latest } = await phone({
+    history: (fake) => {
+      for (let index = 0; index < 201; index++)
+        fake.apply(asking, [ask(`ask-${index}`, 70 * 1024, 0)]);
+    },
+  });
+  await vi.waitFor(() =>
+    expect(latest(asking)).toMatchObject({ total: 202, loaded: 200, more: true }),
+  );
+});
+
+it("one pending request behind 200 pages of answered ones on an older daemon is counted, not claimed read", async () => {
+  const { latest } = await phone({
+    entityPages: "chronological",
+    history: answered(200, 70 * 1024),
+  });
+  await vi.waitFor(() =>
+    expect(latest(asking)).toMatchObject({ total: 1, loaded: 0, more: true, requests: [] }),
+  );
+});
+
+it("a read that finds every request says nothing more waits", async () => {
+  const { latest } = await phone({ history: answered(16, 40 * 1024) });
+  await vi.waitFor(() =>
+    expect(latest(asking)).toMatchObject({ total: 1, loaded: 1, more: false }),
+  );
+});
