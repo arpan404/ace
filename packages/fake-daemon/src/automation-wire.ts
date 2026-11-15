@@ -97,12 +97,15 @@ export class FakeAutomationWire {
         return reply(message.source === "thread" ? this.thread(message) : this.person.run(message));
       case "automation.list": {
         const { automations, schedules } = this.person.list();
+        // The list builds these entries fresh for each reply, so they're ours to add to.
+        for (const schedule of schedules)
+          Object.assign(
+            schedule,
+            this.webhookOf(automations.find((automation) => automation.id === schedule.id)),
+          );
         return reply({
           automations,
-          schedules: schedules.map((schedule) => ({
-            ...schedule,
-            ...this.webhookOf(automations.find((automation) => automation.id === schedule.id)),
-          })),
+          schedules,
           ...(message.includeThreads ? { threadAutomations: this.threadList() } : {}),
         });
       }
