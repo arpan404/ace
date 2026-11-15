@@ -28,6 +28,7 @@ import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.t
 import { PanelDisclosure, PanelNoMatch, PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
 import { useViewListKeys, ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useSkillLibrary } from "./skills-library.tsx";
 import { useInstallDialog } from "./install-plugin.tsx";
 import { groupByHome, homeLabel, rowMarks, type SkillHome } from "./library-model.ts";
@@ -127,7 +128,7 @@ export function SkillsSidebar() {
       ) : !skills.data.length ? null : !shown.length ? (
         <PanelNoMatch>No skills match.</PanelNoMatch>
       ) : (
-        <nav aria-label="Skills catalog" {...listKeys}>
+        <nav aria-label="Skills catalog" {...listKeys} {...part("list", undefined, "skills")}>
           <VirtualList
             label="Skills"
             items={rows}
@@ -137,7 +138,10 @@ export function SkillsSidebar() {
             render={(row) =>
               row.kind === "home" ? (
                 // A heading that folds its skills away, so the list still reads as groups.
-                <h3 className={row.first ? "pt-1" : "pt-5"}>
+                <h3
+                  {...part("list-group", undefined, row.home)}
+                  className={row.first ? "pt-1" : "pt-5"}
+                >
                   <PanelDisclosure open={row.open} onClick={() => toggle(row.home)}>
                     <span className="min-w-0 flex-1 truncate">
                       {row.label} <span className="text-subtle-foreground">· {row.count}</span>

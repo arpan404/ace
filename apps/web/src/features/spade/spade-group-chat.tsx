@@ -8,6 +8,7 @@ import {
 import { memo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 
@@ -103,7 +104,7 @@ const Row = memo(function Row(props: {
           aria-busy={row.sending || undefined}
           className={cn("flex flex-col items-end", row.sending && "opacity-70")}
         >
-          <div className={cn(bubble, "bg-active")}>
+          <div {...part("spade-message", undefined, "user")} className={cn(bubble, "bg-active")}>
             <SpadeBubbleText text={row.text} />
           </div>
         </div>
@@ -125,7 +126,10 @@ const Row = memo(function Row(props: {
             ) : (
               <span aria-hidden className="w-7 shrink-0" />
             )}
-            <div className={cn(bubble, "bg-bubble shadow-[inset_0_0_0_1px_var(--border)]")}>
+            <div
+              {...part("spade-message", undefined, face.avatar.kind === "spade" ? "spade" : "bot")}
+              className={cn(bubble, "bg-bubble shadow-[inset_0_0_0_1px_var(--border)]")}
+            >
               <SpadeBubbleText text={row.text} />
             </div>
           </div>
