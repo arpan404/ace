@@ -12,6 +12,7 @@ import { setFastModel } from "./spade-api.ts";
 import { EndpointSection } from "./spade-endpoint-settings.tsx";
 import { OversightSettings } from "./spade-oversight-settings.tsx";
 import { SearchSettings } from "./spade-search-settings.tsx";
+import { SkillStoreSettings } from "./spade-skill-store-settings.tsx";
 import { TranscriptionRow, transcriptionWords } from "./spade-transcription-row.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
 import {
@@ -30,7 +31,8 @@ import { useSpadeClient } from "./spade-machine.tsx";
  * (ADR 0135); About you, the notes every bot
  * sees (ADR 0128); then each of the person's model endpoints (its key, its saved models,
  * removing it) and Add endpoint, from a preset or custom; then web search's Brave key and
- * SearXNG; then the apps Spade is connected to (ADR 0131). While the setting or Spade's state is
+ * SearXNG; then the apps Spade is connected to (ADR 0131); then skills Spade wrote while ace was
+ * away, to add to ace's library (ADR 0151). While the setting or Spade's state is
  * still being read, every group stands in place with placeholders, and the switch shows none of
  * on or off until the setting is known.
  */
@@ -128,6 +130,7 @@ export function SpadeSettings() {
         ))}
       {(line.ready || reading) && <SearchSettings ready={line.ready} />}
       {(line.ready || reading) && <ConnectorSettings ready={line.ready} />}
+      {line.ready && <SkillStoreSettings ready={line.ready} />}
     </>
   );
 }
