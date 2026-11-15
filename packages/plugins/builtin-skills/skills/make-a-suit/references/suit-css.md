@@ -7,7 +7,7 @@ suit.css is parsed, never applied as text. Each rule that survives is scoped to 
 - Build each compound from `[data-part]`, `[data-page]`, `[data-state]`, `[data-variant]` and `[data-scheme]` with a value (`[data-scheme="dark"]`). Values are short lower-case words.
 - Every selector ends on a part: `[data-page="usage"] [data-part="stat"]`, never a bare `[data-page="usage"]`.
 - Pseudo-classes: `:hover`, `:focus`, `:focus-visible`, `:focus-within`, `:active`, `:disabled`, `:enabled`, `:checked`, `:empty`, `:placeholder-shown`, the `first-`/`last-`/`only-`/`nth-` family, and `:not()`, `:is()`, `:where()`, `:has()` over the same kind of selectors.
-- Pseudo-elements: `::before`, `::after`, `::placeholder`, `::selection` and the `::-webkit-scrollbar` family.
+- Pseudo-elements: `::before`, `::after`, `::first-letter` (a drop cap on `message-agent`), `::placeholder`, `::selection` and the `::-webkit-scrollbar` family.
 - Combinators work as usual (` `, `>`, `+`, `~`). Nesting does not: write each rule in full.
 - At-rules: `@media` (width ranges and `prefers-*` features only), `@keyframes`, `@font-face`. Nothing else.
 
