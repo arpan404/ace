@@ -3,7 +3,9 @@
 // a thin lit atmosphere. By day (light) the sky is the pale haze of a planet's upper air and the
 // stars are gone. Signals are moods, not state: working spools the drift up a little, done lifts
 // the stars for a moment. The jump to warp is the celebration (celebration.js), not here.
-// Layers are painted once into their own canvases in init and resize; frame only blits them.
+// The sky and planet are painted once into one base canvas and the stars into three layers (at
+// one device pixel per CSS pixel: they are soft points anyway) in init and resize. A frame only
+// blits them, and skips the work when the stars have moved less than a pixel since the last.
 
 const layerCount = 3;
 const layerSpeed = [3, 7, 14]; // CSS px per second, far to near
@@ -13,6 +15,7 @@ let view = null;
 let ctx = null;
 let sky = null;
 let planet = null;
+let base = null;
 const layers = [];
 let width = 0;
 let height = 0;
@@ -26,6 +29,8 @@ let travel = 0; // px travelled by the nearest layer
 let boost = 0; // 0..1, eased toward its target
 let boostTarget = 0;
 let liftAt = -Infinity;
+let drawnAt = -1; // `travel` when the canvas was last drawn
+const disc = { x: 0, y: 0, r: 0 }; // the planet, which hides the stars behind it
 
 // A fixed seed keeps the sky the same on every load, so the still frame never jumps.
 let seed = 7;
@@ -34,10 +39,10 @@ function random() {
   return (seed - 1) / 2147483646;
 }
 
-function canvas(w, h) {
+function canvas(w, h, scale = ratio) {
   const made = document.createElement("canvas");
-  made.width = Math.max(1, Math.round(w * ratio));
-  made.height = Math.max(1, Math.round(h * ratio));
+  made.width = Math.max(1, Math.round(w * scale));
+  made.height = Math.max(1, Math.round(h * scale));
   return made;
 }
 
@@ -72,9 +77,8 @@ function paintLayers() {
   if (scheme !== "dark") return;
   seed = 7;
   for (let depth = 0; depth < layerCount; depth++) {
-    const layer = canvas(width, height);
+    const layer = canvas(width, height, 1);
     const g = layer.getContext("2d");
-    g.setTransform(ratio, 0, 0, ratio, 0, 0);
     const count = Math.round(width * height * layerDensity[depth]);
     for (let i = 0; i < count; i++) {
       const x = random() * width;
@@ -104,6 +108,9 @@ function paintPlanet() {
   const radius = Math.max(width, height) * 0.9;
   const cx = width * 0.86;
   const cy = height + radius * 0.72;
+  disc.x = cx;
+  disc.y = cy;
+  disc.r = radius;
   planet = canvas(width, height);
   const g = planet.getContext("2d");
   g.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -175,6 +182,13 @@ function size(next) {
   paintSky();
   paintLayers();
   paintPlanet();
+  base = canvas(width, height);
+  const g = base.getContext("2d");
+  g.drawImage(sky, 0, 0);
+  g.drawImage(planet, 0, 0);
+  sky = null;
+  planet = null;
+  drawnAt = -1;
 }
 
 function blit(image, offset) {
@@ -185,17 +199,24 @@ function blit(image, offset) {
 }
 
 function draw() {
-  if (!ctx) return;
+  if (!ctx || !base) return;
+  const lift = still ? 0 : Math.max(0, 1 - (now - liftAt) / 1600);
+  // Nothing visible has changed: keep the last frame.
+  if (drawnAt >= 0 && Math.abs(travel - drawnAt) < 1 && lift === 0) return;
+  drawnAt = travel;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.globalAlpha = 1;
-  ctx.drawImage(sky, 0, 0, width, height);
-  const lift = still ? 0 : Math.max(0, 1 - (now - liftAt) / 1600);
-  for (let depth = 0; depth < layers.length; depth++) {
-    ctx.globalAlpha = Math.min(1, 0.85 + lift * 0.15);
+  ctx.drawImage(base, 0, 0, width, height);
+  if (layers.length === 0) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, width, height);
+  ctx.arc(disc.x, disc.y, disc.r, 0, Math.PI * 2);
+  ctx.clip("evenodd");
+  ctx.globalAlpha = 0.85 + lift * 0.15;
+  for (let depth = 0; depth < layers.length; depth++)
     blit(layers[depth], (travel * layerSpeed[depth]) / layerSpeed[layerCount - 1]);
-  }
-  ctx.globalAlpha = 1;
-  ctx.drawImage(planet, 0, 0, width, height);
+  ctx.restore();
 }
 
 ace.scene({

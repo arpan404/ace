@@ -39,9 +39,10 @@ function size(view) {
   seed = 5;
   for (let i = 0; i < maxStreaks; i++) {
     angle[i] = random() * Math.PI * 2;
-    start[i] = 0.02 + random() * 0.35;
-    pace[i] = 0.6 + random() * 0.8;
-    warm[i] = random() < 0.15 ? 1 : 0;
+    // Spread evenly over the disc round the jump point, denser toward it.
+    start[i] = 0.015 + Math.sqrt(random()) * 0.2;
+    pace[i] = 0.7 + random() * 0.6;
+    warm[i] = random() < 0.14 ? 1 : 0;
   }
 }
 
@@ -51,36 +52,35 @@ const clamp = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 // The timeline, in ms from the signal. A finished run's jump is shorter.
 const timing = () =>
   full
-    ? { streak: 1300, flash: 1300, flashFor: 520, ring: 2300, end: 2900, streaks: 180 }
-    : { streak: 1000, flash: 1000, flashFor: 380, ring: 1700, end: 2200, streaks: 110 };
+    ? { streak: 1400, flash: 1280, flashFor: 560, ring: 2400, end: 2950, streaks: 180 }
+    : { streak: 1100, flash: 1000, flashFor: 420, ring: 1800, end: 2300, streaks: 110 };
 
-function drawStreaks(t, plan, cx, cy, reach, fade) {
+function drawStreaks(t, plan, cx, cy, reach) {
   const run = clamp(t / plan.streak);
   const rush = ease(run); // the jump accelerates
-  const alpha = clamp(t / 260) * fade;
+  // Stars fade in as points, then vanish into the flash once the ship has jumped.
+  const after = t - plan.flash;
+  const alpha = clamp(t / 280) * (after > 0 ? clamp(1 - after / 220) : 1);
   if (alpha <= 0) return;
+  // A star's distance from the jump point grows as the ship rushes at it; its tail stretches.
+  const grow = 1 + 14 * rush * rush;
+  const stretch = Math.min(0.9, 0.04 + rush * 1.1);
   ctx.lineCap = "round";
   for (let tone = 0; tone < 2; tone++) {
+    if (tone === 1 && !dark) continue;
     ctx.beginPath();
     for (let i = 0; i < plan.streaks; i++) {
       if (warm[i] !== tone) continue;
-      const d = (start[i] + rush * pace[i] * 1.4) * reach;
-      const length = 4 + rush * pace[i] * reach * 0.45;
+      const head = start[i] * reach * (1 + (grow - 1) * pace[i]);
+      const tail = head * (1 - stretch);
       const ca = Math.cos(angle[i]);
       const sa = Math.sin(angle[i]);
-      ctx.moveTo(cx + ca * d, cy + sa * d);
-      ctx.lineTo(cx + ca * (d + length), cy + sa * (d + length));
+      ctx.moveTo(cx + ca * tail, cy + sa * tail);
+      ctx.lineTo(cx + ca * (head + 1.5), cy + sa * (head + 1.5));
     }
-    const colour =
-      tone === 1
-        ? dark
-          ? "255, 214, 160"
-          : "150, 92, 20"
-        : dark
-          ? "190, 245, 250"
-          : "0, 107, 118";
-    ctx.strokeStyle = `rgba(${colour}, ${(alpha * 0.85).toFixed(3)})`;
-    ctx.lineWidth = 1 + rush * 1.6;
+    const colour = tone === 1 ? "255, 214, 160" : dark ? "200, 248, 252" : "0, 108, 128";
+    ctx.strokeStyle = `rgba(${colour}, ${(alpha * (dark ? 0.8 : 0.42)).toFixed(3)})`;
+    ctx.lineWidth = dark ? 1 + rush * 1.2 : 0.8 + rush * 0.8;
     ctx.stroke();
   }
 }
@@ -155,8 +155,7 @@ ace.scene({
     const cx = width * 0.5;
     const cy = height * 0.42;
     const reach = Math.hypot(width, height) * 0.6;
-    const fade = t < plan.ring ? 1 : 1 - (t - plan.ring) / (plan.end - plan.ring);
-    drawStreaks(t, plan, cx, cy, reach, fade);
+    drawStreaks(t, plan, cx, cy, reach);
     drawFlash(t, plan, cx, cy, reach);
     drawRing(t, plan, cx, cy, reach);
     if (view && (view.width !== width || view.height !== height)) size(view);

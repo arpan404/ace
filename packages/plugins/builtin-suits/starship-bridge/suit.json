@@ -25,7 +25,7 @@
     "accentText": "#7EE3EC",
     "diffAdd": "#0D2A33",
     "diffAddFg": "#7EE8C4",
-    "diffDel": "#2E1424",
+    "diffDel": "#200D1B",
     "diffDelFg": "#FF95A8",
     "syntax": {
       "kw": "#8FC7FF",

@@ -48,17 +48,25 @@
   );
   --suit-l: var(--suit-edge-dim);
   --suit-f: var(--color-surface-1);
-  --suit-b: var(--color-tint);
-  /* Targeting brackets: four corner marks drawn from eight thin bars. */
+  /* Targeting brackets: four corner marks drawn from eight thin bars, lit and dim. */
   --suit-brackets:
-    linear-gradient(var(--suit-b), var(--suit-b)) 0 0 / 9px 1.5px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 0 0 / 1.5px 9px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 100% 0 / 9px 1.5px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 100% 0 / 1.5px 9px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 0 100% / 9px 1.5px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 0 100% / 1.5px 9px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 100% 100% / 9px 1.5px no-repeat,
-    linear-gradient(var(--suit-b), var(--suit-b)) 100% 100% / 1.5px 9px no-repeat;
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 0 / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 0 / 1.5px 9px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 0 / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 0 / 1.5px 9px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 100% / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 100% / 1.5px 9px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 100% / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 100% / 1.5px 9px no-repeat;
+  --suit-brackets-dim:
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 0 / 9px 1.5px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 0 / 1.5px 9px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 0 / 9px 1.5px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 0 / 1.5px 9px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 100% / 9px 1.5px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 0 100% / 1.5px 9px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 100% / 9px 1.5px no-repeat,
+    linear-gradient(color-mix(in oklab, var(--color-tint) 50%, transparent), color-mix(in oklab, var(--color-tint) 50%, transparent)) 100% 100% / 1.5px 9px no-repeat;
 }
 [data-scheme="light"] [data-part="app"],
 [data-scheme="light"] [data-part="menu"],
@@ -138,6 +146,33 @@
   );
 }
 
+/*
+ * Panels that hold code draw their diagonal edges on a layer of their own: code reads against
+ * the panel's fill alone, never against its edge colour.
+ */
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"],
+[data-part="diff-file"] {
+  position: relative;
+  background: var(--suit-f);
+}
+[data-part="code-block"]::after,
+[data-part="tool-output"]::after,
+[data-part="diff"]::after,
+[data-part="diff-file"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  background:
+    linear-gradient(135deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 0 0 /
+      var(--suit-c) var(--suit-c) no-repeat,
+    linear-gradient(315deg, var(--suit-l) 0 calc(50% + 0.8px), transparent 0) 100% 100% /
+      var(--suit-c) var(--suit-c) no-repeat;
+  pointer-events: none;
+}
+
 /* Small controls cut a smaller corner. */
 [data-part="button"],
 [data-part="input"],
@@ -198,18 +233,28 @@
 [data-part="rail"] {
   box-shadow: inset -1px 0 0 var(--suit-edge-dim);
 }
+/* A rail glyph that leaves its root fill unset draws in the item's colour, not black. */
 [data-part="rail-item"] {
   border-radius: 0;
+  fill: currentColor;
 }
 [data-part="rail-item"]:hover {
   background: var(--suit-wash);
 }
 [data-part="rail-item"][data-state="active"] {
-  --suit-b: var(--color-tint);
-  background:
-    var(--suit-brackets),
-    color-mix(in oklab, var(--color-tint) 14%, transparent);
+  position: relative;
+  background: color-mix(in oklab, var(--color-tint) 14%, transparent);
   color: var(--color-link);
+}
+/* Glyph-only parts take their brackets on a layer of their own, over the fill. */
+[data-part="rail-item"][data-state="active"]::after,
+[data-part="icon-button"]:hover::after,
+[data-part="icon-button"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--suit-brackets);
+  pointer-events: none;
 }
 
 [data-part="sidebar"] {
@@ -276,12 +321,26 @@
 /* The open mission is locked on: targeting brackets at its corners. */
 [data-part="thread-row"][data-state="active"],
 [data-part="thread-row"][data-state="selected"] {
-  --suit-b: var(--color-tint);
   background:
-    var(--suit-brackets),
     linear-gradient(90deg, color-mix(in oklab, var(--color-tint) 16%, transparent), transparent 85%),
     var(--color-active);
   box-shadow: none;
+}
+/*
+ * Brackets on parts that hold words sit on a layer of their own over the fill, so the words
+ * read against the fill alone.
+ */
+[data-part="thread-row"][data-state="active"]::after,
+[data-part="thread-row"][data-state="selected"]::after,
+[data-part="nav-item"][data-state="active"]::after,
+[data-part="list-row"][data-state="selected"]::after,
+[data-part="list-row"][data-state="active"]::after,
+[data-part="check-row"][data-state="selected"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--suit-brackets);
+  pointer-events: none;
 }
 [data-part="thread-row"][data-state="active"]::before {
   content: "◆";
@@ -773,6 +832,7 @@
 [data-part="button"] {
   --suit-l: var(--color-border-strong);
   --suit-f: var(--color-surface-1);
+  color: var(--color-foreground);
   font-size: 11.5px;
   font-weight: 600;
   transition: background-color 120ms ease;
@@ -806,17 +866,21 @@
 [data-part="button"][data-state="disabled"] {
   --suit-l: var(--color-border);
   --suit-f: var(--color-surface-1);
+  color: var(--color-subtle-foreground);
+  opacity: 1;
 }
 
 [data-part="icon-button"] {
   border-radius: 0;
 }
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-faint-foreground);
+  opacity: 1;
+}
 [data-part="icon-button"]:hover,
 [data-part="icon-button"][data-state="active"] {
-  --suit-b: var(--suit-edge);
-  background:
-    var(--suit-brackets),
-    var(--color-hover);
+  position: relative;
+  background: var(--color-hover);
 }
 
 [data-part="input"],
@@ -925,6 +989,7 @@
   border-radius: 0;
 }
 [data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus,
 [data-part="menu-item"]:focus-visible {
   background: linear-gradient(90deg, color-mix(in oklab, var(--color-tint) 20%, transparent), transparent);
   box-shadow: inset 2px 0 0 var(--color-tint);
@@ -946,16 +1011,22 @@
   --suit-f: var(--color-surface-1);
 }
 
+/* A chosen picker card (a mode, a theme, an accent) is locked on. */
+[data-part="card"][data-state="checked"] {
+  --suit-l: var(--color-tint);
+  box-shadow:
+    inset 0 0 0 1px var(--color-tint),
+    inset 0 0 22px -10px var(--color-tint);
+}
+
 [data-part="list-row"],
 [data-part="table-row"] {
   border-radius: 0;
 }
 [data-part="list-row"][data-state="selected"],
 [data-part="list-row"][data-state="active"] {
-  --suit-b: var(--color-tint);
-  background:
-    var(--suit-brackets),
-    var(--color-active);
+  position: relative;
+  background: var(--color-active);
 }
 
 [data-part="stat"] {
@@ -982,9 +1053,7 @@
   position: relative;
 }
 [data-part="nav-item"][data-state="active"] {
-  --suit-b: var(--color-tint);
   background:
-    var(--suit-brackets),
     linear-gradient(90deg, color-mix(in oklab, var(--color-tint) 16%, transparent), transparent 85%),
     var(--color-active);
 }
@@ -1008,9 +1077,16 @@
   color: var(--color-subtle-foreground);
   pointer-events: none;
 }
+/* The section's heading takes the display face; its rows read in the interface face. */
 [data-part="settings-section"] {
   text-transform: uppercase;
   letter-spacing: 0.1em;
+}
+[data-part="settings-section"] [data-part="card"],
+[data-part="settings-section"] [data-part="settings-row"] {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: normal;
 }
 [data-part="settings-row"] + [data-part="settings-row"] {
   border-top: 1px dashed var(--color-border);
@@ -1140,10 +1216,21 @@
 [data-page="issue"] [data-part="page-header"] {
   position: relative;
   padding-bottom: 14px;
+}
+/* The briefing's lower edge: a lit rule over a tick ruler. */
+[data-page="pull"] [data-part="page-header"]::after,
+[data-page="issue"] [data-part="page-header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
   background:
     linear-gradient(90deg, var(--color-tint), transparent 60%) 0 100% / 100% 1px no-repeat,
-    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 10px) 0
-      calc(100% - 3px) / 100% 4px no-repeat;
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 10px) 0 0 /
+      100% 4px no-repeat;
+  pointer-events: none;
 }
 [data-page="pull"] [data-part="page-title"],
 [data-page="issue"] [data-part="page-title"] {
@@ -1184,10 +1271,21 @@
 [data-page="pull"] [data-part="page-section"],
 [data-page="issue"] [data-part="page-section"] {
   position: relative;
+  box-sizing: border-box;
   padding-left: 12px;
+}
+[data-page="pull"] [data-part="page-section"]::before,
+[data-page="issue"] [data-part="page-section"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
   background:
     linear-gradient(var(--color-tint), var(--color-tint)) 0 9px / 2px 10px no-repeat,
     linear-gradient(var(--color-border), var(--color-border)) 0 0 / 1px 100% no-repeat;
+  pointer-events: none;
 }
 [data-part="card"][data-variant="description"] {
   --suit-l: var(--suit-edge);
@@ -1234,10 +1332,8 @@
   font-size: 12.5px;
 }
 [data-part="check-row"][data-state="selected"] {
-  --suit-b: var(--color-tint);
-  background:
-    var(--suit-brackets),
-    var(--color-active);
+  position: relative;
+  background: var(--color-active);
 }
 [data-part="timeline-item"] {
   border-radius: 0;
@@ -1286,11 +1382,13 @@
   pointer-events: none;
 }
 [data-part="panel-body"][data-state="active"] {
-  --suit-b: color-mix(in oklab, var(--color-tint) 55%, transparent);
   background:
-    var(--suit-brackets),
+    var(--suit-brackets-dim),
     var(--color-sidebar);
-  background-origin: content-box;
+}
+/* The terminal's monitor frame is its own bezel. */
+[data-part="panel-body"][data-variant="terminal"][data-state="active"] {
+  background: var(--color-sidebar);
 }
 [data-part="panel-header"] {
   background: var(--suit-scan), color-mix(in oklab, var(--color-code) 70%, var(--color-sidebar));
@@ -1309,10 +1407,9 @@
 }
 [data-part="panel-tab"][data-state="selected"] {
   background:
-    linear-gradient(var(--color-tint), var(--color-tint)) center 0 / calc(100% - 14px) 2px
-      no-repeat,
     linear-gradient(180deg, color-mix(in oklab, var(--color-tint) 16%, transparent), transparent),
     var(--color-surface-1);
+  box-shadow: inset 0 2px 0 var(--color-tint);
   color: var(--color-foreground);
 }
 [data-part="panel-toolbar"] {
