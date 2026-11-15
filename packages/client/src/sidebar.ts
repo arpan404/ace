@@ -10,7 +10,18 @@ import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
 import type { SidebarKey, SidebarReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { parseSidebarRecord, sidebarRecord, type SidebarHalf } from "./read-records.ts";
-import { SnapshotBinding, contentChanges, type Persistence } from "./read-snapshots.ts";
+import {
+  SnapshotBinding,
+  contentChanges,
+  firstReadMs,
+  type Persistence,
+} from "./read-snapshots.ts";
+import {
+  listStartup,
+  stepStartup,
+  type ListStartup,
+  type StartupInput,
+} from "./sidebar-startup.ts";
 import { FilterMemory, resumeOf, type ProvisionalSource } from "./sidebar-memory.ts";
 import { ClientError, type Limits } from "./types.ts";
 
@@ -59,9 +70,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     const persistence = this.#persistence;
     if (!persistence) return;
     const half = this.#filter.archived ? "archive" : "home";
+    const key = this.#key();
     this.#binding = new SnapshotBinding(
       persistence,
-      `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`,
+      key,
       contentChanges((tap) => this.observe(tap)),
       // A derived list is part of another filter's: it is never written as this filter's.
       () =>
@@ -70,23 +82,28 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
           : sidebarRecord(half, half === "archive" ? this.#archive : this.#home),
       (value) => this.#restore(value),
     );
-    // Until the list's first subscribe, the list kept for this filter (the one a launch
-    // restores) is read first: subscribing without it would ask for the whole list instead of
-    // resuming from its revision. The binding gives up on a slow read. Later filter switches
-    // paint from this session's memory and subscribe at once.
-    if (this.#subscribed) return;
-    const binding = this.#binding;
-    this.#reading = binding;
-    void binding.loaded.then(() => {
-      if (this.#reading !== binding) return;
-      this.#reading = undefined;
-      if (this.#refs && !this.#wire && this.#ready()) this.#subscribe();
-    });
+    // While the list starts, its kept list for this filter is what its first subscribe waits
+    // for (`sidebar-startup.ts`): the read settling, found or not, is one of its inputs.
+    if (this.#startup.phase === "waiting")
+      void this.#binding.read.then(() => this.#drive({ type: "read", filter: key }));
   }
-  /** The binding whose kept list the first subscribe waits for, while its first read is out. */
-  #reading: SnapshotBinding | undefined;
-  /** The list has subscribed at least once. */
-  #subscribed = false;
+  /** The key the current filter's kept list is stored under. */
+  #key(): string {
+    return `sidebar:${JSON.stringify([this.#filter.project ?? null, !!this.#filter.archived])}`;
+  }
+  /** The list's first subscribe, waiting for its kept list (`sidebar-startup.ts`). */
+  #startup: ListStartup = { phase: "subscribed" };
+  /** Stops the deadline set when the list was first held, before its first subscribe. */
+  #deadline: (() => void) | undefined;
+  #drive(input: StartupInput): void {
+    const step = stepStartup(this.#startup, input);
+    this.#startup = step.state;
+    if (step.subscribe === undefined) return;
+    this.#deadline?.();
+    this.#deadline = undefined;
+    // For the filter current now: the one the machine subscribed for.
+    this.#subscribe();
+  }
   #retire(): void {
     const written = this.#binding?.close();
     this.#binding = undefined;
@@ -190,16 +207,18 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       this.#home = undefined;
       this.#confirm(["home"], false);
       this.#adopt("home");
-      // Before the list's first subscribe (a launch restoring its filter), the new filter's
-      // kept list is read first: its binding, made below, subscribes once the read is in.
-      if (this.#refs && this.#ready() && (this.#subscribed || !this.#persistence))
-        this.#subscribe();
-    } else if (input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
+    }
+    // While the list starts, no filter change subscribes: the first subscribe goes for the
+    // filter current when it goes (`sidebar-startup.ts`), Home and, if shown, Archive.
+    const starting = this.#startup.phase === "waiting";
+    if (!starting && projectChanged && this.#refs && this.#ready()) this.#subscribe();
+    else if (!starting && input.archived && this.#refs && this.#ready()) this.#subscribeArchive();
     if (this.#provisional.size && !this.#pending.size) this.#pending.add("provisional");
     this.#merge();
     this.#notifications.emitAll();
     // Made after this change is announced, so the binding takes the filter's record.
     this.#persist();
+    if (starting) this.#drive({ type: "filter", filter: this.#key() });
   }
   /** Remember a half the filter is leaving, unless it was only derived from another's list. */
   #keep(half: SidebarHalf): void {
@@ -246,7 +265,13 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#id = id;
     this.#ready = ready;
     this.#notifications = new Notifications(limits.listeners);
+    this.#startup = listStartup(this.#key(), {
+      kept: persistence !== undefined,
+      welcomed: persistence?.welcomed === undefined,
+      connected: ready(),
+    });
     this.#persist();
+    void persistence?.welcomed?.().then(() => this.#drive({ type: "welcome" }));
   }
   get ids(): readonly string[] {
     return this.#order;
@@ -280,14 +305,25 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     };
   }
   acquire(): { store: Sidebar; release(): void } {
-    if (this.#refs++ === 0 && this.#ready() && !this.#reading) this.#subscribe();
+    if (this.#refs++ === 0) {
+      if (this.#startup.phase === "waiting") {
+        // Opened: its one deadline is set now, and never moved by a filter change.
+        if (!this.#deadline && this.#persistence)
+          this.#deadline = this.#persistence.scheduler.set(firstReadMs, () =>
+            this.#drive({ type: "deadline" }),
+          );
+        this.#drive({ type: "held" });
+      } else if (this.#ready()) this.#subscribe();
+    }
     let released = false;
     return {
       store: this,
       release: () => {
         if (released) return;
         released = true;
-        if (--this.#refs === 0 && this.#wire) {
+        if (--this.#refs === 0 && this.#startup.phase === "waiting")
+          this.#drive({ type: "released" });
+        if (this.#refs === 0 && this.#wire) {
           this.#await(["released"]);
           // Kept unfollowed: what a warm view paints from it is no longer confirmed.
           const held = [
@@ -318,8 +354,8 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     return source === "remembered" ? this.#rememberedResume : resumeOf(this.#home);
   }
   #subscribe(): void {
-    this.#subscribed = true;
-    this.#reading = undefined;
+    // One subscription per window: a new one replaces the one it tracked.
+    if (this.#wire) this.#send({ type: "unsubscribe", subscriptionId: this.#wire });
     this.#homeSnapshotAllowed = true;
     this.#wire = this.#id();
     this.#await([this.#wire]);
@@ -341,6 +377,10 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     if (this.#filter.archived) this.#subscribeArchive();
   }
   #subscribeArchive(): void {
+    if (this.#archiveWire) {
+      this.#send({ type: "unsubscribe", subscriptionId: this.#archiveWire });
+      this.#pending.delete(this.#archiveWire);
+    }
     this.#archiveSnapshotAllowed = true;
     this.#archiveWire = this.#id();
     if (!this.#pending.size) this.#notifications.emit(["sync"]);
@@ -360,9 +400,11 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   }
   /** Subscribe on a new socket; one already sent with its hello is not sent again. */
   reconnect(): void {
-    if (this.#refs && !this.#wire && !this.#reading) this.#subscribe();
+    if (this.#startup.phase === "waiting") this.#drive({ type: "connected" });
+    else if (this.#refs && !this.#wire) this.#subscribe();
   }
   disconnect(): void {
+    if (this.#startup.phase === "waiting") this.#drive({ type: "disconnected" });
     if (this.#refs) this.#await(["disconnected"]);
     this.#wire = undefined;
     this.#archiveWire = undefined;

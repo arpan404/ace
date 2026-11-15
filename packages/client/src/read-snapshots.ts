@@ -34,7 +34,7 @@ export const snapshotWriteMs = 1_000;
  * welcome always went. A relaunch reads a cold store, and opening without what it kept costs a
  * full snapshot.
  */
-const firstReadMs = 250;
+export const firstReadMs = 250;
 
 export class SnapshotBinding {
   #persistence: Persistence;
@@ -54,6 +54,8 @@ export class SnapshotBinding {
    * subscription can resume from what it held (ADR 0128).
    */
   readonly loaded: Promise<void>;
+  /** Settles once the first read of the kept record has been tried, however long it takes. */
+  readonly read: Promise<void>;
 
   constructor(
     persistence: Persistence,
@@ -85,6 +87,7 @@ export class SnapshotBinding {
       },
       () => {},
     );
+    this.read = tried;
     this.loaded = new Promise((resolve) => {
       let settled = false;
       const finish = () => {

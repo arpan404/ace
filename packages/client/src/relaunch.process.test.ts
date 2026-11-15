@@ -120,10 +120,12 @@ const reply = (id: string, text: string): EventPayload => ({
  * What an app keeps between launches: its read snapshots, outbox and host binding. `readMs`
  * makes each read of a kept record take that long, as a cold store does at launch.
  */
-function keptStore(readMs = 0) {
+function keptStore(readMs = 0, hangs: (key: string) => boolean = () => false) {
   const snapshots = memory();
   const get = snapshots.storage.get.bind(snapshots.storage);
   snapshots.storage.get = async (key) => {
+    // A read that never answers: a store that hangs.
+    if (hangs(key)) return new Promise<unknown>(() => {});
     if (readMs) await new Promise((resolve) => setTimeout(resolve, readMs));
     return get(key);
   };
@@ -291,6 +293,8 @@ test("a relaunch with a kept complete copy resumes the thread from its cursor an
   const view = listAnswer?.message.view as { keep?: string[]; threads?: object } | undefined;
   expect(view?.keep?.length).toBeGreaterThan(0);
   expect(Object.keys(view?.threads ?? {})).toEqual([]);
+  // The daemon holds exactly one list subscription for this socket.
+  expect(liveLists(app)).toHaveLength(1);
 
   const expected = await fresh(daemon, threadId);
   expect(shown(app, threadId)).toEqual(expected.thread);
@@ -399,4 +403,89 @@ test("a relaunch whose kept store reads slowly still resumes once the reads are 
   const expected = await fresh(daemon, threadId);
   expect(shown(app, threadId)).toEqual(expected.thread);
   expect(listed(app)).toEqual(expected.list);
+});
+
+/** The list subscriptions the daemon holds for this socket: sent, less those unsubscribed. */
+function liveLists(app: ReturnType<typeof launch>) {
+  const unsubscribed = new Set(
+    app.wire
+      .filter((entry) => entry.dir === "send" && entry.message.type === "unsubscribe")
+      .map((entry) => entry.message.subscriptionId),
+  );
+  return app
+    .subscribes("threads")
+    .filter((entry) => !unsubscribed.has(entry.message.subscriptionId))
+    .map((entry) => (entry.message.scope as { window?: Record<string, unknown> }).window ?? {});
+}
+
+test("opening the archive while the list waits for its kept copy leaves one subscription per window", async () => {
+  const daemon = await restartable();
+  const threadId = daemon.thread(10);
+  // Every kept list reads slowly, so the changes land while the list is still waiting.
+  const kept = keptStore(300);
+  const first = launch(daemon, kept);
+  await opened(first, threadId, () => daemon.current().store.headSeq());
+  await first.client.close();
+
+  const app = launch(daemon, kept);
+  const collection = app.client.threadsCollection();
+  const list = collection.threads();
+  await app.client.start();
+  await expect.poll(() => app.wire.some((entry) => entry.message.type === "welcome")).toBe(true);
+  // Archive opened after the hello, before the list has subscribed.
+  void collection.threadsWindow({ archived: true });
+  await vi.waitFor(() => expect(list.store.loaded && !list.store.syncing).toBe(true), {
+    timeout: 8_000,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  // Exactly one Home and one Archive subscription, for the filter current now.
+  const live = liveLists(app);
+  expect(live.filter((window) => window.archived !== true)).toHaveLength(1);
+  expect(live.filter((window) => window.archived === true)).toHaveLength(1);
+  expect(live.every((window) => window.project === undefined)).toBe(true);
+  collection.close();
+});
+
+test("a filter change before the list's first subscribe never moves its deadline", async () => {
+  const daemon = await restartable();
+  daemon.thread(10);
+  // Kept lists that never answer: only the deadline lets the list subscribe.
+  const kept = keptStore(0, (key) => key.includes("sidebar:"));
+  const app = launch(daemon, kept);
+  const collection = app.client.threadsCollection();
+  // Opened at t = 0.
+  collection.threads();
+  await app.client.start();
+  await expect.poll(() => app.wire.some((entry) => entry.message.type === "welcome")).toBe(true);
+  app.scheduler.advance(200);
+  void collection.threadsWindow({ project: "selected" });
+  await Promise.resolve();
+  expect(liveLists(app)).toHaveLength(0);
+  // t = 250: the deadline set at opening, not 250 ms after the change.
+  app.scheduler.advance(50);
+  await expect.poll(() => liveLists(app).length).toBe(1);
+  expect(liveLists(app)[0]?.project).toBe("selected");
+  collection.close();
+});
+
+test("project and archive changes while the list waits end in one subscription for the last filter", async () => {
+  const daemon = await restartable();
+  daemon.thread(10);
+  const kept = keptStore(0, (key) => key.includes("sidebar:"));
+  const app = launch(daemon, kept);
+  const collection = app.client.threadsCollection();
+  collection.threads();
+  await app.client.start();
+  await expect.poll(() => app.wire.some((entry) => entry.message.type === "welcome")).toBe(true);
+  void collection.threadsWindow({ archived: true });
+  void collection.threadsWindow({ archived: true, project: "elsewhere" });
+  void collection.threadsWindow({ project: "selected" });
+  await Promise.resolve();
+  expect(liveLists(app)).toHaveLength(0);
+  app.scheduler.advance(250);
+  await expect.poll(() => liveLists(app).length).toBe(1);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(liveLists(app)).toEqual([expect.objectContaining({ project: "selected" })]);
+  expect(liveLists(app)[0]?.archived).toBeUndefined();
+  collection.close();
 });
