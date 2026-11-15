@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@ace/provider-kit": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
     "@ace/service": "workspace:*",
     "zod": "^4.6.5"
   }
