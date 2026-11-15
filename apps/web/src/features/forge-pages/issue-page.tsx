@@ -17,6 +17,7 @@ import { IssueTimeline, timelineSpeakers } from "./issue-timeline.tsx";
 import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { cachedRow, useIssueDetail } from "./lists.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { IssuePages, PullRequestPages } from "@/components/forge-links.tsx";
 import { repositoryFromParam } from "@/lib/pull-request-route.ts";
@@ -84,7 +85,7 @@ function IssueBody(props: {
         repository={issue.ref.repository}
         participants={participants}
       >
-        <div className={`${readable} pt-6 pb-16`}>
+        <div {...part("page-body")} className={`${readable} pt-6 pb-16`}>
           <IssueHeader
             project={props.project}
             issue={issue}
@@ -131,7 +132,12 @@ export function IssuePage(props: {
     <Screen title={`#${props.number}`} crumb={choice.name(props.project)}>
       <PullRequestPages project={props.project}>
         <IssuePages project={props.project}>
-          <article aria-label={`Issue #${props.number}`} className="h-full overflow-y-auto">
+          <article
+            {...part("page", undefined, issue?.state)}
+            data-page="issue"
+            aria-label={`Issue #${props.number}`}
+            className="h-full overflow-y-auto"
+          >
             {issue ? (
               <IssueBody
                 project={props.project}

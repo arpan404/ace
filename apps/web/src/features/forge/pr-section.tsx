@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * A collapsible Summary section: a 12px muted heading with a subtle count and a caret after it, one quiet action at
@@ -53,6 +54,7 @@ export function PrSection(props: {
   return (
     <section
       ref={setSection}
+      {...part("page-section", !props.fixed && (open ? "open" : "closed"), props.id)}
       id={props.id}
       aria-label={props.title}
       className="scroll-mt-2 space-y-1.5"

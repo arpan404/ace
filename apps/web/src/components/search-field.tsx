@@ -26,6 +26,7 @@ export function SearchField({
   const input = useRef<HTMLInputElement>(null);
   return (
     <label
+      data-part="search-field"
       className={cn(
         "flex h-8 w-full items-center gap-2 rounded-md bg-secondary pr-1 pl-2.5 text-ui text-subtle-foreground has-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",
         className,

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { WorkHeading } from "@/components/work-heading.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ForgeCompletions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -63,8 +64,14 @@ export function NewIssuePage(props: {
   const closed = list.first && (!list.first.canCreate || !can(source, "issues.write"));
   return (
     <Screen title="New issue" crumb={choice.name(project)}>
-      <article aria-label="New issue" className="h-full overflow-y-auto">
+      <article
+        {...part("page", undefined, "new")}
+        data-page="issue"
+        aria-label="New issue"
+        className="h-full overflow-y-auto"
+      >
         <form
+          {...part("page-body")}
           className={`${readable} pt-6 pb-16`}
           onSubmit={(event) => {
             event.preventDefault();

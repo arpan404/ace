@@ -9,6 +9,7 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { InboxSearch } from "./inbox-model.ts";
 
 /** One line of the filter column: its mark, words and count, the one on show filled. */
@@ -22,6 +23,7 @@ function Item(props: {
   const Glyph = props.icon;
   return (
     <button
+      {...part("nav-item", props.on && "active")}
       type="button"
       aria-current={props.on ? "true" : undefined}
       onClick={props.onPick}

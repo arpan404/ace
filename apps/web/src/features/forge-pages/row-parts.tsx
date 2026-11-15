@@ -10,6 +10,8 @@ import { useOpenWebAddress } from "@/components/web-link.tsx";
 import type { ForgeKind } from "@ace/protocol";
 import { forgeDisplayName, formatAgo } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
+import type { SuitPart } from "@ace/protocol/suit-parts";
 import { useNow } from "@/lib/time.ts";
 
 /** How long ago, in words ("2 hours ago"), with the exact time on hover. */
@@ -69,6 +71,10 @@ export function RowShell(props: {
   menu?: ReactNode;
   selected?: boolean | undefined;
   last?: boolean | undefined;
+  /** The row's Suit part (`pr-row`, `issue-row`, `list-row`), its state and variant. */
+  part: SuitPart;
+  state?: SuitPartState | undefined;
+  variant?: string | undefined;
   children: ReactNode;
 }) {
   const openOnHost = useOpenOnHost();
@@ -78,6 +84,7 @@ export function RowShell(props: {
       <ContextMenuTrigger
         render={
           <div
+            {...part(props.part, props.selected ? "selected" : props.state, props.variant)}
             className={cn(
               "group/row relative",
               !props.last && "border-b border-border",

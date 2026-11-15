@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
 import { biggestFiles, type GlanceFile } from "./pr-summary-model.ts";
 import { readFailureText } from "./query-state.tsx";
@@ -63,7 +64,7 @@ function GlanceFrame(props: {
 }) {
   const { detail } = props;
   return (
-    <section aria-label="Changes" className={prBox}>
+    <section {...part("card", undefined, "changes")} aria-label="Changes" className={prBox}>
       <PrBoxHead
         actions={
           <>

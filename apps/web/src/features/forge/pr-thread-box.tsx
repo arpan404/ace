@@ -9,7 +9,7 @@ import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { PrTime } from "./pr-presentation.tsx";
 import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { TextAction } from "./pr-text-action.tsx";
-import { PrReplyField, PrResolveButton, useThreadView } from "./pr-thread.tsx";
+import { PrReplyField, PrResolveButton, threadPart, useThreadView } from "./pr-thread.tsx";
 import { TimelineBox } from "./pr-timeline-box.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
@@ -66,11 +66,13 @@ export function PrThreadBox(props: { thread: ReviewThread; className?: string | 
   const { open, first, preview } = view;
   return (
     <TimelineBox
+      variant="thread"
       author={first?.author ?? ""}
       avatarUrl={first?.authorAvatarUrl}
       className={props.className}
     >
       <section
+        {...threadPart(thread, view)}
         aria-label={`Conversation on ${threadPlace(thread)}`}
         className="min-w-0 font-sans whitespace-normal"
       >
