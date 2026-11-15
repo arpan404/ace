@@ -122,10 +122,14 @@ mod tests {
         let mut read = 0u32;
         match unsafe { ReadFile(server, Some(&mut buffer), Some(&mut read), None) } {
             Ok(()) => read as usize,
+            // Never connected, or connected and gone with nothing written.
             Err(error) => {
-                assert_eq!(
-                    error.code(),
-                    windows::core::HRESULT::from_win32(ERROR_BROKEN_PIPE.0)
+                let code = error.code();
+                assert!(
+                    [ERROR_BROKEN_PIPE.0, ERROR_PIPE_LISTENING.0]
+                        .iter()
+                        .any(|e| code == windows::core::HRESULT::from_win32(*e)),
+                    "{error}"
                 );
                 0
             }
