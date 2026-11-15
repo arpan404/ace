@@ -95,10 +95,10 @@ export function XtermView(props: {
       if (disposed) return;
       shown = currentLook();
       const options = lookOptions(element, shown);
-      // Rows exactly `row` px tall; xterm's lineHeight multiplies the font's own height (about
+      // Rows exactly `rowHeight` px tall; xterm's lineHeight multiplies the font's own height (about
       // 1.2 × its size), so start from that and correct once drawn (`measure`).
-      let row = shown.row;
-      let lineHeight = row / (shown.fontSize * 1.2);
+      let rowHeight = shown.row;
+      let lineHeight = rowHeight / (shown.fontSize * 1.2);
       const term = new Terminal({
         ...options,
         lineHeight,
@@ -123,7 +123,7 @@ export function XtermView(props: {
         /* xterm's DOM renderer stays in use. */
       }
 
-      // Rows exactly `row` px tall: xterm derives its row from the font's own height times
+      // Rows exactly `rowHeight` px tall: xterm derives its row from the font's own height times
       // lineHeight, which differs by font, so measure what it drew and correct once.
       const screen = () => element.querySelector<HTMLElement>(".xterm-screen");
       let cell = estimateCell(options.fontFamily, shown.fontSize, shown.letterSpacing);
@@ -132,8 +132,8 @@ export function XtermView(props: {
         if (!drawn?.height || !term.rows) return;
         cell = drawn.width / term.cols || cell;
         const drawnRow = drawn.height / term.rows;
-        if (Math.abs(drawnRow - row) > 0.01) {
-          lineHeight = (lineHeight * row) / drawnRow + 0.0005;
+        if (Math.abs(drawnRow - rowHeight) > 0.01) {
+          lineHeight = (lineHeight * rowHeight) / drawnRow + 0.0005;
           term.options.lineHeight = lineHeight;
         }
       };
@@ -144,7 +144,7 @@ export function XtermView(props: {
         const height = element.clientHeight;
         if (!width || !height) return;
         const cols = Math.max(20, Math.floor(width / cell));
-        const rows = Math.max(4, Math.floor(height / row));
+        const rows = Math.max(4, Math.floor(height / rowHeight));
         const size = `${cols}x${rows}`;
         if (size === last) return;
         last = size;
@@ -177,8 +177,8 @@ export function XtermView(props: {
           shown = next;
           const nextOptions = lookOptions(element, next);
           if (sized) {
-            row = next.row;
-            lineHeight = row / (next.fontSize * 1.2);
+            rowHeight = next.row;
+            lineHeight = rowHeight / (next.fontSize * 1.2);
             cell = estimateCell(nextOptions.fontFamily, next.fontSize, next.letterSpacing);
             measured.dispose();
             measured = term.onRender(() => {

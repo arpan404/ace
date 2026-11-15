@@ -47,6 +47,10 @@ const crt = fakeSuit({
 });
 crt.assets["assets/vt.woff2"] = "/suits/crt/assets/vt.woff2";
 
+/** The family the terminal draws with for a Suit naming `fontFamily`. */
+const system = (fontFamily: string) =>
+  terminalLook(fakeSuit({ id: "sys", dark: {}, terminal: { fontFamily } }), "dark").fontFamily;
+
 describe("the terminal without a Suit", () => {
   it("draws ace's own look: 13px text on 20px rows, a steady block cursor, opaque", () => {
     const look = terminalLook(null, "dark");
@@ -91,8 +95,6 @@ describe("the terminal under a Suit", () => {
   });
 
   it("uses a system family as given, and refuses one that could break out of the font list", () => {
-    const system = (fontFamily: string) =>
-      terminalLook(fakeSuit({ id: "sys", dark: {}, terminal: { fontFamily } }), "dark").fontFamily;
     expect(system('"Berkeley Mono", monospace')).toBe('"Berkeley Mono", monospace');
     expect(system("Menlo; } body { color: red")).toBeUndefined();
   });
