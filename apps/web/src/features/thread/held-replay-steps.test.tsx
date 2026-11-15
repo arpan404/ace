@@ -6,6 +6,7 @@ import {
   watchingRelay,
 } from "@ace/fake-daemon";
 import { act, configure, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { slowReplay } from "@/test/held-replay.ts";
 import { harness } from "@/test/harness.tsx";
@@ -186,6 +187,15 @@ test("connected again but not caught up: a subagent that ended claims no ending 
   const stale = within(feed).getByRole("button", { name: /^1 subagent$/ });
   expect(stale.textContent).toContain("Syncing…");
   expect(stale.textContent).not.toMatch(/\bdone\b/i);
+  // Its row and the row's details, opened from the group, say the same.
+  await userEvent.click(stale);
+  const row = await within(feed).findByRole("link", { name: /^Open Reviewer, Syncing…/ });
+  await userEvent.hover(row);
+  const details = await screen.findByLabelText("Details for Reviewer");
+  expect(details.textContent).toContain("Syncing…");
+  expect(details.textContent).not.toMatch(/\bdone\b/i);
+  await userEvent.unhover(row);
+  await userEvent.click(stale);
 
   replay.release(app.client);
   expect(await within(feed).findByRole("button", { name: /^1 subagent ran/ })).toBeTruthy();

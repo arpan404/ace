@@ -43,10 +43,11 @@ function CardBody(props: { parts: AgentRowParts }) {
           {parts.name}
         </p>
         <p
-          data-tone={subagentTones[parts.state]}
+          data-tone={parts.stale === undefined ? subagentTones[parts.state] : undefined}
           className="flex shrink-0 items-baseline gap-1.5 text-xs text-(--tone-text)"
         >
-          {subagentLabels[parts.state]}
+          {/* No state, terminal ones included, from a copy that isn't current. */}
+          {parts.stale ?? subagentLabels[parts.state]}
           {parts.elapsed && (
             <span className="text-subtle-foreground tabular-nums">{parts.elapsed}</span>
           )}
