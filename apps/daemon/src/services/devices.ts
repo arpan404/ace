@@ -232,6 +232,8 @@ export function createDevicesSession(context: SocketContext): SocketService {
         context.options.store.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
         undefined,
       send: delivery.send,
+      // Subscribes naming a media connection go to ace-media (D1) while it serves devices.
+      delivery: { session: context.sessionId, port: () => context.options.mediaDelivery?.() },
       media: {
         bufferedBytes: () => context.socket.bufferedAmount,
         write: (piece) =>
