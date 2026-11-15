@@ -384,3 +384,151 @@ async fn a_step_spade_starts_on_its_own_tells_the_bot_what_it_spent_and_each_rol
     assert!(nudge.contains("information, not a limit"), "{nudge}");
     Ok(())
 }
+
+#[tokio::test]
+async fn the_check_of_done_runs_on_the_verify_role_and_its_model_is_on_the_verdict() -> Result {
+    use spade_server::tools::{TaskGoal, TaskPlan};
+    let scripts = vec![
+        Script::reply("")
+            .call(
+                "c1",
+                "task_goal",
+                json!({ "title": "Tests", "criteria": ["tests pass"] }),
+            )
+            .call(
+                "c2",
+                "task_plan",
+                json!({ "op": "add", "text": "run them" }),
+            ),
+        Script::reply("").call("c3", "run_tests", json!({})),
+        Script::reply("")
+            .call(
+                "c4",
+                "task_plan",
+                json!({ "op": "done", "item": "1",
+                        "evidence": [{ "kind": "output", "call": "c3" }] }),
+            )
+            .call("c5", "task_status", json!({ "status": "done" })),
+        Script::reply("Done."),
+        title(),
+        // The verifier, on the role's model.
+        Script::reply("").plain(
+            r#"{"criteria":[{"id":"1","met":true,"why":"2 passed"}],"missing":[],"done":true}"#,
+        ),
+    ];
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(FakeTool::new(
+            "run_tests",
+            Risk::Read,
+            "test result: ok. 2 passed",
+        )),
+        Arc::new(TaskStatus),
+        Arc::new(TaskGoal),
+        Arc::new(TaskPlan),
+    ];
+    let spade = Spade::start(scripts, tools).await?;
+    cheap_fast_model(&spade).await?;
+    let (status, body) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m",
+                    "access": "full_access" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let agent = body["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    let conversation = body["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{agent}/models"),
+            json!({ "roles": { "verify": "fake/cheap" } }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    spade.say(&conversation, "Run the tests").await?;
+    let events = spade.wait_for(&conversation, "task_verified").await?;
+    let verdict = events
+        .iter()
+        .find(|e| e["type"] == "task_verified")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(verdict["verdict"], "done", "{verdict}");
+    assert_eq!(verdict["model"], "fake/cheap");
+    assert_eq!(
+        model_asked_with(&spade, "You check whether a task is done").as_deref(),
+        Some("cheap")
+    );
+    Ok(())
+}
+
+const SUMMARY: &str =
+    r#"{"goal":"Plan a trip","decisions":["Go by train"],"facts":[],"open":[],"references":[]}"#;
+
+/// The model of the newest request.
+fn last_model(spade: &Spade) -> Option<String> {
+    spade
+        .fake
+        .seen()
+        .last()
+        .and_then(|seen| seen.body["model"].as_str().map(str::to_owned))
+}
+
+#[tokio::test]
+async fn compaction_runs_on_the_compact_role_only_when_that_model_holds_the_prompt() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("First answer."),
+            title(),
+            Script::reply("Second answer."),
+            Script::reply("").plain(SUMMARY),
+            Script::reply("Third answer."),
+            Script::reply("").plain(SUMMARY),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    for (id, context) in [("tiny", 1_000), ("sum", 400_000)] {
+        let (status, body) = spade
+            .post(
+                "/v1/endpoints/fake/models",
+                json!({ "id": id, "context": context, "capabilities": ["tools", "images"] }),
+            )
+            .await?;
+        assert!(status < 300, "{body}");
+    }
+    let (status, body) = spade
+        .put(
+            "/v1/models/roles",
+            json!({ "roles": { "compact": "fake/tiny" } }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let id = spade.ask("First question").await?;
+    spade.wait_for(&id, "renamed").await?;
+    spade.say(&id, "Second question").await?;
+    spade.wait_for_count(&id, "reply_finished", 2).await?;
+    let compact = format!("/v1/conversations/{id}/compact");
+    let (status, _) = spade.post(&compact, json!({})).await?;
+    assert_eq!(status, 204);
+    // The prompt doesn't fit the compact model's context: the conversation's own model sums up.
+    assert_eq!(last_model(&spade).as_deref(), Some("m"));
+
+    let (status, _) = spade
+        .put(
+            "/v1/models/roles",
+            json!({ "roles": { "compact": "fake/sum" } }),
+        )
+        .await?;
+    assert_eq!(status, 200);
+    spade.say(&id, "Third question").await?;
+    spade.wait_for_count(&id, "reply_finished", 3).await?;
+    let (status, _) = spade.post(&compact, json!({})).await?;
+    assert_eq!(status, 204);
+    assert_eq!(last_model(&spade).as_deref(), Some("sum"));
+    let events = spade.events(&id).await?;
+    assert_eq!(count(&events, "context_compacted"), 2);
+    Ok(())
+}

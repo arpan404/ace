@@ -169,7 +169,7 @@ fn a_call_names_a_role_or_a_configured_model_and_nothing_else() {
     assert_eq!(routing.pick("helper").as_deref(), Ok("a/fast"));
     assert_eq!(routing.pick("main").as_deref(), Ok("a/strong"));
     assert_eq!(routing.pick(" a/mid ").as_deref(), Ok("a/mid"));
-    let refused = routing.pick("openai/gpt-9").unwrap_err();
+    let refused = routing.pick("openai/gpt-9").err().unwrap_or_default();
     assert!(refused.contains("openai/gpt-9 is not a model"), "{refused}");
     assert!(refused.contains("helper (a/fast)"), "{refused}");
 }
@@ -193,7 +193,7 @@ fn a_bot_narrowed_to_a_list_names_only_models_on_it() {
     assert_eq!(routing.pick("a/mid").as_deref(), Ok("a/mid"));
     // Roles stay open: the person chose them.
     assert_eq!(routing.pick("helper").as_deref(), Ok("a/fast"));
-    let refused = routing.pick("b/stronger").unwrap_err();
+    let refused = routing.pick("b/stronger").err().unwrap_or_default();
     assert!(
         refused.ends_with("or one of these models: a/mid."),
         "{refused}"
