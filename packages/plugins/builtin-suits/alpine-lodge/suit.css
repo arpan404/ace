@@ -131,19 +131,56 @@
     radial-gradient(120% 40% at 50% 0%, var(--suit-carve-lift), transparent 70%), var(--suit-wood);
   --suit-header-background: var(--suit-grain-h), var(--suit-wood-2);
   --suit-right-panel-background: var(--suit-grain-v), var(--suit-wood);
-  /* The window: the valley shows through a pane frosted at the edges, inside a warm frame. */
+  /*
+   * The window: the transcript is a pane in a warm wooden frame. The valley shows through the
+   * glass, held back by a wash of the room's own colour so words on it read, and frost gathers
+   * at the pane's edges.
+   */
+  --suit-pane: color-mix(in oklab, var(--color-background) 50%, transparent);
+  --suit-transcript-border: 9px solid transparent;
+  /* The frame is a bevelled moulding drawn only in the border band, never under the glass. */
+  --suit-transcript-background:
+    linear-gradient(var(--suit-pane), var(--suit-pane)) padding-box,
+    linear-gradient(
+        90deg,
+        var(--suit-wood-edge) 0 1px,
+        var(--suit-wood-3) 1px 4px,
+        var(--suit-wood-2) 4px 8px,
+        var(--suit-wood-edge) 8px 9px,
+        transparent 9px calc(100% - 9px),
+        var(--suit-wood-edge) calc(100% - 9px) calc(100% - 8px),
+        var(--suit-wood-2) calc(100% - 8px) calc(100% - 4px),
+        var(--suit-wood-3) calc(100% - 4px) calc(100% - 1px),
+        var(--suit-wood-edge) calc(100% - 1px)
+      )
+      border-box,
+    linear-gradient(
+        180deg,
+        var(--suit-wood-edge) 0 1px,
+        var(--suit-wood-3) 1px 4px,
+        var(--suit-wood-2) 4px 8px,
+        var(--suit-wood-edge) 8px 9px,
+        transparent 9px calc(100% - 9px),
+        var(--suit-wood-edge) calc(100% - 9px) calc(100% - 8px),
+        var(--suit-wood-2) calc(100% - 8px) calc(100% - 4px),
+        var(--suit-wood-3) calc(100% - 4px) calc(100% - 1px),
+        var(--suit-wood-edge) calc(100% - 1px)
+      )
+      border-box;
   --suit-transcript-shadow:
-    inset 0 0 0 1px var(--color-border-strong), inset 0 0 0 7px var(--suit-wood-2),
-    inset 0 0 0 8px var(--suit-wood-edge), inset 0 0 60px 8px rgb(220 230 255 / 0.05);
-  --suit-page-shadow:
-    inset 0 0 0 1px var(--color-border-strong), inset 0 0 0 7px var(--suit-wood-2),
-    inset 0 0 0 8px var(--suit-wood-edge);
+    inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(0 0 0 / 0.45),
+    inset 0 0 48px 2px rgb(214 224 250 / 0.07), 0 0 0 1px var(--suit-wood-edge);
 }
 [data-scheme="light"] [data-part="app"],
 [data-part="app"][data-scheme="light"] {
+  --suit-pane: color-mix(in oklab, var(--color-background) 62%, transparent);
   --suit-transcript-shadow:
-    inset 0 0 0 1px var(--color-border-strong), inset 0 0 0 7px var(--suit-wood-2),
-    inset 0 0 0 8px var(--suit-wood-edge), inset 0 0 60px 8px rgb(255 255 255 / 0.6);
+    inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(90 60 30 / 0.25),
+    inset 0 0 48px 4px rgb(255 255 255 / 0.7), 0 0 0 1px var(--suit-wood-edge);
+}
+/* A thread's page lets the pane alone stand between the room and the valley. */
+[data-part="page"][data-page="thread"] {
+  --suit-page-background: transparent;
 }
 
 /* ------------------------------------------------------------------ type */
@@ -238,17 +275,14 @@
  * colour at the other end).
  */
 [data-part="thread-row"] {
-  --suit-mark: radial-gradient(circle, var(--suit-mark-ink) 0 3.4px, transparent 3.9px);
-  --suit-mark-ink: color-mix(in oklab, var(--color-subtle-foreground) 75%, transparent);
+  --suit-mark-ink: color-mix(in oklab, var(--color-subtle-foreground) 80%, transparent);
   --suit-plank: var(--suit-wood-2);
   position: relative;
   border-radius: 7px 0 0 7px;
   padding-left: 28px;
   padding-right: 16px;
   background:
-    var(--suit-mark) 9px 50% / 10px 10px no-repeat,
-    var(--suit-grain-h),
-    linear-gradient(180deg, var(--suit-carve-lift), transparent 40%),
+    var(--suit-grain-h), linear-gradient(180deg, var(--suit-carve-lift), transparent 40%),
     var(--suit-plank);
   background-clip: padding-box;
   box-shadow:
@@ -271,79 +305,78 @@
 [data-part="thread-row"]:hover {
   --suit-plank: var(--suit-wood-3);
 }
-/* Difficulty, by what the trail's status says: a square while it's being worked … */
-[data-part="thread-row"]:has([data-part="status-icon"][data-state="working"]) {
-  --suit-mark: linear-gradient(var(--suit-mark-ink), var(--suit-mark-ink));
-  background-size:
-    7px 7px,
-    auto,
-    auto,
-    auto,
-    auto,
-    auto;
-  background-position:
-    10.5px 50%,
-    0 0,
-    0 0,
-    0 0,
-    0 0,
-    0 0;
-}
-/* … a diamond while it waits on the person (drawn turned, on a layer of its own) … */
-[data-part="thread-row"]:has([data-part="status-icon"][data-state="waiting"]),
-[data-part="thread-row"]:has([data-part="status-icon"][data-state="failed"]) {
-  --suit-mark: radial-gradient(circle, transparent 0 0, transparent 0);
-}
-[data-part="thread-row"]:has([data-part="status-icon"][data-state="waiting"])::before,
-[data-part="thread-row"]:has([data-part="status-icon"][data-state="failed"])::before {
+/*
+ * The difficulty mark, by what the trail's status says: a ring for an easy trail at rest, a
+ * square while it is being worked, a diamond while it waits on the person and two diamonds where
+ * it failed. Shape only; the status icon at the row's end keeps ace's colour.
+ */
+[data-part="thread-row"]:not([data-state="active"])::before {
   content: "";
   position: absolute;
   left: 10px;
   top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--suit-mark-ink);
+  pointer-events: none;
+}
+[data-part="thread-row"]:not([data-state="active"]):has(
+    [data-part="status-icon"][data-state="working"]
+  )::before {
+  border-radius: 1px;
+  border: none;
+  background: var(--suit-mark-ink);
+}
+[data-part="thread-row"]:not([data-state="active"]):has(
+    [data-part="status-icon"]:is([data-state="waiting"], [data-state="failed"])
+  )::before {
   width: 7px;
   height: 7px;
   margin-top: -3.5px;
+  border-radius: 1px;
+  border: none;
   rotate: 45deg;
   background: var(--suit-mark-ink);
-  pointer-events: none;
 }
-/* … and two diamonds where it failed: the hardest going. */
-[data-part="thread-row"]:has([data-part="status-icon"][data-state="failed"])::before {
+[data-part="thread-row"]:not([data-state="active"]):has(
+    [data-part="status-icon"][data-state="failed"]
+  )::before {
   left: 6px;
-  box-shadow: 7px -7px 0 0 var(--suit-mark-ink);
-  margin-top: 0;
   width: 6px;
   height: 6px;
+  margin-top: 0;
+  box-shadow: 7px -7px 0 0 var(--suit-mark-ink);
+}
+/* A trail picked to act on wears a brass ring. */
+[data-part="thread-row"][data-state="selected"] {
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--color-tint) 70%, transparent),
+    inset 0 1px 0 var(--suit-carve-lift);
 }
 
 /* The open trail: a brighter plank, and its lantern lit at the marker's end. */
-[data-part="thread-row"][data-state="active"],
-[data-part="thread-row"][data-state="selected"] {
+[data-part="thread-row"][data-state="active"] {
   --suit-plank: var(--suit-wood-3);
-  --suit-mark: radial-gradient(circle, transparent 0 0, transparent 0);
   padding-left: 30px;
   background:
     radial-gradient(60px 120% at 12px 50%, var(--suit-glow), transparent 75%), var(--suit-grain-h),
     linear-gradient(180deg, var(--suit-carve-lift), transparent 40%), var(--suit-plank);
 }
-[data-part="thread-row"][data-state="active"]::before,
-[data-part="thread-row"][data-state="selected"]::before {
+[data-part="thread-row"][data-state="active"]::before {
   content: "";
   position: absolute;
   left: 7px;
   top: 50%;
-  width: 16px;
-  height: 16px;
-  margin-top: -8px;
-  rotate: 0deg;
-  box-shadow: none;
+  width: 17px;
+  height: 17px;
+  margin-top: -8.5px;
   background: var(--color-link);
   mask: url("assets/icons/lantern.svg") no-repeat center / contain;
-  filter: drop-shadow(0 0 4px var(--suit-glow));
+  filter: drop-shadow(0 0 5px var(--color-tint));
   pointer-events: none;
-}
-[data-part="thread-row"][data-state="selected"]::before {
-  background: var(--color-muted-foreground);
 }
 [data-part="thread-row"][data-state="active"] [data-part="thread-title"] {
   font-weight: 700;
@@ -630,10 +663,10 @@
   border-radius: 8px;
   background: repeating-linear-gradient(
       180deg,
-      color-mix(in oklab, var(--color-faint-foreground) 80%, transparent) 0 3px,
-      transparent 3px 7px
+      var(--color-subtle-foreground) 0 4px,
+      transparent 4px 8px
     )
-    var(--suit-trail-x, 17px) 0 / 1.5px 100% no-repeat;
+    19px 0 / 2px 100% no-repeat;
   transition: background-color 140ms ease;
 }
 [data-part="tool-row"]:hover {
@@ -646,8 +679,9 @@
   [data-part="tool-icon"] {
   --suit-sign: url("assets/icons/pack.svg");
   position: relative;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
+  margin-left: -1px;
   color: transparent;
   border-radius: 50%;
   background: var(--suit-grain-h), var(--suit-wood-3);
@@ -662,7 +696,7 @@
   position: absolute;
   inset: 4px;
   background: var(--color-link);
-  mask: var(--suit-sign) no-repeat center / contain;
+  mask: var(--suit-sign) no-repeat center / 17px 17px;
 }
 [data-part="tool-row"][data-variant="read"] [data-part="tool-icon"] {
   --suit-sign: url("assets/icons/map.svg");
@@ -1340,21 +1374,24 @@
 [data-page="issue"] [data-part="page-header"] {
   padding-bottom: 14px;
 }
-/* The map's lower edge: a dashed trail running off to a summit flag. */
+/* The map's lower edge: a dashed trail from a trailhead to a summit flag. */
 [data-page="pull"] [data-part="page-header"]::after,
 [data-page="issue"] [data-part="page-header"]::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 2px;
-  height: 10px;
+  bottom: 0;
+  height: 18px;
   background:
-    linear-gradient(-45deg, transparent 50%, var(--color-tint) 50%) right 0 top 0 / 8px 6px
+    radial-gradient(circle, var(--color-tint) 0 3.5px, transparent 4px) 0 100% / 9px 9px no-repeat,
+    linear-gradient(to top right, var(--color-tint) 50%, transparent 50%) right 2px top 0 / 11px 4px
       no-repeat,
-    linear-gradient(var(--color-tint), var(--color-tint)) right 7px top 0 / 1.5px 10px no-repeat,
-    repeating-linear-gradient(90deg, var(--color-border-strong) 0 6px, transparent 6px 11px) 0 100%
-      / calc(100% - 14px) 1.5px no-repeat;
+    linear-gradient(to bottom right, var(--color-tint) 50%, transparent 50%) right 2px top 4px /
+      11px 4px no-repeat,
+    linear-gradient(var(--color-link), var(--color-link)) right 13px top 0 / 2px 18px no-repeat,
+    repeating-linear-gradient(90deg, var(--color-border-strong) 0 6px, transparent 6px 11px) 12px
+      calc(100% - 3.5px) / calc(100% - 30px) 2px no-repeat;
   pointer-events: none;
 }
 [data-page="pull"] [data-part="page-header"] [data-part="page-title"]::before,
@@ -1410,6 +1447,13 @@
   box-shadow: var(--suit-shadow);
   font-size: 14px;
   line-height: 1.65;
+}
+/* The files a pull request changes: the route card beside the map. */
+[data-part="card"][data-variant="changes"] {
+  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--suit-paper);
+  box-shadow: var(--suit-shadow);
 }
 [data-part="review-comment"] {
   font-size: 14px;
@@ -1540,9 +1584,15 @@
     inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 55%, var(--suit-wood-edge)),
     0 3px 5px -2px rgb(0 0 0 / 0.5);
 }
+/* The open drawer: felt lining inside a wooden moulding, shadowed under the cabinet's top. */
 [data-part="panel-body"][data-state="active"] {
-  background: var(--suit-felt), var(--color-sidebar);
-  box-shadow: inset 0 3px 6px -3px rgb(0 0 0 / 0.5);
+  background:
+    var(--suit-felt), color-mix(in oklab, var(--color-sidebar) 70%, var(--color-surface-1));
+  box-shadow:
+    inset 0 0 0 1px var(--suit-wood-edge),
+    inset 0 0 0 4px var(--suit-wood-2),
+    inset 0 0 0 5px var(--suit-wood-edge),
+    inset 0 9px 10px -6px rgb(0 0 0 / 0.55);
 }
 [data-part="panel-body"][data-variant="terminal"][data-state="active"] {
   background: var(--color-sidebar);
