@@ -68,6 +68,9 @@ import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { fencedDelivery, listActionChanged, staleInterrupt } from "./command-fences.ts";
+import { createdThreadInit, preparedThreadInit } from "./created-threads.ts";
+import { permissionUpdate, switchUpdate } from "./thread-updates.ts";
 import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
@@ -96,7 +99,7 @@ import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-co
 import type { FakeSkillLibrary } from "./skill-library.ts";
 import { limitSwitchEvents, switchEvents } from "./transitions.ts";
 import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
-import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
+import { fakeWorktreeBase } from "./worktree-base.ts";
 
 export type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
@@ -1199,11 +1202,7 @@ export class FakeDaemon implements Host {
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
       // As the daemon does: an archive or delete decided before newer work started is refused.
-      if (
-        (payload.type === "thread.delete" || payload.type === "thread.archive") &&
-        payload.beforeSeq !== undefined &&
-        host.workSeq > payload.beforeSeq
-      )
+      if (listActionChanged(host, payload))
         return { commandId, ok: false, error: "thread_changed" };
       if (payload.type === "thread.delete") {
         const alive = prepareFakeDelete(
@@ -1286,21 +1285,7 @@ export class FakeDaemon implements Host {
         if (!host || host.view.thread.deletedAt !== undefined)
           return { commandId, ok: false, error: "thread_not_found" };
         const at = this.options.clock();
-        this.append(
-          host,
-          [
-            {
-              type: "thread.updated",
-              switch: {
-                selection: { ...payload.selection, options: payload.selection.options ?? {} },
-                state: "queued",
-                lossy: payload.selection.provider !== host.view.thread.provider,
-                at,
-              },
-            },
-          ],
-          at,
-        );
+        this.append(host, [switchUpdate(host, payload, at)], at);
         this.afterChange(host, at);
         return { commandId, ok: true };
       }
@@ -1331,24 +1316,9 @@ export class FakeDaemon implements Host {
       case "thread.permission.set": {
         const host = this.threads.get(payload.threadId);
         if (!host) return { commandId, ok: false, error: "thread_not_found" };
-        const offers =
-          host.view.thread.capabilities?.accessModes ?? fakeAccessModes(host.view.thread.provider);
-        if (payload.access && !offers.some((offer) => offer.mode === payload.access))
-          return { commandId, ok: false, error: "permission_mode_unsupported" };
-        this.append(
-          host,
-          [
-            {
-              type: "thread.updated",
-              permission: {
-                override: payload.access,
-                effective: host.view.thread.permission?.effective ?? null,
-                pending: true,
-              },
-            },
-          ],
-          this.options.clock(),
-        );
+        const update = permissionUpdate(host, payload);
+        if ("error" in update) return { commandId, ok: false, error: update.error };
+        this.append(host, [update.event], this.options.clock());
         return { commandId, ok: true };
       }
       case "thread.prepare": {
@@ -1356,18 +1326,7 @@ export class FakeDaemon implements Host {
           return { commandId, ok: false, error: "thread_exists" };
         const base = fakeWorktreeBase(payload, payload.title, this.remoteReachable);
         if (!base.ok) return { commandId, ok: false, error: base.error };
-        this.createThread({
-          id: payload.threadId,
-          workspaceId: payload.workspaceId,
-          title: payload.title,
-          provider: payload.provider,
-          ...(payload.access && payload.access !== "inherit" ? { access: payload.access } : {}),
-          details: {
-            mode: payload.mode ?? "local",
-            worktree: fakeCheckoutPath(payload.mode, payload.threadId, payload.workspaceId),
-            ...base.fields,
-          },
-        });
+        this.createThread(preparedThreadInit(payload, base.fields));
         return { commandId, ok: true, threadId: payload.threadId };
       }
       case "thread.create": {
@@ -1384,34 +1343,13 @@ export class FakeDaemon implements Host {
             payload.workspaceId,
             id,
           );
-        this.createThread({
-          ...started.thread,
-          ...(payload.access ? { access: payload.access } : {}),
-          details: {
-            workspace: {
-              id: payload.workspaceId,
-              name: payload.workspaceId,
-              path: `/fake/${payload.workspaceId}`,
-              ...(this.projects.get(payload.workspaceId)?.kind === "chat"
-                ? { kind: "chat" as const, name: "Chat" }
-                : {}),
-            },
-            mode: payload.mode ?? "local",
-            worktree: fakeCheckoutPath(payload.mode, id, payload.workspaceId),
-            ...base.fields,
-            machine: { host: this.hostId, name: this.displayName },
-            diff: { files: 0, additions: 0, deletions: 0 },
-          },
-          live: {
-            ...(payload.model ? { model: payload.model } : {}),
-            ...((payload.accountId ?? payload.account)
-              ? { account: payload.accountId ?? payload.account }
-              : {}),
-            ...(payload.options ? { options: payload.options } : {}),
-            subagentCount: 0,
-            backgroundTaskCount: 0,
-          },
-        });
+        this.createThread(
+          createdThreadInit(id, payload, started.thread, base.fields, {
+            chat: this.projects.get(payload.workspaceId)?.kind === "chat",
+            host: this.hostId,
+            name: this.displayName,
+          }),
+        );
         if (payload.context?.draftId)
           this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
         const attachments = this.servicesWire.context.messageAttachments(
@@ -1460,22 +1398,14 @@ export class FakeDaemon implements Host {
         if (sent.ok) this.markSent(payload.threadId);
         return sent;
       }
-      case "thread.interrupt": {
+      case "thread.interrupt":
         // As the daemon does: a Stop naming a run that is no longer its agent's active one is
         // refused, so it never stops a run started after it was pressed.
-        const host = this.threads.get(payload.threadId);
-        const run = payload.runId === undefined ? undefined : host?.view.runs[payload.runId];
-        const target = payload.agentId ?? host?.view.thread.rootAgentId;
-        if (
-          host &&
-          payload.runId !== undefined &&
-          (run?.state !== "active" || run.agentId !== target)
-        )
+        if (staleInterrupt(this.threads.get(payload.threadId), payload))
           return { commandId, ok: false, error: "stale_interrupt" };
-        return this.run(commandId, payload.threadId, (next) =>
-          interruptFacts(next, payload.agentId, payload.cascade),
+        return this.run(commandId, payload.threadId, (host) =>
+          interruptFacts(host, payload.agentId, payload.cascade),
         );
-      }
       case "background_task.stop": {
         for (const host of this.threads.values()) {
           const outcome = stopTaskFacts(host, payload.taskId);
@@ -1519,18 +1449,4 @@ export class FakeDaemon implements Host {
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };
     }
   }
-}
-
-/** A steer whose sender saw another root run (or none, `null`) than the active one queues. */
-function fencedDelivery(
-  host: ThreadHost,
-  delivery: "steer" | "queue",
-  seen: string | null | undefined,
-): "steer" | "queue" {
-  if (delivery !== "steer" || seen === undefined) return delivery;
-  const root = host.view.thread.rootAgentId;
-  const active =
-    Object.values(host.view.runs).find((run) => run.agentId === root && run.state === "active")
-      ?.id ?? null;
-  return active === seen ? "steer" : "queue";
 }
