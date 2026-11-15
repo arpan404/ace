@@ -9,6 +9,7 @@ import { z } from "zod";
  * the web client uses, driven over the DevTools protocol. Test support only.
  */
 
+const Version = z.object({ webSocketDebuggerUrl: z.string() });
 const Targets = z.array(z.object({ type: z.string(), webSocketDebuggerUrl: z.string() }));
 const Evaluated = z.object({
   id: z.literal(1),
@@ -46,8 +47,8 @@ export async function decodeInChromium(
     ],
     { stdio: "ignore" },
   );
+  let port: string | undefined;
   try {
-    let port: string | undefined;
     for (let waited = 0; !port && waited < 20_000; waited += 100) {
       await pause(100);
       try {
@@ -109,4 +110,16 @@ export async function decodeInChromium(
     );
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
+}
+
+async function closeBrowser(port: string): Promise<void> {
+  const version = Version.parse(
+    await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(),
+  );
+  const socket = new WebSocket(version.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve, { once: true });
+    socket.addEventListener("error", reject, { once: true });
+  });
+  socket.send(JSON.stringify({ id: 1, method: "Browser.close" }));
 }
