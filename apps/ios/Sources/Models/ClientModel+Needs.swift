@@ -3,8 +3,13 @@ import Foundation
 /// What a needs-you thread waits on, read by the bridge without opening it (`inbox-needs.ts`):
 /// its pending requests as the thread's strip words them (at most eight), and how many there are.
 struct InboxNeeds: Decodable, Sendable {
+    /// What the daemon counts as waiting.
     let total: Int
     let requests: [ApprovalRow]
+    /// How many the bridge read, and whether its read stopped before finding them all (it reads
+    /// at most 200 pages); nil from older bridges.
+    var loaded: Int? = nil
+    var more: Bool? = nil
 }
 
 /// Answering a request from the inbox or the needs-you run. Like the thread's strip, the answer
@@ -21,6 +26,12 @@ extension ClientModel {
     func needsCount(_ threadId: String) -> Int {
         let shown = needsYou(threadId).count
         return shown == 0 ? 0 : max(shown, needs[threadId]?.total ?? shown)
+    }
+
+    /// How many requests were read, when the read stopped before finding all the thread waits on.
+    func needsLoaded(_ threadId: String) -> Int? {
+        guard needsCount(threadId) > 0, let value = needs[threadId], value.more == true else { return nil }
+        return value.loaded
     }
 
     func receiveNeeds(_ threadId: String, _ value: InboxNeeds) {

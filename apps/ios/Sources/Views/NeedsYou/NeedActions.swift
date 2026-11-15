@@ -78,6 +78,13 @@ enum NeedWords {
     static func sentence(_ request: ApprovalRow) -> String {
         request.strip?.sentence ?? request.heading ?? request.title
     }
+    /// Where the shown request stands among those waiting: "1 of 3"; "1 of 231, 200 read" when
+    /// the phone's read stopped before finding them all. Nil for one alone.
+    static func position(total: Int, loaded: Int?) -> String? {
+        guard total > 1 else { return nil }
+        guard let loaded, loaded < total else { return "1 of \(total)" }
+        return "1 of \(total), \(loaded) read"
+    }
     /// "3 need you" for the top of the list; nil while nothing does.
     static func count(_ total: Int) -> String? {
         total <= 0 ? nil : total == 1 ? "1 needs you" : "\(total) need you"
