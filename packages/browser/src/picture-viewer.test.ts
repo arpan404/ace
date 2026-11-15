@@ -204,3 +204,17 @@ describe("a source whose capture restarts", () => {
     expect(viewer.rate).toBeGreaterThan(link.initial);
   });
 });
+
+describe("a source whose captures restart many times", () => {
+  it("still frees the first capture's window on its late ack, after more than four captures", () => {
+    const { viewer, received } = setup();
+    for (let sequence = 1; sequence <= 8; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 1 }));
+    // Four more captures while the first one's eight pictures are still on the wire.
+    for (const stream of ["capture-2", "capture-3", "capture-4", "capture-5"])
+      viewer.push(frame(1, { key: true, stream }));
+    expect(received).toHaveLength(8);
+    viewer.ack("capture-1", 8);
+    expect(received.at(-1)).toMatchObject({ stream: "capture-5", sequence: 1, key: true });
+  });
+});

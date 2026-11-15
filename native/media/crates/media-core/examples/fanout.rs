@@ -80,6 +80,7 @@ fn main() {
             viewer.publish(
                 1,
                 black_box(piece),
+                0.0,
                 |_| black_box(accepts),
                 track(rate, at, &mut sent, &mut dropped),
             );
@@ -94,9 +95,9 @@ fn main() {
             };
             if let Some(ack) = ack {
                 rate.acknowledged(ack, at);
-                viewer.acknowledge(
+                viewer.acknowledge_through(
                     ack,
-                    None,
+                    0.0,
                     |_| accepts,
                     track(rate, at, &mut sent, &mut dropped),
                 );

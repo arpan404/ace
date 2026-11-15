@@ -12,7 +12,10 @@ type FanoutOp =
   | { flush: true }
   | { assign: true }
   | { bound: number | null }
-  | { restart: true };
+  | { restart: true }
+  | { pause: true }
+  | { time: number }
+  | { lifetime: number };
 
 const piece = (sequence: number, key: boolean, length: number): FanoutOp => ({
   publish: { sequence, key, bytes: { length } },
@@ -22,12 +25,15 @@ const piece = (sequence: number, key: boolean, length: number): FanoutOp => ({
 function fanoutScenario(name: string, window: VideoWindow, ops: FanoutOp[]) {
   const events: unknown[] = [];
   let accepting = true;
+  let now = 0;
   const fanout = new VideoFanout<VideoPiece>({
     window,
     keyframe: (encode) => events.push({ keyframe: encode }),
     playing: (id, playing) => events.push({ id, playing }),
     dropped: (id) => events.push({ dropped: id }),
+    lost: (id) => events.push({ lost: id }),
     sent: (_id, sequence, bytes) => events.push({ counted: sequence, bytes }),
+    now: () => now,
   });
   fanout.add("v", {
     send: (chunk) => {
@@ -37,7 +43,13 @@ function fanoutScenario(name: string, window: VideoWindow, ops: FanoutOp[]) {
   });
   for (const op of ops) {
     if ("publish" in op) fanout.publish("e", op.publish);
-    else if ("ack" in op) fanout.acknowledge("v", op.ack, op.generation);
+    else if ("ack" in op) {
+      // Without a generation, an ack is cumulative by sequence across generations.
+      if (op.generation === undefined) fanout.acknowledgeThrough("v", op.ack);
+      else fanout.acknowledge("v", op.ack, op.generation);
+    } else if ("time" in op) now = op.time;
+    else if ("lifetime" in op) fanout.lifetime("v", op.lifetime);
+    else if ("pause" in op) fanout.assign("v", undefined);
     else if ("forget" in op) fanout.forget("v", op.forget);
     else if ("refuse" in op) accepting = !op.refuse;
     else if ("flush" in op) fanout.flush();
@@ -160,9 +172,66 @@ export function fanoutEdges() {
       piece(3, false, 10),
       piece(4, false, 10),
       piece(5, false, 10),
-      { ack: 2 },
+      { ack: 2, generation: 3 },
       piece(6, true, 10),
       piece(7, false, 10),
+    ]),
+    // No debt lives for ever: each stuck case below resumes within the lifetime.
+    fanoutScenario(
+      "a full window nobody acks is lost after its lifetime",
+      { frames: 3, bytes: 1000 },
+      [
+        { assign: true },
+        { lifetime: 500 },
+        piece(1, true, 10),
+        piece(2, false, 10),
+        piece(3, false, 10),
+        { time: 400 },
+        piece(4, true, 10),
+        { time: 501 },
+        { flush: true },
+        piece(5, false, 10),
+      ],
+    ),
+    fanoutScenario(
+      "a pause with a full window, acks naming no generation",
+      { frames: 3, bytes: 1000 },
+      [
+        { assign: true },
+        piece(1, true, 10),
+        piece(2, false, 10),
+        piece(3, false, 10),
+        { pause: true },
+        { ack: 3 },
+        { assign: true },
+        piece(4, true, 10),
+        piece(5, false, 10),
+      ],
+    ),
+    fanoutScenario("a switch with a full window and no acks", { frames: 3, bytes: 1000 }, [
+      { assign: true },
+      piece(1, true, 10),
+      piece(2, false, 10),
+      piece(3, false, 10),
+      { restart: true },
+      piece(1, true, 10),
+      { time: 1_999 },
+      piece(2, false, 10),
+      { time: 2_001 },
+      piece(3, false, 10),
+      piece(4, true, 10),
+      piece(5, false, 10),
+    ]),
+    fanoutScenario("a paused full window nobody acks", { frames: 2, bytes: 1000 }, [
+      { assign: true },
+      { lifetime: 800 },
+      piece(1, true, 10),
+      piece(2, false, 10),
+      { pause: true },
+      { time: 801 },
+      { assign: true },
+      piece(3, true, 10),
+      piece(4, false, 10),
     ]),
     // Switching encodes keeps the transport's debt: the old chunks still hold the window
     // (each restart is two changes of encode: generations 1, then 3, 5 and 7). Forgetting

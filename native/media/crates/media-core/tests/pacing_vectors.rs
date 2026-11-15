@@ -275,6 +275,7 @@ fn record(event: Event, events: &mut Vec<Value>) {
         Event::Keyframe => events.push(json!({"keyframe":"e"})),
         Event::Playing(playing) => events.push(json!({"id":"v","playing":playing})),
         Event::Dropped => events.push(json!({"dropped":"v"})),
+        Event::Lost => events.push(json!({"lost":"v"})),
         Event::Sent(_) => {}
     }
 }
@@ -300,9 +301,9 @@ fn fanout_replays_waiting_keyframes_drops_and_cumulative_ack_events() {
             true
         };
         let event = |e| record(e, &mut log.borrow_mut());
-        viewer.publish(1, p, send, event);
+        viewer.publish(1, p, 0.0, send, event);
         if p.sequence == u(&v["ack"], "after") {
-            viewer.acknowledge(u(&v["ack"], "sequence"), None, send, event);
+            viewer.acknowledge_through(u(&v["ack"], "sequence"), 0.0, send, event);
         }
     }
     assert_eq!(Value::Array(log.into_inner()), v["events"]);
@@ -329,6 +330,7 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
             accepting.get()
         };
         let event = |e| edge_event(e, &mut log.borrow_mut());
+        let mut now = 0.0;
         for op in rows(&scenario["ops"]) {
             if let Some(p) = op.get("publish") {
                 let p = Piece {
@@ -336,19 +338,28 @@ fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
                     key: b(p, "key"),
                     bytes: u(&p["bytes"], "length") as usize,
                 };
-                viewer.publish(1, p, send, event);
+                viewer.publish(1, p, now, send, event);
             } else if let Some(ack) = op["ack"].as_u64() {
-                viewer.acknowledge(ack, op["generation"].as_u64(), send, event);
+                match op["generation"].as_u64() {
+                    Some(generation) => viewer.acknowledge(ack, generation, now, send, event),
+                    None => viewer.acknowledge_through(ack, now, send, event),
+                }
             } else if let Some(generation) = op["forget"].as_u64() {
-                viewer.forget(generation, send, event);
+                viewer.forget(generation, now, send, event);
+            } else if let Some(time) = op["time"].as_f64() {
+                now = time;
+            } else if let Some(lifetime) = op["lifetime"].as_f64() {
+                viewer.set_lifetime(lifetime);
             } else if let Some(refuse) = op["refuse"].as_bool() {
                 accepting.set(!refuse);
             } else if op.get("flush").is_some() {
-                viewer.flush(send, event);
+                viewer.flush(now, send, event);
             } else if op.get("assign").is_some() {
                 viewer.assign(Some(1), event);
             } else if let Some(bound) = op.get("bound") {
                 viewer.bound(bound.as_u64().map(|v| v as usize));
+            } else if op.get("pause").is_some() {
+                viewer.assign(None, event);
             } else if op.get("restart").is_some() {
                 viewer.assign(None, event);
                 viewer.assign(Some(1), event);

@@ -49,6 +49,7 @@ export function mediaVectors() {
     keyframe: (encode) => events.push({ keyframe: encode }),
     playing: (id, playing) => events.push({ id, playing }),
     dropped: (id) => events.push({ dropped: id }),
+    now: () => 0,
   });
   fanout.add("v", {
     send: (chunk) => {
@@ -64,7 +65,7 @@ export function mediaVectors() {
   }));
   for (const chunk of fanoutSteps) {
     fanout.publish("e", chunk);
-    if (chunk.sequence === 5) fanout.acknowledge("v", 4);
+    if (chunk.sequence === 5) fanout.acknowledgeThrough("v", 4);
   }
   const source = { width: 1920, height: 1080, scale: 2, codecs: ["avc1.42001f", "vp9"] };
   const viewers = Array.from({ length: 7 }, (_, i) => ({

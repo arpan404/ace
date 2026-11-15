@@ -19,6 +19,12 @@
  * that one proves everything sent before it arrived. A late ack of an old generation releases
  * only what was sent before it. `forget` drops a generation the transport confirms it dropped.
  *
+ * No debt lives for ever: a chunk unacked for longer than its viewer's `lifetime` (the owner sets
+ * it from the link, `LinkRate.lifetimeMs`; 2 s until then) is lost. Its bytes are released, the
+ * owner hears of the loss (`lost`, which cuts the link's rate), deltas wait and a keyframe is
+ * asked for. So no pause, switch or missing ack keeps a window full: video resumes within
+ * the lifetime. Time is the injected `now`.
+ *
  * The window is also bounded in time (ADR 0149): a viewer's owner may hold its bytes in flight
  * to what its link carries (`LinkRate.backlogBytes`), so a thin link never builds seconds of
  * backlog inside a window sized for a fast one.
@@ -42,6 +48,9 @@ export interface VideoWindow {
   bytes: number;
 }
 
+/** A chunk's lifetime in flight until its owner knows the link's round trip. */
+export const defaultLifetimeMs = 2_000;
+
 export const videoWindow: VideoWindow = { frames: 60, bytes: 8 * 1024 * 1024 };
 
 export interface VideoFanoutOptions {
@@ -53,6 +62,10 @@ export interface VideoFanoutOptions {
   sent?(id: string, sequence: number, bytes: number): void;
   /** A delta didn't fit a viewer's window and was dropped. */
   dropped?(id: string): void;
+  /** Chunks went unacked past the viewer's lifetime: they are lost. */
+  lost?(id: string): void;
+  /** The clock chunks are stamped with when they go, and lost by. */
+  now(): number;
   window?: VideoWindow;
 }
 
@@ -62,8 +75,10 @@ interface Viewer<C extends VideoPiece> {
   encode: string | undefined;
   /** Bumped by every change of encode: its sequences are a space of their own. */
   generation: number;
-  /** Chunks on the wire, in send order, whatever generation sent them. */
-  inflight: { sequence: number; bytes: number; generation: number }[];
+  /** Chunks on the wire, in send order, whatever generation sent them, and when each went. */
+  inflight: { sequence: number; bytes: number; generation: number; at: number }[];
+  /** How long a chunk may go unacked before it is lost. */
+  lifetime: number;
   inflightBytes: number;
   /** Starts with a keyframe whenever it isn't empty. */
   queue: C[];
@@ -95,6 +110,7 @@ export class VideoFanout<C extends VideoPiece> {
       encode: undefined,
       generation: 0,
       inflight: [],
+      lifetime: defaultLifetimeMs,
       inflightBytes: 0,
       queue: [],
       queuedBytes: 0,
@@ -111,6 +127,11 @@ export class VideoFanout<C extends VideoPiece> {
   bound(id: string, bytes: number | undefined): void {
     const viewer = this.viewers.get(id);
     if (viewer) viewer.bound = bytes;
+  }
+  /** How long a viewer's chunks may go unacked before they are lost (`LinkRate.lifetimeMs`). */
+  lifetime(id: string, ms: number): void {
+    const viewer = this.viewers.get(id);
+    if (viewer) viewer.lifetime = ms;
   }
   remove(id: string): void {
     const viewer = this.viewers.get(id);
@@ -147,6 +168,9 @@ export class VideoFanout<C extends VideoPiece> {
   }
   publish(encode: string, chunk: C): void {
     for (const viewer of this.viewers.values()) {
+      // What a loss frees goes at once: a keyframe waiting behind lost chunks needn't wait on.
+      if (this.expire(viewer) && viewer.encode !== undefined)
+        this.flushViewer(viewer, viewer.encode);
       if (viewer.encode !== encode) continue;
       if (chunk.key) {
         // Everything queued is older than this picture.
@@ -180,20 +204,34 @@ export class VideoFanout<C extends VideoPiece> {
     return this.viewers.get(id)?.generation;
   }
   /**
-   * The viewer showed every chunk of `generation` (the current one by default) up to
-   * `sequence`: it and everything sent before it are off the wire.
+   * The viewer showed every chunk of `generation` up to `sequence`: it and everything sent
+   * before it are off the wire.
    */
-  acknowledge(id: string, sequence: number, generation?: number): void {
+  acknowledge(id: string, sequence: number, generation: number): void {
     const viewer = this.viewers.get(id);
     if (!viewer) return;
-    const scope = generation ?? viewer.generation;
     let last = -1;
     for (let index = 0; index < viewer.inflight.length; index++) {
       const entry = viewer.inflight[index];
-      if (entry?.generation === scope && entry.sequence <= sequence) last = index;
+      if (entry?.generation === generation && entry.sequence <= sequence) last = index;
     }
-    for (const entry of viewer.inflight.splice(0, last + 1)) viewer.inflightBytes -= entry.bytes;
-    if (viewer.encode !== undefined) this.flushViewer(viewer, viewer.encode);
+    this.release(viewer, last + 1);
+  }
+  /**
+   * The viewer showed every chunk up to `sequence`, whatever generation sent it: for an owner
+   * whose sequences only increase across generations (a paused view's acks name nothing else).
+   */
+  acknowledgeThrough(id: string, sequence: number): void {
+    const viewer = this.viewers.get(id);
+    if (!viewer) return;
+    let count = 0;
+    while (count < viewer.inflight.length && (viewer.inflight[count]?.sequence ?? 0) <= sequence)
+      count++;
+    this.release(viewer, count);
+  }
+  /** Whether chunks of `generation` are still on the wire for a viewer. */
+  owes(id: string, generation: number): boolean {
+    return this.viewers.get(id)?.inflight.some((entry) => entry.generation === generation) ?? false;
   }
   /** The transport confirms it dropped `generation`'s chunks: they are off the wire. */
   forget(id: string, generation: number): void {
@@ -204,7 +242,34 @@ export class VideoFanout<C extends VideoPiece> {
       viewer.inflightBytes -= entry.bytes;
       return false;
     });
+    this.expire(viewer);
     if (viewer.encode !== undefined) this.flushViewer(viewer, viewer.encode);
+  }
+  /** The first `count` chunks in flight are off the wire. */
+  private release(viewer: Viewer<C>, count: number): void {
+    for (const entry of viewer.inflight.splice(0, count)) viewer.inflightBytes -= entry.bytes;
+    this.expire(viewer);
+    if (viewer.encode !== undefined) this.flushViewer(viewer, viewer.encode);
+  }
+  /** Chunks unacked past the viewer's lifetime are lost: freed, reported, a keyframe owed. */
+  private expire(viewer: Viewer<C>): boolean {
+    const now = this.options.now();
+    let lost = 0;
+    while (
+      lost < viewer.inflight.length &&
+      now - (viewer.inflight[lost]?.at ?? now) > viewer.lifetime
+    )
+      lost++;
+    if (!lost) return false;
+    for (const entry of viewer.inflight.splice(0, lost)) viewer.inflightBytes -= entry.bytes;
+    this.options.lost?.(viewer.id);
+    viewer.dropping = true;
+    // A keyframe already waiting starts the picture over; else deltas wait for one.
+    if (viewer.queue[0]?.key) return true;
+    setQueue(viewer, []);
+    viewer.needKey = true;
+    if (viewer.encode !== undefined) this.options.keyframe(viewer.encode);
+    return true;
   }
   /** The viewer's decoder lost its place: deltas wait for the next keyframe. */
   keyframe(id: string): void {
@@ -214,10 +279,12 @@ export class VideoFanout<C extends VideoPiece> {
     setQueue(viewer, viewer.queue[0]?.key ? viewer.queue.slice(0, 1) : []);
     this.options.keyframe(viewer.encode);
   }
-  /** Retries chunks the transport refused. */
+  /** Retries chunks the transport refused, and lets go of chunks lost past their lifetime. */
   flush(): void {
-    for (const viewer of this.viewers.values())
+    for (const viewer of this.viewers.values()) {
+      this.expire(viewer);
       if (viewer.encode !== undefined) this.flushViewer(viewer, viewer.encode);
+    }
   }
   /** Whether a viewer is falling behind: chunks wait for it, or it lost deltas. */
   backlogged(id: string): boolean {
@@ -265,6 +332,7 @@ export class VideoFanout<C extends VideoPiece> {
         sequence: chunk.sequence,
         bytes: chunk.bytes.length,
         generation: viewer.generation,
+        at: this.options.now(),
       };
       viewer.inflight.push(entry);
       viewer.inflightBytes += entry.bytes;

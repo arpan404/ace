@@ -122,6 +122,13 @@ export class LiveVideo {
         link.dropped(this.now());
         this.fanout.bound(id, link.backlogBytes);
       },
+      lost: (id) => {
+        const link = this.viewers.get(id)?.link;
+        if (!link) return;
+        link.lost(this.now());
+        this.fanout.bound(id, link.backlogBytes);
+      },
+      now: () => this.now(),
     });
   }
   /**
@@ -197,10 +204,13 @@ export class LiveVideo {
     const link = this.viewers.get(id)?.link;
     if (link) {
       link.acknowledged(sequence, this.now());
-      // In flight is bounded by what the link carries in time, not only by the window.
+      // In flight is bounded by what the link carries in time, not only by the window, and
+      // no chunk stays in flight longer than the link's lifetime.
       this.fanout.bound(id, link.backlogBytes);
+      this.fanout.lifetime(id, link.lifetimeMs);
     }
-    this.fanout.acknowledge(id, sequence);
+    // Sequences only increase here, across encodes and pauses: an ack covers everything before.
+    this.fanout.acknowledgeThrough(id, sequence);
   }
   keyframe(id: string): void {
     this.fanout.keyframe(id);

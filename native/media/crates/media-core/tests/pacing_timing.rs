@@ -299,3 +299,15 @@ fn delivery_counts_an_ack_at_its_own_time_and_expires_it_at_each_window_edge() {
     assert_eq!(window.rates(3_499.0).1, rate(100_000.0, 2_000.0));
     assert_eq!(window.rates(3_510.0).1, 0.0);
 }
+#[test]
+fn a_chunk_lives_2_s_until_a_round_trip_is_known_then_the_longer_of_two_rtts_and_the_bound() {
+    let mut rate = LinkRate::new(Limits::default());
+    assert_eq!(rate.lifetime_ms(), 2_000.0);
+    for index in 0..5_u64 {
+        let at = index as f64 * 100.0;
+        rate.sent(index, 100, at);
+        rate.acknowledged(index, at + 300.0);
+    }
+    // ADR 0150's bound at a 300 ms floor: 300 + max(300, 500) = 800 ms, over 2 x 300.
+    assert_eq!(rate.lifetime_ms(), 800.0);
+}

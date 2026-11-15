@@ -4,7 +4,10 @@
 //!
 //! Matching video-fanout.ts: each change of encode starts a generation (a sequence space of its
 //! own). Chunks on the wire stay in flight across it, the transport's debt, until an ack of
-//! their generation, or of a later one sent after them, releases them, or `forget` does.
+//! their generation, or of a later one sent after them, releases them, or `forget` does. No
+//! debt lives for ever: a chunk unacked past the viewer's lifetime (its owner sets it from the
+//! link; 2 s until then) is lost: freed, reported (`Event::Lost`) and a keyframe owed. Time is
+//! passed in.
 use std::collections::VecDeque;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece {
@@ -32,14 +35,19 @@ pub enum Event {
     /// The transport accepted this piece. Refused attempts are never reported.
     Sent(Piece),
     Dropped,
+    /// Chunks went unacked past the viewer's lifetime: they are lost.
+    Lost,
 }
+/// A chunk's lifetime in flight until its owner knows the link's round trip.
+pub const DEFAULT_LIFETIME_MS: f64 = 2_000.0;
 #[derive(Debug)]
 pub struct Viewer {
     window: Window,
     encode: Option<u64>,
     generation: u64,
-    /// Chunks on the wire in send order, with the generation that sent each.
-    inflight: VecDeque<(Piece, u64)>,
+    /// Chunks on the wire in send order, with the generation that sent each and when.
+    inflight: VecDeque<(Piece, u64, f64)>,
+    lifetime: f64,
     inflight_bytes: usize,
     queue: VecDeque<Piece>,
     queued_bytes: usize,
@@ -57,6 +65,7 @@ impl Viewer {
             encode: None,
             generation: 0,
             inflight: VecDeque::with_capacity(window.frames),
+            lifetime: DEFAULT_LIFETIME_MS,
             inflight_bytes: 0,
             queue: VecDeque::with_capacity(window.frames),
             queued_bytes: 0,
@@ -73,6 +82,39 @@ impl Viewer {
     fn bytes(&self) -> usize {
         self.bound
             .map_or(self.window.bytes, |b| b.min(self.window.bytes))
+    }
+    /// How long a chunk may go unacked before it is lost (`LinkRate::lifetime_ms`).
+    pub fn set_lifetime(&mut self, ms: f64) {
+        self.lifetime = ms;
+    }
+    /// Whether chunks of `generation` are still on the wire.
+    pub fn owes(&self, generation: u64) -> bool {
+        self.inflight.iter().any(|(_, g, _)| *g == generation)
+    }
+    fn expire(&mut self, now: f64, event: &mut impl FnMut(Event)) -> bool {
+        let lost = self
+            .inflight
+            .iter()
+            .take_while(|(_, _, at)| now - *at > self.lifetime)
+            .count();
+        if lost == 0 {
+            return false;
+        }
+        for (p, _, _) in self.inflight.drain(..lost) {
+            self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
+        }
+        event(Event::Lost);
+        self.dropping = true;
+        // A keyframe already waiting starts the picture over; else deltas wait for one.
+        if self.queue.front().is_some_and(|p| p.key) {
+            return true;
+        }
+        self.clear_queue();
+        self.need_key = true;
+        if self.encode.is_some() {
+            event(Event::Keyframe);
+        }
+        true
     }
     pub fn assign(&mut self, encode: Option<u64>, mut event: impl FnMut(Event)) {
         if self.encode == encode {
@@ -149,9 +191,14 @@ impl Viewer {
         &mut self,
         encode: u64,
         piece: Piece,
-        send: impl FnMut(Piece) -> bool,
+        now: f64,
+        mut send: impl FnMut(Piece) -> bool,
         mut event: impl FnMut(Event),
     ) {
+        // What a loss frees goes at once: a keyframe waiting behind lost chunks needn't wait on.
+        if self.expire(now, &mut event) && self.encode.is_some() {
+            self.send_queued(now, &mut send, &mut event);
+        }
         if self.encode != Some(encode) {
             return;
         }
@@ -192,44 +239,70 @@ impl Viewer {
             self.queue.push_back(piece);
             self.queued_bytes = piece.bytes;
         }
-        self.flush(send, event);
+        self.send_queued(now, send, event);
     }
     /// The generation chunks are sent in now: an ack of them names it.
     pub fn generation(&self) -> u64 {
         self.generation
     }
-    /// The viewer showed every chunk of `generation` (the current one by default) up to
-    /// `sequence`: it and everything sent before it are off the wire.
+    /// The viewer showed every chunk of `generation` up to `sequence`: it and everything sent
+    /// before it are off the wire.
     pub fn acknowledge(
         &mut self,
         sequence: u64,
-        generation: Option<u64>,
+        generation: u64,
+        now: f64,
         send: impl FnMut(Piece) -> bool,
         event: impl FnMut(Event),
     ) {
-        let scope = generation.unwrap_or(self.generation);
-        let last = self
+        let count = self
             .inflight
             .iter()
-            .rposition(|(p, g)| *g == scope && p.sequence <= sequence);
-        if let Some(last) = last {
-            for (p, _) in self.inflight.drain(..=last) {
-                self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
-            }
+            .rposition(|(p, g, _)| *g == generation && p.sequence <= sequence)
+            .map_or(0, |last| last + 1);
+        self.release(count, now, send, event);
+    }
+    /// The viewer showed every chunk up to `sequence`, whatever generation sent it: for an owner
+    /// whose sequences only increase across generations.
+    pub fn acknowledge_through(
+        &mut self,
+        sequence: u64,
+        now: f64,
+        send: impl FnMut(Piece) -> bool,
+        event: impl FnMut(Event),
+    ) {
+        let count = self
+            .inflight
+            .iter()
+            .take_while(|(p, _, _)| p.sequence <= sequence)
+            .count();
+        self.release(count, now, send, event);
+    }
+    fn release(
+        &mut self,
+        count: usize,
+        now: f64,
+        send: impl FnMut(Piece) -> bool,
+        mut event: impl FnMut(Event),
+    ) {
+        for (p, _, _) in self.inflight.drain(..count) {
+            self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
         }
+        self.expire(now, &mut event);
         if self.encode.is_some() {
-            self.flush(send, event);
+            self.send_queued(now, send, event);
         }
     }
     /// The transport confirms it dropped `generation`'s chunks: they are off the wire.
     pub fn forget(
         &mut self,
         generation: u64,
+        now: f64,
         send: impl FnMut(Piece) -> bool,
-        event: impl FnMut(Event),
+        mut event: impl FnMut(Event),
     ) {
         let mut freed = 0_usize;
-        self.inflight.retain(|(p, g)| {
+        self.inflight.retain(|(p, g, _)| {
             let keep = *g != generation;
             if !keep {
                 freed = freed.saturating_add(p.bytes);
@@ -237,20 +310,38 @@ impl Viewer {
             keep
         });
         self.inflight_bytes = self.inflight_bytes.saturating_sub(freed);
+        self.expire(now, &mut event);
         if self.encode.is_some() {
-            self.flush(send, event);
+            self.send_queued(now, send, event);
+        }
+    }
+    /// Retries chunks the transport refused, and lets go of chunks lost past their lifetime.
+    pub fn flush(
+        &mut self,
+        now: f64,
+        send: impl FnMut(Piece) -> bool,
+        mut event: impl FnMut(Event),
+    ) {
+        self.expire(now, &mut event);
+        if self.encode.is_some() {
+            self.send_queued(now, send, event);
         }
     }
     /// A transport reports acceptance synchronously. Apply cumulative acknowledgements after
     /// this call; unlike the TS callback, Rust's exclusive borrow prevents reentrant mutation.
-    pub fn flush(&mut self, mut send: impl FnMut(Piece) -> bool, mut event: impl FnMut(Event)) {
+    fn send_queued(
+        &mut self,
+        now: f64,
+        mut send: impl FnMut(Piece) -> bool,
+        mut event: impl FnMut(Event),
+    ) {
         while let Some(piece) = self.queue.front().copied() {
             if !self.fits(piece) {
                 return;
             }
             self.queue.pop_front();
             self.queued_bytes -= piece.bytes;
-            self.inflight.push_back((piece, self.generation));
+            self.inflight.push_back((piece, self.generation, now));
             // `fits` bounded this, or the window was empty.
             self.inflight_bytes += piece.bytes;
             if !send(piece) {

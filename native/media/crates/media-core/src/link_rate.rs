@@ -39,6 +39,8 @@ pub struct LinkHint {
 pub const OUTSTANDING_SENDS: usize = 512;
 /// Bytes in flight may hold the link's rate for its round trip plus this long, no more.
 pub const BACKLOG_MS: f64 = 300.0;
+/// A chunk's lifetime in flight before any round trip is known.
+pub const UNKNOWN_LIFETIME_MS: f64 = 2_000.0;
 const FLOOR_WINDOW_MS: f64 = 10_000.0;
 const STEP_MS: f64 = 200.0;
 const QUEUED_MS: f64 = 80.0;
@@ -259,6 +261,25 @@ impl LinkRate {
                 ((self.rate / 8.0) * ((rtt + BACKLOG_MS.max(rtt + STALL_MS)) / 1000.0)).round()
                     as usize
             })
+    }
+    /// How long a chunk may go unacked before it is lost: max(2 × the smoothed round trip, the
+    /// in-flight time bound), or 2 s before a round trip is known (link-rate.ts).
+    pub fn lifetime_ms(&self) -> f64 {
+        let Some(smoothed) = self.smoothed else {
+            return UNKNOWN_LIFETIME_MS;
+        };
+        let rtt = self.floor.front().map_or(smoothed, |c| c.1);
+        (2.0 * smoothed).max(rtt + BACKLOG_MS.max(rtt + STALL_MS))
+    }
+    /// Chunks went unacked past their lifetime: a loss, cut as a drop with a queue, once a
+    /// round trip.
+    pub fn lost(&mut self, at: f64) {
+        if at < self.drop_hold_until {
+            return;
+        }
+        self.dropped = true;
+        self.step(at, true);
+        self.drop_hold_until = at + self.smoothed.unwrap_or(0.0) + STEP_MS;
     }
     pub fn sent(&mut self, sequence: u64, bytes: usize, at: f64) {
         if self.inflight.len() >= OUTSTANDING_SENDS {

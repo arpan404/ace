@@ -27,9 +27,15 @@ const numbered = (number: number, isKey: boolean): Chunk => ({
 function setup(window = { frames: 3, bytes: 10_000 }) {
   const keyframes: string[] = [];
   const playing: [string, boolean][] = [];
+  const dropped: string[] = [];
+  const lost: string[] = [];
+  const clock = { now: 0 };
   const fanout = new VideoFanout<Chunk>({
     keyframe: (encode) => keyframes.push(encode),
     playing: (id, value) => playing.push([id, value]),
+    dropped: (id) => dropped.push(id),
+    lost: (id) => lost.push(id),
+    now: () => clock.now,
     window,
   });
   const viewer = (id: string, encode = "e1") => {
@@ -47,14 +53,14 @@ function setup(window = { frames: 3, bytes: 10_000 }) {
       received,
       ack: () => {
         const last = received.at(-1);
-        if (last) fanout.acknowledge(id, last.sequence);
+        if (last) fanout.acknowledgeThrough(id, last.sequence);
       },
       refuse: (value: boolean) => {
         accepting = !value;
       },
     };
   };
-  return { fanout, keyframes, playing, viewer };
+  return { fanout, keyframes, playing, dropped, lost, clock, viewer };
 }
 
 describe("video to each viewer at its own pace", () => {
@@ -169,7 +175,7 @@ describe("video to each viewer at its own pace", () => {
     fanout.publish("e1", numbered(1, true));
     fanout.publish("e1", numbered(2, false));
     // The new capture's ack frees its chunks and the old ones sent before them.
-    fanout.acknowledge("phone", 2);
+    fanout.acknowledge("phone", 2, fanout.generation("phone") ?? -1);
     for (let number = 3; number <= 7; number++) fanout.publish("e1", numbered(number, false));
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([
       100, 101, 102, 1, 2, 3, 4, 5, 6, 7,
@@ -191,7 +197,7 @@ describe("video to each viewer at its own pace", () => {
     fanout.publish("e1", numbered(1, true));
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102]);
     // Their own generation's ack releases them, and the waiting keyframe goes.
-    fanout.acknowledge("phone", 102, old);
+    fanout.acknowledge("phone", 102, old ?? -1);
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1]);
   });
 
@@ -207,7 +213,7 @@ describe("video to each viewer at its own pace", () => {
     fanout.publish("e1", numbered(1, true));
     fanout.publish("e1", numbered(2, false));
     // A late ack for the old 101 frees 100 and 101, not the new 1 and 2: two slots open.
-    fanout.acknowledge("phone", 101, old);
+    fanout.acknowledge("phone", 101, old ?? -1);
     fanout.publish("e1", numbered(3, false));
     fanout.publish("e1", numbered(4, false));
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1, 2, 3, 4]);
@@ -215,7 +221,7 @@ describe("video to each viewer at its own pace", () => {
     fanout.publish("e1", numbered(5, true));
     expect(phone.received).toHaveLength(7);
     // The new capture's own ack proves everything sent before it arrived, old 102 included.
-    fanout.acknowledge("phone", 2);
+    fanout.acknowledge("phone", 2, fanout.generation("phone") ?? -1);
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 102, 1, 2, 3, 4, 5]);
   });
 
@@ -230,6 +236,67 @@ describe("video to each viewer at its own pace", () => {
     expect(phone.received).toHaveLength(2);
     fanout.forget("phone", old ?? -1);
     expect(phone.received.map((chunk) => chunk.sequence)).toEqual([100, 101, 1]);
+  });
+
+  it("a full window nobody acks is lost after its lifetime: freed, a loss, a keyframe asked for", () => {
+    const { fanout, keyframes, dropped, lost, clock, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.lifetime("phone", 500);
+    fanout.publish("e1", numbered(1, true));
+    fanout.publish("e1", numbered(2, false));
+    fanout.publish("e1", numbered(3, false));
+    clock.now = 400;
+    fanout.publish("e1", numbered(4, true));
+    expect(phone.received).toHaveLength(3);
+    expect(lost).toEqual([]);
+    // Past the lifetime, the three are lost: the waiting keyframe goes.
+    clock.now = 501;
+    fanout.flush();
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2, 3, 4]);
+    expect(lost).toEqual(["phone"]);
+    expect(dropped).toEqual([]);
+    expect(keyframes.at(-1)).toBe("e1");
+  });
+
+  it("with no keyframe waiting, a loss asks for one and deltas wait for it", () => {
+    const { fanout, keyframes, clock, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.lifetime("phone", 500);
+    fanout.publish("e1", numbered(1, true));
+    fanout.publish("e1", numbered(2, false));
+    const asked = keyframes.length;
+    clock.now = 501;
+    fanout.publish("e1", numbered(3, false));
+    expect(keyframes.length).toBe(asked + 1);
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2]);
+    fanout.publish("e1", numbered(4, true));
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2, 4]);
+  });
+
+  it("without a lifetime from its link, a chunk is lost after 2 s", () => {
+    const { fanout, clock, viewer } = setup({ frames: 1, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.publish("e1", numbered(1, true));
+    clock.now = 1_999;
+    fanout.publish("e1", numbered(2, true));
+    expect(phone.received).toHaveLength(1);
+    clock.now = 2_001;
+    fanout.flush();
+    expect(phone.received).toHaveLength(2);
+  });
+
+  it("acks through a sequence clear a full window across a pause, with no generation named", () => {
+    const { fanout, viewer } = setup({ frames: 3, bytes: 10_000 });
+    const phone = viewer("phone");
+    fanout.publish("e1", numbered(1, true));
+    fanout.publish("e1", numbered(2, false));
+    fanout.publish("e1", numbered(3, false));
+    // Paused before the acks came, then resumed: the acks name only their (increasing) sequence.
+    fanout.assign("phone", undefined);
+    fanout.acknowledgeThrough("phone", 3);
+    fanout.assign("phone", "e1");
+    fanout.publish("e1", numbered(4, true));
+    expect(phone.received.map((chunk) => chunk.sequence)).toEqual([1, 2, 3, 4]);
   });
 
   it("a lone keyframe larger than the byte window still goes, and fills it", () => {
@@ -300,6 +367,7 @@ describe("video to each viewer at its own pace", () => {
       keyframe: () => {},
       playing: () => {},
       sent: (_id, chunkSequence) => reported.push(chunkSequence),
+      now: () => 0,
     });
     fanout.add("phone", { send: () => accepting });
     fanout.assign("phone", "e1");
@@ -362,11 +430,11 @@ describe("a transport that acknowledges as it sends", () => {
   it("gets each chunk once", () => {
     const sent: number[] = [];
     const fanout: VideoFanout<{ sequence: number; key: boolean; bytes: Uint8Array }> =
-      new VideoFanout({ keyframe: () => {}, playing: () => {} });
+      new VideoFanout({ keyframe: () => {}, playing: () => {}, now: () => 0 });
     fanout.add("viewer", {
       send: (chunk) => {
         sent.push(chunk.sequence);
-        fanout.acknowledge("viewer", chunk.sequence);
+        fanout.acknowledgeThrough("viewer", chunk.sequence);
         return true;
       },
     });

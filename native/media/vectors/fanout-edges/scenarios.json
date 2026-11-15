@@ -994,7 +994,8 @@
         }
       },
       {
-        "ack": 2
+        "ack": 2,
+        "generation": 3
       },
       {
         "publish": {
@@ -1101,6 +1102,515 @@
       },
       {
         "counted": 7,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "a full window nobody acks is lost after its lifetime",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "lifetime": 500
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "time": 400
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "time": 501
+      },
+      {
+        "flush": true
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
+        "bytes": 10
+      },
+      {
+        "offered": 5
+      },
+      {
+        "counted": 5,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "a pause with a full window, acks naming no generation",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "pause": true
+      },
+      {
+        "ack": 3
+      },
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 5
+      },
+      {
+        "counted": 5,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "a switch with a full window and no acks",
+    "window": {
+      "frames": 3,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "restart": true
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "time": 1999
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "time": 2001
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 5,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      }
+    ]
+  },
+  {
+    "name": "a paused full window nobody acks",
+    "window": {
+      "frames": 2,
+      "bytes": 1000
+    },
+    "ops": [
+      {
+        "assign": true
+      },
+      {
+        "lifetime": 800
+      },
+      {
+        "publish": {
+          "sequence": 1,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 2,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "pause": true
+      },
+      {
+        "time": 801
+      },
+      {
+        "assign": true
+      },
+      {
+        "publish": {
+          "sequence": 3,
+          "key": true,
+          "bytes": {
+            "length": 10
+          }
+        }
+      },
+      {
+        "publish": {
+          "sequence": 4,
+          "key": false,
+          "bytes": {
+            "length": 10
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 1
+      },
+      {
+        "counted": 1,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 2
+      },
+      {
+        "counted": 2,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": false
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "lost": "v"
+      },
+      {
+        "keyframe": "e"
+      },
+      {
+        "offered": 3
+      },
+      {
+        "counted": 3,
+        "bytes": 10
+      },
+      {
+        "id": "v",
+        "playing": true
+      },
+      {
+        "offered": 4
+      },
+      {
+        "counted": 4,
         "bytes": 10
       }
     ]

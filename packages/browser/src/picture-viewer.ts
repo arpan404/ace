@@ -3,7 +3,7 @@ import { encodePicture, type PictureChunk, type PictureKind } from "./stream-pic
 import { LinkRate, type LinkRateLimits } from "./link-rate.ts";
 import { VideoFanout, type VideoWindow } from "./video-fanout.ts";
 
-/** Earlier captures whose late acks still free their pictures' place in the window. */
+/** Earlier captures kept to route late acks, past those whose pictures are still on the wire. */
 const recentCaptures = 4;
 /** Forced keyframes for one viewer at most this often (ADR 0088's per-encode gap). */
 export const pictureKeyframeGapMs = 500;
@@ -81,6 +81,12 @@ export class PictureViewer {
         this.#link.dropped(this.#ports.now());
         this.#fanout.bound("viewer", this.#link.backlogBytes);
       },
+      lost: () => {
+        if (!this.#link) return;
+        this.#link.lost(this.#ports.now());
+        this.#fanout.bound("viewer", this.#link.backlogBytes);
+      },
+      now: () => this.#ports.now(),
       ...(ports.window ? { window: ports.window } : {}),
     });
     this.#fanout.add("viewer", { send: (waiting) => this.#send(waiting) });
@@ -102,8 +108,7 @@ export class PictureViewer {
       this.#fanout.assign("viewer", header.streamId);
       const generation = this.#fanout.generation("viewer");
       if (generation !== undefined) this.#generations.set(header.streamId, generation);
-      while (this.#generations.size > recentCaptures)
-        this.#generations.delete(this.#generations.keys().next().value ?? "");
+      this.#forgetCaptures();
       this.#link?.reset();
     }
     this.#fanout.publish(header.streamId, {
@@ -117,18 +122,22 @@ export class PictureViewer {
   /** The viewer showed pictures up to `sequence`; `keyframe`: its decoder needs a fresh start. */
   ack(streamId: string, sequence: number, keyframe = false): void {
     if (this.#closed) return;
+    const generation = this.#generations.get(streamId);
+    if (generation === undefined) return;
     if (streamId !== this.#stream) {
       // An earlier capture's picture shown late: off the wire, nothing more.
-      const generation = this.#generations.get(streamId);
-      if (generation !== undefined) this.#fanout.acknowledge("viewer", sequence, generation);
+      this.#fanout.acknowledge("viewer", sequence, generation);
+      this.#forgetCaptures();
       return;
     }
     if (this.#link) {
       this.#link.acknowledged(sequence, this.#ports.now());
-      // What is in flight is bounded by what the link carries in time, not only the window.
+      // What is in flight is bounded by what the link carries in time, not only the window,
+      // and no picture stays in flight longer than the link's lifetime.
       this.#fanout.bound("viewer", this.#link.backlogBytes);
+      this.#fanout.lifetime("viewer", this.#link.lifetimeMs);
     }
-    this.#fanout.acknowledge("viewer", sequence);
+    this.#fanout.acknowledge("viewer", sequence, generation);
     if (keyframe) this.#fanout.keyframe("viewer");
   }
   /** Bits per second this viewer's link carries now, when it is followed (`link`). */
@@ -170,6 +179,17 @@ export class PictureViewer {
     return this.#ports.write(pieces);
   }
 
+  /**
+   * Past `recentCaptures`, forgets the oldest earlier captures, but none whose pictures are
+   * still on the wire: its late ack must still free them (and their lifetime bounds the wait).
+   */
+  #forgetCaptures(): void {
+    for (const [stream, generation] of this.#generations) {
+      if (this.#generations.size <= recentCaptures) return;
+      if (stream !== this.#stream && !this.#fanout.owes("viewer", generation))
+        this.#generations.delete(stream);
+    }
+  }
   #askKeyframe(): void {
     if (this.#closed || this.#cancelKeyframe) return;
     const wait = this.#lastKeyframe + pictureKeyframeGapMs - this.#ports.now();
