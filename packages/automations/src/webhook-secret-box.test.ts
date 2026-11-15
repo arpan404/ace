@@ -33,6 +33,20 @@ describe("webhook secrets at rest", () => {
       if (existsSync(file)) expect(readFileSync(file).toString("latin1")).not.toContain(key);
   });
 
+  it("a sealed secret opens with its key and automation, and not once changed or moved", () => {
+    const box = webhookSecretBox(keyOf(3));
+    const sealed = box.seal("whsec_abc", "deploy");
+    expect(box.open(sealed, "deploy")).toBe("whsec_abc");
+    expect(box.open(sealed, "other")).toBeUndefined();
+    const parts = sealed.split(".");
+    const data = Buffer.from(parts[3] ?? "", "base64");
+    data[0] = (data[0] ?? 0) ^ 1;
+    expect(
+      box.open([...parts.slice(0, 3), data.toString("base64")].join("."), "deploy"),
+    ).toBeUndefined();
+    expect(webhookSecretBox(keyOf(4)).open(sealed, "deploy")).toBeUndefined();
+  });
+
   it("with another key the secret can't be read, so deliveries are refused and start nothing", () => {
     const h = harness();
     h.now = start;

@@ -13,14 +13,25 @@ export interface SecretBox {
 
 const version = "v1";
 
-/** A box over a 32-byte key, read the first time a secret is sealed or opened. */
-export function webhookSecretBox(key: () => Uint8Array): SecretBox {
+/**
+ * Where a box's 32-byte key comes from. `load` reads an existing key, undefined when there is
+ * none; `create` makes one. Opening a secret only ever loads: a missing key leaves secrets
+ * unreadable rather than replacing the key that sealed them. Sealing a new one may create it.
+ */
+export interface SecretKey {
+  load(): Uint8Array | undefined;
+  create(): Uint8Array;
+}
+
+/** A box over a key read the first time a secret is sealed or opened, then kept. */
+export function webhookSecretBox(key: SecretKey | (() => Uint8Array)): SecretBox {
+  const source: SecretKey = typeof key === "function" ? { load: key, create: key } : key;
   let cached: Uint8Array | undefined;
-  const current = () => (cached ??= key());
+  const loaded = () => (cached ??= source.load());
   return {
     seal(secret, automationId) {
       const iv = randomBytes(12);
-      const cipher = createCipheriv("aes-256-gcm", current(), iv);
+      const cipher = createCipheriv("aes-256-gcm", loaded() ?? (cached = source.create()), iv);
       cipher.setAAD(Buffer.from(automationId));
       const sealed = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
       return [version, iv, cipher.getAuthTag(), sealed]
@@ -31,7 +42,9 @@ export function webhookSecretBox(key: () => Uint8Array): SecretBox {
       const [tag, iv, auth, data] = sealed.split(".");
       if (tag !== version || !iv || !auth || !data) return undefined;
       try {
-        const decipher = createDecipheriv("aes-256-gcm", current(), Buffer.from(iv, "base64"));
+        const current = loaded();
+        if (!current) return undefined;
+        const decipher = createDecipheriv("aes-256-gcm", current, Buffer.from(iv, "base64"));
         decipher.setAAD(Buffer.from(automationId));
         decipher.setAuthTag(Buffer.from(auth, "base64"));
         return Buffer.concat([

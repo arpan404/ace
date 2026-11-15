@@ -135,9 +135,12 @@ restart.
 
 11. **Secrets are sealed at rest under a key kept outside the store.** AES-256-GCM, each bound to
     its automation's id, under 32 random bytes in `automation-webhooks.key` (mode 0600) in the
-    daemon's data directory, made the first time a secret is. A copy of `automations.sqlite`
-    alone (a backup, a support bundle, a copied home) holds no usable secret. A secret that
-    can't be opened with the machine's key answers 503 until the person rotates it. Code running
+    daemon's data directory. A copy of `automations.sqlite` alone (a backup, a support bundle, a
+    copied home) holds no usable secret. Only sealing a new secret makes the key, and only when
+    there is none; opening one never does, so a lost key leaves secrets unreadable (503) until
+    the person rotates each, and is never silently replaced. An existing key is opened without
+    following symlinks and must be a regular, owner-only file of this user, exactly 32 bytes;
+    anything else is refused and left as it is. Code running
     as the person can still read both files; nothing short of a signed app's keychain entry
     would stop that.
 
