@@ -20,6 +20,25 @@
  * Signals are small: working brings heavier rain, waiting warms the lights, failed dims the
  * city for a moment, done and a merged pull request brighten the lights softly.
  */
+/** A seeded generator, so the rain is the same rain for the same seed. */
+function seeded(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+/** 0 → 1 over `rise` ms, held `hold` ms, back to 0 over `fall` ms; `age` is ms since. */
+const swell = (age, rise, hold, fall) =>
+  age < 0 ? 0 : age < rise + hold ? ease(age / rise) : 1 - ease((age - rise - hold) / fall);
+/** A drop's volume from its radius, and back: drops that merge keep their water. */
+const volume = (r) => r * r * r;
+const radius = (v) => Math.cbrt(Math.max(v, 0));
+
 (() => {
   "use strict";
 
@@ -514,24 +533,6 @@ void main() {
   outColor = vec4(col, 1.0);
 }`;
 
-  /* ── Small helpers ─────────────────────────────────────────────────────────────────────── */
-
-  /** A seeded generator, so the rain is the same rain for the same seed. */
-  function seeded(seed) {
-    let state = seed >>> 0;
-    return () => {
-      state = (state + 0x6d2b79f5) >>> 0;
-      let t = state;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  const ease = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
-  /** 0 → 1 over `rise` ms, held `hold` ms, back to 0 over `fall` ms; `age` is ms since. */
-  const swell = (age, rise, hold, fall) =>
-    age < 0 ? 0 : age < rise + hold ? ease(age / rise) : 1 - ease((age - rise - hold) / fall);
-
   /* ── The glass: droplets and drops ─────────────────────────────────────────────────────── */
 
   const CELL = 24; // grid cell for finding droplets, CSS px
@@ -563,9 +564,6 @@ void main() {
   const sweeps = new Float32Array(DROP_CAP * 5);
   let sweepCount = 0;
   let rainOwed = 0;
-
-  const volume = (r) => r * r * r;
-  const radius = (v) => Math.cbrt(Math.max(v, 0));
 
   function resetGlass(seed) {
     random = seeded(seed);
@@ -738,8 +736,8 @@ void main() {
       return;
     }
     const drive = (r - dhold[i]) / dhold[i];
-    const target = Math.min(SLIDE_MAX, SLIDE_MIN + 150 * drive) * (1 + 0.2 * wetter);
-    dv[i] += (target - dv[i]) * Math.min(1, dt * 3.5);
+    const pace = Math.min(SLIDE_MAX, SLIDE_MIN + 150 * drive) * (1 + 0.2 * wetter);
+    dv[i] += (pace - dv[i]) * Math.min(1, dt * 3.5);
     const down = dv[i] * dt;
     const fromX = dx[i];
     const fromY = dy[i];
@@ -747,7 +745,8 @@ void main() {
     // Its path meanders a little as it finds the easier way down.
     const y = dy[i];
     const p = dphase[i];
-    dx[i] += (dslope[i] + 0.08 * Math.sin(y * 0.031 + p) + 0.05 * Math.sin(y * 0.087 + p * 2.3)) * down;
+    dx[i] +=
+      (dslope[i] + 0.08 * Math.sin(y * 0.031 + p) + 0.05 * Math.sin(y * 0.087 + p * 2.3)) * down;
 
     // A rough spot holds it a moment; heavy drops are held less. It sets off a little askew.
     if (random() < down * 0.011 * (dhold[i] / r) ** 3) {
@@ -890,23 +889,22 @@ void main() {
 
   function buildPrograms() {
     programs = {
-      city: program(FULL_VERTEX, CITY, [], ["res", "aspect", "time", "focus", "day", "mood", "store"]),
+      city: program(
+        FULL_VERTEX,
+        CITY,
+        [],
+        ["res", "aspect", "time", "focus", "day", "mood", "store"],
+      ),
       mist: program(FULL_VERTEX, MIST, [], ["city", "res", "reach", "aspect"]),
       fade: program(FULL_VERTEX, FADE, [], ["amount"]),
       wipe: program(WIPE_VERTEX, WIPE, ["segment", "width"], ["view"]),
       splat: program(SPLAT_VERTEX, SPLAT, ["drop"], ["view", "scale"]),
-      pane: program(FULL_VERTEX, PANE, [], [
-        "water",
-        "city",
-        "sharp",
-        "mist",
-        "cleared",
-        "res",
-        "lens",
-        "day",
-        "range",
-        "heights",
-      ]),
+      pane: program(
+        FULL_VERTEX,
+        PANE,
+        [],
+        ["water", "city", "sharp", "mist", "cleared", "res", "lens", "day", "range", "heights"],
+      ),
     };
     emptyVao = gl.createVertexArray();
 
@@ -933,19 +931,23 @@ void main() {
     gl.bindVertexArray(null);
   }
 
-  function target(width, height, float, mipmaps) {
+  function target(width, height, float, levelled) {
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    const levels = mipmaps ? Math.floor(Math.log2(Math.max(width, height))) + 1 : 1;
+    const levels = levelled ? Math.floor(Math.log2(Math.max(width, height))) + 1 : 1;
     gl.texStorage2D(gl.TEXTURE_2D, levels, float ? gl.RGBA16F : gl.RGBA8, width, height);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+    gl.texParameteri(
+      gl.TEXTURE_2D,
+      gl.TEXTURE_MIN_FILTER,
+      levelled ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR,
+    );
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     const framebuffer = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-    return { texture, framebuffer, width, height, mipmaps };
+    return { texture, framebuffer, width, height };
   }
 
   function releaseTargets() {
@@ -1169,8 +1171,9 @@ void main() {
       });
       if (!gl) throw new Error("mizzle needs WebGL 2");
       floatTargets = gl.getExtension("EXT_color_buffer_float") !== null;
-      view.canvas.addEventListener("webglcontextlost", (event) => event.preventDefault());
-      view.canvas.addEventListener("webglcontextrestored", () => {
+      // A lost context comes back rebuilt. (Optional calls: a stand-in canvas may not have them.)
+      view.canvas.addEventListener?.("webglcontextlost", (event) => event.preventDefault());
+      view.canvas.addEventListener?.("webglcontextrestored", () => {
         buildPrograms();
         fit(view);
         started = false;
@@ -1178,8 +1181,11 @@ void main() {
       });
       buildPrograms();
       fit(view);
-      // The warm-up runs here, before the first frame is timed.
+      // The warm-up runs here, before the first frame is timed: the rain, then one whole
+      // picture, waited for, so every shader is compiled before ace starts counting frames.
       if (!view.reduceMotion) start(view, WARM_UP);
+      picture(view, [0, 0, 0]);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
     },
     resize(view) {
       // The glass keeps its drops; the mist map comes back misted, so trails start again.
