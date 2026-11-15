@@ -100,18 +100,22 @@
 [data-part="menu"][data-scheme="light"],
 [data-part="popover"][data-scheme="light"],
 [data-part="dialog"][data-scheme="light"] {
-  --suit-wood: #e6d3b3;
-  --suit-wood-2: #eddec5;
-  --suit-wood-3: #f5eadb;
+  --suit-wood: #e0c9a4;
+  --suit-wood-2: #efe0c7;
+  --suit-wood-3: #f7ecdc;
+  /* Trail markers by day are birch: near white, a whisper of grain. */
+  --suit-birch: #fdfbf7;
+  --suit-birch-hover: #fefcf9;
+  --suit-birch-grain: rgb(120 80 40 / 0.016);
   --suit-wood-edge: #b59870;
   --suit-carve: rgb(255 255 255 / 0.6);
   --suit-carve-lift: rgb(90 60 30 / 0.12);
-  --suit-grain-dark: rgb(120 80 40 / 0.075);
-  --suit-grain-light: rgb(255 255 255 / 0.28);
+  --suit-grain-dark: rgb(120 80 40 / 0.06);
+  --suit-grain-light: rgb(255 255 255 / 0.16);
   --suit-brass: linear-gradient(180deg, #f6e4b6 0%, #d8ae66 36%, #a97c35 64%, #dfbd7c 100%);
   --suit-brass-rim: #8a6528;
-  --suit-leather: #7a4f31;
-  --suit-stitch: rgb(255 240 214 / 0.55);
+  --suit-leather: #e8d5b9;
+  --suit-stitch: rgb(120 80 40 / 0.45);
   --suit-paper: #fffaf1;
   --suit-felt:
     repeating-linear-gradient(45deg, rgb(255 255 255 / 0.5) 0 1px, transparent 1px 3px),
@@ -137,36 +141,12 @@
    * at the pane's edges.
    */
   --suit-pane: color-mix(in oklab, var(--color-background) 50%, transparent);
-  --suit-transcript-border: 9px solid transparent;
-  /* The frame is a bevelled moulding drawn only in the border band, never under the glass. */
-  --suit-transcript-background:
-    linear-gradient(var(--suit-pane), var(--suit-pane)) padding-box,
-    linear-gradient(
-        90deg,
-        var(--suit-wood-edge) 0 1px,
-        var(--suit-wood-3) 1px 4px,
-        var(--suit-wood-2) 4px 8px,
-        var(--suit-wood-edge) 8px 9px,
-        transparent 9px calc(100% - 9px),
-        var(--suit-wood-edge) calc(100% - 9px) calc(100% - 8px),
-        var(--suit-wood-2) calc(100% - 8px) calc(100% - 4px),
-        var(--suit-wood-3) calc(100% - 4px) calc(100% - 1px),
-        var(--suit-wood-edge) calc(100% - 1px)
-      )
-      border-box,
-    linear-gradient(
-        180deg,
-        var(--suit-wood-edge) 0 1px,
-        var(--suit-wood-3) 1px 4px,
-        var(--suit-wood-2) 4px 8px,
-        var(--suit-wood-edge) 8px 9px,
-        transparent 9px calc(100% - 9px),
-        var(--suit-wood-edge) calc(100% - 9px) calc(100% - 8px),
-        var(--suit-wood-2) calc(100% - 8px) calc(100% - 4px),
-        var(--suit-wood-3) calc(100% - 4px) calc(100% - 1px),
-        var(--suit-wood-edge) calc(100% - 1px)
-      )
-      border-box;
+  /*
+   * The frame is a ridged moulding: a border of its own, so the glass's background is the pane
+   * alone and words over it read against the valley, never against the wood.
+   */
+  --suit-transcript-border: 8px ridge var(--suit-wood-3);
+  --suit-transcript-background: var(--suit-pane);
   --suit-transcript-shadow:
     inset 0 0 0 1px var(--suit-wood-edge), inset 0 2px 5px rgb(0 0 0 / 0.45),
     inset 0 0 48px 2px rgb(214 224 250 / 0.07), 0 0 0 1px var(--suit-wood-edge);
@@ -362,8 +342,13 @@
   --suit-plank: var(--suit-wood-3);
   padding-left: 30px;
   background:
-    radial-gradient(60px 120% at 12px 50%, var(--suit-glow), transparent 75%), var(--suit-grain-h),
-    linear-gradient(180deg, var(--suit-carve-lift), transparent 40%), var(--suit-plank);
+    radial-gradient(
+      60px 120% at 12px 50%,
+      color-mix(in oklab, var(--color-tint) 16%, transparent),
+      transparent 75%
+    ),
+    var(--suit-grain-h), linear-gradient(180deg, var(--suit-carve-lift), transparent 40%),
+    var(--suit-plank);
 }
 [data-part="thread-row"][data-state="active"]::before {
   content: "";
@@ -377,6 +362,30 @@
   mask: url("assets/icons/lantern.svg") no-repeat center / contain;
   filter: drop-shadow(0 0 5px var(--color-tint));
   pointer-events: none;
+}
+/*
+ * By day the markers are birch, near white, so ace's status marks at their ends read at full
+ * strength; the open one keeps its lantern and a brass edge instead of a glow.
+ */
+[data-scheme="light"] [data-part="thread-row"],
+[data-scheme="light"] [data-part="thread-row"][data-state="active"] {
+  background:
+    repeating-linear-gradient(180deg, var(--suit-birch-grain) 0 1px, transparent 1px 6px),
+    var(--suit-birch);
+  box-shadow:
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--suit-wood-edge) 45%, transparent);
+}
+[data-scheme="light"] [data-part="thread-row"]:hover {
+  background:
+    repeating-linear-gradient(180deg, var(--suit-birch-grain) 0 1px, transparent 1px 6px),
+    var(--suit-birch-hover);
+}
+[data-scheme="light"] [data-part="thread-row"][data-state="active"] {
+  box-shadow:
+    inset 3px 0 0 var(--color-tint),
+    inset 0 -1px 0 var(--suit-wood-edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--color-tint) 45%, transparent);
 }
 [data-part="thread-row"][data-state="active"] [data-part="thread-title"] {
   font-weight: 700;
@@ -826,7 +835,6 @@
   outline: 1px dashed var(--suit-stitch);
   outline-offset: -3px;
   background: var(--suit-leather);
-  color: #f3e6d2;
 }
 [data-part="model-picker"]:hover {
   background: color-mix(in oklab, var(--suit-leather) 85%, white);
@@ -904,6 +912,14 @@
 }
 [data-part="icon-button"] {
   border-radius: 8px;
+}
+/* A disabled glyph is drawn whole in the faint ink, not faded, so it still reads on wood. */
+[data-part="icon-button"][data-state="disabled"] {
+  opacity: 1;
+  color: var(--color-faint-foreground);
+}
+[data-scheme="light"] [data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
 }
 [data-part="icon-button"]:hover,
 [data-part="icon-button"][data-state="active"] {
@@ -1064,7 +1080,7 @@
 [data-part="tooltip"] {
   border-radius: 7px;
   background: var(--suit-leather);
-  color: #f6ead8;
+  color: var(--color-foreground);
   outline: 1px dashed var(--suit-stitch);
   outline-offset: -3px;
   box-shadow: 0 6px 16px rgb(0 0 0 / 0.35);
@@ -1464,13 +1480,13 @@
 [data-page="pull"] [data-part="page-section"],
 [data-page="issue"] [data-part="page-section"] {
   position: relative;
-  padding-left: 16px;
 }
+/* The legend's mark hangs in the margin, so the entry's own layout is untouched. */
 [data-page="pull"] [data-part="page-section"]::before,
 [data-page="issue"] [data-part="page-section"]::before {
   content: "";
   position: absolute;
-  left: 0;
+  left: -15px;
   top: 7px;
   width: 7px;
   height: 7px;
