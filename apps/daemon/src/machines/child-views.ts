@@ -71,9 +71,38 @@ export function abandonedView(row: ChildRow, name: string, now: number): Machine
 /** The words for a child stopped here whose machine never confirmed it (ADR 0052). */
 export const unconfirmedLine = (name: string) =>
   `Stopped · ${name} didn't confirm; its work there may still be running`;
-/** The words for a child whose machine stopped reporting it past its lease. */
-export const silentLine = (name: string) =>
-  `Lost contact: ${name} hasn't reported it; it resumes if ${name} reports again`;
+/** "12 min", "2 h", "3 h 5 min": how long, to the minute, at least one. */
+function minutesWords(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`;
+}
+
+/**
+ * The words for a child whose machine stopped answering for a lease: how long it has been, and
+ * that ace keeps waiting, since its work there may still be running.
+ */
+export const silentLine = (name: string, since: number, now: number) =>
+  `Lost contact: ${name} hasn't answered for ${minutesWords(now - since)}; still waiting for it`;
+
+/**
+ * The settled view of a child whose machine stopped answering, after the person stopped
+ * tracking it: cancelled here, saying its work there may still be running.
+ */
+export function silentAbandonedView(row: ChildRow, name: string, now: number): MachineThreadView {
+  const saved = savedView(row);
+  return {
+    threadId: row.id,
+    state: "cancelled",
+    title: saved?.title || clip(row.role, 120),
+    elapsedSeconds: saved?.elapsedSeconds ?? elapsedSeconds(row.created_at, now),
+    status: { state: "done" },
+    requests: [],
+    result: `Stopped tracking: ${name} stopped answering, so this child can't report back. Its work there may still be running; check on ${name}.`,
+    truncated: false,
+  };
+}
 
 /**
  * The settled view of a child stopped here after every cancel went unconfirmed: cancelled, and
@@ -124,17 +153,21 @@ export function unconfirmableView(
 }
 
 /**
- * A child its machine stopped reporting, as a wait reads it: no longer live (read as failed, so
- * it releases a wait), saying it lost contact and may resume.
+ * A child its machine stopped answering, as a wait reads it: not known to have ended, so never
+ * settled. It needs the person (their approval about it is its request) and says it lost contact.
  */
-function silentChild(row: ChildRow, name: string, now: number): WatchedThread {
+function silentChild(row: ChildRow, name: string, since: number, now: number): WatchedThread {
   const saved = savedView(row);
+  const line = clip(silentLine(name, since, now), 120);
   return {
     threadId: row.id,
-    state: "failed",
+    state: "needs_you",
     title: saved?.title || clip(row.role, 120),
     elapsedSeconds: elapsedSeconds(row.created_at, now),
-    step: clip(silentLine(name), 120),
+    step: line,
+    needs: row.lost_ask
+      ? [{ interactionId: InteractionId.parse(row.lost_ask), kind: "approval", prompt: line }]
+      : [],
     machine: name,
     contact: "lost",
   };
@@ -172,7 +205,8 @@ export function watchedChild(
   now: number,
 ): { view: WatchedThread; outcome?: DelegationOutcome } {
   if (row.settled !== 1 && row.lost_at !== null) return { view: lostChild(row, name, now) };
-  if (row.settled !== 1 && row.silent_since !== null) return { view: silentChild(row, name, now) };
+  if (row.settled !== 1 && row.silent_since !== null)
+    return { view: silentChild(row, name, row.silent_since, now) };
   const {
     status: _status,
     requests: _requests,
