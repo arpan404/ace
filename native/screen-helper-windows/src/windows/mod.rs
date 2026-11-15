@@ -281,7 +281,7 @@ impl DesktopHost {
             .to_string();
         let start = std::time::Instant::now();
         IngestShell::new(
-            Box::new(ingest_pipe::dial),
+            Box::new(|socket, server| ingest_pipe::dial(socket, server)),
             Sinks {
                 legacy: Box::new(move |unit| {
                     let (packet, generation) = {
@@ -327,7 +327,12 @@ impl DesktopHost {
         stream
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .configure(settings, configure.epoch);
+            // Applied now on the capture clock: pictures captured before keep the old epoch.
+            .configure(
+                settings,
+                configure.epoch,
+                capture::counter_100ns().unwrap_or(0),
+            );
         let shell = self
             .shell
             .clone()

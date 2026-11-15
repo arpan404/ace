@@ -3,11 +3,11 @@
 //! route's deadlines; and the dial that opens a connection. The route decides everything;
 //! this shell only carries out its actions. Generic over the connection, so the same code runs
 //! over Windows named pipes in the helper and over Unix sockets in the host tests.
+use super::connection::{Connection, Report};
 use media_ingest::route::Config;
-use media_ingest::{Address, Bytes, Route, RouteAction, Switch, VideoUnit};
+use media_ingest::{Address, Route, RouteAction, Switch, VideoUnit};
 use std::collections::HashMap;
 use std::io;
-use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -23,7 +23,10 @@ pub trait Link: Send + 'static {
 pub trait Cancel: Send + Sync + 'static {
     fn cancel(&self);
 }
-pub type Dial = Box<dyn Fn(&str) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> + Send + Sync>;
+/// Opens a connection to `socket`, refusing it unless its server is process `server` when one is
+/// named (Windows: the pipe's server process, before any byte is sent).
+pub type Dial =
+    Box<dyn Fn(&str, Option<u32>) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> + Send + Sync>;
 
 /// Where the route's other actions go.
 pub struct Sinks {
@@ -37,20 +40,16 @@ pub struct Sinks {
 /// How often an idle connection checks that ace-media still holds it, and deadlines are judged.
 pub const POLL: Duration = Duration::from_millis(100);
 
-enum Message {
-    Write(u64, Bytes),
-    Shutdown,
-    Destroy,
-}
-
-struct Connection {
-    tx: Sender<Message>,
-    cancel: Arc<dyn Cancel>,
-}
+/// Longest a connection may take to finish (its reader taking the last bytes) after its end
+/// frame was handed over: past it, it is cut.
+pub const FINISH_LIMIT: Duration = Duration::from_secs(2);
 
 struct Inner {
     route: Mutex<Route>,
     connections: Mutex<HashMap<u64, Connection>>,
+    /// Connections the route let go of whose pump hasn't yet: cut ones, cancelled again on
+    /// every tick, and finishing ones, cut once past their deadline.
+    leaving: Mutex<Vec<(Connection, Option<u64>)>>,
     dial: Dial,
     sinks: Sinks,
     /// Microseconds on a monotonic clock.
@@ -73,6 +72,7 @@ impl IngestShell {
         let inner = Arc::new(Inner {
             route: Mutex::new(Route::new(Config::default())),
             connections: Mutex::new(HashMap::new()),
+            leaving: Mutex::new(Vec::new()),
             dial,
             sinks,
             clock,
@@ -82,8 +82,9 @@ impl IngestShell {
         Self(inner)
     }
 
-    /// Video goes to `target` from now on (the daemon's pipe for `None`).
-    pub fn configure(&self, target: Option<Address>) -> io::Result<Routed> {
+    /// Video goes to `target` from now on (the daemon's pipe for `None`). `server` is the
+    /// ace-media process the daemon started: a connection served by any other is refused.
+    pub fn configure(&self, target: Option<Address>, server: Option<u32>) -> io::Result<Routed> {
         let now = self.0.now_ms();
         let switch = self
             .0
@@ -94,7 +95,7 @@ impl IngestShell {
             Switch::Stale => return Ok(self.routed(false, None)),
             Switch::Connect { generation, socket } => (generation, socket),
         };
-        let (link, cancel) = match (self.0.dial)(&socket) {
+        let (link, cancel) = match (self.0.dial)(&socket, server) {
             Ok(opened) => opened,
             Err(error) => {
                 self.0
@@ -103,12 +104,16 @@ impl IngestShell {
             }
         };
         // Registered before the route takes it, so the hello it queues finds its pump.
-        let (tx, rx) = mpsc::channel();
-        self.0
-            .connections()
-            .insert(generation, Connection { tx, cancel });
         let weak = Arc::downgrade(&self.0);
-        std::thread::spawn(move || pump(weak, generation, link, rx));
+        let connection = Connection::start(link, cancel, move |report| {
+            let Some(inner) = weak.upgrade() else { return };
+            inner.with_route(|route, out| match report {
+                Report::Written(id) => route.written(generation, id, out),
+                Report::WriteFailed => route.write_failed(generation, out),
+                Report::Closed => route.socket_closed(generation, out),
+            });
+        });
+        self.0.connections().insert(generation, connection);
         let now = self.0.now_ms();
         match self
             .0
@@ -190,12 +195,14 @@ impl Inner {
                         bytes,
                     } => {
                         if let Some(connection) = self.connections().get(&generation) {
-                            let _ = connection.tx.send(Message::Write(id, bytes));
+                            connection.write(id, bytes);
                         }
                     }
                     RouteAction::Shutdown { generation } => {
                         if let Some(connection) = self.connections().remove(&generation) {
-                            let _ = connection.tx.send(Message::Shutdown);
+                            connection.shutdown();
+                            let deadline = self.now_ms() + FINISH_LIMIT.as_millis() as u64;
+                            self.leaving().push((connection, Some(deadline)));
                         }
                     }
                     RouteAction::Destroy { generation } => self.destroy(generation),
@@ -212,42 +219,32 @@ impl Inner {
         result
     }
 
+    fn leaving(&self) -> std::sync::MutexGuard<'_, Vec<(Connection, Option<u64>)>> {
+        self.leaving.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Cuts a connection the route has let go of, and keeps it until its pump has.
     fn destroy(&self, generation: u64) {
         if let Some(connection) = self.connections().remove(&generation) {
-            connection.cancel.cancel();
-            let _ = connection.tx.send(Message::Destroy);
+            connection.cut();
+            self.leaving().push((connection, None));
         }
     }
-}
 
-fn pump(inner: Weak<Inner>, generation: u64, mut link: Box<dyn Link>, rx: mpsc::Receiver<Message>) {
-    let report = |event: &dyn Fn(&mut Route, u64, &mut Vec<RouteAction>)| {
-        if let Some(inner) = inner.upgrade() {
-            inner.with_route(|route, out| event(route, generation, out));
-        }
-    };
-    loop {
-        match rx.recv_timeout(POLL) {
-            Ok(Message::Write(id, bytes)) => {
-                if link.write_all(bytes.as_slice()).is_err() {
-                    report(&|route, g, out| route.write_failed(g, out));
-                    return;
-                }
-                drop(bytes);
-                report(&|route, g, out| route.written(g, id, out));
+    /// Each tick: a cut connection's write is cancelled again until its pump lets go, and a
+    /// finish past its deadline is cut.
+    fn reap(&self, now: u64) {
+        self.leaving().retain_mut(|(connection, deadline)| {
+            if connection.finished() {
+                return false;
             }
-            Ok(Message::Shutdown) => {
-                link.finish();
-                return;
+            if deadline.is_some_and(|at| now >= at) {
+                connection.cut();
+                *deadline = None;
             }
-            Ok(Message::Destroy) | Err(RecvTimeoutError::Disconnected) => return,
-            Err(RecvTimeoutError::Timeout) => {
-                if !link.alive() {
-                    report(&|route, g, out| route.socket_closed(g, out));
-                    return;
-                }
-            }
-        }
+            connection.recancel();
+            true
+        });
     }
 }
 
@@ -257,6 +254,7 @@ fn ticker(inner: Weak<Inner>) {
         let Some(inner) = inner.upgrade() else { return };
         let now = inner.now_ms();
         inner.with_route(|route, out| route.tick(now, out));
+        inner.reap(now);
     }
 }
 

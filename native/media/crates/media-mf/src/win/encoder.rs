@@ -100,6 +100,23 @@ impl MfEncoder {
         self.copies
     }
 
+    /// Between pictures: collects output an MFT finished late and runs the watchdog, which
+    /// replaces an MFT that has held input for a second with no output. A caller with pictures
+    /// still owed calls this on a timer of its own, since a desktop that doesn't change sends
+    /// no further picture to collect them with.
+    pub fn service(&mut self) -> Result<(), CodecError> {
+        enter();
+        self.collect()?;
+        if self.stalled()? {
+            let Some(spec) = self.session.as_ref().map(|s| s.spec.clone()) else {
+                return Ok(());
+            };
+            self.replace(&spec)?;
+            self.stalls += 1;
+        }
+        Ok(())
+    }
+
     /// Times the watchdog replaced an MFT that held input for a second without output.
     pub fn stalls(&self) -> u32 {
         self.stalls

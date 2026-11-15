@@ -6,10 +6,7 @@ use crate::{
     tiles::Tiles,
 };
 use media_ingest::VideoUnit;
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc,
-};
+use std::collections::VecDeque;
 /// Caller supplies event time. A denied pacing slot never updates hashes, so a final change survives.
 pub struct Stream {
     tiles: Tiles,
@@ -25,9 +22,12 @@ pub struct Stream {
     video_next_ms: f64,
     keyframe: bool,
     image: bool,
-    /// The privacy epoch, read when a picture arrives from capture.
-    epoch: Arc<AtomicU32>,
+    /// When each privacy epoch was applied, on the capture clock (QPC, 100 ns), oldest first.
+    /// A picture takes the epoch in force at its own capture time, however late it is dequeued.
+    epochs: VecDeque<(i64, u32)>,
 }
+/// Epoch applications kept: far more than can happen within a picture's lifetime in the helper.
+const EPOCHS: usize = 64;
 impl Stream {
     pub fn new(session: String, version: u8, fps: u32) -> Self {
         Self {
@@ -43,13 +43,19 @@ impl Stream {
             video_next_ms: 0.0,
             keyframe: false,
             image: false,
-            epoch: Arc::new(AtomicU32::new(0)),
+            epochs: VecDeque::new(),
         }
     }
     /// `stream.configure`: video at the settings' rate, or JPEG stills at it (30 fps at most).
-    pub fn configure(&mut self, settings: StreamSettings, epoch: Option<u32>) {
+    /// `epoch` applies from `now_100ns` on the capture clock.
+    pub fn configure(&mut self, settings: StreamSettings, epoch: Option<u32>, now_100ns: i64) {
         if let Some(epoch) = epoch {
-            self.epoch.store(epoch, Ordering::SeqCst);
+            if self.epochs.back().map(|(_, e)| *e) != Some(epoch) {
+                self.epochs.push_back((now_100ns, epoch));
+                if self.epochs.len() > EPOCHS {
+                    self.epochs.pop_front();
+                }
+            }
         }
         match settings.codec {
             StreamCodec::H264 => {
@@ -69,9 +75,14 @@ impl Stream {
     pub fn video(&self) -> Option<StreamSettings> {
         self.video
     }
-    /// The epoch shared with the capture callback, which stamps each arriving picture.
-    pub fn epoch_handle(&self) -> Arc<AtomicU32> {
-        self.epoch.clone()
+    /// The epoch in force when a picture was captured (`captured_100ns`, the frame's own
+    /// SystemRelativeTime): 0 before any was given, as on the Mac.
+    pub fn epoch_at(&self, captured_100ns: i64) -> u32 {
+        self.epochs
+            .iter()
+            .rev()
+            .find(|(at, _)| *at <= captured_100ns)
+            .map_or(0, |(_, epoch)| *epoch)
     }
     pub fn request_keyframe(&mut self) {
         self.keyframe = true;
@@ -281,19 +292,19 @@ mod video {
     #[test]
     fn turning_video_on_asks_for_a_keyframe_and_paces_at_the_video_rate() {
         let mut stream = Stream::new("s".into(), 2, 10);
-        stream.configure(settings(StreamCodec::H264, 60), Some(4));
+        stream.configure(settings(StreamCodec::H264, 60), Some(4), 0);
         assert!(stream.take_keyframe());
         assert!(!stream.take_keyframe());
-        assert_eq!(stream.epoch_handle().load(Ordering::SeqCst), 4);
+        assert_eq!(stream.epoch_at(0), 4);
         assert!(stream.video_due(0.0));
         assert!(!stream.video_due(10.0));
         assert_eq!(stream.due_in(10.0), 1000.0 / 60.0 - 10.0);
         assert!(stream.video_due(17.0));
         // Reconfiguring while video is on keeps the stream going without a forced keyframe.
-        stream.configure(settings(StreamCodec::H264, 30), None);
+        stream.configure(settings(StreamCodec::H264, 30), None, 10);
         assert!(!stream.take_keyframe());
-        assert_eq!(stream.epoch_handle().load(Ordering::SeqCst), 4);
-        stream.configure(settings(StreamCodec::Jpeg, 60), None);
+        assert_eq!(stream.epoch_at(10), 4);
+        stream.configure(settings(StreamCodec::Jpeg, 60), None, 20);
         assert_eq!(stream.video(), None);
         assert!(!stream.video_due(1000.0));
     }
@@ -331,5 +342,42 @@ mod video {
         let delta = header(&stream.video_packet(&unit(6, false)).unwrap());
         assert_eq!(delta["keyframe"], false);
         assert!(delta.get("videoCodec").is_none());
+    }
+}
+
+#[cfg(test)]
+mod epochs {
+    use super::*;
+
+    fn settings() -> StreamSettings {
+        StreamSettings {
+            codec: StreamCodec::H264,
+            max_width: 1920,
+            max_height: 1080,
+            fps: 60,
+            bitrate: 4_000_000,
+        }
+    }
+
+    #[test]
+    fn a_frame_captured_before_a_switch_but_delivered_after_keeps_the_earlier_epoch() {
+        let mut stream = Stream::new("s".into(), 2, 10);
+        // Private epoch 4 from t=100, then a clear epoch 5 installed at t=300 (QPC, 100 ns).
+        stream.configure(settings(), Some(4), 100);
+        stream.configure(settings(), Some(5), 300);
+        // Captured at t=250, delivered (and asked about) only now: still private.
+        assert_eq!(stream.epoch_at(250), 4);
+        assert_eq!(stream.epoch_at(300), 5);
+        assert_eq!(stream.epoch_at(1_000), 5);
+        // Before any epoch was given: 0, as on the Mac.
+        assert_eq!(stream.epoch_at(50), 0);
+    }
+
+    #[test]
+    fn a_configure_without_an_epoch_keeps_the_last_one() {
+        let mut stream = Stream::new("s".into(), 2, 10);
+        stream.configure(settings(), Some(9), 100);
+        stream.configure(settings(), None, 500);
+        assert_eq!(stream.epoch_at(600), 9);
     }
 }

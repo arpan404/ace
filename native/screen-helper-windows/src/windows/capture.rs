@@ -7,10 +7,10 @@ use super::{
 use crate::{
     capture_wait::{Pending, Wait},
     errors::{Code, Error, Result},
+    media::pump::SERVICE,
     media::shell::IngestShell,
     stream::Stream,
 };
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     sync::{Arc, Condvar, Mutex},
     thread::JoinHandle,
@@ -36,8 +36,9 @@ struct Signal {
     /// Use the last picture again now (video starting, a keyframe or a still asked for, on a
     /// screen that may not change).
     refresh: bool,
-    /// The privacy epoch held when the newest picture arrived.
-    epoch: u32,
+    /// When the newest picture's arrival was signalled (QPC, 100 ns): its capture time when
+    /// the frame carries none of its own.
+    arrived_100ns: Option<i64>,
 }
 /// Live video's side of a capture: media-mf's device (absent where the start-up trial found
 /// no H.264 MFT, which leaves the session on JPEG) and the route its units take.
@@ -58,10 +59,6 @@ impl Capture {
         video: Video,
     ) -> Result<Self> {
         target.validate(&allowlist)?;
-        let epoch = stream
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .epoch_handle();
         if !GraphicsCaptureSession::IsSupported()? {
             return Err(Error::new(Code::NotSupported, "WGC unavailable"));
         }
@@ -78,13 +75,12 @@ impl Capture {
                 let _ = ready_tx.send(Err(error.into()));
                 return;
             }
-            let resources = initialize(&target, &worker_signal, video.device.as_ref(), epoch);
+            let resources = initialize(&target, &worker_signal, video.device.as_ref());
             match resources {
-                Ok((gpu, item, mut feed, closed_token, epoch)) => {
+                Ok((gpu, item, mut feed, closed_token)) => {
                     let _ = ready_tx.send(Ok(()));
                     let result = run(
                         &worker_signal,
-                        &epoch,
                         &mut feed,
                         &item,
                         &target,
@@ -137,7 +133,6 @@ type Resources = (
     GraphicsCaptureItem,
     Feed,
     windows::Foundation::EventRegistrationToken,
-    Arc<AtomicU32>,
 );
 /// One frame pool at one size and the capture session filling it.
 struct Feed {
@@ -152,7 +147,6 @@ impl Feed {
         item: &GraphicsCaptureItem,
         signal: &Arc<(Mutex<Signal>, Condvar)>,
         size: SizeInt32,
-        epoch: &Arc<AtomicU32>,
     ) -> Result<Self> {
         let pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
             &gpu.winrt,
@@ -162,13 +156,11 @@ impl Feed {
         )?;
         let session = pool.CreateCaptureSession(item)?;
         let arrival = signal.clone();
-        let epoch = epoch.clone();
         let token = pool.FrameArrived(&TypedEventHandler::new(move |_, _| {
             let (lock, wake) = &*arrival;
             let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
             state.pending.arrived();
-            // Stamped at capture: the epoch when the picture arrived, not when it is encoded.
-            state.epoch = epoch.load(Ordering::SeqCst);
+            state.arrived_100ns = counter_100ns();
             drop(state);
             wake.notify_one();
             Ok(())
@@ -191,7 +183,6 @@ fn initialize(
     target: &Target,
     signal: &Arc<(Mutex<Signal>, Condvar)>,
     device: Option<&media_mf::MfDevice>,
-    epoch: Arc<AtomicU32>,
 ) -> Result<Resources> {
     let gpu = match device {
         Some(device) => Gpu::shared(device)?,
@@ -215,14 +206,14 @@ fn initialize(
         wake.notify_one();
         Ok(())
     }))?;
-    let feed = match Feed::open(&gpu, &item, signal, size, &epoch) {
+    let feed = match Feed::open(&gpu, &item, signal, size) {
         Ok(feed) => feed,
         Err(error) => {
             let _ = item.RemoveClosed(closed_token);
             return Err(error);
         }
     };
-    Ok((gpu, item, feed, closed_token, epoch))
+    Ok((gpu, item, feed, closed_token))
 }
 impl Drop for Capture {
     fn drop(&mut self) {
@@ -235,7 +226,7 @@ impl Drop for Capture {
     }
 }
 /// The performance counter in 100 ns units, the clock of a frame's SystemRelativeTime.
-fn counter_100ns() -> Option<i64> {
+pub(super) fn counter_100ns() -> Option<i64> {
     use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
     let (mut count, mut frequency) = (0i64, 0i64);
     unsafe {
@@ -251,6 +242,39 @@ fn now_ms() -> f64 {
         .as_secs_f64()
         * 1000.0
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Woke {
+    Frame,
+    Refresh,
+    Service,
+}
+/// Units the encoder finished late, published with their own pictures' metadata. A failing
+/// encoder is dropped and replaced on the next picture.
+fn service(encoder: &mut Option<VideoEncoder>, video: &Video, stream: &Arc<Mutex<Stream>>) {
+    let Some(active) = encoder.as_mut() else {
+        return;
+    };
+    match active.service() {
+        Ok(units) => publish(units, video, stream),
+        Err(error) => {
+            eprintln!("screen video: {error}");
+            *encoder = None;
+            stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .request_keyframe();
+        }
+    }
+}
+fn publish(units: Vec<media_ingest::VideoUnit>, video: &Video, stream: &Arc<Mutex<Stream>>) {
+    for mut unit in units {
+        unit.sequence = stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .next_sequence();
+        video.shell.publish(&unit);
+    }
+}
 /// The picture kept from the last frame, for a refresh on a screen that hasn't changed.
 struct Kept {
     texture: ID3D11Texture2D,
@@ -262,7 +286,6 @@ struct Kept {
 #[allow(clippy::too_many_arguments)]
 fn run(
     signal: &Arc<(Mutex<Signal>, Condvar)>,
-    epoch: &Arc<AtomicU32>,
     feed: &mut Feed,
     item: &GraphicsCaptureItem,
     target: &Target,
@@ -279,11 +302,17 @@ fn run(
     let mut encoder: Option<VideoEncoder> = None;
     let mut kept: Option<Kept> = None;
     let mut logged = false;
+    let mut serviced = Instant::now();
     let lock_stream = || stream.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         let (lock, wake) = &**signal;
         let mut state = lock.lock().unwrap_or_else(|e| e.into_inner());
-        let refresh = loop {
+        // While the encoder owes units, waits are capped so it is serviced on its own timer: a
+        // hardware MFT may finish a keyframe after `encode` returned, on a desktop that sends
+        // no further picture.
+        let owed = encoder.as_ref().is_some_and(VideoEncoder::owed);
+        let cap = if owed { SERVICE.as_secs_f64() } else { 1.0 };
+        let woke = loop {
             if state.stop {
                 return Ok(());
             }
@@ -291,23 +320,39 @@ fn run(
                 return Err(Error::new(Code::TargetGone, "Capture item closed"));
             }
             if std::mem::take(&mut state.refresh) {
-                break true;
+                break Woke::Refresh;
+            }
+            if owed && serviced.elapsed() >= SERVICE {
+                break Woke::Service;
             }
             let delay = lock_stream().due_in(clock());
             match state.pending.next(delay) {
-                Wait::Idle => {
+                Wait::Idle if !owed => {
                     state = wake.wait(state).unwrap_or_else(|e| e.into_inner());
                 }
-                Wait::After(delay) => {
+                Wait::Idle => {
                     let (next, _) = wake
-                        .wait_timeout(state, Duration::from_secs_f64((delay / 1000.0).min(1.0)))
+                        .wait_timeout(state, SERVICE)
                         .unwrap_or_else(|e| e.into_inner());
                     state = next;
                 }
-                Wait::Frame => break false,
+                Wait::After(delay) => {
+                    let (next, _) = wake
+                        .wait_timeout(state, Duration::from_secs_f64((delay / 1000.0).min(cap)))
+                        .unwrap_or_else(|e| e.into_inner());
+                    state = next;
+                }
+                Wait::Frame => break Woke::Frame,
             }
         };
-        let arrived_epoch = state.epoch;
+        if woke == Woke::Service {
+            drop(state);
+            serviced = Instant::now();
+            service(&mut encoder, &video, &stream);
+            continue;
+        }
+        let refresh = woke == Woke::Refresh;
+        let arrived_100ns = state.arrived_100ns;
         drop(state);
         target.validate(allowlist)?;
         let mut newest: Option<Direct3D11CaptureFrame> = None;
@@ -340,7 +385,7 @@ fn run(
                 // window changes again, so a window that finished repainting first would keep
                 // its old size in live view. A new session always sends a first frame.
                 feed.close();
-                *feed = Feed::open(&gpu, item, signal, size, epoch)?;
+                *feed = Feed::open(&gpu, item, signal, size)?;
                 continue;
             }
             let surface = frame
@@ -378,7 +423,11 @@ fn run(
                 size: (width, height),
                 scale_per_pixel,
                 captured,
-                epoch: arrived_epoch,
+                // The epoch in force when this picture was captured, by its own timestamp: a
+                // picture delivered after a later epoch was applied keeps the earlier one.
+                epoch: captured_100ns
+                    .or(arrived_100ns)
+                    .map_or(0, |at| lock_stream().epoch_at(at)),
             });
         } else if !refresh {
             continue;

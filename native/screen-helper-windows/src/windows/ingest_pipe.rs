@@ -55,7 +55,8 @@ impl Cancel for PipeCancel {
     }
 }
 
-pub fn dial(name: &str) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
+pub fn dial(name: &str, server: Option<u32>) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
+    let _ = server;
     let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
     let mut attempts = 0;
     let handle = loop {
@@ -85,4 +86,72 @@ pub fn dial(name: &str) -> io::Result<(Box<dyn Link>, Arc<dyn Cancel>)> {
     };
     let pipe = Arc::new(Pipe(unsafe { File::from_raw_handle(handle.0) }));
     Ok((Box::new(PipeLink(pipe.clone())), Arc::new(PipeCancel(pipe))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::{
+        Foundation::{CloseHandle, ERROR_BROKEN_PIPE},
+        Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND},
+        System::Pipes::{CreateNamedPipeW, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT},
+    };
+
+    /// A server instance of `name` that this test process owns: a squatter, for any other pid.
+    fn serve(name: &str) -> HANDLE {
+        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let handle = unsafe {
+            CreateNamedPipeW(
+                PCWSTR(wide.as_ptr()),
+                PIPE_ACCESS_INBOUND,
+                PIPE_TYPE_BYTE | PIPE_WAIT,
+                PIPE_UNLIMITED_INSTANCES,
+                0,
+                65_536,
+                0,
+                None,
+            )
+        };
+        assert!(!handle.is_invalid());
+        handle
+    }
+
+    /// Bytes the server got before its client went away.
+    fn received(server: HANDLE) -> usize {
+        let mut buffer = [0u8; 256];
+        let mut read = 0u32;
+        match unsafe { ReadFile(server, Some(&mut buffer), Some(&mut read), None) } {
+            Ok(()) => read as usize,
+            Err(error) => {
+                assert_eq!(error.code(), windows::core::HRESULT::from_win32(ERROR_BROKEN_PIPE.0));
+                0
+            }
+        }
+    }
+
+    #[test]
+    fn a_pipe_served_by_another_process_is_refused_before_any_byte_is_sent() {
+        let name = format!(r"\\.\pipe\ace-e1-squat-{}", std::process::id());
+        let squatter = serve(&name);
+        // The daemon says ace-media is pid 4, the System process: this server is not it.
+        let refused = dial(&name, Some(4));
+        assert!(refused.is_err(), "connected to a server that is not ace-media");
+        assert_eq!(received(squatter), 0);
+        unsafe {
+            let _ = CloseHandle(squatter);
+        }
+    }
+
+    #[test]
+    fn the_trusted_server_is_accepted_and_gets_the_bytes() {
+        let name = format!(r"\\.\pipe\ace-e1-trusted-{}", std::process::id());
+        let server = serve(&name);
+        let (mut link, _cancel) = dial(&name, Some(std::process::id())).expect("trusted server");
+        link.write_all(b"hello").unwrap();
+        assert_eq!(received(server), 5);
+        drop(link);
+        unsafe {
+            let _ = CloseHandle(server);
+        }
+    }
 }
