@@ -92,6 +92,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "spade",
     "spadeRemote",
     "spadeComputers",
+    "mediaDelivery",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,

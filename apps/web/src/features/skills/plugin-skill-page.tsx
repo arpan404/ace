@@ -1,4 +1,4 @@
-import { ArrowsClockwiseIcon, TrashIcon } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, TrashIcon } from "@ace/icons";
 import { ProviderKind } from "@ace/protocol";
 import { pluginSwitched } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";

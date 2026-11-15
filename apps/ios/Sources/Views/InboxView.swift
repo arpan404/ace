@@ -66,8 +66,8 @@ struct InboxView: View {
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
-                ForEach(inbox.merged.snooze) { option in
-                    Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
+                ForEach(SnoozeChoice.list(times: inbox.merged.snooze, row: inbox.row(key))) { choice in
+                    Button(choice.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: choice.id) } }
                 }
             }
             .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }
@@ -135,6 +135,9 @@ struct InboxView: View {
                     SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
                 }
             }
+            Tab(value: InboxTab.review) { review }
+                label: { Label { Text(HomeTabs.title(.review)) } icon: { HomeTabs.tabImage(.review) } }
+                .accessibilityIdentifier("tab.review")
             if HomeTabs.composeTab {
                 Tab(HomeTabs.title(.search), systemImage: HomeTabs.symbol(.search), value: InboxTab.search) { search }
                     .accessibilityIdentifier("tab.search")
@@ -183,6 +186,16 @@ struct InboxView: View {
     /// at its foot so the person can go back to the lists.
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+            .inboxFootBar {
+                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+            }
+            .modifier(HomeTabBar(shown: sizeClass != .regular))
+    }
+
+    /// Code review: pull requests and issues, a home tab of their own as the web rail's place.
+    private var review: some View {
+        CodeReviewTab(inbox: inbox, openThread: { openThread($0) }, startThread: { startThread() },
+                      openMachines: { present(PlaceSheet(id: nextSerial(), root: .machines)) }, pair: pair)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
             }
@@ -290,6 +303,21 @@ struct InboxView: View {
                 .environment(\.openPullRequest) { project, number, repository in
                     path.wrappedValue.append(.forge(ForgeRoute(kind: .pull, machineId: key.machineId, project: project, number: number, repository: repository)))
                 }
+                // A subagent delegated to another machine opens on that machine's client.
+                .environment(\.openElsewhere) { host, child, name in
+                    let paired = inbox.client(host)
+                    switch DelegatedElsewhere.reach(host: host, name: paired == nil ? name : inbox.name(host), connection: paired?.connection) {
+                    case .open(let machine):
+                        inbox.client(machine)?.open(child)
+                        path.wrappedValue.append(.thread(InboxKey(machineId: machine, id: child)))
+                        return nil
+                    case .away(let words): return words
+                    }
+                }
+                // A thread on another paired machine (who sent a message) opens on that machine.
+                .environment(\.remoteThreads, RemoteThreads.on(inbox) { other, host, id in
+                    other.open(id); path.wrappedValue.append(.thread(InboxKey(machineId: host, id: id)))
+                })
                 // One page per thread on its machine: a stack that swaps its page in place for
                 // another thread starts that page fresh, never with the last one's transcript,
                 // open page, drafts or sheets.

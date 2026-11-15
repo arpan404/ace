@@ -15,7 +15,7 @@ use ace_media::stills::StillThreads;
 use media_bitstream::hvcc::HevcConfig;
 use media_bitstream::nal::length_prefixed_to_annex_b;
 use media_codec::*;
-use media_vt::{ProbeOptions, VtEncoder};
+use media_vt::VtEncoder;
 use media_wire::control::{Capability, FromMedia, KeyReason, ToMedia};
 use media_wire::frame::MediaFrame;
 use serde_json::json;
@@ -30,6 +30,10 @@ const NOW: Now = Now {
     wall_ms: 1_000,
 };
 
+#[path = "support/probed.rs"]
+mod probed;
+use probed::probed;
+
 struct Rig {
     engine: Engine,
     results: Receiver<StillOutcome>,
@@ -37,7 +41,7 @@ struct Rig {
 
 impl Rig {
     fn new() -> Self {
-        Self::with(&media_vt::probe(&ProbeOptions::default()).capabilities)
+        Self::with(&probed())
     }
 
     fn with(capabilities: &[Capability]) -> Self {
@@ -272,7 +276,7 @@ fn a_path_found_after_start_takes_over_from_the_next_keyframe() {
     rig.feed(length_prefixed(&encoded(Codec::H264, LARGE, 3), 1));
     assert_eq!(rig.answer("before"), Err("decode-unavailable".into()));
     // The trial's late result arrives as capabilities.changed.
-    let found = media_vt::probe(&ProbeOptions::default()).capabilities;
+    let found = probed();
     rig.engine.capabilities_changed(&found);
     // The group began before the new path's decoder existed: it asks for a keyframe.
     let asked = rig.ask("after");

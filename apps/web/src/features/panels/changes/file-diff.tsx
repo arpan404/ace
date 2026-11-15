@@ -1,6 +1,6 @@
 import { DiffCode, DiffCodeScope } from "./diff-code.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { CaretDownIcon, CodeIcon, DotsThreeIcon, PlusIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CodeIcon, DotsThreeIcon, PlusIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { lazy, Suspense, useMemo, useState, type PointerEvent } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";

@@ -231,6 +231,32 @@
           "const": 1,
           "type": "number"
         },
+        "relayHandshakes": {
+          "items": {
+            "maxLength": 16,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "ticket": {
+          "properties": {
+            "ticket": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ttlMs": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ticket",
+            "ttlMs"
+          ],
+          "type": "object"
+        },
         "type": {
           "const": "welcome",
           "type": "string"
@@ -241,6 +267,36 @@
         "hostId",
         "protocolVersion",
         "headSeq"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "ticket": {
+          "properties": {
+            "ticket": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "ttlMs": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "ticket",
+            "ttlMs"
+          ],
+          "type": "object"
+        },
+        "type": {
+          "const": "hello.confirmed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
       ],
       "type": "object"
     },
@@ -277,6 +333,10 @@
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"
+        },
+        "early": {
+          "const": true,
+          "type": "boolean"
         },
         "events": {
           "items": {
@@ -532,6 +592,62 @@
         "offset",
         "nextOffset",
         "bytes",
+        "eof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "eof": {
+          "type": "boolean"
+        },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "total": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "interaction.data",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "interactionId",
+        "version",
+        "offset",
+        "nextOffset",
+        "total",
+        "text",
         "eof"
       ],
       "type": "object"

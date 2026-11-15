@@ -8,6 +8,11 @@
  * frames that run large raise it, small ones lower it. The view keeps 60 fps; the link's limit
  * shows as coarser pictures. +6 on the quantizer roughly halves a frame.
  *
+ * A keyframe is held to about half a second of the bit rate (ADR 0149 §3): judged from the
+ * last keyframe's size, the next is coded coarse enough to fit. The picture's size steps down
+ * with the link too (`video-scale.ts`), so at the floor a keyframe is a smaller sharp picture,
+ * not a large mushy one.
+ *
  * A still page sends no frames, so its last picture would keep whatever quantizer the motion
  * before it needed. Once it is still, the picture is encoded once more as a keyframe at a finer
  * quantizer (`settled`): unchanged blocks then reference that sharp picture until they change.
@@ -30,18 +35,18 @@ const settleFrames = 3;
  */
 const keyframeOffset = 6;
 /**
- * A still page's sharper keyframe may cost about this many seconds of the bit rate, judged from
- * the last keyframe's size. Half a second of a thin link is a short wait; on this machine
- * (16 Mbit/s) it's room for near-lossless text.
+ * A keyframe, and a still page's sharper one, may cost about this many seconds of the bit rate,
+ * judged from the last keyframe's size. Half a second of a thin link is a short wait; on this
+ * machine (16 Mbit/s) it's room for near-lossless text.
  */
-const settleSeconds = 0.5;
+const keyframeSeconds = 0.5;
 
 /**
  * Whether a still page's picture may be encoded again as a keyframe, for an encoder that picks
  * its own quantizer: the last keyframe, `keyBits` big, fits the budget at `bitrate`.
  */
 export function affordsSettleKey(keyBits: number | undefined, bitrate: number): boolean {
-  return keyBits !== undefined && keyBits <= bitrate * settleSeconds;
+  return keyBits !== undefined && keyBits <= bitrate * keyframeSeconds;
 }
 
 export class QuantizerControl {
@@ -66,7 +71,16 @@ export class QuantizerControl {
   }
   /** The quantizer for the next frame. */
   next(key: boolean): number {
-    const quantizer = Math.min(highest, this.#quantizer + (key ? keyframeOffset : 0));
+    let quantizer = this.#quantizer + (key ? keyframeOffset : 0);
+    if (key && this.#keyQuantizer !== undefined && this.#keyBits !== undefined) {
+      // As coarse as the last keyframe says a whole picture must be to fit the cap.
+      const cap = this.#bitrate * keyframeSeconds;
+      quantizer = Math.max(
+        quantizer,
+        Math.ceil(this.#keyQuantizer + 6 * Math.log2(this.#keyBits / cap)),
+      );
+    }
+    quantizer = Math.min(highest, quantizer);
     this.#last = quantizer;
     if (key) this.#keyQuantizer = quantizer;
     return quantizer;
@@ -77,7 +91,7 @@ export class QuantizerControl {
    */
   settled(): number | undefined {
     if (this.#keyQuantizer === undefined || this.#keyBits === undefined) return undefined;
-    const budget = this.#bitrate * settleSeconds;
+    const budget = this.#bitrate * keyframeSeconds;
     const quantizer = Math.max(
       lowest,
       Math.round(this.#keyQuantizer - 6 * Math.log2(budget / this.#keyBits)),

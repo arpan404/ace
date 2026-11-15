@@ -7,6 +7,7 @@ import type {
   ThreadListCursor,
   ThreadListEntry,
   ThreadListWindow,
+  ThreadReadCursor,
 } from "@ace/protocol";
 import { noAttention, withSignal, type PlaceAttentions } from "@ace/ui-core/thread-place";
 import { PlacedEntries, type Placed, type SidebarPlacement } from "./sidebar-placement.ts";
@@ -15,6 +16,16 @@ import type { SubscriptionStore } from "./subscription.ts";
 export interface SidebarSubscription {
   stop(): void;
   page(before: ThreadListCursor, requestId: string): void;
+}
+
+/**
+ * The subscribing device's read cursors: each row is sent with its own, and again when the
+ * device marks it read, so a list needs no read-state request per row.
+ */
+export interface DeviceReads {
+  read(threadId: ThreadId): ThreadReadCursor;
+  /** Calls `moved` after the device's cursor for a thread may have moved, once committed. */
+  listen(moved: (threadId: ThreadId) => void): () => void;
 }
 
 type WindowOptions = NonNullable<Extract<SubscriptionScope, { kind: "threads" }>["window"]>;
@@ -37,8 +48,12 @@ export function sidebarSubscription(
   options: WindowOptions,
   send: (message: ServerMessage) => void,
   placement: SidebarPlacement,
+  reads?: DeviceReads,
 ): SidebarSubscription {
   const { resume, ...scope } = options;
+  /** A row as this device is sent it: with its read cursor when the daemon has the device's. */
+  const stamp = (entry: ThreadListEntry): ThreadListEntry =>
+    reads ? { ...entry, readState: reads.read(entry.id) } : entry;
   /** The daemon's rows as last read, keyed by id: what a live read reuses. */
   const selected = new Map<string, ThreadListEntry>();
   /** What the client was last sent for each row, with its place and part in the dots. */
@@ -86,7 +101,7 @@ export function sidebarSubscription(
       if (changed.has(entry.id) || selected.get(entry.id) !== entry) {
         const placed = places.placed(entry);
         Object.defineProperty(threads, entry.id, {
-          value: placed.entry,
+          value: stamp(placed.entry),
           enumerable: true,
           configurable: true,
         });
@@ -113,7 +128,7 @@ export function sidebarSubscription(
       const placed = places.placed(entry);
       if (samePlace(sent.get(threadId), placed)) continue;
       Object.defineProperty(threads, threadId, {
-        value: placed.entry,
+        value: stamp(placed.entry),
         enumerable: true,
         configurable: true,
       });
@@ -134,6 +149,20 @@ export function sidebarSubscription(
     else deliver(events);
   });
   const stopPlacing = placement.subscribe(replace);
+  /** This device marked a row read: send that row again with its cursor. */
+  const reread = (threadId: ThreadId) => {
+    const entry = selected.get(threadId);
+    if (stopped || initializing || !window || !entry) return;
+    send({
+      type: "threads.patch",
+      subscriptionId: id,
+      seq: store.headSeq(),
+      threads: { [threadId]: stamp(places.placed(entry).entry) },
+      removed: [],
+      window,
+    });
+  };
+  const stopReading = reads?.listen(reread);
   try {
     const initial = store.sidebarPage(scope);
     before = initial.window.before;
@@ -153,13 +182,22 @@ export function sidebarSubscription(
       const read = store.sidebarRowRevision?.(entry);
       if (resumable && read !== undefined && read <= resume.revision)
         keep.push(ThreadId.parse(entry.id));
-      else fresh.push(placed.entry);
+      else fresh.push(stamp(placed.entry));
     }
     window = stamped(initial.window);
     const view = createThreadListView(fresh);
     view.seq = store.headSeq();
     view.window = window;
     if (resumable) view.keep = keep;
+    // A kept row's cursor may have moved without the row changing: each is sent on its own.
+    if (resumable && reads) {
+      const kept: Record<string, ThreadReadCursor> = {};
+      for (const threadId of keep) {
+        const cursor = reads.read(threadId);
+        if (cursor.updatedAt !== null) kept[threadId] = cursor;
+      }
+      view.reads = kept;
+    }
     send({ type: "snapshot", subscriptionId: id, seq: view.seq, view });
     initializing = false;
     deliver(queued);
@@ -167,6 +205,7 @@ export function sidebarSubscription(
   } catch (error) {
     stopListening();
     stopPlacing();
+    stopReading?.();
     throw error;
   }
   return {
@@ -174,6 +213,7 @@ export function sidebarSubscription(
       stopped = true;
       stopListening();
       stopPlacing();
+      stopReading?.();
     },
     page(cursor, requestId) {
       if (stopped || !before || cursor.at !== before.at || cursor.id !== before.id)
@@ -185,7 +225,7 @@ export function sidebarSubscription(
         const placed = places.placed(entry);
         track(entry.id, placed);
         Object.defineProperty(threads, entry.id, {
-          value: placed.entry,
+          value: stamp(placed.entry),
           enumerable: true,
           configurable: true,
         });

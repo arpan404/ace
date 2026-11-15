@@ -33,7 +33,7 @@ export class ConfigurationRefused extends Error {
  * The SDK's refusal of a request this device's scopes don't cover: a daemon error, whose code
  * the SDK carries as its message (`ClientError("daemon", "forbidden")`).
  */
-function forbidden(error: unknown): boolean {
+export function deviceForbidden(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&
@@ -67,7 +67,7 @@ export function editProviderConfiguration(
           layer: { kind: "global" },
         })
         .catch((error: unknown) => {
-          throw forbidden(error) ? new ConfigurationRefused() : error;
+          throw deviceForbidden(error) ? new ConfigurationRefused() : error;
         });
       if (!saved.ok)
         throw new Error("Couldn't save provider preferences. Check the values and try again.");

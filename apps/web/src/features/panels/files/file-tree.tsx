@@ -1,10 +1,4 @@
-import {
-  CaretRightIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  MagnifyingGlassIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { CaretRightIcon, FolderIcon, FolderOpenIcon, MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   ancestorFolders,

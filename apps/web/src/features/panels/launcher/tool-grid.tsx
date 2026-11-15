@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon, DotsThreeIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, DotsThreeIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";

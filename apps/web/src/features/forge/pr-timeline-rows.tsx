@@ -14,7 +14,7 @@ import {
   UsersIcon,
   XIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";

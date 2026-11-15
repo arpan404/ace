@@ -40,7 +40,7 @@ export const message = (requestId: string): MachineMessage => ({
  * (how it answers a message sent again). Timers queue up and run only when the test fires them;
  * `failNextWrite` makes the next storage transaction fail, as a store busy past its timeout, and
  * `failSql` the next statement whose SQL contains it. `holdNextStatus` keeps the next status
- * reply (read now) from arriving until the test releases it.
+ * reply or failure (decided now) from arriving until the test releases it.
  */
 export function machine(
   home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-")),
@@ -49,13 +49,21 @@ export function machine(
     leaseMs?: number;
     /** The poll pace; the re-check and retry paces follow from it as in production. */
     pollMs?: number;
+    /** When this daemon starts by the test's clock, e.g. a restart hours after the last run. */
+    startAt?: number;
   } = {},
 ) {
   if (!homes.includes(home)) homes.push(home);
   const real = new Store(join(home, "events.sqlite"));
   stores.push(real);
-  const faults: { failNextWrite: boolean; failSql?: string | undefined } = {
+  /** `unreadablePairings` makes every read of the pairings throw, as an unreadable database. */
+  const faults: {
+    failNextWrite: boolean;
+    failSql?: string | undefined;
+    unreadablePairings: boolean;
+  } = {
     failNextWrite: false,
+    unreadablePairings: false,
   };
   const failing = (db: import("node:sqlite").DatabaseSync) =>
     new Proxy(db, {
@@ -93,7 +101,7 @@ export function machine(
   const delivered: string[] = [];
   /** Scheduled polls: their delay, and when they come due by the test's clock. */
   const timers: { ms: number; at: number; run: () => void }[] = [];
-  const clock = { now: 1_000_000 };
+  const clock = { now: options.startAt ?? 1_000_000 };
   const holds: { next?: Promise<void> | undefined } = {};
   const holdNextStatus = () => {
     let release: (() => void) | undefined;
@@ -107,8 +115,16 @@ export function machine(
       },
     };
   };
-  /** `error` makes every status call fail with it, as a machine refusing or unreachable. */
-  const reads: { error?: unknown } = {};
+  /**
+   * `error` makes every status call fail with it, as a machine refusing or unreachable.
+   * `decide` answers each call by the ids it asks about: an error to fail it with, or nothing to
+   * answer it. `answered` runs after each answered call, as the directory's recovery callback.
+   */
+  const reads: {
+    error?: unknown;
+    decide?: (ids: readonly string[]) => unknown;
+    answered?: (machine: string) => void;
+  } = {};
   const answers = {
     resend: async (_machine: string): Promise<ResendAnswer> => "taken",
     /** How the machine takes a cancel; by default it says it stopped nothing (never confirms). */
@@ -129,7 +145,10 @@ export function machine(
    * here, to another device (linked again) or undefined (the pairing was removed).
    */
   const pairings = new Map<string, string | undefined>();
-  const device = (host: string) => (pairings.has(host) ? pairings.get(host) : `device-${host}`);
+  const device = (host: string) => {
+    if (faults.unreadablePairings) throw new Error("database is locked");
+    return pairings.has(host) ? pairings.get(host) : `device-${host}`;
+  };
   /** Local delegation edges, child to parent, as the journal reads them. */
   const edges = new Map<string, ThreadId>();
   const children = new MachineChildren({
@@ -149,14 +168,19 @@ export function machine(
     ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
     status: async (_machine, _parent, ids) => {
       asked.push([...ids]);
-      if (reads.error) throw reads.error;
+      // What the machine answers is decided as the read goes out; a held reply, or failure,
+      // arrives only when released.
+      const failure = reads.error ?? reads.decide?.(ids);
       const read = ids.flatMap((id) => {
         const view = views.get(id);
         return view ? [view] : [];
       });
       const held = holds.next;
       holds.next = undefined;
-      return held ? held.then(() => read) : read;
+      if (held) await held;
+      if (failure) throw failure;
+      reads.answered?.(_machine);
+      return read;
     },
     cancel: async (_machine, _parent, id) => {
       cancels.push(id);

@@ -13,7 +13,7 @@ import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
 const capabilities: RouteCapabilities = {
-  ingest: ["tab", "tab-pictures", "screen"],
+  ingest: ["tab", "tab-pictures", "screen", "simulator"],
   recordings: false,
   stills: false,
   delivery: false,
@@ -289,6 +289,20 @@ describe("IngestSources", () => {
     expect(w.opened()).toHaveLength(maxIngestReopens + 2);
   });
 
+  it("a Simulator ace-media reads itself is closed there at once when it moves back, so its reader drains and the end marker follows its last unit", () => {
+    const w = world();
+    const l = producer("simulator");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    expect(l.points.at(-1)).toBeDefined();
+    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.sources.routesChanged(["simulator"]);
+    // No producer of its own to drain: only ace-media's close ends its reading.
+    expect(w.closed()).toEqual(["s1"]);
+    w.router.push(encodeEgressEnd(1, 0, false));
+    expect(l.ended.at(-1)).toEqual(["s1", false]);
+  });
+
   it("a source ace-media ended with a reason stays on the daemon until its route changes", () => {
     const w = world();
     const l = producer("tab-pictures");
@@ -333,6 +347,31 @@ describe("IngestSources", () => {
     expect(l.ended.at(-1)).toEqual(["s2", false]);
   });
 
+  it("what a producer encodes reaches ace-media after its open, now and on every open after a restart", () => {
+    const w = world();
+    const l = producer("screen");
+    const source = w.sources.add(l.p);
+    source.codecs(["avc1.42E033"]);
+    source.codecs(["avc1.42E033", "hvc1.1.6.L153.B0"]);
+    w.sources.exited();
+    source.codecs(["avc1.42E033"]);
+    w.sources.replay();
+    const told = w.sent.flatMap(({ message }) =>
+      message.type === "source.codecs" || message.type === "source.open"
+        ? [
+            `${message.type} ${message.source}${"codecs" in message ? ` ${message.codecs.join(",")}` : ""}`,
+          ]
+        : [],
+    );
+    expect(told).toEqual([
+      "source.open s1",
+      "source.codecs s1 avc1.42E033",
+      "source.codecs s1 avc1.42E033,hvc1.1.6.L153.B0",
+      "source.open s2",
+      "source.codecs s2 avc1.42E033",
+    ]);
+  });
+
   it("asks the producer for a keyframe when ace-media does, and closing ends everything", () => {
     const w = world();
     const l = producer();
@@ -344,4 +383,25 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
     expect(w.state.needs).toBe(0);
   });
+});
+
+it("ace-media's plan reaches the producer streaming to it, and no other", () => {
+  const w = world();
+  const wants: unknown[] = [];
+  const l = producer();
+  w.sources.add({ ...l.p, want: (encodes) => void wants.push(encodes) });
+  const encodes = [
+    { id: 1, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+  ];
+  // Not streaming to ace-media yet: the plan waits for it.
+  w.sources.message({ type: "source.want", source: "s1", encodes });
+  expect(wants).toEqual([]);
+  // Pointed there: the plan ace-media made meanwhile follows the address, unasked again.
+  w.status("s1", "starting");
+  expect(wants).toEqual([encodes]);
+  w.sources.message({ type: "source.want", source: "s1", encodes });
+  expect(wants).toEqual([encodes, encodes]);
+  // A plan for another source's id is not this producer's.
+  w.sources.message({ type: "source.want", source: "other", encodes });
+  expect(wants).toHaveLength(2);
 });

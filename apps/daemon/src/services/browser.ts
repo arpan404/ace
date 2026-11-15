@@ -1,4 +1,5 @@
 import { settingsScope } from "../settings.ts";
+import { mediaOwner } from "./media-connect.ts";
 import { z } from "zod";
 import { join } from "node:path";
 import {
@@ -271,6 +272,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     sendStream: (pieces) => sendBrowserStream(socket, pieces),
     // A viewer on this machine gets its video at the top rate from the first picture.
     local: context.local === true,
+    // Subscribes naming a media connection go to ace-media (D1) while it serves.
+    media: { owner: () => mediaOwner(context), delivery: () => options.mediaDelivery?.() },
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();

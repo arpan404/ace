@@ -4,6 +4,7 @@ import type { ServerOptions } from "../server-options.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
 import { Resources } from "./resources.ts";
 import { relayHttp } from "../relay-http.ts";
+import { lateMediaRelay } from "../media-relay/port.ts";
 /**
  * The relay connects while the daemon starts, before listener-phase services (sign-in, accounts,
  * context) publish. Each service is therefore read from `options` when a channel uses it; copying
@@ -47,8 +48,14 @@ export async function startRelayTransport(
     get screen() {
       return options.screen;
     },
+    get mediaAcceleration() {
+      return options.mediaAcceleration;
+    },
     get canReadThread() {
       return options.canReadThread;
+    },
+    get mediaDelivery() {
+      return options.mediaDelivery;
     },
     get context() {
       return options.context;
@@ -72,6 +79,8 @@ export async function startRelayTransport(
       settings: () => options.settings,
       handler: () => options.outsideMcpHttp,
     }),
+    // Read when a media ticket comes: ace-media's runtime starts after the relay does.
+    media: lateMediaRelay(() => options.mediaDelivery?.()?.relay, { hostKeys: relay.keys }),
   });
   return { relayHostId: host.hostId, close: () => host.close() };
 }

@@ -1,6 +1,6 @@
 import type { ApprovalOption } from "@ace/protocol";
 import type { ApprovalCopy, ApprovalVerb } from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { useId, useState, type ReactNode } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -46,6 +46,8 @@ export function ApprovalRequest(props: {
   copy: ApprovalCopy;
   presentation?: "compact";
   disabled?: boolean;
+  /** Only declines can be picked: the request hasn't been read whole (ADR 0157). */
+  declinesOnly?: boolean | undefined;
   onAnswer(answer: ApprovalAnswer): void;
   /** Number keys answer, in the thread: each button says its number to assistive tech. */
   numbered?: boolean;
@@ -115,7 +117,7 @@ export function ApprovalRequest(props: {
                 size="sm"
                 variant={decision.emphasis === "primary" ? "primary" : "secondary"}
                 className={touchAnswer}
-                disabled={props.disabled}
+                disabled={props.disabled || (props.declinesOnly && allows(decision.option))}
                 data-approval-refusal={decision.verb === "deny" ? "" : undefined}
                 aria-keyshortcuts={
                   props.numbered && keyed
@@ -206,7 +208,7 @@ export function ApprovalRequest(props: {
                   size="sm"
                   variant="ghost"
                   className={touchAnswer}
-                  disabled={props.disabled}
+                  disabled={props.disabled || (props.declinesOnly && allows(choice.option))}
                   onClick={() => props.onAnswer({ option: choice.option, verb: undefined })}
                 >
                   {choice.label}
@@ -236,3 +238,6 @@ function RiskLine(props: { tone: "failed" | "needs-you"; level: string; text: st
     </p>
   );
 }
+
+/** Whether picking `option` says yes. */
+const allows = (option: ApprovalOption) => option.kind.startsWith("allow");

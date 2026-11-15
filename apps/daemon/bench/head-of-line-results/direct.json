@@ -1,0 +1,2007 @@
+{
+  "bench": "head-of-line",
+  "startedAt": "2026-11-15T06:14:03.253Z",
+  "machine": {
+    "cpus": 16
+  },
+  "results": [
+    {
+      "path": "direct",
+      "profile": "3g-slow",
+      "run": 1,
+      "load": [
+        62.97998046875, 67.19482421875, 72.56005859375, 81.75, 71.95751953125, 74.06494140625
+      ],
+      "result": {
+        "idle": {
+          "urgent": {
+            "otherApproval": {
+              "ms": 420,
+              "aheadBytes": 11143
+            },
+            "sidebarNeedsYou": {
+              "ms": 361,
+              "aheadBytes": 11143
+            },
+            "sameApproval": {
+              "ms": 622,
+              "aheadBytes": 22293
+            },
+            "stopAck": {
+              "ms": 654,
+              "aheadBytes": 22429
+            },
+            "sendReceipt": {
+              "ms": 656,
+              "aheadBytes": 22565
+            }
+          },
+          "probe": {
+            "longestGaps": [
+              {
+                "ms": 15.1,
+                "deflateMs": 0
+              },
+              {
+                "ms": 11.9,
+                "deflateMs": 0
+              },
+              {
+                "ms": 11.7,
+                "deflateMs": 0
+              },
+              {
+                "ms": 10.7,
+                "deflateMs": 0
+              },
+              {
+                "ms": 10.6,
+                "deflateMs": 0
+              }
+            ],
+            "deflates": []
+          }
+        },
+        "episodes": {
+          "snapshot": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 422,
+                "aheadBytes": 11990
+              },
+              "sidebarNeedsYou": {
+                "ms": 346,
+                "aheadBytes": 11990
+              },
+              "sameApproval": {
+                "ms": 1084,
+                "aheadBytes": 33148
+              },
+              "stopAck": {
+                "ms": 1108,
+                "aheadBytes": 33269
+              },
+              "sendReceipt": {
+                "ms": 1108,
+                "aheadBytes": 33269
+              }
+            },
+            "bulk": {
+              "bytes": 64596,
+              "ms": 2166,
+              "firstContentBytes": 31327,
+              "busyWhenProduced": false
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 30.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 12.4,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "resume": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 1163,
+                "aheadBytes": 75568
+              },
+              "sidebarNeedsYou": {
+                "ms": 1163,
+                "aheadBytes": 75568
+              },
+              "sameApproval": {
+                "ms": 1147,
+                "aheadBytes": 75568
+              },
+              "stopAck": {
+                "ms": 1817,
+                "aheadBytes": 79534
+              },
+              "sendReceipt": {
+                "ms": 1817,
+                "aheadBytes": 79534
+              }
+            },
+            "bulk": {
+              "bytes": 161095,
+              "ms": 3843,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 40.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 24.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 19.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 19,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "catchUp": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 356,
+                "aheadBytes": 11587
+              },
+              "sidebarNeedsYou": {
+                "ms": 421,
+                "aheadBytes": 14840
+              },
+              "sameApproval": {
+                "ms": 566,
+                "aheadBytes": 22760
+              },
+              "stopAck": {
+                "ms": 1254,
+                "aheadBytes": 26690
+              },
+              "sendReceipt": {
+                "ms": 1254,
+                "aheadBytes": 26690
+              }
+            },
+            "bulk": {
+              "bytes": 34399,
+              "ms": 3171,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 34.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 18.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.4,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "live": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 836,
+                "aheadBytes": 32576
+              },
+              "sidebarNeedsYou": {
+                "ms": 836,
+                "aheadBytes": 32576
+              },
+              "sameApproval": {
+                "ms": 826,
+                "aheadBytes": 31476
+              },
+              "stopAck": {
+                "ms": 890,
+                "aheadBytes": 32576
+              },
+              "sendReceipt": {
+                "ms": 890,
+                "aheadBytes": 32576
+              }
+            },
+            "bulk": {
+              "bytes": 79867,
+              "ms": 2582,
+              "deltas": 1357,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 54.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 19.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "raw": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 6002,
+                "aheadBytes": 300456
+              },
+              "sidebarNeedsYou": {
+                "ms": 6090,
+                "aheadBytes": 304836
+              },
+              "sameApproval": {
+                "ms": 6221,
+                "aheadBytes": 312136
+              },
+              "stopAck": {
+                "ms": 6303,
+                "aheadBytes": 315056
+              },
+              "sendReceipt": {
+                "ms": 6322,
+                "aheadBytes": 316036
+              }
+            },
+            "bulk": {
+              "bytes": 320416,
+              "ms": 6838,
+              "rawBytes": 934397,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 21.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 21.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.4,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-slow",
+      "run": 2,
+      "load": [
+        81.75, 71.95751953125, 74.06494140625, 79.2705078125, 72.05419921875, 73.93798828125
+      ],
+      "result": {
+        "idle": {
+          "urgent": {
+            "otherApproval": {
+              "ms": 418,
+              "aheadBytes": 11189
+            },
+            "sidebarNeedsYou": {
+              "ms": 342,
+              "aheadBytes": 11189
+            },
+            "sameApproval": {
+              "ms": 622,
+              "aheadBytes": 22393
+            },
+            "stopAck": {
+              "ms": 659,
+              "aheadBytes": 22529
+            },
+            "sendReceipt": {
+              "ms": 662,
+              "aheadBytes": 22665
+            }
+          },
+          "probe": {
+            "longestGaps": [
+              {
+                "ms": 15.4,
+                "deflateMs": 0
+              },
+              {
+                "ms": 13.5,
+                "deflateMs": 0
+              },
+              {
+                "ms": 7.7,
+                "deflateMs": 0
+              },
+              {
+                "ms": 7.2,
+                "deflateMs": 0
+              }
+            ],
+            "deflates": []
+          }
+        },
+        "episodes": {
+          "snapshot": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 399,
+                "aheadBytes": 10892
+              },
+              "sidebarNeedsYou": {
+                "ms": 322,
+                "aheadBytes": 10892
+              },
+              "sameApproval": {
+                "ms": 1053,
+                "aheadBytes": 30958
+              },
+              "stopAck": {
+                "ms": 1090,
+                "aheadBytes": 31079
+              },
+              "sendReceipt": {
+                "ms": 1090,
+                "aheadBytes": 31079
+              }
+            },
+            "bulk": {
+              "bytes": 62440,
+              "ms": 2151,
+              "firstContentBytes": 31361,
+              "busyWhenProduced": false
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 21.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 12.1,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "resume": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 420,
+                "aheadBytes": 20070
+              },
+              "sidebarNeedsYou": {
+                "ms": 484,
+                "aheadBytes": 23332
+              },
+              "sameApproval": {
+                "ms": 631,
+                "aheadBytes": 31334
+              },
+              "stopAck": {
+                "ms": 722,
+                "aheadBytes": 36399
+              },
+              "sendReceipt": {
+                "ms": 724,
+                "aheadBytes": 36535
+              }
+            },
+            "bulk": {
+              "bytes": 161133,
+              "ms": 3263,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 36.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 24.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 24.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 21.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.9,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "catchUp": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 841,
+                "aheadBytes": 26255
+              },
+              "sidebarNeedsYou": {
+                "ms": 841,
+                "aheadBytes": 26255
+              },
+              "sameApproval": {
+                "ms": 828,
+                "aheadBytes": 26255
+              },
+              "stopAck": {
+                "ms": 848,
+                "aheadBytes": 26255
+              },
+              "sendReceipt": {
+                "ms": 848,
+                "aheadBytes": 26255
+              }
+            },
+            "bulk": {
+              "bytes": 33964,
+              "ms": 2737,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 20.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 18.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.5,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "live": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 362,
+                "aheadBytes": 13768
+              },
+              "sidebarNeedsYou": {
+                "ms": 426,
+                "aheadBytes": 17033
+              },
+              "sameApproval": {
+                "ms": 435,
+                "aheadBytes": 17496
+              },
+              "stopAck": {
+                "ms": 600,
+                "aheadBytes": 25265
+              },
+              "sendReceipt": {
+                "ms": 1381,
+                "aheadBytes": 52843
+              }
+            },
+            "bulk": {
+              "bytes": 96239,
+              "ms": 2832,
+              "deltas": 1728,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 26.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.3,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "raw": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 6014,
+                "aheadBytes": 301206
+              },
+              "sidebarNeedsYou": {
+                "ms": 6071,
+                "aheadBytes": 304126
+              },
+              "sameApproval": {
+                "ms": 6182,
+                "aheadBytes": 311426
+              },
+              "stopAck": {
+                "ms": 6285,
+                "aheadBytes": 314346
+              },
+              "sendReceipt": {
+                "ms": 6285,
+                "aheadBytes": 314346
+              }
+            },
+            "bulk": {
+              "bytes": 318726,
+              "ms": 6804,
+              "rawBytes": 934397,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 23.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.3,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-slow",
+      "run": 3,
+      "load": [
+        79.2705078125, 72.05419921875, 73.93798828125, 77.67138671875, 72.3837890625, 73.943359375
+      ],
+      "result": {
+        "idle": {
+          "urgent": {
+            "otherApproval": {
+              "ms": 419,
+              "aheadBytes": 11179
+            },
+            "sidebarNeedsYou": {
+              "ms": 344,
+              "aheadBytes": 11179
+            },
+            "sameApproval": {
+              "ms": 624,
+              "aheadBytes": 22352
+            },
+            "stopAck": {
+              "ms": 656,
+              "aheadBytes": 22488
+            },
+            "sendReceipt": {
+              "ms": 658,
+              "aheadBytes": 22624
+            }
+          },
+          "probe": {
+            "longestGaps": [
+              {
+                "ms": 15.4,
+                "deflateMs": 0
+              },
+              {
+                "ms": 14,
+                "deflateMs": 0
+              },
+              {
+                "ms": 11.3,
+                "deflateMs": 0
+              },
+              {
+                "ms": 10.5,
+                "deflateMs": 0
+              },
+              {
+                "ms": 8.9,
+                "deflateMs": 0
+              }
+            ],
+            "deflates": []
+          }
+        },
+        "episodes": {
+          "snapshot": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 423,
+                "aheadBytes": 12031
+              },
+              "sidebarNeedsYou": {
+                "ms": 346,
+                "aheadBytes": 12031
+              },
+              "sameApproval": {
+                "ms": 1055,
+                "aheadBytes": 33212
+              },
+              "stopAck": {
+                "ms": 1078,
+                "aheadBytes": 33333
+              },
+              "sendReceipt": {
+                "ms": 1078,
+                "aheadBytes": 33333
+              }
+            },
+            "bulk": {
+              "bytes": 64663,
+              "ms": 2125,
+              "firstContentBytes": 31330,
+              "busyWhenProduced": false
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 25.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 18.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.2,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "resume": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 1088,
+                "aheadBytes": 76965
+              },
+              "sidebarNeedsYou": {
+                "ms": 1088,
+                "aheadBytes": 76965
+              },
+              "sameApproval": {
+                "ms": 1071,
+                "aheadBytes": 76965
+              },
+              "stopAck": {
+                "ms": 1120,
+                "aheadBytes": 76965
+              },
+              "sendReceipt": {
+                "ms": 1120,
+                "aheadBytes": 76965
+              }
+            },
+            "bulk": {
+              "bytes": 157474,
+              "ms": 3209,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 36.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 31.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 27.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 24.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 23.7,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "catchUp": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 840,
+                "aheadBytes": 26191
+              },
+              "sidebarNeedsYou": {
+                "ms": 840,
+                "aheadBytes": 26191
+              },
+              "sameApproval": {
+                "ms": 825,
+                "aheadBytes": 26191
+              },
+              "stopAck": {
+                "ms": 850,
+                "aheadBytes": 26191
+              },
+              "sendReceipt": {
+                "ms": 1264,
+                "aheadBytes": 26732
+              }
+            },
+            "bulk": {
+              "bytes": 34441,
+              "ms": 3168,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 30.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 22.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 21.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 21.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 19.7,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "live": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 961,
+                "aheadBytes": 34776
+              },
+              "sidebarNeedsYou": {
+                "ms": 961,
+                "aheadBytes": 34776
+              },
+              "sameApproval": {
+                "ms": 950,
+                "aheadBytes": 34776
+              },
+              "stopAck": {
+                "ms": 987,
+                "aheadBytes": 34776
+              },
+              "sendReceipt": {
+                "ms": 987,
+                "aheadBytes": 34776
+              }
+            },
+            "bulk": {
+              "bytes": 80941,
+              "ms": 2601,
+              "deltas": 1310,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 28.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 25.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 24.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 23.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 21.8,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "raw": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 6016,
+                "aheadBytes": 301210
+              },
+              "sidebarNeedsYou": {
+                "ms": 6074,
+                "aheadBytes": 304130
+              },
+              "sameApproval": {
+                "ms": 6236,
+                "aheadBytes": 312890
+              },
+              "stopAck": {
+                "ms": 6317,
+                "aheadBytes": 315810
+              },
+              "sendReceipt": {
+                "ms": 6317,
+                "aheadBytes": 315810
+              }
+            },
+            "bulk": {
+              "bytes": 320190,
+              "ms": 6830,
+              "rawBytes": 934397,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 18,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.2,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-fast",
+      "run": 1,
+      "load": [
+        77.67138671875, 72.3837890625, 73.943359375, 73.90380859375, 72.37744140625, 73.908203125
+      ],
+      "result": {
+        "idle": {
+          "urgent": {
+            "otherApproval": {
+              "ms": 202,
+              "aheadBytes": 11163
+            },
+            "sidebarNeedsYou": {
+              "ms": 183,
+              "aheadBytes": 11163
+            },
+            "sameApproval": {
+              "ms": 197,
+              "aheadBytes": 21212
+            },
+            "stopAck": {
+              "ms": 308,
+              "aheadBytes": 21348
+            },
+            "sendReceipt": {
+              "ms": 309,
+              "aheadBytes": 21484
+            }
+          },
+          "probe": {
+            "longestGaps": [
+              {
+                "ms": 56.3,
+                "deflateMs": 0
+              },
+              {
+                "ms": 16.6,
+                "deflateMs": 0
+              },
+              {
+                "ms": 15.5,
+                "deflateMs": 0
+              },
+              {
+                "ms": 13.5,
+                "deflateMs": 0
+              },
+              {
+                "ms": 12.6,
+                "deflateMs": 0
+              }
+            ],
+            "deflates": []
+          }
+        },
+        "episodes": {
+          "snapshot": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 203,
+                "aheadBytes": 11322
+              },
+              "sidebarNeedsYou": {
+                "ms": 183,
+                "aheadBytes": 11322
+              },
+              "sameApproval": {
+                "ms": 686,
+                "aheadBytes": 21969
+              },
+              "stopAck": {
+                "ms": 711,
+                "aheadBytes": 22090
+              },
+              "sendReceipt": {
+                "ms": 711,
+                "aheadBytes": 22090
+              }
+            },
+            "bulk": {
+              "bytes": 53421,
+              "ms": 1223,
+              "firstContentBytes": 31331,
+              "busyWhenProduced": false
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 26.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 26.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.9,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "resume": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 187,
+                "aheadBytes": 15658
+              },
+              "sidebarNeedsYou": {
+                "ms": 203,
+                "aheadBytes": 18911
+              },
+              "sameApproval": {
+                "ms": 227,
+                "aheadBytes": 23979
+              },
+              "stopAck": {
+                "ms": 311,
+                "aheadBytes": 30466
+              },
+              "sendReceipt": {
+                "ms": 311,
+                "aheadBytes": 30466
+              }
+            },
+            "bulk": {
+              "bytes": 154090,
+              "ms": 1617,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 37.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 26.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 22.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.2,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "catchUp": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 182,
+                "aheadBytes": 10117
+              },
+              "sidebarNeedsYou": {
+                "ms": 198,
+                "aheadBytes": 13370
+              },
+              "sameApproval": {
+                "ms": 216,
+                "aheadBytes": 16826
+              },
+              "stopAck": {
+                "ms": 716,
+                "aheadBytes": 24110
+              },
+              "sendReceipt": {
+                "ms": 716,
+                "aheadBytes": 24110
+              }
+            },
+            "bulk": {
+              "bytes": 31819,
+              "ms": 2017,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 40.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 29.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 27.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 26.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 22.6,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "live": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 189,
+                "aheadBytes": 12433
+              },
+              "sidebarNeedsYou": {
+                "ms": 205,
+                "aheadBytes": 15695
+              },
+              "sameApproval": {
+                "ms": 200,
+                "aheadBytes": 16143
+              },
+              "stopAck": {
+                "ms": 312,
+                "aheadBytes": 22087
+              },
+              "sendReceipt": {
+                "ms": 312,
+                "aheadBytes": 22087
+              }
+            },
+            "bulk": {
+              "bytes": 64524,
+              "ms": 1877,
+              "deltas": 955,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 18.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.6,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "raw": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 1942,
+                "aheadBytes": 301420
+              },
+              "sidebarNeedsYou": {
+                "ms": 1957,
+                "aheadBytes": 304340
+              },
+              "sameApproval": {
+                "ms": 1980,
+                "aheadBytes": 308720
+              },
+              "stopAck": {
+                "ms": 2022,
+                "aheadBytes": 315489
+              },
+              "sendReceipt": {
+                "ms": 2022,
+                "aheadBytes": 315489
+              }
+            },
+            "bulk": {
+              "bytes": 320143,
+              "ms": 2362,
+              "rawBytes": 934397,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 17.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 10.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 8.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 7.6,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-fast",
+      "run": 2,
+      "load": [
+        73.90380859375, 72.37744140625, 73.908203125, 75.99755859375, 74.12890625, 74.548828125
+      ],
+      "result": {
+        "idle": {
+          "urgent": {
+            "otherApproval": {
+              "ms": 220,
+              "aheadBytes": 11165
+            },
+            "sidebarNeedsYou": {
+              "ms": 183,
+              "aheadBytes": 11165
+            },
+            "sameApproval": {
+              "ms": 230,
+              "aheadBytes": 21171
+            },
+            "stopAck": {
+              "ms": 308,
+              "aheadBytes": 21443
+            },
+            "sendReceipt": {
+              "ms": 308,
+              "aheadBytes": 21443
+            }
+          },
+          "probe": {
+            "longestGaps": [
+              {
+                "ms": 19.6,
+                "deflateMs": 0
+              },
+              {
+                "ms": 13.6,
+                "deflateMs": 0
+              },
+              {
+                "ms": 13.4,
+                "deflateMs": 0
+              },
+              {
+                "ms": 12.9,
+                "deflateMs": 0
+              },
+              {
+                "ms": 11.8,
+                "deflateMs": 0
+              }
+            ],
+            "deflates": []
+          }
+        },
+        "episodes": {
+          "snapshot": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 201,
+                "aheadBytes": 11288
+              },
+              "sidebarNeedsYou": {
+                "ms": 182,
+                "aheadBytes": 11288
+              },
+              "sameApproval": {
+                "ms": 668,
+                "aheadBytes": 23065
+              },
+              "stopAck": {
+                "ms": 692,
+                "aheadBytes": 23186
+              },
+              "sendReceipt": {
+                "ms": 692,
+                "aheadBytes": 23186
+              }
+            },
+            "bulk": {
+              "bytes": 54467,
+              "ms": 1163,
+              "firstContentBytes": 31281,
+              "busyWhenProduced": false
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 10.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 9.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 8.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 8.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 8.5,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "resume": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 185,
+                "aheadBytes": 14533
+              },
+              "sidebarNeedsYou": {
+                "ms": 202,
+                "aheadBytes": 17783
+              },
+              "sameApproval": {
+                "ms": 214,
+                "aheadBytes": 16862
+              },
+              "stopAck": {
+                "ms": 317,
+                "aheadBytes": 28153
+              },
+              "sendReceipt": {
+                "ms": 317,
+                "aheadBytes": 28153
+              }
+            },
+            "bulk": {
+              "bytes": 114244,
+              "ms": 1605,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 63.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 38.9,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 37,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 27.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 21.5,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "catchUp": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 183,
+                "aheadBytes": 10888
+              },
+              "sidebarNeedsYou": {
+                "ms": 199,
+                "aheadBytes": 14141
+              },
+              "sameApproval": {
+                "ms": 200,
+                "aheadBytes": 16835
+              },
+              "stopAck": {
+                "ms": 311,
+                "aheadBytes": 24315
+              },
+              "sendReceipt": {
+                "ms": 313,
+                "aheadBytes": 24451
+              }
+            },
+            "bulk": {
+              "bytes": 32160,
+              "ms": 1612,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 101.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 50.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 32.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 30.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 28.6,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "live": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 189,
+                "aheadBytes": 12313
+              },
+              "sidebarNeedsYou": {
+                "ms": 204,
+                "aheadBytes": 15569
+              },
+              "sameApproval": {
+                "ms": 199,
+                "aheadBytes": 15689
+              },
+              "stopAck": {
+                "ms": 332,
+                "aheadBytes": 21487
+              },
+              "sendReceipt": {
+                "ms": 332,
+                "aheadBytes": 21487
+              }
+            },
+            "bulk": {
+              "bytes": 61932,
+              "ms": 1658,
+              "deltas": 954,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 54.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 30.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 19.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 18.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 17.3,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "raw": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 1797,
+                "aheadBytes": 315495
+              },
+              "sidebarNeedsYou": {
+                "ms": 1797,
+                "aheadBytes": 315495
+              },
+              "sameApproval": {
+                "ms": 1784,
+                "aheadBytes": 312575
+              },
+              "stopAck": {
+                "ms": 1808,
+                "aheadBytes": 315495
+              },
+              "sendReceipt": {
+                "ms": 1808,
+                "aheadBytes": 315495
+              }
+            },
+            "bulk": {
+              "bytes": 319875,
+              "ms": 2152,
+              "rawBytes": 934397,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 17.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 16.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.5,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "direct",
+      "profile": "3g-fast",
+      "run": 3,
+      "load": [75.99755859375, 74.12890625, 74.548828125, 72.08984375, 73.7578125, 74.41943359375],
+      "result": {
+        "idle": {
+          "urgent": {
+            "otherApproval": {
+              "ms": 209,
+              "aheadBytes": 11149
+            },
+            "sidebarNeedsYou": {
+              "ms": 182,
+              "aheadBytes": 11149
+            },
+            "sameApproval": {
+              "ms": 236,
+              "aheadBytes": 21171
+            },
+            "stopAck": {
+              "ms": 308,
+              "aheadBytes": 21443
+            },
+            "sendReceipt": {
+              "ms": 308,
+              "aheadBytes": 21443
+            }
+          },
+          "probe": {
+            "longestGaps": [
+              {
+                "ms": 12.6,
+                "deflateMs": 0
+              },
+              {
+                "ms": 11.7,
+                "deflateMs": 0
+              },
+              {
+                "ms": 11.4,
+                "deflateMs": 0
+              },
+              {
+                "ms": 10.9,
+                "deflateMs": 0
+              },
+              {
+                "ms": 10.5,
+                "deflateMs": 0
+              }
+            ],
+            "deflates": []
+          }
+        },
+        "episodes": {
+          "snapshot": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 201,
+                "aheadBytes": 11313
+              },
+              "sidebarNeedsYou": {
+                "ms": 182,
+                "aheadBytes": 11313
+              },
+              "sameApproval": {
+                "ms": 669,
+                "aheadBytes": 23089
+              },
+              "stopAck": {
+                "ms": 696,
+                "aheadBytes": 23210
+              },
+              "sendReceipt": {
+                "ms": 696,
+                "aheadBytes": 23210
+              }
+            },
+            "bulk": {
+              "bytes": 54529,
+              "ms": 1166,
+              "firstContentBytes": 31319,
+              "busyWhenProduced": false
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 24.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 20.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 18.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 10.1,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "resume": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 186,
+                "aheadBytes": 15636
+              },
+              "sidebarNeedsYou": {
+                "ms": 204,
+                "aheadBytes": 18883
+              },
+              "sameApproval": {
+                "ms": 225,
+                "aheadBytes": 23943
+              },
+              "stopAck": {
+                "ms": 308,
+                "aheadBytes": 30282
+              },
+              "sendReceipt": {
+                "ms": 309,
+                "aheadBytes": 30418
+              }
+            },
+            "bulk": {
+              "bytes": 141146,
+              "ms": 1597,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 72,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 39.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 26.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 23.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 23.3,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "catchUp": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 186,
+                "aheadBytes": 11241
+              },
+              "sidebarNeedsYou": {
+                "ms": 203,
+                "aheadBytes": 14491
+              },
+              "sameApproval": {
+                "ms": 227,
+                "aheadBytes": 19085
+              },
+              "stopAck": {
+                "ms": 719,
+                "aheadBytes": 26337
+              },
+              "sendReceipt": {
+                "ms": 719,
+                "aheadBytes": 26337
+              }
+            },
+            "bulk": {
+              "bytes": 34046,
+              "ms": 2017,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 40.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 27.1,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 24.2,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 23.6,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 22.9,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "live": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 188,
+                "aheadBytes": 12621
+              },
+              "sidebarNeedsYou": {
+                "ms": 205,
+                "aheadBytes": 15883
+              },
+              "sameApproval": {
+                "ms": 200,
+                "aheadBytes": 16326
+              },
+              "stopAck": {
+                "ms": 309,
+                "aheadBytes": 22129
+              },
+              "sendReceipt": {
+                "ms": 312,
+                "aheadBytes": 22648
+              }
+            },
+            "bulk": {
+              "bytes": 64865,
+              "ms": 1871,
+              "deltas": 967,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 19.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 18.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 13.4,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 12.4,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          },
+          "raw": {
+            "urgent": {
+              "otherApproval": {
+                "ms": 1370,
+                "aheadBytes": 211333
+              },
+              "sidebarNeedsYou": {
+                "ms": 1384,
+                "aheadBytes": 214253
+              },
+              "sameApproval": {
+                "ms": 1404,
+                "aheadBytes": 217173
+              },
+              "stopAck": {
+                "ms": 1460,
+                "aheadBytes": 225658
+              },
+              "sendReceipt": {
+                "ms": 1460,
+                "aheadBytes": 225658
+              }
+            },
+            "bulk": {
+              "bytes": 320188,
+              "ms": 2253,
+              "rawBytes": 934397,
+              "busyWhenProduced": true
+            },
+            "probe": {
+              "longestGaps": [
+                {
+                  "ms": 18.8,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 15.5,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 14.7,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 9.3,
+                  "deflateMs": 0
+                },
+                {
+                  "ms": 9.2,
+                  "deflateMs": 0
+                }
+              ],
+              "deflates": []
+            }
+          }
+        }
+      }
+    }
+  ]
+}

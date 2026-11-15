@@ -1,7 +1,7 @@
 import type { ClientMessage, DeviceId, ServerMessage } from "@ace/protocol";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import type { SessionActor } from "./devices.ts";
+import type { Devices, SessionActor } from "./devices.ts";
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
 export type RelayAdmission =
@@ -53,9 +53,9 @@ export async function relayHello(
  * while `stillAdmitted` holds. A refusal is a typed error so the client can ask for the code.
  */
 export async function accountHello(
-  hello: Hello,
+  hello: Pick<Hello, "deviceId" | "machineCode">,
   grant: string,
-  machine: MachineAccount | undefined,
+  machine: Pick<MachineAccount, "admitDevice" | "status" | "stillAdmitted"> | undefined,
 ): Promise<RelayAdmission> {
   const admission = machine
     ? await machine.admitDevice({
@@ -99,4 +99,21 @@ export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
     revokedAt: null,
     revocable: false,
   };
+}
+
+/**
+ * Who a relayed main channel speaks for: a paired device with its stored scopes (never the
+ * desktop app's local-only credential), or an account device holding admin while it stays
+ * admitted (ADR 0111).
+ */
+export function mainActor(
+  admitted: { id: DeviceId; generation?: string | undefined },
+  stillAdmitted: (() => boolean) | undefined,
+  options: { auth: RemoteAuth; devices: Devices },
+): SessionActor | undefined {
+  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
+  const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
+  if (!device) return undefined;
+  if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;
+  return { ...device, scopes: [...device.scopes], revocable: true };
 }

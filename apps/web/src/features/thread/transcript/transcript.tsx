@@ -45,6 +45,8 @@ export function Transcript(props: {
   const live = useThreadStore(props.threadId);
   const liveOrder = useItemOrder(props.threadId) ?? none;
   const before = useThread(props.threadId, ["history"], (reader) => reader.itemsBefore);
+  // Opened from a small tail and still owed the rest: shown loading, never as all there is.
+  const filling = useThread(props.threadId, ["history"], (reader) => reader.filling === true);
   const following = useWatched(nav.following);
   const window = jump.window;
   const source = useMemo(
@@ -63,8 +65,8 @@ export function Transcript(props: {
   }, [nav.currentTurn, jump.turn, landed]);
   const fresh = useNewSince(liveOrder, !following);
   const pager: HistoryPager = {
-    hasOlder: window ? window.before !== null : typeof before === "number",
-    loading: jump.loading !== undefined,
+    hasOlder: window ? window.before !== null : typeof before === "number" || filling === true,
+    loading: jump.loading !== undefined || filling === true,
     error: undefined,
     loadOlder: () => nav.jump.older(),
   };

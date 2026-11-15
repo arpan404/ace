@@ -1,8 +1,4 @@
-import {
-  CaretLeftIcon,
-  ChatCircleTextIcon,
-  SquareSplitHorizontalIcon,
-} from "@phosphor-icons/react";
+import { CaretLeftIcon, ChatCircleTextIcon, SquareSplitHorizontalIcon } from "@ace/icons";
 import { Activity, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";

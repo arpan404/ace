@@ -1,6 +1,6 @@
 import type { ProviderKind, ProviderInstallProgress } from "@ace/protocol";
 import type { ReadinessView } from "@ace/ui-core";
-import { ArrowClockwiseIcon, DotsThreeIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, DotsThreeIcon, InfoIcon, XIcon } from "@ace/icons";
 import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { StatusLine } from "@/components/provider-tile.tsx";

@@ -37,6 +37,10 @@ export class EncodePacer {
   constructor(fps: number) {
     this.fps = fps;
   }
+  /** A new frame rate from the next slot: the link stepped it (`video-scale.ts`). */
+  retime(fps: number): void {
+    this.fps = fps;
+  }
   /** A keyframe is owed; it goes with the next frame the gap allows. */
   requestKeyframe(): void {
     this.owed = true;

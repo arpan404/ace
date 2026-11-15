@@ -1,10 +1,5 @@
 import { useClient } from "@ace/client-react";
-import {
-  FolderOpenIcon,
-  TerminalIcon,
-  ArrowClockwiseIcon,
-  ArrowRightIcon,
-} from "@phosphor-icons/react";
+import { FolderOpenIcon, TerminalIcon, ArrowClockwiseIcon, ArrowRightIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";

@@ -111,16 +111,22 @@ test("tokens read in compact units, with growth against the week before", async 
   expect(reply.providers.map((entry) => entry.name).toSorted()).toEqual(["Claude Code", "Codex"]);
 });
 
-test("cost leaves a model ace has no price for out of the money and folds it into one line", async () => {
+test("cost leaves a provider ace has no price for out of the money and says it is unpriced", async () => {
   const owner = await connect(doubledWeek());
   const reply = await report(owner, { days: 7 });
   expect(reply.cost.total).toMatch(/^\$[\d,]+$/);
   expect(reply.cost.note).toMatch(/^API estimate/);
-  expect(reply.cost.byModel.map((line) => line.provider)).toEqual(["codex"]);
-  expect(reply.cost.byModel[0]).toMatchObject({ share: "100.0%", other: "7B tokens", fraction: 1 });
-  expect(reply.cost.unpriced?.label).toBe("1 unpriced model · 1.8B tokens");
-  expect(reply.cost.unpriced?.lines[0]?.figure).toBe("Unpriced");
   expect(reply.cost.providers.find((line) => line.id === "claude")?.figure).toBe("Unpriced");
+});
+
+test("a range with usage says so; a machine with none in the range reads as empty", async () => {
+  const busy = await report(await connect(doubledWeek()), { days: 7 });
+  expect(busy.tokens.hasUsage).toBe(true);
+  expect(busy.cost.hasUsage).toBe(true);
+  const daemon = doubledWeek("ios-quiet-host", 0);
+  const quiet = await report(await connect(daemon, "ios-quiet-host"), { days: 7 });
+  expect(quiet.tokens.hasUsage).toBe(false);
+  expect(quiet.cost.hasUsage).toBe(false);
 });
 
 test("one provider's report leaves the other out but still lists both for the filter", async () => {

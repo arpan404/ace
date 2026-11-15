@@ -1,4 +1,4 @@
-import { providerAccount, providerNames, subagentLabels } from "@ace/ui-core";
+import { providerAccount, providerNames } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -6,7 +6,8 @@ import { cn } from "@/lib/cn.ts";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { usePrimaryMachine } from "@/lib/machines.ts";
 import { AgentIcon, type AgentMark } from "./agent-lead.tsx";
-import { subagentTones, type AgentRowParts } from "./agent-row.tsx";
+import type { AgentRowParts } from "./agent-row.tsx";
+import { subagentStateWords } from "./live-words.ts";
 
 /** The agent hover card's popup and body (`agent-hover-card.tsx` holds its root and trigger). */
 export function AgentHoverPopup(props: { parts: AgentRowParts }) {
@@ -43,10 +44,10 @@ function CardBody(props: { parts: AgentRowParts }) {
           {parts.name}
         </p>
         <p
-          data-tone={subagentTones[parts.state]}
+          data-tone={subagentStateWords(parts.live, parts.state).tone}
           className="flex shrink-0 items-baseline gap-1.5 text-xs text-(--tone-text)"
         >
-          {subagentLabels[parts.state]}
+          {subagentStateWords(parts.live, parts.state).word}
           {parts.elapsed && (
             <span className="text-subtle-foreground tabular-nums">{parts.elapsed}</span>
           )}

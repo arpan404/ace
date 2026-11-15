@@ -1,6 +1,6 @@
 import { useConnectionState } from "@ace/client-react";
 import { choiceForModel, pickerModelsFromChoices, pickerProviders } from "@ace/ui-core";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";

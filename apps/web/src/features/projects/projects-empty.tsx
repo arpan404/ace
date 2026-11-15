@@ -1,4 +1,4 @@
-import { FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { FolderPlusIcon, FolderSimpleIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

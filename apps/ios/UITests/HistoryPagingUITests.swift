@@ -8,7 +8,7 @@ import XCTest
     func testOlderHistoryLoadsAndReturningToTheEndKeepsHistoryOpen() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-open", "ios-reading", "--perf-probe"]
-        app.launch()
+        app.launchWithArguments()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)
@@ -28,7 +28,7 @@ import XCTest
     func testPagedMessageKeepsItsPositionWhileIdleAndAfterReturningToTheTask() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-open", "ios-reading", "--perf-probe"]
-        app.launch()
+        app.launchWithArguments()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         expectation(for: NSPredicate(format: "value == 'Ready'"), evaluatedWith: transcript)

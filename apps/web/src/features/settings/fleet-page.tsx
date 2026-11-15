@@ -1,4 +1,4 @@
-import { DesktopTowerIcon, DeviceMobileIcon } from "@phosphor-icons/react";
+import { DesktopTowerIcon, DeviceMobileIcon } from "@ace/icons";
 import { useState } from "react";
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useAccountMachines } from "@/features/ace-account/index.ts";

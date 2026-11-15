@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { BrowserCdp, CaptureEvents, VideoHost } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
 import { LiveVideo } from "./live-video.ts";
+import type { MediaLinkHint } from "@ace/protocol";
 import type { VideoEncode } from "./video-policy.ts";
+import { keyframeBpp } from "./video-scale.ts";
 
 const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} };
 
@@ -26,11 +28,14 @@ const retinaPane: CaptureViewer = {
   video: { codecs: ["avc1.42E033"] },
 };
 
-async function firstEncode(local: boolean): Promise<VideoEncode | undefined> {
+async function firstEncode(local: boolean, hint?: MediaLinkHint): Promise<VideoEncode | undefined> {
   const encoder = fakeHost();
   const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
   video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
-  video.add("viewer", { send: () => true }, retinaPane, undefined, local);
+  const pane = hint
+    ? { ...retinaPane, viewport: { ...retinaPane.viewport, link: hint } }
+    : retinaPane;
+  video.add("viewer", { send: () => true }, pane, undefined, { local });
   for (let index = 0; index < 4; index++) {
     video.tick({ width: 659, height: 825 });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -49,7 +54,17 @@ describe("the first picture a viewer gets", () => {
   it("a viewer elsewhere starts with a smaller picture its unproven link can carry", async () => {
     const encode = await firstEncode(false);
     expect(encode?.width).toBeLessThan(1318);
+    expect(encode?.fps).toBe(60);
     expect(encode?.bitrate).toBeLessThanOrEqual(1_500_000);
+  });
+
+  it("a viewer whose client says it is on 3G starts at a low step: 15 fps of a readable picture", async () => {
+    const encode = await firstEncode(false, { effectiveType: "3g" });
+    expect(encode?.fps).toBe(15);
+    expect(encode?.bitrate).toBe(500_000);
+    expect(Math.max(encode?.width ?? 0, encode?.height ?? 0)).toBeGreaterThanOrEqual(1152);
+    // Its keyframe fits half a second of the link: the picture is smaller, not mushy.
+    expect((encode?.width ?? 0) * (encode?.height ?? 0) * keyframeBpp).toBeLessThanOrEqual(250_000);
   });
 });
 
@@ -183,7 +198,7 @@ async function startRate(capture: CaptureViewer, local = false): Promise<number 
   const encoder = fakeHost();
   const video = new LiveVideo({ now: () => 1_000, playing: () => {} });
   video.attach({ host: encoder.host, page }, "tab-1", { width: 659, height: 825, scale: 2 });
-  video.add("viewer", { send: () => true }, capture, undefined, local);
+  video.add("viewer", { send: () => true }, capture, undefined, { local });
   for (let index = 0; index < 4; index++) {
     video.tick({ width: 659, height: 825 });
     await new Promise((resolve) => setTimeout(resolve, 0));

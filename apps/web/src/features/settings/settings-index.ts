@@ -736,6 +736,13 @@ const entries = [
     title: "Reset all settings",
     keywords: ["defaults", "restore"],
   },
+  // Beta
+  {
+    id: "beta.mediaPipeline",
+    page: "/settings/beta",
+    title: "New media pipeline",
+    keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
+  },
 ] as const satisfies readonly SettingEntry[];
 
 export type SettingId = (typeof entries)[number]["id"];

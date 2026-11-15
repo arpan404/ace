@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { DotsThreeIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon } from "@ace/icons";
 import { IconButton } from "./icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "./menu.tsx";
 

@@ -8,7 +8,7 @@ import XCTest
     func testANotificationOpensItsPullRequestFromAnotherRepository() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         app.openPulls()
         // The list's large title names it: Pulls, then Issues.

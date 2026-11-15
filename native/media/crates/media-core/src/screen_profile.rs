@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Screen/device request budgets, matching devices/stream-profile.ts.
+//! Screen/device request budgets, matching devices/stream-profile.ts. These are ceilings: the
+//! followed link (`device_control::link_capped`) lowers the frame rate and then the size.
 use crate::device_control::{Codec, StreamSettings};
+use crate::link_rate::LINK_FLOOR;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Connection {
     Local,
@@ -29,7 +31,7 @@ fn profile(
         max_width: bucket(panel.0, budget.0),
         max_height: bucket(panel.1, budget.1),
         fps: 60,
-        bitrate: (budget.2 / (1.0 + level * 0.5)).round().max(1_000_000.0) as u32,
+        bitrate: (budget.2 / (1.0 + level * 0.5)).round().max(LINK_FLOOR) as u32,
     }
 }
 pub fn device_stream_profile(
@@ -40,7 +42,7 @@ pub fn device_stream_profile(
     let budget = match connection {
         Connection::Local => (3840.0, 3840.0, 12_000_000.0),
         Connection::Remote => (1440.0, 2880.0, 8_000_000.0),
-        Connection::Relay => (1080.0, 2160.0, 5_000_000.0),
+        Connection::Relay => (1440.0, 2880.0, 8_000_000.0),
     };
     profile(panel, connection, pressure, budget)
 }
@@ -52,7 +54,7 @@ pub fn screen_stream_profile(
     let budget = match connection {
         Connection::Local => (3840.0, 3840.0, 16_000_000.0),
         Connection::Remote => (2560.0, 2560.0, 10_000_000.0),
-        Connection::Relay => (1920.0, 1920.0, 6_000_000.0),
+        Connection::Relay => (2560.0, 2560.0, 10_000_000.0),
     };
     profile(panel, connection, pressure, budget)
 }

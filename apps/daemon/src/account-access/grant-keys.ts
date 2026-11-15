@@ -31,8 +31,11 @@ export function grantKeyCache(options: {
   let keys: GrantKeySet | undefined;
   let fetching: Promise<GrantKeySet> | undefined;
   let fetchedAt = Number.NEGATIVE_INFINITY;
+  /** When the last fetch started, whatever its outcome: the cooldown counts attempts. */
+  let attemptedAt = Number.NEGATIVE_INFINITY;
   const tried = new Set<string>();
   const refresh = () => {
+    if (!fetching) attemptedAt = options.now();
     fetching ??= options
       .fetchKeys()
       .then((fresh) => {
@@ -54,12 +57,26 @@ export function grantKeyCache(options: {
         kid === undefined ||
         keys.keys.some((key) => key.id === kid) ||
         tried.has(kid) ||
-        options.now() - fetchedAt < KEY_REFETCH_MS
+        options.now() - Math.max(fetchedAt, attemptedAt) < KEY_REFETCH_MS
       )
         return keys;
       if (tried.size >= rememberedUnknown) tried.clear();
       tried.add(kid);
       return refresh();
+    },
+    /**
+     * The keys to verify `token` with, only if already cached, for a check that may not wait on
+     * the network (an NK first message, ADR 0155). A miss starts the same fetch `forGrant` would,
+     * in the background, for the client's next attempt.
+     */
+    cached(token: string): GrantKeySet | undefined {
+      const kid = grantKeyId(token);
+      if (keys && (kid === undefined || keys.keys.some((key) => key.id === kid))) return keys;
+      // One fetch at a time, and at most one attempt a minute whether the last one failed or
+      // not: an unauthenticated sender's misses can't make the daemon call out any faster.
+      if (!fetching && options.now() - attemptedAt >= KEY_REFETCH_MS)
+        void refresh().catch(() => {});
+      return undefined;
     },
     /** Forget the keys, for another account origin. */
     reset() {

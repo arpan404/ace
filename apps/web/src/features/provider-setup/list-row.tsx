@@ -1,6 +1,6 @@
 import type { InstallAction, ProviderKind } from "@ace/protocol";
 import type { ReadinessView } from "@ace/ui-core";
-import { ArrowClockwiseIcon, CaretRightIcon, InfoIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CaretRightIcon, InfoIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, buttonLook } from "@/components/ui/button.tsx";

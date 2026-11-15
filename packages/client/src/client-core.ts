@@ -39,6 +39,12 @@ import {
   type CommandPayload,
 } from "@ace/protocol";
 import { RecentIds } from "./recent-ids.ts";
+import {
+  checkedPage,
+  readWholeRequest,
+  type InteractionData,
+  type WholeRequestInput,
+} from "./whole-request.ts";
 import type {
   ClientCoreApi,
   ConnectionControl,
@@ -47,7 +53,7 @@ import type {
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
-import type { Multipath } from "./multipath.ts";
+import type { LinkEstimate, Multipath } from "./multipath.ts";
 import type { MachinePathKind } from "@ace/protocol";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
@@ -240,6 +246,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
             this.#snapshots?.identify(message.hostId);
+            this.#welcomed.resolve();
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -260,6 +267,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "cursor.auth.error":
           case "registry.result":
           case "output.data":
+          case "interaction.data":
           case "command.status":
             // Resolved above with every other correlated reply.
             break;
@@ -339,20 +347,30 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#intents.reask(commands);
       };
     });
+    // Read subscribes go out with the hello; commands, the outbox and read markers wait for the
+    // welcome and the host binding (`#replay`).
     this.#subscriptions = new Subscriptions(
       limits,
       (message) => this.connection.send(message),
       options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
+      options.openTail && {
+        tail: options.openTail,
+        delay: (milliseconds, run) => options.scheduler.set(milliseconds, run),
+      },
     );
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
       options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
+    this.connection.onHello(() => {
+      this.#subscriptions.early();
+      for (const sidebar of this.#collections) sidebar.reconnect();
+    });
     this.#collections.add(this.#sidebar);
     this.#intents = new Intents({
       storage: options.storage,
@@ -515,6 +533,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   activePath(): Selection<MachinePathKind | undefined> {
     return this.notifications.select(["path"], () => this.#paths?.active?.kind);
   }
+  /** The active path's measured round trip (`ClientApi.linkEstimate`). */
+  linkEstimate(): LinkEstimate | undefined {
+    return this.#paths?.linkEstimate();
+  }
   /**
    * The app is in front again: check the socket now and skip a waiting backoff
    * (`Connection.wake`), and look for a better path, as the network may have changed meanwhile.
@@ -584,8 +606,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   #persistence() {
     const storage = this.#snapshots;
-    return storage ? { storage, scheduler: this.options.scheduler } : undefined;
+    return storage
+      ? { storage, scheduler: this.options.scheduler, welcomed: () => this.#welcomed.promise }
+      : undefined;
   }
+  /** Settles at this client's first welcome: kept records are waited for until then. */
+  #welcomed = Promise.withResolvers<void>();
   /** Settles once durable intents and every view's last read snapshot are written. */
   close(): Promise<void> {
     this.closed = true;
@@ -663,7 +689,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       limits,
       (message) => this.connection.send(message),
       this.options.id,
-      () => this.state === "ready",
+      () => this.connection.subscribable,
       this.#persistence(),
     );
     this.#collections.add(sidebar);
@@ -976,6 +1002,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number }
+      | { type: "interaction.read"; threadId: string; interactionId: string; offset: number }
       | {
           type: "threads.page";
           subscriptionId: string;
@@ -1153,6 +1180,20 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         return { ...result, bytes };
       },
       options,
+    );
+  }
+  /** A summarized request whole (ADR 0157), read in pages of its JSON. */
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return readWholeRequest((offset) =>
+      this.#readCore(
+        { type: "interaction.read", ...input, offset },
+        (value) => {
+          const page = CoreServerMessage.parse(value);
+          if (page.type !== "interaction.data") throw new ClientError("protocol");
+          return checkedPage(input, offset, page satisfies InteractionData);
+        },
+        options,
+      ),
     );
   }
   /** Read a descriptor's text, optionally resuming at a byte offset, in bounded decoded chunks. */

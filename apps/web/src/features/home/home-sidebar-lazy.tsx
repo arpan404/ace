@@ -21,7 +21,7 @@ export function ThreadsSidebar() {
   useSidebarStore();
   const chats = useRailPlace() === "chats";
   return (
-    <aside aria-label={chats ? "Chats" : "Threads"} className="flex min-h-0 flex-1 flex-col">
+    <aside aria-label={chats ? "Chats" : "Projects"} className="flex min-h-0 flex-1 flex-col">
       <Suspense
         fallback={
           <>

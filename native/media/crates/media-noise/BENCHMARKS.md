@@ -9,13 +9,13 @@ thread, median of three runs per row. TS baseline in the plan: about 240 MB/s.
 
 ## Host load decides the wall numbers
 
-Until 08:27 on 2026-11-14, every run had a load average between 170 and 600 on 16 CPUs, from other
-agent sessions; the earlier 369 MB/s (ring) and 301 µs per transport frame were taken
-at loads of 528 to 722. Under that contention the bench thread gets a fraction of a
-core, so wall throughput swings between runs by up to three times. Thread CPU time
-stays steady, and it matches an independent reference measured on the same host at
-the same moment: OpenSSL 3 `speed -evp chacha20-poly1305 -bytes 65536` gave
-1,703 MB/s at load 603 and 1,715 MB/s at load 577.
+The earlier 369 MB/s raw-ring and 301 µs transport-frame measurements were
+single-run wall timings. That run started at load 11.86; the next load probe was
+528.55. Later runs at sustained high load showed substantial wall-time variation.
+Thread CPU timing separates execution time from time without a scheduled CPU.
+An independent reference on this host, OpenSSL 3
+`speed -evp chacha20-poly1305 -bytes 65536`, gave 1,703 MB/s at load 603 and
+1,715 MB/s at load 577. Neither that reference nor CPU time replaces the wall-time gate.
 
 The build was not the cause. ring's ARMv8 objects (`chacha20_poly1305_armv8`,
 `chacha-armv8`) are linked, RustCrypto 0.11.0 uses its NEON backend, and raising the
@@ -25,8 +25,9 @@ thread to user-interactive QoS changed nothing.
 
 The public path allocated a new `Vec` and copied the plaintext for every sealed frame,
 on top of the fragmenter's own allocation and copy; opening copied the frame and wiped
-the copy. The previous bench also kept every ciphertext (about 6.5 GB at full frames),
-so its transport rows mostly measured page faults. Transport now has
+the copy. The previous bench also retained every ciphertext (about 64 MB at full frames).
+Its transport rows therefore included allocation, copying and retained-output costs;
+those timings did not isolate AEAD performance. Transport now has
 `Fragments::next_into`, `RelayStream::seal_in_place` and `open_in_place` over one
 reused buffer per stream. Sealing in place overwrites the plaintext, so no wipe is
 needed. `seal` and `open` are copying wrappers over the same code, and the shared TS
@@ -93,6 +94,12 @@ wipes buffers on failure and derives the rekey in a fixed array.
 | ring 0.17.14      |      65,519 |       1,720 |    38.09 |             1,831 |
 | Transport seal    |      65,519 |       1,767 |    37.08 |             1,881 |
 | Transport open    |      65,519 |       1,803 |    36.33 |             1,834 |
+
+For full-frame transport seal, the three wall results were 1,742.824, 1,838.583
+and 1,766.970 MB/s, at load averages `[19.29, 66.63, 183.19]` before each run
+(1, 5 and 15 minutes). These give the reported median of 1,766.970 MB/s and
+37.080 µs/frame. Raw ring's corresponding median was 1,720.292 MB/s
+(38.086 µs/frame), and RustCrypto's was 901.685 MB/s (72.663 µs/frame).
 
 The load stayed under 16 for less than a minute. The enforced runs around it, at
 starting loads from 16 to 29, gave transport seal medians of 1,908 to 1,994 MB/s, all

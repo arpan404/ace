@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { PanelTitle, panelTitleText } from "@/components/ui/panel.tsx";

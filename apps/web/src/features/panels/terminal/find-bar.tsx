@@ -1,10 +1,4 @@
-import {
-  CaretDownIcon,
-  CaretUpIcon,
-  MagnifyingGlassIcon,
-  TextAaIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, TextAaIcon, XIcon } from "@ace/icons";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";

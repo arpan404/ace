@@ -3,7 +3,7 @@ import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
 import { chooserWaitingCopy, screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { agentInitial } from "@ace/ui-core/cowork";
-import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, HandIcon, StopIcon } from "@ace/icons";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { AppMark } from "@/components/app-mark.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -13,6 +13,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
+import { DegradedLine } from "@/lib/video/degraded.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -121,6 +122,9 @@ export function SessionCard(props: {
             " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
+        {view.lifecycle === "live" && (
+          <DegradedLine acceleration={state.acceleration} className="text-sm" />
+        )}
         {view.watchOnlyReason && view.lifecycle === "live" && (
           <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>
         )}

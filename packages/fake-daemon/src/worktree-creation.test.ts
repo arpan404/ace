@@ -2,14 +2,17 @@ import { expect, test } from "vitest";
 import { Command, DeviceId, ServerMessage, ThreadId, type ClientMessage } from "@ace/protocol";
 import { FakeDaemon } from "./daemon.ts";
 
-function fixture() {
+function fixture(slow = true) {
   let time = 1000;
   const jobs: (() => void)[] = [];
+  /** The delay each scheduled step asked for, in order. */
+  const delays: number[] = [];
   const daemon = new FakeDaemon({
     clock: () => time,
-    worktreeCreationSlow: true,
+    worktreeCreationSlow: slow,
     worktreeCreationSchedule(callback, delay) {
       let active = true;
+      delays.push(delay);
       jobs.push(() => {
         if (active) {
           time += delay;
@@ -65,6 +68,7 @@ function fixture() {
   const view = () => daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("tree") });
   return {
     daemon,
+    delays,
     connection,
     messages,
     send,
@@ -162,4 +166,17 @@ test("fake failure offers retry and local fallback without admitting the input",
   } finally {
     f.connection.close();
   }
+});
+
+test("a project paced by hand makes its worktrees at that pace, others at the usual one", () => {
+  const paced = fixture(false);
+  paced.daemon.workspace.git.paceCreation("project", 900);
+  paced.send({ type: "command", command: paced.command });
+  paced.drain();
+  expect(paced.delays.length).toBeGreaterThan(3);
+  expect(new Set(paced.delays)).toEqual(new Set([900]));
+  const usual = fixture(false);
+  usual.send({ type: "command", command: usual.command });
+  usual.drain();
+  expect(new Set(usual.delays)).toEqual(new Set([80]));
 });

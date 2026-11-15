@@ -1,4 +1,4 @@
-import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { formatAge, resultCountLabel } from "@ace/ui-core";
 import { useNavigate, useRouter } from "@tanstack/react-router";

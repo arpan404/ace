@@ -437,6 +437,7 @@ Example:
 | type | yes | `"thread.delete"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | force | no | boolean |  |
+| beforeSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -2083,6 +2084,7 @@ Example:
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
 | context | no | [MessageContext.json](schema/MessageContext.json) |  |
 | delivery | no | [FollowUpBehavior.json](schema/FollowUpBehavior.json) |  |
+| runId | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/RunId.json"},{"type":"null"}]} |
 
 Example:
 
@@ -2137,11 +2139,13 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"thread.archive"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| beforeSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
+  "beforeSeq": 2,
   "threadId": "example",
   "type": "thread.archive"
 }
@@ -2226,6 +2230,7 @@ Example:
 | type | yes | `"interaction.resolve"` |  |
 | interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
 | resolution | yes | [InteractionResolution.json](schema/InteractionResolution.json) |  |
+| readWhole | no | string | {"minLength":1,"maxLength":64} |
 
 Example:
 

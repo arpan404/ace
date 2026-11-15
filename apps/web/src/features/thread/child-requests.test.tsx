@@ -46,7 +46,7 @@ test("the parent reads Waiting for your answer, naming the child, only while the
   const { app, feed } = await openParent();
   const head = within(feed).getByRole("group", { name: "Turn in progress" });
   await waitFor(() => expect(head.textContent).toBe("Waiting for your answer · general assistant"));
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const row = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: /^Site review/ },
   );

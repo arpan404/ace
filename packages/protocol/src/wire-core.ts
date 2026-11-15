@@ -4,6 +4,7 @@ import { ForgeInboxAction } from "./forge-inbox.ts";
 import { RepositoryPublication } from "./hosted-repositories.ts";
 import { Project, ProjectInspection } from "./projects.ts";
 import { z } from "zod";
+import { MediaTicket } from "./media-connection.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -12,7 +13,7 @@ import { DiagnosticsHealth } from "./diagnostics.ts";
 import { Event, UsageUpdated } from "./events.ts";
 import { ForgeStackOperation } from "./forge-stacks.ts";
 import { ForgePrRef, ForgePrStatus } from "./forge.ts";
-import { CommandId, DeviceId, HostId, InstallId, ThreadId } from "./ids.ts";
+import { CommandId, DeviceId, HostId, InstallId, InteractionId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { Capabilities } from "./provider.ts";
@@ -70,6 +71,13 @@ export const ThreadView = z.object({
   itemSeqs: records(seq.positive()).optional(),
   /** Exclusive item creation-sequence cursor for older history. */
   itemsBefore: seq.positive().nullable().default(null),
+  /**
+   * On a snapshot cut to a `tail` that holds less than a full snapshot would: it has older items
+   * left, or `previews` names items it sent only as a bounded preview (a full snapshot carries
+   * them whole). The client completes the thread by subscribing again with neither a cursor nor
+   * a tail, and the full snapshot replaces this one.
+   */
+  partial: z.object({ previews: z.array(z.string().min(1)).max(200) }).optional(),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -77,12 +85,24 @@ export const ThreadView = z.object({
   usageSnapshots: records(UsageUpdated).default({}),
 });
 export type ThreadView = z.infer<typeof ThreadView>;
+/** One device's read cursor for a thread, as `thread.readState` answers it. */
+export const ThreadReadCursor = z.object({
+  lastSeenSeq: seq,
+  /** When it was last moved; null while the device has never marked the thread read. */
+  updatedAt: z.number().int().nonnegative().nullable(),
+});
+export type ThreadReadCursor = z.infer<typeof ThreadReadCursor>;
 export const ThreadListEntry = Thread.omit({ rootAgentId: true }).extend({
   /**
    * Where the daemon puts the thread in the Threads panel. Absent from older daemons, and from
    * archived or unlisted threads; one this client can't read is dropped, not fatal.
    */
   place: ListedThreadPlace.optional(),
+  /**
+   * The subscribing device's read cursor for the thread, sent again whenever that device marks
+   * it read. Absent from older daemons: the client asks with `thread.readState`.
+   */
+  readState: ThreadReadCursor.optional(),
 });
 export type ThreadListEntry = z.infer<typeof ThreadListEntry>;
 export const ThreadListCursor = z.object({ at: z.number().int().nonnegative(), id: ThreadId });
@@ -110,6 +130,8 @@ export const ThreadListView = z.object({
    * hold means it must subscribe again without `resume`.
    */
   keep: z.array(ThreadId).optional(),
+  /** With `keep`: the subscribing device's read cursor for each kept thread that has one. */
+  reads: records(ThreadReadCursor).optional(),
 });
 export type ThreadListView = z.infer<typeof ThreadListView>;
 export const SnapshotView = z.discriminatedUnion("kind", [ThreadView, ThreadListView]);
@@ -159,7 +181,30 @@ export const EntitiesPage = z
       entries: z.array(BackgroundTask).max(200),
     }),
   ])
-  .and(z.object({ seq, threadId: ThreadId, entitiesBefore: seq.positive().nullable() }));
+  .and(
+    z.object({
+      seq,
+      threadId: ThreadId,
+      entitiesBefore: seq.positive().nullable(),
+      /**
+       * Entities of this page too large for any reply (over 32 MiB of JSON), each named in its
+       * place: never dropped, so a reader can say one waits that it cannot show.
+       */
+      tooLarge: z
+        .array(
+          z.object({
+            id: z.string(),
+            /** An interaction's request kind. */
+            kind: z.string().optional(),
+            /** Pending, working or running, as the page's active entities are. */
+            active: z.boolean(),
+            bytes: seq,
+          }),
+        )
+        .max(200)
+        .optional(),
+    }),
+  );
 export type EntitiesPage = z.infer<typeof EntitiesPage>;
 export const CommandResult = z.object({
   issue: ForgeIssueRef.optional(),
@@ -226,7 +271,15 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
-      channel: z.enum(["files", "devices", "browser", "screen", "provider_auth"]).optional(),
+      channel: z
+        .enum(["files", "devices", "browser", "screen", "provider_auth", "media"])
+        .optional(),
+      /**
+       * With `channel: "media"` on a relay stream with the `media` purpose: the ticket from the
+       * same device's `media.connect` (ADR 0147 §5.2). Refused on any other channel, and a
+       * `media` channel without it is refused.
+       */
+      mediaTicket: MediaTicket.optional(),
       protocolVersion: z.literal(1),
       deviceId: DeviceId,
       token: z.string().optional(),
@@ -268,17 +321,26 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
        * their defaults), `provider-capabilities` (threads that name their capabilities by a key
        * sent once in `provider.capabilities`), `spade-hidden` (accepts the hidden Spade
-       * error code and live-end reason). Unknown names are ignored; without a name the
-       * daemon sends the full shape.
+       * error code and live-end reason), `raw-on-demand` (items whose raw payloads clients
+       * only show, in snapshots, pages, turn steps and live item events, come without them and
+       * marked `rawOmitted`; `item.raw` reads them). Unknown names are ignored; without a name
+       * the daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
       /**
        * Frame packing this client can undo: `lines` lets the daemon put several server messages
        * in one text frame, each one's JSON on its own line (joined by `\n`, which JSON text
-       * never holds raw), in the order they were sent. Unknown names are ignored; without
-       * `lines` every frame holds exactly one message.
+       * never holds raw), in the order they were sent. `short-deltas` lets an events message
+       * name its thread once (`threadId`) and carry each streamed delta as
+       * `{seq, firstSeq?, at, d: [itemId, agentId, field, append]}`, without its event id.
+       * Unknown names are ignored; without `lines` every frame holds exactly one message.
        */
       framing: z.array(z.string().max(32)).max(8).optional(),
+      /**
+       * With a ticket: this client keeps the next one in memory, so the welcome may carry a
+       * fresh one-use ticket for its next connection (ADR 0150). Older daemons ignore it.
+       */
+      nextTicket: z.literal(true).optional(),
     })
     .refine(
       (hello) =>
@@ -303,6 +365,22 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     /** Request an explicit completion acknowledgement for paced resubscription. */
     paced: z.boolean().optional(),
     afterSeq: seq.optional(),
+    /**
+     * For a thread: any snapshot this subscription sends carries only the newest transcript
+     * items, at most `items` of them in at most `bytes`; status, agents, interactions and queue
+     * stay whole. Older items are read by `items.page` from the snapshot's `itemsBefore`. A
+     * daemon that does not know the field sends its full snapshot.
+     */
+    tail: z
+      .object({
+        items: z.number().int().min(1).max(200),
+        bytes: z
+          .number()
+          .int()
+          .min(1024)
+          .max(1024 * 1024),
+      })
+      .optional(),
   }),
   z.object({ type: z.literal("unsubscribe"), subscriptionId: z.string().min(1) }),
   z.object({ type: z.literal("command"), command: Command }),
@@ -311,7 +389,24 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     streamId: z.string().min(1),
     offset: seq,
+    /**
+     * The most bytes this read may return. The daemon may return fewer (newer daemons return at
+     * most 16 KiB, so one reply never holds up an urgent message on a slow link); a reader goes
+     * on from `nextOffset` until `eof`.
+     */
     limit: seq.positive().max(256 * 1024),
+  }),
+  /**
+   * A page of a request's whole JSON, for one a thread sends only summarized (`truncated`,
+   * ADR 0157). From `offset` 0, then each reply's `nextOffset`, until `eof`.
+   */
+  z.object({
+    type: z.literal("interaction.read"),
+    requestId: z.string().min(1),
+    threadId: ThreadId,
+    interactionId: InteractionId,
+    /** UTF-16 code units into the request's JSON. */
+    offset: seq,
   }),
   z.object({
     type: z.literal("items.page"),
@@ -325,8 +420,25 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     requestId: z.string().min(1),
     threadId: ThreadId,
     collection: EntityCollection,
+    /**
+     * `Number.MAX_SAFE_INTEGER` for the first page, else the `entitiesBefore` of the page before,
+     * passed back as it came. Newer daemons read any other value (an older daemon's cursor, a
+     * snapshot's) as the first page; older daemons read a newer daemon's cursor as their own
+     * first page, so a reader keeps entities by id.
+     */
     before: seq.positive(),
     limit: seq.positive().max(200),
+    /**
+     * The most bytes of entries a page holds (16 KiB to 128 KiB); 128 KiB without it. Older
+     * daemons ignore it. Newer daemons send active entities (pending requests, working agents)
+     * first, page after page, then the rest. An entity larger than this goes alone and whole, so
+     * that page exceeds it by that one entity; one too large for any reply is named in the
+     * page's `tooLarge` instead.
+     */
+    maxBytes: seq
+      .min(16 * 1024)
+      .max(128 * 1024)
+      .optional(),
   }),
   z.object({
     type: z.literal("threads.page"),
@@ -412,6 +524,31 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
      * one. Absent for other credentials and from daemons that don't enforce it.
      */
     grantTtlMs: z.number().int().nonnegative().optional(),
+    /**
+     * For a hello that opened with a ticket and asked for the next (`nextTicket`): a fresh
+     * one-use ticket for this device's next connection, valid `ttlMs` from now (ADR 0150). It
+     * is bound to the device and its credential, and revoking the device voids it.
+     */
+    ticket: z
+      .object({ ticket: z.string().regex(/^[0-9a-f]{64}$/), ttlMs: z.number().int().positive() })
+      .optional(),
+    /**
+     * Relay stream handshakes this daemon takes besides Noise XX: `nk1` lets a client that holds
+     * a ticket or grant open its next relay stream with Noise NK and an early hello (ADR 0155).
+     * Trusted only as received in a welcome under the pinned host key. Unknown names are ignored.
+     */
+    relayHandshakes: z.array(z.string().max(16)).max(8).optional(),
+  }),
+  /**
+   * On a relay stream opened with Noise NK (ADR 0155): the daemon took the client's
+   * `hello.confirm` and has now run what a hello runs. With `nextTicket` asked, it carries the
+   * one-use ticket for the next connection, as a welcome does on the other paths.
+   */
+  z.object({
+    type: z.literal("hello.confirmed"),
+    ticket: z
+      .object({ ticket: z.string().regex(/^[0-9a-f]{64}$/), ttlMs: z.number().int().positive() })
+      .optional(),
   }),
   z
     .object({ type: z.literal("snapshot"), subscriptionId: z.string(), seq, view: SnapshotView })
@@ -437,6 +574,13 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
       afterSeq: seq,
       throughSeq: seq,
       events: z.array(DeliveryEvent),
+      /**
+       * Events an NK relay session gets before it confirms (ADR 0155): applied ahead of the
+       * subscription, which doesn't exist yet. They mark nothing current, ready or confirmed,
+       * and the subscription that follows may still answer with a snapshot. Only an NK session
+       * gets them.
+       */
+      early: z.literal(true).optional(),
     })
     .refine(
       (message) => {
@@ -488,6 +632,24 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     bytes: z.string(),
     eof: z.boolean(),
   }),
+  /**
+   * A page of the request's JSON (`InteractionRequest`), `text` from `offset` to `nextOffset` of
+   * `total` UTF-16 code units. `version` names the request a page is from: a reader whose pages
+   * differ in it starts again from 0, as the request was replaced meanwhile. An answer to it
+   * echoes it as `readWhole`.
+   */
+  z.object({
+    type: z.literal("interaction.data"),
+    requestId: z.string(),
+    threadId: ThreadId,
+    interactionId: InteractionId,
+    version: z.string().min(1).max(64),
+    offset: seq,
+    nextOffset: seq,
+    total: seq,
+    text: z.string(),
+    eof: z.boolean(),
+  }),
   ItemsPage.extend({ type: z.literal("items.page"), requestId: z.string() })
     .refine(
       (page) =>
@@ -521,6 +683,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "unsubscribe",
   "command",
   "output.read",
+  "interaction.read",
   "items.page",
   "threads.page",
   "entities.page",
@@ -542,6 +705,7 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "commandResult",
   "error",
   "output.data",
+  "interaction.data",
   "items.page",
   "threads.page",
   "entities.page",

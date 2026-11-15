@@ -22,15 +22,18 @@ import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
+import { startMedia } from "./media.ts";
 import type { ServiceContext } from "./types.ts";
+import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startScreen(
-  { config, options, resources, services, store, now: epochNow }: ServiceContext,
+  context: ServiceContext,
   clock: ScreenCoworkOptions["clock"] = {
     now: () => performance.now(),
     set: nodeScheduler.after,
   },
 ) {
+  const { config, options, resources, services, store, now: epochNow } = context;
   const helper = resolveScreenHelper({
     platform: process.platform,
     configured: config.screenHelper,
@@ -66,6 +69,9 @@ export async function startScreen(
           }
         : {}),
   });
+  // ace-media (ADR 0147, phase 2): Mac screens stream into it while `media.encode` is `auto`.
+  const media =
+    process.platform === "darwin" && helper && !options.screen ? startMedia(context) : undefined;
   const manager =
     options.screen ??
     (helper
@@ -74,6 +80,7 @@ export async function startScreen(
           inheritResponsibility: config.screenHelperInheritsResponsibility,
           session,
           cowork,
+          media: media ? { add: (producer) => media.attach(producer) } : undefined,
         })
       : undefined);
   if (!manager) return;
@@ -196,6 +203,12 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
         send: context.send,
         // Video for a helper that makes only JPEG (Linux, Windows): ace's encoder-only Chrome.
         pictureEncoder: () => context.options.browser?.videoEncoder(),
+        // Subscribes naming a media connection go to ace-media (D1) while it serves screens.
+        delivery: {
+          owner: () => mediaOwner(context),
+          port: () => context.options.mediaDelivery?.(),
+        },
+        acceleration: context.options.mediaAcceleration,
         media: {
           bufferedBytes: () => context.socket.bufferedAmount,
           write: (piece) =>

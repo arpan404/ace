@@ -1,3 +1,5 @@
+import type { MediaRoute } from "@ace/browser/live-view";
+import { HeldStreams, type DeliverNatively } from "./held-streams.ts";
 import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
@@ -52,7 +54,13 @@ export const NativeDeviceRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("devices.tree"), deviceId: AppDeviceId }),
 ]);
 export const NativeDeviceControl = z.discriminatedUnion("type", [
-  DeviceAck,
+  DeviceAck.extend({
+    fallback: z.boolean().optional(),
+    /** The codec the decoder couldn't play, with `fallback`. */
+    codec: z.string().max(64).optional(),
+    /** The delivery generation Swift's picture came for (`media.delivery`). */
+    generation: z.number().int().nonnegative().optional(),
+  }),
   z.object({ type: z.literal("native.devices.close") }),
   z.object({ type: z.literal("native.devices.unwatch"), deviceId: DeviceAck.shape.deviceId }),
   z.object({ type: z.literal("native.devices.release"), deviceId: DeviceAck.shape.deviceId }),
@@ -121,10 +129,11 @@ export interface NativeDevicesOptions {
 const retryMs = 10_000;
 
 export class NativeDevices {
+  /** The devices this phone watches live; the shared client decides how their pictures arrive. */
+  readonly #streams: HeldStreams;
   readonly client: DeviceClient;
   readonly connection: NativeFeatureConnection;
   readonly options: NativeDevicesOptions | undefined;
-  #ack: ((value: z.infer<typeof DeviceAck>) => Promise<void>) | undefined;
   #view: ViewWatch | undefined;
   #stopView: (() => void) | undefined;
   #closed = false;
@@ -150,16 +159,19 @@ export class NativeDevices {
       id: config.id,
       schedule: (callback, delay) => scheduler.set(delay, callback),
     });
+    this.#streams = new HeldStreams(this.client, "device");
     this.connection = new NativeFeatureConnection({
       state: () => this.client.getSnapshot(),
       watch: (listener) => this.client.watch(listener),
       end: () => this.client.disconnect(),
       begin: () => {
-        const channel = nativeFeatureChannel(config, "devices");
-        this.#ack = (value) => channel.send(value);
-        this.client.connect(channel);
+        this.client.connect(nativeFeatureChannel(config, "devices"));
       },
     });
+  }
+  /** Take the devices' pictures by this media connection while it has a binding (ADR 0147 §4). */
+  useMedia(route: MediaRoute | undefined, deliver?: DeliverNatively): void {
+    this.#streams.useMedia(route, deliver);
   }
   async request(raw: z.infer<typeof NativeDeviceRequest>, signal: AbortSignal): Promise<unknown> {
     await this.connection.ready(signal);
@@ -186,6 +198,12 @@ export class NativeDevices {
     if (operation.op === "screenshot") throw new Error("Use the native live view");
     if (operation.op === "controller") return this.#controller(operation, raw.threadId);
     if (controlled.has(operation.op)) return this.#act(operation, raw.threadId);
+    // A watching view holds the stream; the shared client subscribes it, on the media
+    // connection when there is one, and again whenever that changes.
+    if (operation.op === "subscribe") {
+      this.#streams.hold(operation.deviceId);
+      return null;
+    }
     return this.client.request(operation);
   }
   handle(action: z.infer<typeof NativeDeviceControl>): void {
@@ -194,10 +212,21 @@ export class NativeDevices {
         this.#closeView();
         this.#closeLogs();
         this.connection.close();
-        this.#ack = undefined;
+        this.#streams.clear();
         return;
       case "devices.ack":
-        void this.#ack?.(action).catch(() => {});
+        this.#streams.ack(
+          action.deviceId,
+          action.streamId,
+          action.sequence,
+          action.keyframe === true,
+          action.generation,
+        );
+        if (action.fallback)
+          this.#streams.fallBack(action.deviceId, action.codec ?? "hvc1", action.generation);
+        return;
+      case "native.devices.unwatch":
+        this.#streams.release(action.deviceId);
         return;
       case "native.devices.view":
         this.#watchView(action);
@@ -212,11 +241,7 @@ export class NativeDevices {
       default:
         if (!this.client.getSnapshot().connected) return;
         void this.client
-          .request(
-            action.type === "native.devices.unwatch"
-              ? { op: "unsubscribe", deviceId: action.deviceId }
-              : { op: "controller", deviceId: action.deviceId, controller: "none" },
-          )
+          .request({ op: "controller", deviceId: action.deviceId, controller: "none" })
           .catch(() => {});
     }
   }

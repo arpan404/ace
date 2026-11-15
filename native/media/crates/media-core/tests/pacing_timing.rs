@@ -72,12 +72,47 @@ fn picture_requests_have_one_deadline_and_never_burst() {
 #[test]
 fn scale_sizes_first_picture_immediately_and_cancels_short_pressure_spells() {
     let mut scale = PictureScale::default();
-    let small = scale.update(1000.0, 2_073_600.0, 60.0, 0.0);
-    assert!((small - 0.84_f64.powi(6)).abs() < 1e-14);
-    assert_eq!(scale.update(16_000_000.0, 2_073_600.0, 60.0, 100.0), small);
-    scale.update(1000.0, 2_073_600.0, 60.0, 2000.0);
-    assert_eq!(scale.update(16_000_000.0, 2_073_600.0, 60.0, 3100.0), small);
-    assert_eq!(scale.update(16_000_000.0, 2_073_600.0, 60.0, 6100.0), 1.0);
+    let at = |link, now| PictureLink {
+        link,
+        pixels: 2_073_600.0,
+        side: 0.0,
+        fps: 60.0,
+        now,
+        probing: true,
+    };
+    let small = scale.update(at(1000.0, 0.0));
+    assert!((small.scale - 0.84_f64.powi(6)).abs() < 1e-14);
+    assert_eq!(small.fps, 5.0);
+    assert_eq!(scale.update(at(16_000_000.0, 100.0)), small);
+    scale.update(at(1000.0, 2000.0));
+    assert_eq!(scale.update(at(16_000_000.0, 3100.0)), small);
+    assert_eq!(
+        scale.update(at(16_000_000.0, 6100.0)),
+        Step {
+            scale: 1.0,
+            fps: 60.0
+        }
+    );
+}
+#[test]
+fn a_measured_thin_link_steps_the_frame_rate_before_the_size() {
+    let steps: Vec<_> = [6e6, 4e6, 2.5e6, 2.1e6, 1e6, 4e5]
+        .into_iter()
+        .map(|link| {
+            PictureScale::default().update(PictureLink {
+                link,
+                pixels: 2560.0 * 1600.0,
+                side: 0.0,
+                fps: 60.0,
+                now: 0.0,
+                probing: false,
+            })
+        })
+        .collect();
+    assert!(steps.windows(2).all(|w| w[0].fps >= w[1].fps));
+    // The picture shrinks only once at 15 fps: below it, fewer frames would save nothing.
+    assert!(steps.iter().all(|s| s.scale == 1.0 || s.fps == 15.0));
+    assert!(steps.last().is_some_and(|s| s.scale < 1.0));
 }
 #[test]
 fn stale_and_reset_acks_do_not_change_link_estimate_and_drops_respect_bounds() {
@@ -87,10 +122,15 @@ fn stale_and_reset_acks_do_not_change_link_estimate_and_drops_respect_bounds() {
     r.acknowledged(1, 100.0);
     assert_eq!(r.rtt(), None);
     assert_eq!(r.rate(), 1_500_000.0);
+    // The first cut drains (half the rate for a while); drops then say nothing new.
     for t in 0..30 {
         r.dropped(f64::from(t));
     }
-    assert_eq!(r.rate(), 500_000.0);
+    assert_eq!(r.rate(), 750_000.0);
+    for t in 1..30 {
+        r.dropped(f64::from(t) * 250.0);
+    }
+    assert_eq!(r.rate(), LINK_FLOOR);
     let previous = r.rate();
     r.acknowledged(100, 1000.0);
     assert_eq!(r.rate(), previous);
@@ -113,7 +153,8 @@ fn quantizer_limits_retarget_and_settle_budget_follow_content() {
         q.observe(1, false);
     }
     assert_eq!(q.next(false), 18.0);
-    assert_eq!(q.next(true), 24.0);
+    // The last keyframe (1 MB at 51) is half a second of the new rate: the next stays as coarse.
+    assert_eq!(q.next(true), 51.0);
     q.observe(100, true);
     assert_eq!(q.settled(), Some(18.0));
     assert_eq!(q.settled(), None);
@@ -155,6 +196,7 @@ fn unsupported_and_native_viewers_are_excluded_and_smallest_link_sets_shared_rat
             codecs: &["h264"],
             link: 8_000_000.0,
             scale: 1.0,
+            fps: 60.0,
         },
         VideoViewer {
             id: "b",
@@ -162,6 +204,7 @@ fn unsupported_and_native_viewers_are_excluded_and_smallest_link_sets_shared_rat
             codecs: &["h264"],
             link: 700_000.0,
             scale: 1.0,
+            fps: 60.0,
         },
         VideoViewer {
             id: "c",
@@ -169,6 +212,7 @@ fn unsupported_and_native_viewers_are_excluded_and_smallest_link_sets_shared_rat
             codecs: &["vp9"],
             link: 1_000_000.0,
             scale: 1.0,
+            fps: 60.0,
         },
         VideoViewer {
             id: "d",
@@ -179,6 +223,7 @@ fn unsupported_and_native_viewers_are_excluded_and_smallest_link_sets_shared_rat
             codecs: &["h264"],
             link: 500_000.0,
             scale: 1.0,
+            fps: 60.0,
         },
     ];
     let plan = plan_video(&source, &viewers);
@@ -213,6 +258,7 @@ fn fifth_size_joins_nearest_matching_encode_and_a_fifth_codec_gets_no_assignment
         codecs: codec,
         link: 8_000_000.0,
         scale: 1.0,
+        fps: 60.0,
     };
     let sizes = [
         make("a", 2560.0, &["a"]),
@@ -236,4 +282,21 @@ fn fifth_size_joins_nearest_matching_encode_and_a_fifth_codec_gets_no_assignment
     assert_eq!(plan.encodes.len(), 4);
     assert_eq!(plan.viewers.len(), 4);
     assert!(plan.viewers.iter().all(|(id, _)| id != "e"));
+}
+#[test]
+fn delivery_counts_an_ack_at_its_own_time_and_expires_it_at_each_window_edge() {
+    let rate = |bytes: f64, ms: f64| bytes * 8.0 * 1000.0 / ms;
+    // 256 small acks in the first 256 ms, then a large one at 1.5 s: half a second old at 2 s.
+    let mut window = DeliveryWindow::default();
+    for at in 0..256 {
+        window.add(f64::from(at), 10);
+    }
+    window.add(1_500.0, 100_000);
+    assert_eq!(window.rates(2_000.0).0, rate(100_000.0, 1_000.0));
+    let mut window = DeliveryWindow::default();
+    window.add(1_500.0, 100_000);
+    assert_eq!(window.rates(2_499.0).0, rate(100_000.0, 1_000.0));
+    assert_eq!(window.rates(2_510.0).0, 0.0);
+    assert_eq!(window.rates(3_499.0).1, rate(100_000.0, 2_000.0));
+    assert_eq!(window.rates(3_510.0).1, 0.0);
 }

@@ -70,10 +70,8 @@ export const machineChildGenerations = `${machineChildren}
  * - `lost_at`, `lost_key` and `lost_ask` mark a child whose pairing is gone: it stays unsettled,
  *   and its parent asks the person (the open approval's key and id) until the pairing returns or
  *   the person stops tracking it.
- * - `machine_child_cursors` schedules polling: one row per machine with unsettled children, the
- *   poll turn it was last served in and the id it read up to, so a poll serves the machines served
- *   longest ago and pages each one from where it stopped, wrapping. A partial index keeps those
- *   pages to the machine's unsettled children.
+ * - `machine_child_cursors` is no longer read or written: polling is planned per child
+ *   (machines/child-schedule.ts). The table stays so older stores open unchanged.
  * - `machine_message_rejections` is the target's answer for a message it refused before it ever
  *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
  *   copy of that request is admitted, so a refused request can never run later. Each is kept only
@@ -134,8 +132,9 @@ export const machineJobs = `CREATE TABLE IF NOT EXISTS machine_jobs (
  * - `seen_at`: when the child's machine last reported it. Backfilled from when it last changed,
  *   but startup counts its lease from the daemon's own start, so downtime here is never blamed
  *   on the child.
- * - `silent_since`: its lease lapsed, so it is lost contact and no longer holds its parent; null
- *   while it reports.
+ * - `silent_since`: its lease lapsed, so it is lost contact: when its first unanswered read went
+ *   out. It still holds its parent, which asks the person about it (ADR 0153, its question in
+ *   `lost_key`/`lost_ask`); null while it reports.
  * - `stop_started_at`, `stop_attempts`, `stop_last_at`: a Stop in progress, so a restart picks up
  *   where it was and one past its bound gives up at once.
  * - `stopped_unconfirmed`: every cancel went out and its machine never confirmed the stop; it is

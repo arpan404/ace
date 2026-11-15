@@ -2,6 +2,7 @@ import type { Transport, TransportEvents } from "@ace/client";
 import { host } from "./host.ts";
 import type { TrustMonitor } from "./access.ts";
 import type { AuthenticatedChannelOptions } from "@ace/client/devices";
+import type { MediaSocketOpen } from "@ace/native-host";
 
 type Early = (text: string) => void;
 const sockets = new Map<
@@ -22,12 +23,15 @@ const earlyMessages = 3;
  * and draws them; any other binary message reaches the SDK as bytes.
  */
 export function nativeTransport(trust?: TrustMonitor, early?: Early): Transport {
-  const id = host.uuid();
+  return nativeSocket(host.uuid(), "", trust, early);
+}
+
+function nativeSocket(id: string, opening: string, trust?: TrustMonitor, early?: Early): Transport {
   return {
     supportsBinary: true,
     open(events) {
       sockets.set(id, { events, trust, early, seen: 0 });
-      host.socket(id, "open", "");
+      host.socket(id, "open", opening);
     },
     send(text) {
       host.socket(id, "send", text);
@@ -35,6 +39,33 @@ export function nativeTransport(trust?: TrustMonitor, early?: Early): Transport 
     close() {
       sockets.delete(id);
       host.socket(id, "close", "");
+    },
+  };
+}
+
+/** A media connection's socket: text both ways, plus the one binary hello it opens with. */
+export interface MediaSocket extends Transport {
+  /** The native socket's id: the path its pictures come by (`media.delivery`). */
+  readonly id: string;
+  sendBytes(bytes: Uint8Array): void;
+}
+
+/**
+ * A media connection to ace-media (ADR 0147 §4), opened natively at the `media.connect` address,
+ * or through the relay when there is none or the machine is reached that way. Its pictures never
+ * enter JavaScriptCore: Swift draws them as it draws the daemon socket's. The welcome and pongs
+ * arrive here as text; the hello, acks and pings leave from here.
+ */
+export function nativeMediaSocket(url: string | undefined): MediaSocket {
+  const id = host.uuid();
+  const opening: MediaSocketOpen = { media: url === undefined ? {} : { url } };
+  return {
+    ...nativeSocket(id, JSON.stringify(opening)),
+    id,
+    sendBytes(bytes) {
+      let binary = "";
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      host.socket(id, "bytes", host.latin1Base64(binary, false));
     },
   };
 }

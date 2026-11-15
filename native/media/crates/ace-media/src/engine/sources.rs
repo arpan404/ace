@@ -216,11 +216,11 @@ impl Sources {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
         let pictures = matches!(origin, Origin::TabPictures {} | Origin::UserTab {});
-        let reads_itself = pictures
-            || matches!(
-                origin,
-                Origin::Simulator { .. } | Origin::Scrcpy { .. } | Origin::EmulatorFrames { .. }
-            );
+        // An emulator's frame file is encoded by the screen helper's `--encode-frames`, and an
+        // Android device's scrcpy stream is forwarded by the daemon, which keeps its sockets: both
+        // stream in over ingest like any producer and stamp their own epochs. A Simulator's
+        // serve-sim stream is read here.
+        let reads_itself = pictures || matches!(origin, Origin::Simulator { .. });
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
             stamper.apply(epoch, false, now);
@@ -244,17 +244,31 @@ impl Sources {
             },
         );
         status(out, id, Status::Starting, None, None);
-        // Readers for simulators, scrcpy and emulator frame files land with their producers'
-        // PRs; until then the daemon keeps reading those itself.
-        if matches!(
-            origin,
-            Origin::Simulator { .. } | Origin::Scrcpy { .. } | Origin::EmulatorFrames { .. }
-        ) {
+        // A Simulator's serve-sim stream is read here, by a reader under an encoder token.
+        if let Origin::Simulator { stream_url, .. } = origin {
+            self.read(id, stream_url, out);
+        }
+    }
+
+    /// Starts the reader of a source ace-media reads itself.
+    fn read(&mut self, id: &Id, url: &str, out: &mut Vec<Effect>) {
+        if self.encoders() >= MAX_ENCODERS {
             if let Some(source) = self.by_id.get_mut(id.get()) {
                 source.status = Status::Ended;
             }
-            status(out, id, Status::Ended, Some("reader-unavailable"), None);
+            log(out, Level::Warn, "source.open refused: encoder limit", id);
+            return status(out, id, Status::Ended, Some("encoder-limit"), None);
         }
+        self.last_token += 1;
+        let token = self.last_token;
+        if let Some(source) = self.by_id.get_mut(id.get()) {
+            source.encoder = Some(token);
+        }
+        out.push(Effect::Encode(EncodeEffect::Read {
+            source: id.get().to_owned(),
+            token,
+            url: url.to_owned(),
+        }));
     }
 
     /// The handle of an open source.
@@ -263,6 +277,12 @@ impl Sources {
     }
 
     /// The source an admitted ingest connection feeds.
+    /// Whether `token` is `id`'s live encoder (a draining one's output still reaches egress,
+    /// but viewers have moved on).
+    pub fn encoder_is(&self, id: &str, token: u64) -> bool {
+        self.by_id.get(id).is_some_and(|s| s.encoder == Some(token))
+    }
+
     pub fn bound(&self, conn: IngestId) -> Option<&str> {
         self.bindings.get(&conn).map(String::as_str)
     }
@@ -374,6 +394,19 @@ impl Sources {
                 id,
             );
         };
+        // A source ace-media reads itself (a Simulator) re-encodes for the viewer in its reader,
+        // under the reader's own token; no encodes means passing its stream through.
+        if !source.pictures
+            && source.stamper.is_some()
+            && let Some(token) = source.encoder
+            && !matches!(source.status, Status::Ended)
+        {
+            return out.push(Effect::Encode(EncodeEffect::Configure {
+                source: id.get().to_owned(),
+                token,
+                encodes,
+            }));
+        }
         if !source.pictures || matches!(source.status, Status::Ended) {
             return log(
                 out,
@@ -434,7 +467,14 @@ impl Sources {
         egress: &mut dyn EgressSink,
         out: &mut Vec<Effect>,
     ) {
-        if self.by_id.get(id).is_some_and(|s| s.encoder == Some(token)) {
+        if let Some(source) = self.by_id.get(id).filter(|s| s.encoder == Some(token)) {
+            let mut frame = frame;
+            // A reader's units are stamped as they are read; an encoder's carry their picture's.
+            if !source.pictures
+                && let Some(stamper) = &source.stamper
+            {
+                frame.epoch = stamper.stamp(now.mono_ms);
+            }
             self.unit(id, frame, now, egress, out);
         } else if let Some((source, _)) = self
             .draining

@@ -1,6 +1,6 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useConnectionState } from "@ace/client-react";
-import { UserIcon } from "@phosphor-icons/react";
+import { UserIcon } from "@ace/icons";
 import { initials } from "@ace/ui-core";
 
 import { useProfileName } from "@/lib/profile.ts";

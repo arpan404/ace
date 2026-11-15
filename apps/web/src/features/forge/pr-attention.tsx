@@ -1,6 +1,6 @@
 import { can } from "@ace/ui-core";
 import { useMemo, type ReactNode } from "react";
-import { XCircleIcon } from "@phosphor-icons/react";
+import { XCircleIcon } from "@ace/icons";
 import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";

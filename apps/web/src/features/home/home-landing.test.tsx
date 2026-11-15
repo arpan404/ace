@@ -10,7 +10,7 @@ test("Home opens on the top thread, then comes back to the thread last opened", 
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
   // Active's top thread opens: a thread that needs you.
-  const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const threads = await screen.findByRole("navigation", { name: "Projects" });
   const title = (await screen.findAllByRole("heading", { level: 1 })).find(
     (heading) => heading.textContent !== "Home",
   );

@@ -7,7 +7,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
   MagnifyingGlassIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";

@@ -1,6 +1,6 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
-import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, CaretRightIcon } from "@ace/icons";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -26,6 +26,8 @@ export function QuestionForm(props: {
   aside?: ReactNode;
   questions: readonly Question[];
   disabled: boolean;
+  /** Answers can't go yet (not read whole): only Skip does. */
+  declinesOnly?: boolean | undefined;
   onAnswer: Answer;
 }) {
   const draft = useQuestionDraft(props.interactionId);
@@ -38,7 +40,8 @@ export function QuestionForm(props: {
   const last = index === count - 1;
   const answered = (question: Question | undefined) => isAnswered(question, draft);
   const complete = props.questions.every(answered);
-  const ready = !props.disabled && answered(current) && (!last || complete);
+  const ready =
+    !props.disabled && answered(current) && (!last || (complete && !props.declinesOnly));
   const go = (at: number) => edit((before) => ({ ...before, at }));
   const advance = () => {
     if (!ready) return;
@@ -165,7 +168,13 @@ export function QuestionForm(props: {
               variant="primary"
               disabled={!ready}
               title={
-                ready ? undefined : last && !complete ? "Answer every question" : "Pick an answer"
+                ready
+                  ? undefined
+                  : last && !complete
+                    ? "Answer every question"
+                    : last && props.declinesOnly && answered(current)
+                      ? "Wait for the whole request to load"
+                      : "Pick an answer"
               }
             >
               Continue

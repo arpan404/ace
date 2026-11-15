@@ -1,6 +1,6 @@
 import { useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { CaretDownIcon, DevicesIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, DevicesIcon } from "@ace/icons";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {
   Menu,

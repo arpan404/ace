@@ -1,5 +1,5 @@
 import type { SuitDetail } from "@ace/protocol/suits";
-import { ArrowUpIcon } from "@phosphor-icons/react";
+import { ArrowUpIcon } from "@ace/icons";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { Scheme, ThemeId } from "@ace/themes";

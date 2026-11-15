@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { CodeIcon } from "@phosphor-icons/react";
+import { CodeIcon } from "@ace/icons";
 import type { ForgeFile, ForgePrStatus } from "@ace/protocol";
 import type { FileDiff } from "@ace/ui-core";
 import { Checkbox } from "@/components/ui/checkbox.tsx";

@@ -41,7 +41,8 @@ import SwiftUI
         case "approval": [deny, allow].compactMap { $0 }
         case "question": [request.unanswerable == true ? Word(id: "open", label: "Open", primary: true, run: open)
                                                         : Word(id: "answer", label: "Answer", primary: true, run: review)]
-        case "browser_help": [Word(id: "open", label: "Open", primary: true, run: open)]
+        // Browser help is answered in the thread; a request too large to send, on a computer.
+        case "browser_help", "too_large": [Word(id: "open", label: "Open", primary: true, run: open)]
         default: [Word(id: "review", label: "Review", primary: true, run: review)]
         }
     }
@@ -76,6 +77,23 @@ enum NeedWords {
     /// The run's sentence: who asks for what ("Codex wants to run a command").
     static func sentence(_ request: ApprovalRow) -> String {
         request.strip?.sentence ?? request.heading ?? request.title
+    }
+    /// Where the shown request stands among what waits, in one plain phrase: "1 of 3" on this
+    /// thread; "1 of 2 here, 3 more in delegated work" or "3 more in delegated work" when some
+    /// wait in its delegated threads, which this row can't show; "1 of 200 read, more waiting"
+    /// when the phone's read stopped before finding them all. Nil for one alone.
+    static func position(_ tally: NeedTally) -> String? {
+        if tally.more { return "1 of \(tally.here) read, more waiting" }
+        let delegated = tally.elsewhere > 0 ? "\(tally.elsewhere) more in delegated work" : nil
+        guard tally.here > 1 else { return delegated }
+        return delegated.map { "1 of \(tally.here) here, \($0)" } ?? "1 of \(tally.here)"
+    }
+    /// The same, as VoiceOver reads it.
+    static func spokenPosition(_ tally: NeedTally) -> String? {
+        if tally.more { return "1 of \(tally.here) requests read on this phone, more waiting" }
+        let delegated = tally.elsewhere > 0 ? "\(tally.elsewhere) more \(tally.elsewhere == 1 ? "request" : "requests") in delegated work" : nil
+        guard tally.here > 1 else { return delegated }
+        return delegated.map { "1 of \(tally.here) requests here, \($0)" } ?? "1 of \(tally.here) requests"
     }
     /// "3 need you" for the top of the list; nil while nothing does.
     static func count(_ total: Int) -> String? {

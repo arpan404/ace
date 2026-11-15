@@ -1,11 +1,6 @@
 import { useAgent } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import {
-  EyeSlashIcon,
-  GlobeSimpleIcon,
-  SpeakerHighIcon,
-  SpeakerSlashIcon,
-} from "@phosphor-icons/react";
+import { EyeSlashIcon, GlobeSimpleIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
 import { AgentCursorIcon } from "@/components/ace-icons.tsx";
 import { useCallback, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";

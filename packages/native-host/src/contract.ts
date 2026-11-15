@@ -120,6 +120,35 @@ export interface HostOperations {
    * connection: sent on an open socket before its grant runs out (ADR 0114). `{"grant": …}`.
    */
   "credential.fresh": { input: null; body: never };
+  /**
+   * A live source's delivery as the shared script last set it (ADR 0147 §4): the generation of
+   * its latest subscribe, and the way its pictures come, `"channel"` or a media socket's id
+   * (`socket(id, "open", {media})`), or null while that subscribe's reply is pending. Native code
+   * draws and acknowledges only what came that way, with that generation, holds what comes while
+   * pending (bounded), starts its decoder over on another generation, and ignores an update
+   * older (by `revision`) than the one it holds. It decides nothing else.
+   */
+  "media.delivery": {
+    input: {
+      view: "browser" | "screen" | "device";
+      source: string;
+      generation: number;
+      /**
+       * Counts up with every `media.delivery` this script sends, in the order it sent them: native
+       * code ignores one older than the update it holds. A generation may come back (a failed
+       * subscribe falls back to the delivery it replaced), so the order is this, not the generation.
+       */
+      revision: number;
+      path: string | null;
+      /**
+       * The poster this subscribe's reply brought back, as native code named it in the reply
+       * (`media.poster.jpeg`, a token: the JPEG itself never enters the script). Native code
+       * shows it only for this source and generation, until the first live picture.
+       */
+      poster: string | null;
+    };
+    body: never;
+  };
   /** Base64 of up to `limit` bytes of a staged photo or file. */
   "attachment.chunk": { input: { localId: string; offset: number; limit: number }; body: never };
   /**
@@ -157,16 +186,43 @@ export interface HostOperations {
 }
 export type HostOperation = keyof HostOperations;
 
-/** Socket actions the script asks for; native answers through `aceSocket`. */
-export type SocketAction = "open" | "send" | "close";
+/**
+ * Socket actions the script asks for; native answers through `aceSocket`. `send` is one text
+ * message; `bytes` one binary message, its value base64 (a media connection's hello).
+ */
+export type SocketAction = "open" | "send" | "bytes" | "close";
+
+/**
+ * What `socket(id, "open", value)` opens: "" for the runtime's own daemon socket, or this as JSON
+ * for a media connection (ADR 0147 §4). `url` is the `media.connect` address of ace-media's
+ * listener, held by native code to the runtime's own trust (the daemon's pinned WSS). Without
+ * it, or whenever the runtime reaches its machine through the relay, native code opens a relay
+ * stream with the `media` purpose. Native code only carries the connection: the ticket, hello,
+ * acks and reconnecting stay in the script. Stream pieces arriving on it go to the native live
+ * views exactly as the daemon socket's do.
+ */
+export interface MediaSocketOpen {
+  media: { url?: string };
+}
 
 /** What native code installs as `globalThis.aceHost` before the bundle runs. */
 export interface NativeHost {
+  /** Native video codecs, preferred first; absent hosts use H.264. */
+  readonly video?: { decoders(): string[] };
   readonly version: number;
   readonly capabilities: readonly OptionalCapability[];
 
   // Clock, identity and entropy.
+  /**
+   * Epoch milliseconds, whole, as `Date.now()`: protocol Timestamps are built from it. Never for
+   * timing work: it can't tell a sub-millisecond span from none, and it moves with the wall clock.
+   */
   now(): number;
+  /**
+   * Milliseconds on a monotonic clock, with fractions (`performance.now()`, the device's uptime):
+   * for measuring how long work takes, never for a date. Its zero is arbitrary.
+   */
+  monotonicMs(): number;
   uuid(): string;
   /** Uniform in [0, 1). */
   random(): number;
@@ -227,6 +283,7 @@ export interface HostEntries {
 /** Every function a host must have, checked once when the bundle starts. */
 export const requiredFunctions = [
   "now",
+  "monotonicMs",
   "uuid",
   "random",
   "randomBytes",

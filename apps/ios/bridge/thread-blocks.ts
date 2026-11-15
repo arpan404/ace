@@ -15,6 +15,8 @@ import {
   closedMeta,
   closedQuestionWords,
   questionTitle,
+  readTurnActivity,
+  timedWords,
   subagentDetail,
   subagentElapsed,
   subagentGroupStatus,
@@ -169,6 +171,8 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
     result: preview(entry.result ?? "", 512),
     meta: preview(subagentMeta(entry) ?? "", 128),
     machine: preview(entry.machine ?? "", 128),
+    /** That machine's host id, so the phone opens the child there; empty when unknown. */
+    machineHost: entry.machineHost ?? "",
     detail: preview(detail ?? "", 256),
     detailKind: kind ?? "",
     ...elapsedRow(subagentElapsed({ ...entry, running: subagentRunning(entry.state) }, fresh)),
@@ -260,6 +264,26 @@ function questionLine(store: ThreadSource, interactionId: string) {
     title: preview(questionTitle(questions), 256),
     answer: preview(words.answer, 256),
     outcome: preview(words.outcome ?? "", 256),
+  };
+}
+
+/**
+ * The turn's live line while the agent compacts its context: "Compacting context", ticking from
+ * when the stretch began (the shared turn activity). Any other work is the pill's to say: null.
+ */
+function compactingLine(store: ThreadSource) {
+  const thread = store.thread;
+  const rootId = thread?.rootAgentId ?? "";
+  const status = store.agent(rootId)?.status;
+  if (status?.state !== "working" || status.activity !== "compacting") return null;
+  const activity = readTurnActivity(store, rootId, { threadStatus: thread?.status }).activity;
+  if (!activity) return null;
+  const label = preview(activity.label, 256);
+  /** "Compacting context for", before the ticking time. */
+  return {
+    label,
+    timed: preview(timedWords(activity.label), 256),
+    since: activity.elapsedFrom ?? null,
   };
 }
 
@@ -376,7 +400,7 @@ export function blockRow(
     case "forked":
       return { ...base, forked: { threadId: block.threadId } };
     case "live":
-      return base;
+      return { ...base, live: compactingLine(store) };
     default: {
       const items = [...blockItems(block)];
       return { ...base, items, ...messageBlock(store, block.kind, items[0]) };
@@ -424,6 +448,10 @@ export function followBlocks(
   const ordered = new Set<string>();
   /** An event block's one item → that block, which redraws when the item does. */
   const single = new Map<string, string>();
+  /** Every shown answer's item → its block, so its item changes find it in one lookup. */
+  const answers = new Map<string, string>();
+  /** The answers among them still streaming; one redraws as it stops or starts again. */
+  const answering = new Set<string>();
   const emit = (key: string) =>
     put(`${prefix}block:${key}`, () => {
       const block = blocks.get(key);
@@ -440,14 +468,23 @@ export function followBlocks(
     const block = blocks.get(key);
     if (block?.kind === "user" || block?.kind === "event" || block?.kind === "item")
       if (single.get(block.itemId) === key) single.delete(block.itemId);
+    if (block?.kind === "message" && answers.get(block.itemId) === key) {
+      answers.delete(block.itemId);
+      answering.delete(block.itemId);
+    }
     if (block?.kind === "work") for (const id of workItems(block)) counted.get(id)?.delete(key);
   };
   const remember = (block: Block) => {
     if (block.kind === "subagents" || block.kind === "live" || block.kind === "question")
       following.add(block.key);
-    // An answer's streaming ends with its turn; its own deltas never touch the block.
-    if (block.kind === "message" && streamingOf(store, store.item(block.itemId)))
-      following.add(block.key);
+    // An answer's streaming ends with its turn or its item; its own deltas never touch the block.
+    if (block.kind === "message") {
+      answers.set(block.itemId, block.key);
+      if (streamingOf(store, store.item(block.itemId))) {
+        following.add(block.key);
+        answering.add(block.itemId);
+      }
+    }
     if (block.kind === "user" || block.kind === "event" || block.kind === "item") {
       single.set(block.itemId, block.key);
       if (eventFollows(store, block.kind, block.itemId)) ordered.add(block.key);
@@ -506,6 +543,8 @@ export function followBlocks(
       blocks = new Map();
       positions.clear();
       counted.clear();
+      answers.clear();
+      answering.clear();
       following.clear();
       ordered.clear();
       single.clear();
@@ -516,10 +555,35 @@ export function followBlocks(
         if (structural.has(key) || watch.has(key)) regroup = true;
         else if (key.startsWith("run:") || key.startsWith("agent:")) regroup = true;
         if (live(key)) for (const block of following) touched.add(block);
+        // Catching up or caught up: a streaming answer's Writing goes or comes back. A settled
+        // answer can stay following while its block is unchanged; it has no Writing to move.
+        if (key === "sync")
+          for (const shownId of following) {
+            const shown = blocks.get(shownId);
+            if (shown?.kind === "message" && streamingOf(store, store.item(shown.itemId)))
+              touched.add(shownId);
+          }
         if (key.startsWith("item:")) {
           const id = key.slice(5);
           for (const block of counted.get(id) ?? []) touched.add(block);
           const block = single.get(id);
+          // An answer finished before its turn, or its provider opened it again (`item.upsert`
+          // may set `complete` back to false): its streaming and Writing move now. A delta costs
+          // one lookup and never redraws it.
+          const answer = answers.get(id);
+          if (answer) {
+            const streaming = streamingOf(store, store.item(id));
+            if (streaming !== answering.has(id)) {
+              if (streaming) {
+                answering.add(id);
+                following.add(answer);
+              } else {
+                answering.delete(id);
+                following.delete(answer);
+              }
+              touched.add(answer);
+            }
+          }
           if (block) touched.add(block);
           // A launch updates in place to its child's status, outcome and result: its group
           // redraws, since no receipt row says it for the group (`buildBlocks`).

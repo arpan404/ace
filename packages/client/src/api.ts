@@ -28,6 +28,7 @@ import type {
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
+import type { ReadRequest, WholeRequestInput } from "./whole-request.ts";
 import type { StreamMessage } from "@ace/browser/stream";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
@@ -108,6 +109,13 @@ export interface ClientApi {
   activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
   /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */
   usePaths?(paths: import("./multipath.ts").Multipath): void;
+  /**
+   * The one link estimate the client keeps: the active path's smoothed round trip in ms, when
+   * it last took a sample and which path it is for, from the path planner's pings (ADR 0114).
+   * Read it when needed; it changes as pongs arrive. Undefined with a single route, while
+   * connecting, or before the first pong.
+   */
+  linkEstimate?(): import("./multipath.ts").LinkEstimate | undefined;
   intent(id: string): Selection<Intent | undefined>;
   pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
   /** One kept send, as `pendingSends` lists it, read now. */
@@ -217,6 +225,12 @@ export interface ClientApi {
     payload: { streamId: string; offset: number; limit: number },
     options?: RequestOptions,
   ): Promise<OutputData>;
+  /**
+   * The whole request of an interaction its thread sends summarized (`truncated`, ADR 0157).
+   * Fails as `daemon` with the daemon's code when it can't be read here (`read_denied`,
+   * `interaction_not_found`, `request_not_whole_here`), `stale` when it kept changing.
+   */
+  readInteraction(input: WholeRequestInput, options?: RequestOptions): Promise<ReadRequest>;
   text(source: TextSource, options?: TextReadOptions): AsyncGenerator<string>;
   output(
     payload: { streamId: string; offset: number; limit: number },

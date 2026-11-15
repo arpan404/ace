@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import type { ForgeComment } from "@ace/protocol";
-import type { IconProps } from "@phosphor-icons/react";
+import type { IconProps } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { PrBoxHead, prBox } from "./pr-box.tsx";

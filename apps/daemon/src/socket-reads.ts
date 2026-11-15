@@ -5,6 +5,7 @@ import type { ServerOptions } from "./server-options.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { pageSubscription, storePlacement, subscribe } from "./subscription.ts";
 import type { WireEncoder } from "./wire-encoder.ts";
+import { outputReadBytes } from "./reply-bounds.ts";
 
 /** What the core reads need from one authenticated socket. */
 export interface CoreReader {
@@ -102,6 +103,8 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
           message.paced,
           encoder,
           options.sidebarPlacement ?? storePlacement(options.store, options.now ?? Date.now),
+          message.tail,
+          device,
         );
         subscriptions.set(message.subscriptionId, stop);
       } catch {
@@ -128,7 +131,43 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
         requestId: message.requestId,
         streamId: message.streamId,
         offset: message.offset,
-        ...options.store.readOutput(message.streamId, message.offset, message.limit),
+        // At most `outputReadBytes` per read, whatever was asked: one reply never puts more than
+        // a page ahead of an urgent message. Readers go on from `nextOffset` until `eof`.
+        ...options.store.readOutput(
+          message.streamId,
+          message.offset,
+          Math.min(message.limit, outputReadBytes),
+        ),
+      });
+      break;
+    }
+    case "interaction.read": {
+      if (!authorize("read") || options.canReadThread?.(device, message.threadId) === false) {
+        fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
+        break;
+      }
+      const page = options.store.readInteractionRequest(
+        message.threadId,
+        message.interactionId,
+        message.offset,
+      );
+      if (typeof page === "string") {
+        fail(
+          page,
+          page === "interaction_not_found"
+            ? "This thread has no such request"
+            : "This request came from another machine too large to read whole here",
+          false,
+          { requestId: message.requestId },
+        );
+        break;
+      }
+      send({
+        type: "interaction.data",
+        requestId: message.requestId,
+        threadId: message.threadId,
+        interactionId: message.interactionId,
+        ...page,
       });
       break;
     }
@@ -150,6 +189,7 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
             message.collection,
             message.before,
             message.limit,
+            message.maxBytes,
           ),
         });
       } catch {

@@ -8,13 +8,7 @@ import {
   spadeSetupSentence,
   spadeStateLine,
 } from "@ace/ui-core/spade-chat";
-import {
-  ArrowSquareInIcon,
-  DesktopIcon,
-  PlusIcon,
-  UserPlusIcon,
-  UsersThreeIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareInIcon, DesktopIcon, PlusIcon, UserPlusIcon, UsersThreeIcon } from "@ace/icons";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";

@@ -1,5 +1,5 @@
 import type { DeviceRow } from "@ace/ui-core";
-import { AndroidLogoIcon, AppleLogoIcon } from "@phosphor-icons/react";
+import { DeviceMobileCameraIcon, DeviceMobileIcon } from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -92,7 +92,7 @@ function RunningTile(props: {
     ) : (
       <span className="grid size-full place-items-center">
         <Icon
-          icon={row.platform === "ios" ? AppleLogoIcon : AndroidLogoIcon}
+          icon={row.platform === "ios" ? DeviceMobileIcon : DeviceMobileCameraIcon}
           size={20}
           className="text-faint-foreground"
         />

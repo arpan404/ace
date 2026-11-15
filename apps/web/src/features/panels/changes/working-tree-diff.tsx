@@ -1,5 +1,5 @@
 import { contentHash, truncatedPatchNotice } from "@ace/ui-core";
-import { GitDiffIcon } from "@phosphor-icons/react";
+import { GitDiffIcon } from "@ace/icons";
 import { useMemo } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useWorkingTreeDiff } from "@/lib/diffs/use-working-tree.ts";

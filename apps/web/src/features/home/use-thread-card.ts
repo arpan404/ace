@@ -1,8 +1,9 @@
-import { useSidebarThread, useSidebarUnconfirmed } from "@ace/client-react";
+import { useSidebarThread } from "@ace/client-react";
 import { useState } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { threadCard, projectLabel, type ThreadCard } from "@ace/ui-core";
 import { useProjectMetadata } from "@/lib/projects.ts";
+import { useLiveList } from "@/lib/live-connection.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useFailedSend } from "@/lib/recovery-attention.ts";
 import { useNow } from "@/lib/time.ts";
@@ -28,20 +29,23 @@ export function useThreadCard(
     }
   | undefined {
   const liveEntry = useOverlaidEntry(useSidebarThread(threadId));
-  // Rows painted from a saved list before the daemon answers claim no status (AGENTS.md: never
-  // show done while the tree may be working).
-  const unconfirmed = useSidebarUnconfirmed();
+  // Rows claim no status unless the list is current (AGENTS.md: never show done while the tree
+  // may be working): not one painted from a saved list before the daemon answers, nor one still
+  // catching up after a reconnect's welcome, nor while the connection is down.
+  const unconfirmed = !useLiveList();
   // Pagination removes archived entries immediately. Only this mounted row retains its
   // last immutable entry, so an inert exit animation can finish without keeping history
   // in the sidebar store. Its snapshot is released when the row unmounts.
   const [lastEntry, setLastEntry] = useState(liveEntry);
   if (liveEntry !== undefined && liveEntry !== lastEntry) setLastEntry(liveEntry);
   const entry = liveEntry ?? (leaving ? lastEntry : undefined);
-  // Only mounted rows read one cursor, once per read change. No history or polling.
+  // A daemon that sends each row with this device's read cursor needs no request. Otherwise
+  // only mounted rows read one cursor, once per read change. No history or polling.
+  const carried = entry?.readState;
   const read = useDaemonQuery({
     queryKey: ["sidebar-thread-read", threadId, entry?.readAt],
     read: (client, signal) => client.threadReadState({ threadId }, { signal }),
-    enabled: entry?.activitySeq !== undefined && !settled,
+    enabled: entry?.activitySeq !== undefined && !settled && carried === undefined,
     staleTime: Infinity,
     gcTime: 300_000,
     placeholderData: (previous) => previous,
@@ -70,7 +74,9 @@ export function useThreadCard(
       settled,
       now,
       projectName: projectLabel(entry.workspaceId, project),
-      readState: read.data,
+      readState: carried
+        ? { type: "thread.readState", requestId: "sidebar", threadId: entry.id, ...carried }
+        : read.data,
       unconfirmed,
     }),
   };

@@ -1,5 +1,5 @@
 import { useSidebarLoaded } from "@ace/client-react";
-import { ChatsIcon } from "@phosphor-icons/react";
+import { ChatsIcon } from "@ace/icons";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";

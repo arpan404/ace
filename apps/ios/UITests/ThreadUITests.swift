@@ -43,7 +43,7 @@ import XCTest
         XCTAssertTrue(tests.waitForExistence(timeout: 25))
         clearOfComposer(tests, in: app)
         tests.tap()
-        XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
+        XCTAssertTrue(words("Writing the PID-reuse regression.", in: app).waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
         app.openModelPicker()
@@ -86,7 +86,7 @@ import XCTest
         for _ in 0..<3 { transcript.swipeUp(velocity: .fast) }
         sleep(2)
         screenshot("thread-end-subagents-open")
-        let last = app.staticTexts["Wiring the filters while the agents work"]
+        let last = words("Wiring the filters while the agents work", in: app)
         XCTAssertTrue(last.waitForExistence(timeout: 5))
         let input = app.textViews["composer.input"]
         let pill = app.descendants(matching: .any)["composer.live"]
@@ -104,17 +104,109 @@ import XCTest
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "opening the rows at the end hides the last line")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows after opening the rows at the end")
     }
+    func testTheTurnRailJumpsToATurnAndScrollToEndReturns() {
+        let app = launch()
+        // Far down the fixture's inbox: the shared helper scrolls until the row is in the middle.
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertFalse(rail.exists, "the rail stays away at the live end")
+        // Reading back shows the rail beside the transcript and Scroll to end over the composer.
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 5))
+        // With the rail showing the app goes idle: every query waits for idle first, so one that
+        // takes seconds means the main thread is caught in an update loop.
+        sleep(1)
+        let asked = Date()
+        _ = rail.frame
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 5, "the app never went idle with the rail showing")
+        screenshot("turn-rail")
+        // VoiceOver's element is a full tap wide and as tall as the rail; touches land only on the
+        // band at the screen's edge, inside the transcript's 20 pt margin.
+        XCTAssertGreaterThanOrEqual(rail.frame.width, 44)
+        XCTAssertGreaterThan(rail.frame.height, 88)
+        let edge = { (dy: CGFloat) in rail.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: dy)).withOffset(CGVector(dx: -8, dy: 0)) }
+        // Touch and hold near its foot, then drag to its top: the first turn's ask comes into view.
+        edge(0.9).press(forDuration: 0.5, thenDragTo: edge(0.01))
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part 1.")).firstMatch
+        let shown = NSPredicate(format: "exists == true AND hittable == true")
+        expectation(for: shown, evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        sleep(1)
+        // A quick swipe beside the band, over the rail's drawn width, scrolls the transcript.
+        let before = first.frame.minY
+        let beside = rail.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.6)).withOffset(CGVector(dx: 6, dy: 0))
+        beside.press(forDuration: 0.05, thenDragTo: beside.withOffset(CGVector(dx: 0, dy: -200)))
+        sleep(1)
+        XCTAssertTrue(!first.exists || first.frame.minY < before - 100, "a swipe near the edge didn't scroll the transcript")
+        // A tap at the band's top jumps back to the first turn.
+        edge(0.01).tap()
+        expectation(for: shown, evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        screenshot("turn-rail-first-turn")
+        // Scroll to end goes back to the live end, where neither shows.
+        app.buttons["transcript.latest"].tap()
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForNonExistence(timeout: 15))
+        XCTAssertTrue(rail.waitForNonExistence(timeout: 5))
+    }
+    func testASwipeStartingOnTheTurnRailsEdgeStillScrollsTheTranscript() {
+        // About one run in three, the first swipe of this thread stalls the main thread in the
+        // feed's per-row geometry and ChipFlow layout, before the rail is touched: #2051, the
+        // follow-up to #2054, diagnosed separately. Not strict, so a clean run still passes.
+        XCTExpectFailure("#2051: the first swipe of ios-log-long can stall in the feed's row layout (follow-up to #2054)", strict: false)
+        let app = launch()
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        sleep(1)
+        // An ask on screen to watch: the swipe must move it.
+        let asks = (1...6).map { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part \($0).")).firstMatch }
+        guard let watched = asks.first(where: { $0.exists && $0.isHittable }) else { XCTFail("no ask on screen"); return }
+        let before = watched.frame.minY
+        // A quick vertical swipe that starts on the band, 8 pt in from the screen's edge.
+        let start = rail.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.7)).withOffset(CGVector(dx: -8, dy: 0))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -250)))
+        sleep(1)
+        XCTAssertTrue(!watched.exists || watched.frame.minY < before - 100, "a swipe starting on the rail's edge didn't scroll the transcript")
+        // It neither scrubbed nor jumped: no turn card showed and Scroll to end is still offered.
+        XCTAssertTrue(app.buttons["transcript.latest"].exists)
+    }
     func testQuestionAndApprovalCards() {
         let app = launch()
         reveal("thread.ios-question", in: app)
         app.buttons["thread.ios-question"].tap()
-        XCTAssertTrue(app.buttons["question.answer"].waitForExistence(timeout: 25))
-        // The question sits on the strip with the composer still under it, as on the web; the
-        // transcript says who asks it.
+        // The question waits on a strip with the composer still under it, as on the web. While
+        // it's asking, the strip is its one place: the transcript doesn't repeat it.
+        let strip = app.descendants(matching: .any)["request.question"]
+        let answer = strip.buttons["strip.answer"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 25))
         XCTAssertTrue(app.textViews["composer.input"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["transcript.question"].waitForExistence(timeout: 10))
+        XCTAssertTrue(strip.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "archived 0.x entries")).firstMatch.exists,
+            "the strip carries the question")
+        // Only once the transcript has loaded can the question's absence from it mean anything.
+        let transcript = app.scrollViews["transcript"]
+        let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
+        wait(for: [ready], timeout: 25)
+        XCTAssertTrue(app.descendants(matching: .any)["message.user.ios-question.item.3"].waitForExistence(timeout: 10),
+            "the transcript shows the message that asked")
+        XCTAssertFalse(app.descendants(matching: .any)["transcript.question"].exists,
+            "the transcript doesn't repeat a question that is still asking")
+        // Answer opens the question's options in a sheet; picking one lets it be answered.
+        answer.tap()
+        let send = app.buttons["question.answer"]
+        XCTAssertTrue(send.waitForExistence(timeout: 10))
+        XCTAssertFalse(send.isEnabled, "nothing is picked yet")
         app.buttons["question.archive.skip"].tap()
+        XCTAssertTrue(send.isEnabled)
         screenshot("thread-question")
+        app.buttons["request.close"].tap()
+        XCTAssertTrue(send.waitForNonExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
         reveal("thread.ios-approval", in: app)
         app.buttons["thread.ios-approval"].tap()
@@ -162,7 +254,7 @@ import XCTest
         app.terminate()
         let relaunched = XCUIApplication()
         relaunched.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-keep-state"]
-        relaunched.launch()
+        relaunched.launchWithArguments()
         // The relaunch reopens the thread it was killed on, words and all.
         let restored = relaunched.textViews["composer.input"]
         XCTAssertTrue(restored.waitForExistence(timeout: 25))
@@ -229,18 +321,17 @@ import XCTest
     /// A long press on an answer offers Copy, Select text and Share; Select text opens the words
     /// where any part of them can be selected.
     func testLongPressOnAnAnswerOffersCopySelectAndShare() {
-        let app = launch()
-        reveal("thread.ios-code", in: app)
-        app.buttons["thread.ios-code"].tap()
-        let prose = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Here is the class'")).firstMatch
-        XCTAssertTrue(prose.waitForExistence(timeout: 25))
+        // The fixture lists more threads than a few scrolls reach, so this one opens at launch.
+        let app = open("ios-code")
+        let prose = words("Here is the class as it stands:", in: app)
+        XCTAssertTrue(prose.waitForExistence(timeout: 30))
         prose.press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Share"].exists)
         app.buttons["Select text"].tap()
-        let words = app.textViews["select.text"]
-        XCTAssertTrue(words.waitForExistence(timeout: 5))
-        XCTAssertTrue((words.value as? String)?.contains("export class RetryBudget") == true)
+        let selectable = app.textViews["select.text"]
+        XCTAssertTrue(selectable.waitForExistence(timeout: 5))
+        XCTAssertTrue((selectable.value as? String)?.contains("export class RetryBudget") == true)
         app.buttons["select.done"].tap()
     }
     /// Ended in the background, as the system ends apps for memory, the app comes back on the
@@ -254,14 +345,14 @@ import XCTest
         sleep(3)
         app.terminate()
         app.launchArguments.append("--spike-keep-state")
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["work.toggle"].firstMatch.waitForExistence(timeout: 25))
         screenshot("thread-restored")
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         app.terminate()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         sleep(3)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
@@ -273,7 +364,7 @@ import XCTest
         // The fixture's 101st history message (the agent, turn and its run come first).
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-items", "200", "--spike-open", "ios-stream", "--spike-focus", "ios-stream.item.103"]
-        app.launch()
+        app.launchWithArguments()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         let target = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "History 101.")).firstMatch
@@ -307,7 +398,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", threadId]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
@@ -317,10 +408,14 @@ import XCTest
         for _ in 0..<4 where !row.isHittable { app.dragListUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
     }
+    /// Agent prose as drawn: markit puts each block in a text view whose value is its words.
+    private func words(_ text: String, in app: XCUIApplication) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch
+    }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     /// Scrolls the transcript until `row` sits above the strip and composer at the bottom.

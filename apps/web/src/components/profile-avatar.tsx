@@ -1,6 +1,6 @@
 import { useState, type ComponentProps } from "react";
 import { initials } from "@ace/ui-core";
-import { UserIcon } from "@phosphor-icons/react";
+import { UserIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";

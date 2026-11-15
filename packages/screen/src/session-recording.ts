@@ -20,6 +20,7 @@ export async function startSessionRecording(
         }
         session.recordingLease?.release();
         session.recordingLease = undefined;
+        void session.media?.recodec().catch(() => {});
       },
     );
     if (session.state.lifecycle !== "live" || session.recording) {
@@ -31,6 +32,8 @@ export async function startSessionRecording(
     session.recording = recording;
     const lease = session.pixels.acquire();
     session.recordingLease = lease;
+    // The recording takes the screen's video as H.264, whatever ace-media's views prefer.
+    await session.media?.recodec();
     await lease.ready;
   } finally {
     session.recordingStarting = false;
@@ -44,5 +47,6 @@ export async function stopSessionRecording(session: Session): Promise<RecordingA
   session.recordingLease = undefined;
   const result = recording.stop();
   session.completedRecording = undefined;
+  void session.media?.recodec().catch(() => {});
   return result;
 }

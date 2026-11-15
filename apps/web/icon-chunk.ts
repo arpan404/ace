@@ -5,15 +5,17 @@ type ChunkGroup = Exclude<NonNullable<Rolldown.OutputOptions["codeSplitting"]>, 
 type Group = NonNullable<ChunkGroup>[number];
 type ModuleInfo = Pick<Rolldown.ModuleInfo, "code" | "importedIds">;
 
-const phosphorModule = /[\\/]node_modules[\\/]@phosphor-icons[\\/]react[\\/]/;
-const phosphorImport = /import\s*\{([^}]*)\}\s*from\s*["']@phosphor-icons\/react["']/g;
-/** An icon's own modules: `dist/csr/Gear.es.js` and `dist/defs/Gear.es.js`. */
-const iconFile = /[\\/]dist[\\/](?:csr|defs|ssr)[\\/]([^\\/]+)\.es\.js$/;
+/** The icon package's import name, and its modules: one per icon under `src/glyphs/`. */
+const iconPackage = "@ace/icons";
+const iconPackageModule = /[\\/]packages[\\/]icons[\\/]src[\\/]/;
+const glyphModule = /[\\/]packages[\\/]icons[\\/]src[\\/]glyphs[\\/][^\\/]+\.ts$/;
+const iconImport = /import\s*\{([^}]*)\}\s*from\s*["']@ace\/icons["']/g;
+const glyphExport = /export\s+const\s+(\w+)Icon\b/g;
 
-/** The icon names a module's code imports from Phosphor, without the `Icon` suffix. */
+/** The icon names a module's code imports from the icon package, without the `Icon` suffix. */
 function importedIconNames(code: string): string[] {
   const names: string[] = [];
-  for (const match of code.matchAll(phosphorImport))
+  for (const match of code.matchAll(iconImport))
     for (const specifier of (match[1] ?? "").split(",")) {
       const name = specifier
         .trim()
@@ -24,9 +26,10 @@ function importedIconNames(code: string): string[] {
   return names;
 }
 
-/** The icon a Phosphor module draws, if it is one icon's module rather than shared library code. */
-function iconOfModule(id: string): string | undefined {
-  return id.match(iconFile)?.[1];
+/** The icons a glyph module draws (its `…Icon` exports), or none for the package's shared code. */
+function iconsOfModule(id: string, code: string | null | undefined): string[] {
+  if (!glyphModule.test(id) || !code) return [];
+  return [...code.matchAll(glyphExport)].flatMap((match) => (match[1] ? [match[1]] : []));
 }
 
 /** Every export of a module is wanted, or only these names. */
@@ -129,7 +132,8 @@ function resolvedId(importer: string, source: string, importedIds: readonly stri
 /**
  * Every icon the app modules statically reachable from `root` import. The walk follows static
  * imports only and stays out of `node_modules`: what loads through `import()` loads later, as
- * its own entry. Through a barrel it follows only the re-exports of names actually imported
+ * its own entry, and out of the icon package, whose icons it reads from the imports that name
+ * them. Through a barrel it follows only the re-exports of names actually imported
  * from it, so a page that takes one export of a feature's `index.ts` doesn't count every icon
  * the rest of that feature draws; an import it can't trace is followed whole.
  */
@@ -138,7 +142,7 @@ function iconsReachedFrom(root: string, info: (id: string) => ModuleInfo | null)
   const seen = new Map<string, Wanted>();
   const queue: { id: string; wanted: Wanted }[] = [{ id: root, wanted: "all" }];
   for (const { id, wanted } of queue) {
-    if (/[\\/]node_modules[\\/]/.test(id)) continue;
+    if (/[\\/]node_modules[\\/]/.test(id) || iconPackageModule.test(id)) continue;
     const before = seen.get(id);
     if (before === "all") continue;
     const fresh =
@@ -159,7 +163,7 @@ function iconsReachedFrom(root: string, info: (id: string) => ModuleInfo | null)
       for (const name of fresh) {
         const edge = barrel.named.get(name);
         if (!edge) continue;
-        if (edge.source === "@phosphor-icons/react") {
+        if (edge.source === iconPackage) {
           if (edge.wanted !== "all")
             for (const icon of edge.wanted) icons.add(icon.replace(/Icon$/, ""));
           continue;
@@ -189,8 +193,8 @@ function iconsReachedFrom(root: string, info: (id: string) => ModuleInfo | null)
 const whole = (ids: readonly string[]) => ids.map((id) => ({ id, wanted: "all" as const }));
 
 /**
- * Phosphor icons that five or more lazy pages share, as two lazy chunks: the ones the thread
- * page draws, and the rest.
+ * Icons (`@ace/icons` modules) that five or more lazy pages share, as two lazy chunks: the ones
+ * the thread page draws, and the rest.
  *
  * Left to automatic chunking, each icon shared by several pages became a chunk of its own: over
  * 110 files of 1–3 KB, enough to push the daemon release past the installed updater's
@@ -212,11 +216,12 @@ export function lazyIconChunk(threadPage: string): Group {
     debugName: "icons",
     includeDependenciesRecursively: false,
     minShareCount: 5,
-    test: phosphorModule,
+    test: iconPackageModule,
     name: (id, ctx) => {
       threadIcons ??= iconsReachedFrom(threadPage, (module) => ctx.getModuleInfo(module));
-      const icon = iconOfModule(id);
-      return icon !== undefined && threadIcons.has(icon) ? "icons-thread" : "icons";
+      const drawn = threadIcons;
+      const icons = iconsOfModule(id, drawn.size ? ctx.getModuleInfo(id)?.code : undefined);
+      return icons.some((icon) => drawn.has(icon)) ? "icons-thread" : "icons";
     },
   };
 }

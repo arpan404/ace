@@ -3,18 +3,18 @@ import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 
 /**
- * What is left as a fat bar. Lasting: ink up to where the pace leaves it at the reset (the
- * marker), amber for what that pace still uses. Running out: all of it red.
+ * What is left, in grey ink only: solid up to what the pace still leaves at the reset, faint for
+ * what that pace will use. A window that runs out before its reset is all faint; one that is out
+ * is the empty track. State is said in the row's words, never by the bar's colour.
  */
 export function LimitBar(props: {
   window: AccountWindow;
-  runsOut: boolean;
   /** The card's thinner bar. */
   size?: "sm" | undefined;
 }) {
   const { window } = props;
   const left = window.stale ? 0 : window.leftPercent;
-  const marker = props.runsOut || window.stale ? null : window.leftAtReset;
+  const keep = window.stale || window.runsOutAt !== null ? 0 : (window.leftAtReset ?? left);
   const valuetext = window.stale ? "Not used since its reset" : `${window.leftPercent}% left`;
   return (
     <div
@@ -26,44 +26,22 @@ export function LimitBar(props: {
       aria-valuenow={window.leftPercent}
       aria-valuetext={valuetext}
       className={cn(
-        "relative overflow-hidden rounded-full",
-        props.size === "sm" ? "h-1.5" : "h-2.5",
-        window.leftPercent <= 0 && !window.stale ? "bg-status-failed/20" : "bg-faint-foreground/30",
+        "relative overflow-hidden rounded-full bg-faint-foreground/30",
+        props.size === "sm" ? "h-1.5" : "h-2",
       )}
     >
-      <span className="absolute inset-0">
-        {props.runsOut ? (
-          <span
-            data-runs-out=""
-            style={{ width: `${left}%` }}
-            className="absolute inset-y-0 left-0 rounded-r-full bg-status-failed"
-          />
-        ) : (
-          <>
-            <span
-              style={{ width: `${marker ?? left}%` }}
-              className={cn(
-                "absolute inset-y-0 left-0 bg-muted-foreground",
-                // The fill's end is round; where the pace part follows, the notch parts them.
-                !(marker !== null && marker < left) && "rounded-r-full",
-              )}
-            />
-            {marker !== null && marker < left && (
-              <span
-                data-pace=""
-                style={{ left: `${marker}%`, width: `${left - marker}%` }}
-                className="usage-pace absolute inset-y-0 rounded-r-full"
-              />
-            )}
-          </>
-        )}
-      </span>
-      {/* Where the pace leaves it at the reset: a notch in the bar's own height. */}
-      {marker !== null && marker < left && (
+      {left > keep && (
         <span
-          aria-hidden
-          style={{ left: `${marker}%` }}
-          className="absolute inset-y-0 w-[3px] -translate-x-1/2 bg-background"
+          data-pace=""
+          style={{ width: `${left}%` }}
+          className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/40"
+        />
+      )}
+      {keep > 0 && (
+        <span
+          data-keep=""
+          style={{ width: `${Math.min(keep, left)}%` }}
+          className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground"
         />
       )}
     </div>

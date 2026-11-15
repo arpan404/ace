@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   builtRouteCapabilities,
+  platformRouteCapabilities,
   changedRoutes,
   mediaRoutes,
   sourceKinds,
@@ -179,7 +180,7 @@ describe("named routes", () => {
     expect(routes.simulator).toMatchObject({ producer: "daemon", tee: true, egress: false });
   });
 
-  it("this build streams browser producers into ace-media with every consumer still legacy", () => {
+  it("this build streams browser producers into ace-media, which delivers them, with recordings and stills still legacy", () => {
     const auto: MediaSettings = {
       encode: "auto",
       delivery: "auto",
@@ -192,14 +193,70 @@ describe("named routes", () => {
         producer: "ace-media",
         tee: false,
         egress: true,
-        deliverer: "legacy",
+        deliverer: "ace-media",
         recorder: "legacy",
         stills: "legacy",
       });
     for (const kind of ["screen", "simulator", "scrcpy", "emulator-frames"] as const)
-      expect(routes[kind]).toMatchObject({ producer: "daemon", tee: false, egress: false });
+      expect(routes[kind]).toMatchObject({ producer: "daemon", egress: false });
     for (const health of ["restarting", "unavailable"] as const)
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
+  });
+
+  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere, with egress feeding their legacy consumers; elsewhere they stay on the daemon", () => {
+    const auto: MediaSettings = {
+      encode: "auto",
+      delivery: "auto",
+      recordings: "auto",
+      stills: "auto",
+    };
+    const mac = mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin"));
+    for (const kind of ["screen", "emulator-frames", "simulator"] as const)
+      expect(mac[kind]).toEqual({
+        producer: "ace-media",
+        tee: false,
+        egress: true,
+        deliverer: "ace-media",
+        recorder: "legacy",
+        stills: "legacy",
+      });
+    for (const platform of ["darwin", "linux"])
+      expect(
+        mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
+      ).toMatchObject({ producer: "ace-media", egress: true });
+    // Linux screens stream into ace-media (E2); its emulators and simulators don't.
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("linux")).screen).toEqual(
+      mac.screen,
+    );
+    for (const [platform, kinds] of [
+      ["linux", ["emulator-frames"]],
+      ["win32", ["emulator-frames", "simulator"]],
+    ] as const)
+      for (const kind of kinds)
+        expect(
+          mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
+        ).toMatchObject({ producer: "daemon", egress: false });
+  });
+
+  it("on Windows the screen helper's Media Foundation video streams into ace-media, with egress feeding its legacy consumers", () => {
+    const auto: MediaSettings = {
+      encode: "auto",
+      delivery: "legacy",
+      recordings: "legacy",
+      stills: "legacy",
+    };
+    expect(mediaRoutes(auto, "healthy", platformRouteCapabilities("win32")).screen).toEqual({
+      producer: "ace-media",
+      tee: false,
+      egress: true,
+      deliverer: "legacy",
+      recorder: "legacy",
+      stills: "legacy",
+    });
+    for (const health of ["restarting", "unavailable"] as const)
+      expect(mediaRoutes(auto, health, platformRouteCapabilities("win32")).screen.producer).toBe(
+        "daemon",
+      );
   });
 });
 

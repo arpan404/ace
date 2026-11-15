@@ -36,7 +36,8 @@ import type { SuitServerMessage } from "@ace/protocol/suits";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { orderedSocket } from "./ordered-socket.ts";
-import { WireTrimmer } from "@ace/projection/wire-trim";
+import { WireTrimmer, wireTrims } from "@ace/projection/wire-trim";
+import { shortDeltasFraming } from "@ace/projection/short-deltas";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
 import { readCore } from "./socket-reads.ts";
@@ -63,6 +64,8 @@ import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
 import { unreachable, type ReachFacts } from "./external-mcp/reach.ts";
 import { remoteDeflate } from "./compression-policy.ts";
+import { RELAY_NK_HANDSHAKE } from "@ace/protocol";
+import { answerEarly } from "./relay-nk/early-reads.ts";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
   maintenance: MaintenanceGate;
@@ -340,6 +343,9 @@ export async function startServer(options: ServerOptions): Promise<{
     // whichever path its hello came by.
     let accountAdmitted = relayed?.stillAdmitted;
     let accountId = relayed?.account;
+    // An NK stream not yet confirmed (ADR 0155): what a hello runs on the device waits for the
+    // confirmation, and only bounded early answers are read before it (`answerEarly`).
+    const early = relayed?.early;
     // An account device's main socket stays open only while it holds an unexpired grant.
     let grant: AccountGrantSocket | undefined;
     const holdGrant = (expiresAt: number | undefined, deviceId: DeviceId) => {
@@ -459,6 +465,72 @@ export async function startServer(options: ServerOptions): Promise<{
       if (record) options.warn?.("WebSocket closed", record);
       options.onDisconnect?.(device);
     });
+    /** Notifications for this device, once it may read. */
+    const enroll = (id: DeviceId) => {
+      const notifications = options.notifications;
+      if (authorize("read") && notifications)
+        enrollNotifications(id, {
+          connect: (deviceId) => notifications.connectDevice(deviceId),
+          active: () => !cleaned && authorize("read"),
+          delay: runtime.delay,
+          log: (error) => options.log?.(error),
+          tasks: serviceTasks,
+          scheduled: (stop) => {
+            stopEnrollment = stop;
+          },
+        });
+    };
+    /** A main socket that may read hears the device's notifications and broadcasts. */
+    const receiveBroadcasts = (channel: string | undefined) => {
+      if (channel !== undefined || !authorize("read") || !device) return;
+      let connections = receivers.get(device);
+      if (!connections) {
+        connections = new Map();
+        receivers.set(device, connections);
+      }
+      connections.set(socket, send);
+    };
+    const authenticateServices = async (
+      channel: Parameters<NonNullable<(typeof sessions)[number]["authenticated"]>>[0],
+    ) => {
+      try {
+        for (const service of sessions) await service.authenticated?.(channel);
+        return true;
+      } catch (error) {
+        const limit = error instanceof Error && "code" in error && error.code === "limit";
+        const code = limit ? "connection_limit" : "service_unavailable";
+        socket.close(limit ? 4013 : 1011, code);
+        return false;
+      }
+    };
+    /**
+     * An NK session confirmed (ADR 0155): now it runs what a hello runs, as the welcome would
+     * have, hands its next ticket, and the socket reads what the client sends.
+     */
+    const open = () => socket.readyState === WebSocket.OPEN && cleanups.has(socket);
+    const afterConfirm = async (
+      pending: NonNullable<typeof early>,
+      actor: SessionActor,
+      channel: Parameters<typeof authenticateServices>[0],
+      epoch: string | undefined,
+    ) => {
+      const confirm = await pending.confirmed;
+      if (!confirm || !open()) {
+        pending.readable.resolve(false);
+        return;
+      }
+      enroll(actor.id);
+      receiveBroadcasts(channel);
+      if (!(await authenticateServices(channel)) || !open()) {
+        pending.readable.resolve(false);
+        return;
+      }
+      const next =
+        confirm.nextTicket && epoch !== undefined ? auth.handOver(actor, epoch) : undefined;
+      send({ type: "hello.confirmed", ...(next ? { ticket: next } : {}) });
+      for (const service of sessions) service.welcomed?.();
+      pending.readable.resolve(true);
+    };
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
@@ -535,12 +607,18 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
+        // An NK account session holds its grant as an XX one does: the welcome's `grantTtlMs`
+        // starts the client's keeper, and the hold is a timer released with the socket.
         if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
-          outbox.packFrames();
+          outbox.packFrames(peer.remote);
+        outbox.shapeEvents({
+          rawOnDemand: message.trims?.includes(wireTrims.rawOnDemand) === true,
+          shortDeltas: message.framing?.includes(shortDeltasFraming) === true,
+        });
         peer.access =
           relayed || accountAdmitted
             ? "paired"
@@ -557,18 +635,7 @@ export async function startServer(options: ServerOptions): Promise<{
           // welcome promises the socket can use the published service registry.
           if (message.channel === undefined && !ready) send({ type: "starting" });
           await options.ready;
-          const notifications = options.notifications;
-          if (authorize("read") && notifications)
-            enrollNotifications(actor.id, {
-              connect: (id) => notifications.connectDevice(id),
-              active: () => !cleaned && authorize("read"),
-              delay: runtime.delay,
-              log: (error) => options.log?.(error),
-              tasks: serviceTasks,
-              scheduled: (stop) => {
-                stopEnrollment = stop;
-              },
-            });
+          if (!early) enroll(actor.id);
         } catch {
           fail("device_unavailable", "Device unavailable", true);
           return;
@@ -577,24 +644,21 @@ export async function startServer(options: ServerOptions): Promise<{
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         // A dedicated channel (devices, files, browser, screen) speaks only its own frames, so
         // notifications and broadcasts go to the device's main sockets.
-        if (message.channel === undefined && authorize("read")) {
-          let connections = receivers.get(device);
-          if (!connections) {
-            connections = new Map();
-            receivers.set(device, connections);
-          }
-          connections.set(socket, send);
-        }
-        try {
-          for (const service of sessions) await service.authenticated?.(message.channel);
-        } catch (error) {
-          const limit = error instanceof Error && "code" in error && error.code === "limit";
-          const code = limit ? "connection_limit" : "service_unavailable";
-          socket.close(limit ? 4013 : 1011, code);
-          return;
-        }
+        if (!early) receiveBroadcasts(message.channel);
+        if (!early && !(await authenticateServices(message.channel))) return;
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
         welcomed = true;
+        // A paired device that opened with a ticket and asked gets its next one here, so its
+        // next connection skips the exchange (ADR 0150). Only clients that keep it ask. On the
+        // relay, a daemon that takes NK hands one to an XX hello that asks, for the next NK
+        // attempt, bound to the relay key; an NK session gets its own after it confirms.
+        const epoch = relayed?.relayEpoch;
+        const next =
+          message.nextTicket &&
+          !early &&
+          (relayed ? epoch !== undefined : message.ticket !== undefined)
+            ? auth.handOver(actor, relayed ? epoch : undefined)
+            : undefined;
         send({
           type: "welcome",
           hostId,
@@ -602,8 +666,23 @@ export async function startServer(options: ServerOptions): Promise<{
           headSeq: options.store.headSeq(),
           databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
+          ...(next ? { ticket: next } : {}),
+          // Announced only where the pinned key authenticates it: over the relay.
+          ...(relayed && epoch !== undefined ? { relayHandshakes: [RELAY_NK_HANDSHAKE] } : {}),
         });
-        for (const service of sessions) service.welcomed?.();
+        if (!early) for (const service of sessions) service.welcomed?.();
+        else {
+          const reader = actor.id;
+          early.continuations = answerEarly(early.subscribes, {
+            session: early.session,
+            store: options.store,
+            canRead: (thread) =>
+              authorize("read") && options.canReadThread?.(reader, thread) !== false,
+            encoder,
+            send,
+          }).map((subscribe) => JSON.stringify(subscribe));
+          void afterConfirm(early, actor, message.channel, epoch);
+        }
         return;
       }
       for (const service of sessions) if (await service.handle?.(message, device)) return;
@@ -679,7 +758,7 @@ export async function startServer(options: ServerOptions): Promise<{
     relaySockets.add(socket);
     socket.once("close", () => relaySockets.delete(socket));
     connected(socket, false, undefined, entry);
-    socket.start(entry.hello);
+    socket.start(entry.hello, entry.early);
   };
   const stopTimer = runtime.every(
     () => {

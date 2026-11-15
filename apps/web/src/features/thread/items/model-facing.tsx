@@ -1,4 +1,4 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { useId, useState } from "react";
 import { handoffSummary, resultLead, stripAceOriginMarker } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";

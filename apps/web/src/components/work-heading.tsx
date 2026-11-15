@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 import { part } from "@/lib/suit-part.ts";
 
 /**

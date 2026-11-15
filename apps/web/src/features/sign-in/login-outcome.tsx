@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent } from "react";
 import type { LoginView } from "./login-controller.ts";
-import { WarningIcon } from "@phosphor-icons/react";
+import { WarningIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { Actions, StepTitle, useFocusOnShow } from "./login-parts.tsx";
 

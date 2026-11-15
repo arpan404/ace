@@ -1,4 +1,4 @@
-import { CheckIcon, MinusIcon, XIcon } from "@phosphor-icons/react";
+import { CheckIcon, MinusIcon, XIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 
 /** A check's (or step's) state as a disc: "failed", "done", "working", "idle" (stopped), "off". */

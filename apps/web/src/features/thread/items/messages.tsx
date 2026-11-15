@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { agentName, forkPointOf, formatClock, saidAt, sameForkPoint } from "@ace/ui-core";
-import { GitForkIcon } from "@phosphor-icons/react";
+import { GitForkIcon } from "@ace/icons";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";

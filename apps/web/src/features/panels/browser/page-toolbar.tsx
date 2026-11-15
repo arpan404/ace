@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { TooltipSide } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

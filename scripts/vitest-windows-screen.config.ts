@@ -12,6 +12,8 @@ export default defineConfig({
       "packages/screen/src/semantic.native.process.test.ts",
       // Live-view pacing and resize against the Rust fixture window.
       "packages/screen/src/capture-pacing.native.process.test.ts",
+      // E1: the helper's Media Foundation video through ace-media (needs ACE_MEDIA_TEST_BINARY).
+      "packages/screen/src/media-ingest.native.process.test.ts",
       // The --computer engine behind the agent tools, against the Rust fixture window.
       "packages/screen/src/computer/uia-engine.native.process.test.ts",
       "packages/screen/src/computer/policy-hosts.test.ts",

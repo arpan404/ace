@@ -1,6 +1,6 @@
 import type { SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { themeIds, themes, type Scheme } from "@ace/themes";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import { part } from "@/lib/suit-part.ts";

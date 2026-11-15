@@ -1,4 +1,4 @@
-import { FolderSimpleIcon } from "@phosphor-icons/react";
+import { FolderSimpleIcon } from "@ace/icons";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ProjectsEmptyState, useProjectDialogs } from "@/features/projects/index.ts";
 import { Screen } from "@/features/shell/index.ts";

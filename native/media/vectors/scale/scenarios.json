@@ -4,62 +4,90 @@
       "now": 0,
       "link": 16000000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 1
+    "output": {
+      "scale": 1,
+      "fps": 60
+    }
   },
   {
     "input": {
       "now": 100,
       "link": 500000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 1
+    "output": {
+      "scale": 1,
+      "fps": 60
+    }
   },
   {
     "input": {
       "now": 1099,
       "link": 500000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 1
+    "output": {
+      "scale": 1,
+      "fps": 60
+    }
   },
   {
     "input": {
       "now": 1100,
       "link": 500000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 0.41821194239999987
+    "output": {
+      "scale": 0.41821194239999987,
+      "fps": 60
+    }
   },
   {
     "input": {
       "now": 2000,
       "link": 16000000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 0.41821194239999987
+    "output": {
+      "scale": 0.41821194239999987,
+      "fps": 60
+    }
   },
   {
     "input": {
       "now": 4999,
       "link": 16000000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 0.41821194239999987
+    "output": {
+      "scale": 0.41821194239999987,
+      "fps": 60
+    }
   },
   {
     "input": {
       "now": 5000,
       "link": 16000000,
       "pixels": 2073600,
-      "fps": 60
+      "fps": 60,
+      "probing": true
     },
-    "output": 1
+    "output": {
+      "scale": 1,
+      "fps": 60
+    }
   }
 ]

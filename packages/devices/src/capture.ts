@@ -15,6 +15,7 @@ import type { DeviceClipboard } from "./clipboard.ts";
 import { pinnedServeSim, serveSimStatus } from "./serve-sim-version.ts";
 import { replaceOutdatedHelper } from "./serve-sim-helpers.ts";
 import { nativeId } from "./commands.ts";
+import type { DeviceMedia } from "./media-paths.ts";
 
 export interface DeviceCapture extends Capture {
   releaseInput?(): Promise<void>;
@@ -49,6 +50,8 @@ export async function startCapture(options: {
   publish(frame: Frame): void;
   failure(error: unknown): void;
   signal?: AbortSignal;
+  /** ace-media (ADR 0147, phase 2): device video streams into it while routed. */
+  media?: DeviceMedia;
 }): Promise<DeviceCapture> {
   const checkAbort = () => {
     if (options.signal?.aborted)

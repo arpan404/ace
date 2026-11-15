@@ -4,7 +4,7 @@ import {
   CaretLeftIcon,
   DotsThreeIcon,
   SidebarSimpleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { RegionScene } from "@/features/suits/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { boundaryMarker } from "@/components/ui/rules.ts";
@@ -133,7 +133,7 @@ export function HeaderNav() {
         // A phone's list is the sidebar sheet: going back to it is the header's first control.
         <IconButton
           icon={CaretLeftIcon}
-          label="Back to threads"
+          label="Back to projects"
           shortcut="toggleSidebar"
           onClick={frame.showSidebar}
         />

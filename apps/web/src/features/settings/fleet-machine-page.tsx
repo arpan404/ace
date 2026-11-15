@@ -1,4 +1,4 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { RowTile, StateWords } from "@/components/hairline-row.tsx";

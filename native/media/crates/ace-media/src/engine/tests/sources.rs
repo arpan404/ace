@@ -68,31 +68,13 @@ fn a_source_reports_starting_then_playing_at_its_first_unit_retrying_when_its_pr
 }
 
 #[test]
-fn a_reused_handle_and_an_origin_without_a_reader_end_the_source_at_once() {
+fn a_reused_handle_ends_the_source_at_once() {
     let mut engine = engine();
     open_tab(&mut engine, "s1", 1, 9);
     let reused = open_tab(&mut engine, "s2", 1, 8);
     assert_eq!(
         statuses(&reused),
         [("s2".into(), Status::Ended, Some("handle-reused".into()))]
-    );
-    let simulator = send(
-        &mut engine,
-        json!({ "type": "source.open", "source": "sim", "handle": 2, "epoch": 0,
-                "origin": { "kind": "simulator", "streamUrl": "http://x", "stillUrl": "http://y" } }),
-        &[1; 32],
-        NOW,
-    );
-    assert_eq!(
-        statuses(&simulator),
-        [
-            ("sim".into(), Status::Starting, None),
-            (
-                "sim".into(),
-                Status::Ended,
-                Some("reader-unavailable".into())
-            )
-        ]
     );
 }
 
@@ -347,16 +329,6 @@ fn work_this_binary_does_not_do_yet_fails_at_once_so_the_daemon_falls_back() {
         still.as_slice(),
         [Effect::Normal(FromMedia::StillFailed { .. })]
     ));
-    let dial = send(
-        &mut engine,
-        json!({ "type": "relay.dial", "stream": "st", "url": "wss://relay/join" }),
-        &[],
-        NOW,
-    );
-    assert!(matches!(
-        dial.as_slice(),
-        [Effect::Normal(FromMedia::RelayFailed { .. })]
-    ));
 }
 
 #[test]
@@ -554,4 +526,46 @@ fn a_recorder_error_reports_every_part_it_closed_before_the_failure() {
         })
         .collect();
     assert_eq!(reported, ["part 0", "part 1", "disk-full"]);
+}
+
+#[test]
+fn an_emulator_source_is_fed_by_its_producer_over_ingest() {
+    // The screen helper's `--encode-frames` encodes the emulator's frame file and streams the
+    // units here; ace-media doesn't read the file itself.
+    let mut engine = engine();
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "emu", "handle": 3, "epoch": 2,
+                "origin": { "kind": "emulator-frames", "path": "/tmp/frames.rgba",
+                            "width": 1080, "height": 2400, "stride": 4320 } }),
+        &[5; 32],
+        NOW,
+    );
+    assert_eq!(statuses(&opened), [("emu".into(), Status::Starting, None)]);
+    hello(&mut engine, 7, 5);
+    let playing = ingest(&mut engine, 7, unit(2, true), NOW);
+    assert_eq!(statuses(&playing), [("emu".into(), Status::Playing, None)]);
+}
+
+#[test]
+fn an_android_device_is_fed_by_the_daemon_over_ingest() {
+    // The daemon keeps scrcpy's sockets and forwards each unit unchanged; ace-media dials nothing.
+    let mut engine = engine();
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "android", "handle": 5, "epoch": 2,
+                "origin": { "kind": "scrcpy", "host": "127.0.0.1", "port": 27183 } }),
+        &[6; 32],
+        NOW,
+    );
+    assert_eq!(
+        statuses(&opened),
+        [("android".into(), Status::Starting, None)]
+    );
+    hello(&mut engine, 8, 6);
+    let playing = ingest(&mut engine, 8, unit(2, true), NOW);
+    assert_eq!(
+        statuses(&playing),
+        [("android".into(), Status::Playing, None)]
+    );
 }

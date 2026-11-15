@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { railDotClass, railPlaceClass } from "./rail-place.ts";

@@ -1,0 +1,306 @@
+{
+  "bitrate": 400000,
+  "fps": 5,
+  "steps": [
+    {
+      "input": {
+        "key": true,
+        "bytes": 50000,
+        "retarget": null
+      },
+      "output": {
+        "next": 42
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 5000,
+        "retarget": null
+      },
+      "output": {
+        "next": 36
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 5000,
+        "retarget": null
+      },
+      "output": {
+        "next": 36
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 5000,
+        "retarget": null
+      },
+      "output": {
+        "next": 36
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 6300,
+        "retarget": null
+      },
+      "output": {
+        "next": 34
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 6300,
+        "retarget": null
+      },
+      "output": {
+        "next": 34
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 6300,
+        "retarget": null
+      },
+      "output": {
+        "next": 34
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 7937,
+        "retarget": null
+      },
+      "output": {
+        "next": 32
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 7937,
+        "retarget": null
+      },
+      "output": {
+        "next": 32
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 7937,
+        "retarget": null
+      },
+      "output": {
+        "next": 32
+      }
+    },
+    {
+      "input": {
+        "key": true,
+        "bytes": 25000,
+        "retarget": null
+      },
+      "output": {
+        "next": 48
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 10000,
+        "retarget": null
+      },
+      "output": {
+        "next": 30
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 10000,
+        "retarget": null
+      },
+      "output": {
+        "next": 30
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 10000,
+        "retarget": null
+      },
+      "output": {
+        "next": 30
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 11225,
+        "retarget": null
+      },
+      "output": {
+        "next": 29
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 11225,
+        "retarget": 200000
+      },
+      "output": {
+        "next": 29
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 11225,
+        "retarget": null
+      },
+      "output": {
+        "next": 29
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 7937,
+        "retarget": null
+      },
+      "output": {
+        "next": 32
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 7937,
+        "retarget": null
+      },
+      "output": {
+        "next": 32
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 7937,
+        "retarget": null
+      },
+      "output": {
+        "next": 32
+      }
+    },
+    {
+      "input": {
+        "key": true,
+        "bytes": 17678,
+        "retarget": null
+      },
+      "output": {
+        "next": 51
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 6300,
+        "retarget": null
+      },
+      "output": {
+        "next": 34
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 6300,
+        "retarget": null
+      },
+      "output": {
+        "next": 34
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 6300,
+        "retarget": null
+      },
+      "output": {
+        "next": 34
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 5000,
+        "retarget": null
+      },
+      "output": {
+        "next": 36
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 5000,
+        "retarget": null
+      },
+      "output": {
+        "next": 36
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 5000,
+        "retarget": null
+      },
+      "output": {
+        "next": 36
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 4454,
+        "retarget": null
+      },
+      "output": {
+        "next": 37
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 4454,
+        "retarget": null
+      },
+      "output": {
+        "next": 37
+      }
+    },
+    {
+      "input": {
+        "key": false,
+        "bytes": 4454,
+        "retarget": null
+      },
+      "output": {
+        "next": 37
+      }
+    }
+  ]
+}

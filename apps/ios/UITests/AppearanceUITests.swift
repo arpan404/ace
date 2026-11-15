@@ -10,7 +10,7 @@ import UIKit
     func testPickingLightOrDarkRestylesTheOpenSettingsSheet() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         app.openBrowseDestination("settings.appearance")
         XCTAssertTrue(app.buttons["appearance.dark"].waitForExistence(timeout: 10))

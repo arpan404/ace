@@ -156,7 +156,7 @@ import LockedUseService
                     if request.op == "measure_interaction" { reply(request, data: try await capture.measureInteraction(request, accessibility: accessibility)); return }
                     if request.op == "stream.configure" {
                         guard let settings = request.settings else { throw HelperError("Stream settings required", code: "bounds") }
-                        try await capture.configureStream(settings); reply(request, data: ["codec": settings.codec]); return
+                        reply(request, data: try await capture.configureStream(settings, ingest: request.ingest, epoch: request.epoch)); return
                     }
                     if request.op == "stream.keyframe" { capture.requestKeyframe(); reply(request); return }
                     if request.op == "stream.image" { capture.requestImage(); reply(request); return }

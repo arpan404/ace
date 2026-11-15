@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconButton } from "./ui/icon-button.tsx";
 import { catalogKey, useCatalogQuery } from "@/lib/model-catalog.ts";

@@ -4,6 +4,16 @@ import Testing
 @testable import Ace
 
 @Suite @MainActor struct PatchPumpTests {
+    /// The bridge builds protocol Timestamps (integers) from the host clock: an event snooze's
+    /// backstop, a search's date. The phone's own clock counts fractions of a millisecond.
+    @Test func theHostClockGivesTheBridgeWholeMillisecondsItCanSendAsTimestamps() throws {
+        let context = try #require(JSContext())
+        HostContract.install(HostContract.stateless(), in: context)
+        let before = Date().timeIntervalSince1970 * 1000
+        let now = try #require(context.evaluateScript("aceHost.now()")?.toDouble())
+        #expect(context.evaluateScript("Number.isInteger(aceHost.now())")?.toBool() == true)
+        #expect(abs(now - before) < 1000)
+    }
     @Test func thinkingAndEditsStayGroupedWithNarrationInOrderOnTheNativeBridge() throws {
         let harness = try DeliveryHarness()
         harness.call("queueWorkFlow")

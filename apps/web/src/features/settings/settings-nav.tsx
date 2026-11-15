@@ -18,7 +18,6 @@ import {
   visibleSettingsPages,
   type SettingsGroup,
   type SettingsPage,
-  type SettingsPath,
 } from "./settings-pages.ts";
 
 const groupOrder: readonly SettingsGroup[] = ["profile", "device", "machine", "network"];
@@ -26,18 +25,16 @@ const groupOrder: readonly SettingsGroup[] = ["profile", "device", "machine", "n
 /**
  * Settings' pages as links, the current one marked: Profile first, then under "This device" the pages this screen
  * keeps, then under "Environment" the pages a machine keeps, then Fleet. Also the phone's
- * Settings page.
+ * Settings page. It reads nothing from a machine: a window with none lists its pages too.
  */
-export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
+export function SettingsPageLinks(props: { pages: readonly SettingsPage[] }) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = settingsPageOf(pathname)?.to;
   const listKeys = useViewListKeys<HTMLDivElement>();
-  const visible = visibleSettingsPages(useSpadeShown() === true);
-  const pages = props.pages ? visible.filter((page) => props.pages?.includes(page.to)) : visible;
   return (
     <div className="flex flex-col" {...listKeys}>
       {groupOrder.map((group) => {
-        const inGroup = pages.filter((page) => page.group === group);
+        const inGroup = props.pages.filter((page) => page.group === group);
         if (!inGroup.length) return null;
         const title = settingsGroupTitles[group];
         return title ? (
@@ -78,12 +75,11 @@ export function SettingsNav() {
   const text = query.trim().toLowerCase();
   const spadeShown = useSpadeShown() === true;
   const found = searchSettings(query, spadeShown);
-  const pages = visibleSettingsPages(spadeShown)
-    .filter(
-      (page) =>
-        page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),
-    )
-    .map((page) => page.to);
+  const visible = visibleSettingsPages(spadeShown);
+  const pages = visible.filter(
+    (page) =>
+      page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),
+  );
   return (
     <ViewSidebar
       title="Settings"
@@ -98,7 +94,7 @@ export function SettingsNav() {
     >
       <nav aria-label="Settings pages" data-part="settings-nav">
         {!text ? (
-          <SettingsPageLinks />
+          <SettingsPageLinks pages={visible} />
         ) : pages.length ? (
           <SettingsPageLinks pages={pages} />
         ) : (

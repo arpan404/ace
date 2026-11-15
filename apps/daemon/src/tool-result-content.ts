@@ -75,6 +75,12 @@ export async function toolAttachment(
       uploadId: begin.uploadId,
     });
     if (committed.kind !== "attachment") throw new Error("Tool image commit refused");
+    // A committed upload's record only lets a remote client retry a commit whose reply it lost.
+    // This caller already has the answer, so drop the record now instead of keeping it for a day;
+    // the thread's reference keeps the file. If this fails, expiry removes the record later.
+    await context.uploads
+      .handle(device, { op: "upload.cancel", uploadId: begin.uploadId })
+      .catch(() => undefined);
     return committed.attachment;
   } catch (error) {
     // A failed commit has already removed its upload; the cancel's own refusal would hide why.

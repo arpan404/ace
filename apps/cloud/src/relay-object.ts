@@ -3,8 +3,13 @@ import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
 import { NoiseXX, hostId as hostIdOf, keyPair } from "@ace/secure-channel";
 import {
   CONTROL_PROLOGUE,
+  EARLY_FRAME,
+  takenUpgradeMessage,
   HTTP_FEATURE,
   HostId,
+  MEDIA_FEATURE,
+  clientPurpose,
+  hostFeatures,
   LimitsSchema,
   PAIRED_MARKER,
   RelayRoutes,
@@ -12,6 +17,7 @@ import {
 } from "@ace/relay/wire";
 import type { RouteAction } from "@ace/relay/wire";
 import { Attachment, hostAccount, nextExpiry, routeFacts } from "./attachment.ts";
+import { sendPairing } from "./pairing-send.ts";
 import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER } from "./admission.ts";
 import { machineStore } from "./account/machines.ts";
 import { openControl, sealControl } from "./control.ts";
@@ -41,6 +47,8 @@ type Handshake = {
   platform: string;
   /** It serves forwarded HTTP (`features=http`, ADR 0122). */
   http: boolean;
+  /** It takes media streams (`features=media`, ADR 0147 §5.2). */
+  media: boolean;
 };
 
 /**
@@ -48,12 +56,24 @@ type Handshake = {
  * Every socket hibernates. Nothing here may hold a timer while sockets are idle, or the object
  * is billed for every connected second; the only timer is the handshake deadline.
  */
+/** Whether an upgrade offers to send its first frame early (step 1). */
+function offersEarly(request: Request): boolean {
+  return (request.headers.get("Sec-WebSocket-Protocol") ?? "")
+    .split(",")
+    .some((entry) => entry.trim() === EARLY_FRAME.subprotocol);
+}
+
 export class RelayObject extends DurableObject<Env> {
   #routes: RelayRoutes | undefined;
   #handshakes = new Map<string, Handshake>();
   #sockets = new Map<string, WebSocket>();
   #attachments = new WeakMap<WebSocket, Attachment | undefined>();
   #budget = new FrameBudget({ perSecond: limits.messagesPerSecond, burst: limits.messageBurst });
+  /**
+   * Early frames held for waiting clients, by client socket (ADR 0155). Memory only: an
+   * eviction loses them, and the attachment's `early: "held"` then closes that client.
+   */
+  #held = new Map<string, Uint8Array>();
   #http = new HttpGateway();
 
   override async fetch(request: Request): Promise<Response> {
@@ -94,7 +114,8 @@ export class RelayObject extends DurableObject<Env> {
         ),
         name: url.searchParams.get("name") ?? "",
         platform: url.searchParams.get("platform") ?? "",
-        http: (url.searchParams.get("features") ?? "").split(",").includes(HTTP_FEATURE),
+        http: hostFeatures(url).has(HTTP_FEATURE),
+        media: hostFeatures(url).has(MEDIA_FEATURE),
       });
       return upgraded(server.client, protocol);
     }
@@ -103,23 +124,45 @@ export class RelayObject extends DurableObject<Env> {
       const owner = hostAccount(this.#allAttachments(), hostId);
       if (owner !== undefined && owner !== account)
         return refuseUpgrade(NOT_YOUR_MACHINE_CLOSE, "Not your machine", protocol);
+      const purpose = clientPurpose(url);
+      if (purpose === "invalid") return refuseUpgrade(1008, "Unknown purpose", protocol);
+      // Room for an early frame is reserved in this same turn, before the 101 is answered: a
+      // client hears it may send early only once the object can hold what it sends.
+      const early = offersEarly(request) && routes.reserveEarly(id, hostId);
       const ticket = randomTicket();
-      const actions = routes.request(id, hostId, ticket, now);
+      const actions = routes.request(id, hostId, ticket, now, purpose);
       const refusal = this.#refusal(actions, id, protocol);
       if (refusal) return refusal;
-      const server = this.#accept(id);
+      // Only with room reserved is the request's first message read (ADR 0155, step 3); it is
+      // then the client's held early frame, as one sent at once would be, and nothing else
+      // keeps it: no closure, attachment or storage.
+      const echo = early ? this.#holdUpgradeMessage(request, id) : undefined;
+      const held = echo !== undefined;
       const offer = actions.find((action) => action.type === "offer");
-      if (offer)
-        this.#save(server.socket, {
-          kind: "waiting",
-          id,
-          ticket,
-          owner: offer.socket,
-          expires: now + limits.ticketTimeoutMs,
-        });
+      let server: { client: WebSocket; socket: WebSocket };
+      try {
+        server = this.#accept(id);
+        if (offer)
+          this.#save(server.socket, {
+            kind: "waiting",
+            id,
+            ticket,
+            owner: offer.socket,
+            expires: now + limits.ticketTimeoutMs,
+            ...(early ? { early: held ? "held" : "reserved" } : {}),
+            ...(url.searchParams.get(EARLY_FRAME.query) === "1" ? { capable: true } : {}),
+          });
+      } catch (failure) {
+        // No attachment records it, so no release would find it: wiped and dropped here.
+        this.#held.get(id)?.fill(0);
+        this.#held.delete(id);
+        throw failure;
+      }
       this.#apply(actions);
       if (offer) await this.#scheduleExpiry();
-      return upgraded(server.client, protocol);
+      // One subprotocol is echoed: ace.v2 says the request's first message was taken, the
+      // early one that the client may send it at once; otherwise the grant, as before.
+      return upgraded(server.client, echo ?? (early ? EARLY_FRAME.subprotocol : protocol));
     }
     if (url.pathname === "/join") {
       const actions = routes.join(id, Ticket.parse(url.searchParams.get("ticket")), now);
@@ -130,6 +173,25 @@ export class RelayObject extends DurableObject<Env> {
       return upgraded(server.client);
     }
     return refuseUpgrade(1008, "Unknown endpoint");
+  }
+
+  /**
+   * Takes the upgrade's first message, if one is valid, as client `id`'s held early frame, and
+   * says what to echo; its header and decoded copy go when this returns.
+   */
+  #holdUpgradeMessage(request: Request, id: string): string | undefined {
+    const taken = takenUpgradeMessage(request.headers.get("Sec-WebSocket-Protocol") ?? "");
+    if (!taken) return undefined;
+    let kept = false;
+    try {
+      if (this.#routing().early(id, taken.message.length).length) return undefined;
+      this.#held.set(id, taken.message);
+      kept = true;
+      return taken.echo;
+    } finally {
+      // Not kept as the held frame (routing refused it, or threw): wiped here.
+      if (!kept) taken.message.fill(0);
+    }
   }
 
   /** A hibernatable server socket for an upgrade the relay keeps. */
@@ -162,8 +224,21 @@ export class RelayObject extends DurableObject<Env> {
         peer.send(frame);
         return;
       }
-      case "waiting":
-        return this.#apply(this.#routing().premature(attachment.id));
+      case "waiting": {
+        // A frame the relay won't forward is never stored: closing the client frees its held
+        // frame and its reservation in one step (`#release`), and anything it sends after that
+        // finds no attachment and is dropped.
+        const actions = this.#routing().early(attachment.id, frame.length);
+        if (actions.length) {
+          frame.fill(0);
+          return this.#apply(actions);
+        }
+        // Held for the daemon's join: in memory, and marked in the attachment, so an eviction
+        // before the join is noticed rather than forwarding nothing.
+        this.#held.set(attachment.id, frame);
+        this.#save(ws, { ...attachment, early: "held" });
+        return;
+      }
       case "handshake":
         return this.#handshake(ws, attachment, frame);
       case "host": {
@@ -235,6 +310,7 @@ export class RelayObject extends DurableObject<Env> {
         send: transport.send.snapshot(),
         receive: transport.receive.snapshot(),
         ...(pending.http ? { http: true } : {}),
+        ...(pending.media ? { media: true } : {}),
       };
     } finally {
       transport.destroy();
@@ -259,7 +335,7 @@ export class RelayObject extends DurableObject<Env> {
     // The daemon closed while the entry was written.
     if (this.#read(ws)?.id !== attachment.id) return;
     this.#save(ws, host);
-    this.#apply(this.#routing().register(attachment.id, host.hostId));
+    this.#apply(this.#routing().register(attachment.id, host.hostId, pending.media));
   }
 
   /** The caller of forwarded request `exchange` left (the Worker saw it): cancel it. */
@@ -308,9 +384,28 @@ export class RelayObject extends DurableObject<Env> {
           if (host) this.#close(host, 1011, "Peer missing");
           continue;
         }
-        this.#save(client, { kind: "stream", id: action.client, peer: action.host });
-        this.#save(host, { kind: "stream", id: action.host, peer: action.client });
-        client.send(new Uint8Array([PAIRED_MARKER]));
+        const waiting = this.#read(client);
+        const capable = waiting?.kind === "waiting" && waiting.capable === true;
+        const held = this.#held.get(action.client);
+        this.#held.delete(action.client);
+        // Out of `#held`, so nothing else can wipe it: from here to the end of the sends, a
+        // `finally` does, whether they went or threw.
+        try {
+          this.#save(client, { kind: "stream", id: action.client, peer: action.host });
+          this.#save(host, { kind: "stream", id: action.host, peer: action.client });
+          // The client's early frame is the first thing the joining daemon reads. Sent, it is
+          // no longer held here, so its room comes back now.
+          sendPairing(
+            client,
+            host,
+            capable ? EARLY_FRAME.capableMarker : PAIRED_MARKER,
+            action.early ? held : undefined,
+          );
+          if (action.early && !held) this.#close(client, EARLY_FRAME.lostClose, "Early frame lost");
+        } finally {
+          held?.fill(0);
+        }
+        this.#routing().releaseEarly(action.client);
         continue;
       }
       const ws = this.#socket(action.socket);
@@ -328,7 +423,11 @@ export class RelayObject extends DurableObject<Env> {
         host.send,
         action.type === "registered"
           ? { type: "registered", hostId: action.hostId }
-          : { type: "client", ticket: action.ticket },
+          : {
+              type: "client",
+              ticket: action.ticket,
+              ...(action.purpose ? { purpose: action.purpose } : {}),
+            },
       );
       this.#save(ws, { ...host, send: sealed.next });
       ws.send(sealed.frame);
@@ -400,6 +499,9 @@ export class RelayObject extends DurableObject<Env> {
     }
     this.#attachments.set(ws, undefined);
     this.#sockets.delete(attachment.id);
+    // A held frame never forwarded is wiped as it is let go.
+    this.#held.get(attachment.id)?.fill(0);
+    this.#held.delete(attachment.id);
     this.#budget.forget(attachment.id);
     const handshake = this.#handshakes.get(attachment.id);
     if (handshake) {

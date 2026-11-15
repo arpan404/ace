@@ -72,6 +72,7 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/spade": ["/settings/spade", "settings"],
   "/settings/storage": ["/settings/storage", "settings"],
   "/settings/advanced": ["/settings/advanced", "settings"],
+  "/settings/beta": ["/settings/beta", "settings"],
   "/settings/remote/": ["/settings/remote", "settings"],
   "/settings/remote/$machine": ["/settings/remote/machine-missing", "settings"],
   "/settings/remote/map": ["/settings/remote/map", "settings"],

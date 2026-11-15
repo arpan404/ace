@@ -1,8 +1,8 @@
 # 0149: Media holds up on 3G
 
-Status: accepted. Date: 2026-11-14. Decided by: the owner (networking audit, 2026-11-14: every
-connection feels instant on 3G, and live video to phones and mobile web is held to the same
-idea). Amends [ADR 0147](0147-ace-media-rust-media-pipeline.md) (pacing, start-up and the
+Status: accepted. Amended by [ADR 0150](0150-in-flight-bound-covers-a-loss-stall.md). Date:
+2026-11-14. Decided by: the owner (networking audit, 2026-11-14: every connection feels instant
+on 3G, and live video to phones and mobile web is held to the same idea). Amends [ADR 0147](0147-ace-media-rust-media-pipeline.md) (pacing, start-up and the
 relay) and [ADR 0148](0148-ace-media-gpu-accelerated.md) (encoders). The build plan is the
 "3G" section of [docs/media/plan.md](../media/plan.md).
 

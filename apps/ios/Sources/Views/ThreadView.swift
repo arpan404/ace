@@ -58,12 +58,18 @@ struct ThreadView: View {
     @State private var behind = false
     /// Each Scroll to end the person taps.
     @State private var jumps = 0
+    /// What the feed tells the turn rail over it: the reader's turn and the keyboard.
+    @State private var railPlace = TurnRailPlace()
     /// The question card's picks and page, kept here so a reply typed below keeps them.
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
+    /// A pasted file's words going back into the message as text.
+    @State private var restore: ComposerRestore?
+    /// Long pastes on their way to the next message.
+    @State private var pastes = PasteQueue()
     /// The composer's `@`, `/` and + lists.
     @State private var suggester = ComposerSuggester()
     /// "Attach files" picked from `/`: the + menu's three sources are offered.
@@ -118,7 +124,8 @@ struct ThreadView: View {
                                                 openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, behind: $behind, jumps: jumps)
+                         barHeight: barHeight, behind: $behind, jumps: jumps, railPlace: railPlace)
+            .modifier(TurnRailOverlay(model: model, threadId: thread.id, behind: behind, place: railPlace, bottom: barHeight))
             .markdownShelf(threadId: thread.id)
     }
 
@@ -146,6 +153,13 @@ struct ThreadView: View {
         pager.modifier(ThreadHeaderBar(shown: headerStatus != nil) { header })
     }
 
+    /// The bar's widths: Chat and Changes beside ⋯ only on a phone, and only while the title keeps
+    /// its room; at accessibility text sizes they move into ⋯.
+    private func barLayout(pageWidth: CGFloat) -> ThreadBarLayout {
+        ThreadBarLayout(pageWidth: pageWidth, leadingTitle: sizeClass == .compact, panel: panelPlace != .none,
+                        pages: panelPlace == .none ? pages.kinds.count : 0, largeText: typeSize.isAccessibilitySize)
+    }
+
     private func content(pageWidth: CGFloat) -> some View {
         headed
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
@@ -155,10 +169,11 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(heading: heading, pageWidth: pageWidth,
+                let bar = barLayout(pageWidth: pageWidth)
+                ThreadToolbar(heading: heading, layout: bar,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived,
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
-                                               leave: leave),
+                                               shownPage: shownPage, switchInBar: bar.switchInBar, leave: leave),
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
                               pages: panelPlace == .none ? ThreadPageSwitch(pages: pages, shown: shownPage, select: select) : nil,
                               leadingTitle: sizeClass == .compact)
@@ -419,6 +434,26 @@ struct ThreadView: View {
         }
     }
 
+    /// A long paste goes as a text file, as the web's does: staged off the main actor in paste
+    /// order, attached only to this thread, and Send waits for it (`PasteQueue`).
+    /// This thread's long pastes still on their way, in paste order.
+    private var pastesAdding: [PasteIntake.Adding] { pastes.intake.adding(in: thread.id) }
+    private func pasteLong(_ words: String) {
+        attachProblem = nil
+        let model = model
+        pastes.paste(words, scope: thread.id, open: { model.thread?.id }, attach: { model.attach($0) }, refused: { attachProblem = $0 })
+    }
+    /// A pasted file's words back into the field, read off the main actor.
+    private func pasteAsText(_ localId: String) {
+        Task {
+            guard let words = await ComposerIntake.pastedText(localId, in: AttachmentStaging()) else {
+                attachProblem = "Couldn't read the paste back."; return
+            }
+            model.detach(localId)
+            restore = ComposerRestore(text: words)
+        }
+    }
+
     @ViewBuilder private var composer: some View {
         let request = thread.approvals.first
         if archived {
@@ -446,6 +481,10 @@ struct ThreadView: View {
                                  for file in result.files { model.attach(file) }
                              }
                          },
+                         // A long paste goes as a text file, as the web's does; the chip can put it back.
+                         pasteLong: screen.attachmentsLocked != nil ? nil : { pasteLong($0) },
+                         adding: pastesAdding.count,
+                         restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
@@ -458,7 +497,7 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem)
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) })
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)
@@ -540,7 +579,7 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .logs: showLogs = true
         // Pages: with the side panel they opened as its tabs above.
-        case .changes, .files, .terminal, .browser, .agents, .summary: break
+        case .chat, .changes, .files, .terminal, .browser, .agents, .summary: break
         }
     }
     /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.

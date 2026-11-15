@@ -1,7 +1,8 @@
-import type { ThreadReader, ThreadSource } from "@ace/client";
-import type { CommandPayload, Interaction } from "@ace/protocol";
+import type { ThreadSource } from "@ace/client";
+import type { CommandPayload, Interaction, Notification } from "@ace/protocol";
+import { sentSummarized } from "@ace/projection/interaction-summary";
 import { questionOptions } from "@ace/ui-core";
-import { interactionRow } from "./interaction-rows.ts";
+import { interactionRow, type RequestReader } from "./interaction-rows.ts";
 import { preview } from "./presentation.ts";
 import { answerResolution } from "./thread-controls.ts";
 
@@ -9,7 +10,8 @@ import { answerResolution } from "./thread-controls.ts";
  * What a needs-you notification says and offers, read from the request pending now: the
  * request strip's sentence ("Claude Code wants to run a command") and its one line, and for a
  * single short question its options as buttons, plus Reply when the question takes the
- * person's own words. Pure over the interaction and the thread's reader.
+ * person's own words. A request sent summarized (ADR 0157) offers only declines: no choices, no
+ * Reply, no Approve. Pure over the interaction and the thread's reader.
  */
 
 /** The most buttons a notification gets; the system shows four comfortably. */
@@ -41,7 +43,7 @@ const oneLine = (text: string) => preview(text.split("\n", 1)[0] ?? "", 200);
 /** The request a notification shows for `interaction`, or undefined once it isn't pending. */
 export function alertRequest(
   interaction: Interaction | undefined,
-  reader: ThreadReader,
+  reader: RequestReader,
 ): AlertRequest | undefined {
   if (interaction?.state !== "pending") return undefined;
   const { strip } = interactionRow(interaction, reader);
@@ -57,9 +59,10 @@ export function alertRequest(
   const request = interaction.request;
   if (request.kind === "approval") return { ...base, kind: "approval" };
   if (request.kind !== "question") return { ...base, kind: "other" };
-  // Several questions at once are answered together, in ace.
+  // Several questions at once are answered together, in ace; a summarized one, on a computer.
   const [question] = request.questions;
-  if (!question || request.questions.length > 1) return { ...base, kind: "question" };
+  if (!question || request.questions.length > 1 || sentSummarized(interaction))
+    return { ...base, kind: "question" };
   const options = questionOptions(question);
   const reply = question.allowOther;
   const fits =
@@ -74,6 +77,15 @@ export function alertRequest(
     choices: fits ? options.map((option) => ({ id: option.id, label: option.label })) : [],
     reply,
   };
+}
+
+/** The daemon's Approve and Deny buttons for `interaction`: Deny alone when it went summarized. */
+export function alertActions(
+  actions: Notification["actions"],
+  interaction: Interaction | undefined,
+): Notification["actions"] {
+  if (!interaction || !sentSummarized(interaction)) return actions;
+  return actions.filter((action) => action.action !== "approve");
 }
 
 type Resolve = Extract<CommandPayload, { type: "interaction.resolve" }>;

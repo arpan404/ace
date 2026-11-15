@@ -2,7 +2,7 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import type { Run } from "@ace/protocol";
 import { formatElapsed } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
-import { StopCircleIcon } from "@phosphor-icons/react";
+import { StopCircleIcon } from "@ace/icons";
 import { SystemRow } from "../items/system-row.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";

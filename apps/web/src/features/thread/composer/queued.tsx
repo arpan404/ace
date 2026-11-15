@@ -6,7 +6,7 @@ import {
   PencilSimpleIcon,
   QueueIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";

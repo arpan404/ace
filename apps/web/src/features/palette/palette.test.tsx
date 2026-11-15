@@ -13,7 +13,7 @@ async function openApp(path = "/") {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open(path);
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 const palette = async () => {
@@ -205,7 +205,7 @@ test("a query nothing matches falls through to searching every thread", async ()
 test("an empty palette opens clean: Quick actions, then recent threads, the last opened first", async () => {
   await openApp("/t/thread-fan-out");
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
-  const threads = within(screen.getByRole("navigation", { name: "Threads" }));
+  const threads = within(screen.getByRole("navigation", { name: "Projects" }));
   await userEvent.click(threads.getByRole("link", { name: /^Partial refunds double-count tax/ }));
   await screen.findByRole("heading", { level: 1, name: /^Partial refunds double-count tax/ });
   const listed = threads.getAllByRole("link").length;

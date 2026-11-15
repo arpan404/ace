@@ -2,6 +2,7 @@ import { CliRequest, CliResult } from "./cli-control.ts";
 import { MachineCodeRequest, MachineCodeResult } from "./machine-access.ts";
 import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
+import { MediaConnectRequest, MediaConnectResult } from "./media-connection.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
 import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
 import {
@@ -69,6 +70,7 @@ import {
   IconsReadResponse,
 } from "./turn-steps.ts";
 import { AvatarsResolveRequest, AvatarsResolveResponse } from "./avatars.ts";
+import { ItemRawRequest, ItemRawResponse } from "./item-raw.ts";
 import {
   HostIdentityRequest,
   HostIdentityResult,
@@ -147,6 +149,7 @@ export {
   SnapshotView,
   SubscriptionScope,
   ThreadListEntry,
+  ThreadReadCursor,
   ThreadListView,
   ThreadView,
 } from "./wire-core.ts";
@@ -229,6 +232,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TurnsPageRequest,
   ItemsWindowRequest,
   TurnStepsRequest,
+  ItemRawRequest,
   IconsResolveRequest,
   IconsReadRequest,
   AvatarsResolveRequest,
@@ -300,6 +304,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...CursorAuthRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
+  MediaConnectRequest,
   ScreenClientMessage,
   ScreenAck,
   DeviceClientMessage,
@@ -337,6 +342,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TurnsPageResponse,
   ItemsWindowResponse,
   TurnStepsResponse,
+  ItemRawResponse,
   IconsResolveResponse,
   IconsReadResponse,
   AvatarsResolveResponse,
@@ -417,6 +423,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SearchQueryResponse,
   SearchStatusResponse,
   SearchErrorResponse,
+  MediaConnectResult,
   ...ScreenServerMessage.options,
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,

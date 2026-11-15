@@ -1,21 +1,20 @@
 import { Link } from "@tanstack/react-router";
 import {
   formatAgo,
-  formatCountdown,
-  headroomAlert,
-  limitTime,
-  resetCountdown,
+  limitCardLine,
+  type AccountLimits,
   type AccountWindow,
-  type PooledHeadroom,
   type RailUsage,
 } from "@ace/ui-core";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { railPlaceClass } from "@/components/rail-place.ts";
 import { UsageBars } from "@/components/usage-bars.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { useMachines } from "@/lib/machines.ts";
 import { cn } from "@/lib/cn.ts";
+import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
 import { LimitBar } from "./limit-bar.tsx";
 import { useUsageHeadroom } from "./use-usage-headroom.ts";
 
@@ -25,9 +24,28 @@ import { useUsageHeadroom } from "./use-usage-headroom.ts";
  */
 export function UsagePlace(props: { current: boolean }) {
   const usage = useUsageHeadroom();
+  const machines = useMachines();
   const [open, setOpen] = useState(false);
+  // A banked reset's confirmation sits over the card; the card stays until it closes.
+  const confirming = useRef(false);
+  const redeem: RedeemReset = async (entry, idempotencyKey) => {
+    const client = machines.find((machine) => machine.primary)?.client;
+    if (!client) throw new Error("Machine is offline");
+    const reply = await client.request({
+      type: "accounts.consumeReset",
+      instanceId: entry.account.id,
+      idempotencyKey,
+    });
+    await usage.refresh();
+    return reply.outcome;
+  };
   return (
-    <HoverCard open={open} onOpenChange={setOpen}>
+    <HoverCard
+      open={open}
+      onOpenChange={(next) => {
+        if (next || !confirming.current) setOpen(next);
+      }}
+    >
       <HoverCardTrigger
         delay={300}
         closeDelay={120}
@@ -55,9 +73,13 @@ export function UsagePlace(props: { current: boolean }) {
         >
           <UsageCard
             rail={usage.rail}
-            headroom={usage.headroom}
             now={usage.now}
             observedAt={usage.observedAt}
+            redeem={redeem}
+            onDialogChange={(next) => {
+              confirming.current = next;
+              if (!next) setOpen(false);
+            }}
             close={() => setOpen(false)}
           />
         </HoverCardContent>
@@ -67,22 +89,24 @@ export function UsagePlace(props: { current: boolean }) {
 }
 
 /** One grid for every row of the card: label, bar, share left, when. */
-const cardGrid = "grid grid-cols-[6rem_minmax(0,1fr)_2.25rem_6rem] items-center gap-x-2.5";
+const cardGrid = "grid grid-cols-[3.75rem_minmax(0,1fr)_2.25rem_7.25rem] items-center gap-x-2.5";
+
+const plural = (count: number) => `${count} banked reset${count === 1 ? "" : "s"}`;
 
 /**
- * The card: a provider whose every account is out, when one is, then each
- * provider's current account (the one new threads use) with every window it reports, drawn as the
- * Usage page draws them, and the way to the page.
+ * The card: each provider's current account (the one new threads use) with every window it
+ * reports, drawn as the Usage page draws them, its banked resets on its name's line, and the way
+ * to the page.
  */
 function UsageCard(props: {
   rail: RailUsage;
-  headroom: readonly PooledHeadroom[];
   now: number;
   observedAt: number | undefined;
+  redeem: RedeemReset;
+  onDialogChange(open: boolean): void;
   close(): void;
 }) {
   const shown = props.rail.accounts.filter((entry) => entry.windows.length > 0);
-  const alert = headroomAlert(props.headroom, props.now);
   return (
     <div data-slot="usage-card" className="text-ui tabular-nums">
       <p className="flex h-6 items-center justify-between">
@@ -93,7 +117,6 @@ function UsageCard(props: {
             : `Read ${formatAgo(props.observedAt, props.now)}`}
         </span>
       </p>
-      {alert && <p className="mt-0.5 text-xs leading-4 text-status-failed">{alert.text}</p>}
       {shown.length === 0 && (
         <p className="mt-1 text-xs text-subtle-foreground">No limits read yet.</p>
       )}
@@ -103,18 +126,19 @@ function UsageCard(props: {
           aria-label={`${entry.account.providerLabel} · ${entry.account.label}`}
           className="mt-3"
         >
-          <p className="mb-1 flex items-center gap-1.5">
+          <div className="mb-1 flex items-center gap-1.5">
             <ProviderIcon
               provider={entry.account.provider}
               acpAgentId={entry.account.acpAgentId}
               size={14}
               decorative
             />
-            <span className="truncate font-medium">
+            <span className="min-w-0 truncate font-medium">
               {entry.account.providerLabel}
               <span className="font-normal text-muted-foreground"> · {entry.account.label}</span>
             </span>
-          </p>
+            <Banked entry={entry} redeem={props.redeem} onDialogChange={props.onDialogChange} />
+          </div>
           {entry.windows.map((window) => (
             <CardWindow key={window.id} window={window} now={props.now} />
           ))}
@@ -136,32 +160,46 @@ function UsageCard(props: {
   );
 }
 
-/** A window's short name in the card: "Session", "Weekly", "Weekly · Fable". */
-const shortLabel = (label: string) => (label === "Session (5h)" ? "Session" : label);
+/** An account's banked resets at the right of its name, with the way to spend one. */
+function Banked(props: {
+  entry: AccountLimits;
+  redeem: RedeemReset;
+  onDialogChange(open: boolean): void;
+}) {
+  const banked = props.entry.bankedResets;
+  if (banked === undefined || banked <= 0) return null;
+  return (
+    <span className="ml-auto flex shrink-0 items-baseline gap-2 text-xs text-subtle-foreground">
+      {plural(banked)}
+      <BankedResetAction
+        entry={props.entry}
+        redeem={props.redeem}
+        onDialogChange={props.onDialogChange}
+      />
+    </span>
+  );
+}
+
+/** A window's short name in the card: "Session", "Weekly", and a model's own week by its model: "Fable". */
+const shortLabel = (label: string) =>
+  label === "Session (5h)" ? "Session" : label.startsWith("Weekly · ") ? label.slice(9) : label;
 
 function CardWindow(props: { window: AccountWindow; now: number }) {
   const { window, now } = props;
-  const out = !window.stale && window.leftPercent <= 0;
-  const runsOut = !window.stale && (out || window.runsOutAt !== null);
-  const when = window.stale
-    ? "Reset"
-    : out
-      ? window.resetsAt === null
-        ? "Out"
-        : `Back ${limitTime(window.resetsAt, now)}`
-      : window.runsOutAt !== null
-        ? `Out in ${formatCountdown(window.runsOutAt - now)}`
-        : (resetCountdown(window.resetsAt, now) ?? "");
+  const when = limitCardLine(window, now);
   return (
-    <div className={cn(cardGrid, "h-6 text-xs")}>
+    <div
+      role="group"
+      className={cn(cardGrid, "min-h-6 text-xs")}
+      aria-label={`${window.label}: ${when.spoken}`}
+    >
       <span title={window.label} className="truncate text-muted-foreground">
         {shortLabel(window.label)}
       </span>
-      <LimitBar window={window} runsOut={runsOut} size="sm" />
+      <LimitBar window={window} size="sm" />
       <span
         className={cn(
-          "text-right font-medium",
-          runsOut ? "text-status-failed" : "text-foreground",
+          "text-right font-medium text-foreground",
           window.stale && "font-normal text-subtle-foreground",
         )}
       >
@@ -170,11 +208,16 @@ function CardWindow(props: { window: AccountWindow; now: number }) {
       <span
         className={cn(
           "truncate text-right",
-          runsOut ? "text-status-failed" : "text-subtle-foreground",
+          when.strong ? "font-medium text-foreground" : "text-subtle-foreground",
         )}
       >
-        {when}
+        {when.lead}
       </span>
+      {when.rest && (
+        <span className="col-span-4 -mt-0.5 pb-0.5 text-right text-subtle-foreground">
+          {when.rest}
+        </span>
+      )}
     </div>
   );
 }

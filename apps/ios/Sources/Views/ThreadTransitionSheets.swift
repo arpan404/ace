@@ -7,8 +7,8 @@ enum ThreadSheet: String, Identifiable {
 }
 
 extension View {
-    /// Rename, Bring back to parent, Turns, Attachments and Rewind's confirmation for the open
-    /// thread, and what its messages' actions do (`messageTransitions`).
+    /// Rename, Bring back to parent, Turns and Attachments for the open thread, and what its
+    /// messages' actions do (`messageTransitions`). Rewind's question is the message's own.
     func threadTransitions(model: ClientModel, thread: ThreadModel, title: String, renaming: Binding<Bool>,
                            sheet: Binding<ThreadSheet?>, openThread: @escaping (String) -> Void) -> some View {
         modifier(ThreadTransitionsHost(model: model, thread: thread, title: title, renaming: renaming, sheet: sheet,
@@ -23,7 +23,6 @@ private struct ThreadTransitionsHost: ViewModifier {
     @Binding var renaming: Bool
     @Binding var sheet: ThreadSheet?
     let openThread: (String) -> Void
-    @State private var rewinding: TranscriptRow?
     @State private var retried = 0
     @State private var problem: String?
 
@@ -44,15 +43,6 @@ private struct ThreadTransitionsHost: ViewModifier {
                     ThreadFilesSheet(model: model, threadId: thread.id)
                 }
             }
-            .alert("Rewind to here?", isPresented: Binding(get: { rewinding != nil }, set: { if !$0 { rewinding = nil } })) {
-                Button("Cancel", role: .cancel) {}
-                Button("Rewind") {
-                    guard let row = rewinding else { return }
-                    Task { if await model.rewind(to: row.id) { retried += 1 } }
-                }.accessibilityIdentifier("rewind.confirm")
-            } message: {
-                Text("Your next message continues from this turn. Later turns stay visible in ace, but Pi won't use them as context. Files are not reverted.")
-            }
     }
 
     private var transitions: MessageTransitions {
@@ -61,7 +51,7 @@ private struct ThreadTransitionsHost: ViewModifier {
             fork: { row in Task { _ = await model.openFork(.answer(itemId: row.id, runId: row.runId)) } },
             edit: { row in Task { _ = await model.openFork(.edit(itemId: row.id)) } },
             retry: { row in Task { if await model.retryAnswer(row.id) { retried += 1 } } },
-            rewind: { row in rewinding = row })
+            rewind: { row in Task { if await model.rewind(to: row.id) { retried += 1 } } })
     }
 }
 
@@ -174,7 +164,7 @@ private struct RenameSheet: View {
     }
 }
 
-private struct TurnsPage: Decodable {
+struct TurnsPage: Decodable {
     struct Turn: Decodable, Identifiable {
         let ordinal: Int
         let startedAt: Double

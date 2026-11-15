@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { ChatsCircleIcon, FoldersIcon, GearSixIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, FolderSimpleIcon, GearSixIcon } from "@ace/icons";
 import type { PlaceSignal } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
@@ -112,8 +112,8 @@ export function AppRail(props: {
     >
       <TooltipSide value={merged ? "bottom" : "right"}>
         <ThreadPlace
-          label="Threads"
-          icon={FoldersIcon}
+          label="Projects"
+          icon={FolderSimpleIcon}
           shortcut="goHome"
           current={current === "home"}
           last={threads}

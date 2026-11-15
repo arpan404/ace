@@ -15,6 +15,7 @@ import {
   STREAM_PROLOGUE,
 } from "./handshake.ts";
 import { ControlMessage, HTTP_FEATURE, HostOptionsSchema } from "./config.ts";
+import { MEDIA_FEATURE } from "./purpose.ts";
 import { serveHttpExchange } from "./http-host.ts";
 import type { HostHttpOptions } from "./http-host.ts";
 import { ClientSlots } from "./admission.ts";
@@ -22,6 +23,13 @@ import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
 import { RelayRefusedError } from "./refusal.ts";
+import {
+  XX_FIRST_MESSAGE,
+  answerNk,
+  refusalDeadline,
+  type NkAccepted,
+  type NkHost,
+} from "./nk-stream.ts";
 import type { z } from "zod";
 const noop = () => {};
 /** The `type` of a channel's first message, read without trusting the rest of it. */
@@ -70,6 +78,20 @@ export async function connectHostToRelay(options: {
    * the host registers with the `http` feature, so the relay sends it `http` tickets.
    */
   http?: HostHttpOptions;
+  /**
+   * Takes media streams (ADR 0147 §5.2): the host registers with the `media` feature, and each
+   * `purpose=media` ticket goes to `offer` with the `/join` address to dial, instead of being
+   * joined here. `offer` returns false to turn it down (the client hears "Host busy"), and may
+   * call `reject` later, while the ticket is unjoined, to turn it down then (a failed dial), so
+   * the client falls back at once instead of waiting out the ticket.
+   */
+  media?: { offer(ticket: string, joinUrl: string, reject: () => void): boolean };
+  /**
+   * Takes client streams opened with Noise NK (ADR 0155, step 2): the daemon admits each first
+   * message's early hello. Without it, an NK first message fails the XX handshake, as on an
+   * older daemon, and the client falls back to XX.
+   */
+  nk?: NkHost;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -124,12 +146,53 @@ export async function connectHostToRelay(options: {
       watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
       sockets.add(socket);
       socket.once("close", () => sockets.delete(socket));
-      const transport = await respondHandshake(socket, reader, {
-        staticKey: options.hostKeys,
-        prologue: STREAM_PROLOGUE,
-        clock,
-        timeoutMs: limits.handshakeTimeoutMs,
-      });
+      const handshakeDeadline = clock.schedule(limits.handshakeTimeoutMs, () => socket.terminate());
+      let first: Uint8Array;
+      try {
+        first = await reader.next();
+      } finally {
+        handshakeDeadline();
+      }
+      const arrivedAt = clock.now();
+      // An XX first message is exactly 32 bytes; anything else is NK. A daemon that doesn't
+      // take NK refuses it as one that does: closed with nothing sent at the refusal time.
+      if (first.length !== XX_FIRST_MESSAGE && !options.nk) {
+        await refusalDeadline(clock, arrivedAt, signal).reached;
+        socket.terminate();
+        return;
+      }
+      let accepted: NkAccepted | undefined;
+      let transport: Parameters<typeof hostMessageChannel>[2];
+      if (options.nk && first.length !== XX_FIRST_MESSAGE) {
+        const nkDeadline = clock.schedule(limits.handshakeTimeoutMs, () => socket.terminate());
+        let answer: Awaited<ReturnType<typeof answerNk>>;
+        try {
+          answer = await answerNk(socket, first, {
+            host: options.nk,
+            staticKey: options.hostKeys,
+            clock,
+            signal,
+            arrivedAt,
+          });
+        } finally {
+          nkDeadline();
+        }
+        if (!answer) return;
+        accepted = answer.accepted;
+        transport = answer.keys;
+      } else
+        transport = await respondHandshake(
+          socket,
+          reader,
+          {
+            staticKey: options.hostKeys,
+            prologue: STREAM_PROLOGUE,
+            clock,
+            timeoutMs: limits.handshakeTimeoutMs,
+          },
+          first,
+        );
+      const nkSession = accepted;
       channel = hostMessageChannel(
         socket,
         reader,
@@ -137,6 +200,13 @@ export async function connectHostToRelay(options: {
         (message) => {
           if (seenHello) return;
           const type = firstMessageType(message);
+          // After an NK answer the client's first message is its confirmation; its hello came
+          // in the handshake.
+          if (nkSession) {
+            if (type !== "hello.confirm") throw new Error("First message must be hello.confirm");
+            seenHello = true;
+            return;
+          }
           // A pairing redemption is answered and closed by the daemon; it never authorizes.
           if (type === "pair.redeem" && !redeeming) {
             redeeming = true;
@@ -155,7 +225,7 @@ export async function connectHostToRelay(options: {
       const opened = channel;
       channels.add(opened);
       void Promise.resolve()
-        .then(() => options.onClientChannel(opened))
+        .then(() => (nkSession ? nkSession.open(opened) : options.onClientChannel(opened)))
         .catch(() => opened.close());
       await opened.closed;
     } finally {
@@ -216,7 +286,14 @@ export async function connectHostToRelay(options: {
             hostId: id,
             ...(account?.name ? { name: account.name } : {}),
             ...(account?.platform ? { platform: account.platform } : {}),
-            ...(options.http ? { features: HTTP_FEATURE } : {}),
+            ...(options.http || options.media
+              ? {
+                  features: [
+                    ...(options.http ? [HTTP_FEATURE] : []),
+                    ...(options.media ? [MEDIA_FEATURE] : []),
+                  ].join(","),
+                }
+              : {}),
           }),
           controller.signal,
           clock,
@@ -286,6 +363,25 @@ export async function connectHostToRelay(options: {
               continue;
             }
             if (message.type !== "client") throw new Error("Invalid client ticket");
+            if (message.purpose === "media") {
+              const joinUrl = relayAddress(options.relayUrl, "/join", {
+                ticket: message.ticket,
+                hostId: id,
+              });
+              const ticket = message.ticket;
+              const control = socket;
+              const reject = () => {
+                if (controller.signal.aborted || control.readyState !== control.OPEN) return;
+                void sendFrame(
+                  control,
+                  transport.send.encrypt(
+                    new TextEncoder().encode(JSON.stringify({ type: "reject", ticket })),
+                  ),
+                ).catch(() => {});
+              };
+              if (!options.media?.offer(ticket, joinUrl, reject)) reject();
+              continue;
+            }
             const reservation = slots.reserve(message.ticket);
             if (!reservation.accepted) {
               await sendFrame(

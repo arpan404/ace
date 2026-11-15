@@ -1,4 +1,4 @@
-import { CaretDownIcon, CheckIcon, PlusIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon, PlusIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

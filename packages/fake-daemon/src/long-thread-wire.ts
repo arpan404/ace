@@ -15,6 +15,16 @@ import { FakeTurnIndex } from "./long-thread-index.ts";
 import { FakeIcons } from "./icons-wire.ts";
 import { fakeTurnSteps } from "./turn-steps-wire.ts";
 
+/** Payloads per `item.raw` page in the fake. */
+export const rawPageSize = 50;
+
+/** A version name for an item's payloads (FNV-1a of their JSON): any change gives another. */
+function rawRevision(raw: unknown): string {
+  let hash = 0x811c9dc5;
+  for (const char of JSON.stringify(raw)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193);
+  return `r${(hash >>> 0).toString(36)}`;
+}
+
 interface LongThreadHost {
   head(): number;
   thread(id: string): ThreadHost | undefined;
@@ -64,6 +74,7 @@ export class FakeLongThreadWire {
         "turns.page",
         "items.window",
         "turn.steps",
+        "item.raw",
         "thread.search",
         "thread.catchUp",
         "thread.readState",
@@ -87,6 +98,41 @@ export class FakeLongThreadWire {
         ? this.index.summaries(message.threadId)
         : [];
     switch (message.type) {
+      case "item.raw": {
+        const item = Object.hasOwn(host.view.items, message.itemId)
+          ? host.view.items[message.itemId]
+          : undefined;
+        if (!item) {
+          send({
+            type: "error",
+            requestId: message.requestId,
+            code: "item_not_found",
+            message: "item_not_found",
+          });
+          return true;
+        }
+        const raw = item.type === "tool_call" ? item.call.raw : "raw" in item ? item.raw : [];
+        // Pages by count, not by the daemon's 1 MiB, so a test reaches a second page cheaply.
+        const next = message.from + rawPageSize;
+        const revision = rawRevision(raw);
+        const reply = {
+          type: "item.raw" as const,
+          requestId: message.requestId,
+          threadId: message.threadId,
+          itemId: message.itemId,
+          revision,
+          from: message.from,
+        };
+        if (message.from > 0 && message.revision !== revision)
+          send({ ...reply, changed: true, raw: [] });
+        else
+          send({
+            ...reply,
+            raw: structuredClone(raw.slice(message.from, next)),
+            ...(next < raw.length ? { next } : {}),
+          });
+        return true;
+      }
       case "turn.steps":
         send(fakeTurnSteps(host, this.index, this.icons, message, seq));
         return true;

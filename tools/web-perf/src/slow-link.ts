@@ -1,23 +1,40 @@
-import type { Browser } from "@playwright/test";
+import { chromium, type Browser, type BrowserContext, type CDPSession } from "@playwright/test";
 import { z } from "zod";
+import {
+  countsSince,
+  linkProfile,
+  roundTrips,
+  startLinkShaper,
+  type LinkProfile,
+  type LinkShaper,
+} from "@ace/perf-kit/link";
 import { loadChain, type LoadRequest } from "./load-chain.ts";
 import { open, withPerfApp } from "./perf-app.ts";
+import { withDaemonApp } from "./slow-link-daemon.ts";
 
 /*
- * Navigation over a slow link (ADR 0056): a remote device opening a thread through a tunnel
- * or a phone network, with a cold cache. Chromium's network emulation adds the profile's
- * latency to every request and caps its throughput, so serialized requests and late chunk
- * discovery cost what they would on such a link. Report only, no budget: it says how many
- * requests and sequential round trips the first screen waits on and when the thread's
- * content is there, for comparing one boot order with another.
+ * Navigation over a slow link (ADR 0056): a remote device opening a thread through a tunnel or
+ * a phone network. Report only, no budget: it says how many requests and sequential round trips
+ * the first screen waits on and when the thread's content is there, for comparing one boot
+ * order with another.
+ *
+ *   node tools/web-perf/src/slow-link.ts [--target=preview|daemon] [--profile=3g-fast]
+ *     [--cache=cold,warm]
+ *
+ * `preview` (the default) is the perf build under `vite preview`, its thread fed by the endless
+ * agent, with the link emulated by Chromium (latency and throughput; it cannot drop packets).
+ * `daemon` is the production build served by a real daemon from this checkout over its pinned
+ * TLS listener, paired as a phone pairs, through the TCP link shaper (@ace/perf-kit/link), which
+ * also models loss; its thread is a recorded ~120-item thread (apps/daemon/bench/slow-link-*).
+ * `cold` opens with an empty HTTP cache; `warm` opens the same thread again with the cache and
+ * the client's kept snapshots from the cold visit.
  */
 
-/** About a phone network or a relayed tunnel: 300 ms round trip, 1.6 Mbit/s down. */
-export const slowLink = {
-  latencyMs: 300,
-  downloadBytesPerSecond: 1_600_000 / 8,
-  uploadBytesPerSecond: 750_000 / 8,
-};
+const argument = (name: string, fallback: string) =>
+  process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
+const target = z.enum(["preview", "daemon"]).parse(argument("target", "preview"));
+const profile = linkProfile(argument("profile", "3g-fast"));
+const caches = z.array(z.enum(["cold", "warm"])).parse(argument("cache", "cold,warm").split(","));
 
 const Initiator = z
   .object({
@@ -85,6 +102,7 @@ function initiatorUrl(initiator: z.infer<typeof Initiator>): string | undefined 
 }
 
 interface SlowLinkResult {
+  cache: "cold" | "warm";
   transcriptMs: number;
   sidebarMs: number | null;
   requests: number;
@@ -93,22 +111,42 @@ interface SlowLinkResult {
   path: string[];
   /** Requests before first content by type and initiator, most first. */
   kinds: [string, number][];
+  /**
+   * Daemon target only: everything that crossed the shaped link, WebSocket frames included.
+   * `roundTrips` sums handshakes and client flights over all the page's parallel connections.
+   */
+  link?: { roundTrips: number; downKilobytes: number; upKilobytes: number; stalls: number };
 }
 
-async function measureSlowLink(browser: Browser, origin: string): Promise<SlowLinkResult> {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+/** Chromium's emulation of a profile: its latency and rates; loss has no equivalent. */
+async function emulate(cdp: CDPSession, link: LinkProfile) {
+  if (link.downBitsPerSecond === null && link.rttMs === 0) return;
+  await cdp.send("Network.emulateNetworkConditions", {
+    offline: false,
+    latency: link.rttMs,
+    downloadThroughput: (link.downBitsPerSecond ?? 0) / 8 || -1,
+    uploadThroughput: (link.upBitsPerSecond ?? 0) / 8 || -1,
+  });
+}
+
+/** An epoch time on the shaper's clock (this process's `performance.now()`). */
+const shaperTime = (epochMs: number) => epochMs - performance.timeOrigin;
+
+/** One navigation to `url` in `context`, timed to the thread's first message. */
+async function navigate(
+  context: BrowserContext,
+  url: string,
+  cache: "cold" | "warm",
+  options: { emulated: boolean; shaper?: LinkShaper },
+): Promise<SlowLinkResult> {
+  const page = await context.newPage();
   try {
-    const page = await context.newPage();
     await page.addInitScript(markFirstContent);
     const cdp = await context.newCDPSession(page);
     await cdp.send("Network.enable");
-    await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
-    await cdp.send("Network.emulateNetworkConditions", {
-      offline: false,
-      latency: slowLink.latencyMs,
-      downloadThroughput: slowLink.downloadBytesPerSecond,
-      uploadThroughput: slowLink.uploadBytesPerSecond,
-    });
+    // Cleared, not disabled: the cold visit fills the cache the warm visit then reads.
+    if (cache === "cold") await cdp.send("Network.clearBrowserCache");
+    if (options.emulated) await emulate(cdp, profile);
     const sent = new Map<string, z.infer<typeof RequestSent>>();
     const bytes = new Map<string, number>();
     const finished = new Map<string, number>();
@@ -123,12 +161,12 @@ async function measureSlowLink(browser: Browser, origin: string): Promise<SlowLi
       bytes.set(parsed.data.requestId, parsed.data.encodedDataLength);
       finished.set(parsed.data.requestId, parsed.data.timestamp);
     });
-    await open(page, `${origin}/t/thread-soak?rate=20`);
+    await open(page, url);
     await page
       .getByRole("feed", { name: "Transcript" })
       .getByRole("article")
       .first()
-      .waitFor({ timeout: 60_000 });
+      .waitFor({ timeout: 120_000 });
     await page.waitForFunction(
       () =>
         (globalThis as { aceFirstContent?: { transcript: unknown } }).aceFirstContent?.transcript !=
@@ -141,6 +179,15 @@ async function measureSlowLink(browser: Browser, origin: string): Promise<SlowLi
       }),
     );
     const transcriptMs = marks.transcript ?? Number.NaN;
+    // The link as it stood from the page's navigation start to its first message, read from the
+    // shaper's timeline: both are this machine's epoch milliseconds, and the waits above return
+    // later than the paint they waited for.
+    const crossed = options.shaper
+      ? countsSince(
+          options.shaper.countsAt(shaperTime(marks.navigationStart)),
+          options.shaper.countsAt(shaperTime(marks.navigationStart + transcriptMs)),
+        )
+      : undefined;
     const requests = [...sent.values()].filter((entry) => !entry.request.url.startsWith("data:"));
     const navigation = requests.find((entry) => entry.type === "Document") ?? requests[0];
     const startedAt = navigation?.timestamp ?? 0;
@@ -160,7 +207,13 @@ async function measureSlowLink(browser: Browser, origin: string): Promise<SlowLi
         const kind = `${entry.type ?? "?"} from ${entry.initiator.type} ${pathOf(mapInitiator(entry.initiator) ?? "")}`;
         kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
       }
+    // Measured; now stay on the page while it finishes loading, as a person would, so the warm
+    // visit finds in the cache what the page fetches after its first message. Closing at first
+    // content left late chunks uncached, and the warm visit moved with the link's speed.
+    if (cache === "cold")
+      await page.waitForLoadState("networkidle", { timeout: 180_000 }).catch(() => undefined);
     return {
+      cache,
       kinds: [...kinds].toSorted((a, b) => b[1] - a[1]).slice(0, 12),
       transcriptMs,
       sidebarMs: marks.sidebar,
@@ -168,9 +221,19 @@ async function measureSlowLink(browser: Browser, origin: string): Promise<SlowLi
       kilobytes: chain.bytes / 1024,
       roundTrips: chain.roundTrips,
       path: chain.path,
+      ...(crossed
+        ? {
+            link: {
+              roundTrips: roundTrips(crossed),
+              downKilobytes: crossed.downBytes / 1024,
+              upKilobytes: crossed.upBytes / 1024,
+              stalls: crossed.stalls,
+            },
+          }
+        : {}),
     };
   } finally {
-    await context.close();
+    await page.close();
   }
 }
 
@@ -183,18 +246,68 @@ const line = (label: string, value: string) =>
   process.stdout.write(`  ${label.padEnd(54)} ${value}\n`);
 
 function reportSlowLink(result: SlowLinkResult): void {
+  const down =
+    profile.downBitsPerSecond === null
+      ? "unshaped"
+      : `${profile.downBitsPerSecond / 1e6} Mbit/s down`;
   process.stdout.write(
-    `slow link (${slowLink.latencyMs} ms round trip, ${(slowLink.downloadBytesPerSecond * 8) / 1e6} Mbit/s down), cold cache:\n`,
+    `slow link, ${target}, ${profile.name} (${profile.rttMs} ms round trip, ${down}), ${result.cache} cache:\n`,
   );
   line("first thread content (ms)", result.transcriptMs.toFixed(0));
   line("first sidebar row (ms)", result.sidebarMs === null ? "none" : result.sidebarMs.toFixed(0));
   line("requests before first content", String(result.requests));
   line("transferred before first content (KB)", result.kilobytes.toFixed(0));
   line("sequential round trips before first content", String(result.roundTrips));
+  if (result.link) {
+    // Summed over every connection the page opened, so not sequential round trips.
+    line("link flights, all connections and handshakes", String(result.link.roundTrips));
+    line("link bytes down, WebSocket included (KB)", result.link.downKilobytes.toFixed(0));
+  }
   line("deepest chain", result.path.join(" → "));
   for (const [kind, count] of result.kinds) line(`  ${kind}`, String(count));
 }
 
-await withPerfApp(async ({ browser, origin }) => {
-  reportSlowLink(await measureSlowLink(browser, origin));
-});
+async function run(
+  browser: Browser,
+  url: string,
+  options: { emulated: boolean; shaper?: LinkShaper; context?: BrowserContext },
+) {
+  const context =
+    options.context ?? (await browser.newContext({ viewport: { width: 1440, height: 900 } }));
+  try {
+    const results: SlowLinkResult[] = [];
+    // A warm visit needs the cold one before it, measured or not.
+    if (!caches.includes("cold") && caches.includes("warm"))
+      await navigate(context, url, "cold", options);
+    for (const cache of caches) results.push(await navigate(context, url, cache, options));
+    return results;
+  } finally {
+    await context.close();
+  }
+}
+
+const results =
+  target === "preview"
+    ? await withPerfApp(async ({ browser, origin }) =>
+        run(browser, `${origin}/t/thread-soak?rate=20`, { emulated: true }),
+      )
+    : await withDaemonApp(async ({ origin: upstream, pair, threadPath, browserArgs }) => {
+        const shaper = await startLinkShaper({ target: upstream, profile });
+        const browser = await chromium.launch({ args: browserArgs });
+        try {
+          const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+          await pair(context, shaper.address);
+          return await run(browser, `https://${shaper.address}${threadPath}`, {
+            emulated: false,
+            shaper,
+            context,
+          });
+        } finally {
+          await browser.close();
+          await shaper.close();
+        }
+      });
+for (const result of results) reportSlowLink(result);
+process.stdout.write(
+  `${JSON.stringify({ bench: "web-slow-link", target, profile: profile.name, results })}\n`,
+);

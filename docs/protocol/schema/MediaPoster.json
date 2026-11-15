@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaPoster.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "height": {
+      "maximum": 8192,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "jpeg": {
+      "maxLength": 65536,
+      "minLength": 1,
+      "type": "string"
+    },
+    "width": {
+      "maximum": 8192,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "width",
+    "height",
+    "jpeg"
+  ],
+  "type": "object"
+}

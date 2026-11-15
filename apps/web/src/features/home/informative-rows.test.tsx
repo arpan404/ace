@@ -44,7 +44,7 @@ function task(app: ReturnType<typeof harness>, id: string, title: string) {
     facts.message("root", "ask", "user", "Fix replay"),
   ]);
 }
-const rows = async () => within(await screen.findByRole("list", { name: "Threads" }));
+const rows = async () => within(await screen.findByRole("list", { name: "Projects" }));
 
 /** The colour (tone) of a row's status icon, found by the status's meaning. */
 const toneOf = (row: HTMLElement, meaning: string) =>

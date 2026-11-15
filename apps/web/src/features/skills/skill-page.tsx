@@ -1,4 +1,4 @@
-import { CubeIcon } from "@phosphor-icons/react";
+import { CubeIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

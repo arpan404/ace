@@ -7,7 +7,7 @@ import {
   GitForkIcon,
   LaptopIcon,
   TerminalWindowIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";

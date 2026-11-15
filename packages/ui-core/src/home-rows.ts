@@ -4,10 +4,11 @@ import type { ThreadsPanel } from "./thread-place.ts";
 /*
  * The Threads panel's rows as the sidebar draws them (ADR 0107): the open tab's threads, one
  * flat list with no headings. The Inbox puts Unsent on top, then every thread band by band.
- * Snoozed and Settled show a page at a time and end with Show more and Show less. Pure.
+ * Snoozed and Settled show a page at a time, the next one as the list nears its end, and end with
+ * a foot while more are left. Pure.
  */
 
-/** How many threads Snoozed and Settled show at first, and how many each Show more adds. */
+/** How many threads Snoozed and Settled show at first, and how many each page adds. */
 export const panelPage = 50;
 
 /** Where an Inbox row shows: among the pinned ones that lead it, or after them. */
@@ -24,11 +25,8 @@ export type HomeRow =
   | { kind: "snoozed"; id: string }
   /** A thread in Settled. */
   | { kind: "settled"; id: string }
-  /**
-   * Snoozed's or Settled's last row while it shows part of its threads (`more`: Show more) or
-   * more than its first page (`less`: Show less).
-   */
-  | { kind: "more"; more: boolean; less: boolean }
+  /** Snoozed's or Settled's last row while it shows part of its threads: the next page's foot. */
+  | { kind: "more" }
   | { kind: "empty"; key: string; text: string }
   /** The Chats panel's label over its Active chats. */
   | { kind: "active-label" }
@@ -58,9 +56,8 @@ export function panelRows(
     const rows: HomeRow[] = ids
       .slice(0, shown)
       .map((id) => (tab === "snoozed" ? { kind: "snoozed", id } : { kind: "settled", id }));
-    const more = ids.length > shown || (tab === "settled" && options.moreOnDaemon === true);
-    const less = shown > panelPage && ids.length > panelPage;
-    if (more || less) rows.push({ kind: "more", more, less });
+    if (ids.length > shown || (tab === "settled" && options.moreOnDaemon === true))
+      rows.push({ kind: "more" });
     return rows;
   }
   const pinned = new Set(panel.pinned);

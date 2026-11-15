@@ -38,6 +38,27 @@ import Testing
         #expect(device.frame.portrait.screenRadius == 0.14)
     }
 
+    @Test func devicesTurnedOffSayHowToTurnThemOnAndAnOfflineDeviceSaysWhatItNeeds() throws {
+        let off = #"""
+        {"type":"devices.view","threadId":"thread-1","view":{"connected":true,"loading":false,"enabled":false,
+         "off":{"title":"Simulators and emulators are off","line":"They're turned off for this machine. Turn them on to watch and drive them here and let this thread's agents use them."},
+         "offline":null,"running":[],
+         "groups":[{"label":"Android phone","rows":[
+           {"id":"android:emulator-5554","name":"Pixel 8","platform":"android","kind":"android-phone","detail":"Android 15 · Offline","running":false,"live":false,"control":"","bootable":false,"hint":"Pixel 8 is offline. Reconnect it, or restart its emulator, then refresh."},
+           {"id":"android:Pixel_9","name":"Pixel 9","platform":"android","kind":"android-phone","detail":"Android 15 · Shut down","running":false,"live":false,"control":"","bootable":true,"hint":null}]}],
+         "notes":[],"toolsMissing":false,"device":null}}
+        """#
+        let patch = try JSONDecoder().decode(BridgePatch.self, from: Data(off.utf8))
+        guard case .devices(let devices) = patch else { Issue.record("Expected a devices patch"); return }
+        let model = DevicesModel()
+        model.apply(devices)
+        let view = try #require(model.view)
+        #expect(view.off?.title == "Simulators and emulators are off")
+        let rows = view.groups.flatMap(\.rows)
+        #expect(rows.map(\.bootable) == [false, true])
+        #expect(rows.first?.hint == "Pixel 8 is offline. Reconnect it, or restart its emulator, then refresh.")
+    }
+
     @Test func aFrameFitsItsRoomKeepsTheScreensAspectAndNeverBlowsUpASmallScreen() throws {
         let geometry = try JSONDecoder().decode(DeviceFrameGeometry.self, from: Data(Self.frame.utf8))
         let screen = CGSize(width: 393, height: 852)

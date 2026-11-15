@@ -10,10 +10,12 @@ import { harness } from "./supervisor-test-support.ts";
 import type { ToMedia } from "./wire.ts";
 
 type Owner = Extract<ToMedia, { type: "viewer.open" }>["owner"];
+/** A paired credential's generation as the daemon gives it: a hash, here of `n`. */
+const credential = (n: number) => n.toString(16).padStart(32, "0");
 const owner = (device: string, generation = 1): Owner => ({
   session: `session-${device}`,
   device,
-  admission: { kind: "pairing", generation },
+  admission: { kind: "pairing", generation: credential(generation) },
 });
 const viewerOpen = (viewer: string, who: Owner, issued: number): ToMedia => ({
   type: "viewer.open",
@@ -22,6 +24,7 @@ const viewerOpen = (viewer: string, who: Owner, issued: number): ToMedia => ({
   owner: who,
   issued,
   source: "source-1",
+  target: { kind: "browser", threadId: "thread-1" },
   codecs: ["h264"],
   viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
   local: true,
@@ -255,6 +258,23 @@ describe("MediaSupervisor", () => {
     expect(h.events.exits[2]?.restartInMs).toBe(500);
   });
 
+  it("keeps a stderr line that never ends to 4 KiB while it streams, and the lines after it", async () => {
+    const h = harness();
+    const supervisor = new MediaSupervisor(h.options);
+    supervisor.need();
+    await h.clock.advance(0);
+    const child = h.host.last;
+    const encoder = new TextEncoder();
+    child.stderr.emit(encoder.encode("first\n"));
+    // 64 MiB with no newline, in 4 KiB reads: work per read must not grow with the line.
+    const chunk = encoder.encode("x".repeat(4096));
+    for (let i = 0; i < 16_384; i++) child.stderr.emit(chunk);
+    child.stderr.emit(encoder.encode("\nlast\n"));
+    child.exit(1, null);
+    await h.clock.advance(0);
+    expect(supervisor.snapshot().lastExit?.stderr).toEqual(["first", "x".repeat(4096), "last"]);
+  }, 2_000);
+
   it("marks ace-media unavailable for 10 minutes after five failures in 2 minutes", async () => {
     const h = harness();
     h.host.behaviour.exitAtOnce = 1;
@@ -396,7 +416,7 @@ describe("MediaSupervisor", () => {
       id: "r1",
       issued: 8,
       device: "d1",
-      admission: { kind: "pairing", generation: 1 },
+      admission: { kind: "pairing", generation: credential(1) },
     });
     expect(keys.every((byte) => byte === 0)).toBe(true);
     expect(h.supervisor.send(viewerOpen("v4", owner("d1"), 6))).toBe(false);

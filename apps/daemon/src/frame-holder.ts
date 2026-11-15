@@ -1,14 +1,32 @@
 import type { ServerMessage } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import type { SuitServerMessage } from "@ace/protocol/suits";
+import type { LinkView } from "./link-estimate.ts";
 
-/** How long a streamed delta may wait for company before its frame goes. */
+/** How long a streamed delta may wait for company before its frame goes, on a fast link. */
 export const frameHoldMs = 16;
+/** Backlog past which a remote link counts as slow, and past which as very slow. */
+export const slowBacklogBytes = 8 * 1024;
+export const verySlowBacklogBytes = 64 * 1024;
+
+/**
+ * How long deltas wait to share a frame on `link`: 16 ms on loopback and on a remote link that
+ * keeps up; on one that has a backlog, 100 ms, and 250 ms past 64 KiB, so more deltas share
+ * one frame and one compression pass. Only streamed deltas ever wait (`mayHold`).
+ */
+export function frameHoldFor(link: LinkView | undefined): number {
+  if (!link?.remote) return frameHoldMs;
+  // The backlog as the hold starts: bytes still queued when a new delta comes mean the link
+  // is not keeping up. (The smoothed figure is sampled only on writes, so after one large
+  // snapshot it could stay high on a fast link while few writes go.)
+  const backlog = link.backlogBytes;
+  return backlog >= verySlowBacklogBytes ? 250 : backlog >= slowBacklogBytes ? 100 : frameHoldMs;
+}
 /** A packed frame goes once it holds this many bytes, whatever the clock says. */
 export const heldFrameBytes = 64 * 1024;
 
 /**
- * Whether a message may wait up to `frameHoldMs` for later ones to share its frame: only
+ * Whether a message may wait (`frameHoldFor`) for later ones to share its frame: only
  * events made entirely of streamed text. Anything a person or a request waits on (approvals,
  * interactions, status, errors, acks, replies) goes at once, taking what waits before it.
  */
@@ -32,12 +50,16 @@ export class FrameHolder {
   #cancel: (() => void) | undefined;
   #send: (text: string) => void;
   #delay: (callback: () => void, milliseconds: number) => () => void;
+  #holdMs: () => number;
   constructor(
     send: (text: string) => void,
     delay: (callback: () => void, milliseconds: number) => () => void,
+    /** How long the first held part may wait, read when it starts waiting. */
+    holdMs: () => number = () => frameHoldMs,
   ) {
     this.#send = send;
     this.#delay = delay;
+    this.#holdMs = holdMs;
   }
   /** Bytes held and not yet handed to the socket; they count against the outbox budget. */
   get bytes(): number {
@@ -53,7 +75,7 @@ export class FrameHolder {
       this.#cancel ??= this.#delay(() => {
         this.#cancel = undefined;
         this.release();
-      }, frameHoldMs);
+      }, this.#holdMs());
   }
   /** Send what is held, as one frame. */
   release(): void {

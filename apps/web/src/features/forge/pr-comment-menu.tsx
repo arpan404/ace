@@ -8,7 +8,7 @@ import {
   PencilSimpleIcon,
   TrashIcon,
   WrenchIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ForgeComment, ForgeHiddenReason } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {

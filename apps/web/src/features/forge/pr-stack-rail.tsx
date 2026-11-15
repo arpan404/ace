@@ -11,7 +11,7 @@ import {
   UserCircleMinusIcon,
   WarningCircleIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ForgeStackLayer } from "@ace/protocol";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

@@ -63,6 +63,7 @@ export const routePages = {
   "/settings/spade": null,
   "/settings/storage": null,
   "/settings/advanced": null,
+  "/settings/beta": null,
   "/settings/remote/": null,
   "/settings/remote/$machine": null,
   "/settings/remote/map": null,

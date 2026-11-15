@@ -66,7 +66,7 @@ test("a working row shows its time beside its blue working icon and no animated 
     { type: "turn.started", agent: "root", nativeTurnId: "turn-1", trigger: "user" },
   ]);
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   const row = await list.findByRole("link", { name: /^Rewrite the install page/ });
   const mark = within(row).getByRole("img", { name: "Working" });
   expect(mark.querySelector('[data-icon="working"]')).toBeTruthy();
@@ -88,7 +88,7 @@ test("a needs-approval row shows its amber hand with no word; its name says Need
     provider: "codex",
   });
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   await list.findByRole("link", { name: /^Publish the release/ });
   act(() =>
     app.daemon.apply("asks", [
@@ -130,7 +130,7 @@ test("a done-but-unseen row shows its check alone, named Finished", async () => 
   });
   app.daemon.apply("done", turnFacts("turn-1"));
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   const row = await list.findByRole("link", { name: /^Ship the release notes/ });
   const mark = await within(row).findByRole("img", { name: "Finished" });
   expect(mark.querySelector("[data-icon]")?.getAttribute("data-tone")).toBe("finished");
@@ -141,7 +141,7 @@ test("a done-but-unseen row shows its check alone, named Finished", async () => 
 
 /** A thread's row in the Threads list, by its title. */
 async function threadRow(title: string) {
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   return list.findByRole("link", { name: new RegExp(`^${title}`) });
 }
 

@@ -50,7 +50,12 @@ struct StreamSettings: Decodable {
     let maxHeight: Int
     let fps: Int
     let bitrate: Int
+    func coded(_ codec: String) -> StreamSettings {
+        StreamSettings(codec: codec, maxWidth: maxWidth, maxHeight: maxHeight, fps: fps, bitrate: bitrate)
+    }
 }
+/// ace-media's ingest socket and the source's single-use token (base64 of 32 bytes).
+struct StreamIngest: Decodable { let socket: String; let token: String }
 struct Request: Decodable {
     let version: Int
     let id: String
@@ -60,6 +65,9 @@ struct Request: Decodable {
     var allowlist: [String]?
     let fps: Int?
     let settings: StreamSettings?
+    let ingest: StreamIngest?
+    /// The privacy epoch pictures captured from now on carry (`stream.configure`).
+    let epoch: UInt32?
     let action: Action?
     let input: Input?
     let enabled: Bool?
@@ -89,13 +97,15 @@ struct Request: Decodable {
     let path: [String]?
     let range: TextRange?
     struct TextRange: Decodable { let location: Int; let length: Int }
-    enum CodingKeys: String, CodingKey { case url, path, observeMs, maxWindowMs, filmstrip, settings, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
+    enum CodingKeys: String, CodingKey { case url, path, observeMs, maxWindowMs, filmstrip, settings, ingest, epoch, version, id, op, sessionId, target, allowlist, fps, action, input, enabled, capture, maxDepth, maxNodes, query, limit, ref, value, permission, name, mode, secureInputAllowed, humanDeviceInput, bundleId, range }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decode(Int.self, forKey: .version); id = try c.decode(String.self, forKey: .id); op = try c.decode(String.self, forKey: .op)
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId); target = try c.decodeIfPresent(Target.self, forKey: .target)
         allowlist = try c.decodeIfPresent([String].self, forKey: .allowlist); fps = try c.decodeIfPresent(Int.self, forKey: .fps)
         settings = try c.decodeIfPresent(StreamSettings.self, forKey: .settings)
+        ingest = try c.decodeIfPresent(StreamIngest.self, forKey: .ingest)
+        epoch = try c.decodeIfPresent(UInt32.self, forKey: .epoch)
         action = ["ui.act", "measure_interaction"].contains(op) ? nil : try c.decodeIfPresent(Action.self, forKey: .action)
         semanticAction = op == "ui.act" ? try c.decodeIfPresent(String.self, forKey: .action) : nil
         measurementAction = op == "measure_interaction" ? try c.decodeIfPresent(Input.self, forKey: .action) : nil
@@ -164,6 +174,7 @@ func permissions() -> [String: Bool] { ["screenRecording": CGPreflightScreenCapt
 func capabilities() -> [String: Any] {
     ["version": 2, "platform": "macos", "background": true, "permissionEvents": true, "maxSessions": 8, "capture": ["windows": true, "displays": true, "changeDriven": true, "windowContent": true],
      "input": ["pointer": true, "keyboard": true, "scroll": true, "text": true], "uiTree": true,
-     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": ["jpeg", "h264"],
-     "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"]]
+     "semanticActions": ["press", "focus", "setValue", "scroll", "expand", "select", "performSecondaryAction", "selectText"], "codecs": EncodeTrial.codecs(EncodeTrial.report),
+     "permissions": ["screen": CGPreflightScreenCaptureAccess() ? "granted" : "denied", "input": AXIsProcessTrusted() ? "granted" : "denied"],
+     "encoders": EncodeTrial.report]
 }

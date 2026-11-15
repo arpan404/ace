@@ -56,6 +56,13 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var group: String? = nil
     /// Inbox rows only: false when the thread never settles by itself.
     var autoSettle: Bool? = nil
+    /// Inbox rows only: the snoozes that end on an event and fit the thread now ("Until it
+    /// needs you", "Until the PR changes"), beside the layout's times. Nil from older bridges.
+    var snoozeEvents: [SnoozeEvent]? = nil
+    /// Inbox rows only: what an event snooze waits for ("until it needs you"); nil for a timed one.
+    var snoozeWake: String? = nil
+    /// Inbox rows only: that event's id ("needs_you", "pr"), so Undo of a settle puts it back.
+    var snoozeOn: String? = nil
     /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
     /// the words are the layout's `menuLabels`. Nil from older bridges.
     var menu: [String]? = nil
@@ -76,6 +83,7 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var startedBy: String? = nil
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
+    struct SnoozeEvent: Codable, Sendable, Equatable, Identifiable { let id: String; let label: String; let detail: String }
     struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
     /// The preview's first line: the sentence, what it is about, and its ink ("warning",
     /// "destructive" or "muted").
@@ -183,6 +191,16 @@ struct BubbleLine: Codable, Sendable, Equatable {
     var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
+    /// How many lines a long bubble shows folded; absent from older bridges (ten).
+    var fold: Int? = nil
+    /// The markdown the bubble renders instead of its runs, every line break kept as a hard
+    /// break; empty (or absent from older bridges) when it draws its runs.
+    var markdown: String? = nil
+    /// The words as written, for Copy, Select text and Share; empty for a message with mentions
+    /// (it copies its runs) and absent from older bridges.
+    var source: String? = nil
+    /// The words ran past what the row carries: the menu reads them whole (`readBubble`).
+    var cut: Bool? = nil
     let origin: String
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
@@ -218,6 +236,10 @@ struct ApprovalRow: Codable, Sendable, Identifiable {
     var help: HelpRequest? = nil
     /// The request as its strip above the composer says it (`StripLine`); nil from older bridges.
     var strip: StripLineRow? = nil
+    /// Why only declines are offered: the daemon sent a summary, too large to review on the
+    /// phone (ADR 0157); "" or nil when the request came whole.
+    var summarized: String? = nil
+    var tooLargeToApprove: Bool { !(summarized ?? "").isEmpty }
 }
 struct PendingRow: Codable, Sendable, Identifiable {
     let id: String; let threadId: String; let state: String; let waiting: Bool; let text: String
@@ -319,7 +341,7 @@ enum BridgePatch: Decodable, Sendable {
     case item(String, Int, String, TranscriptRow?, ItemRemoval?)
     /// Streaming text as an edit of the row shown (`bridge/text-edit.ts`): `row` carries
     /// every other field, its text empty until `ClientModel` applies the edit.
-    case itemText(String, Int, String, TextEdit, TranscriptRow)
+    case itemText(String, Int, String, TextEdit, TranscriptRow?)
     case metadata(String, Int, ThreadRow?)
     case interaction(String, Int, String, ApprovalRow?)
     case cursor(String, Int, Int)
@@ -440,7 +462,7 @@ enum BridgePatch: Decodable, Sendable {
             let edit = TextEdit(base: try box.decode(Int.self, forKey: .base), cut: try box.decode(Int.self, forKey: .cut),
                                 append: try box.decode(String.self, forKey: .append))
             guard edit.cut >= 0, edit.cut <= edit.base else { throw DecodingError.dataCorruptedError(forKey: .cut, in: box, debugDescription: "cut past base") }
-            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decode(TranscriptRow.self, forKey: .row))
+            self = .itemText(id, epoch, try box.decode(String.self, forKey: .id), edit, try box.decodeIfPresent(TranscriptRow.self, forKey: .row))
         case "thread.metadata": let (id, epoch) = try scope(); self = .metadata(id, epoch, try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "thread.interaction":
             let (id, epoch) = try scope()

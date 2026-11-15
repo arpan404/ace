@@ -11,7 +11,7 @@ import { undoWindowMs } from "@/features/organize/use-thread-actions.ts";
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).getByRole("link", { name: title });
 const gone = (title: RegExp) => within(threads()).queryByRole("link", { name: title }) === null;
 const bar = () => screen.getByRole("toolbar", { name: "Selected threads" });
@@ -20,7 +20,7 @@ async function openHome() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 type App = Awaited<ReturnType<typeof openHome>>;
@@ -39,7 +39,7 @@ async function openWithIdle() {
   ] as const)
     createIdleTask(app.daemon, { id, workspaceId: "relay", title, provider: "codex" });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
@@ -223,7 +223,7 @@ test("threads deleted in bulk never come back: not after a while, not after a re
   // A fresh window on the same daemon: the list arrives without them.
   cleanup();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   expect(gone(/^Tidy the README/) && gone(/^Sketch the docs index/)).toBe(true);
   expect(listed(app, "thread-docs-index")).toBeUndefined();
   expect(listed(app, "thread-readme")).toBeUndefined();

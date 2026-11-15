@@ -1,4 +1,4 @@
-import { ClockIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { ClockIcon, DotsThreeIcon } from "@ace/icons";
 import type { ThreadRowFlags } from "@ace/ui-core";
 import type { ThreadListEntry } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";

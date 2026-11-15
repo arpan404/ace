@@ -14,7 +14,7 @@ import {
   ShieldWarningIcon,
   XIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ForgeInboxRow, ForgeIssueRow, ForgePrRow } from "@ace/protocol";
 import {
   checksMark,

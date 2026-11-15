@@ -19,6 +19,13 @@ enum InboxCheckpoint {
         try data.write(to: url(database: database), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
+    /// Reads a machine's kept patches for `ClientModel.connect`, given its database.
+    typealias Reader = @Sendable (URL) async -> [BridgePatch]
+    /// `read` on a background task: the copy may be megabytes, kept off the main thread.
+    nonisolated static let background: Reader = { database in
+        await Task.detached(priority: .userInitiated) { read(database: database) }.value
+    }
+
     /// The kept patches, or none when there is no copy or it cannot be read.
     nonisolated static func read(database: URL) -> [BridgePatch] {
         let file = url(database: database)

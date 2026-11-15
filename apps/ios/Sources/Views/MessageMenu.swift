@@ -36,6 +36,8 @@ private struct MessageMenu: ViewModifier {
     @Environment(\.replyToMessage) private var replyToMessage
     @State private var selecting = false
     @State private var replying = false
+    /// The question the chosen action asks first (Rewind's), shown from here once the menu closes.
+    @State private var asking: MessageQuestion?
     /// Reply, for an agent's message the composer can take a quote of.
     private var reply: ((Int, Int) -> Void)? {
         guard quotable, let replyToMessage else { return nil }
@@ -64,7 +66,7 @@ private struct MessageMenu: ViewModifier {
                         if !offered.isEmpty {
                             Section {
                                 ForEach(offered, id: \.self) { action in
-                                    Button(action.label, ace: action.icon) { transitions.run(action, row) }
+                                    Button(action.label, ace: action.icon) { asking = transitions.choose(action, row) }
                                 }
                             }
                         }
@@ -80,6 +82,14 @@ private struct MessageMenu: ViewModifier {
             }
             .sheet(isPresented: $selecting) { SelectTextSheet(text: text, title: title, reply: reply) }
             .sheet(isPresented: $replying) { SelectTextSheet(text: text, title: "Reply", reply: reply, replying: true) }
+            .alert(asking?.title ?? "", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
+                Button("Cancel", role: .cancel) {}
+                if let asking, let row, let transitions {
+                    Button(asking.confirm) { transitions.run(asking.action, row) }.accessibilityIdentifier(asking.identifier)
+                }
+            } message: {
+                if let asking { Text(asking.message) }
+            }
     }
 }
 

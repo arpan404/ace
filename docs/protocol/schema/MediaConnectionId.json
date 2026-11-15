@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaConnectionId.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "pattern": "^mc_[A-Za-z0-9_-]{8,61}$",
+  "type": "string"
+}

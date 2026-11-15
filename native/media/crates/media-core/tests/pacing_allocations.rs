@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Isolated binary: the allocator counter cannot include other policy tests running in parallel.
 use media_core::{
-    fanout::*, gate::ChunkGate, keyframes::EncodePacer, link_rate::*, quantizer::QuantizerControl,
-    scale::PictureScale,
+    fanout::*,
+    gate::ChunkGate,
+    keyframes::EncodePacer,
+    link_rate::*,
+    quantizer::QuantizerControl,
+    scale::{PictureLink, PictureScale},
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 use std::{alloc::System, hint::black_box};
@@ -29,6 +33,7 @@ fn sixty_fps_pacing_allocates_nothing_after_viewer_construction() {
         viewer.publish(
             1,
             p,
+            0.0,
             |_| true,
             |e| {
                 if let Event::Sent(p) = e {
@@ -37,8 +42,16 @@ fn sixty_fps_pacing_allocates_nothing_after_viewer_construction() {
             },
         );
         rate.acknowledged(sequence, now + 20.0 + (sequence % 7) as f64);
-        viewer.acknowledge(sequence, |_| true, |_| {});
-        black_box(scale.update(rate.rate(), 2_073_600.0, 60.0, now));
+        viewer.bound(Some(rate.backlog_bytes()));
+        viewer.acknowledge_through(sequence, 0.0, |_| true, |_| {});
+        black_box(scale.update(PictureLink {
+            link: rate.rate(),
+            pixels: 2_073_600.0,
+            side: 0.0,
+            fps: 60.0,
+            now,
+            probing: rate.probing(),
+        }));
         black_box(pacer.frame(now, false));
         black_box(gate.offer(p.key, || true));
         black_box(quantizer.next(p.key));

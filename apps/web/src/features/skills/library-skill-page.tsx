@@ -1,5 +1,5 @@
 import type { SkillEntry } from "@ace/protocol";
-import { ArrowSquareOutIcon, FolderSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, FolderSimpleIcon, TrashIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";

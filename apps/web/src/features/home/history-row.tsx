@@ -1,6 +1,6 @@
 import { useSidebarThread } from "@ace/client-react";
 import { historyDate, projectBadge } from "@ace/ui-core";
-import { GitMergeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitMergeIcon, GitPullRequestIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useProjectName } from "@/lib/projects.ts";

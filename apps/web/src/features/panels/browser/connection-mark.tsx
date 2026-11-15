@@ -1,4 +1,4 @@
-import { GlobeSimpleIcon, LockSimpleIcon, LockSimpleOpenIcon } from "@phosphor-icons/react";
+import { GlobeSimpleIcon, LockSimpleIcon, LockSimpleOpenIcon } from "@ace/icons";
 import { pageConnection, pageConnectionLabels } from "@ace/ui-core";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";

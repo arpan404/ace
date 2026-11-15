@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { sceneBar } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";

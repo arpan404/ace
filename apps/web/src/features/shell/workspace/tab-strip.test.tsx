@@ -1,4 +1,4 @@
-import { FileIcon, GitDiffIcon } from "@phosphor-icons/react";
+import { FileIcon, GitDiffIcon } from "@ace/icons";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";

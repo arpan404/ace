@@ -1,4 +1,4 @@
-import { ChatCircleIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, FolderPlusIcon, FolderSimpleIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 import { projectBadge } from "@ace/ui-core";

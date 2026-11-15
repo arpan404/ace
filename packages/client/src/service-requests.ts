@@ -108,6 +108,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
   | "items.window"
   | "turn.steps"
+  | "item.raw"
   | "icons.resolve"
   | "icons.read"
   | "avatars.resolve"
@@ -190,10 +191,14 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                                   ? Replies<"items.page">
                                                                   : Q["type"] extends "output.read"
                                                                     ? Replies<"output.data">
-                                                                    : Reply;
+                                                                    : Q["type"] extends "interaction.read"
+                                                                      ? Replies<"interaction.data">
+                                                                      : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
   "cli.request": ["cli.result"],
+  // The client's media connection (ADR 0147 §4): granted with a ticket, or not, and why.
+  "media.connect": ["media.connect.result"],
   "notification.config": ["notification.config.result"],
   "notification.register": ["notification.register.result"],
   "notification.unregister": ["notification.unregister.result"],
@@ -221,6 +226,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "turns.page": ["turns.page"],
   "items.window": ["items.window"],
   "turn.steps": ["turn.steps"],
+  "item.raw": ["item.raw"],
   "icons.resolve": ["icons.resolve"],
   "icons.read": ["icons.read"],
   "avatars.resolve": ["avatars.resolve"],
@@ -312,6 +318,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "items.page": ["items.page"],
   "entities.page": ["entities.page"],
   "output.read": ["output.data"],
+  "interaction.read": ["interaction.data"],
 };
 function isServiceResponse<Q extends ServiceRequest>(
   query: Q,

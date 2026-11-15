@@ -23,6 +23,7 @@ fn waiting_key_is_replaced_and_its_deltas_follow_cumulative_ack() {
         v.publish(
             1,
             piece(seq, key, 100),
+            0.0,
             |p| {
                 sent.push(p.sequence);
                 true
@@ -31,8 +32,9 @@ fn waiting_key_is_replaced_and_its_deltas_follow_cumulative_ack() {
         );
     }
     assert_eq!(sent, [0, 1]);
-    v.acknowledge(
+    v.acknowledge_through(
         1,
+        0.0,
         |p| {
             sent.push(p.sequence);
             true
@@ -53,6 +55,7 @@ fn oversized_key_goes_alone_and_a_dropped_delta_requires_a_new_key() {
     v.publish(
         1,
         piece(0, true, 5000),
+        0.0,
         |p| {
             sent.push(p);
             true
@@ -62,15 +65,23 @@ fn oversized_key_goes_alone_and_a_dropped_delta_requires_a_new_key() {
     v.publish(
         1,
         piece(1, false, 100),
+        0.0,
         |_| panic!("full window"),
         |e| events.push(e),
     );
     assert_eq!(events, [Event::Dropped, Event::Keyframe]);
-    v.acknowledge(0, |_| panic!("dropped"), |_| {});
-    v.publish(1, piece(2, false, 100), |_| panic!("broken chain"), |_| {});
+    v.acknowledge_through(0, 0.0, |_| panic!("dropped"), |_| {});
+    v.publish(
+        1,
+        piece(2, false, 100),
+        0.0,
+        |_| panic!("broken chain"),
+        |_| {},
+    );
     v.publish(
         1,
         piece(3, true, 100),
+        0.0,
         |p| {
             sent.push(p);
             true
@@ -87,9 +98,9 @@ fn refused_key_keeps_its_bytes_so_retries_never_widen_the_delta_allowance() {
         bytes: 100,
     });
     let mut events = Vec::new();
-    v.publish(1, piece(0, true, 100), |_| false, |e| events.push(e));
+    v.publish(1, piece(0, true, 100), 0.0, |_| false, |e| events.push(e));
     for _ in 0..100 {
-        v.flush(|_| false, |e| events.push(e));
+        v.flush(0.0, |_| false, |e| events.push(e));
     }
     assert!(
         events.is_empty(),
@@ -99,12 +110,14 @@ fn refused_key_keeps_its_bytes_so_retries_never_widen_the_delta_allowance() {
     v.publish(
         1,
         piece(1, false, 60),
+        0.0,
         |_| panic!("waiting key"),
         |e| events.push(e),
     );
     v.publish(
         1,
         piece(2, false, 40),
+        0.0,
         |_| panic!("waiting key"),
         |e| events.push(e),
     );
@@ -112,12 +125,14 @@ fn refused_key_keeps_its_bytes_so_retries_never_widen_the_delta_allowance() {
     v.publish(
         1,
         piece(3, false, 1),
+        0.0,
         |_| panic!("waiting key"),
         |e| events.push(e),
     );
     assert_eq!(events, [Event::Dropped, Event::Keyframe]);
     let mut sent = Vec::new();
     v.flush(
+        0.0,
         |p| {
             sent.push(p.sequence);
             true
@@ -125,7 +140,7 @@ fn refused_key_keeps_its_bytes_so_retries_never_widen_the_delta_allowance() {
         |_| {},
     );
     assert_eq!(sent, [0]);
-    v.acknowledge(0, |_| panic!("deltas went with the drop"), |_| {});
+    v.acknowledge_through(0, 0.0, |_| panic!("deltas went with the drop"), |_| {});
     assert!(v.playing());
 }
 #[test]
@@ -144,6 +159,7 @@ fn byte_overflow_discards_queued_deltas_but_retains_the_waiting_key() {
         v.publish(
             1,
             p,
+            0.0,
             |p| {
                 sent.push(p.sequence);
                 true
@@ -151,8 +167,9 @@ fn byte_overflow_discards_queued_deltas_but_retains_the_waiting_key() {
             |_| {},
         );
     }
-    v.acknowledge(
+    v.acknowledge_through(
         0,
+        0.0,
         |p| {
             sent.push(p.sequence);
             true
@@ -160,10 +177,11 @@ fn byte_overflow_discards_queued_deltas_but_retains_the_waiting_key() {
         |_| {},
     );
     assert_eq!(sent, [0, 1]);
-    v.acknowledge(1, |_| panic!("deltas dropped"), |_| {});
+    v.acknowledge_through(1, 0.0, |_| panic!("deltas dropped"), |_| {});
     v.publish(
         1,
         piece(4, false, 10),
+        0.0,
         |_| panic!("still needs key"),
         |_| {},
     );
@@ -185,6 +203,7 @@ fn slow_viewer_never_blocks_fast_viewer_and_switching_encodes_needs_key() {
         slow.publish(
             1,
             p,
+            0.0,
             |_| {
                 slow_sent += 1;
                 true
@@ -194,21 +213,35 @@ fn slow_viewer_never_blocks_fast_viewer_and_switching_encodes_needs_key() {
         fast.publish(
             1,
             p,
+            0.0,
             |_| {
                 fast_sent += 1;
                 true
             },
             |_| {},
         );
-        fast.acknowledge(seq, |_| true, |_| {});
+        fast.acknowledge_through(seq, 0.0, |_| true, |_| {});
     }
     assert_eq!((slow_sent, fast_sent), (3, 21));
     fast.assign(Some(2), |_| {});
-    fast.publish(1, piece(22, true, 100), |_| panic!("wrong encode"), |_| {});
-    fast.publish(2, piece(22, false, 100), |_| panic!("missing key"), |_| {});
+    fast.publish(
+        1,
+        piece(22, true, 100),
+        0.0,
+        |_| panic!("wrong encode"),
+        |_| {},
+    );
+    fast.publish(
+        2,
+        piece(22, false, 100),
+        0.0,
+        |_| panic!("missing key"),
+        |_| {},
+    );
     fast.publish(
         2,
         piece(23, true, 100),
+        0.0,
         |_| {
             fast_sent += 1;
             true
@@ -233,12 +266,13 @@ fn decoder_key_request_keeps_waiting_key_but_discards_its_deltas() {
         piece(2, true, 100),
         piece(3, false, 100),
     ] {
-        v.publish(1, p, |_| true, |_| {});
+        v.publish(1, p, 0.0, |_| true, |_| {});
     }
     v.keyframe(|_| {});
     let mut sent = Vec::new();
-    v.acknowledge(
+    v.acknowledge_through(
         1,
+        0.0,
         |p| {
             sent.push(p.sequence);
             true
@@ -248,6 +282,7 @@ fn decoder_key_request_keeps_waiting_key_but_discards_its_deltas() {
     v.publish(
         1,
         piece(4, false, 100),
+        0.0,
         |_| panic!("decoder needs key"),
         |_| {},
     );

@@ -1,6 +1,7 @@
 import type { ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import {
+  answerWritingLabel,
   bubbleContent,
   bubbleSegments,
   describeProviderError,
@@ -9,15 +10,24 @@ import {
   eventView,
   isLimitError,
   isLongMessage,
+  isSentByAgent,
+  looksLikeMarkdown,
   sentByLine,
+  sentFold,
   mayBeSystemInput,
   messageOrigin,
+  personFold,
+  promptText,
   referenceSegments,
+  systemInput,
   thoughtLabel,
   thoughtMs,
+  type BubbleFold,
   type EventView,
+  withHardBreaks,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { threadEventRow } from "./event-threads.ts";
 
 /*
  * What the phone's message rows show beyond an item's text, from the same `@ace/ui-core`
@@ -44,10 +54,51 @@ function bounded<T extends { text: string }>(runs: readonly T[]): T[] {
 }
 
 /**
- * Plain words drawn as the person's bubble (a subagent's prompt from its parent): the same runs
- * of words and code, bound and fold as a message the person wrote.
+ * The markdown a bubble renders, as the web's bubble decides it: text the writer plainly meant as
+ * markdown, every line break kept, bounded; empty for text drawn as runs.
  */
-export function textBubble(text: string) {
+function markdownOf(text: string): string {
+  return looksLikeMarkdown(text) ? preview(withHardBreaks(text), bubbleChars) : "";
+}
+
+/**
+ * The words as written, for Copy, Select text and Share: bounded as the bubble is, and whether
+ * the bound cut them (the phone then reads them whole with `native.message`'s `bubble`).
+ */
+function wordsOf(text: string, stored = false) {
+  return { source: preview(text, bubbleChars), cut: stored || text.length > bubbleChars };
+}
+
+/** Whether the daemon keeps more of the message than its item carries (`native.message` reads it). */
+function storedLonger(item: Item | undefined): boolean {
+  return (
+    item?.type === "message" &&
+    item.parts.some(
+      (part) =>
+        part.type === "text" &&
+        part.source !== undefined &&
+        part.source.bytes > part.text.length * 2,
+    )
+  );
+}
+
+/**
+ * A message's bubble words in full: a brief another thread sent without ace's frame, else the
+ * person's words without the passages they reply to. Mentions read as their tokens.
+ */
+export function bubbleWords(item: Item): string {
+  if (item.type !== "message") return "";
+  const input = systemInput(item);
+  if (input && isSentByAgent(input)) return promptText(input);
+  return bubbleContent(item.parts).text;
+}
+
+/**
+ * Plain words drawn as the person's bubble (a subagent's prompt from its parent, a brief another
+ * thread sent): the same runs of words and code, bound as a message the person wrote. `fold` is
+ * when it folds and how many lines it then shows; a brief folds sooner than the person's words.
+ */
+export function textBubble(text: string, fold: BubbleFold = personFold, stored = false) {
   return {
     segments: bounded(
       bubbleSegments(text).map((segment) => ({
@@ -56,13 +107,19 @@ export function textBubble(text: string) {
         mention: "",
       })),
     ),
+    markdown: markdownOf(text),
+    ...wordsOf(text, stored),
     readable: text.trim().length > 0,
-    long: isLongMessage(text),
+    long: isLongMessage(text, fold),
+    fold: fold.shown,
     origin: "",
   };
 }
 
-/** The person's bubble: its runs of words, code and mentions, bounded, and whether it folds. */
+/**
+ * The person's bubble: its runs of words, code and mentions, bounded, the markdown it renders
+ * instead when it reads as markdown, and whether and where it folds.
+ */
 export function bubbleOf(item: Item) {
   if (item.type !== "message" || item.role !== "user") return null;
   const content = bubbleContent(item.parts);
@@ -84,8 +141,13 @@ export function bubbleOf(item: Item) {
     segments,
     // What it replies to, drawn above the words; each passage bounded as the bubble is.
     quotes: (content.quotes ?? []).map((quote) => ({ text: preview(quote.text, 1024) })),
+    // Mentions draw as chips, so a message with any stays runs, as on the web.
+    markdown: mentions ? "" : markdownOf(content.text),
+    // A message with mentions copies its runs, the chips by name; its words hold their tokens.
+    ...(mentions ? { source: "", cut: false } : wordsOf(content.text, storedLonger(item))),
     readable: content.readable,
-    long: isLongMessage(content.text),
+    long: isLongMessage(content.text, personFold),
+    fold: personFold.shown,
     origin: origins.has(origin) ? origin : "",
   };
 }
@@ -113,7 +175,7 @@ const icons: Partial<Record<EventView["kind"], string>> = {
 };
 
 /** One event row, flattened for Swift: its glyph, words, what opens from it and ×N. */
-function flatten(view: EventView) {
+function flatten(view: EventView, item: Item | undefined) {
   const row = {
     kind: view.kind,
     icon: icons[view.kind] ?? "",
@@ -182,13 +244,25 @@ function flatten(view: EventView) {
     case "quiet":
       return { ...row, text: preview(view.text, 4096) };
     case "sent":
-      // The sender's line and mark; the message's words open from it, as on the web.
+      // The person's bubble of the brief, under a line naming the thread that sent it. Swift
+      // names a local sender by the thread list's current title, as the web does.
       return {
         ...row,
         provider: view.sent.provider ?? "",
         text: sentByLine(view.sent),
         detail: preview(view.text, 4096),
+        sent: {
+          /** Empty when ace doesn't know the sender: the line then opens nothing. */
+          threadId: view.sent.threadId ?? "",
+          /** The sender's machine when it isn't this one; empty for this machine. */
+          hostId: view.sent.host?.id ?? "",
+          line: preview(sentByLine(view.sent), 512),
+          bubble: textBubble(view.text, sentFold, storedLonger(item)),
+        },
       };
+    case "task":
+    case "merged":
+      return { ...row, ...threadEventRow(view) };
     default:
       return row;
   }
@@ -203,7 +277,10 @@ function isEvent(kind: string, item: Item | undefined): boolean {
 export function eventRow(store: ThreadSource, kind: string, itemId: string) {
   const item = store.item(itemId);
   if (!isEvent(kind, item)) return null;
-  return flatten(eventView(item, eventCounts(store, itemId), store.thread?.provider, store.thread));
+  return flatten(
+    eventView(item, eventCounts(store, itemId), store.thread?.provider, store.thread),
+    item,
+  );
 }
 
 /** Whether a block's row reads the rows around it (×N, repeats), so it follows the order. */
@@ -212,10 +289,19 @@ export function eventFollows(store: ThreadSource, kind: string, itemId: string):
   return isEvent(kind, item) && eventFollowsOrder(item);
 }
 
-/** A one-item block's message fields: an answer's streaming, or an event's row. */
+/**
+ * A one-item block's message fields: an answer's streaming, with the word a screen reader hears
+ * on its row while it arrives, or an event's row. The word says the answer is arriving now, so
+ * only a copy the daemon has confirmed and is current with says it: catching up after a
+ * reconnect, or painted from the last launch, the turn may have ended meanwhile.
+ */
 export function messageBlock(store: ThreadSource, kind: string, itemId: string | undefined) {
   if (itemId === undefined) return {};
-  if (kind === "message") return { streaming: streamingOf(store, store.item(itemId)) };
+  if (kind === "message") {
+    const streaming = streamingOf(store, store.item(itemId));
+    const current = !store.syncing && store.unconfirmed !== true;
+    return streaming && current ? { streaming, writing: answerWritingLabel } : { streaming };
+  }
   return { event: eventRow(store, kind, itemId) };
 }
 

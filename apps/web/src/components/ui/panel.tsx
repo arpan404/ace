@@ -1,4 +1,4 @@
-import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SearchField } from "@/components/search-field.tsx";

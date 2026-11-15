@@ -7,6 +7,7 @@ import {
   type Devices,
   type PairedDevice,
   type Scope,
+  type SessionActor,
 } from "./devices.ts";
 import { validToken } from "./local-files.ts";
 import { MemoryPairingCodes, type PairingCodeStore } from "./pairing-codes.ts";
@@ -150,14 +151,35 @@ export class RemoteAuth {
   recognize(device: Pick<Device, "id">, installId: InstallId | undefined): void {
     if (installId !== undefined) this.devices.recognize(device.id, installId, this.now());
   }
-  ticket(device: PairedDevice): { ticket: string; expiresAt: number } {
+  ticket(device: PairedDevice, epoch = ""): { ticket: string; expiresAt: number } {
     if (device.scopes.includes("desktop") || device.scopes.includes("user-browser"))
       throw new AccessError(403, "Desktop credentials are local only");
     const ticket = this.secret();
-    const allocation = this.tickets.issue(hash(ticket), device.id, device.generation, this.now());
+    const allocation = this.tickets.issue(
+      hash(ticket),
+      device.id,
+      device.generation,
+      this.now(),
+      epoch,
+    );
     if ("error" in allocation) throw new AccessError(429, allocation.error);
     const { expiresAt } = allocation;
     return { ticket, expiresAt };
+  }
+  /**
+   * The next ticket for a paired device whose socket just opened with one, handed over in its
+   * welcome (ADR 0150): one-use, as short-lived and as bound to the device's credential as an
+   * exchanged ticket, and voided by revocation the same way. Undefined for any other session,
+   * or when the device's quota is spent; the client then exchanges one as before.
+   */
+  handOver(actor: SessionActor, epoch = ""): { ticket: string; ttlMs: number } | undefined {
+    if (!actor.revocable || actor.generation === undefined) return undefined;
+    try {
+      const { ticket, expiresAt } = this.ticket({ ...actor, generation: actor.generation }, epoch);
+      return { ticket, ttlMs: expiresAt - this.now() };
+    } catch {
+      return undefined;
+    }
   }
   consume(ticket: string): PairedDevice | undefined {
     const issued = this.tickets.consume(hash(ticket), this.now());
@@ -167,6 +189,24 @@ export class RemoteAuth {
     if (!device || localOnly(device)) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
+  }
+  /**
+   * A ticket in an NK first message (ADR 0155): consumed at once, in one synchronous step, so
+   * exactly one of two racing copies gets it, and only when the relay key `epoch` that handed it
+   * and the claimed device match; otherwise it is left as it was. Unlike `consume`, it records
+   * nothing about the device: that waits for the client's confirmation (`touch`).
+   */
+  consumeEarly(ticket: string, epoch: string, deviceId: string): PairedDevice | undefined {
+    // Checked before it is taken: a message that would be refused spends nothing.
+    const issued = this.tickets.consume(hash(ticket), this.now(), { epoch, deviceId });
+    if (!issued) return undefined;
+    const device = this.devices.current(issued.deviceId, issued.generation, this.now());
+    if (!device || localOnly(device)) return undefined;
+    return device;
+  }
+  /** A paired device whose NK session confirmed was seen now. */
+  touch(device: Pick<Device, "id">): void {
+    this.devices.touch(device.id, this.now());
   }
   clearPending(): void {
     this.codes.clear();

@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useRef, type ComponentProps, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

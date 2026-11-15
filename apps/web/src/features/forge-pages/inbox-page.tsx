@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { useLocation } from "@tanstack/react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ForgeInboxList, ForgeInboxRow } from "@ace/protocol";

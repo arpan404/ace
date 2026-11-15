@@ -1,4 +1,4 @@
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

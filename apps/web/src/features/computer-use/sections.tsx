@@ -5,7 +5,7 @@ import {
   requirementStatus,
   requirementPermission,
 } from "@ace/ui-core/computer-use";
-import { MonitorIcon } from "@phosphor-icons/react";
+import { MonitorIcon } from "@ace/icons";
 import { useId } from "react";
 import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";

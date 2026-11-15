@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, screenConnection, Simulators } from "./index.ts";
 import { manager, ready } from "./testing/support.ts";
+import { fakeDelivery, phoneOwner } from "@ace/media/testing/fake-delivery";
 import type { ScreenServerMessage } from "@ace/protocol";
 import {
   decodeStreamMessage,
@@ -304,4 +305,56 @@ it("two connections to a JPEG session receive video from one shared encode", asy
   expect(encoders).toBe(1);
   expect(feeds.length).toBeGreaterThan(0);
   expect(outputs.map((output) => output[0]?.kind)).toEqual(["screen.frame", "screen.frame"]);
+});
+
+it("a resubscribe on the same media connection that fails keeps delivering on the view it had", async () => {
+  const test = await manager({ FAKE_V2: "1" });
+  cleanups.push(test.close);
+  const state = await ready(test.screen);
+  const d = fakeDelivery();
+  const failing = { on: false };
+  const results: ScreenServerMessage[] = [];
+  const connection = screenConnection(test.screen, new Simulators("linux"), "human-1", {
+    send: (message) => results.push(message),
+    media: { write: async () => {}, bufferedBytes: () => 0 },
+    delivery: { owner: () => phoneOwner, port: () => d.port },
+    // What the session runs on, read for the state a subscribe answers with: failing here
+    // fails the subscribe after its view was granted.
+    acceleration: {
+      for: () => {
+        if (failing.on) throw new Error("acceleration store gone");
+        return undefined;
+      },
+      watch: () => () => {},
+    },
+  });
+  cleanups.push(async () => connection.close());
+  const subscribe = (requestId: string) =>
+    connection.request({
+      type: "screen.request",
+      requestId,
+      operation: {
+        op: "subscribe",
+        sessionId: state.sessionId,
+        media: { connection: "mc_aaaaaaaaaaaa" },
+      },
+    });
+  await subscribe("first");
+  const [first] = d.live;
+  expect(first).toBeDefined();
+  failing.on = true;
+  await subscribe("again");
+  failing.on = false;
+  expect(results.at(-1)).toMatchObject({ type: "screen.result", requestId: "again", ok: false });
+  // Its new view replaced the old one in ace-media, then was undone: the old one delivers again.
+  expect([...d.live]).toEqual([first]);
+  expect(d.views.size).toBe(1);
+  // The subscription still holds it: leaving closes it.
+  await connection.request({
+    type: "screen.request",
+    requestId: "leave",
+    operation: { op: "unsubscribe", sessionId: state.sessionId },
+  });
+  expect(d.live.size).toBe(0);
+  expect(d.views.size).toBe(0);
 });

@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// Tokens or money over the range, as the web Usage page shows it: the total with its growth,
-/// each provider, each day, the totals, each type and each model or day. Headings and hairline
-/// rows on the page, never boxed cards.
+/// each provider, each day, the totals, each type and the ledger. Headings and hairline rows on
+/// the page, never boxed cards.
 struct UsageSpendView: View {
     let view: UsageMetricView
+    /// The ledger's machines, days and metric; nil before the days are known.
+    let ledger: UsageLedgerContext?
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.section) {
             headline
@@ -12,7 +14,7 @@ struct UsageSpendView: View {
             UsageDailyChart(chart: view.chart)
             totals
             UsageTypeBar(types: view.types)
-            UsageBreakdown(view: view)
+            if let ledger { UsageLedgerView(context: ledger) }
             if let note = view.note {
                 Text(note).font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceDesign.Ink.subtle)

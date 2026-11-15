@@ -1,4 +1,4 @@
-import { StarIcon } from "@phosphor-icons/react";
+import { StarIcon } from "@ace/icons";
 import type { KeyboardEvent, Ref } from "react";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

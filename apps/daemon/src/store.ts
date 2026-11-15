@@ -11,8 +11,8 @@ import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
+import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
-
 /** Committed sequences between marks: a rollback within the last this many may go unseen. */
 const lineageStride = 64;
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
@@ -83,7 +83,6 @@ import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
-
 import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
 import { createSearchMaintenance, scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
@@ -182,6 +181,7 @@ export class Store {
   private markedSeq = 0;
   /** Rows from here on were written by this build and are read without validating again. */
   private readonly trust = untrusted();
+  readonly bounded = new BoundedEvents(() => this.db, this.trust, this);
   /** Whether every entity row is in this build's shape, so read without validating again. */
   private readonly entityTrust = untrustedEntities();
   constructor(
@@ -1313,16 +1313,17 @@ export class Store {
     return this.threadReads.acquireThread(id);
   }
   /** Contents deeply frozen and shared by every reader until the thread changes: copy to change them. */
-  snapshotThread(id: ThreadId): ThreadView {
-    return this.threadReads.snapshotThread(id);
+  snapshotThread(id: ThreadId, tail?: import("./thread-reads.ts").SnapshotTail): ThreadView {
+    return this.threadReads.snapshotThread(id, tail);
   }
-  readEntityPage(
-    threadId: ThreadId,
-    collection: import("@ace/protocol").EntityCollection,
-    before: number,
-    limit: number,
-  ) {
-    return this.threadReads.readEntityPage(threadId, collection, before, limit);
+  readEntityPage(...page: Parameters<ThreadReads["readEntityPage"]>) {
+    return this.threadReads.readEntityPage(...page);
+  }
+  readInteractionRequest(...read: Parameters<ThreadReads["readInteractionRequest"]>) {
+    return this.threadReads.readInteractionRequest(...read);
+  }
+  interactionRequestVersion(...read: Parameters<ThreadReads["interactionRequestVersion"]>) {
+    return this.threadReads.interactionRequestVersion(...read);
   }
   getInteraction(id: string) {
     return this.threadReads.getInteraction(id);
@@ -1331,6 +1332,16 @@ export class Store {
   itemCreatedSeq(threadId: ThreadId, itemId: string): number | undefined {
     this.flushLiveWrites();
     return this.payloads.itemCreatedSeq(threadId, itemId);
+  }
+  /** For `item.raw`: the version of an item's raw payloads, undefined without the item. */
+  itemRawRevision(threadId: ThreadId, itemId: string) {
+    this.flushLiveWrites();
+    return this.payloads.rawRevision(threadId, itemId);
+  }
+  /** For `item.raw`: an item's raw payloads from `from`, read as they are taken. */
+  itemRawEntries(threadId: ThreadId, itemId: string, from: number) {
+    this.flushLiveWrites();
+    return this.payloads.rawEntries(threadId, itemId, from);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
     return this.threadReads.readItems(threadId, before, limit);
@@ -1371,6 +1382,10 @@ export class Store {
   }
   markThreadRead(threadId: ThreadId, deviceId: DeviceId, lastSeenSeq: number): void {
     return this.navigation.markThreadRead(threadId, deviceId, lastSeenSeq);
+  }
+  /** Told after `markThreadRead`, possibly before its transaction commits. */
+  onThreadRead(listener: (threadId: ThreadId, deviceId: DeviceId) => void): () => void {
+    return this.navigation.onThreadRead(listener);
   }
   outputThread(streamId: string) {
     return this.threadReads.outputThread(streamId);

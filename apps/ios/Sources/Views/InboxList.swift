@@ -210,7 +210,11 @@ struct InboxList: View {
             ForEach(section.rows, id: \.self) { key in
                 if let entry = inbox.pending(key) {
                     let thread = InboxKey(machineId: key.machineId, id: entry.threadId)
-                    Button { actions.open(thread) } label: { InboxUnsentRow(entry: entry, thread: inbox.row(thread)) }
+                    // A worktree start's row opens its card again: its steps, Retry, Continue.
+                    let start = inbox.client(key.machineId)?.compose.worktrees[key.id]?.card != nil
+                    Button { if start { inbox.startCard = key } else { actions.open(thread) } } label: {
+                        InboxUnsentRow(entry: entry, thread: inbox.row(thread))
+                    }
                         .buttonStyle(.row).accessibilityIdentifier("unsent.\(key.id)")
                         .inboxRowChrome()
                         .selectionDisabled()
@@ -338,7 +342,7 @@ private struct InboxThreadCell: View {
         let model = inbox.client(key.machineId)
         let asks = selecting ? [] : model?.needsYou(row.id) ?? []
         let need = model.flatMap { model in
-            asks.isEmpty ? nil : InboxNeedLine(requests: asks, total: model.needsCount(row.id), model: model, threadId: row.id) { actions.open(key) }
+            asks.isEmpty ? nil : InboxNeedLine(requests: asks, tally: model.needsTally(row.id), model: model, threadId: row.id) { actions.open(key) }
         }
         // Snoozed and Settled draw each thread as one line, as the web's do; Inbox in three.
         let label = Group {
@@ -348,7 +352,7 @@ private struct InboxThreadCell: View {
             } else {
                 let look = InboxThreadRow.look(of: row)
                 InboxLineRow(row: row, end: .work,
-                             wake: snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil)
+                             wake: snoozed && look.level != "needs-you" ? InboxRowLine.wake(row) : nil)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel(InboxThreadRow.spoken(row, look, snoozed: snoozed, need: need))
             }

@@ -1,4 +1,4 @@
-import { CheckCircleIcon, ClockIcon, TrayIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, ClockIcon, TrayIcon } from "@ace/icons";
 import { tabThreads, threadsTabs, type ThreadsPanel, type ThreadsTab } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn.ts";
@@ -58,7 +58,7 @@ export function ThreadsTabs(props: {
   return (
     <div
       role="tablist"
-      aria-label="Threads"
+      aria-label="Projects"
       data-part="sidebar-tabs"
       className="ace-floating threads-tabs-mount absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-full p-1"
       onKeyDown={(event) => {

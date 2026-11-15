@@ -1,4 +1,4 @@
-import { CaretDownIcon, DesktopTowerIcon, DeviceMobileIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, DesktopTowerIcon, DeviceMobileIcon } from "@ace/icons";
 import { useLocation } from "@tanstack/react-router";
 import { createContext, use, useMemo, useRef, useState, type ReactNode } from "react";
 import { useHashFlash } from "@/components/setting-row.tsx";

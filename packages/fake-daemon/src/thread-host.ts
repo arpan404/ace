@@ -150,7 +150,18 @@ export class ThreadHost {
     this.state.items[key] = updated;
     events.push({ type: "item.updated", item: updated });
   }
+  /** The sequence of the latest run start or person's message: newer work than a decision. */
+  workSeq = 0;
   record(event: DeliveryEvent): void {
+    const payload = event.payload;
+    if (
+      payload.type === "run.started" ||
+      (payload.type === "item.created" &&
+        payload.item.type === "message" &&
+        payload.item.role === "user" &&
+        payload.item.synthetic !== true)
+    )
+      this.workSeq = event.seq;
     applyDelivery(this.view, {
       type: "events",
       subscriptionId: "host",

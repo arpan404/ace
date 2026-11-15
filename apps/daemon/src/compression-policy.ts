@@ -32,6 +32,8 @@ const compressible = new Set<string>([
   "items.window",
   "turns.page",
   "turn.steps",
+  // An item's provider payloads: what snapshots and pages carried before `raw-on-demand`.
+  "item.raw",
   "threads.patch",
   "thread.catchUp",
   "thread.search",

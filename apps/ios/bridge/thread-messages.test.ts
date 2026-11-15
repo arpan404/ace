@@ -1,8 +1,11 @@
 import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
+import { DelegatedFrom, ItemId, MessageOrigin, ThreadId } from "@ace/protocol";
 import { formatMessageQuotes } from "@ace/ui-core";
 import { afterEach, expect, test } from "vitest";
 import { connect, fixture, latest, native, open, reset, rows, until } from "./thread-harness.ts";
+// After the harness, which installs the native host the bridge modules read on load.
+import { readNativeMessage } from "./native-message.ts";
 
 /*
  * The phone's message rows over the real SDK and an in-process fake daemon: the same
@@ -146,10 +149,199 @@ test("an answer streams while its turn runs and stops when the turn ends", async
     facts.message("root", "reply", "assistant", "Working", false),
   ]);
   open(connect(fake), "answer");
-  expect((await until(answerBlock, "the answer block")).streaming).toBe(true);
+  const streaming = await until(answerBlock, "the answer block");
+  expect(streaming.streaming).toBe(true);
+  // What VoiceOver hears on the row while it arrives, in ui-core's words.
+  expect(streaming.writing).toBe("Writing");
   fake.apply("answer", [facts.endTurn("root")]);
-  await until(() => answerBlock()?.streaming === false, "the answer settled");
+  const settled = await until(
+    () => (answerBlock()?.streaming === false ? answerBlock() : undefined),
+    "the answer settled",
+  );
+  expect(settled.writing).toBeUndefined();
 });
+
+const idle = () => {};
+/** A block frame's row, or nothing when the frame removes the block. */
+const blockRow = (frame: Record<string, unknown> | undefined) =>
+  frame?.row as Record<string, unknown> | null | undefined;
+/** The row the phone last got for block `id`. */
+const shown = (id: string) => blockRow(latest("thread.block", id));
+/** Whether any answer the phone shows says Writing. */
+const writing = () =>
+  rows("thread.block").some((row) => row.kind === "message" && row.writing === "Writing");
+/**
+ * Whether, since frame `from`, a streaming answer was redrawn without Writing. The phone may
+ * reconnect on its own at once, so the quiet row can already be replaced when the test looks.
+ */
+const wentQuiet = (from: number) =>
+  native.frames.slice(from).some((frame) => {
+    const row =
+      frame.type === "thread.block" ? (frame.row as Record<string, unknown> | null) : null;
+    return row?.kind === "message" && row.streaming === true && row.writing === undefined;
+  });
+
+/** A thread whose answer is still arriving, open on a fresh phone. */
+async function streamingAnswer(id: string) {
+  const fake = start(id);
+  fake.apply(id, [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, id);
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  return { fake, client };
+}
+
+test("a streaming answer stops saying Writing while the phone is disconnected and says it again once back", async () => {
+  const { fake, client } = await streamingAnswer("away");
+  const from = native.frames.length;
+  fake.disconnectAll();
+  // Behind the daemon, the phone can't tell the answer is still arriving.
+  await until(() => wentQuiet(from), "Writing gone while away");
+  client.reconnectNow();
+  await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
+});
+
+test("an answer whose turn finished while the phone was away no longer says Writing once back", async () => {
+  const { fake, client } = await streamingAnswer("ended");
+  const from = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(from), "Writing gone while away");
+  fake.apply("ended", [facts.endTurn("root")]);
+  client.reconnectNow();
+  await until(() => answerBlock()?.streaming === false, "the answer settled after reconnect");
+  expect(answerBlock()?.writing).toBeUndefined();
+});
+
+test("an answer that finishes before its turn ends stops saying Writing then, and its deltas never redraw it", async () => {
+  const fake = start("early");
+  fake.apply("early", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  open(connect(fake), "early");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  const from = native.frames.length;
+  fake.apply("early", [facts.stream("root", "reply", " on it")]);
+  await until(
+    () => rows("thread.item").some((row) => row.text === "Working on it"),
+    "the delta shown",
+  );
+  expect(native.frames.slice(from).filter((frame) => frame.type === "thread.block")).toEqual([]);
+  // The turn goes on; the answer itself is done.
+  fake.apply("early", [facts.finish("root", "reply")]);
+  await until(
+    () => answerBlock()?.streaming === false && answerBlock()?.writing === undefined,
+    "the answer settled while its turn runs",
+  );
+});
+
+test("an answer the provider reopens says Writing again until it finishes again", async () => {
+  const fake = start("reopened");
+  fake.apply("reopened", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, "reopened");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  fake.apply("reopened", [facts.finish("root", "reply")]);
+  await until(() => answerBlock()?.streaming === false, "the answer finished");
+  // The same item opens again while its turn runs (`item.upsert` may set complete back to false).
+  fake.apply("reopened", [facts.message("root", "reply", "assistant", "Working again", false)]);
+  await until(() => answerBlock()?.writing === "Writing", "Writing again once reopened");
+  const from = native.frames.length;
+  fake.apply("reopened", [facts.stream("root", "reply", " and on")]);
+  await until(
+    () => rows("thread.item").some((row) => row.text === "Working again and on"),
+    "the delta shown",
+  );
+  expect(native.frames.slice(from).filter((frame) => frame.type === "thread.block")).toEqual([]);
+  // Still tracked: a reconnect takes Writing away and brings it back.
+  const away = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(away), "Writing gone while away");
+  client.reconnectNow();
+  await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
+  fake.apply("reopened", [facts.finish("root", "reply")]);
+  await until(
+    () => answerBlock()?.streaming === false && answerBlock()?.writing === undefined,
+    "finished again",
+  );
+}, 20_000);
+
+test("a reconnect redraws only the answer still arriving, never the settled ones", async () => {
+  const fake = start("settled-away");
+  fake.apply("settled-away", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "first", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, "settled-away");
+  await until(() => answerBlock()?.writing === "Writing", "the first answer writing");
+  const first = native.frames
+    .toReversed()
+    .find((frame) => frame.type === "thread.block" && blockRow(frame)?.kind === "message")?.id;
+  if (typeof first !== "string") throw new Error("no first answer block");
+  // The first answer finishes; the turn goes on into a second.
+  fake.apply("settled-away", [
+    facts.finish("root", "first"),
+    facts.message("root", "second", "assistant", "Still", false),
+  ]);
+  // Both answers as the phone shows them before the disconnect: the first one's own last patch
+  // is in, so nothing after `from` is it settling.
+  await until(
+    () => shown(first)?.streaming === false && shown(first)?.writing === undefined,
+    "the first answer settled",
+  );
+  await until(
+    () =>
+      native.frames.some(
+        (frame) =>
+          frame.type === "thread.block" &&
+          frame.id !== first &&
+          blockRow(frame)?.kind === "message" &&
+          blockRow(frame)?.writing === "Writing",
+      ),
+    "the second answer writing",
+  );
+  const from = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(from), "Writing gone while away");
+  client.reconnectNow();
+  await until(writing, "Writing back once current");
+  const redrawn = native.frames
+    .slice(from)
+    .filter((frame) => frame.type === "thread.block" && frame.id === first);
+  expect(redrawn).toEqual([]);
+}, 20_000);
+
+test("an answer restored from the last launch says Writing only once the daemon confirms it", async () => {
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  const fake = start("kept");
+  fake.apply("kept", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  open(connect(fake, { readSnapshots: storage }), "kept");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  let release = idle;
+  const network = new Promise<void>((resolve) => (release = resolve));
+  open(connect(fake, { readSnapshots: storage, held: network }), "kept");
+  const restored = await until(answerBlock, "the restored answer");
+  expect(restored.streaming).toBe(true);
+  expect(restored.writing).toBeUndefined();
+  release();
+  await until(() => answerBlock()?.writing === "Writing", "Writing once confirmed");
+}, 20_000);
 
 test("a settled turn's opened log times its thought by the step after it", async () => {
   const fake = start("settled");
@@ -187,4 +379,205 @@ test("a settled turn's opened log times its thought by the step after it", async
     .filter((frame) => frame.type === "thread.stepsPage")
     .flatMap((page) => page.rows as { type: string; thought: string | null }[]);
   expect(steps.find((step) => step.type === "reasoning")?.thought).toBe("Thought for 15s");
+});
+
+const sentRow = () =>
+  rows("thread.block")
+    .map((row) => row.event as Record<string, unknown> | null)
+    .find((row) => row?.kind === "sent");
+const sentMessage = (item: string, text: string, origin: Record<string, unknown>): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item,
+  draft: {
+    type: "message",
+    role: "user",
+    complete: true,
+    synthetic: true,
+    parts: [{ type: "text", text }],
+    origin: MessageOrigin.parse(origin),
+  },
+});
+
+test("a brief another thread sent names that thread, so the phone can open it", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "sender",
+    workspaceId: "ace",
+    title: "Redesign sidebar",
+    provider: "claude",
+  });
+  fake.createThread({
+    id: "brief",
+    workspaceId: "ace",
+    title: "brief",
+    provider: "codex",
+    startedBy: "sender",
+  });
+  const brief = Array.from({ length: 8 }, (_, i) => `Step ${i + 1} of the upload fix.`).join("\n");
+  fake.apply("brief", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", brief, {
+      kind: "parent_agent",
+      parentThreadId: "sender",
+      from: { provider: "claude" },
+    }),
+  ]);
+  open(connect(fake), "brief");
+  const row = await until(sentRow, "the sent row");
+  expect(row).toMatchObject({
+    provider: "claude",
+    sent: {
+      threadId: "sender",
+      hostId: "",
+      // Its current title is the thread list's; until Swift reads it, where it came from.
+      line: "Sent from another thread",
+      // A brief folds to four lines, as the web's sent bubble does.
+      bubble: { readable: true, long: true, fold: 4 },
+    },
+  });
+  const sent = row?.sent as { bubble: { segments: { text: string }[] } } | undefined;
+  expect(sent?.bubble.segments.map((segment) => segment.text).join("")).toBe(brief);
+});
+
+test("a brief from an agent on a paired machine names that machine's thread and the machine", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "remote-child",
+    workspaceId: "ace",
+    title: "remote child",
+    provider: "codex",
+    delegatedFrom: DelegatedFrom.parse({
+      hostId: "host-studio",
+      hostName: "Studio",
+      threadId: "far-parent",
+      threadTitle: "Ship the release",
+      provider: "claude",
+    }),
+  });
+  fake.apply("remote-child", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("task", "Check the release notes.", { kind: "spawn", role: "notes" }),
+  ]);
+  open(connect(fake), "remote-child");
+
+  expect((await until(sentRow, "the sent row"))?.sent).toMatchObject({
+    threadId: "far-parent",
+    hostId: "host-studio",
+    line: "Sent by Ship the release · Studio",
+    bubble: { long: false },
+  });
+});
+
+const userBubble = () => rows("thread.item").find((item) => item.role === "user")?.bubble;
+
+test("the person's markdown reaches the bubble as markdown, every line break kept", async () => {
+  const fake = start("markdown");
+  fake.apply("markdown", [
+    facts.message("root", "ask", "user", "Two things:\n- keep the budget\n- add a test\nThanks"),
+  ]);
+  open(connect(fake), "markdown");
+  expect(await until(userBubble, "the bubble")).toMatchObject({
+    markdown: "Two things:  \n- keep the budget  \n- add a test  \nThanks",
+    fold: 10,
+  });
+});
+
+test("plain words stay runs, never markdown, though they hold a # or a *", async () => {
+  const fake = start("plain");
+  fake.apply("plain", [facts.message("root", "ask", "user", "Fix the #3 retry * budget")]);
+  open(connect(fake), "plain");
+  expect(await until(userBubble, "the bubble")).toMatchObject({ markdown: "" });
+});
+
+test("words with a mention stay runs with its chip, even around markdown", async () => {
+  const fake = start("mentioned");
+  fake.apply("mentioned", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "ask",
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [
+          { type: "text", text: "Use **this** with " },
+          {
+            type: "mention",
+            entryId: "claude:skill:review",
+            name: "review",
+            kind: "skill",
+            arguments: "",
+          },
+        ],
+      },
+    },
+  ]);
+  open(connect(fake), "mentioned");
+  const bubble = await until(userBubble, "the bubble");
+  expect(bubble).toMatchObject({ markdown: "" });
+  const kinds = (bubble as { segments: { kind: string }[] }).segments.map((run) => run.kind);
+  expect(kinds).toContain("mention");
+});
+
+test("a bubble's words reach Copy exactly as typed: hard breaks, code spacing, blank lines", async () => {
+  const typed = "First line  \nsecond line\n\n\n```sh\necho hi   \n  indented\n```\n\n- one\n- two";
+  const fake = start("typed");
+  fake.apply("typed", [facts.message("root", "ask", "user", typed)]);
+  open(connect(fake), "typed");
+  expect(await until(userBubble, "the bubble")).toMatchObject({ source: typed, cut: false });
+});
+
+test("a brief's words reach Copy whole, past what the event row carries", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "sender", workspaceId: "ace", title: "Sender", provider: "claude" });
+  fake.createThread({ id: "long-brief", workspaceId: "ace", title: "brief", provider: "codex" });
+  const brief = Array.from({ length: 200 }, (_, i) => `Note ${i + 1}: keep the fake clock.`).join(
+    "\n",
+  );
+  fake.apply("long-brief", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", brief, { kind: "parent_agent", parentThreadId: "sender" }),
+  ]);
+  open(connect(fake), "long-brief");
+  const row = await until(sentRow, "the sent row");
+  expect(brief.length).toBeGreaterThan(4096);
+  expect(row?.sent).toMatchObject({ bubble: { source: brief, cut: false } });
+});
+
+test("a bubble past its bound says so, and reads its whole words without ace's frame", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "sender", workspaceId: "ace", title: "Sender", provider: "claude" });
+  fake.createThread({ id: "huge", workspaceId: "ace", title: "huge", provider: "codex" });
+  const task = "x".repeat(20_000);
+  fake.apply("huge", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    sentMessage("opening", `Role: greeter\n\nTask:\n${task}`, {
+      kind: "spawn",
+      parentThreadId: "sender",
+      role: "greeter",
+    }),
+  ]);
+  const owner = connect(fake);
+  open(owner, "huge");
+  const row = await until(sentRow, "the sent row");
+  const bubble = (row?.sent as { bubble: { source: string; cut: boolean } } | undefined)?.bubble;
+  expect(bubble?.cut).toBe(true);
+  expect(bubble?.source.length).toBeLessThan(task.length);
+  const read = await readNativeMessage(
+    owner,
+    {
+      type: "native.message",
+      threadId: ThreadId.parse("huge"),
+      itemId: ItemId.parse(String(rows("thread.item").find((item) => item.role === "user")?.id)),
+      bubble: true,
+    },
+    new AbortController().signal,
+  );
+  expect(read.text).toBe(task);
 });

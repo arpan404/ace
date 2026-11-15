@@ -8,7 +8,7 @@ import { harness } from "@/test/harness.tsx";
 beforeEach(() => localStorage.clear());
 
 const welcome = /Welcome to the separate chat/;
-const threads = async () => within(await screen.findByRole("navigation", { name: "Threads" }));
+const threads = async () => within(await screen.findByRole("navigation", { name: "Projects" }));
 
 test("the thread an agent started shows where it was started as a card whose Open takes the person there", async () => {
   const app = harness();
