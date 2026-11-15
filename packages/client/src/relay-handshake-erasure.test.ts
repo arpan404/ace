@@ -201,3 +201,41 @@ it("the route's retry after a lost held frame leaves no state unerased", async (
   expect(dials).toBe(2);
   expect(w.leaked()).toEqual([]);
 });
+
+it("a socket that can't even be constructed (a browser SecurityError) erases both", async () => {
+  const w = watch();
+  await connectPortableRelay({
+    relayUrl: "wss://relay.invalid",
+    pinnedFingerprint: "A".repeat(52),
+    socket: () => {
+      throw new Error("SecurityError");
+    },
+    keys: () => ({ staticKey: keyPair(), ephemeralKey: keyPair() }),
+    schedule: () => () => {},
+    early: true,
+    inUpgrade: true,
+    nk: { hostKey: keyPair().publicKey, early: new Uint8Array(200).fill(97), confirm: new Uint8Array(2) },
+  }).catch(() => undefined);
+  expect(w.written.size).toBe(2);
+  expect(w.leaked()).toEqual([]);
+});
+
+it("keys that fail for the second state erase the first", async () => {
+  const w = watch();
+  let calls = 0;
+  await connectPortableRelay({
+    relayUrl: "wss://relay.invalid",
+    pinnedFingerprint: "A".repeat(52),
+    socket: () => controlled().socket,
+    keys: () => {
+      if (++calls > 1) throw new Error("No entropy");
+      return { staticKey: keyPair(), ephemeralKey: keyPair() };
+    },
+    schedule: () => () => {},
+    early: true,
+    inUpgrade: true,
+    nk: { hostKey: keyPair().publicKey, early: new Uint8Array(200).fill(97), confirm: new Uint8Array(2) },
+  }).catch(() => undefined);
+  expect(w.written.size).toBe(1);
+  expect(w.leaked()).toEqual([]);
+});

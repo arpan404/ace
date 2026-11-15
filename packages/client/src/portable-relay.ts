@@ -123,51 +123,23 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   }).toString();
   url.hash = "";
   const nk = options.nk;
-  const keys = options.keys();
-  const nkState = nk
-    ? NoiseNK.initiator({
-        remoteStatic: nk.hostKey,
-        ephemeralKey: keys.ephemeralKey,
-        prologue: nkPrologue,
-      })
-    : undefined;
-  const upgrade = options.early === true && options.inUpgrade === true;
-  const grantEntry = options.grant ? `${GRANT_SUBPROTOCOL_PREFIX}${options.grant}` : undefined;
-  // NK's first message, in the upgrade when its entry fits (ADR 0155, step 3).
-  const nkFirst = nkState && upgrade ? nkState.writeMessage(nk?.early) : undefined;
-  const nkEntry = nkFirst ? `${RELAY_EARLY.nkMessagePrefix}${encodeBase64url(nkFirst)}` : undefined;
-  const nkFits =
-    nkEntry !== undefined &&
-    nkEntry.length <= RELAY_EARLY.entryBytes &&
-    (grantEntry?.length ?? 0) + nkEntry.length + 256 <= RELAY_EARLY.headerBytes;
-  // XX: without NK, or beside an NK entry that fits, for a relay that knows only XX's entry.
-  const xxState =
-    !nkState || nkFits
-      ? new NoiseXX({
-          initiator: true,
-          // Its own fresh ephemeral beside NK's: the two are never the same key.
-          ...(nkState ? options.keys() : keys),
-          prologue,
-          pinnedFingerprint: options.pinnedFingerprint,
-        })
-      : undefined;
-  // XX's first message is the 32-byte ephemeral public key with no payload: written now when it
-  // goes in the upgrade, as 43 characters of base64url after `ace.x1.`.
-  const xxFirst = xxState && upgrade && (!nkState || nkFits) ? xxState.writeMessage() : undefined;
-  const protocols = [
-    ...(grantEntry ? [grantEntry] : []),
-    ...(nkFits && nkEntry ? [RELAY_EARLY.nkInUpgrade, nkEntry] : []),
-    ...(xxFirst
-      ? [RELAY_EARLY.inUpgrade, `${RELAY_EARLY.messagePrefix}${encodeBase64url(xxFirst)}`]
-      : []),
-    ...(options.early
-      ? [RELAY_EARLY.subprotocol, ...(options.grant ? [] : [RELAY_EARLY.neutral])]
-      : []),
-  ];
-  const socket = protocols.length
-    ? options.socket(url.toString(), protocols)
-    : options.socket(url.toString());
-  socket.binaryType = "arraybuffer";
+  const { nkState, xxState, nkFirst, xxFirst, nkFits, protocols } = handshakeStates(options);
+  /** Erases both handshake states: every way out of the dial before the stream is up. */
+  const erase = () => {
+    nkState?.destroy();
+    xxState?.destroy();
+  };
+  let socket: PortableSocket;
+  try {
+    socket = protocols.length
+      ? options.socket(url.toString(), protocols)
+      : options.socket(url.toString());
+    socket.binaryType = "arraybuffer";
+  } catch (failure) {
+    // A socket that can't be constructed (a browser SecurityError, say) still erases both.
+    erase();
+    throw failure;
+  }
   const queue: (Uint8Array | undefined)[] = Array.from({ length: 256 });
   let head = 0;
   let count = 0;
@@ -331,8 +303,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   } catch (failure) {
     // Every way out before the stream is up (refused before opening, a timeout, a
     // cancellation, a closed or failed handshake) erases both handshake states.
-    nkState?.destroy();
-    xxState?.destroy();
+    erase();
     close(failure instanceof Error ? failure : new Error("Relay handshake failed"));
     throw failure;
   } finally {
@@ -454,5 +425,66 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     } finally {
       receiving = false;
     }
+  }
+}
+
+/**
+ * The dial's handshake states and its offered subprotocols (ADR 0155, steps 2 and 3): NK's when
+ * the client holds NK, XX's without it or beside an NK entry that fits, each first message
+ * written now when it goes in the upgrade. Anything that throws here erases what it created.
+ */
+function handshakeStates(options: PortableRelayOptions) {
+  const nk = options.nk;
+  let nkState: NoiseNK | undefined;
+  let xxState: NoiseXX | undefined;
+  try {
+    const keys = options.keys();
+    nkState = nk
+      ? NoiseNK.initiator({
+          remoteStatic: nk.hostKey,
+          ephemeralKey: keys.ephemeralKey,
+          prologue: nkPrologue,
+        })
+      : undefined;
+    const upgrade = options.early === true && options.inUpgrade === true;
+    const grantEntry = options.grant ? `${GRANT_SUBPROTOCOL_PREFIX}${options.grant}` : undefined;
+    // NK's first message, in the upgrade when its entry fits (ADR 0155, step 3).
+    const nkFirst = nkState && upgrade ? nkState.writeMessage(nk?.early) : undefined;
+    const nkEntry = nkFirst
+      ? `${RELAY_EARLY.nkMessagePrefix}${encodeBase64url(nkFirst)}`
+      : undefined;
+    const nkFits =
+      nkEntry !== undefined &&
+      nkEntry.length <= RELAY_EARLY.entryBytes &&
+      (grantEntry?.length ?? 0) + nkEntry.length + 256 <= RELAY_EARLY.headerBytes;
+    // XX: without NK, or beside an NK entry that fits, for a relay that knows only XX's entry.
+    xxState =
+      !nkState || nkFits
+        ? new NoiseXX({
+            initiator: true,
+            // Its own fresh ephemeral beside NK's: the two are never the same key.
+            ...(nkState ? options.keys() : keys),
+            prologue,
+            pinnedFingerprint: options.pinnedFingerprint,
+          })
+        : undefined;
+    // XX's first message is the 32-byte ephemeral public key with no payload: written now when
+    // it goes in the upgrade, as 43 characters of base64url after `ace.x1.`.
+    const xxFirst = xxState && upgrade && (!nkState || nkFits) ? xxState.writeMessage() : undefined;
+    const protocols = [
+      ...(grantEntry ? [grantEntry] : []),
+      ...(nkFits && nkEntry ? [RELAY_EARLY.nkInUpgrade, nkEntry] : []),
+      ...(xxFirst
+        ? [RELAY_EARLY.inUpgrade, `${RELAY_EARLY.messagePrefix}${encodeBase64url(xxFirst)}`]
+        : []),
+      ...(options.early
+        ? [RELAY_EARLY.subprotocol, ...(options.grant ? [] : [RELAY_EARLY.neutral])]
+        : []),
+    ];
+    return { nkState, xxState, nkFirst, xxFirst, nkFits, protocols };
+  } catch (failure) {
+    nkState?.destroy();
+    xxState?.destroy();
+    throw failure;
   }
 }
