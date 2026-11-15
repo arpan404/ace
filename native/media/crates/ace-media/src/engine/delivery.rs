@@ -35,10 +35,6 @@ const KEYFRAME_SPACING_MS: u64 = 200;
 const STATS_MS: u64 = 1_000;
 /// ADR 0149's floor: video's share never plans below this.
 pub const RATE_FLOOR: f64 = 150_000.0;
-/// The round trip assumed before a view's link has measured one.
-const RTT_GUESS_MS: f64 = 100.0;
-/// What the bytes in flight may hold beyond one round trip (ADR 0149 decision 2).
-const SLACK_MS: f64 = 300.0;
 /// ADR 0149's coupled keyframe cap: a keyframe is at most about this long at the view's rate.
 const KEYFRAME_SECONDS: f64 = 0.5;
 /// A keyframe this far over the cap reconfigures its producer; each one within it lets the rate
@@ -531,7 +527,7 @@ impl Delivery {
         };
         let at = now_ms as f64;
         view.rate.acknowledged(sequence, at);
-        view.fanout.limit_bytes(budget_bytes(view, share));
+        view.fanout.bound(Some(budget_bytes(view, share)));
         // Chunks sent from now are due by the link's round trip (media-core's deadlines).
         view.fanout.set_round_trip(view.rate.rtt());
         let mut events = Vec::new();
@@ -992,7 +988,7 @@ impl Delivery {
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
-            view.fanout.limit_bytes(budget_bytes(view, share));
+            view.fanout.bound(Some(budget_bytes(view, share)));
             let next = if view.paused || !self.sockets.contains_key(&view.connection) {
                 None
             } else {
@@ -1194,11 +1190,17 @@ fn carried(view: &View) -> f64 {
     view.hint_bps.map_or(measured, |hint| hint.min(measured))
 }
 
-/// The bytes a view may have in flight: its share of the link over one round trip and the
-/// slack (ADR 0149), so delivery itself holds video to its share, whatever the producer sends.
+/// The bytes a view may have in flight: its share of what its link carries over ADR 0150's time
+/// (the round trip plus max(300 ms, the round trip plus 200 ms), 1 s taken before one is
+/// measured; `LinkRate::backlog_bytes`), so delivery itself holds video to its share, whatever
+/// the producer sends, and one tail-loss stall drops nothing. Applied as the fanout's bound,
+/// within its hard window.
 fn budget_bytes(view: &View, share: f64) -> usize {
-    let rate = carried(view) * share;
-    let rtt = view.rate.rtt().unwrap_or(RTT_GUESS_MS).max(0.0);
-    let bytes = rate / 8.0 * (rtt + SLACK_MS) / 1000.0;
-    (bytes as usize).clamp(MIN_BUDGET, MAX_BUDGET)
+    let measured = view.rate.rate();
+    let part = if measured > 0.0 {
+        carried(view) * share / measured
+    } else {
+        share
+    };
+    ((view.rate.backlog_bytes() as f64 * part) as usize).clamp(MIN_BUDGET, MAX_BUDGET)
 }
