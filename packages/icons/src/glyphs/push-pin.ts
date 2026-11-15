@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polygon } from "../geometry.ts";
-import { line, shape } from "../parts.ts";
+import { line, shape, type Part } from "../parts.ts";
 
-/** Pin: a push pin. */
-export const PushPinIcon = /* @__PURE__ */ glyph("PushPin", () => [
+/** A push pin's head and needle; also the base of "unpin". */
+export const pushPin = (): Part[] => [
   shape(
     polygon([
       [8, 3, 1.6],
@@ -15,4 +15,7 @@ export const PushPinIcon = /* @__PURE__ */ glyph("PushPin", () => [
     ]),
   ),
   line("M12 14v7"),
-]);
+];
+
+/** Pin: a push pin. */
+export const PushPinIcon = /* @__PURE__ */ glyph("PushPin", pushPin);
