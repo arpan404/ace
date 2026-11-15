@@ -343,14 +343,42 @@ fn browser_left(pid: u32) -> Result<String, CodecError> {
 
 #[test]
 fn chrome_exits_with_every_helper_when_its_owner_is_killed() -> Result<(), CodecError> {
+    check_owner_death("pid", |owner| owner.kill())
+}
+
+#[cfg(unix)]
+#[test]
+fn chrome_exits_with_every_helper_when_its_owner_group_is_killed() -> Result<(), CodecError> {
+    check_owner_death("group", |owner| {
+        let status = std::process::Command::new("/bin/kill")
+            .args(["-KILL", &format!("-{}", owner.id())])
+            .status()?;
+        assert!(status.success(), "could not kill the owner's process group");
+        Ok(())
+    })
+}
+
+fn check_owner_death(
+    name: &str,
+    kill_owner: impl FnOnce(&mut std::process::Child) -> std::io::Result<()>,
+) -> Result<(), CodecError> {
     if chrome().is_none() {
         return Ok(());
     }
     let io = |e: std::io::Error| CodecError::Backend(e.to_string());
-    let dir = std::env::temp_dir().join(format!("media-chrome-real-owner-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "media-chrome-real-owner-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(io)?;
-    let mut owner = std::process::Command::new(std::env::current_exe().map_err(io)?)
+    let mut command = std::process::Command::new(std::env::current_exe().map_err(io)?);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut owner = command
         .args([
             "--exact",
             "chrome_owner_entry",
@@ -374,7 +402,7 @@ fn chrome_exits_with_every_helper_when_its_owner_is_killed() -> Result<(), Codec
         std::thread::sleep(Duration::from_millis(20));
     };
     assert!(running(group) && !browser_left(group)?.is_empty());
-    owner.kill().map_err(io)?;
+    kill_owner(&mut owner).map_err(io)?;
     owner.wait().map_err(io)?;
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
