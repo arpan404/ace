@@ -1,4 +1,5 @@
 import "@/styles/composer-pill.css";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import "@/styles/composer-markdown.css";
 import { FloatingContents } from "@/components/ui/floating-material.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
@@ -355,10 +356,13 @@ function ComposerBody({
   // A steer always goes in now, a running command included: the daemon interrupts it if needed.
   const mode =
     !props.busy || props.sendsNow ? "send" : props.followUp !== "steer" ? "queue" : "steer";
-  const placeholder =
+  // A Suit may word the default placeholder; a screen's own, or an unavailable line, stays.
+  const placeholder = useSuitLabel(
+    "composer-placeholder",
     props.unavailable?.short ??
-    (compact ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
-    "Ask anything";
+      (compact ? (props.shortPlaceholder ?? props.placeholder) : props.placeholder) ??
+      "Ask anything",
+  );
   const expanded = suggestions.state === "ready";
   // The footer's handlers keep one identity, so typing never re-renders it.
   const footer = useStableHandlers({

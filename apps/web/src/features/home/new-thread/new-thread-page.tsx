@@ -1,4 +1,5 @@
 import { useIssueSource, usePrSource } from "@/features/forge/index.ts";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { ProjectPicker } from "./project-picker.tsx";
 import { chatChoice, forgetChatProject, useChatProject } from "./chat-project.ts";
@@ -338,6 +339,8 @@ function PreparationPage(props: {
   const contentSaveRefused = useRef(false);
   const metadataSaveRefused = useRef(false);
   const page = useRef<HTMLDivElement>(null);
+  // A chat's question, in a Suit's words if it has some.
+  const chatQuestion = useSuitLabel("empty-transcript", "What should we work on?");
   const composer = useRef<ComposerHandle>(null);
   useEffect(() => whenIdle(() => void preloadComposerParts()), []);
 
@@ -840,7 +843,7 @@ function PreparationPage(props: {
           {props.chat ? (
             // A chat names no project: a plain question, with the picker after it to choose one.
             <h2 className="mb-6 px-1 text-center text-2xl leading-tight font-normal tracking-title text-balance break-words text-muted-foreground">
-              What should we work on?{" "}
+              {chatQuestion}{" "}
               <ProjectPicker
                 projects={projects}
                 projectName={name}

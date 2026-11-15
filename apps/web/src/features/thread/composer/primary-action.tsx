@@ -4,6 +4,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { iconControl } from "./composer-styles.ts";
 
 export type PrimaryMode = "send" | "queue" | "steer";
@@ -64,15 +65,18 @@ export const PrimaryAction = memo(function PrimaryAction(props: {
 }) {
   const { mode, blocked } = props;
   const Glyph = icons[mode];
+  // A Suit may name Send its own way; Queue and Steer stay ace's (`suitLabel`).
+  const name = useSuitLabel("send", labels[mode]);
+  const tip = blocked ?? hint(mode, props.canSteer !== false, props.otherKeys, props.otherHint);
   return (
     <Tip
-      label={blocked ?? hint(mode, props.canSteer !== false, props.otherKeys, props.otherHint)}
+      label={tip === labels.send ? name : tip}
       {...(blocked ? {} : { keys: "enter" })}
       side="top"
     >
       <button
         type="button"
-        aria-label={labels[mode]}
+        aria-label={name}
         aria-disabled={blocked ? true : undefined}
         aria-describedby={props.off ? props.describedBy : undefined}
         onClick={() => {

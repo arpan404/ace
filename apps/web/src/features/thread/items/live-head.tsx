@@ -7,6 +7,7 @@ import {
   workingSubagentsText,
   type TurnActivity,
 } from "@ace/ui-core";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
@@ -79,6 +80,8 @@ export function ActivityLine(props: {
   const activity = props.activity.waitingOnSubagents
     ? { ...props.activity, label: waitingOnSubagentsLabel(subagents) }
     : props.activity;
+  // A Suit may say its own word for plain "Working"; any other line is ace's (`suitLabel`).
+  const working = useSuitLabel("working-word", activity.label);
   if (activity.tone === "paused")
     return (
       <SystemRow
@@ -89,9 +92,11 @@ export function ActivityLine(props: {
     );
   const label = activity.code
     ? `${activity.label} ${activity.code}`
-    : activity.tone === "needs-you" && activity.asker
-      ? `${activity.label} · ${activity.asker}`
-      : activity.label;
+    : activity.tone === "working"
+      ? working
+      : activity.tone === "needs-you" && activity.asker
+        ? `${activity.label} · ${activity.asker}`
+        : activity.label;
   return (
     <p
       role="status"
@@ -103,10 +108,10 @@ export function ActivityLine(props: {
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0">
             {activity.elapsedFrom === undefined ? (
-              activity.label
+              working
             ) : (
               <>
-                {`${timedWords(activity.label)} `}
+                {`${timedWords(working)} `}
                 <ElapsedTime from={activity.elapsedFrom} />
               </>
             )}
