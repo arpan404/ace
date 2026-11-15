@@ -47,7 +47,7 @@ export function NewThreadOnMachine(
   );
   return (
     <NewThreadMachineContext value={choice}>
-      <OnMachine machine={target} title="New thread">
+      <OnMachine machine={target} title="New thread" page="new-thread">
         <NewThreadPage {...page} />
       </OnMachine>
     </NewThreadMachineContext>

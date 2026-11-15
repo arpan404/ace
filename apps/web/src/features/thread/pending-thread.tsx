@@ -114,7 +114,7 @@ export function PendingThreadView(props: {
   }, [returning, payload, progress, code, receipt, commandId, returnStart]);
   if (!entry && !intent && ready)
     return (
-      <Screen title="">
+      <Screen page="thread" title="">
         <div role="alert" className="h-full">
           <MissingState
             title="This new thread isn't on this device any more"
@@ -138,7 +138,7 @@ export function PendingThreadView(props: {
       </Screen>
     );
   return (
-    <Screen title={title} subtitle={workspaceId && projectName(workspaceId)}>
+    <Screen page="thread" title={title} subtitle={workspaceId && projectName(workspaceId)}>
       <div className="flex h-full min-h-0 flex-col">
         {/* The same column and spacing the transcript opens with, so the move to the
             real thread doesn't shift the bubble. */}

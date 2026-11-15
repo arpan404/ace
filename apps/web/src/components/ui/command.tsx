@@ -106,7 +106,10 @@ function CommandSearchRow(props: {
   leading?: React.ReactNode;
 }) {
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
+    <div
+      data-part="search-field"
+      className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4"
+    >
       {props.leading ?? (
         <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
       )}

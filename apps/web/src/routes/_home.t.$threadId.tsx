@@ -40,7 +40,7 @@ function ThreadRoute() {
   const { threadId } = Route.useParams();
   const { seq, q, item, machine } = Route.useSearch();
   return (
-    <OnMachine machine={machine} title="Thread">
+    <OnMachine machine={machine} title="Thread" page="thread">
       <ThreadView
         key={`${machine ?? ""}:${threadId}`}
         threadId={threadId}

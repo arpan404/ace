@@ -29,7 +29,7 @@ export function DelegatedElsewhereView(props: {
   );
   const machine = useMachines().find((each) => each.id === props.machine);
   const away = (text: string) => (
-    <Screen title="Subagent" crumb={crumb}>
+    <Screen page="thread" title="Subagent" crumb={crumb}>
       <p role="status" className="px-5 py-6 text-ui text-muted-foreground">
         {text}
       </p>

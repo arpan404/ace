@@ -16,6 +16,7 @@ export function ProgressBar(props: {
   return (
     <div
       role="progressbar"
+      data-part="progress"
       aria-label={props.label}
       aria-valuemin={0}
       aria-valuemax={100}
