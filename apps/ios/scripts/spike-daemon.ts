@@ -21,7 +21,13 @@ import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
 import { seedChats } from "./chats-scenario.ts";
 import { seedMessageAttachments, seedNativeMedia, seedRichAnswer } from "./media-scenario.ts";
-import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
+import {
+  answerScreenshot,
+  browserControl,
+  degradedBrowser,
+  realVideo,
+  seedBrowser,
+} from "./spike-browser.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
@@ -132,6 +138,8 @@ daemon.apply("ios-stream", [
 // many deltas (about nine hours at 20 a second), in one append, to check that a thread that has
 // run for hours opens as fast as a new one.
 const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
+/** `ACE_IOS_SPIKE_DEGRADED=1`: the browser's video reports it runs on the processor. */
+const degraded = degradedBrowser(process.env.ACE_IOS_SPIKE_DEGRADED === "1");
 if (Number.isSafeInteger(streamed) && streamed > 0)
   daemon.apply("ios-stream", [
     facts.stream(
@@ -514,7 +522,7 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of socketFrames(text)) {
+            for (const frame of socketFrames(degraded(text))) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }

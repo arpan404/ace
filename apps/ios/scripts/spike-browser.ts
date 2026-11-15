@@ -384,3 +384,28 @@ function drawPage(width: number, height: number, format: "h264" | "png", heading
   if (result.status !== 0) throw new Error(`ffmpeg failed: ${result.stderr.toString()}`);
   return result.stdout;
 }
+
+/**
+ * With `ACE_IOS_SPIKE_DEGRADED=1`, the browser's video says it runs on the processor, as
+ * ace-media reports a source whose encode fell back (`acceleration.degraded`), so the live view's
+ * degraded sentence can be seen. Every other message passes unchanged.
+ */
+export function degradedBrowser(enabled: boolean): (text: string) => string {
+  if (!enabled) return (text) => text;
+  const acceleration = {
+    steps: [{ step: "encode", backend: "cpu", hardware: false, readbacks: 1, uploads: 0 }],
+    degraded: true,
+    reason: "Video runs on the processor here: this computer has no hardware video encoder.",
+  };
+  const mark = (value: unknown) => {
+    if (value && typeof value === "object" && "threadId" in value && "closed" in value)
+      Object.assign(value, { acceleration });
+  };
+  return (text) => {
+    if (!text.includes('"type":"browser.')) return text;
+    const message = JSON.parse(text) as { state?: unknown; result?: { state?: unknown } };
+    mark(message.state);
+    mark(message.result?.state);
+    return JSON.stringify(message);
+  };
+}
