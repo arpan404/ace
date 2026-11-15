@@ -61,6 +61,17 @@ export class ChildSync {
       const notice = deliveryNotice(event);
       if (notice) this.ports.noticeSender(event.threadId, notice);
       if (event.payload.type === "run.started") this.ports.clearDeliveredNotice(event.threadId);
+      // Results held while the thread was settled go to it once it leaves Settled, whatever
+      // took it out: the person's next message, Unsettle, or a restart reopening it.
+      if (
+        event.payload.type === "thread.client.updated" &&
+        event.payload.changes.settledAt === null
+      ) {
+        this.ports.deps.store.atomic(() =>
+          this.ports.journal.rearm(event.threadId, this.ports.now()),
+        );
+        changed = true;
+      }
       // A turn that ends on a limit its provider was already retrying changes no status.
       if (event.payload.type === "run.ended") {
         const ended = this.ports.journal.get(event.threadId);

@@ -1343,8 +1343,14 @@ export class DelegationService {
             this.journal.holdWake(next.parent_id);
             return;
           }
-          // A stopped parent is not woken. Its results wait, undropped, for its next input.
-          if (this.journal.stopped(next.parent_id) || this.journal.fenced(next.parent_id)) {
+          // A stopped or settled parent is not woken. Its results wait, undropped, for its next
+          // input. Settling stops the children, and their "cancelled" results would otherwise
+          // start a new turn that takes the thread straight back out of Settled.
+          if (
+            parent.settledAt !== undefined ||
+            this.journal.stopped(next.parent_id) ||
+            this.journal.fenced(next.parent_id)
+          ) {
             this.journal.holdWake(next.parent_id);
             return;
           }
