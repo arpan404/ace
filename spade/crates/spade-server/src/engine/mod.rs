@@ -41,7 +41,9 @@ pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
-pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
+pub use groups::{
+    GROUP_NAME_CHARS, GroupError, GroupFile, GroupInput, GroupLast, GroupView, MemberRef,
+};
 pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
@@ -394,6 +396,17 @@ impl Engine {
         self.announce(id);
     }
 
+    /// Marks a conversation (a bot's or a group's) seen up to `seq`, its last event when `None`,
+    /// and tells its live subscribers, so every device drops its "not seen" mark. Answers the
+    /// cursor, or `None` for no such conversation.
+    pub fn mark_seen(&self, id: &str, seq: Option<i64>) -> Result<Option<i64>, StoreError> {
+        let seen = self.store.mark_seen(id, seq, self.clock.now_ms())?;
+        if let Some(seq) = seen {
+            let _ = self.live(id).frames.send(Frame::Seen { seq });
+        }
+        Ok(seen)
+    }
+
     /// Sends the agent's state and status to live subscribers: the same the roster shows.
     fn announce(&self, id: &str) {
         let Ok(activity) = self.activity(id) else {
@@ -629,6 +642,23 @@ impl Engine {
 
     pub fn models(&self) -> &Models {
         &self.models
+    }
+
+    /// What can be told of a new bot's first message before the bot exists: it says something,
+    /// isn't too long and carries no more images than a message may. The rest (caps) is checked
+    /// as it is sent.
+    pub fn check_first_message(&self, first: &Outgoing) -> Result<(), SendError> {
+        if first.images.len() > crate::images::MOST_IMAGES {
+            return Err(SendError::TooManyImages);
+        }
+        let text = first.text.trim();
+        if text.is_empty() && first.images.is_empty() {
+            return Err(SendError::Empty);
+        }
+        if text.chars().count() > self.limits.longest_message {
+            return Err(SendError::TooLong);
+        }
+        Ok(())
     }
 
     fn check_message(&self, id: &str, text: &str, attached: usize) -> Result<(), SendError> {

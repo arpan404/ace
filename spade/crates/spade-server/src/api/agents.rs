@@ -8,9 +8,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::body::Body;
-use super::{AppState, off_thread, problem};
+use super::{AppState, off_thread, problem, send_problem};
 use crate::engine::{
-    AgentChange, AgentError, AgentInput, AgentView, AvatarInput, State as AgentState,
+    AgentChange, AgentError, AgentInput, AgentView, AvatarInput, Outgoing, State as AgentState,
 };
 use spade_core::autonomy::Access;
 
@@ -62,6 +62,40 @@ pub(super) struct NewAgent {
     /// `ask`, `auto_review` or `full_access` (ADR 0144); the new-bot level when absent.
     #[serde(default)]
     access: Option<String>,
+    /// The bot's first message, sent as it is made (the new-bot conversation): the bot and the
+    /// message are made together, or neither is.
+    #[serde(default)]
+    first_message: Option<FirstMessage>,
+}
+
+/// A first message: its text and images, as `POST /conversations/{id}/messages` takes them.
+#[derive(Deserialize)]
+pub(super) struct FirstMessage {
+    #[serde(default)]
+    text: String,
+    #[serde(default)]
+    images: Vec<ImageUpload>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct ImageUpload {
+    data: String,
+}
+
+impl FirstMessage {
+    fn outgoing(self) -> Result<Outgoing, Box<Response>> {
+        let images = self
+            .images
+            .iter()
+            .map(|upload| crate::images::decode(&upload.data))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Box::new(problem(StatusCode::BAD_REQUEST, &e.to_string())))?;
+        Ok(Outgoing {
+            text: self.text,
+            images,
+            ..Outgoing::default()
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -106,6 +140,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
             "from": if m.by_agent { "agent" } else { "person" },
             "text": m.text,
             "at": m.at_ms,
+            "seq": m.seq,
             "from_agent": m.from_agent.as_ref().map(|f| json!({ "id": f.id, "name": f.name })),
         })
     });
@@ -127,6 +162,8 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "status": view.status,
         "problem": view.problem,
         "last_message": last_message,
+        "seen_seq": view.seen,
+        "unseen": crate::engine::roster::unseen(view.state, view.last_message.as_ref(), view.seen),
     });
     // `spending` and `review` (ADR 0135); `access`, `task_state` and `continuing` (ADR 0144).
     if let (Some(shown), Some(extra)) = (shown.as_object_mut(), view.oversight.as_object()) {
@@ -173,65 +210,127 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
         Ok(level) => level,
         Err(response) => return *response,
     };
-    let avatar = match body.avatar.map(AvatarBody::input).transpose() {
+    let mut body = body;
+    let avatar = match body.avatar.take().map(AvatarBody::input).transpose() {
         Ok(avatar) => avatar,
         Err(response) => return *response,
     };
+    let first = match body
+        .first_message
+        .take()
+        .map(FirstMessage::outgoing)
+        .transpose()
+    {
+        Ok(first) => first,
+        Err(response) => return *response,
+    };
+    // A message that would be refused makes no bot.
+    if let Some(first) = &first
+        && let Err(error) = state.engine.check_first_message(first)
+    {
+        return send_problem(&error);
+    }
     // The default model is the first one with a key, which reads the keychain.
     off_thread(move || {
-        if let Some(template) = &body.template {
-            let model = body
-                .model
-                .clone()
-                .or_else(|| crate::teams::template_model(&state.engine, template))
-                .unwrap_or_else(|| state.engine.default_model());
-            let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
-            let input = AgentInput {
-                name: body.name.unwrap_or_default(),
-                task: body.task,
-                model,
-                avatar,
-                access: level,
-            };
-            return match crate::teams::from_template(
-                &state.engine,
-                template,
-                input,
-                named,
-                body.time_zone,
-            ) {
-                Ok(made) => (
-                    StatusCode::CREATED,
-                    Json(json!({ "agent": agent_json(&made.agent), "left_out": made.left_out })),
-                )
-                    .into_response(),
-                Err(crate::teams::PortableError::NotFound) => {
-                    problem(StatusCode::NOT_FOUND, "no such template")
-                }
-                Err(crate::teams::PortableError::Agent(error)) => agent_problem(&error),
-                Err(error) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
-            };
-        }
-        let input = AgentInput {
-            name: body.name.unwrap_or_default(),
-            task: body.task,
-            model: body.model.unwrap_or_else(|| state.engine.default_model()),
-            avatar,
-            access: level,
+        let (view, left_out) = match make(&state, body, avatar, level) {
+            Ok(made) => made,
+            Err(response) => return *response,
         };
-        create_now(&state, input)
+        let view = match first {
+            Some(first) => match send_first(&state, &view, first) {
+                Ok(view) => view,
+                Err(response) => return *response,
+            },
+            None => view,
+        };
+        let mut answer = json!({ "agent": agent_json(&view) });
+        if let Some(left_out) = left_out {
+            answer["left_out"] = json!(left_out);
+        }
+        (StatusCode::CREATED, Json(answer)).into_response()
     })
     .await
 }
 
-fn create_now(state: &AppState, input: AgentInput) -> Response {
-    match state.engine.create_agent(input) {
-        Ok(view) => (
-            StatusCode::CREATED,
-            Json(json!({ "agent": agent_json(&view) })),
-        )
-            .into_response(),
-        Err(error) => agent_problem(&error),
+/// Makes the bot, from a template or not; a template's answer says what it left out.
+fn make(
+    state: &AppState,
+    body: NewAgent,
+    avatar: Option<AvatarInput>,
+    level: Option<Access>,
+) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
+    if let Some(template) = &body.template {
+        let model = body
+            .model
+            .clone()
+            .or_else(|| crate::teams::template_model(&state.engine, template))
+            .unwrap_or_else(|| state.engine.new_bot_default());
+        let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
+        let input = AgentInput {
+            name: body.name.unwrap_or_default(),
+            task: body.task,
+            model,
+            avatar,
+            access: level,
+        };
+        return match crate::teams::from_template(
+            &state.engine,
+            template,
+            input,
+            named,
+            body.time_zone,
+        ) {
+            Ok(made) => Ok((made.agent, Some(made.left_out))),
+            Err(crate::teams::PortableError::NotFound) => {
+                Err(Box::new(problem(StatusCode::NOT_FOUND, "no such template")))
+            }
+            Err(crate::teams::PortableError::Agent(error)) => Err(Box::new(agent_problem(&error))),
+            Err(error) => Err(Box::new(problem(
+                StatusCode::BAD_REQUEST,
+                &error.to_string(),
+            ))),
+        };
+    }
+    let input = AgentInput {
+        name: body.name.unwrap_or_default(),
+        task: body.task,
+        model: body.model.unwrap_or_else(|| state.engine.new_bot_default()),
+        avatar,
+        access: level,
+    };
+    state
+        .engine
+        .create_agent(input)
+        .map(|view| (view, None))
+        .map_err(|error| Box::new(agent_problem(&error)))
+}
+
+/// Sends a new bot its first message. When Spade refuses it (a cap reached since the check, a
+/// storage failure), the bot is deleted again: the person gets both or neither.
+fn send_first(
+    state: &AppState,
+    view: &AgentView,
+    first: Outgoing,
+) -> Result<AgentView, Box<Response>> {
+    let sent = state.engine.send_message(&view.agent.conversation, first);
+    match sent {
+        Ok(()) => Ok(state
+            .engine
+            .agent_view(&view.agent.id)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| view.clone())),
+        Err(error) => {
+            let engine = state.engine.clone();
+            let id = view.agent.id.clone();
+            // On the blocking pool, so waiting here holds up no async worker.
+            if let Err(undo) = tokio::runtime::Handle::current()
+                .block_on(async move { engine.delete_agent(&id).await })
+            {
+                tracing::warn!(%undo, "a bot whose first message was refused could not be removed");
+            }
+            Err(Box::new(send_problem(&error)))
+        }
     }
 }
 

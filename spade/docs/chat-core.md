@@ -36,6 +36,12 @@ one reply is open per conversation. On startup Spade closes every open reply a c
 `reply_interrupted`, so nothing is ever shown as still answering after a restart. A reply paused
 for a planned restart (`turn_paused`, see [harness.md](harness.md)) instead carries on.
 
+Every step of a reply names it: `step_finished`, `tool_started`, `tool_finished`,
+`approval_requested`, `approval_answered`, `call_reviewed`, `job_started` and `question_asked` all
+carry the `reply` they belong to, the same id as its `reply_started` and closing event, whether
+the person allowed the call, it was always allowed, the access level let it run or the reviewer
+approved it. A client folds a reply's steps under it by that field; it needs no other link.
+
 Steering is the default: a `user_message` sent while a reply is open joins that turn. It is
 stored at once, and the next model call in the turn (after the current call ends, or at the next
 tool step) sees it, so the turn carries on instead of ending.
@@ -62,6 +68,8 @@ Live stream frames (`event:` name, JSON `data:`):
 - `snapshot`: `{reply, text}` once at connect when a reply is open: everything received so far.
 - `delta`: `{reply, text}` each new piece of a reply. Not stored; checkpoints and the closing event
   are.
+- `seen`: `{seq}` when the person marks the conversation seen, on this device or another
+  ([agents.md](agents.md), Seen). Not stored.
 
 A client loads `events`, opens `live` with the last `seq`, and appends. After a reconnect it does the
 same; `snapshot` restores any reply text newer than the last checkpoint.

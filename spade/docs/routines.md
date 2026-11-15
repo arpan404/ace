@@ -118,4 +118,4 @@ can act on), `404` for an unknown agent or routine, at most 50 routines per bot.
 
 | Type           | Fields                                                         | Meaning                      |
 | -------------- | -------------------------------------------------------------- | ---------------------------- |
-| `user_message` | `…, from_routine?: {id, name, run, label, heartbeat?, event?}` | A routine or heartbeat fired |
+| `user_message` | `…, from_routine?: {id, name, run, label, heartbeat?, event?}` | A routine or heartbeat fired; the first message of the run, so a client's run line reads `name`, and the stored event's `at` is when it ran |

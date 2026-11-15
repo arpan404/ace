@@ -275,3 +275,53 @@ fn filters_take_kinds_a_time_range_and_every_word() {
         .collect();
     assert_eq!(early.len(), 2);
 }
+
+#[test]
+fn every_entry_reads_as_a_sentence_with_its_detail_never_raw_arguments() {
+    let entries = log(&day());
+    let seen: Vec<(&str, Option<&str>)> = entries
+        .iter()
+        .map(|e| (e.sentence.as_str(), e.detail.as_deref()))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("Daily briefing ran", Some("9:00")),
+            ("Message from Research", Some("Here are the numbers")),
+            (
+                "The reviewer asked you: run a command",
+                Some("The person never asked for a request to x.dev")
+            ),
+            ("Asked you to run a command", seen[3].1),
+            ("You declined: run a command", seen[4].1),
+            ("Ran a command", seen[5].1),
+            ("Used create issue in Linear", Some("Title: Bug")),
+            ("Wrote a file", Some("notes.md")),
+            ("Messaged Research", Some("Find the figures")),
+            ("Read a web page", Some("https://example.com")),
+            ("Finished a turn", Some("1 step")),
+            ("Reached its daily cap", Some("$1.00 cap")),
+        ]
+    );
+    for entry in &entries[3..6] {
+        let detail = entry.detail.as_deref().unwrap_or_default();
+        assert!(detail.starts_with("curl -H"), "{entry:?}");
+        assert!(!detail.contains("s3cr3tv4lue"), "{entry:?}");
+    }
+}
+
+#[test]
+fn a_call_still_running_reads_as_what_it_is_doing() {
+    let events = vec![
+        Event::reply_started("r1", "fake/m"),
+        step(
+            "r1",
+            vec![call("c1", "web_search", json!({ "query": "Oslo flights" }))],
+            0,
+        ),
+        started("c1", "web_search"),
+    ];
+    let entries = log(&events);
+    assert_eq!(entries[0].sentence, "Searching the web");
+    assert_eq!(entries[0].detail.as_deref(), Some("Oslo flights"));
+}
