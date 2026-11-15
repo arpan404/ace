@@ -558,8 +558,8 @@
   font-family: var(--font-prose);
   font-size: 16px;
   caret-color: var(--color-tint);
-  background: linear-gradient(90deg, var(--suit-gold-soft), var(--suit-gold-faint) 60%, transparent)
-    left bottom 2px / 100% 1px no-repeat;
+  background: linear-gradient(90deg, var(--suit-gold-soft), var(--suit-gold-faint) 55%, transparent)
+    left 16px bottom 6px / calc(100% - 32px) 1px no-repeat;
 }
 [data-part="composer-input"]::placeholder {
   font-style: italic;
@@ -585,8 +585,8 @@
   position: absolute;
   inset: 0;
   background: var(--color-tint-foreground);
-  -webkit-mask: url("assets/marks/nib.svg") center / 16px 16px no-repeat;
-  mask: url("assets/marks/nib.svg") center / 16px 16px no-repeat;
+  -webkit-mask: url("assets/marks/nib.svg") center / 18px 18px no-repeat;
+  mask: url("assets/marks/nib.svg") center / 18px 18px no-repeat;
   transform: rotate(40deg);
 }
 [data-part="composer-send"][data-variant="send"]:hover {
