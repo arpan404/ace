@@ -7,6 +7,12 @@ export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
 export interface Persistence {
   storage: ReadSnapshotStorage;
   scheduler: Scheduler;
+  /**
+   * Settles once the client has had a daemon's welcome (and stays settled). Until then nothing
+   * a subscription asks for can be answered, so a kept record still being read is waited for.
+   * None: the wait counts from the binding's start.
+   */
+  welcomed?(): Promise<void>;
 }
 
 /** A store's changes are written at most once per this many milliseconds. */
@@ -20,7 +26,11 @@ export const snapshotWriteMs = 1_000;
  * and checkpoints what is still unwritten after any write in flight, so the newest copy lands
  * last.
  */
-/** How long a new subscription waits for its kept record before it goes without one. */
+/**
+ * How long a new subscription waits for its kept record, past the client's first welcome,
+ * before it goes without one. Before the welcome it waits for the read however long it takes:
+ * a relaunch reads a cold store, and opening without what it kept costs a full snapshot.
+ */
 const firstReadMs = 250;
 
 export class SnapshotBinding {
@@ -37,7 +47,8 @@ export class SnapshotBinding {
   #written: Promise<void> = Promise.resolve();
   /**
    * Settles once the first read of the kept record has been tried (restored, missed or failed),
-   * or after `firstReadMs` at most, so a subscription can resume from what it held (ADR 0128).
+   * or `firstReadMs` after the client's first welcome at most, so a subscription can resume
+   * from what it held (ADR 0128).
    */
   readonly loaded: Promise<void>;
 
@@ -72,11 +83,20 @@ export class SnapshotBinding {
       () => {},
     );
     this.loaded = new Promise((resolve) => {
-      const cancel = persistence.scheduler.set(firstReadMs, resolve);
-      void tried.then(() => {
-        cancel();
+      let cancel: (() => void) | undefined;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        cancel?.();
         resolve();
-      });
+      };
+      const giveUpAfter = () => {
+        if (!settled) cancel = persistence.scheduler.set(firstReadMs, finish);
+      };
+      if (persistence.welcomed) void persistence.welcomed().then(giveUpAfter);
+      else giveUpAfter();
+      void tried.then(finish);
     });
   }
 

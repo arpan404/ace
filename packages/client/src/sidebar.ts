@@ -227,7 +227,19 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     this.#ready = ready;
     this.#notifications = new Notifications(limits.listeners);
     this.#persist();
+    // The list kept from before is read first: subscribing without it would ask for the whole
+    // list instead of resuming from its revision. The binding gives up on a slow read in time.
+    const first = this.#binding;
+    if (first) {
+      this.#reading = true;
+      void first.loaded.then(() => {
+        this.#reading = false;
+        if (this.#refs && !this.#wire && this.#ready()) this.#subscribe();
+      });
+    }
   }
+  /** The kept list is still being read: the first subscribe waits for it. */
+  #reading = false;
   get ids(): readonly string[] {
     return this.#order;
   }
@@ -260,7 +272,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
     };
   }
   acquire(): { store: Sidebar; release(): void } {
-    if (this.#refs++ === 0 && this.#ready()) this.#subscribe();
+    if (this.#refs++ === 0 && this.#ready() && !this.#reading) this.#subscribe();
     let released = false;
     return {
       store: this,
@@ -338,7 +350,7 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   }
   /** Subscribe on a new socket; one already sent with its hello is not sent again. */
   reconnect(): void {
-    if (this.#refs && !this.#wire) this.#subscribe();
+    if (this.#refs && !this.#wire && !this.#reading) this.#subscribe();
   }
   disconnect(): void {
     if (this.#refs) this.#await(["disconnected"]);
