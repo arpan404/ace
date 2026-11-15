@@ -1655,10 +1655,13 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   while 300 units are still queued on the old connection, which loses and repeats none); and `helper-identity.native.process.test.ts` (the built app's designated
   requirement equals `identity.txt`) run from `check:media` on macOS; the first only with
   `ACE_SCREEN_INTEGRATION=1`, since it shows a fixture window.
-- **Emulator handover.** Before `--encode-frames` changes its ingest route, it completes
+- **Encoder handover.** Before the screen or `--encode-frames` changes its ingest route, it completes
   submitted VideoToolbox frames on the old route without closing the encoder session. Otherwise
   a delta submitted before the switch can complete on the new route before its keyframe, and
-  ace-media drops it at the initial keyframe gate. Drain and merge deadlines are unchanged.
+  ace-media drops it at the initial keyframe gate. Socket failures are handled on the encoder's
+  owner queue with the same drain before falling back, and the next keyframe is armed before
+  another picture can submit. The drain never holds the route lock. Drain and merge deadlines
+  are unchanged.
 - **Devices (E3b).** Each device's video goes through `DeviceVideoPaths`
   (`packages/devices/src/media-paths.ts`): the shared `PathMerge`, and egress units turned back
   into the units the capture publishes as before. A path that ends interrupted asks its

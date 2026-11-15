@@ -78,11 +78,15 @@ enum FrameFileEncoder {
         var state: FrameFileState!
         // The route owns its ingest writers: a replaced one drains before it closes, and only
         // the current one's failure moves units back to stdout.
+        weak var routingEncoder: VideoEncoder?
         let route = IngestRoute(legacy: { unit in
             if let packet = legacyFramePacket(unit, sessionId: "emulator", version: 2) { output.write(packet) }
-        }, now: { DispatchTime.now().uptimeNanoseconds })
+        }, now: { DispatchTime.now().uptimeNanoseconds }, beforeSwitch: {
+            routingEncoder?.drain(); routingEncoder?.requestKeyframe()
+        }, recover: { work in queue.async(execute: work) })
         let encoder = VideoEncoder(units: { unit in route.publish(unit) },
             completed: { queue.async { state.completed() } }, keyframeInterval: 20)
+        routingEncoder = encoder
         encoder.configure(bitrate: 6_000_000, fps: 60)
 
         /// The shared file mapped at least `length` long (it grows when the picture does).
@@ -123,7 +127,7 @@ enum FrameFileEncoder {
             return buffer
         }
         route.onKeyframe = { queue.async { state.keyframe() } }
-        route.onClosed = { boundary in queue.async { report("closed", boundary); state.keyframe() } }
+        route.onClosed = { boundary in report("closed", boundary); state.keyframe() }
         state = FrameFileState(encoder: encoder, picture: picture, now: { DispatchTime.now().uptimeNanoseconds })
         while let line = readLine(strippingNewline: true) {
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -146,8 +150,6 @@ enum FrameFileEncoder {
                     let socket = object["socket"] as? String
                     let token = (object["token"] as? String).flatMap { Data(base64Encoded: $0) }
                     let target = socket.flatMap { socket in token.map { (socket: socket, token: $0) } }
-                    // An in-flight delta belongs to the old route, before the new route's keyframe.
-                    encoder.drain()
                     // A refused address leaves units where they were, and says so.
                     guard socket == nil || target != nil, let moved = try? route.route(to: target) else {
                         report(route.ingesting ? "on" : "off", nil); return
