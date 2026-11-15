@@ -320,6 +320,8 @@ it("a child whose machine goes silent becomes lost contact after the lease, rele
 
   rijan.silent = true;
   const quiet = f.clock.now();
+  // Asked and not answered: its lease runs from this read.
+  await at(quiet);
   await at(quiet + REMOTE_CHILD_LEASE_MS - 1_000);
   // Inside the lease it still holds the parent.
   expect(live).toContain(parentView(f, parent).status.state);
@@ -459,6 +461,8 @@ it("a wait on a child whose machine goes silent returns once it loses contact, i
   expect(settled).toBe(false);
 
   rijan.silent = true;
+  // Asked and not answered: its lease runs from this read.
+  await at(f.clock.now() + 1_000);
   await at(f.clock.now() + lease + 2_000);
   const result = await waiting;
   expect(result.ok).toBe(true);
@@ -473,6 +477,8 @@ it("a child that lost contact can still be stopped: it ends stopped for good, an
   const [id] = ids;
   if (!id) throw new Error("no child");
   rijan.silent = true;
+  // Asked and not answered: its lease runs from this read.
+  await at(f.clock.now() + 1_000);
   await at(f.clock.now() + REMOTE_CHILD_LEASE_MS + 1_000);
   expect(ledger.watched(id)?.view.contact).toBe("lost");
 

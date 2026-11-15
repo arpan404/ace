@@ -70,10 +70,8 @@ export const machineChildGenerations = `${machineChildren}
  * - `lost_at`, `lost_key` and `lost_ask` mark a child whose pairing is gone: it stays unsettled,
  *   and its parent asks the person (the open approval's key and id) until the pairing returns or
  *   the person stops tracking it.
- * - `machine_child_cursors` schedules polling: one row per machine with unsettled children, the
- *   poll turn it was last served in and the id it read up to, so a poll serves the machines served
- *   longest ago and pages each one from where it stopped, wrapping. A partial index keeps those
- *   pages to the machine's unsettled children.
+ * - `machine_child_cursors` is no longer read or written: polling is planned per child
+ *   (machines/child-schedule.ts). The table stays so older stores open unchanged.
  * - `machine_message_rejections` is the target's answer for a message it refused before it ever
  *   reached its thread (an access or ownership refusal, a deleted thread). It is checked before any
  *   copy of that request is admitted, so a refused request can never run later. Each is kept only
