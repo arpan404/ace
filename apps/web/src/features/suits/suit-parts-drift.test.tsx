@@ -216,7 +216,7 @@ test("a settings page names its list, sections, rows and controls", async () => 
   await waitFor(() => expect(missing(settingsScreen)).toEqual([]));
 });
 
-const panelsScreen = ["terminal", "browser-panel", "command-palette"] as const;
+const panelsScreen = ["terminal", "terminal-tab", "browser-panel", "command-palette"] as const;
 
 test("the terminal, the browser and the command palette name their surfaces", async () => {
   const app = harness();
@@ -292,6 +292,42 @@ test("the shared overlays and controls name themselves wherever they are used", 
   await waitFor(() => expect(missing(sharedParts)).toEqual([]));
 });
 
+/** Every side panel tab names its strip tab, its body and its toolbar; Changes its files and lines. */
+const panelTabs = [
+  "panel-tab",
+  "panel-body",
+  "panel-toolbar",
+  "list-row",
+  "diff-file",
+  "diff-line",
+  "list",
+  "card",
+] as const;
+
+test("the side panel's tabs name their tab, body, toolbar, rows, diffs and cards", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  seedPanels(app.daemon);
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+  await within(panel).findByRole("list", { name: "Tools" });
+  await waitFor(() => expect(missing(["panel-tab", "panel-body", "list", "card"])).toEqual([]));
+  const changes = within(panel).getAllByRole("button", { name: /^Changes/ })[0];
+  if (!changes) throw new Error("No Changes tool");
+  // Changes takes the launcher's place.
+  await userEvent.click(changes);
+  const shown = panelTabs.filter((part) => part !== "list" && part !== "card");
+  await waitFor(() => expect(missing(shown)).toEqual([]));
+  // Each tab's body and strip tab carry its kind, so a Suit can style one tool apart.
+  const bodies = [...panel.querySelectorAll('[data-part="panel-body"]')];
+  expect(bodies.map((body) => body.getAttribute("data-variant"))).toContain("changes");
+  const tabs = [...panel.querySelectorAll('[data-part="panel-tab"][data-state="selected"]')];
+  expect(tabs.map((tab) => tab.getAttribute("data-variant"))).toEqual(["changes"]);
+});
+
 const coverage = [
   workingThread,
   settledThread,
@@ -300,6 +336,7 @@ const coverage = [
   menuScreen,
   settingsScreen,
   panelsScreen,
+  panelTabs,
   sharedParts,
 ];
 
