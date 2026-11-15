@@ -128,6 +128,9 @@ struct ThreadView: View {
             .overlay {
                 TranscriptTurnRail(model: model, threadId: thread.id, behind: behind, reading: railPlace, bottom: barHeight)
             }
+            // The rail's band takes its touches through the feed, so swipes still scroll (`TurnRailBand`).
+            .gesture(TurnRailBand.Hold(place: railPlace))
+            .gesture(TurnRailBand.Tap(place: railPlace))
             .markdownShelf(threadId: thread.id)
     }
 

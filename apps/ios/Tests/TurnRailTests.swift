@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Observation
 import Synchronization
@@ -55,36 +56,14 @@ import Testing
         #expect(TurnRail.Selection().current(scrub: nil, place: .turn(12), count: 9) == 9)
         #expect(TurnRail.Selection().current(scrub: nil, place: nil, count: 0) == 1)
     }
-    @Test func aTapOnTheBandJumpsWhereItTouched() {
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        var touch = TurnRail.BandTouch(start: start, y: 2)
-        touch.moved(to: 4, at: start.addingTimeInterval(0.05))
-        #expect(!touch.scrubbing)
-        #expect(touch.lifted(at: 4) == 2)
-    }
-    @Test func holdingThenDraggingScrubsAndLiftingJumpsWhereTheFingerIs() {
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        var touch = TurnRail.BandTouch(start: start, y: 300)
-        touch.moved(to: 302, at: start.addingTimeInterval(0.25))
-        #expect(touch.scrubbing)
-        touch.moved(to: 10, at: start.addingTimeInterval(0.6))
-        #expect(touch.scrubbing)
-        #expect(touch.lifted(at: 10) == 10)
-    }
-    @Test func aQuickSwipeOnTheBandNeitherScrubsNorJumps() {
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        var touch = TurnRail.BandTouch(start: start, y: 300)
-        touch.moved(to: 200, at: start.addingTimeInterval(0.08))
-        // Once it was a swipe, holding still afterwards changes nothing.
-        touch.moved(to: 200, at: start.addingTimeInterval(0.5))
-        #expect(!touch.scrubbing)
-        #expect(touch.lifted(at: 200) == nil)
-    }
-    @Test func aHeldTouchLiftedWithoutMovingJumpsWhereItRested() {
-        let start = Date(timeIntervalSinceReferenceDate: 0)
-        var touch = TurnRail.BandTouch(start: start, y: 120)
-        touch.moved(to: 121, at: start.addingTimeInterval(0.4))
-        #expect(touch.lifted(at: 121) == 121)
+    @Test func theBandTakesOnlyTouchesThatStartOnItWhileTheRailShows() {
+        let band = CGRect(x: 382, y: 120, width: 20, height: 500)
+        #expect(TurnRail.bandTakes(CGPoint(x: 395, y: 300), band: band))
+        // Beside the band, over the rows or the rail's drawn width, the transcript keeps the touch.
+        #expect(!TurnRail.bandTakes(CGPoint(x: 360, y: 300), band: band))
+        #expect(!TurnRail.bandTakes(CGPoint(x: 395, y: 80), band: band))
+        // No band on screen (the rail hidden): nothing is taken.
+        #expect(!TurnRail.bandTakes(CGPoint(x: 395, y: 300), band: nil))
     }
     @Test func theReadersTurnIsTheOneTheTopRowBelongsTo() {
         let rows: [TurnRail.Mark] = [.ask, .head(7), .answer, .ask, .head(8), .answer, .ask, .answer]
@@ -138,6 +117,15 @@ import Testing
         #expect(first?.turn == 2 && first?.count == 9)
         #expect(notifies(place, read: { _ = place.request }, change: { place.ask(turn: 2, count: 9) }))
         #expect(place.request != first)
+    }
+    @Test func eachFingerLiftReachesTheRailOnceEvenAtTheSamePlace() {
+        let place = TurnRailPlace()
+        place.fingerLifted(at: 40)
+        let first = place.lift
+        #expect(first?.y == 40)
+        place.fingerLifted(at: 40)
+        #expect(place.lift != first)
+        #expect(place.finger == nil)
     }
     @Test func theKeyboardReachesTheRailOnlyWhenItRisesOrFalls() {
         let place = TurnRailPlace()

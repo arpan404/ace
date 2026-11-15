@@ -151,6 +151,27 @@ import XCTest
         XCTAssertTrue(app.buttons["transcript.latest"].waitForNonExistence(timeout: 15))
         XCTAssertTrue(rail.waitForNonExistence(timeout: 5))
     }
+    func testASwipeStartingOnTheTurnRailsEdgeStillScrollsTheTranscript() {
+        let app = launch()
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        sleep(1)
+        // An ask on screen to watch: the swipe must move it.
+        let asks = (1...6).map { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part \($0).")).firstMatch }
+        guard let watched = asks.first(where: { $0.exists && $0.isHittable }) else { XCTFail("no ask on screen"); return }
+        let before = watched.frame.minY
+        // A quick vertical swipe that starts on the band, 8 pt in from the screen's edge.
+        let start = rail.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.7)).withOffset(CGVector(dx: -8, dy: 0))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -250)))
+        sleep(1)
+        XCTAssertTrue(!watched.exists || watched.frame.minY < before - 100, "a swipe starting on the rail's edge didn't scroll the transcript")
+        // It neither scrubbed nor jumped: no turn card showed and Scroll to end is still offered.
+        XCTAssertTrue(app.buttons["transcript.latest"].exists)
+    }
     func testQuestionAndApprovalCards() {
         let app = launch()
         reveal("thread.ios-question", in: app)
