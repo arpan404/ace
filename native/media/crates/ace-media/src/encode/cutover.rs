@@ -71,15 +71,24 @@ impl<B: Backends> Worker<B> {
                         fallback: flushed.then_some(fallback),
                     });
                 }
-                // It didn't open: the fallback carries on from a keyframe, made anew if its
-                // flush failed (what it still held must never come out after the cut).
+                // It didn't open: the fallback carries on from a keyframe.
                 None if flushed => {}
+                // A fallback whose flush failed is never used again: what it still held must
+                // never come out after the cut. A new one replaces it, or the source ends.
                 None => {
-                    if let Ok(mut fresh) = self.backends.fallback(running.codec)
-                        && fresh.encoder.configure(&spec).is_ok()
-                    {
-                        running.chosen = fresh;
-                        running.description = None;
+                    let fresh = self
+                        .backends
+                        .fallback(running.codec)
+                        .and_then(|mut chosen| {
+                            chosen.encoder.configure(&spec)?;
+                            Ok(chosen)
+                        });
+                    match fresh {
+                        Ok(fresh) => {
+                            running.chosen = fresh;
+                            running.description = None;
+                        }
+                        Err(error) => return self.fail(&error, out),
                     }
                 }
             }

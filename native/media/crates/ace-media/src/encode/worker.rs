@@ -308,20 +308,48 @@ impl<B: Backends> Worker<B> {
 
     /// Flushes every encoder and takes what it still held. One that can't flush ends the
     /// source as undrainable, so its end is never reported clean.
+    ///
+    /// Mid cut-over the current (hardware) encoder finishes, and its output must still begin
+    /// at a keyframe: what doesn't can't be decoded and is dropped. No picture follows a drain,
+    /// so nothing is recovered onto another encoder: an error, or dropped output, makes it an
+    /// unclean end, never `Drained`.
     fn drain(&mut self, now_us: u64, out: &mut Vec<Output>) {
+        let mut clean = true;
         for running in self.encodes.values_mut() {
-            // Closing mid cut-over: the current encoder finishes, the idle fallback goes.
-            running.probation = None;
             if running.chosen.encoder.flush().is_err() {
-                self.failed = true;
-                self.encodes.clear();
-                out.push(Output::Failed("encoder-undrainable".into()));
-                return;
+                clean = false;
+                break;
+            }
+            loop {
+                match running.chosen.encoder.poll_result() {
+                    Ok(Some(unit)) => {
+                        if running.probation.is_some() {
+                            if !unit.key {
+                                clean = false;
+                                continue;
+                            }
+                            running.probation = None;
+                        }
+                        out.push(Output::Unit(frame(running, unit, self.epoch, now_us)));
+                    }
+                    Ok(None) => break,
+                    Err(_) => {
+                        clean = false;
+                        break;
+                    }
+                }
+            }
+            running.probation = None;
+            if !clean {
+                break;
             }
         }
-        self.poll(now_us, out);
-        if !self.failed {
+        if clean {
             out.push(Output::Drained);
+        } else {
+            self.failed = true;
+            self.encodes.clear();
+            out.push(Output::Failed("encoder-undrainable".into()));
         }
     }
 

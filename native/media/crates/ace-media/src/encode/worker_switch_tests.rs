@@ -22,6 +22,11 @@ struct Knobs {
     fail_after: Option<usize>,
     /// The encoder produces nothing at all.
     silent: bool,
+    /// The encoder never makes a keyframe, even one it is asked for.
+    ignore_keys: bool,
+    /// Results fail once it has been flushed.
+    broken_after_flush: bool,
+    flushed: bool,
     encodes: usize,
     out: usize,
 }
@@ -61,7 +66,9 @@ impl Encoder for Scripted {
             return Err(CodecError::Backend("the first submission failed".into()));
         }
         self.inner.encode(picture, force_key)?;
+        let ignore_keys = knobs(&self.knobs).ignore_keys;
         while let Some(mut unit) = self.inner.poll() {
+            unit.key &= !ignore_keys;
             unit.data = [vec![self.tag], unit.pts_us.to_be_bytes().to_vec()].concat();
             self.held.push_back(unit);
         }
@@ -76,7 +83,8 @@ impl Encoder for Scripted {
             self.polled = true;
             return Err(CodecError::Backend("the first callback failed".into()));
         }
-        if k.fail_after.is_some_and(|n| k.out >= n) && !self.held.is_empty() {
+        let broken = k.broken_after_flush && k.flushed;
+        if (broken || k.fail_after.is_some_and(|n| k.out >= n)) && !self.held.is_empty() {
             return Err(CodecError::Backend("the encoder broke".into()));
         }
         if k.hold || k.silent {
@@ -96,6 +104,7 @@ impl Encoder for Scripted {
             return Err(CodecError::DeadlineExceeded);
         }
         k.hold = false;
+        k.flushed = true;
         Ok(())
     }
 }
@@ -106,6 +115,8 @@ struct Pair {
     fallback: Shared,
     hardware: Shared,
     built: Vec<u8>,
+    /// No fallback encoder can be built.
+    fallback_fails: bool,
 }
 
 impl Pair {
@@ -136,6 +147,9 @@ impl Backends for Pair {
         Ok(self.scripted(self.found))
     }
     fn fallback(&mut self, _codec: Codec) -> Result<Chosen, CodecError> {
+        if self.fallback_fails {
+            return Err(CodecError::Unsupported("no Chrome to encode with".into()));
+        }
         Ok(self.scripted(false))
     }
     fn decode(&mut self, jpeg: &[u8], size: Size, _: Backend) -> Result<Decoded, CodecError> {
@@ -181,6 +195,7 @@ impl Rig {
             fallback: fallback.clone(),
             hardware: hardware.clone(),
             built: Vec::new(),
+            fallback_fails: false,
         });
         let mut rig = Self {
             worker,
@@ -443,3 +458,6 @@ fn a_rate_change_mid_cut_over_reaches_the_hardware_encoder() {
     assert_eq!(seen[1], (HARDWARE, after[0], true), "{seen:?}");
     assert!(!rig.ended());
 }
+
+#[path = "worker_cutover_edge_tests.rs"]
+mod edges;
