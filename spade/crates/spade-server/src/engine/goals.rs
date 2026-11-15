@@ -86,7 +86,8 @@ impl Engine {
 
     /// Checks the bot's claim of done: one fresh model call that sees the goal, its criteria, the
     /// plan and the evidence. Stores the verdict unless `token` was called off meanwhile (a Stop),
-    /// then lets the task carry on: a "not yet" sends the bot back to work.
+    /// then lets the task carry on: a "not yet" sends the bot back to work. A verdict on a goal or
+    /// claim that changed while the model answered is dropped, and the claim checked again.
     pub(super) async fn verify_claim(self: &Arc<Self>, id: &str, claim: &str, token: &str) {
         let Ok(events) = self.load(id) else { return };
         let Some(task) = Task::fold(&events).filter(|t| t.goal.closed.is_none()) else {
@@ -151,19 +152,32 @@ impl Engine {
                 }
             }
         };
-        let stored = {
+        // The verdict holds only for the goal and claim it was asked about: the person may have
+        // changed the criteria, or the bot made a new claim, while the model answered.
+        let carry_on = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.drop_token(id, token)
-                && match self.append(id, &Event::Known(verdict)) {
+            let same = self
+                .load(id)
+                .ok()
+                .and_then(|now| Task::fold(&now))
+                .is_some_and(|now| now.goal == task.goal && now.claim == task.claim);
+            if !self.drop_token(id, token) {
+                false
+            } else if !same {
+                // Dropped; carrying on checks the claim again against the goal as it is now.
+                true
+            } else {
+                match self.append(id, &Event::Known(verdict)) {
                     Ok(_) => true,
                     Err(error) => {
                         tracing::error!(%error, "could not store a task's check");
                         false
                     }
                 }
+            }
         };
         self.set_status(id, None);
-        if stored {
+        if carry_on {
             self.carry_on(id);
         }
     }

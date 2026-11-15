@@ -341,3 +341,74 @@ async fn the_plan_rides_in_the_prompt_top_after_a_compaction() -> Result {
     assert!(last.contains("Cut the release"), "{last}");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_verdict_on_criteria_the_person_changed_meanwhile_is_dropped_and_the_claim_checked_again()
+-> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "task_goal",
+                json!({ "title": "Green build", "criteria": ["tests pass"] }),
+            ),
+            Script::reply("").call("c2", "task_plan", json!({ "op": "add", "text": "fix the test" })),
+            Script::reply("").call("c3", "run_tests", json!({})),
+            Script::reply("")
+                .call(
+                    "c4",
+                    "task_plan",
+                    json!({ "op": "done", "item": "1",
+                            "evidence": [{ "kind": "output", "call": "c3" }] }),
+                )
+                .call("c5", "task_status", json!({ "status": "done" })),
+            Script::reply("The tests pass."),
+            Script::reply("").plain(TITLE),
+            // The first check answers slowly, on the goal as it was: one criterion, met.
+            Script::reply("")
+                .plain(r#"{"criteria":[{"id":"1","met":true,"why":"2 passed"}],"done":true}"#)
+                .held(Duration::from_millis(1500)),
+            // The check again, on the goal as the person left it.
+            Script::reply("").plain(
+                r#"{"criteria":[{"id":"1","met":true,"why":"2 passed"},{"id":"2","met":false,"why":"no lint run"}],"missing":["Show the lint passing."],"done":false}"#,
+            ),
+            Script::reply("Running the lint next."),
+        ],
+        tools(),
+    )
+    .await?;
+    let (agent, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Make the build green").await?;
+    // While the first check is out, the person adds a criterion.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while verifier_requests(&spade).is_empty() {
+        if Instant::now() > deadline {
+            return Err("the check never started".into());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{agent}/task/goal"),
+            json!({ "title": "Green build", "criteria": ["tests pass", "lint is clean"] }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    // The bot goes back to work on the second check's "not yet".
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let verdicts = of_type(&events, "task_verified");
+    assert_eq!(
+        verdicts.len(),
+        1,
+        "the stale verdict was stored: {verdicts:?}"
+    );
+    assert_eq!(verdicts[0]["verdict"], "not_yet", "{verdicts:?}");
+    let checks = verifier_requests(&spade);
+    assert_eq!(checks.len(), 2, "the claim was checked again");
+    assert!(checks[1].contains("lint is clean"), "{}", checks[1]);
+    let (_, body) = spade.get(&format!("/v1/agents/{agent}/task")).await?;
+    assert_ne!(body["task"]["progress"]["state"], "done", "{body}");
+    Ok(())
+}
