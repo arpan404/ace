@@ -363,3 +363,16 @@ fn closing_a_connection_ends_its_viewers_and_is_answered_after_it() {
     ));
     assert_eq!(engine.counts().viewers, 0);
 }
+
+#[test]
+fn an_all_zero_ticket_is_never_stored_and_never_opens_a_connection() {
+    let mut engine = engine();
+    // A grant whose ticket is zeros (a wiped buffer, say) opens nothing.
+    let effects = ticket(&mut engine, "c0", owner("d1", pairing(1)), 1, 0);
+    assert_eq!(closed_connections(&effects), ["c0"]);
+    assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
+    // Presenting zeros never matches a real ticket either.
+    ticket(&mut engine, "c1", owner("d1", pairing(1)), 2, 5);
+    assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
+    assert!(engine.claim_ticket(&[5; 32], NOW).is_some());
+}

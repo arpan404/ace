@@ -423,3 +423,29 @@ fn a_hello_that_comes_before_its_ticket_waits_for_it() {
         "the hello was refused before its ticket came"
     );
 }
+
+#[test]
+fn a_zero_ticket_is_refused_on_the_listener() {
+    let mut media = Media::spawn("zero");
+    let (control, _, _) = media.start();
+    let _lanes = lanes(&control);
+    ticket(
+        &mut media,
+        "mc_zero",
+        &owner("phone", pairing(1)),
+        1,
+        30_000,
+        0,
+    );
+    ticket(
+        &mut media,
+        "mc_real",
+        &owner("phone", pairing(1)),
+        2,
+        30_000,
+        3,
+    );
+    settle(&mut media, "ticketed");
+    assert_eq!(connect(&media, 0).err(), Some(close::REFUSED));
+    assert!(connect(&media, 3).is_ok(), "the real client is admitted");
+}

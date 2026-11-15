@@ -8,7 +8,8 @@ import {
 } from "./media-connections.ts";
 import { MediaViewers, type ViewIntent } from "./media-viewers.ts";
 import type { Revocation } from "./grants.ts";
-import type { ToMedia } from "./wire.ts";
+import { decodeToMedia, type ToMedia } from "./wire.ts";
+import { LaneWriter } from "./lanes.ts";
 
 function harness(port = 41_000) {
   const sent: { message: ToMedia; payload: Uint8Array }[] = [];
@@ -265,4 +266,56 @@ test("a connect starts ace-media, waits for its listener, and keeps it running w
     reason: "client-closed",
   });
   expect(needs).toBe(0);
+});
+
+test("a ticket held behind backpressure reaches ace-media intact: the lane owns and wipes it", async () => {
+  // The real lane writer, on a sink that is backpressured until after `connect` returns.
+  const written: Uint8Array[] = [];
+  const callbacks: (() => void)[] = [];
+  let drain = () => {};
+  let open = false;
+  const sink = {
+    write(chunk: Uint8Array, done: (error?: Error | null) => void) {
+      written.push(chunk.slice());
+      callbacks.push(() => done());
+      return open;
+    },
+    onDrain(listener: () => void) {
+      drain = listener;
+    },
+  };
+  const lane = new LaneWriter("normal", sink, () => {});
+  // Something big ahead of the ticket fills the sink.
+  lane.send({ type: "ping", id: "first" });
+  let payload: Uint8Array | undefined;
+  const connections = new MediaConnections({
+    port: {
+      send: (message, bytes = new Uint8Array(0)) => {
+        payload = bytes;
+        lane.send(message, bytes);
+        return true;
+      },
+      revoke: () => Promise.resolve("answered"),
+      directPort: () => 41_000,
+      need: () => () => {},
+      sleep: () => Promise.resolve(),
+    },
+    issue: new MediaIssue(),
+    now: () => 0,
+    randomBytes: (length) => new Uint8Array(length).map((_, i) => i + 1),
+    id: () => "id",
+  });
+  const grant = granted(await connections.connect(phone("a")));
+  expect(written).toHaveLength(1); // only the ping: the ticket waits behind it
+  open = true;
+  drain();
+  for (const callback of callbacks.splice(0)) callback();
+  const frame = new Uint8Array(written.slice(1).reduce((n, chunk) => n + chunk.length, 0));
+  let at = 0;
+  for (const chunk of written.slice(1)) frame.set(chunk, (at += chunk.length) - chunk.length);
+  const decoded = decodeToMedia(frame, "normal");
+  expect(decoded.message.type).toBe("media.ticket");
+  expect(Buffer.from(decoded.payload).toString("base64url")).toBe(grant.ticket);
+  // Once written, the lane wipes its copy.
+  expect(payload?.every((byte) => byte === 0)).toBe(true);
 });
