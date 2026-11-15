@@ -1,7 +1,8 @@
 import type { SubagentDetailKind, SubagentState } from "@ace/ui-core";
-import { subagentLabels } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import type { Live } from "@/lib/live-connection.ts";
+import { subagentStateWords } from "./live-words.ts";
 import { AgentIcon, type AgentMark } from "./agent-lead.tsx";
 
 /*
@@ -20,18 +21,6 @@ import { AgentIcon, type AgentMark } from "./agent-lead.tsx";
  * its live activity in foreground ink; once it ends, its one-line result, muted; when it needs
  * the person, what it waits on and Review; when it failed, why.
  */
-
-/** Each state's status tone (`data-tone`): its words' AA hue. */
-export const subagentTones: Record<SubagentState, string> = {
-  working: "working",
-  human: "needs-you",
-  waiting: "waiting",
-  queued: "idle",
-  unresponsive: "unresponsive",
-  failed: "failed",
-  cancelled: "idle",
-  done: "done",
-};
 
 /** The row's parts, in one place, so its look changes here alone. */
 export const agentRowStyles = {
@@ -66,11 +55,8 @@ export interface AgentRowParts {
   /** Where it runs, when that is another machine. */
   machine?: string | undefined;
   state: SubagentState;
-  /**
-   * What it reads isn't current: these words ("Reconnecting…", "Syncing…") stand in for the
-   * state, any state, terminal ones included.
-   */
-  stale: string | undefined;
+  /** Whether what it reads is current: its state's words and tone come from `live-words`. */
+  live: Live;
   elapsed?: ReactNode;
   /** The second line, and what it says. */
   detail?: ReactNode;
@@ -114,7 +100,7 @@ function MetaText(props: { meta: string; tips: boolean }) {
 
 /** The row's contents, laid on whatever opens it (a link, a button). */
 export function AgentRowContents(props: AgentRowParts) {
-  const status = subagentLabels[props.state];
+  const status = subagentStateWords(props.live, props.state);
   const tips = props.tooltips !== false;
   const detailText = tips && typeof props.detail === "string" ? props.detail : undefined;
   return (
@@ -150,11 +136,8 @@ export function AgentRowContents(props: AgentRowParts) {
           {props.detail}
         </span>
       </span>
-      <span
-        data-tone={props.stale === undefined ? subagentTones[props.state] : undefined}
-        className={agentRowStyles.state}
-      >
-        {props.stale ?? status}
+      <span data-tone={status.tone} className={agentRowStyles.state}>
+        {status.word}
         {props.elapsed && <span className={agentRowStyles.time}>{props.elapsed}</span>}
       </span>
     </>

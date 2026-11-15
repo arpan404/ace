@@ -4,7 +4,8 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useThreadLiveState } from "../lib/live-state.ts";
 import { useTicker } from "../lib/clock.ts";
-import { backgroundCommand, backgroundTaskLine, formatElapsed } from "@ace/ui-core";
+import { backgroundCommand, formatElapsed } from "@ace/ui-core";
+import { backgroundTaskWords } from "./live-words.ts";
 import { cn } from "@/lib/cn.ts";
 import { stopTask } from "@/lib/live-actions.ts";
 import { rowClass } from "./transcript-row.tsx";
@@ -44,9 +45,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           <span className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground">
             <TerminalIcon aria-hidden size={16} />
           </span>
-          {running && !live.fresh
-            ? "Last seen running in background"
-            : backgroundTaskLine(task.status)}
+          {backgroundTaskWords(live.live, task.status)}
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-2 @max-[360px]:order-last @max-[360px]:basis-full">
           {task.kind === "shell" ? (
@@ -67,7 +66,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           ) : (
             <code className={chip}>{command}</code>
           )}
-          {age && (!running || live.fresh) && (
+          {age && live.fresh && (
             <span className="ml-auto shrink-0 pl-2 text-xs text-subtle-foreground tabular-nums">
               {age.replace(/ \d+s$/, "")}
             </span>

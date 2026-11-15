@@ -26,7 +26,11 @@ export function DelegationCard(props: {
   const [only] = entries;
   const single = entries.length === 1 && only && !subagentTerminal(only.state) ? only : undefined;
   const rows = (
-    <SubagentSection states={entries.map((entry) => entry.state)} folded={!single}>
+    <SubagentSection
+      states={entries.map((entry) => entry.state)}
+      fresh={live.fresh}
+      folded={!single}
+    >
       {single ? (
         <ul aria-label="Subagent results" className="flex flex-col">
           <SubagentRow threadId={props.threadId} entry={single} fresh={live.fresh} />

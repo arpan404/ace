@@ -60,6 +60,23 @@ export function currentNow(client: ClientApi, threadId?: string): boolean {
 export const syncingLabel = "Syncing…";
 
 /**
+ * Whether what a surface reads is current, as every formatter of live state takes it: first,
+ * and required, so no caller can format a state without saying which. Stale carries the words
+ * that stand in for any state ("Reconnecting…", "Syncing…").
+ */
+export type Live = { readonly current: true } | { readonly current: false; readonly word: string };
+export const currentLive: Live = { current: true };
+/** `Live` from a gate's answer. */
+export function liveOf(fresh: boolean, word: string | undefined): Live {
+  return fresh ? currentLive : { current: false, word: word ?? syncingLabel };
+}
+
+/** `Live` for data read under `fresh` (the gate that matches where it comes from). */
+export function useLive(fresh: boolean): Live {
+  return liveOf(fresh, useStaleWord(fresh));
+}
+
+/**
  * The words a surface shows instead of any state, terminal ones included, while what it reads
  * isn't current (`fresh` from the gate that matches its data): the connection's word, else
  * "Syncing…". Undefined while fresh. A done or failed thread can be resumed, so no state is
@@ -87,6 +104,8 @@ export function useThreadFreshness(threadId: string | undefined): {
    * never from what was last drawn: for an action deciding as it runs.
    */
   isFresh(): boolean;
+  /** The same answer as a formatter takes it. */
+  live: Live;
 } {
   const client = useClient();
   const connection = useLiveConnection();
@@ -97,11 +116,8 @@ export function useThreadFreshness(threadId: string | undefined): {
     () => (threadId === undefined ? client.state === "ready" : currentNow(client, threadId)),
     [client, threadId],
   );
-  return {
-    fresh,
-    staleLabel: fresh ? undefined : (connection.staleLabel ?? syncingLabel),
-    isFresh,
-  };
+  const staleLabel = fresh ? undefined : (connection.staleLabel ?? syncingLabel);
+  return { fresh, staleLabel, isFresh, live: liveOf(fresh, staleLabel) };
 }
 
 /**

@@ -70,7 +70,9 @@ async function showRow() {
   const opened = vi.fn();
   render(
     <ToastProvider>
-      <AgentHoverCard parts={{ mark: {}, name: "Explorer", state: "working", stale: undefined }}>
+      <AgentHoverCard
+        parts={{ mark: {}, name: "Explorer", state: "working", live: { current: true } }}
+      >
         <button type="button" onClick={opened}>
           Explorer
         </button>

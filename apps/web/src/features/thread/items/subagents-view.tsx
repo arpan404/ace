@@ -116,7 +116,7 @@ function Group(props: { threadId: string; entries: readonly SubagentEntry[] }) {
   const [only] = entries;
   const single = running && entries.length === 1 && only;
   return (
-    <SubagentSection states={states} folded={!single}>
+    <SubagentSection states={states} fresh={live.fresh} folded={!single}>
       {single ? (
         <ul aria-label="Subagents">
           <SubagentRow threadId={props.threadId} entry={single} fresh={live.fresh} />

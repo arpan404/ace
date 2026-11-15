@@ -19,7 +19,7 @@ export function useSubagentsFresh(threadId: string): boolean {
 }
 
 export function useThreadLiveState(threadId: string) {
-  const { fresh, staleLabel, isFresh } = useThreadFreshness(threadId);
+  const { fresh, staleLabel, isFresh, live } = useThreadFreshness(threadId);
   const status = useThreadMeta(threadId)?.status;
   return {
     fresh,
@@ -27,5 +27,6 @@ export function useThreadLiveState(threadId: string) {
     canStop: fresh && threadIsRunning(status),
     staleLabel,
     isFresh,
+    live,
   };
 }

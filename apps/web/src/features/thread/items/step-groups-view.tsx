@@ -1,7 +1,6 @@
 import type { Item, ToolSurface } from "@ace/protocol";
 import {
   groupSteps,
-  thoughtLabel,
   thoughtMs,
   type GroupIcon,
   type GroupedSteps as Grouped,
@@ -48,6 +47,8 @@ import { useRunEnded, useStreaming } from "../transcript/use-streaming.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { StaticRow, TranscriptRow, pressableRowClass, rowDetailIndent } from "./transcript-row.tsx";
+import { thoughtTitle } from "./live-words.ts";
+import { currentLive } from "@/lib/live-connection.ts";
 
 /*
  * A work log as one quiet flow: consecutive calls by one agent read as one sentence row with a
@@ -168,7 +169,7 @@ export function ThinkingRow() {
         stepGroup
         lead={<Icon icon={BrainIcon} size={16} />}
         leadKind="thought"
-        title={thoughtLabel(false, undefined)}
+        title={thoughtTitle(currentLive, false, undefined)}
         titleClassName="step-shimmer"
       />
     </li>
@@ -197,7 +198,7 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
   );
   const took = useThread(props.threadId, thoughtKeys, readTook, Object.is);
   const live = use(StepsLive);
-  const { staleLabel } = useThreadLiveState(props.threadId);
+  const { live: copy } = useThreadLiveState(props.threadId);
   if (item?.type !== "reasoning") return null;
   const text = answer.text.trim();
   // A thought whose turn is over is finished, whatever its stream last said.
@@ -216,7 +217,7 @@ function ThoughtRow(props: { threadId: string; itemId: string }) {
         leadKind="thought"
         // A cached thought still under way may have ended: unfinished, it says only the stale
         // wording, never "Thinking…".
-        title={!done && !live ? (staleLabel ?? thoughtLabel(done, took)) : thoughtLabel(done, took)}
+        title={thoughtTitle(copy, done, took)}
         titleClassName={done || !live ? undefined : "step-shimmer"}
       />
       {open && (
