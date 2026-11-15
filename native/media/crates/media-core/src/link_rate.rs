@@ -39,6 +39,10 @@ pub struct LinkHint {
 pub const OUTSTANDING_SENDS: usize = 512;
 /// Bytes in flight may hold the link's rate for its round trip plus this long, no more.
 pub const BACKLOG_MS: f64 = 300.0;
+/// Delivery entries kept (one per ack, over the 2 s cut window); reserved up front. Past this,
+/// an ack's bytes join the newest entry, so a burst of acks never grows the queue. Below it
+/// (more than 128 acks a second), decisions are exactly those of one entry per ack.
+pub const DELIVERY_ENTRIES: usize = 256;
 const FLOOR_WINDOW_MS: f64 = 10_000.0;
 const DELIVERY_WINDOW_MS: f64 = 1_000.0;
 const CUT_WINDOW_MS: f64 = 2_000.0;
@@ -136,7 +140,7 @@ impl LinkRate {
             inflight: VecDeque::with_capacity(OUTSTANDING_SENDS),
             floor: VecDeque::with_capacity(1024),
             smoothed: None,
-            delivered: VecDeque::with_capacity(256),
+            delivered: VecDeque::with_capacity(DELIVERY_ENTRIES),
             recent: 0,
             delivered_bytes: 0,
             cut_bytes: 0,
@@ -212,9 +216,22 @@ impl LinkRate {
         let Some((sent_at, own_bytes)) = newest else {
             return;
         };
-        // One entry per ack (they share its time), so a large cumulative ack never grows this.
-        self.delivered.push_back((at, bytes));
-        self.delivered_bytes = self.delivered_bytes.saturating_add(bytes);
+        // One entry per ack (they share its time), so a large cumulative ack never grows this;
+        // when full, the ack's bytes join the newest entry.
+        // The bytes count toward the recent window unless they join an entry already past it.
+        let recent = if self.delivered.len() < DELIVERY_ENTRIES {
+            self.delivered.push_back((at, bytes));
+            true
+        } else {
+            let past = self.recent >= self.delivered.len();
+            if let Some(newest) = self.delivered.back_mut() {
+                newest.1 = newest.1.saturating_add(bytes);
+            }
+            !past
+        };
+        if recent {
+            self.delivered_bytes = self.delivered_bytes.saturating_add(bytes);
+        }
         self.cut_bytes = self.cut_bytes.saturating_add(bytes);
         // Own send time only takes away queueing: never below the floor (see link-rate.ts).
         let rtt = at - sent_at;

@@ -293,6 +293,13 @@ export function linkRateEdges() {
     drainScenario("drain after the first cut", 30),
     // A link calm for a few round trips is probed upward faster again.
     drainScenario("probing back up", 70),
+    // More acks inside the cut window than the delivery entries: the newest coalesce, and the
+    // port must make the same decisions without growing its queue.
+    rateScenario(
+      "an ack burst past the delivery entries",
+      Array.from({ length: 320 }, (_, i) => sendAndAck(i, 500, i * 5, 20)).flat(),
+      phoneLimits,
+    ),
     // Drops while a loss stalls the link: no cut.
     rateScenario(
       "a drop behind a stalled chunk",

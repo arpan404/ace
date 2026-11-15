@@ -84,6 +84,12 @@ export const backlogMs = 300;
  * this only bounds memory when acks stop coming.
  */
 export const outstandingSends = 512;
+/**
+ * Delivery entries kept (one per ack, over the 2 s cut window). Past this an ack's bytes join
+ * the newest entry, so a burst of acks never grows the queue; below it, decisions are exactly
+ * those of one entry per ack. `media-core` reserves the same, so it never allocates.
+ */
+export const deliveryEntries = 256;
 
 interface Sent {
   sequence: number;
@@ -179,15 +185,25 @@ export class LinkRate {
   acknowledged(sequence: number, at: number): void {
     let newest: Sent | undefined;
     let count = 0;
+    let bytes = 0;
     for (const chunk of this.#inflight) {
       if (chunk.sequence > sequence) break;
       newest = chunk;
       count++;
-      this.#delivered.push({ at, bytes: chunk.bytes });
-      this.#deliveredBytes += chunk.bytes;
-      this.#cutBytes += chunk.bytes;
+      bytes += chunk.bytes;
     }
     if (!newest) return;
+    // One entry per ack (its chunks share its time); when full, the ack's bytes join the
+    // newest entry, counted as recent unless that entry has left the recent window.
+    const last = this.#delivered.at(-1);
+    if (this.#delivered.length < deliveryEntries || !last) {
+      this.#delivered.push({ at, bytes });
+      this.#deliveredBytes += bytes;
+    } else {
+      last.bytes += bytes;
+      if (this.#recent < this.#delivered.length) this.#deliveredBytes += bytes;
+    }
+    this.#cutBytes += bytes;
     this.#inflight.splice(0, count);
     // The chunk's own time on the wire is not queueing: a keyframe on a thin link takes long.
     // It is judged at the target rate, which may be far below a fast link's, so it only ever
