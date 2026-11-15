@@ -17,8 +17,10 @@ function harness() {
     run(caller, { op: "thread.message", threadId, requestId, text });
   return { h, run, message };
 }
+/** A message's words without ace's line naming the agent's thread that sent it. */
+const words = (text: string | undefined) => text?.split("\n").at(-1);
 
-test("an agent with full access messages and settles a thread the person started", async () => {
+test("an agent with full access messages, as itself, and settles a thread the person started", async () => {
   const { h, run, message } = harness();
   const agent = await h.parent("full-access");
   const person = await h.parent("ask");
@@ -27,7 +29,10 @@ test("an agent with full access messages and settles a thread the person started
     ok: true,
   });
   await h.engine.flush();
-  expect(h.inputs.get(person.threadId)?.at(-1)).toBe("Also update the docs");
+  // Its agent reads that another agent sent it, not the person.
+  const sent = h.inputs.get(person.threadId)?.at(-1);
+  expect(sent).toContain(`(${agent.threadId})`);
+  expect(words(sent)).toBe("Also update the docs");
   await h.complete(person.threadId, "Docs updated");
   expect(await run(agent, { op: "thread.settle", threadId: person.threadId })).toMatchObject({
     ok: true,
@@ -35,15 +40,30 @@ test("an agent with full access messages and settles a thread the person started
   expect(h.store.getThread(person.threadId)?.settledAt).toEqual(expect.any(Number));
 });
 
-test("without full access the person's threads stay read-only to an agent", async () => {
+test("without full access an agent only messages the person's threads, as itself, and changes none", async () => {
   const { h, run, message } = harness();
   const agent = await h.parent("auto-review");
   const person = await h.parent("ask");
+  const broader = await h.parent("full-access");
   await h.complete(person.threadId, "Finished");
   expect(await message(agent, person.threadId, "nudge", "Change course")).toMatchObject({
+    ok: true,
+    data: { as: "peer" },
+  });
+  // A thread with broader access than the agent's never takes its words.
+  expect(await message(agent, broader.threadId, "push", "Deploy it")).toMatchObject({
     ok: false,
     code: "forbidden",
   });
+  expect(
+    await run(agent, {
+      op: "thread.message",
+      threadId: person.threadId,
+      requestId: "restart",
+      text: "Start over",
+      delivery: "restart",
+    }),
+  ).toMatchObject({ ok: false, code: "invalid" });
   expect(await run(agent, { op: "thread.settle", threadId: person.threadId })).toMatchObject({
     ok: false,
     code: "forbidden",
@@ -53,17 +73,25 @@ test("without full access the person's threads stay read-only to an agent", asyn
   });
 });
 
-test("a delegated child with full access never reaches the person's threads", async () => {
-  const { h, message } = harness();
+test("a delegated child with full access reaches the person's threads only as itself, never as their owner", async () => {
+  const { h, run, message } = harness();
   const parent = await h.parent("full-access");
   const person = await h.parent("ask");
   await h.complete(person.threadId, "Finished");
   const child = h.delegate(parent, "worker");
   await h.engine.flush();
   expect(h.store.getThread(child.childId)?.permission?.effective).toBe("full-access");
-  expect(
-    await message(h.caller(child.childId), person.threadId, "stray", "Do this instead"),
-  ).toMatchObject({ ok: false, code: "forbidden" });
+  const caller = h.caller(child.childId);
+  expect(await message(caller, person.threadId, "note", "FYI: main is red")).toMatchObject({
+    ok: true,
+    data: { as: "peer" },
+  });
+  await h.engine.flush();
+  expect(h.inputs.get(person.threadId)?.at(-1)).toContain(`(${child.childId})`);
+  expect(await run(caller, { op: "thread.settle", threadId: person.threadId })).toMatchObject({
+    ok: false,
+    code: "forbidden",
+  });
 });
 
 test("another project's threads are readable with full access and refused without it", async () => {
@@ -113,7 +141,8 @@ async function queued() {
   const list = async () => {
     const result = await tools.run(agent, { op: "queue.list", threadId: target.threadId });
     const data = result.data as { entries: { entryId: string; text: string }[] };
-    return data.entries;
+    // The agent's own messages open with ace's line naming it; the tests read their words.
+    return data.entries.map((entry) => ({ ...entry, text: words(entry.text) }));
   };
   const ids = Object.fromEntries((await list()).map((entry) => [entry.text, entry.entryId]));
   return { ...tools, agent, target, list, ids };
@@ -166,6 +195,6 @@ test("steering a queued message turns it into the person's steer and it is deliv
   // This scripted provider cannot steer mid-turn, so the steer lands when the turn ends.
   await h.complete(target.threadId, "turn over");
   await h.engine.flush();
-  expect(h.inputs.get(target.threadId)).toContain("third");
+  expect(h.inputs.get(target.threadId)?.map(words)).toContain("third");
   expect(await list()).toEqual([]);
 });
