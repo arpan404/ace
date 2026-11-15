@@ -123,7 +123,8 @@ function SceneFrame(props: {
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
-    // Messages wait for the page and its runtime; the ready deadline runs from mount.
+    // Messages wait for the page and its runtime. The scene starts (init, and its 3 s to be
+    // ready) once the page has loaded, so a slow first load of the app isn't held against it.
     let loaded = false;
     const queued: SceneHostMessage[] = [];
     const post = (message: SceneHostMessage) => {
@@ -133,6 +134,7 @@ function SceneFrame(props: {
     const onLoad = () => {
       loaded = true;
       for (const message of queued.splice(0)) element.contentWindow?.postMessage(message, "*");
+      scene.start();
     };
     const { scheme, reduceMotion, frames, fill } = latest.current;
     const viewport = () => (fill === "region" ? regionViewport(element) : windowViewport(window));
@@ -169,7 +171,6 @@ function SceneFrame(props: {
       scene.setVisible(documentVisibility.visible()),
     );
     const unwatchPower = watchSavingPower(navigator, (saving) => scene.setLowPower(saving));
-    scene.start();
     return () => {
       scene.dispose();
       controller.current = undefined;

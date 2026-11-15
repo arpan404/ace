@@ -76,6 +76,24 @@ test("init waits for the scene page to load, and signals reach a ready scene", (
   expect(sent).toContainEqual({ type: "signal", signal: "pr-merged" });
 });
 
+test("the 3 s to be ready run from the scene page's load, not from its mount", () => {
+  vi.useFakeTimers();
+  try {
+    const onStopped = vi.fn();
+    const scene = mount({ onStopped });
+    // A slow first load of the app: the page takes its time to arrive.
+    act(() => void vi.advanceTimersByTime(5_000));
+    expect(onStopped).not.toHaveBeenCalled();
+    scene.load();
+    act(() => void vi.advanceTimersByTime(2_900));
+    expect(onStopped).not.toHaveBeenCalled();
+    act(() => void vi.advanceTimersByTime(200));
+    expect(onStopped).toHaveBeenCalledWith({ reason: "no-ready" }, sceneUrl);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a scheme change reaches the scene", () => {
   const scene = mount();
   const sent = scene.load();

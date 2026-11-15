@@ -190,8 +190,10 @@ export function createSceneController(
       cancelReady = scheduler.after(sceneReadyTimeoutMs, () => stop({ reason: "no-ready" }));
     },
     receive(message) {
-      if (phase === "over" || phase === "idle") return;
+      if (phase === "over") return;
+      // A scene's script can fail while its page is still loading, before `start`.
       if (message.type === "error") return stop({ reason: "error", message: message.message });
+      if (phase === "idle") return;
       // Samples answer the live check (`scene-sample.ts`), not the clock.
       if (message.type === "sample") return;
       if (message.type === "ready") {
