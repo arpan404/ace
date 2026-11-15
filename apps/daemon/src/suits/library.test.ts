@@ -170,6 +170,7 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "arcade-cabinet",
     "atelier-noir",
     "field-journal",
+    "glasshouse",
     "quest-journal",
     "starship-bridge",
   ]);
@@ -208,6 +209,12 @@ test("every Suit ace ships passes every check the daemon runs before one applies
   expect(bridge.sceneUrls.app).toMatch(/scene\.html$/);
   expect(bridge.sceneUrls.celebration).toMatch(/celebration\.html$/);
   expect(bridge.css).toContain('[data-suit="starship-bridge"]');
+  // Glasshouse brings its light field, its celebration, its sidebar mark and empty-state art.
+  const glasshouse = detail(await library.read("glasshouse"));
+  expect(glasshouse.sceneUrl).toMatch(/scene\.html$/);
+  expect(Object.keys(glasshouse.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
+  expect(glasshouse.css).toContain('[data-suit="glasshouse"]');
+  expect(Object.keys(glasshouse.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {

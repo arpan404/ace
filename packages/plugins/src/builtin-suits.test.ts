@@ -21,6 +21,7 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
     "arcade-cabinet",
     "atelier-noir",
     "field-journal",
+    "glasshouse",
     "quest-journal",
     "starship-bridge",
   ]);
@@ -55,6 +56,11 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
   expect(await readFile(join(bridge, "celebration.js"), "utf8")).toContain("ace.finish()");
   expect(await readdir(join(bridge, "assets", "fonts"))).toEqual(
     expect.arrayContaining(["ChakraPetch-OFL.txt", "JetBrainsMono-OFL.txt"]),
+  );
+  const glasshouse = join(library, "glasshouse");
+  expect(await readFile(join(glasshouse, "celebration.js"), "utf8")).toContain("ace.scene(");
+  expect(await readdir(join(glasshouse, "assets", "fonts"))).toEqual(
+    expect.arrayContaining(["Manrope.ttf", "Manrope-OFL.txt"]),
   );
 });
 

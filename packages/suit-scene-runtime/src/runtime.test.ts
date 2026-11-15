@@ -297,6 +297,8 @@ test.each([
   "atelier-noir/celebration",
   "field-journal",
   "field-journal/celebration",
+  "glasshouse",
+  "glasshouse/celebration",
   "quest-journal",
   "quest-journal/celebration",
   "starship-bridge",
