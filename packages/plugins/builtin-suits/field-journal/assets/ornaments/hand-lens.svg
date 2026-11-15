@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="132" height="96" viewBox="0 0 132 96">
+<defs><filter id="fj-lens-wash" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.2" xChannelSelector="R" yChannelSelector="G"/></filter></defs>
+<g filter="url(#fj-lens-wash)">
+<path d="M22 82Q56.5 74.1 72.4 42.6Q38 50.5 22 82Z" fill="#7d9461" fill-opacity="0.38"/>
+<circle cx="74" cy="40" r="25" fill="#c9dbe0" fill-opacity="0.3"/>
+</g>
+<path d="M22 82L72 43M38 70l-2-12M38 70l12 2M52 59l-2-12M52 59l12 1M64 50l-1-9M64 50l9 0" fill="none" stroke="currentColor" stroke-opacity="0.4" stroke-width="0.9" stroke-linecap="round"/>
+<circle cx="74" cy="40" r="25" fill="none" stroke="currentColor" stroke-opacity="0.7" stroke-width="2"/>
+<circle cx="74" cy="40" r="21" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-width="0.8"/>
+<path d="M60 30q5-9 15-10" fill="none" stroke="#ffffff" stroke-opacity="0.7" stroke-width="2" stroke-linecap="round"/>
+<path d="M92 58l22 22" stroke="#6b5338" stroke-opacity="0.85" stroke-width="7" stroke-linecap="round"/>
+<path d="M92 58l5 5" stroke="currentColor" stroke-opacity="0.7" stroke-width="7" stroke-linecap="butt"/>
+</svg>

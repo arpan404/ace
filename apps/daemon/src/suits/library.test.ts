@@ -166,7 +166,7 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["arcade-cabinet", "atelier-noir", "quest-journal"]);
+  expect(seeded).toEqual(["arcade-cabinet", "atelier-noir", "field-journal", "quest-journal"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -191,6 +191,12 @@ test("every Suit ace ships passes every check the daemon runs before one applies
   const atelier = detail(await library.read("atelier-noir"));
   expect(Object.keys(atelier.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
   expect(atelier.css).toContain('[data-suit="atelier-noir"]');
+  // Field Journal brings its app scene, its celebration, its title plate and empty-state art.
+  const field = detail(await library.read("field-journal"));
+  expect(field.sceneUrl).toMatch(/scene\.html$/);
+  expect(Object.keys(field.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
+  expect(field.css).toContain('[data-suit="field-journal"]');
+  expect(Object.keys(field.ornaments).toSorted()).toEqual(["empty-state", "sidebar-header"]);
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {
