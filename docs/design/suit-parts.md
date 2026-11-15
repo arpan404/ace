@@ -334,17 +334,17 @@ A new Suit restyles open terminals in place; their sessions and scrollback stay.
 
 ## Previews in Settings
 
-Settings > Appearance draws a Suit as it looks, never as a swatch: the Suits list, the Custom
-card and the Mode cards each hold a miniature ace window (`apps/web/src/features/settings/suit-preview.tsx`)
-built from these parts: `app` (`data-page="thread"`), `rail`, `rail-item` (one `active`),
-`sidebar`, `sidebar-header` (with the `sidebar-header` ornament), `thread-list`, `thread-row`
-(`active`, `unread`, plain), `status-icon` (`working`, `waiting`, `done`), `thread-title`,
-`thread-meta`, `sidebar-footer`, `main`, `header`, `header-title`, `page`, `transcript`,
-`message-user`, `message-agent`, `link`, `tool-row` (`edit`, `done`), `inline-code`,
-`working-line` (`working`), `composer`, `composer-input`, `composer-toolbar`, `model-picker`,
-`composer-send` (`send`), and the four corner ornaments. It runs the Suit's tokens, suit.css,
-labels and ace's guard in a shadow root of its own, laid out at 960 × 540 and scaled to the card,
-so the Suit on screen never restyles another Suit's miniature. Scenes don't run in it.
+Settings > Appearance draws every look, a built-in theme or a Suit, as the same stylised sketch of
+the ace window (`apps/web/src/features/settings/app-preview.tsx`): a sidebar with three rows, one
+exchange and the composer. A theme scopes its tokens onto it with `data-theme`; a Suit puts its
+resolved tokens (palette, radius scale, border weight, fonts) on it inline, over its base theme.
+suit.css, labels and ornaments don't reach it, and no scene runs in it.
+
+Behind a Suit's sketch sits its backdrop, with the sidebar and main area translucent over it: the
+still its manifest names for the scheme (`thumbnail.light`, `thumbnail.dark`: a `.webp`, `.jpg`
+or `.png` in `assets/`, about 640 × 400, served like any asset), else a soft gradient from its
+own palette. A Suit with a scene should ship a still of each scheme, taken from the scene's
+reduce-motion frame.
 
 ## Changes
 
@@ -360,6 +360,10 @@ so the Suit on screen never restyles another Suit's miniature. Scenes don't run 
   `list`, `shell`, `edit`, `web`, `tool`, `think`, `note`), so a Suit can mark each kind.
 - Version 1, 2026-11-15: Settings previews each Suit in a miniature of real parts (see "Previews
   in Settings"); the Suits list's colour swatch is gone.
+- Version 1, 2026-11-15: themes and Suits are one Look grid; every card is the same stylised
+  sketch in the look's tokens, a Suit's over its `thumbnail` or a palette gradient. The
+  miniature of real parts is gone. Look cards are `card` `picker` (`checked`, `disabled`), the
+  last one `card` `make-look`; an agent's preview strip is `card` `look-preview` (`active`).
 - Version 1, 2026-11-15: added `segmented`, `segment`, `segmented-thumb`, `switch-thumb`,
   `slider-thumb`, `tool-group-header`, `tool-icon`, `composer-strip`, `queue-strip` and
   `queue-item`. Selected tabs (`tab`, every strip and word choice), active `nav-item`s (Skills,

@@ -5,6 +5,10 @@
   "description": "A mountain lake at blue hour behind cool slate panels, in blue-black ink and fine hairlines.",
   "version": "1",
   "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
   "dark": {
     "canvas": "#16181B",
     "sidebar": "#0E0F12",

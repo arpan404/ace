@@ -107,8 +107,9 @@ test("a font naming a missing file is reported; a bundled one passes", () => {
   expect(inspect({ "suit.json": json, "assets/inter.woff2": "font" }).summary.problems).toEqual([]);
 });
 
+const json = (thumbnail: Record<string, string>) => manifest({ dark: {}, thumbnail });
+
 test("a thumbnail must be a bundled raster image: a missing one or an SVG is reported", () => {
-  const json = (thumbnail: Record<string, string>) => manifest({ dark: {}, thumbnail });
   expect(
     inspect({ "suit.json": json({ dark: "assets/dark.webp" }), "assets/dark.webp": "img" }).summary
       .problems,

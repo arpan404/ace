@@ -5,6 +5,10 @@
   "description": "Rain on a window over a city out of focus, behind misted glass panels in slate and lamplight.",
   "version": "1",
   "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
   "dark": {
     "canvas": "#15171B",
     "sidebar": "#0F1114",

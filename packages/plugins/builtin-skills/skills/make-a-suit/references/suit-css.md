@@ -266,7 +266,7 @@ Bundled fonts never flash a fallback face: when the person switches to your Suit
 
 ## How Settings previews it
 
-Settings > Appearance draws your Suit as it looks: its card in the Look grid and the Light, Dark and System cards each show a small ace window built from real parts (`app`, `rail`, `rail-item`, `sidebar`, `sidebar-header` with its ornament, `thread-list`, `thread-row` with one `active`, `status-icon`, `thread-title`, `thread-meta`, `main`, `header`, `header-title`, `page`, `transcript`, `message-user`, `message-agent`, `link`, `tool-row` (`edit`, `done`), `inline-code`, `working-line`, `composer`, `composer-input`, `composer-toolbar`, `model-picker`, `composer-send`, corner ornaments), with your tokens, suit.css and labels applied, laid out at 960 × 540 and scaled to the card. It is a window of its own: the Suit on screen never reaches it, so write rules from `[data-part]` and `[data-state]` and they show there as in the app. Scenes don't run in it (the frame colour shows), and pages other than `thread` aren't in it.
+Settings > Appearance draws your Suit the way it draws the built-in themes: its card in the Look grid and the Light, Dark and System cards each show the same small sketch of the ace window, in your palette, radius scale, border weight and fonts. suit.css, labels and ornaments don't show there, and the scene doesn't run. Behind the sketch sits your `thumbnail` for the scheme (see suit-json.md), or a soft gradient from your palette without one.
 
 ## Keyframes and transitions
 

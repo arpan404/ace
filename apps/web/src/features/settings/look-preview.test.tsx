@@ -75,8 +75,6 @@ test("a Suit card is the same sketch as a theme card, in the Suit's own tokens",
   ]);
   // A theme card never takes the Suit's shape on the page through inheritance.
   expect(layers(card("Midnight"))[0]).toMatchObject({ theme: "midnight", radius: "1" });
-  // No Suit's miniature runs the live UI any more.
-  expect(document.querySelector("[data-suit-miniature]")).toBeNull();
 });
 
 test("a Suit's card shows its still for the scheme, else a gradient from its palette", async () => {

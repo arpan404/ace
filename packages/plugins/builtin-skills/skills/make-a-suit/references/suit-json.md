@@ -62,15 +62,16 @@ Every field a Suit's `suit.json` takes, with its range and default. Values outsi
 
 ## Identity
 
-| Field         | Takes                                                                        | Default |
-| ------------- | ---------------------------------------------------------------------------- | ------- |
-| `format`      | Always `1`.                                                                  | none    |
-| `id`          | Lower-case words joined by dashes, 1–48 characters, equal to the folder.     | none    |
-| `name`        | 1–60 characters, shown in Settings > Appearance.                             | none    |
-| `description` | Up to 280 characters: one line on the look.                                  | `""`    |
-| `version`     | Up to 40 characters, display only.                                           | `"1"`   |
-| `base`        | `ace`, `paper`, `midnight`, `grove`, `harbor` or `dusk`; fills unset fields. | `ace`   |
-| `scene`       | Set by ace from the folder; leave it out.                                    | `false` |
+| Field         | Takes                                                                                                                                                                                                                                                                  | Default |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| `format`      | Always `1`.                                                                                                                                                                                                                                                            | none    |
+| `id`          | Lower-case words joined by dashes, 1–48 characters, equal to the folder.                                                                                                                                                                                               | none    |
+| `name`        | 1–60 characters, shown in Settings > Appearance.                                                                                                                                                                                                                       | none    |
+| `description` | Up to 280 characters: one line on the look.                                                                                                                                                                                                                            | `""`    |
+| `version`     | Up to 40 characters, display only.                                                                                                                                                                                                                                     | `"1"`   |
+| `base`        | `ace`, `paper`, `midnight`, `grove`, `harbor` or `dusk`; fills unset fields.                                                                                                                                                                                           | `ace`   |
+| `thumbnail`   | `{ "light": "assets/…", "dark": "assets/…" }`: a still of your backdrop per scheme for your card in Settings, a `.webp`, `.jpg` or `.png` of about 640 × 400. With a scene, capture its reduce-motion frame. Without one, the card shows a gradient from your palette. | none    |
+| `scene`       | Set by ace from the folder; leave it out.                                                                                                                                                                                                                              | `false` |
 
 ## Colours
 
