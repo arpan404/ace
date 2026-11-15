@@ -64,11 +64,18 @@ export function closesStretch(item: Item): boolean {
   return isPersonMessage(item);
 }
 
-const carryingOn = new Set<Run["trigger"]>(["background_completion", "subagent_result"]);
+const carryingOn = new Set<Run["trigger"]>([
+  "background_completion",
+  "subagent_result",
+  "restart",
+  "limit_resume",
+]);
 
 /**
  * Whether a run carries on the stretch before it: the agent started it by itself once its
- * background work or a subagent finished, so no one asked and no new stretch begins.
+ * background work or a subagent finished, or ace continued it after a restart or a usage limit.
+ * No one asked, so no new stretch (and no new turn on screen) begins; the time between the two
+ * runs (ace down, the limit's wait) is idle, never work.
  */
 export function carriesOnStretch(trigger: Run["trigger"] | undefined): boolean {
   return trigger !== undefined && carryingOn.has(trigger);

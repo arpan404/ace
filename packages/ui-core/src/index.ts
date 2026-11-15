@@ -387,6 +387,7 @@ export {
   type LiveTail,
 } from "./jump-controller.ts";
 export * from "./person-message.ts";
+export * from "./turn-moments.ts";
 export * from "./held-turn.ts";
 export { continueMessage } from "@ace/core";
 export * from "./bubble-segments.ts";
