@@ -173,29 +173,28 @@ test("Upload picture still gives a bot a picture instead of a face", async () =>
   );
 });
 
-/** Opens Fern's Edit dialog from its profile's ⋯. */
-async function editFern() {
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
-  return within(await screen.findByRole("dialog", { name: "Edit Fern" }));
+/** Opens the popover of Fern's face in its profile. */
+async function faceOfFern() {
+  await userEvent.click(await screen.findByRole("button", { name: "Change face" }));
+  return within(await screen.findByRole("dialog"));
 }
 
-test("editing a bot's face sends the new face; leaving it sends none", async () => {
+test("changing a bot's face in its profile sends the new face as it closes; leaving it sends none", async () => {
   const { spade } = await spadeApp("/spade/fern", crew);
   await screen.findByRole("feed", { name: "Conversation with Fern" });
   await openProfile("Fern");
-  let dialog = await editFern();
-  expect(checkedIn(dialog, "Creature")).toBe("Creature: sprout");
-  await userEvent.type(dialog.getByRole("textbox", { name: "Task" }), "Water the beds.");
-  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  let face = await faceOfFern();
+  expect(checkedIn(face, "Creature")).toBe("Creature: sprout");
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(spade.sent("PATCH", "/v1/agents/fern")).toEqual([]);
+
+  face = await faceOfFern();
+  await userEvent.click(face.getByRole("button", { name: "More" }));
+  await userEvent.click(face.getByRole("radio", { name: "Mouth: grin" }));
+  await userEvent.keyboard("{Escape}");
   await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/fern")).toHaveLength(1));
-  expect(spade.sent("PATCH", "/v1/agents/fern")[0]).not.toHaveProperty("avatar");
-  dialog = await editFern();
-  await userEvent.click(dialog.getByRole("button", { name: "More" }));
-  await userEvent.click(dialog.getByRole("radio", { name: "Mouth: grin" }));
-  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/fern")).toHaveLength(2));
-  expect(spade.sent("PATCH", "/v1/agents/fern")[1]).toMatchObject({
+  expect(spade.sent("PATCH", "/v1/agents/fern")[0]).toMatchObject({
     avatar: { kind: "character", body: "sprout", pair: "mint", mouth: "grin" },
   });
 });

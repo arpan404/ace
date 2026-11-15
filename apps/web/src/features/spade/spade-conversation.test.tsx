@@ -22,15 +22,16 @@ test("the pill names the bot over its conversation and opens its profile, with n
   // The bar names nothing and holds no ⋯: the pill names the bot.
   expect(within(header()).queryByText("Garden")).toBeNull();
   expect(within(header()).queryByRole("button", { name: "More actions" })).toBeNull();
-  expect(within(header()).getByRole("button", { name: "Computer" })).toBeTruthy();
+  expect(within(header()).getByRole("button", { name: "Open Garden's profile" })).toBeTruthy();
   // On this machine the pill says nothing of where the bot runs.
   expect(screen.getByRole("button", { name: "Garden: open its profile" })).toBeTruthy();
   await openProfile("Garden");
-  // The profile holds what acts on the bot.
-  await screen.findByRole("region", { name: "Access" });
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(await screen.findByRole("menuitem", { name: "Edit bot" })).toBeTruthy();
-  expect(screen.getByRole("menuitem", { name: "Delete bot" })).toBeTruthy();
+  // The profile holds what acts on the bot; the bar above it holds only Share and close.
+  const profile = within(await screen.findByRole("region", { name: "Garden's profile" }));
+  expect(await profile.findByRole("button", { name: "Delete bot…" })).toBeTruthy();
+  expect(within(header()).getByRole("button", { name: "Share Garden" })).toBeTruthy();
+  expect(within(header()).getByRole("button", { name: "Close profile" })).toBeTruthy();
+  expect(within(header()).queryByRole("button", { name: "Open Garden's profile" })).toBeNull();
 });
 
 test("a bot on another machine says where in its pill", async () => {

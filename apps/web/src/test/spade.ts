@@ -96,9 +96,3 @@ export async function openProfile(name: string) {
   );
 }
 
-/** The open bot's profile, then one of its ⋯ menu's items. */
-export async function profileMenu(name: string, item: string) {
-  await openProfile(name);
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: item }));
-}

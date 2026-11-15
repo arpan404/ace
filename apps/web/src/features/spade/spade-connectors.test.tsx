@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { profileMenu, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -166,7 +166,7 @@ const disabled = (element: HTMLElement) =>
   element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
 
 test("an app still signing in can't be given to a bot yet", async () => {
-  await spadeApp("/spade/garden", (api) => {
+  await spadeApp("/spade/garden?profile=details", (api) => {
     withApps(api);
     api.connectors.connectors.push({
       id: "sentry",
@@ -178,13 +178,22 @@ test("an app still signing in can't be given to a bot yet", async () => {
     });
   });
   await feed("Garden");
-  await profileMenu("Garden", "Edit bot");
-  const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
-  expect(disabled(await dialog.findByRole("switch", { name: "Sentry" }))).toBe(true);
-  expect(disabled(dialog.getByRole("switch", { name: "Linear" }))).toBe(false);
+  const apps = await appsOf("Garden");
+  await userEvent.click(await apps.findByRole("button", { name: "Add an app" }));
+  expect(disabled(await screen.findByRole("menuitem", { name: "Sentry" }))).toBe(true);
+  expect(disabled(screen.getByRole("menuitem", { name: "Linear" }))).toBe(false);
 });
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
+
+/** The Apps section of a bot's profile, open on Details. */
+async function appsOf(name: string) {
+  const profile = within(await screen.findByRole("region", { name: `${name}'s profile` }));
+  const heading = await profile.findByRole("heading", { name: "Apps" });
+  const section = heading.closest("section");
+  if (!section) throw new Error("no Apps section");
+  return within(section);
+}
 
 function withApps(api: FakeSpadeApi) {
   seed(api);
@@ -203,35 +212,33 @@ function withApps(api: FakeSpadeApi) {
     });
 }
 
-test("a bot's edit form turns on the apps it may use, and saves only that", async () => {
-  const { spade } = await spadeApp("/spade/garden", withApps);
+test("a bot's profile gives it an app from the connected ones, saved at once and nothing else", async () => {
+  const { spade } = await spadeApp("/spade/garden?profile=details", withApps);
   await feed("Garden");
-  await profileMenu("Garden", "Edit bot");
-  const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
-  const app = await dialog.findByRole("switch", { name: "Linear" });
-  expect(checked(app)).toBe(false);
-  expect(checked(dialog.getByRole("switch", { name: "Notion" }))).toBe(false);
-  await userEvent.click(app);
-  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  const apps = await appsOf("Garden");
+  // A new bot has none until given one.
+  await apps.findByRole("button", { name: "Add an app" });
+  expect(apps.queryByRole("button", { name: /^Remove/ })).toBeNull();
+  await userEvent.click(apps.getByRole("button", { name: "Add an app" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Linear" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/garden/connectors")).toEqual([
       { all: false, connectors: ["linear"] },
     ]),
   );
+  await apps.findByRole("button", { name: "Remove Linear from Garden" });
   expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([]);
 });
 
-test("Spade may use every connected app, each its own switch, until the person turns one off", async () => {
-  const { spade } = await spadeApp("/spade/main", withApps);
+test("Spade may use every connected app until the person removes one", async () => {
+  const { spade } = await spadeApp("/spade/main?profile=details", withApps);
   await feed("Spade");
-  await profileMenu("Spade", "Edit Spade");
-  const dialog = within(await screen.findByRole("dialog", { name: "Edit Spade" }));
-  // Every app is on, each shown by name.
-  expect(checked(await dialog.findByRole("switch", { name: "Linear" }))).toBe(true);
-  expect(checked(dialog.getByRole("switch", { name: "Notion" }))).toBe(true);
-  // Turning one off narrows Spade to the rest.
-  await userEvent.click(dialog.getByRole("switch", { name: "Notion" }));
-  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  const apps = await appsOf("Spade");
+  // Every app is listed, each by name.
+  await apps.findByRole("button", { name: "Remove Linear from Spade" });
+  expect(apps.getByRole("button", { name: "Remove Notion from Spade" })).toBeTruthy();
+  // Removing one narrows Spade to the rest.
+  await userEvent.click(apps.getByRole("button", { name: "Remove Notion from Spade" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/main/connectors")).toEqual([
       { all: false, connectors: ["linear"] },

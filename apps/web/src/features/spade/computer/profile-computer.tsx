@@ -8,7 +8,7 @@ import type { RosterBot } from "../use-spade-roster.ts";
 import { BotTerminal } from "./bot-terminal.tsx";
 import { DriveLine } from "./drive-line.tsx";
 import { FileManager } from "./file-manager.tsx";
-import { computerViewNames, type ComputerView } from "./panel-place.ts";
+import { computerViewNames, computerViews, type ComputerView } from "./panel-place.ts";
 import { SurfacePicture } from "./surface-picture.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
 
@@ -42,7 +42,12 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
   const { bot, place } = props;
   const { state } = place;
   const computer = state.computer;
+  // What it used, and the surface a link asked for (terminal and files are always there), so
+  // the view never jumps away under the person.
+  const asked = place.view !== undefined && place.view !== "activity" ? place.view : undefined;
   const used = spadeUsedSurfaces(computer);
+  if (asked && !used.includes(asked)) used.push(asked);
+  used.sort((a, b) => computerViews.indexOf(a) - computerViews.indexOf(b));
   const waking = computer?.state === "starting";
   const views: ComputerView[] = [...used, "activity"];
   const live = (kind: ComputerView) =>

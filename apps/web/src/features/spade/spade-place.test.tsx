@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openProfile, profileMenu, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -177,12 +177,14 @@ test("editing a bot sends only what changed", async () => {
     });
   });
   await feed("Garden");
-  await profileMenu("Garden", "Edit bot");
-  const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
-  const task = dialog.getByRole("textbox", { name: "Task" });
+  await openProfile("Garden");
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
+  );
+  const task = screen.getByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
-  await userEvent.type(task, "Keep the tomatoes alive");
-  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  await userEvent.type(task, "Keep the tomatoes alive{Meta>}{Enter}{/Meta}");
+  await screen.findByRole("button", { name: "Edit the task: Keep the tomatoes alive" });
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([{ task: "Keep the tomatoes alive" }]),
   );
@@ -195,7 +197,8 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
     api.addAgent({ id: "garden", name: "Garden" });
   });
   await feed("Garden");
-  await profileMenu("Garden", "Delete bot");
+  await openProfile("Garden");
+  await userEvent.click(await screen.findByRole("button", { name: "Delete bot…" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete Garden?" }));
   expect(confirm.getByText("This deletes Garden and its whole conversation.")).toBeTruthy();
   expect(spade.sent("DELETE", "/v1/agents/garden")).toEqual([]);
@@ -206,16 +209,22 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
   );
 });
 
-test("Spade itself can be edited but never deleted", async () => {
+test("Spade itself can be changed in its profile but never deleted, and keeps its name and face", async () => {
   await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
   await feed("Spade");
   await openProfile("Spade");
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  expect(await screen.findByRole("menuitem", { name: "Edit Spade" })).toBeTruthy();
-  expect(screen.queryByRole("menuitem", { name: "Delete bot" })).toBeNull();
+  await screen.findByRole("button", { name: "Duplicate" });
+  expect(screen.getByRole("button", { name: "Write its task" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete bot…" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Rename Spade" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Change face" })).toBeNull();
+  // Its Library starts with what every bot knows about the person.
+  await userEvent.click(screen.getByRole("tab", { name: "Library" }));
+  const headings = await screen.findAllByRole("heading", { level: 3 });
+  expect(headings.map((each) => each.textContent).slice(0, 2)).toEqual(["About you", "Notes"]);
 });
 
 test("a request is the bot's bubble saying who an email goes to and what, as plain text", async () => {
