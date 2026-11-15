@@ -278,6 +278,14 @@ async function measure(path: LinkPath, profileName: string) {
     const { head } = z
       .object({ head: z.number() })
       .parse(await daemon.request({ op: "stream", thread: ready.threads.typical.id, ...stream }));
+    // SLOW_LINK_DEBUG=1: what the catch-up is made of, message by message.
+    const stopLog = process.env.SLOW_LINK_DEBUG
+      ? warm.onMessage((message) =>
+          process.stderr.write(
+            `resume message: ${message.type} ${JSON.stringify(message).length} chars\n`,
+          ),
+        )
+      : undefined;
     const resumeFrom = mark(link);
     warm.networkOnline(true);
     const resume = await when(
@@ -293,6 +301,7 @@ async function measure(path: LinkPath, profileName: string) {
       timeout,
       "resume",
     );
+    stopLog?.();
     await warm.close();
     return {
       path,
