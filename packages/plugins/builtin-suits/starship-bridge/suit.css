@@ -1,0 +1,1529 @@
+/*
+ * Starship Bridge: ace as the bridge console of a starship. Every selector names a published
+ * part (docs/design/suit-parts.md).
+ *
+ * Panels. A console panel is a box with two cut corners (top left, bottom right): `clip-path`
+ * cuts them, a 1px border draws the straight edges, and two small gradient squares in the
+ * background draw the diagonal edges, so the outline runs unbroken round the cut. Parts set
+ * --suit-c (the cut), --suit-l (the edge line) and --suit-f (the fill); state only changes a
+ * variable. Decoration (scanlines, tick rulers, brackets) lives on frames and backgrounds, never
+ * over words.
+ */
+
+@font-face {
+  font-family: "Bridge Display";
+  src: url("assets/fonts/ChakraPetch-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-display: fallback;
+}
+@font-face {
+  font-family: "Bridge Display";
+  src: url("assets/fonts/ChakraPetch-SemiBold.woff2") format("woff2");
+  font-weight: 600 700;
+  font-display: fallback;
+}
+
+/*
+ * The Suit's own variables. Menus, popovers, dialogs, tooltips, toasts and the command palette
+ * render outside the app part (in a portal), so they define them too.
+ */
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-display: "Bridge Display", var(--font-sans);
+  --suit-c: 10px;
+  --suit-edge: color-mix(in oklab, var(--color-tint) 42%, var(--color-border-strong));
+  --suit-edge-dim: var(--color-border-strong);
+  --suit-glow: color-mix(in oklab, var(--color-tint) 22%, transparent);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 9%, transparent);
+  --suit-hull: #f2b45c;
+  --suit-scan: repeating-linear-gradient(
+    180deg,
+    rgb(126 227 236 / 0.035) 0 1px,
+    transparent 1px 3px
+  );
+  --suit-l: var(--suit-edge-dim);
+  --suit-f: var(--color-surface-1);
+  /* Targeting brackets: four corner marks drawn from eight thin bars, lit and dim. */
+  --suit-brackets:
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 0 / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 0 / 1.5px 9px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 0 / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 0 / 1.5px 9px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 100% / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 100% / 1.5px 9px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 100% / 9px 1.5px no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 100% 100% / 1.5px 9px no-repeat;
+  --suit-brackets-dim:
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 0 / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 0 / 1.5px 9px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 0 / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 0 / 1.5px 9px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 100% / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      0 100% / 1.5px 9px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 100% / 9px 1.5px no-repeat,
+    linear-gradient(
+        color-mix(in oklab, var(--color-tint) 50%, transparent),
+        color-mix(in oklab, var(--color-tint) 50%, transparent)
+      )
+      100% 100% / 1.5px 9px no-repeat;
+}
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"],
+[data-part="app"][data-scheme="light"],
+[data-part="menu"][data-scheme="light"],
+[data-part="popover"][data-scheme="light"],
+[data-part="dialog"][data-scheme="light"] {
+  --suit-hull: #8a5608;
+  --suit-edge: color-mix(in oklab, var(--color-tint) 55%, var(--color-border-strong));
+  --suit-glow: color-mix(in oklab, var(--color-tint) 16%, transparent);
+  --suit-wash: color-mix(in oklab, var(--color-tint) 7%, transparent);
+  --suit-scan: repeating-linear-gradient(180deg, rgb(0 80 100 / 0.03) 0 1px, transparent 1px 3px);
+}
+
+[data-part="app"] {
+  --suit-rail-background: var(--suit-scan), linear-gradient(180deg, #050a16, #08101f);
+  --suit-sidebar-background:
+    var(--suit-scan), linear-gradient(180deg, #08101f 0%, var(--color-sidebar) 40%);
+  --suit-header-background: linear-gradient(180deg, rgb(10 18 38 / 0.92), rgb(10 18 38 / 0.78));
+  --suit-right-panel-background: var(--color-sidebar);
+  font-family: var(--font-sans);
+}
+[data-scheme="light"] [data-part="app"],
+[data-part="app"][data-scheme="light"] {
+  --suit-rail-background: var(--suit-scan), linear-gradient(180deg, #d0d9e3, #d8e0e9);
+  /* By day the console is bright: ace's status colours need a near-white ground to read. */
+  --suit-sidebar-background: var(--color-sidebar);
+  --suit-header-background: linear-gradient(
+    180deg,
+    rgb(236 240 244 / 0.94),
+    rgb(236 240 244 / 0.82)
+  );
+}
+
+/* ------------------------------------------------------------------ the panel */
+
+[data-part="message-user"],
+[data-part="composer"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"],
+[data-part="toast"],
+[data-part="tooltip"],
+[data-part="card"],
+[data-part="pr-row"],
+[data-part="issue-row"],
+[data-part="code-block"],
+[data-part="merge-box"],
+[data-part="diff-file"],
+[data-part="terminal-tab"],
+[data-part="button"],
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"],
+[data-part="model-picker"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  border: 1px solid var(--suit-l);
+  border-radius: 0;
+  background: var(--suit-f);
+  clip-path: polygon(
+    var(--suit-c) 0,
+    100% 0,
+    100% calc(100% - var(--suit-c)),
+    calc(100% - var(--suit-c)) 100%,
+    0 100%,
+    0 var(--suit-c)
+  );
+}
+[data-part="message-user"],
+[data-part="composer"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="tooltip"],
+[data-part="card"],
+[data-part="pr-row"],
+[data-part="issue-row"],
+[data-part="code-block"],
+[data-part="merge-box"],
+[data-part="diff-file"],
+[data-part="terminal-tab"],
+[data-part="button"],
+[data-part="select"],
+[data-part="search-field"],
+[data-part="model-picker"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  position: relative;
+}
+/*
+ * The cut edges are drawn on a layer of their own over the panel, so the words inside read
+ * against the panel's fill alone, never against its edge colour.
+ */
+[data-part="message-user"]::after,
+[data-part="menu"]::after,
+[data-part="popover"]::after,
+[data-part="dialog"]::after,
+[data-part="command-palette"]::after,
+[data-part="toast"]::after,
+[data-part="tooltip"]::after,
+[data-part="card"]::after,
+[data-part="pr-row"]::after,
+[data-part="issue-row"]::after,
+[data-part="code-block"]::after,
+[data-part="merge-box"]::after,
+[data-part="diff-file"]::after,
+[data-part="terminal-tab"]::after,
+[data-part="button"]::after,
+[data-part="select"]::after,
+[data-part="search-field"]::after,
+[data-part="model-picker"]::after,
+[data-part="tool-output"]::after,
+[data-part="diff"]::after,
+[data-part="composer"]::before {
+  content: "";
+  position: absolute;
+  /*
+   * Inside the border, so a scrolling panel never scrolls because of it; the band stops short
+   * of the square's diagonal by the border's width, so it lands one pixel wide on the cut.
+   */
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(135deg, var(--suit-l) 0 calc(50% - 0.4px), transparent 0) 0 0 / var(--suit-c)
+      var(--suit-c) no-repeat,
+    linear-gradient(315deg, var(--suit-l) 0 calc(50% - 0.4px), transparent 0) 100% 100% /
+      var(--suit-c) var(--suit-c) no-repeat;
+  pointer-events: none;
+}
+/* A text field may be a bare input, which draws no layers: it keeps square corners. */
+[data-part="input"] {
+  clip-path: none;
+}
+
+/* Small controls cut a smaller corner. */
+[data-part="button"],
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"],
+[data-part="tooltip"] {
+  --suit-c: 6px;
+}
+[data-part="model-picker"] {
+  --suit-c: 5px;
+}
+
+/* ------------------------------------------------------------------ type */
+
+[data-part="header-title"],
+[data-part="page-title"],
+[data-part="tab"],
+[data-part="panel-tab"],
+[data-part="button"],
+[data-part="badge"],
+[data-part="turn-divider"],
+[data-part="project-header"],
+[data-part="empty-state"],
+[data-part="settings-section"] {
+  font-family: var(--suit-display);
+}
+
+[data-part="tab"],
+[data-part="panel-tab"],
+[data-part="button"],
+[data-part="turn-divider"],
+[data-part="empty-state"] {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+[data-part="link"] {
+  color: var(--color-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: color-mix(in oklab, var(--color-tint) 30%, transparent);
+}
+
+[data-part="scrollbar"],
+[data-part="transcript"],
+[data-part="thread-list"],
+[data-part="page"],
+[data-part="panel-body"] {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* ------------------------------------------------------------------ window */
+
+[data-part="rail"] {
+  box-shadow: inset -1px 0 0 var(--suit-edge-dim);
+}
+/* A rail glyph that leaves its root fill unset draws in the item's colour, not black. */
+[data-part="rail-item"] {
+  border-radius: 0;
+  fill: currentColor;
+}
+[data-part="rail-item"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="rail-item"][data-state="active"] {
+  position: relative;
+  background: color-mix(in oklab, var(--color-tint) 14%, transparent);
+  color: var(--color-link);
+}
+/* Glyph-only parts take their brackets on a layer of their own, over the fill. */
+[data-part="rail-item"][data-state="active"]::after,
+[data-part="icon-button"]:hover::after,
+[data-part="icon-button"][data-state="active"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--suit-brackets);
+  pointer-events: none;
+}
+
+[data-part="sidebar"] {
+  box-shadow: inset -1px 0 0 var(--color-border);
+}
+
+/* ------------------------------------------------------------------ sidebar: mission queue */
+
+[data-part="sidebar-header"] {
+  position: relative;
+}
+[data-part="sidebar-header"]::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 4px;
+  background:
+    linear-gradient(90deg, var(--color-tint), transparent 70%) 0 0 / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 8px) 0 1px / 100%
+      3px no-repeat;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+[data-part="project-header"] {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+[data-part="thread-list"] {
+  counter-reset: sector;
+}
+
+[data-part="thread-row"] {
+  counter-increment: sector;
+  position: relative;
+  border-radius: 0;
+  padding-left: 36px;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+/* Each mission slot carries its sector code. */
+[data-part="thread-row"]::before {
+  content: "S" counter(sector, decimal-leading-zero);
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  translate: 0 -50%;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--color-subtle-foreground);
+}
+[data-part="thread-row"]:hover {
+  background: var(--color-hover);
+  box-shadow: inset 2px 0 0 var(--suit-edge-dim);
+}
+/* The open mission is locked on: targeting brackets at its corners. */
+[data-part="thread-row"][data-state="active"],
+[data-part="thread-row"][data-state="selected"] {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-tint) 16%, transparent),
+      transparent 85%
+    ),
+    var(--color-active);
+  box-shadow: none;
+}
+/*
+ * Brackets on parts that hold words sit on a layer of their own over the fill, so the words
+ * read against the fill alone.
+ */
+[data-part="thread-row"][data-state="active"]::after,
+[data-part="thread-row"][data-state="selected"]::after,
+[data-part="nav-item"][data-state="active"]::after,
+[data-part="list-row"][data-state="selected"]::after,
+[data-part="list-row"][data-state="active"]::after,
+[data-part="check-row"][data-state="selected"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--suit-brackets);
+  pointer-events: none;
+}
+[data-part="thread-row"][data-state="active"]::before {
+  content: "◆";
+  font-size: 9px;
+  left: 12px;
+  color: var(--color-tint);
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  color: var(--color-foreground);
+  font-weight: 650;
+}
+[data-part="thread-meta"] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* A status mark sits in a small square bezel; its colour stays ace's. */
+[data-part="status-icon"] {
+  border-radius: 0;
+}
+
+[data-part="sidebar-tabs"] {
+  border-radius: 0;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-code);
+}
+[data-part="sidebar-tabs"] [data-part="tab"] {
+  border-radius: 0;
+  font-size: 11px;
+}
+[data-part="sidebar-tabs"] [data-part="tab"][data-state="selected"] {
+  background: color-mix(in oklab, var(--color-tint) 20%, var(--color-code));
+  color: var(--color-foreground);
+  box-shadow: inset 0 -2px 0 var(--color-tint);
+}
+
+/* The band at the sidebar's foot: a deck plate with a ruler. */
+[data-part="sidebar-footer"] {
+  position: relative;
+  min-height: 18px;
+}
+[data-part="sidebar-footer"]::before {
+  content: "DECK 01 · BRIDGE";
+  position: absolute;
+  left: 14px;
+  bottom: 6px;
+  font-family: var(--suit-display);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+[data-part="sidebar-footer"]::after {
+  content: "";
+  position: absolute;
+  left: 128px;
+  right: 14px;
+  bottom: 9px;
+  height: 5px;
+  background: repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 6px);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ header: the status bar */
+
+[data-part="header"] {
+  position: relative;
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+@keyframes edge-glint {
+  from {
+    background-position:
+      -30% 100%,
+      0 100%;
+  }
+  to {
+    background-position:
+      130% 100%,
+      0 100%;
+  }
+}
+/* The bar's lower edge: a lit line with a slow glint running along it, over a tick ruler. */
+[data-part="header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  background:
+    linear-gradient(90deg, transparent, var(--color-tint), transparent) -30% 100% / 30% 1px
+      no-repeat,
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 12px) 0 100% / 100%
+      4px no-repeat;
+  opacity: 0.75;
+  pointer-events: none;
+  animation: edge-glint 9s linear infinite;
+}
+
+[data-part="header-title"] {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+/* A HUD chip names the station before the title. */
+[data-part="header-title"]::before {
+  content: "BRIDGE";
+  display: inline-block;
+  margin-right: 10px;
+  padding: 3px 9px 3px 10px;
+  font-family: var(--suit-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.18em;
+  vertical-align: 1px;
+  color: var(--color-link);
+  background: var(--suit-wash);
+  border: 1px solid var(--suit-edge);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+[data-page="pulls"] [data-part="header-title"]::before,
+[data-page="pull"] [data-part="header-title"]::before,
+[data-page="issues"] [data-part="header-title"]::before,
+[data-page="issue"] [data-part="header-title"]::before,
+[data-page="inbox"] [data-part="header-title"]::before,
+[data-page="review"] [data-part="header-title"]::before {
+  content: "FLEET";
+}
+[data-page="settings"] [data-part="header-title"]::before {
+  content: "SYSTEMS";
+}
+[data-page="new-thread"] [data-part="header-title"]::before {
+  content: "NEW MISSION";
+}
+[data-page="usage"] [data-part="header-title"]::before {
+  content: "REACTOR";
+}
+[data-page="history"] [data-part="header-title"]::before {
+  content: "SHIP'S LOG";
+}
+
+[data-part="header"] [data-part="icon-button"],
+[data-part="header"] [data-part="button"] {
+  border-radius: 0;
+}
+
+/* ------------------------------------------------------------------ transcript: comms */
+
+[data-part="transcript"] {
+  counter-reset: transmission order;
+}
+
+/*
+ * The ship's answers arrive as transmissions: a callsign and a transmission number in a gutter,
+ * on a comms line that runs down the left of the words.
+ */
+[data-part="message-agent"] {
+  counter-increment: transmission;
+  position: relative;
+  padding-left: 76px;
+  background: linear-gradient(var(--color-border-strong), var(--color-border-strong)) 62px 4px / 1px
+    calc(100% - 4px) no-repeat;
+}
+[data-part="message-agent"]::before {
+  content: "SHIP AI";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 54px;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: var(--color-link);
+}
+[data-part="message-agent"]::after {
+  content: "TX " counter(transmission, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 19px;
+  padding-top: 4px;
+  width: 52px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--color-subtle-foreground);
+  border-top: 1px solid var(--color-border);
+}
+
+/* The person speaks as the captain: an order on a panel with a hull-marked tag. */
+[data-part="message-user"] {
+  counter-increment: order;
+  --suit-c: 12px;
+  --suit-l: color-mix(in oklab, var(--suit-hull) 55%, var(--color-border-strong));
+  --suit-f: var(--color-surface-1);
+  position: relative;
+  padding-top: 28px;
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--suit-hull) 18%, transparent);
+}
+[data-part="message-user"]::before {
+  content: "CAPTAIN · ORDER " counter(order, decimal-leading-zero);
+  position: absolute;
+  top: 9px;
+  left: 16px;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.18em;
+  color: var(--suit-hull);
+  white-space: nowrap;
+}
+
+[data-part="message-meta"] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+[data-part="turn-divider"] {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+}
+
+[data-part="inline-code"] {
+  border-radius: 0;
+  background: var(--color-code);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  padding-inline: 4px;
+}
+
+[data-part="code-block"] {
+  --suit-c: 8px;
+  --suit-f: var(--color-code);
+  --suit-l: var(--color-border-strong);
+}
+
+[data-part="tool-output"],
+[data-part="diff"] {
+  --suit-c: 8px;
+  --suit-f: var(--color-code);
+  --suit-l: var(--color-border);
+  font-family: var(--font-mono);
+}
+
+/* ------------------------------------------------------------------ work log: telemetry */
+
+/*
+ * Each step is a telemetry line: a subsystem tag with its own glyph and a status lamp, then the
+ * readout in mono. The lamp's colour is ace's status colour for the step.
+ */
+[data-part="tool-row"] {
+  --suit-lamp: var(--color-subtle-foreground);
+  position: relative;
+  border-radius: 0;
+  padding-left: 96px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  transition: background-color 140ms ease;
+}
+[data-part="tool-row"]:hover {
+  background: linear-gradient(90deg, var(--suit-wash), transparent 80%);
+}
+[data-part="tool-row"][data-state="working"] {
+  --suit-lamp: var(--status-working);
+}
+[data-part="tool-row"][data-state="done"] {
+  --suit-lamp: var(--status-done);
+}
+[data-part="tool-row"][data-state="failed"] {
+  --suit-lamp: var(--status-failed);
+}
+[data-part="tool-row"][data-state="open"] {
+  --suit-lamp: var(--color-tint);
+  background: linear-gradient(90deg, var(--suit-wash), transparent 90%);
+  box-shadow: inset 1px 0 0 var(--color-tint);
+}
+/* The subsystem tag. */
+[data-part="tool-row"]::before {
+  content: "AUX";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  box-sizing: border-box;
+  width: 86px;
+  padding: 3px 16px 3px 21px;
+  font-family: var(--suit-display);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.14em;
+  color: var(--color-muted-foreground);
+  background:
+    radial-gradient(circle, var(--suit-lamp) 0 2.6px, transparent 3.2px) right 5px center / 8px 8px
+      no-repeat,
+    var(--color-code);
+  border: 1px solid var(--color-border);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+/* The subsystem glyph, drawn in the link colour. */
+[data-part="tool-row"]::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 11px;
+  height: 11px;
+  background: var(--color-link);
+  mask: url("assets/glyphs/aux.svg") no-repeat center / contain;
+  pointer-events: none;
+}
+[data-part="tool-row"][data-variant="search"]::before {
+  content: "NAV";
+}
+[data-part="tool-row"][data-variant="search"]::after {
+  mask-image: url("assets/glyphs/nav.svg");
+}
+[data-part="tool-row"][data-variant="read"]::before {
+  content: "ARCHIVE";
+}
+[data-part="tool-row"][data-variant="read"]::after {
+  mask-image: url("assets/glyphs/archive.svg");
+}
+[data-part="tool-row"][data-variant="edit"]::before {
+  content: "FAB";
+}
+[data-part="tool-row"][data-variant="edit"]::after {
+  mask-image: url("assets/glyphs/fab.svg");
+}
+[data-part="tool-row"][data-variant="shell"]::before {
+  content: "ENGINE";
+}
+[data-part="tool-row"][data-variant="shell"]::after {
+  mask-image: url("assets/glyphs/engine.svg");
+}
+[data-part="tool-row"][data-variant="list"]::before {
+  content: "SCAN";
+}
+[data-part="tool-row"][data-variant="list"]::after {
+  mask-image: url("assets/glyphs/scan.svg");
+}
+[data-part="tool-row"][data-variant="web"]::before {
+  content: "COMMS";
+}
+[data-part="tool-row"][data-variant="web"]::after {
+  mask-image: url("assets/glyphs/comms.svg");
+}
+[data-part="tool-row"][data-variant="think"]::before {
+  content: "CORE";
+}
+[data-part="tool-row"][data-variant="think"]::after {
+  mask-image: url("assets/glyphs/core.svg");
+}
+[data-part="tool-row"][data-variant="note"]::before {
+  content: "LOG";
+}
+[data-part="tool-row"][data-variant="note"]::after {
+  mask-image: url("assets/glyphs/log.svg");
+}
+
+/* The Working line keeps ace's words and colour; the Suit frames it as a console readout. */
+[data-part="working-line"] {
+  font-family: var(--suit-display);
+  font-weight: 600;
+  text-transform: uppercase;
+  padding-inline: 10px 8px;
+  border-left: 2px solid var(--status-working);
+  border-radius: 0;
+}
+[data-part="working-line"][data-state="waiting"] {
+  border-left-color: var(--status-needs-you);
+}
+
+/* Approvals and questions: ace's strip, framed as a console decision panel. */
+[data-part="approval-strip"],
+[data-part="question-card"] {
+  border-radius: 0;
+  border-left: 3px solid currentColor;
+  padding-inline: 12px;
+}
+
+/* ------------------------------------------------------------------ composer: transmit console */
+
+[data-part="composer"] {
+  --suit-c: 14px;
+  --suit-l: var(--suit-edge-dim);
+  --suit-f: var(--color-surface-1);
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 var(--suit-glow),
+    inset 0 -18px 30px -24px var(--suit-glow);
+  transition: box-shadow 160ms ease;
+}
+[data-part="composer"]:focus-within {
+  --suit-l: var(--suit-edge);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--color-tint) 45%, transparent),
+    inset 0 -22px 34px -24px var(--suit-glow);
+}
+@keyframes transmit-sweep {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+/* While the ship works, a sweep runs along the console's top edge. */
+[data-part="app"]:has([data-part="working-line"][data-state="working"])
+  [data-part="composer"]::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--status-working), transparent) -40% 0 / 35%
+    2px no-repeat;
+  animation: transmit-sweep 2.2s linear infinite;
+  pointer-events: none;
+}
+
+[data-part="composer-input"] {
+  caret-color: var(--color-tint);
+}
+[data-part="composer-input"]::placeholder {
+  color: var(--color-subtle-foreground);
+}
+
+/* Send is the launch key: an octagonal key cap with a climbing chevron. */
+[data-part="composer-send"] {
+  position: relative;
+  border-radius: 0;
+  clip-path: polygon(
+    6px 0,
+    calc(100% - 6px) 0,
+    100% 6px,
+    100% calc(100% - 6px),
+    calc(100% - 6px) 100%,
+    6px 100%,
+    0 calc(100% - 6px),
+    0 6px
+  );
+}
+[data-part="composer-send"][data-variant="send"] {
+  color: transparent;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.22), transparent 55%), var(--color-tint);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-tint-foreground) 35%, transparent);
+}
+[data-part="composer-send"][data-variant="send"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--color-tint-foreground);
+  mask: url("assets/glyphs/launch.svg") no-repeat center / 16px 16px;
+}
+[data-part="composer-send"][data-variant="send"]:hover {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.26), transparent 55%), var(--color-tint-hover);
+}
+[data-part="composer-send"][data-variant="send"][data-state="disabled"] {
+  background: var(--color-hover);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="composer-send"][data-variant="send"][data-state="disabled"]::after {
+  background: var(--color-subtle-foreground);
+}
+
+[data-part="model-picker"] {
+  --suit-f: var(--color-code);
+  --suit-l: var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+[data-part="model-picker"]:hover {
+  --suit-l: var(--suit-edge);
+}
+
+/* ------------------------------------------------------------------ controls */
+
+[data-part="button"] {
+  --suit-l: var(--color-border-strong);
+  --suit-f: var(--color-surface-1);
+  color: var(--color-foreground);
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: background-color 120ms ease;
+}
+[data-part="button"]:hover {
+  --suit-l: var(--suit-edge);
+  --suit-f: var(--color-hover);
+}
+[data-part="button"][data-variant="primary"] {
+  --suit-l: var(--color-tint);
+  --suit-f: var(--color-tint);
+  color: var(--color-tint-foreground);
+}
+[data-part="button"][data-variant="primary"]:hover {
+  --suit-l: var(--color-tint-hover);
+  --suit-f: var(--color-tint-hover);
+}
+[data-part="button"][data-variant="ghost"] {
+  --suit-l: transparent;
+  --suit-f: transparent;
+}
+[data-part="button"][data-variant="ghost"]:hover {
+  --suit-l: var(--color-border);
+  --suit-f: var(--color-hover);
+}
+/* A danger button keeps ace's own fill; the Suit only cuts its corners. */
+[data-part="button"][data-variant="danger"] {
+  background: revert-layer;
+  border-color: transparent;
+}
+[data-part="button"][data-state="disabled"] {
+  --suit-l: var(--color-border);
+  --suit-f: var(--color-surface-1);
+  color: var(--color-subtle-foreground);
+  opacity: 1;
+}
+
+[data-part="icon-button"] {
+  border-radius: 0;
+}
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-faint-foreground);
+  opacity: 1;
+}
+[data-part="icon-button"]:hover,
+[data-part="icon-button"][data-state="active"] {
+  position: relative;
+  background: var(--color-hover);
+}
+
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  --suit-f: var(--color-code);
+  --suit-l: var(--color-border-strong);
+  caret-color: var(--color-tint);
+}
+[data-part="input"]:focus-within,
+[data-part="select"]:focus-within,
+[data-part="search-field"]:focus-within {
+  --suit-l: var(--color-tint);
+}
+
+[data-part="checkbox"],
+[data-part="switch"],
+[data-part="slider"],
+[data-part="progress"] {
+  border-radius: 0;
+}
+[data-part="switch"] {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="switch"][data-state="checked"] {
+  box-shadow: inset 0 0 0 1px var(--color-tint);
+}
+
+[data-part="tabs"] {
+  border-radius: 0;
+}
+[data-part="tab"] {
+  border-radius: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+[data-part="tab"]:hover {
+  color: var(--color-foreground);
+}
+[data-part="tab"][data-state="selected"] {
+  color: var(--color-foreground);
+  box-shadow: inset 0 -2px 0 var(--color-tint);
+}
+
+[data-part="badge"],
+[data-part="kbd"],
+[data-part="label-chip"],
+[data-part="branch-chip"] {
+  border-radius: 0;
+}
+[data-part="badge"] {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+[data-part="kbd"] {
+  font-family: var(--font-mono);
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+}
+[data-part="branch-chip"] {
+  font-family: var(--font-mono);
+  box-shadow: inset 2px 0 0 var(--suit-edge);
+}
+
+[data-part="divider"] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-border-strong) 0 6px,
+    transparent 6px 10px
+  );
+  border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ floating layers */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="command-palette"],
+[data-part="toast"] {
+  --suit-f: var(--color-surface-2);
+  --suit-l: var(--suit-edge);
+  box-shadow:
+    inset 0 1px 0 var(--suit-glow),
+    inset 0 0 28px -16px var(--suit-glow);
+}
+[data-part="tooltip"] {
+  --suit-f: var(--color-surface-2);
+  --suit-l: var(--suit-edge);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+[data-part="dialog"] {
+  --suit-c: 16px;
+}
+[data-part="dialog"] [data-part="page-title"] {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+[data-part="toast"] {
+  --suit-c: 8px;
+}
+
+[data-part="menu-item"] {
+  border-radius: 0;
+}
+[data-part="menu-item"]:hover,
+[data-part="menu-item"]:focus,
+[data-part="menu-item"]:focus-visible {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-tint) 20%, transparent),
+    transparent
+  );
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+[data-part="menu-item"][data-state="checked"] {
+  color: var(--color-link);
+}
+
+/* ------------------------------------------------------------------ pages */
+
+[data-part="page-title"] {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+[data-part="card"] {
+  --suit-c: 12px;
+  --suit-l: var(--color-border-strong);
+  --suit-f: var(--color-surface-1);
+}
+
+/* A chosen picker card (a mode, a theme, an accent) is locked on. */
+[data-part="card"][data-state="checked"] {
+  --suit-l: var(--color-tint);
+  box-shadow:
+    inset 0 0 0 1px var(--color-tint),
+    inset 0 0 22px -10px var(--color-tint);
+}
+
+[data-part="list-row"],
+[data-part="table-row"] {
+  border-radius: 0;
+}
+[data-part="list-row"][data-state="selected"],
+[data-part="list-row"][data-state="active"] {
+  position: relative;
+  background: var(--color-active);
+}
+
+[data-part="stat"] {
+  font-family: var(--suit-display);
+}
+[data-part="avatar"] {
+  border-radius: 0;
+  clip-path: polygon(25% 0, 100% 0, 100% 75%, 75% 100%, 0 100%, 0 25%);
+}
+
+/* ------------------------------------------------------------------ settings: ship systems */
+
+[data-page="settings"] [data-part="page-title"]::before {
+  content: "SHIP SYSTEMS ▸ ";
+  color: var(--color-link);
+  font-size: 0.8em;
+  letter-spacing: 0.12em;
+}
+[data-part="settings-nav"] {
+  counter-reset: system;
+}
+[data-part="nav-item"] {
+  border-radius: 0;
+  position: relative;
+}
+[data-part="nav-item"][data-state="active"] {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-tint) 16%, transparent),
+      transparent 85%
+    ),
+    var(--color-active);
+}
+[data-part="page-body"] {
+  counter-reset: system-group;
+}
+[data-part="card"][data-variant="settings-group"] {
+  counter-increment: system-group;
+  position: relative;
+  box-shadow: inset 0 1px 0 var(--suit-glow);
+}
+/*
+ * Each group is a ship system with its own panel number, set in the corner the cut leaves free
+ * on the same layer that draws the cut.
+ */
+[data-part="card"][data-variant="settings-group"]::after {
+  content: "SYS-" counter(system-group, decimal-leading-zero);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 0 18px 6px 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: var(--color-subtle-foreground);
+  pointer-events: none;
+}
+/* The section's heading takes the display face; its rows read in the interface face. */
+[data-part="settings-section"] {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+[data-part="settings-section"] [data-part="card"],
+[data-part="settings-section"] [data-part="settings-row"] {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: normal;
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px dashed var(--color-border);
+}
+
+/* ------------------------------------------------------------------ fleet manifest */
+
+[data-page="pulls"] [data-part="page-title"]::before,
+[data-page="issues"] [data-part="page-title"]::before,
+[data-page="inbox"] [data-part="page-title"]::before {
+  content: "FLEET MANIFEST ▸ ";
+  color: var(--color-link);
+  font-size: 0.8em;
+  letter-spacing: 0.12em;
+}
+/* The list's box is the manifest itself: a header band names it over a tick ruler. */
+[data-page="pulls"] [data-part="card"],
+[data-page="issues"] [data-part="card"] {
+  --suit-f: color-mix(in oklab, var(--color-surface-1) 92%, transparent);
+  --suit-l: var(--suit-edge);
+  position: relative;
+  padding-top: 26px;
+  box-shadow: inset 0 1px 0 var(--suit-glow);
+}
+[data-page="pulls"] [data-part="card"]::before,
+[data-page="issues"] [data-part="card"]::before {
+  content: "FLEET MANIFEST · DOCKING QUEUE";
+  position: absolute;
+  top: 8px;
+  left: 18px;
+  right: 14px;
+  padding-right: 8px;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+  color: var(--color-link);
+  background: repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 7px)
+    right 0 bottom 1px / calc(100% - 300px) 5px no-repeat;
+  pointer-events: none;
+}
+[data-page="issues"] [data-part="card"]::before {
+  content: "SURVEY QUEUE · OPEN REPORTS";
+}
+[data-page="pulls"] [data-part="filter-bar"],
+[data-page="issues"] [data-part="filter-bar"],
+[data-page="inbox"] [data-part="filter-bar"] {
+  background: var(--suit-scan), color-mix(in oklab, var(--color-code) 80%, transparent);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+/*
+ * Each pull request is a ship in the docking queue: a bay plate on its left with a lamp and the
+ * ship's standing (inbound, holding, docked, stood down), then its own title and byline.
+ */
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  --suit-c: 8px;
+  --suit-l: var(--color-border);
+  --suit-f: var(--color-surface-1);
+  --suit-bay: var(--color-tint);
+  position: relative;
+  margin: 6px 10px;
+  padding-left: 72px;
+  transition: background-color 140ms ease;
+}
+[data-part="pr-row"]::before,
+[data-part="issue-row"]::before {
+  content: "INBOUND";
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: 52px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+  box-sizing: border-box;
+  font-family: var(--suit-display);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  color: var(--color-subtle-foreground);
+  background:
+    linear-gradient(var(--suit-bay), var(--suit-bay)) center 5px / 22px 3px no-repeat,
+    var(--color-code);
+  border: 1px solid var(--color-border);
+  border-right-color: var(--color-border-strong);
+}
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  --suit-l: var(--suit-edge);
+  --suit-f: var(--color-hover);
+}
+[data-part="pr-row"][data-state="selected"] {
+  --suit-l: var(--color-tint);
+}
+[data-part="pr-row"][data-variant="draft"] {
+  --suit-bay: var(--color-faint-foreground);
+}
+[data-part="pr-row"][data-variant="draft"]::before {
+  content: "HOLDING";
+}
+[data-part="pr-row"][data-variant="merged"]::before {
+  content: "DOCKED";
+}
+[data-part="pr-row"][data-variant="closed"]::before,
+[data-part="issue-row"][data-variant="closed"]::before {
+  content: "STOOD DN";
+}
+[data-part="issue-row"]::before {
+  content: "OPEN";
+}
+[data-part="pr-row"][data-variant="merged"],
+[data-part="pr-row"][data-variant="closed"],
+[data-part="issue-row"][data-variant="closed"] {
+  --suit-bay: var(--color-border-strong);
+  --suit-f: color-mix(in oklab, var(--color-surface-1) 55%, var(--color-sidebar));
+}
+
+/* ------------------------------------------------------------------ mission briefing */
+
+[data-page="pull"] [data-part="page-header"],
+[data-page="issue"] [data-part="page-header"] {
+  position: relative;
+  padding-bottom: 14px;
+}
+/* The briefing's lower edge: a lit rule over a tick ruler. */
+[data-page="pull"] [data-part="page-header"]::after,
+[data-page="issue"] [data-part="page-header"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  background:
+    linear-gradient(90deg, var(--color-tint), transparent 60%) 0 100% / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--suit-edge-dim) 0 1px, transparent 1px 10px) 0 0 / 100%
+      4px no-repeat;
+  pointer-events: none;
+}
+[data-page="pull"] [data-part="page-title"],
+[data-page="issue"] [data-part="page-title"] {
+  font-size: 22px;
+  line-height: 1.25;
+}
+/* A kicker over the title names the briefing and where the mission stands. */
+[data-page="pull"] [data-part="page-header"] [data-part="page-title"]::before,
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "MISSION BRIEFING";
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--color-link);
+}
+[data-page="pull"][data-variant="draft"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "MISSION BRIEFING · IN PLANNING";
+}
+[data-page="pull"][data-variant="merged"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "MISSION BRIEFING · DOCKED";
+}
+[data-page="pull"][data-variant="closed"]
+  [data-part="page-header"]
+  [data-part="page-title"]::before {
+  content: "MISSION BRIEFING · STOOD DOWN";
+}
+[data-page="issue"] [data-part="page-header"] [data-part="page-title"]::before {
+  content: "SURVEY REPORT";
+}
+
+/* The briefing's side facts are dossier entries: each hangs off a rule with a lit tick. */
+[data-page="pull"] [data-part="page-section"],
+[data-page="issue"] [data-part="page-section"] {
+  position: relative;
+  box-sizing: border-box;
+  padding-left: 12px;
+}
+[data-page="pull"] [data-part="page-section"]::before,
+[data-page="issue"] [data-part="page-section"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background:
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 9px / 2px 10px no-repeat,
+    linear-gradient(var(--color-border), var(--color-border)) 0 0 / 1px 100% no-repeat;
+  pointer-events: none;
+}
+[data-part="card"][data-variant="description"] {
+  --suit-l: var(--suit-edge);
+  box-shadow: inset 0 1px 0 var(--suit-glow);
+}
+[data-part="card"][data-variant="description"],
+[data-part="review-comment"] {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+/* The merge box is launch clearance: a panel with a lit edge while it waits, green-free. */
+[data-part="merge-box"] {
+  --suit-c: 12px;
+  --suit-l: var(--suit-edge);
+  --suit-f: var(--color-surface-1);
+  position: relative;
+  padding-top: 26px;
+  box-shadow: inset 0 1px 0 var(--suit-glow);
+}
+[data-part="merge-box"]::before {
+  content: "LAUNCH CLEARANCE";
+  position: absolute;
+  top: 9px;
+  left: 18px;
+  font-family: var(--suit-display);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--color-link);
+  pointer-events: none;
+}
+[data-part="merge-box"][data-state="done"]::before {
+  content: "LAUNCH CLEARANCE · DOCKED";
+}
+
+[data-part="merge-box"] [data-part="list-row"] {
+  border-radius: 0;
+}
+[data-part="check-row"],
+[data-part="commit-row"] {
+  border-radius: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+[data-part="check-row"][data-state="selected"] {
+  position: relative;
+  background: var(--color-active);
+}
+[data-part="timeline-item"] {
+  border-radius: 0;
+}
+[data-part="review-comment"] {
+  border-radius: 0;
+}
+
+/* ------------------------------------------------------------------ side panel: aux console */
+
+/*
+ * The side panel is an auxiliary console bolted to the bridge: a labelled edge strip runs down
+ * its left side, its tabs are trapezoid keys, and its body sits in a bezel with corner marks.
+ */
+[data-part="right-panel"] {
+  position: relative;
+  box-shadow: inset 1px 0 0 var(--color-border-strong);
+}
+[data-part="right-panel"][data-variant="right"] {
+  padding-left: 14px;
+}
+[data-part="right-panel"][data-variant="right"]::before {
+  content: "AUX CONSOLE · 02";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  box-sizing: border-box;
+  writing-mode: vertical-rl;
+  rotate: 180deg;
+  text-align: center;
+  font-family: var(--suit-display);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  line-height: 14px;
+  color: var(--color-subtle-foreground);
+  background:
+    repeating-linear-gradient(180deg, var(--suit-edge-dim) 0 1px, transparent 1px 9px) 2px 0 / 3px
+      100% no-repeat,
+    linear-gradient(var(--color-tint), var(--color-tint)) 0 calc(50% - 60px) / 1px 120px no-repeat,
+    var(--color-code);
+  border-left: 1px solid var(--color-border-strong);
+  pointer-events: none;
+}
+[data-part="panel-body"][data-state="active"] {
+  background: var(--suit-brackets-dim), var(--color-sidebar);
+}
+/* The terminal's monitor frame is its own bezel. */
+[data-part="panel-body"][data-variant="terminal"][data-state="active"] {
+  background: var(--color-sidebar);
+}
+[data-part="panel-header"] {
+  background: var(--suit-scan), color-mix(in oklab, var(--color-code) 70%, var(--color-sidebar));
+  box-shadow: inset 0 -1px 0 var(--color-border-strong);
+}
+/* Tabs are trapezoid console keys: the selected one is lit along its top. */
+[data-part="panel-tab"] {
+  border-radius: 0;
+  font-size: 11px;
+  font-weight: 600;
+  clip-path: polygon(7px 0, calc(100% - 7px) 0, 100% 100%, 0 100%);
+  background: color-mix(in oklab, var(--color-surface-1) 60%, transparent);
+}
+[data-part="panel-tab"]:hover {
+  background: var(--color-hover);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--color-tint) 16%, transparent), transparent),
+    var(--color-surface-1);
+  box-shadow: inset 0 2px 0 var(--color-tint);
+  color: var(--color-foreground);
+}
+[data-part="panel-toolbar"] {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="file-tree"] {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+[data-part="diff-file"] {
+  --suit-c: 8px;
+  --suit-l: var(--color-border-strong);
+  --suit-f: var(--color-code);
+  margin: 6px 6px 10px;
+}
+[data-part="diff-line"] {
+  font-family: var(--font-mono);
+}
+/* The terminal is the engine-room monitor: a framed screen with its own label. */
+[data-part="terminal-tab"] {
+  --suit-c: 12px;
+  --suit-l: var(--suit-edge);
+  --suit-f: #060c18;
+  margin: 6px;
+  padding: 4px;
+}
+[data-scheme="light"] [data-part="terminal-tab"] {
+  --suit-f: #f2f5f8;
+}
+
+/* ------------------------------------------------------------------ empty states */
+
+[data-part="empty-state"] {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--color-muted-foreground);
+}

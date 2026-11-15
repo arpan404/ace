@@ -299,6 +299,8 @@ test.each([
   "field-journal/celebration",
   "quest-journal",
   "quest-journal/celebration",
+  "starship-bridge",
+  "starship-bridge/celebration",
 ])(
   "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
   (id) => {
@@ -371,6 +373,26 @@ test.each([
     expect(replies.some((reply) => reply.type === "error")).toBe(false);
     expect(finishedAt - 50_099).toBeGreaterThan(2500);
     expect(finishedAt - 50_099).toBeLessThan(3900);
+  },
+);
+
+test.each(["pr-merged", "done"])(
+  "the shipped Starship Bridge jump plays once on %s, then says it's done",
+  (signal) => {
+    const source = readFileSync(
+      new URL("../../plugins/builtin-suits/starship-bridge/celebration.js", import.meta.url),
+      "utf8",
+    );
+    const page = sandbox();
+    new Function("ace", "document", source)(page.ace, offscreenDocument);
+    page.send({ ...init, region: "celebration" });
+    page.send({ type: "signal", signal });
+    for (let time = 0; time <= 3300; time += 33) page.send({ type: "tick", time });
+    const replies = page.replies as { type: string }[];
+    expect(replies[0]).toEqual({ type: "ready" });
+    expect(replies.filter((reply) => reply.type === "finished")).toEqual([{ type: "finished" }]);
+    expect(replies.some((reply) => reply.type === "error")).toBe(false);
+    expect(replies.filter((reply) => reply.type === "drawn")).toHaveLength(101);
   },
 );
 

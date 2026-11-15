@@ -22,6 +22,7 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
     "atelier-noir",
     "field-journal",
     "quest-journal",
+    "starship-bridge",
   ]);
   for (const id of await readdir(library)) {
     const manifest = SuitManifest.parse(
@@ -49,6 +50,11 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
   expect(await readFile(join(field, "celebration.js"), "utf8")).toContain("ace.scene(");
   expect(await readdir(join(field, "assets", "fonts"))).toEqual(
     expect.arrayContaining(["Caveat-OFL.txt", "Alegreya-OFL.txt", "AlegreyaSans-OFL.txt"]),
+  );
+  const bridge = join(library, "starship-bridge");
+  expect(await readFile(join(bridge, "celebration.js"), "utf8")).toContain("ace.finish()");
+  expect(await readdir(join(bridge, "assets", "fonts"))).toEqual(
+    expect.arrayContaining(["ChakraPetch-OFL.txt", "JetBrainsMono-OFL.txt"]),
   );
 });
 
