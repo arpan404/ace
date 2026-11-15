@@ -29,18 +29,17 @@ function setup() {
   return { store, auth, paired, actor, advance: (ms: number) => (now += ms) };
 }
 
-it("a ticket opens one NK session, only under the relay key that handed it", () => {
+it("a ticket opens one NK session, only under the relay key that handed it and for its own device", () => {
   const { auth, actor } = setup();
   const first = auth.handOver(actor, "relay-key-a")?.ticket ?? "";
-  expect(auth.consumeEarly(first, "relay-key-b")).toBeUndefined();
-  // Consumed by that refusal too: a ticket offered under the wrong key is spent.
-  expect(auth.consumeEarly(first, "relay-key-a")).toBeUndefined();
-  const second = auth.handOver(actor, "relay-key-a")?.ticket ?? "";
-  expect(auth.consumeEarly(second, "relay-key-a")?.id).toBe(actor.id);
-  expect(auth.consumeEarly(second, "relay-key-a")).toBeUndefined();
+  // Refused without being spent: under another key, or claimed by another device.
+  expect(auth.consumeEarly(first, "relay-key-b", actor.id)).toBeUndefined();
+  expect(auth.consumeEarly(first, "relay-key-a", "another-device")).toBeUndefined();
+  expect(auth.consumeEarly(first, "relay-key-a", actor.id)?.id).toBe(actor.id);
+  expect(auth.consumeEarly(first, "relay-key-a", actor.id)).toBeUndefined();
   // One handed on the direct path is bound to no relay key.
   const direct = auth.handOver(actor)?.ticket ?? "";
-  expect(auth.consumeEarly(direct, "relay-key-a")).toBeUndefined();
+  expect(auth.consumeEarly(direct, "relay-key-a", actor.id)).toBeUndefined();
 });
 
 it("revoking the device voids its outstanding tickets, and a ticket lives 60 s", () => {
@@ -48,11 +47,11 @@ it("revoking the device voids its outstanding tickets, and a ticket lives 60 s",
   const kept = auth.handOver(actor, "key")?.ticket ?? "";
   const late = auth.handOver(actor, "key")?.ticket ?? "";
   advance(60_001);
-  expect(auth.consumeEarly(late, "key")).toBeUndefined();
+  expect(auth.consumeEarly(late, "key", actor.id)).toBeUndefined();
   const fresh = auth.handOver(actor, "key")?.ticket ?? "";
   auth.revoke(actor.id);
-  expect(auth.consumeEarly(fresh, "key")).toBeUndefined();
-  expect(auth.consumeEarly(kept, "key")).toBeUndefined();
+  expect(auth.consumeEarly(fresh, "key", actor.id)).toBeUndefined();
+  expect(auth.consumeEarly(kept, "key", actor.id)).toBeUndefined();
 });
 
 it("an early ticket records nothing about the device until it is touched on confirmation", () => {
@@ -60,7 +59,7 @@ it("an early ticket records nothing about the device until it is touched on conf
   const seen = () => store.devices.list().find((device) => device.id === actor.id)?.lastSeenAt;
   const before = seen();
   advance(5_000);
-  const device = auth.consumeEarly(auth.handOver(actor, "key")?.ticket ?? "", "key");
+  const device = auth.consumeEarly(auth.handOver(actor, "key")?.ticket ?? "", "key", actor.id);
   expect(seen()).toBe(before);
   if (device) auth.touch(device);
   expect(seen()).not.toBe(before);

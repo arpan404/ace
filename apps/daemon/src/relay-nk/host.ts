@@ -62,8 +62,8 @@ export function nkHost(options: NkHostOptions): NkHost {
   const { admission } = options;
   async function credential(early: HelloEarly): Promise<Credential | undefined> {
     if (early.ticket !== undefined) {
-      const device = options.auth.consumeEarly(early.ticket, options.epoch);
-      if (!device || device.id !== early.deviceId) return undefined;
+      const device = options.auth.consumeEarly(early.ticket, options.epoch, early.deviceId);
+      if (!device) return undefined;
       const actor = mainActor(device, undefined, options);
       return actor ? { actor, paired: device } : undefined;
     }

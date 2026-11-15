@@ -56,8 +56,13 @@ export class TicketPool {
   consume(
     key: string,
     now: number,
+    /** Taken only when it matches: a ticket offered under another key or device stays. */
+    bound?: { epoch: string; deviceId: string },
   ): { deviceId: string; generation: string; epoch: string } | undefined {
     this.evict(now);
+    const held = this.tickets.get(key);
+    if (bound && (held?.epoch !== bound.epoch || held.deviceId !== bound.deviceId))
+      return undefined;
     const entry = this.tickets.delete(key);
     if (!entry) return undefined;
     this.disown(entry.deviceId, key);

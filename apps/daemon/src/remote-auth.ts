@@ -192,13 +192,14 @@ export class RemoteAuth {
   }
   /**
    * A ticket in an NK first message (ADR 0155): consumed at once, in one synchronous step, so
-   * exactly one of two racing copies gets it. It opens nothing unless the host key `epoch` that
-   * issued it is the current one, and, unlike `consume`, records nothing about the device: that
-   * waits for the client's confirmation (`touch`).
+   * exactly one of two racing copies gets it, and only when the relay key `epoch` that handed it
+   * and the claimed device match; otherwise it is left as it was. Unlike `consume`, it records
+   * nothing about the device: that waits for the client's confirmation (`touch`).
    */
-  consumeEarly(ticket: string, epoch: string): PairedDevice | undefined {
-    const issued = this.tickets.consume(hash(ticket), this.now());
-    if (!issued || issued.epoch !== epoch) return undefined;
+  consumeEarly(ticket: string, epoch: string, deviceId: string): PairedDevice | undefined {
+    // Checked before it is taken: a message that would be refused spends nothing.
+    const issued = this.tickets.consume(hash(ticket), this.now(), { epoch, deviceId });
+    if (!issued) return undefined;
     const device = this.devices.current(issued.deviceId, issued.generation, this.now());
     if (!device || localOnly(device)) return undefined;
     return device;
