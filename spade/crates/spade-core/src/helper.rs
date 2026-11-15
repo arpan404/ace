@@ -14,10 +14,17 @@ pub const MOST_RUNNING: usize = 4;
 pub const DEFAULT_PROFILE: &str = "general";
 
 /// Tools a helper never has, whatever its profile: helpers start no helpers, never ask the
-/// person or another bot anything, never write the bot's notes or skills, and never change the
-/// bot's task state.
+/// person or another bot anything, never write the bot's notes or skills, never change the
+/// bot's task state, and never sleep, wait or own a service (ADR 0160): those are the bot's.
 pub const NEVER: &[&str] = &[
     TOOL,
+    crate::wake::SLEEP_UNTIL,
+    crate::wake::WAIT_FOR,
+    crate::wake::WAKE_CANCEL,
+    crate::service::SERVICE_START,
+    crate::service::SERVICE_STATUS,
+    crate::service::SERVICE_LOGS,
+    crate::service::SERVICE_STOP,
     crate::context::ASK_USER,
     "memory_save",
     "memory_update",

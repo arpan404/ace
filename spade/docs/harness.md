@@ -89,7 +89,9 @@ turn's total.
 Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
 `todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
-reply, [autonomy.md](autonomy.md)), `research` (a background job that reads many sources and writes a cited report,
+reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
+woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
+autonomy.md), `research` (a background job that reads many sources and writes a cited report,
 [oversight.md](oversight.md)), `helper` (a background job that hands part of the work to a
 short-lived helper with a fresh context, in a hidden conversation of its own,
 [helpers.md](helpers.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and `skill_search`,

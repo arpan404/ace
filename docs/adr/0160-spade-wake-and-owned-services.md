@@ -50,7 +50,7 @@ looking at it.
    (a dev server, a watcher) through the workspace shell: same built environment carrying none of
    Spade's secrets, same system-only `PATH`, its own process group (a job object on Windows),
    killed with everything it started when it is stopped. It outlives the turn and the call.
-   `service_status`, `service_logs {name, lines?, since?}` (the tail of an in-memory ring of its
+   `service_status`, `service_logs {name, lines?, after?}` (the tail of an in-memory ring of its
    output, 256 KiB per service; untrusted output) and `service_stop` manage it. Starting one is
    gated exactly like `shell`: classed by its command, "always" covers that exact command. Events
    `service_started {service, name, command, cwd, keep}` and `service_ended {service, code,

@@ -404,6 +404,48 @@ async fn an_ace_thread_finishing_wakes_the_bot_waiting_for_it() -> Result {
     Ok(())
 }
 
+/// A bot that delegated thread t1 and waits for it (ADR 0160) wakes when ace reports it settled,
+/// with the thread's title as untrusted data.
+#[tokio::test]
+async fn a_bot_waiting_on_a_delegated_thread_wakes_when_it_settles() -> Result {
+    let clock = ManualClock::at(at("2026-11-12T10:00:00Z"));
+    let spade = start(
+        &clock,
+        vec![
+            Script::reply("").call(
+                "w1",
+                "wait_for",
+                json!({ "condition": { "kind": "thread", "thread": "t1" }, "reason": "the fix" }),
+            ),
+            reply("Waiting for the fix."),
+            reply("The fix is done."),
+        ],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Wait for the login fix").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let addr = fake_daemon().await?;
+    let config = spade_ace::SkillsConfig::new(
+        spade_ace::LoopbackUrl::parse(&format!("ws://{addr}/"))?,
+        spade_ace::Secret::new("local-token"),
+        "spade",
+        Duration::from_secs(5),
+    )?;
+    let watcher = routines::watch_ace(&spade.engine, move || Some(config.clone()));
+    let events = spade.wait_for_count(&conversation, "reply_finished", 2).await?;
+    watcher.abort();
+    let fired = events
+        .iter()
+        .find(|e| e["type"] == "wake_fired")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(fired["data"], json!(["Fix login"]));
+    let note = fired["note"].as_str().unwrap_or_default();
+    assert!(note.contains("ace thread t1 is done"), "{note}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_webhook_runs_only_with_its_own_secret() -> Result {
     let clock = ManualClock::at(at("2026-11-12T10:00:00Z"));

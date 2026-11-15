@@ -193,6 +193,7 @@ When a reply ends finished, `spade_core::task::next(events, policy)` decides:
 | Condition                                                   | Result                                     |
 | ----------------------------------------------------------- | ------------------------------------------ |
 | reply stopped, failed or cut off; Stop since; a job running | nothing                                    |
+| an open wake (the bot sleeps or waits, ADR 0160)            | nothing: the wake is the next step         |
 | task not `working`; already paused since the latest message | nothing                                    |
 | the last 3 steps had no effect                              | pause (`no_progress`)                      |
 | the last step had an effect                                 | continue now                               |
@@ -221,8 +222,48 @@ starts under, then signals the workers, so a Stop pressed at any point after a r
 the step off. A step waiting out its backoff waits on the engine's clock; Stop
 on an idle bot with a step waiting stores `stop_requested` with no reply and calls the step off.
 
+## Sleeping, waiting, services and parked retries
+
+[ADR 0160](../../docs/adr/0160-spade-wake-and-owned-services.md). All of it is events in the bot's
+conversation; `spade_core::wake` and `spade_core::service` are the folds.
+
+- `sleep_until {at | after, reason}` and `wait_for {condition, timeout?, reason}` store
+  `wake_set {wake, purpose, due_ms?, condition?, reason}` and end the turn. Conditions (`kind`):
+  `job`, `service_line {service, pattern}`, `service_exit`, `file {path}`, `url` (loopback only,
+  polled 2 s doubling to 60 s), `thread` (an ace thread done, failed or needs the person),
+  `bot_message {bot?}`, `person`. Both are core tools of risk read; `wake_cancel` is deferred.
+- A wake fires once: `wake_fired {wake, cause, note?, data}` is stored under the record lock only
+  while the wake is open. With a note the model reads `<wake id cause from="spade">` (with any
+  `data` as untrusted `<wake_data>`), which steers an open turn or opens a reply. A job's end or a
+  message that settles a wait is stored with it and adds no note. `wake_cancelled {wake, by}`:
+  `person`, `bot` or `stop`. Open wakes are armed from the events when Spade opens for work; one
+  already due fires on the timer's first look. The timer looks at least once a minute.
+- The roster state is `sleeping` while a wake is open and nothing else runs; `status` says what
+  for and until when; the agent's `wake` is the soonest open wake.
+- A reply whose model call failed transiently after its retries is parked: `wake_set {purpose:
+  {kind: retry, attempt, error}}`, due after 1, 2, 4 … minutes, at most an hour. A background job
+  whose tool marks its failure transient (`ToolOutput::transient`: `web_fetch` on the network,
+  `429` or `5xx`; an ace tool that did not run) is parked the same way with its `job`, stays
+  running in the record, and runs again at the wake. The person's message settles a parked reply.
+- While a background job runs, `job_progress {job, name, check, minutes, tail}` is delivered at
+  15, 30, 60 and 120 minutes, then every two hours; `tail` is a shell job's terminal output.
+- `service_start {name, command, cwd?, keep?}` (gated like `shell`), `service_status`,
+  `service_logs {name, lines?, after?}`, `service_stop`, all deferred. Events `service_started
+  {service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
+  (`exited`, `stopped`, `lost`, `failed`). Stop and deleting the bot stop its services; after a
+  restart `keep` ones start again and the rest are `lost`. A running service does not make the
+  bot read as working.
+
 ## API
 
+- `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
+  attempt, job, error}]}`. `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
+  when not open); `DELETE /v1/agents/{id}/wakes/{wake}` cancels it (`204`, `409`).
+- `GET /v1/agents/{id}/services`: `{services: [{id, name, command, cwd, keep, state, exit_code,
+  restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
+  next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
+- Every agent shows `wake` (the soonest open wake, as above, or `null`) and `services` (how many
+  run).
 - `POST /v1/agents` and `PATCH /v1/agents/{id}` take `access`: `ask`, `auto_review` or
   `full_access` (anything else is `400`).
 - Every agent shows `access`, `task_state` (`{"status","note"?}` or `null`) and `continuing`
