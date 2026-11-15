@@ -44,8 +44,10 @@ system starts, without the test's arguments (#2086). Measured on 2026-11-15 with
 runtime: 4 of 6 cold-boot runs of `HomeShellUITests` drove an `Ace` process with no arguments,
 which listed no chats; a warm simulator never did. So UI tests launch with
 `launchWithArguments()` (`UITests/FixtureLaunch.swift`), which reads the arguments the app
-reports in its hidden `launch.arguments` element (fixture builds only) and launches again when
-they don't match.
+reports, as a JSON array, in its hidden `launch.arguments` element, and launches again when
+they don't match or the element is missing. The element exists only in fixture builds launched
+with `--spike` or `--chat-render-fixture`, so an ordinary Debug launch has nothing for VoiceOver
+to find.
 
 Use an **iOS 26.1** simulator runtime, not 26.2. The iOS 26.2 simulator's JavaScriptCore
 (runtime 23C52, JavaScriptCore UUID `0ED6EFCF-6A91-3C3A-845A-7B6AA4832FB6`) corrupts string
