@@ -195,6 +195,9 @@ struct ThreadFocus: Equatable {
         guard !loading else { return }
         loading = true
         problem = nil
+        // Retry repeats this read from here: a failed jump's aim belongs to that jump alone.
+        // Checked first, so a read with nothing kept writes nothing the feed observes.
+        if landing.failedJump != nil { landing.superseded() }
         request?.cancel()
         request = nil
         if updateRetry {

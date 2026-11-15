@@ -163,6 +163,50 @@ import Testing
         #expect(!landing.isActive)
     }
 
+    // MARK: Retries through the reader. No machine is connected, so every read fails at once.
+
+    /// Waits for the read in flight to fail.
+    private func failed(_ reading: TranscriptReading) async throws {
+        for _ in 0..<200 where reading.loading { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(!reading.loading && reading.problem != nil)
+    }
+
+    @Test func retryingAFailedFocusedOpenThroughTheReaderAimsAtItsFocus() async throws {
+        let model = ClientModel(now: { 1_000 })
+        let live = ThreadModel(id: "thread")
+        let reading = TranscriptReading()
+        reading.jump(to: "item.103", model: model, live: live)
+        try await failed(reading)
+        #expect(!reading.landing.isActive, "a failed open holds nothing while it waits for Retry")
+        reading.retry(model: model, live: live)
+        #expect(reading.landing.target == "item.103")
+    }
+
+    @Test func aRebuildAfterAFailedFocusedOpenRetriesWithoutTheOldFocus() async throws {
+        let model = ClientModel(now: { 1_000 })
+        let live = ThreadModel(id: "thread")
+        let reading = TranscriptReading()
+        reading.jump(to: "item.103", model: model, live: live)
+        try await failed(reading)
+        // A recovery rebuild around another anchor replaces the request Retry sends.
+        reading.rebuild(model: model, live: live, anchorItemId: "item.7")
+        try await failed(reading)
+        reading.retry(model: model, live: live)
+        #expect(!reading.landing.isActive)
+    }
+
+    @Test func aPageAfterAFailedFocusedOpenRetriesWithoutTheOldFocus() async throws {
+        let model = ClientModel(now: { 1_000 })
+        let live = ThreadModel(id: "thread")
+        let reading = TranscriptReading()
+        reading.jump(to: "item.103", model: model, live: live)
+        try await failed(reading)
+        reading.read("older", model: model, live: live)
+        try await failed(reading)
+        reading.retry(model: model, live: live)
+        #expect(!reading.landing.isActive, "paging is not held for a focus nobody asked for again")
+    }
+
     @Test func aNewFocusStartsAFreshBudgetAndDeadline() {
         var landing = aimed()
         for _ in 0..<TranscriptFocusLanding.maxScrolls { _ = landing.step(row: "block:7", frame: nil, in: screen, now: start) }

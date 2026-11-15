@@ -93,6 +93,9 @@ struct TranscriptFocusLanding: Equatable, Sendable {
         release()
     }
 
+    /// Another read was sent: Retry now repeats that read, not the failed jump.
+    mutating func superseded() { failedJump = nil }
+
     /// The failed read is being retried: a failed jump aims at its focus again.
     mutating func retried(now: Double) {
         guard let jump = failedJump else { return }
