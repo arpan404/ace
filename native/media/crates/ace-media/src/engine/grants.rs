@@ -48,6 +48,15 @@ pub struct Grants {
     streams: HashMap<String, Keyed>,
     /// Connections dropped since the engine last asked, with why: delivery closes their sockets.
     closed: Vec<(String, String)>,
+    /// Keyed streams whose socket is still closing (gracefully), until the shell says it is gone:
+    /// a revocation of their owner forces them, and a later close joins them.
+    closing: HashMap<String, Closing>,
+}
+
+struct Closing {
+    connection: String,
+    owner: Owner,
+    issued: u64,
 }
 
 pub struct Grant<'a> {
@@ -334,9 +343,16 @@ impl Grants {
                 owner: grant.owner.clone(),
             },
         );
-        self.streams
-            .insert(grant.id.get().to_owned(), Keyed::new(key, transport));
+        self.streams.insert(
+            grant.id.get().to_owned(),
+            Keyed::new(key, grant.owner.clone(), grant.issued, transport),
+        );
         true
+    }
+
+    /// The shell closed a stream's socket for good.
+    pub fn relay_closed(&mut self, stream: &str) {
+        self.closing.remove(stream);
     }
 
     /// The keyed stream a relay connection runs on.
@@ -415,6 +431,19 @@ impl Grants {
         out: &mut Vec<Effect>,
     ) {
         self.ledger.revoke(issued, device.get(), admission);
+        // Closes in progress for this owner are forced before the answer.
+        let forced: Vec<String> = self
+            .closing
+            .iter()
+            .filter(|(_, c)| self.ledger.latest_covers(&c.owner, c.issued))
+            .map(|(stream, _)| stream.clone())
+            .collect();
+        for stream in forced {
+            out.push(Effect::Relay(RelayEffect::Close {
+                stream,
+                mode: CloseMode::Forced,
+            }));
+        }
         let covered: Vec<String> = self
             .connections
             .iter()
@@ -434,7 +463,9 @@ impl Grants {
         let streams: Vec<String> = self
             .streams
             .iter()
-            .filter(|(_, s)| s.connection == key)
+            .map(|(id, s)| (id, &s.connection))
+            .chain(self.closing.iter().map(|(id, c)| (id, &c.connection)))
+            .filter(|(_, connection)| *connection == key)
             .map(|(id, _)| id.clone())
             .collect();
         for stream in streams {
@@ -484,6 +515,19 @@ impl Grants {
     fn end_stream(&mut self, stream: &str, mode: CloseMode, out: &mut Vec<Effect>) {
         if let Some(mut keyed) = self.streams.remove(stream) {
             keyed.transport.close();
+            if mode == CloseMode::Graceful {
+                self.closing.insert(
+                    stream.to_owned(),
+                    Closing {
+                        connection: keyed.connection,
+                        owner: keyed.owner,
+                        issued: keyed.issued,
+                    },
+                );
+            }
+        }
+        if mode == CloseMode::Forced {
+            self.closing.remove(stream);
         }
         out.push(Effect::Relay(RelayEffect::Close {
             stream: stream.to_owned(),

@@ -371,3 +371,74 @@ fn a_revocation_forces_its_streams_shut_while_the_daemons_close_lets_them_finish
     );
     assert_eq!(close_modes(&closed), [relay::CloseMode::Graceful]);
 }
+
+fn closes_of(effects: &[Effect], stream: &str) -> Vec<relay::CloseMode> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Relay(RelayEffect::Close { stream: s, mode }) if s == stream => Some(*mode),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_revocation_reaching_a_graceful_close_in_progress_forces_it_before_answering() {
+    let mut engine = engine();
+    dial(&mut engine, "st");
+    engine.relay_dialed(&sid("st"));
+    hand_over(&mut engine, "st", 1);
+    // The session ends: its connection is gone, and the stream's socket closes gracefully.
+    let closing = send(
+        &mut engine,
+        json!({ "type": "connection.close", "id": "x", "connection": "rc", "reason": "session" }),
+        &[],
+        NOW,
+    );
+    assert_eq!(closes_of(&closing, "st"), [relay::CloseMode::Graceful]);
+    // The socket is still closing when the owner is revoked: with no connection left to close,
+    // only the close in progress can be found, and it is forced before the answer.
+    let revoked = send(
+        &mut engine,
+        json!({ "type": "revoke", "id": "r", "issued": 2, "device": "d1" }),
+        &[],
+        NOW,
+    );
+    let close = revoked.iter().position(|e| {
+        matches!(e, Effect::Relay(RelayEffect::Close { stream, mode }) if stream == "st" && *mode == relay::CloseMode::Forced)
+    });
+    let answer = revoked
+        .iter()
+        .position(|e| matches!(e, Effect::Priority(FromMedia::Revoked { .. })));
+    assert!(matches!((close, answer), (Some(c), Some(a)) if c < a));
+    // Once the shell says the socket is gone, there is nothing left to force.
+    engine.relay_closed(&sid("st"));
+    let later = send(
+        &mut engine,
+        json!({ "type": "revoke", "id": "r2", "issued": 3, "device": "d1" }),
+        &[],
+        NOW,
+    );
+    assert!(closes_of(&later, "st").is_empty());
+}
+
+#[test]
+fn a_second_close_of_a_stream_still_closing_reaches_the_shell_to_join_it() {
+    let mut engine = engine();
+    dial(&mut engine, "st");
+    engine.relay_dialed(&sid("st"));
+    hand_over(&mut engine, "st", 1);
+    send(
+        &mut engine,
+        json!({ "type": "relay.close", "id": "x", "stream": "st", "reason": "handover" }),
+        &[],
+        NOW,
+    );
+    let again = send(
+        &mut engine,
+        json!({ "type": "connection.close", "id": "k", "connection": "rc", "reason": "session" }),
+        &[],
+        NOW,
+    );
+    assert_eq!(closes_of(&again, "st"), [relay::CloseMode::Graceful]);
+}

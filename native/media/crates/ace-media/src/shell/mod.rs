@@ -15,6 +15,8 @@ mod pipe;
 mod priority_gate;
 mod readers;
 mod relay;
+#[cfg(test)]
+mod relay_close_tests;
 mod relay_sockets;
 #[cfg(test)]
 mod relay_tests;
@@ -373,6 +375,8 @@ async fn serve(
                         now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
+                    // Relay closes finish (what they owe the relay, then the socket) first.
+                    let _ = tokio::time::timeout(STDIN_GRACE, relays.settled()).await;
                     break EXIT_OK;
                 }
             },
@@ -429,6 +433,7 @@ async fn serve(
                         gate.settle();
                     }
                 }
+                relay::RelayEvent::Closed { stream } => engine.relay_closed(&stream),
                 relay::RelayEvent::Frame { stream, frame } => {
                     engine.relay_frame(&stream, frame, clock.now())
                 }
@@ -482,6 +487,8 @@ async fn serve(
                 engine.finish();
                 apply(&mut engine, &mut outputs);
                 let half = grace / 2;
+                // Relay closes finish within the budget, before the lanes close.
+                let _ = tokio::time::timeout(half, relays.settled()).await;
                 if let Some(priority) = priority_out.take() {
                     priority.close(half).await;
                 }

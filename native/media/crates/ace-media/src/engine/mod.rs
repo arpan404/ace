@@ -744,6 +744,11 @@ impl Engine {
         self.closed_connections(now);
     }
 
+    /// A relay stream's socket is gone (the shell's close finished).
+    pub fn relay_closed(&mut self, stream: &Id) {
+        self.grants.relay_closed(stream.get());
+    }
+
     /// One message to a relay connection's client (D1's delivery): false when it can't go now.
     pub fn relay_send(&mut self, connection: &str, binary: bool, data: &[u8]) -> bool {
         let kind = if binary {

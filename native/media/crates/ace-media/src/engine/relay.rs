@@ -8,6 +8,7 @@
 use media_noise::{
     CREDIT_FLAG, FragmentKind, Fragments, MessageAssembler, RelayStream, fragment_cost, read_credit,
 };
+use media_wire::control::Owner;
 use media_wire::media_link::ClientMessage;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -230,14 +231,19 @@ pub enum Broken {
 /// A stream with its keys installed.
 pub struct Keyed {
     pub connection: String,
+    /// Whose stream it is, as granted: a revocation covering them reaches it even mid-close.
+    pub owner: Owner,
+    pub issued: u64,
     pub transport: RelayStream,
     assembler: MessageAssembler,
 }
 
 impl Keyed {
-    pub fn new(connection: String, transport: RelayStream) -> Self {
+    pub fn new(connection: String, owner: Owner, issued: u64, transport: RelayStream) -> Self {
         Self {
             connection,
+            owner,
+            issued,
             transport,
             assembler: MessageAssembler::default(),
         }

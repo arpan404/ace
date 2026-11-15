@@ -7,12 +7,15 @@
 use super::relay_tls::{Tls, pump_tls};
 use super::relay_ws::{self, Masks, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG, Parse};
 use crate::engine::relay::{CloseMode, Pool};
+use crate::os::SocketHandle;
 use media_wire::control::Id;
 use std::io::IoSlice;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::sync::Notify;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -38,6 +41,10 @@ pub enum RelayEvent {
         stream: Id,
         reason: &'static str,
     },
+    /// A close finished: the stream's socket is gone.
+    Closed {
+        stream: Id,
+    },
 }
 
 pub(super) enum Out {
@@ -47,11 +54,17 @@ pub(super) enum Out {
     Close,
 }
 
-/// One dialed stream's socket tasks, the writer first; dropping it aborts them, which closes
-/// the socket with a reset (relay sockets keep a zero linger unless closed gracefully).
+/// One dialed stream's socket: its tasks, the writer first, and a second handle on the socket
+/// that makes the final close. Dropping it aborts the tasks; the socket then closes with a reset
+/// (relay sockets keep a zero linger unless a graceful close turned it off).
 pub struct Socket {
     tx: mpsc::Sender<Out>,
     tasks: Vec<JoinHandle<()>>,
+    handle: Option<SocketHandle>,
+    /// Held by every task that owns the socket: none left means none is running (read by
+    /// tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    alive: Weak<()>,
 }
 
 impl Socket {
@@ -66,26 +79,59 @@ impl Socket {
             })
     }
 
-    /// Shuts the socket. Resolves once every task that owns it has ended, so the socket is
-    /// closed: gracefully within `GRACE`, then forced.
-    pub(super) async fn shut(mut self, mode: CloseMode) {
+    /// Whether a task that owns the socket is still running (tests).
+    #[cfg(test)]
+    pub(super) fn alive(&self) -> Weak<()> {
+        self.alive.clone()
+    }
+
+    /// Aborts the writer alone, as a close that finished too early would (tests).
+    #[cfg(test)]
+    pub(super) fn abort_writer(&self) {
+        if let Some(writer) = self.tasks.first() {
+            writer.abort();
+        }
+    }
+
+    /// Shuts the socket. Resolves once every task that owns it has ended and the socket is
+    /// closed. A graceful close sends what is queued and the WebSocket close, within `GRACE`;
+    /// past it, or once `force` is notified (a revocation reaching a close in progress), the
+    /// close is forced. Only a graceful close that completed ends without a reset.
+    pub(super) async fn shut(mut self, mode: CloseMode, force: Arc<Notify>) {
         let mut tasks = std::mem::take(&mut self.tasks);
+        let mut finished = false;
         if mode == CloseMode::Graceful && self.tx.try_send(Out::Close).is_ok() {
             let deadline = tokio::time::Instant::now() + GRACE;
+            let forced = force.notified();
+            tokio::pin!(forced);
             // The writer delivers what it has and the close, then each task ends as the relay
             // closes its side.
             while let Some(task) = tasks.first_mut() {
-                if tokio::time::timeout_at(deadline, task).await.is_err() {
-                    break;
+                tokio::select! {
+                    biased;
+                    () = &mut forced => break,
+                    ended = tokio::time::timeout_at(deadline, task) => {
+                        if ended.is_err() {
+                            break;
+                        }
+                        tasks.remove(0);
+                    }
                 }
-                tasks.remove(0);
             }
+            finished = tasks.is_empty();
         }
         for task in &tasks {
             task.abort();
         }
         for task in tasks {
             let _ = task.await;
+        }
+        // Every task is gone: nothing else can turn the linger back off before the close.
+        if let Some(handle) = self.handle.take() {
+            if !finished {
+                handle.reset_on_close();
+            }
+            drop(handle);
         }
     }
 }
@@ -101,8 +147,8 @@ impl Drop for Socket {
 /// A dialed socket, upgraded: plain TCP halves, or a TLS connection; either with the frame bytes
 /// read past the upgrade response.
 pub(super) enum Opened {
-    Plain(OwnedReadHalf, OwnedWriteHalf, Vec<u8>),
-    Tls(Box<Tls>, Vec<u8>),
+    Plain(OwnedReadHalf, OwnedWriteHalf, Vec<u8>, Option<SocketHandle>),
+    Tls(Box<Tls>, Vec<u8>, Option<SocketHandle>),
 }
 
 /// TCP connect, TLS for `wss://`, and the upgrade. The error is the `relay.failed` reason.
@@ -115,6 +161,7 @@ pub(super) async fn open(url: &str) -> Result<Opened, &'static str> {
     // nothing it had queued in the kernel reaches the relay. Only `Out::Close` turns it off.
     stream.set_zero_linger().map_err(|_| "dial")?;
     stream.set_nodelay(true).map_err(|_| "dial")?;
+    let handle = SocketHandle::of(&stream);
     let key = relay_ws::key();
     let request = relay_ws::request(&address, &key);
     let mut head = Vec::with_capacity(1024);
@@ -136,7 +183,7 @@ pub(super) async fn open(url: &str) -> Result<Opened, &'static str> {
                 }
             };
             accept(&head, end, &key)?;
-            Ok(Opened::Tls(Box::new(tls), head.split_off(end)))
+            Ok(Opened::Tls(Box::new(tls), head.split_off(end), handle))
         }
         None => {
             let (mut read, mut write) = stream.into_split();
@@ -155,7 +202,7 @@ pub(super) async fn open(url: &str) -> Result<Opened, &'static str> {
                 }
             };
             accept(&head, end, &key)?;
-            Ok(Opened::Plain(read, write, head.split_off(end)))
+            Ok(Opened::Plain(read, write, head.split_off(end), handle))
         }
     }
 }
@@ -181,14 +228,22 @@ pub(super) fn spawn_tls(
     stream: Id,
     tls: Box<Tls>,
     leftover: Vec<u8>,
+    handle: Option<SocketHandle>,
     events: mpsc::Sender<RelayEvent>,
     pool: Pool,
 ) -> Socket {
     let (tx, rx) = mpsc::channel(WRITE_QUEUE);
-    let task = tokio::spawn(pump_tls(stream, tls, leftover, rx, events, pool));
+    let token = Arc::new(());
+    let alive = Arc::downgrade(&token);
+    let task = tokio::spawn(async move {
+        let _token = token;
+        pump_tls(stream, tls, leftover, rx, events, pool).await;
+    });
     Socket {
         tx,
         tasks: vec![task],
+        handle,
+        alive,
     }
 }
 
@@ -197,21 +252,31 @@ pub(super) fn spawn(
     read: OwnedReadHalf,
     write: OwnedWriteHalf,
     leftover: Vec<u8>,
+    handle: Option<SocketHandle>,
     events: mpsc::Sender<RelayEvent>,
     pool: Pool,
 ) -> Socket {
     let (tx, rx) = mpsc::channel(WRITE_QUEUE);
-    let writer = tokio::spawn(write_frames(
-        stream.clone(),
-        write,
-        rx,
-        events.clone(),
-        pool,
-    ));
-    let reader = tokio::spawn(read_frames(stream, read, leftover, tx.clone(), events));
+    let token = Arc::new(());
+    let alive = Arc::downgrade(&token);
+    let writing = token.clone();
+    let writer = tokio::spawn({
+        let (stream, events) = (stream.clone(), events.clone());
+        async move {
+            let _token = writing;
+            write_frames(stream, write, rx, events, pool).await;
+        }
+    });
+    let pongs = tx.clone();
+    let reader = tokio::spawn(async move {
+        let _token = token;
+        read_frames(stream, read, leftover, pongs, events).await;
+    });
     Socket {
         tx,
         tasks: vec![writer, reader],
+        handle,
+        alive,
     }
 }
 

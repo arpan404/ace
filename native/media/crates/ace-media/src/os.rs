@@ -160,6 +160,56 @@ pub fn rss_bytes() -> u64 {
     }
 }
 
+/// A second handle on a relay socket (a duplicate of its descriptor): the socket's final close is
+/// this handle's, after every task using the socket has ended, so nothing else can change how it
+/// closes in between.
+pub struct SocketHandle {
+    #[cfg(unix)]
+    fd: std::os::fd::OwnedFd,
+}
+
+impl SocketHandle {
+    pub fn of(stream: &tokio::net::TcpStream) -> Option<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsFd;
+            stream
+                .as_fd()
+                .try_clone_to_owned()
+                .ok()
+                .map(|fd| Self { fd })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = stream;
+            Some(Self {})
+        }
+    }
+
+    /// The final close resets the connection (`SO_LINGER` on, zero seconds): nothing the kernel
+    /// still holds for the peer is sent.
+    pub fn reset_on_close(&self) {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let linger = libc::linger {
+                l_onoff: 1,
+                l_linger: 0,
+            };
+            // SAFETY: a valid descriptor and a linger struct of the size given.
+            unsafe {
+                libc::setsockopt(
+                    self.fd.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_LINGER,
+                    (&raw const linger).cast(),
+                    std::mem::size_of::<libc::linger>() as libc::socklen_t,
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(unix)]
