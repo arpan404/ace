@@ -2372,6 +2372,14 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`, and
       FIN, within 100 ms before it is forced.
     - **Forced** (a revocation, a protocol or transport break, a backlog, failed keys): resets
       at once. The zero linger is installed right after connect, before anything can fail.
+  - A close stays registered until its socket is gone. A later close joins it, and a forced one
+    (a revocation) escalates a graceful close in progress. The engine keeps closing streams with
+    their owners until the shell reports them closed, so a revocation or a connection close
+    still reaches them.
+  - Each socket keeps a second handle on its descriptor that makes the final close, after every
+    task has ended. It resets unless a graceful close completed, so a graceful close that runs
+    out of time resets too.
+  - Shutdown waits for closes in progress, within its budget.
   - A priority gate (`shell/priority_gate.rs`) holds each answer only for the closes its own
     message made. It is released once every task that owned those sockets has ended, so
     `revoked` and `closed` say what they mean. An answer with no closes (an epoch ack) goes at
