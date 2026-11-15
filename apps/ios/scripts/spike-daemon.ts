@@ -29,6 +29,7 @@ import {
   seedBrowser,
 } from "./spike-browser.ts";
 import { spikePoster } from "./spike-poster.ts";
+import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
@@ -143,6 +144,8 @@ const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
 const degraded = degradedBrowser(process.env.ACE_IOS_SPIKE_DEGRADED === "1");
 /** `ACE_IOS_SPIKE_POSTER=1`: browser subscribes bring a poster; `hold` also holds video back. */
 const poster = spikePoster(daemon, process.env.ACE_IOS_SPIKE_POSTER);
+/** `ACE_IOS_SPIKE_MEDIA=1`: ace-media's media listener, played on this port (`spike-media.ts`). */
+const media = spikeMedia(port, process.env.ACE_IOS_SPIKE_MEDIA === "1");
 if (Number.isSafeInteger(streamed) && streamed > 0)
   daemon.apply("ios-stream", [
     facts.stream(
@@ -320,7 +323,7 @@ let fresh = 0;
 let works = 0;
 let naps = 0;
 
-const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
+const connections = new Map<ServerWebSocket<SpikeSocketData>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
 let deltas = streamed > 0 ? streamed : 0;
 let commands = 0;
@@ -354,7 +357,7 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
   });
 }
 const lostReceipt = new LostReceipt();
-const server = Bun.serve<undefined>({
+const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
   async fetch(request, listener) {
@@ -511,11 +514,25 @@ const server = Bun.serve<undefined>({
           threadId: ThreadId.parse(new URL(request.url).searchParams.get("thread") ?? "ios-stream"),
         }),
       );
-    if (online && listener.upgrade(request)) return;
+    const mediaReply = media.control(request);
+    if (mediaReply) return mediaReply;
+    if (path === "/media")
+      return listener.upgrade(request, { data: { media: true } })
+        ? undefined
+        : new Response("No", { status: 400 });
+    if (online && listener.upgrade(request, { data: {} })) return;
     return new Response("Unavailable", { status: 503 });
   },
   websocket: {
     open(socket) {
+      if (socket.data?.media) return;
+      const main: PhoneMain = {
+        send: (text) => socket.send(text),
+        forward: (text) => connections.get(socket)?.receive(text),
+      };
+      socket.data = { main };
+      // Pieces for a thread delivered on the media connection, held with the rest for a poster.
+      const toMedia = poster.gate((bytes) => media.socketFor(main)?.send(bytes));
       connections.set(
         socket,
         daemon.connect({
@@ -527,7 +544,7 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of socketFrames(poster.rewrite(degraded(text)))) {
+            for (const frame of socketFrames(poster.rewrite(media.toPhone(main, degraded(text))))) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }
@@ -536,11 +553,16 @@ const server = Bun.serve<undefined>({
           binary: realVideo(
             daemon,
             poster.gate((bytes) => socket.send(bytes)),
+            (threadId) => (media.route(main, threadId) ? toMedia : undefined),
           ),
         }),
       );
     },
     message(socket, data) {
+      if (socket.data?.media)
+        return media.message(socket, typeof data === "string" ? data : new Uint8Array(data));
+      const main = socket.data?.main;
+      if (typeof data === "string" && main && media.fromPhone(main, data)) return;
       if (typeof data === "string") {
         if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
@@ -551,6 +573,8 @@ const server = Bun.serve<undefined>({
       }
     },
     close(socket) {
+      if (socket.data?.media) return media.close(socket);
+      if (socket.data?.main) media.mainClosed(socket.data.main);
       featureClosed(socket);
       connections.get(socket)?.close();
       connections.delete(socket);

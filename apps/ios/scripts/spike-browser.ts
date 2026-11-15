@@ -228,6 +228,8 @@ export function answerScreenshot(
 export function realVideo(
   daemon: FakeDaemon,
   send: (bytes: Uint8Array) => void,
+  /** Where a thread's video goes instead, when it has a media connection (`spike-media.ts`). */
+  route: (threadId: string) => ((bytes: Uint8Array) => void) | undefined = () => undefined,
 ): (bytes: Uint8Array) => void {
   const assembler = new StreamAssembler();
   let streams = 0;
@@ -240,6 +242,7 @@ export function realVideo(
       return;
     }
     const { threadId, chunk } = message;
+    const out = route(threadId) ?? send;
     const video = encoded(chunk.width, chunk.height, title(daemon, threadId));
     for (const piece of encodeBrowserVideo(
       ++streams,
@@ -253,7 +256,7 @@ export function realVideo(
       },
       video.sample,
     ))
-      send(piece);
+      out(piece);
   };
 }
 

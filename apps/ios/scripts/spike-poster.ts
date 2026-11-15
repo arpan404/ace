@@ -49,7 +49,11 @@ export function spikePoster(daemon: FakeDaemon, mode: string | undefined): Spike
     },
     rewrite(text) {
       if (!enabled || !text.includes('"browser.result"')) return text;
-      const message = JSON.parse(text) as { requestId?: string; ok?: boolean };
+      const message = JSON.parse(text) as {
+        requestId?: string;
+        ok?: boolean;
+        media?: { connection?: string };
+      };
       const subscribe = message.requestId ? asked.get(message.requestId) : undefined;
       if (!subscribe || message.ok !== true) return text;
       asked.delete(message.requestId ?? "");
@@ -61,7 +65,9 @@ export function spikePoster(daemon: FakeDaemon, mode: string | undefined): Spike
       ).toString("base64");
       if (jpeg.length > maxBase64) throw new Error(`The fixture's poster is ${jpeg.length} bytes`);
       const poster = { width: subscribe.width * 2, height: subscribe.height * 2, jpeg };
-      return JSON.stringify({ ...message, media: { connection, poster } });
+      // A subscribe bound to a media connection keeps naming it (`spike-media.ts`).
+      const named = message.media?.connection ?? connection;
+      return JSON.stringify({ ...message, media: { connection: named, poster } });
     },
     gate(send) {
       const pieces: Uint8Array[] = [];
