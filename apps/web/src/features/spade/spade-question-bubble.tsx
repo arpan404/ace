@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn.ts";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { QuestionInputs } from "./spade-question-inputs.tsx";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
-import { CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
+import { cardKeyHint, CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
 
 type Card = Extract<SpadeBubble, { kind: "question" }>;
 
@@ -26,8 +26,8 @@ export const questionAnchor = (callId: string) => `[data-question="${CSS.escape(
  * A card of questions the bot asks (ADR 0154), where it asked. Waiting on the person it is
  * raised: one question at a time (‹ 1/2 › between them, answers kept across them), Answer later
  * and Never mind on the left, and Next, or Send on the last, on the right. Left for later it
- * folds to one line with Answer, which opens it again; so does reaching it from "questions for
- * later". Answered, dismissed or closed, it settles flat into a bubble with the answers in it. A
+ * folds to one line with Answer, which opens it again (Answer later folds it back); so does
+ * reaching it from "questions for later". Answered, dismissed or closed, it settles flat into a bubble with the answers in it. A
  * refusal (a rule a draft broke, or a card no longer open) reads under the question it names.
  */
 export function SpadeQuestionBubble(props: {
@@ -69,7 +69,16 @@ export function SpadeQuestionBubble(props: {
       </div>
     );
   if (item.standing === "waiting" || item.standing === "deferred")
-    return <OpenCard item={item} label={label} focus={opened} onReply={props.onReply} />;
+    return (
+      <OpenCard
+        item={item}
+        label={label}
+        focus={opened}
+        // Opened again from its line, Answer later folds it back; it is for later already.
+        onFold={item.standing === "deferred" ? () => setOpened(false) : undefined}
+        onReply={props.onReply}
+      />
+    );
   return <SettledCard item={item} label={label} />;
 }
 
@@ -78,6 +87,8 @@ function OpenCard(props: {
   label: string;
   /** Opened again from its folded line: focus moves into it, its inputs ready. */
   focus: boolean;
+  /** Fold it back to its line (a card already for later). */
+  onFold: (() => void) | undefined;
   onReply(callId: string, reply: QuestionReply): Promise<string | undefined>;
 }) {
   const { item } = props;
@@ -198,12 +209,12 @@ function OpenCard(props: {
       <CardFooter
         start={
           <>
-            {item.standing === "waiting" && (
+            {(item.standing === "waiting" || props.onFold) && (
               <Button
                 size="sm"
                 variant="ghost"
                 disabled={sending !== undefined}
-                onClick={() => reply("defer", { defer: true })}
+                onClick={() => (props.onFold ? props.onFold() : reply("defer", { defer: true }))}
               >
                 Answer later
               </Button>
@@ -228,7 +239,13 @@ function OpenCard(props: {
               onClick={() => send()}
             >
               {sending === "send" ? "Sending…" : "Send"}
-              <Kbd aria-hidden keys="mod+enter" resolve={false} variant="on-primary" className="ml-1.5" />
+              <Kbd
+                aria-hidden
+                keys="mod+enter"
+                resolve={false}
+                variant="on-primary"
+                className={cardKeyHint}
+              />
             </Button>
           ) : (
             <Button size="sm" variant="primary" onClick={advance}>

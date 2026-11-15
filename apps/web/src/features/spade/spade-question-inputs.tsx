@@ -9,7 +9,7 @@ const optionRow =
   "flex min-h-8 w-full min-w-0 items-start gap-3 rounded-md px-2 py-1.5 text-left text-base leading-5 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover pointer-coarse:min-h-11 pointer-coarse:items-center";
 
 /** A field in the card: one line in the card's well, at the answers' size. */
-const well = "bg-chat-well text-base";
+const well = "bg-chat-well text-base shadow-[inset_0_0_0_1px_var(--border-strong)]";
 
 /** An option's digit key, at the row's end. */
 function DigitKey(props: { digit: string | undefined }) {
@@ -101,6 +101,8 @@ export function QuestionInputs(props: {
                 checked={on}
                 disabled={disabled}
                 onCheckedChange={() => toggle(option.label)}
+                // The same size and edge as a pick-one option's circle.
+                className="size-4 shadow-[inset_0_0_0_1.5px_var(--border-strong)]"
               />
             </span>
             {words}

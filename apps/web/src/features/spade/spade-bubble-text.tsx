@@ -14,7 +14,7 @@ export const SpadeBubbleText = memo(function SpadeBubbleText(props: { text: stri
         block.kind === "code" ? (
           <pre
             key={index}
-            className="no-scrollbar overflow-x-auto rounded-md bg-code px-2.5 py-2 font-mono text-ui leading-normal shadow-[inset_0_0_0_1px_var(--border)]"
+            className="no-scrollbar overflow-x-auto rounded-lg bg-chat-well px-3 py-2 font-mono text-ui leading-5"
           >
             <code>{block.text}</code>
           </pre>
@@ -59,7 +59,7 @@ function Inlines(props: { inlines: readonly SpadeInline[] }) {
         );
       case "code":
         return (
-          <code key={index} className="rounded-xs bg-fill-strong px-1 font-mono text-ui">
+          <code key={index} className="rounded-xs bg-chat-well px-1 font-mono text-[0.92em]">
             {inline.text}
           </code>
         );

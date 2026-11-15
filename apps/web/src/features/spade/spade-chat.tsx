@@ -236,11 +236,15 @@ const Row = memo(function Row(props: {
     const avatar = other
       ? (bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id))
       : bot.avatar;
+    // The run's finished words, for Read aloud on its time line.
+    const spoken = row.items
+      .flatMap((item) => (item.kind === "bot" && item.text && !item.live ? [item.text] : []))
+      .join("\n\n");
     return (
       <div
         role="article"
         aria-label={other ? other.name : bot.name}
-        className={cn("grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2", space)}
+        className={cn("group/reply grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2", space)}
       >
         <div className={cn(other ? "pt-5" : "pt-1")}>
           <SpadeFace avatar={avatar} size={28} state={other ? "idle" : props.face} />
@@ -253,10 +257,15 @@ const Row = memo(function Row(props: {
             <RunItem key={item.key} item={item} bot={bot} handlers={props.handlers} />
           ))}
         </div>
-        {row.time && (
-          <span className="col-start-2 mt-1 pl-1 text-xs leading-4 text-subtle-foreground tabular-nums">
-            {row.time}
-          </span>
+        {(row.time || spoken) && (
+          <div className="col-start-2 mt-1 flex h-4 items-center gap-1 pl-1">
+            {row.time && (
+              <span className="text-xs leading-4 text-subtle-foreground tabular-nums">
+                {row.time}
+              </span>
+            )}
+            {spoken && <ReadAloud text={spoken} />}
+          </div>
         )}
       </div>
     );
@@ -277,7 +286,7 @@ function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers 
         </>
       );
       return (
-        <div className="group/reply flex w-full min-w-0 flex-col items-start gap-1">
+        <div className="flex w-full min-w-0 flex-col items-start gap-1">
           {words ? (
             <div className={botBubble}>
               {item.text && <SpadeBubbleText text={item.text} />}
@@ -305,7 +314,6 @@ function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers 
           )}
           {/* What its tools showed the person, after its words (ADR 0134). */}
           {words && media}
-          {item.text && !item.live && <ReadAloud text={item.text} />}
           {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
         </div>
       );

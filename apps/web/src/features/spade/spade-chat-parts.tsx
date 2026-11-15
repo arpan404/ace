@@ -103,9 +103,10 @@ export function WorkingLine(props: {
 }
 
 /**
- * Under a bot's bubble, shown on hover or focus: Read aloud, which reads the reply in the
- * system's voice and becomes Stop reading while it speaks. Nothing where the system can't speak.
- * Leaving the chat (or moving to another bot's) stops it: the reading belongs to this bubble.
+ * On a run's time line, shown while the run is hovered or focused: Read aloud, which reads the
+ * run's words in the system's voice and becomes Stop reading while it speaks. It takes no room
+ * of its own. Nothing where the system can't speak. Leaving the chat (or moving to another
+ * bot's) stops it: the reading belongs to this run.
  */
 export function ReadAloud(props: { text: string }) {
   const key = useId();
@@ -115,7 +116,7 @@ export function ReadAloud(props: { text: string }) {
   return (
     <div
       className={cn(
-        "-mx-2 -mt-0.5 flex transition-opacity duration-(--motion-fast)",
+        "-my-1 flex transition-opacity duration-(--motion-fast)",
         !reading &&
           "opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100",
       )}

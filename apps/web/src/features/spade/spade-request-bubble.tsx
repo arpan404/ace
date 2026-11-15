@@ -11,14 +11,14 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
+import { cardKeyHint, CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
 const code =
-  "no-scrollbar overflow-auto rounded-lg bg-chat-well px-3 py-2 font-mono text-ui leading-5 whitespace-pre-wrap break-all";
+  "no-scrollbar overflow-auto rounded-lg bg-chat-well px-3 py-2 font-mono text-ui leading-5 whitespace-pre-wrap wrap-anywhere";
 /** Past this much the detail folds to a few lines, with Show all to open it in place. */
 const longChars = 280;
 const longLines = 6;
@@ -122,7 +122,13 @@ export function SpadeRequestBubble(props: {
             onClick={() => answer("allow")}
           >
             {answering === "allow" ? "Allowing…" : "Allow"}
-            <Kbd aria-hidden keys="enter" resolve={false} variant="on-primary" className="ml-1.5" />
+            <Kbd
+              aria-hidden
+              keys="enter"
+              resolve={false}
+              variant="on-primary"
+              className={cardKeyHint}
+            />
           </Button>
         }
       />
@@ -140,7 +146,7 @@ function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
   const command = card.detail?.kind === "command" ? card.detail.command : undefined;
   const what = command ?? card.sentence.replace(/\.$/, "");
   return (
-    <div role="group" aria-label={props.label} className={cn(quietBubble, "max-w-full")}>
+    <div role="group" aria-label={props.label} className={quietBubble}>
       <button
         type="button"
         aria-expanded={shown}
@@ -148,14 +154,17 @@ function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
         className="-mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-baseline gap-2 rounded-sm px-1 text-left text-ui leading-5 focus-ring"
       >
         <span className="shrink-0 font-medium text-foreground">{answered(props.item)}</span>
-        <span
-          className={cn(
-            "min-w-0 truncate",
-            command ? "font-mono text-xs text-subtle-foreground" : "text-muted-foreground",
-          )}
-        >
-          {what.split("\n")[0]}
-        </span>
+        {/* Open, the whole request reads below instead. */}
+        {!shown && (
+          <span
+            className={cn(
+              "min-w-0 truncate",
+              command ? "font-mono text-xs text-subtle-foreground" : "text-muted-foreground",
+            )}
+          >
+            {what.split("\n")[0]}
+          </span>
+        )}
       </button>
       {shown && (
         <div className="mt-1.5 flex flex-col gap-2 text-ui">

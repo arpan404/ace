@@ -134,7 +134,7 @@ test("a lone yes-or-no question is answered by Yes or No", async () => {
   expect(settled.getByText("Yes")).toBeTruthy();
 });
 
-test("Answer later folds the card to one line, the header counts its questions, and reaching it opens it again", async () => {
+test("Answer later folds the card to one line, the header counts its questions, and reaching it opens it again until folded back", async () => {
   const { spade } = await spadeApp("/spade/travel", (api) =>
     api.card(travel(api), "q1", seatAndNights),
   );
@@ -148,8 +148,14 @@ test("Answer later folds the card to one line, the header counts its questions, 
   const later = await screen.findByRole("button", { name: "2 questions for later" });
   await userEvent.click(later);
   await waitFor(() => expect(document.activeElement?.getAttribute("data-question")).toBe("q1"));
+  // Answer later folds it back to its line, asking Spade nothing more; Answer opens it again.
+  await userEvent.click(
+    (await card("Travel asks 2 questions")).getByRole("button", { name: "Answer later" }),
+  );
+  const refolded = await cardWith("Travel asks 2 questions", "For later · 2 questions");
+  expect(spade.sent("POST", path)).toEqual([{ defer: true }]);
+  await userEvent.click(refolded.getByRole("button", { name: "Answer" }));
   const reopened = await card("Travel asks 2 questions");
-  expect(reopened.queryByRole("button", { name: "Answer later" })).toBeNull();
   await userEvent.click(reopened.getByRole("radio", { name: "Window" }));
   await userEvent.click(reopened.getByRole("button", { name: "Next" }));
   await userEvent.type(reopened.getByRole("spinbutton", { name: "How many nights?" }), "2");

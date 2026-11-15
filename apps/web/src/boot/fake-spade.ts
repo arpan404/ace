@@ -1,4 +1,5 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
+import { seedFakeCards } from "./fake-spade-cards.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -476,6 +477,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     "Budget: under €220 return",
   ])
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
+
+  seedFakeCards(here);
 
   const remote = running(server);
   remote.addAgent({
