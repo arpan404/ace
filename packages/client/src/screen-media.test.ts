@@ -67,14 +67,42 @@ function fakeRoute(initial: string | undefined) {
   };
 }
 
-function harness() {
+/** How the daemon answers a subscribe naming a connection: binds it, serves it here, or refuses. */
+type Daemon = "binds" | "serves here" | "refuses" | "answers later";
+
+function harness(daemon: Daemon = "binds") {
   const sent: unknown[] = [];
   let events: Parameters<Parameters<ScreenStreamClient["connect"]>[0]["open"]>[0] | undefined;
   let ids = 0;
   const client = new ScreenStreamClient({ id: () => `r${++ids}`, schedule: () => () => {} });
   client.connect({
     open: (handlers) => void (events = handlers),
-    send: (message) => void sent.push(message),
+    send: (message) => {
+      sent.push(message);
+      if (message.type !== "screen.request" || message.operation.op !== "subscribe") return;
+      if (daemon === "answers later") return;
+      const { requestId, operation } = message;
+      const named = operation.media;
+      queueMicrotask(() =>
+        server(
+          ServerMessage.parse(
+            named && daemon === "refuses"
+              ? {
+                  type: "screen.result",
+                  requestId,
+                  ok: false,
+                  error: "media-connection: that media connection isn't this session's",
+                }
+              : {
+                  type: "screen.result",
+                  requestId,
+                  ok: true,
+                  ...(named && daemon === "binds" ? { media: { connection: named.connection } } : {}),
+                },
+          ),
+        ),
+      );
+    },
     close: () => {},
   });
   events!.ready();
@@ -173,8 +201,32 @@ describe("screen pictures by the media connection", () => {
     });
   });
 
+  it("keeps acks on the channel when the daemon serves the stream there itself", async () => {
+    const { client, sent, server, drawn } = harness("serves here");
+    const media = fakeRoute("mc_aaaaaaaaaa");
+    client.useMedia(media.route);
+    client.retainStream("app");
+    await flush();
+    for (const piece of picture(5, "avc1.42E033")) server(piece);
+    await flush();
+    client.ack(drawn[0]!);
+    expect(media.acks).toEqual([]);
+    expect(sent.at(-1)).toMatchObject({ type: "screen.ack", sequence: 5 });
+  });
+
+  it("subscribes on the channel when the daemon refuses the connection", async () => {
+    const { client, sent } = harness("refuses");
+    client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);
+    client.retainStream("app");
+    await flush();
+    expect(subscribes(sent).map((s) => ("media" in s ? s.media : undefined))).toEqual([
+      { connection: "mc_aaaaaaaaaa" },
+      undefined,
+    ]);
+  });
+
   it("keeps the poster a media subscribe brings back", async () => {
-    const { client, sent, server } = harness();
+    const { client, sent, server } = harness("answers later");
     client.useMedia(fakeRoute("mc_aaaaaaaaaa").route);
     client.retainStream("app");
     await flush();

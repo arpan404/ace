@@ -259,7 +259,10 @@ export class ScreenStreamClient {
   private readonly streams = new SharedStreams();
   private subscribe(sessionId: string): void {
     void this.request({ op: "subscribe", sessionId, ...this.media.fields(sessionId) }).catch(
-      () => {},
+      (error: unknown) => {
+        // A connection the daemon won't bind here: the stream goes on this channel instead.
+        if (this.media.refused(sessionId, error)) this.subscribe(sessionId);
+      },
     );
   }
   /**
@@ -309,7 +312,7 @@ export class ScreenStreamClient {
       request.cancel();
       if (!frame.ok) request.reject(new ScreenClientError(frame));
       else {
-        if (request.subscribe && frame.media) {
+        if (request.subscribe) {
           this.media.subscribed(request.subscribe, frame.media);
           if (this.media.poster(request.subscribe)) this.publish({ ...this.snapshot });
         }

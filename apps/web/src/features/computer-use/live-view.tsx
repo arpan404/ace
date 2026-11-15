@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
+import { drawPoster } from "@/lib/video/poster.ts";
 import { nextFrame } from "@/lib/next-frame.ts";
 import { later } from "@/lib/later.ts";
 import { pictureRenderer } from "@/lib/video/picture-renderer.ts";
@@ -88,7 +89,8 @@ export function LiveView(props: {
           if (disposed) return;
           // Only a Mac's helper encodes video; elsewhere the view says so rather than show stills.
           const codec = (result as { codec?: unknown } | undefined)?.codec;
-          setNoVideo(codec === "h264" ? undefined : "This computer can't stream video of its apps");
+          const video = codec === "h264" || codec === "hevc";
+          setNoVideo(video ? undefined : "This computer can't stream video of its apps");
         },
         () => {
           configured = "";
@@ -141,6 +143,15 @@ export function LiveView(props: {
     }
     // Another view of this session (Settings and a thread's panel) shares its stream.
     const release = session.retainStream(sessionId);
+    // The subscribe's still shows until the first live picture (ADR 0149).
+    let poster: ReturnType<ScreenSession["poster"]>;
+    const showPoster = () => {
+      const next = session.poster(sessionId);
+      if (next && next !== poster && !disposed) void drawPoster(element, context, next);
+      poster = next;
+    };
+    const stopPoster = session.subscribe(showPoster);
+    showPoster();
     void deviceVideoSupported().then((supported) => {
       decodes = supported;
       if (!supported && !disposed) setNoVideo("This browser can't decode video");
@@ -178,6 +189,7 @@ export function LiveView(props: {
       observer?.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
       unwatch?.();
+      stopPoster();
       renderer.close();
       release();
     };

@@ -25,7 +25,10 @@ const hevc = (sequence: number): StreamMessage => ({
   },
 });
 
-function setup(initial: string | undefined) {
+/** How the daemon answers a subscribe naming a connection. */
+type Daemon = "binds" | "refuses" | "answers later";
+
+function setup(initial: string | undefined, daemon: Daemon = "binds") {
   const sent: DeviceClientMessage[] = [];
   const channelAcks: DeviceAck[] = [];
   let events: DeviceTransportEvents | undefined;
@@ -37,8 +40,32 @@ function setup(initial: string | undefined) {
       next.ready();
     },
     send(message) {
-      if (message.type === "devices.ack") channelAcks.push(message);
-      else sent.push(message);
+      if (message.type === "devices.ack") return void channelAcks.push(message);
+      sent.push(message);
+      if (message.operation.op !== "subscribe" || daemon === "answers later") return;
+      const named = message.operation.media;
+      const { requestId } = message;
+      queueMicrotask(() =>
+        events?.message(
+          named && daemon === "refuses"
+            ? {
+                type: "devices.result",
+                requestId,
+                ok: false,
+                error: {
+                  code: "command_failed",
+                  message: "media-connection: that media connection isn't this session's",
+                  hint: "",
+                },
+              }
+            : {
+                type: "devices.result",
+                requestId,
+                ok: true,
+                ...(named ? { media: { connection: named.connection } } : {}),
+              },
+        ),
+      );
     },
     close() {},
   });
@@ -94,6 +121,7 @@ describe("device pictures by the media connection", () => {
       client.ack(picture);
     });
     client.retainStream(deviceId);
+    await flush();
     expect(subscribes()).toEqual([
       {
         op: "subscribe",
@@ -127,8 +155,18 @@ describe("device pictures by the media connection", () => {
     expect(subscribes()).toEqual([{ op: "subscribe", deviceId }]);
   });
 
+  it("subscribes on the channel when the daemon refuses the connection", async () => {
+    const { client, subscribes } = setup("mc_aaaaaaaaaa", "refuses");
+    client.retainStream(deviceId);
+    await flush();
+    expect(subscribes().map((s) => s.media)).toEqual([
+      { connection: "mc_aaaaaaaaaa" },
+      undefined,
+    ]);
+  });
+
   it("keeps the poster its media subscribe brings back", () => {
-    const { client, sent, receive } = setup("mc_aaaaaaaaaa");
+    const { client, sent, receive } = setup("mc_aaaaaaaaaa", "answers later");
     receive({
       type: "devices.state",
       state: { device, enabled: true, lifecycle: "live", streamId: "s", controller: "none" },

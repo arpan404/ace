@@ -4,6 +4,7 @@ import {
   ScreenStreamClient,
   browserScreenSocket,
   screenTransport,
+  type MediaRoute,
   type ScreenTransport,
 } from "@ace/client/screen-stream";
 import {
@@ -19,6 +20,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { channelEndpoint, throughAccount, type ChannelEndpoint } from "@/boot/main-machine.ts";
+import { mediaFor } from "@/lib/video/media.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -79,6 +81,8 @@ export interface ScreenSession {
   ack: ScreenStreamClient["ack"];
   /** Hold a session's live stream for one view; views of one session share it. */
   retainStream: ScreenStreamClient["retainStream"];
+  /** The still a session's subscribe brought back, shown until its first live picture. */
+  poster: ScreenStreamClient["poster"];
   close(): void;
 }
 
@@ -101,8 +105,14 @@ const accountOnly: ScreenSnapshot = { ...offline, unavailable: true, throughAcco
  * never off then on. Each fact is replaced as soon as the daemon answers it again. Sessions
  * aren't carried over: their pictures need the new channel.
  */
-function openSession(endpoint: ChannelEndpoint, known: ScreenSnapshot = offline): ScreenSession {
+function openSession(
+  endpoint: ChannelEndpoint,
+  known: ScreenSnapshot = offline,
+  media?: MediaRoute,
+): ScreenSession {
   const client = new ScreenStreamClient({ id: () => crypto.randomUUID(), schedule });
+  // Live pictures come by the daemon connection's media connection when it has one.
+  client.useMedia(media);
   const listeners = new Set<() => void>();
   const holders = new Map<string, ScreenAgentScope>();
   let opening = true;
@@ -217,8 +227,10 @@ function openSession(endpoint: ChannelEndpoint, known: ScreenSnapshot = offline)
     watchPictures: (sessionId, draw) => client.watchPictures(sessionId, draw),
     ack: (picture, keyframe) => client.ack(picture, keyframe),
     retainStream: (sessionId) => client.retainStream(sessionId),
+    poster: (sessionId) => client.poster(sessionId),
     close() {
       stop();
+      client.useMedia(undefined);
       client.disconnect();
     },
   };
@@ -229,6 +241,7 @@ const lastKnown = new WeakMap<ChannelEndpoint, ScreenSnapshot>();
 
 interface Shared {
   session: ScreenSession;
+  media: MediaRoute | undefined;
   users: number;
   stop: () => void;
   listeners: Set<() => void>;
@@ -238,8 +251,10 @@ const shared = new WeakMap<ChannelEndpoint, Shared>();
 function acquire(endpoint: ChannelEndpoint, client: ClientApi): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
+    const media = endpoint.kind === "fake" ? undefined : mediaFor(client).route;
     entry = {
-      session: openSession(endpoint, lastKnown.get(endpoint)),
+      session: openSession(endpoint, lastKnown.get(endpoint), media),
+      media,
       users: 0,
       stop: () => {},
       listeners: new Set(),
@@ -271,7 +286,7 @@ function reopen(endpoint: ChannelEndpoint) {
   if (!entry) return;
   const known = entry.session.get();
   entry.session.close();
-  entry.session = openSession(endpoint, known);
+  entry.session = openSession(endpoint, known, entry.media);
   for (const listener of entry.listeners) listener();
 }
 
