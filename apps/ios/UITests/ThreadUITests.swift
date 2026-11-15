@@ -117,6 +117,12 @@ import XCTest
         XCTAssertTrue(strip.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@", "archived 0.x entries")).firstMatch.exists,
             "the strip carries the question")
+        // Only once the transcript has loaded can the question's absence from it mean anything.
+        let transcript = app.scrollViews["transcript"]
+        let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
+        wait(for: [ready], timeout: 25)
+        XCTAssertTrue(app.descendants(matching: .any)["message.user.ios-question.item.3"].waitForExistence(timeout: 10),
+            "the transcript shows the message that asked")
         XCTAssertFalse(app.descendants(matching: .any)["transcript.question"].exists,
             "the transcript doesn't repeat a question that is still asking")
         // Answer opens the question's options in a sheet; picking one lets it be answered.
