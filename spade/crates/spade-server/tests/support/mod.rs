@@ -222,10 +222,15 @@ pub struct Options {
     pub model_retry: Option<spade_server::engine::Retry>,
     /// The real `web_search` over these backends, with Brave's key from the mock keychain.
     pub search: Option<spade_search::SearchConfig>,
-    /// The level new bots start on. `ask` here, so tests of the person's approvals keep asking;
-    /// the access tests choose (ADR 0144).
-    pub new_bot_access: spade_core::autonomy::Access,
+    /// The model that reviews held calls (ADR 0144, 0163). By default [`UNREACHABLE_REVIEWER`], whose
+    /// endpoint refuses every connection: the review can't run, so every held call goes to the
+    /// person and tests of approvals keep their script. `None` reviews on the default model
+    /// (the fake), for the auto-review's own tests.
+    pub reviewer: Option<String>,
 }
+
+/// A reviewer whose endpoint refuses connections (a local port nothing listens on).
+pub const UNREACHABLE_REVIEWER: &str = "unreached/r";
 
 /// A clock a test sets by hand.
 #[derive(Default)]
@@ -327,7 +332,7 @@ impl Default for Options {
             brains: None,
             model_retry: None,
             search: None,
-            new_bot_access: spade_core::autonomy::Access::Ask,
+            reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
         }
     }
 }
@@ -362,7 +367,13 @@ fn catalog(root: &str) -> Result<Catalog> {
                       { "id": "looker", "name": "Looker", "format": "openai-responses",
                         "base_url": "https://looker.example/v1/", "key": {},
                         "models": [{ "id": "look-1", "name": "Look", "capabilities": ["tools", "web-search"],
-                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] }]
+                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] },
+                      // The reviewer tests use unless they test the review: nothing listens.
+                      // Last, so it is never anyone's first usable model.
+                      { "id": "unreached", "name": "Unreached", "format": "openai-chat",
+                        "base_url": "http://127.0.0.1:9/v1/", "key": { "env": "UNREACHED_KEY" },
+                        "models": [{ "id": "r", "name": "R", "capabilities": ["tools"],
+                                     "price": { "input": 0, "output": 0 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -472,7 +483,7 @@ impl Spade {
                     }
                     keychain.get(endpoint).ok().flatten()
                 },
-                |var| (var == "FAKE_KEY").then(|| "fake-key".to_owned()),
+                |var| matches!(var, "FAKE_KEY" | "UNREACHED_KEY").then(|| "fake-key".to_owned()),
             ),
             spade_server::home::VERSION,
         )?;
@@ -582,7 +593,6 @@ impl Spade {
                     first_wait: Duration::from_millis(10),
                     longest: Duration::from_secs(1),
                 }),
-                new_bot_access: options.new_bot_access,
                 ..options.limits
             },
             skills: options.skills,
@@ -628,6 +638,12 @@ impl Spade {
             spade_server::startup::finish(engine.clone(), None, None, options.settle_deadline);
         if options.keychain_delay.is_none() && options.keychain_gate.is_none() {
             finishing.await?;
+            if let Some(reviewer) = &options.reviewer {
+                engine.set_oversight(spade_server::engine::GlobalChange {
+                    review_model: Some(Some(reviewer.clone())),
+                    ..Default::default()
+                })?;
+            }
         }
         Ok(Self {
             base,

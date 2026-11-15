@@ -7,7 +7,7 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
-use spade_core::autonomy::{self, Access, Class, Route, Sensitive};
+use spade_core::autonomy::{self, Class, Route, Sensitive};
 use spade_core::context;
 use spade_core::event::Verdict;
 use spade_core::event::{Call, Known};
@@ -52,7 +52,7 @@ pub(super) async fn handle_calls(
 ) -> Handled {
     let registry = engine.registry_for(id);
     let transcript = Transcript::fold(events);
-    // A helper (ADR 0152) answers to its bot: the bot's access level and "always" answers hold
+    // A helper (ADR 0152) answers to its bot: the bot's "always" answers hold
     // for it, and what it would ask is asked in the bot's conversation.
     let helper = engine.helper_of(id);
     let bot_events = helper
@@ -185,21 +185,13 @@ pub(super) async fn handle_calls(
                         _ => untrusted,
                     };
                     let rule = gate::decide(def.risk, always, tainted);
-                    // The bot's access level (ADR 0144) decides what happens to a call the
-                    // rule gate would ask about: the person, the reviewer, or neither.
-                    // Read now, for this call: a change the person made while earlier calls
-                    // of the step were decided holds from here (ADR 0144).
-                    let access = match (&helper, &bot_events) {
-                        (Some(h), Some(owned)) => engine.level(&h.parent, owned),
-                        _ => engine.level(id, events),
-                    };
+                    // What the rule gate would hold goes to the reviewer (ADR 0144, 0163).
                     // What the call reaches, and the files it runs that the reviewer must read.
                     let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
                     else {
                         return Handled::Stopped;
                     };
                     let route = autonomy::route(autonomy::Call {
-                        access,
                         rule,
                         risk: def.risk,
                         class: classed.class,
@@ -221,25 +213,23 @@ pub(super) async fn handle_calls(
                     let rule_ran = route == Route::Run;
                     let mut decision = match route {
                         Route::Run => Decision::Run,
+                        // The reviewer can't read it whole: the person decides.
                         Route::Ask(reason) => {
-                            if let Some(reason) = &reason {
-                                let escalated = Verdict::Escalate;
-                                match rule_verdict(
-                                    engine,
-                                    id,
-                                    reply,
-                                    events,
-                                    &pending.call,
-                                    &name,
-                                    escalated,
-                                    reason,
-                                ) {
-                                    Ok(true) => {}
-                                    Ok(false) => return Handled::Stopped,
-                                    Err(error) => return Handled::Failed(error.to_string()),
-                                }
+                            match rule_verdict(
+                                engine,
+                                id,
+                                reply,
+                                events,
+                                &pending.call,
+                                &name,
+                                Verdict::Escalate,
+                                &reason,
+                            ) {
+                                Ok(true) => {}
+                                Ok(false) => return Handled::Stopped,
+                                Err(error) => return Handled::Failed(error.to_string()),
                             }
-                            reviewer_reason = reason;
+                            reviewer_reason = Some(reason);
                             Decision::Ask
                         }
                         Route::Refuse(reason) => {
@@ -261,15 +251,15 @@ pub(super) async fn handle_calls(
                             finish_tool(engine, id, reply, &pending.call, &name, refused).await;
                             continue;
                         }
-                        Route::Review => {
+                        Route::Review(concern) => {
                             let def = def.clone();
                             let under = super::autonomy::Under {
                                 call: &pending.call,
                                 name: &name,
                                 arguments: &arguments,
                                 def: &def,
-                                shell: name == "shell",
                                 shown: &classed.shown,
+                                concern: concern.as_deref(),
                             };
                             // An approval is bound to the files as the reviewer read them: the
                             // stored one's, or these when this review is the first.
@@ -301,13 +291,8 @@ pub(super) async fn handle_calls(
                         }
                     };
                     // The model review (ADR 0135) may turn a run into a question, never the
-                    // other way round. Full access has nothing ask; a call the auto-review
-                    // approved was reviewed already.
-                    if rule_ran
-                        && access != Access::FullAccess
-                        && review::reviewed(def.risk, decision)
-                        && engine.review_on(id)
-                    {
+                    // other way round; a call the auto-review approved was reviewed already.
+                    if rule_ran && review::reviewed(def.risk, decision) && engine.review_on(id) {
                         let def = def.clone();
                         match super::review::call(
                             engine,

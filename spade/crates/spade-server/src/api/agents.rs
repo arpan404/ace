@@ -59,7 +59,7 @@ pub(super) struct NewAgent {
     model: Option<String>,
     #[serde(default)]
     avatar: Option<AvatarBody>,
-    /// `ask`, `auto_review` or `full_access` (ADR 0144); the new-bot level when absent.
+    /// Only `auto_review`, Spade's one level (ADR 0163); any other word is refused.
     #[serde(default)]
     access: Option<String>,
     /// The bot's first message, sent as it is made (the new-bot conversation): the bot and the
@@ -108,21 +108,21 @@ pub(super) struct Change {
     model: Option<String>,
     #[serde(default)]
     avatar: Option<AvatarBody>,
-    /// `ask`, `auto_review` or `full_access` (ADR 0144). Holds from the bot's next tool call.
+    /// Only `auto_review`, Spade's one level (ADR 0163); any other word is refused.
     #[serde(default)]
     access: Option<String>,
 }
 
-/// The access level a body names; a word Spade doesn't know is refused.
-fn access(word: Option<&str>) -> Result<Option<Access>, Box<Response>> {
-    match word {
-        None => Ok(None),
-        Some(word) => Access::parse(word).map(Some).ok_or_else(|| {
-            Box::new(problem(
-                StatusCode::BAD_REQUEST,
-                "access must be ask, auto_review or full_access",
-            ))
-        }),
+/// Checks a body's `access`: Spade has one level, so only `auto_review` (or none) is accepted,
+/// and it changes nothing.
+fn access(word: Option<&str>) -> Result<(), Box<Response>> {
+    match word.map(Access::parse) {
+        None | Some(Some(Access::AutoReview)) => Ok(()),
+        Some(None) => Err(Box::new(problem(
+            StatusCode::BAD_REQUEST,
+            "access must be auto_review: Spade reviews every step a bot would need you for, \
+             and the ask and full_access levels were removed",
+        ))),
     }
 }
 
@@ -225,10 +225,9 @@ pub(super) async fn list(State(state): State<AppState>) -> Response {
 }
 
 pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAgent>) -> Response {
-    let level = match access(body.access.as_deref()) {
-        Ok(level) => level,
-        Err(response) => return *response,
-    };
+    if let Err(response) = access(body.access.as_deref()) {
+        return *response;
+    }
     let mut body = body;
     let avatar = match body.avatar.take().map(AvatarBody::input).transpose() {
         Ok(avatar) => avatar,
@@ -251,7 +250,7 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
     }
     // The default model is the first one with a key, which reads the keychain.
     off_thread(move || {
-        let (view, left_out) = match make(&state, body, avatar, level) {
+        let (view, left_out) = match make(&state, body, avatar) {
             Ok(made) => made,
             Err(response) => return *response,
         };
@@ -276,7 +275,6 @@ fn make(
     state: &AppState,
     body: NewAgent,
     avatar: Option<AvatarInput>,
-    level: Option<Access>,
 ) -> Result<(AgentView, Option<Vec<String>>), Box<Response>> {
     if let Some(template) = &body.template {
         let model = body
@@ -290,7 +288,6 @@ fn make(
             task: body.task,
             model,
             avatar,
-            access: level,
         };
         return match crate::teams::from_template(
             &state.engine,
@@ -315,7 +312,6 @@ fn make(
         task: body.task,
         model: body.model.unwrap_or_else(|| state.engine.new_bot_default()),
         avatar,
-        access: level,
     };
     state
         .engine
@@ -362,24 +358,16 @@ pub(super) async fn update(
         Ok(avatar) => avatar,
         Err(response) => return *response,
     };
-    let level = match access(body.access.as_deref()) {
-        Ok(level) => level,
-        Err(response) => return *response,
-    };
+    if let Err(response) = access(body.access.as_deref()) {
+        return *response;
+    }
     let change = AgentChange {
         name: body.name,
         task: body.task,
         model: body.model,
         avatar,
     };
-    let changed = state
-        .engine
-        .update_agent(&id, change)
-        .and_then(|view| match level {
-            Some(level) => state.engine.set_access(&id, level),
-            None => Ok(view),
-        });
-    match changed {
+    match state.engine.update_agent(&id, change) {
         Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
         Err(error) => agent_problem(&error),
     }

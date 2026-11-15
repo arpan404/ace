@@ -127,6 +127,22 @@ impl Store {
         Ok(decode(raw))
     }
 
+    /// For each conversation with an event of type `kind`, the text of `field` in the latest
+    /// one (`None` when that event lacks it). Reads every conversation: for one-off migrations.
+    pub fn latest_field(&self, kind: &str, field: &str) -> Result<Vec<(String, Option<String>)>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT e.conversation_id, json_extract(e.body, '$.' || ?2) FROM events e
+             WHERE json_extract(e.body, '$.type') = ?1
+               AND e.seq = (SELECT MAX(seq) FROM events
+                            WHERE conversation_id = e.conversation_id
+                              AND json_extract(body, '$.type') = ?1)",
+        )?;
+        let rows =
+            statement.query_map(params![kind, field], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// The conversation's last event number, 0 when it has none.
     pub fn last_seq(&self, conversation: &str) -> Result<i64> {
         Ok(self.lock()?.query_row(

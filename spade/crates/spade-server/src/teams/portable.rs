@@ -190,7 +190,6 @@ pub fn import(
         task: file.task.clone(),
         model,
         avatar: avatar.clone(),
-        access: None,
     };
     let model = if wanted == default || engine.model_usable(&wanted) {
         wanted

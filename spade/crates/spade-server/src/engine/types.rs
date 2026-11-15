@@ -37,8 +37,6 @@ pub struct Limits {
     pub remote_asks_waiting: usize,
     /// Sending a model step again when it failed before anything streamed.
     pub retry: super::retry::Retry,
-    /// The access level a new bot starts on (ADR 0144).
-    pub new_bot_access: spade_core::autonomy::Access,
     /// How far a bot's task goes on its own (ADR 0144).
     pub task: spade_core::task::Policy,
     /// Longest the auto-review may take before the call goes to the person.
@@ -61,7 +59,6 @@ impl Default for Limits {
             remote_asks_per_day: 500,
             remote_asks_waiting: 500,
             retry: super::retry::Retry::default(),
-            new_bot_access: spade_core::autonomy::Access::NEW_BOT,
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
             turn_log_bytes: 64 << 20,
@@ -190,9 +187,6 @@ pub struct AgentInput {
     pub task: String,
     pub model: String,
     pub avatar: Option<AvatarInput>,
-    /// The level it starts on (ADR 0144), stored with it in one write; the new-bot level when
-    /// `None`.
-    pub access: Option<spade_core::autonomy::Access>,
 }
 
 /// What changing an agent takes; `None` keeps the value.
@@ -279,8 +273,6 @@ pub struct Activity {
     pub questions_for_later: usize,
     /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
     pub problem: Option<String>,
-    /// The bot's access level (ADR 0144).
-    pub access: spade_core::autonomy::Access,
     /// The bot's task as it last said (ADR 0144).
     pub task: Option<spade_core::task::State>,
     /// The task's progress, from its goal, plan and checks (ADR 0159).

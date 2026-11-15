@@ -115,7 +115,7 @@ async fn a_bot_made_with_its_first_message_starts_on_it_and_a_refused_message_ma
     assert_eq!(status, 201, "{body}");
     let made = &body["agent"];
     assert_eq!(made["model"], "fake/m", "Spade's default model");
-    assert_eq!(made["access"], "ask", "the new-bot level");
+    assert_eq!(made["access"], "auto_review", "Spade's one level");
     let conversation = made["conversation"].as_str().unwrap_or_default();
     let events = spade.wait_for(conversation, "reply_finished").await?;
     assert_eq!(events[0]["type"], "user_message", "{events:?}");

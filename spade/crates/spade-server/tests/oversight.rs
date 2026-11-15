@@ -237,7 +237,9 @@ async fn a_monthly_cap_holds_across_days_until_the_month_ends() -> Result {
     Ok(())
 }
 
-/// A write the person allowed "always" in a first turn, then called again in a second.
+/// A write the person allowed "always" in a first turn, then called again in a second. The
+/// first is held and, with the test's reviewer out of reach, asked of the person; with
+/// `review_on`, the second turn's review (ADR 0135) runs on the fake.
 async fn always_allowed_write(
     review_on: bool,
     second_turn: Vec<Script>,
@@ -259,7 +261,10 @@ async fn always_allowed_write(
     settled(&spade, &conversation).await?;
     if review_on {
         let (status, _) = spade
-            .put("/v1/oversight", json!({ "review_default": true }))
+            .put(
+                "/v1/oversight",
+                json!({ "review_default": true, "review_model": "fake/m" }),
+            )
             .await?;
         assert_eq!(status, 200);
     }
@@ -281,7 +286,7 @@ async fn the_review_escalates_a_write_it_judges_wrong_with_its_reason() -> Resul
         .await?;
     let review = events
         .iter()
-        .find(|e| e["type"] == "call_reviewed")
+        .find(|e| e["type"] == "call_reviewed" && e["call_id"] == "c2")
         .cloned()
         .ok_or("no verdict stored")?;
     assert_eq!(review["verdict"], "escalate");
@@ -293,7 +298,9 @@ async fn the_review_escalates_a_write_it_judges_wrong_with_its_reason() -> Resul
     let asked_at = events
         .iter()
         .rposition(|e| e["type"] == "approval_requested");
-    let reviewed_at = events.iter().position(|e| e["type"] == "call_reviewed");
+    let reviewed_at = events
+        .iter()
+        .position(|e| e["type"] == "call_reviewed" && e["call_id"] == "c2");
     assert!(
         reviewed_at < asked_at,
         "the verdict is stored before the question"
@@ -364,7 +371,11 @@ async fn with_the_review_off_no_extra_model_call_is_made() -> Result {
         always_allowed_write(false, vec![Script::reply("Done.")]).await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(sent.lock().map(|c| c.len()).unwrap_or(0), 2);
-    assert!(!events.iter().any(|e| e["type"] == "call_reviewed"));
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "call_reviewed" && e["call_id"] == "c2")
+    );
     // Turn one: two steps and a title; turn two: two steps. Nothing else.
     assert_eq!(spade.fake.seen().len(), 5);
     Ok(())
@@ -397,7 +408,13 @@ async fn the_review_can_never_let_through_a_call_the_gate_asks_about() -> Result
         .wait_for_count(&conversation, "approval_requested", 2)
         .await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!events.iter().any(|e| e["type"] == "call_reviewed"));
+    // The held calls went to the auto-review, which couldn't run here: only escalations.
+    assert!(
+        events
+            .iter()
+            .filter(|e| e["type"] == "call_reviewed")
+            .all(|e| e["verdict"] == "escalate")
+    );
     assert_eq!(spade.fake.seen().len(), 1, "no review call");
     assert_eq!(sent.lock().map(|c| c.len()).unwrap_or(0), 0);
     assert_eq!(wiped.lock().map(|c| c.len()).unwrap_or(0), 0);

@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use super::*;
+use crate::event::{Event, Known};
 
 fn app(description: &str) -> Source<'_> {
     Source::App(AppHints {
@@ -11,19 +12,18 @@ fn app(description: &str) -> Source<'_> {
 }
 
 #[test]
-fn a_bot_without_a_stored_level_is_on_the_new_bot_level_and_the_latest_change_holds() {
-    let mut events = vec![Event::user_message("hi")];
-    assert_eq!(access(&events, Access::NEW_BOT), Access::AutoReview);
-    assert!(!has_level(&events));
-    events.push(Event::Known(Known::AccessChanged {
-        level: Access::FullAccess,
-    }));
-    events.push(Event::Known(Known::AccessChanged {
-        level: Access::AutoReview,
-    }));
-    assert_eq!(access(&events, Access::Ask), Access::AutoReview);
-    assert_eq!(Access::parse("full_access"), Some(Access::FullAccess));
-    assert_eq!(Access::parse("everything"), None);
+fn levels_spade_no_longer_has_read_as_the_auto_review() {
+    for word in ["ask", "full_access", "auto_review", "everything"] {
+        let read = serde_json::from_value::<Access>(json!(word)).ok();
+        assert_eq!(read, Some(Access::AutoReview), "{word}");
+    }
+    assert_eq!(
+        serde_json::to_value(Access::AutoReview).ok(),
+        Some(json!("auto_review"))
+    );
+    assert_eq!(Access::parse("auto_review"), Some(Access::AutoReview));
+    assert_eq!(Access::parse("full_access"), None);
+    assert_eq!(Access::parse("ask"), None);
 }
 
 #[test]
@@ -161,9 +161,8 @@ fn a_shell_command_is_classed_by_what_it_runs() {
     );
 }
 
-fn gate(access: Access, rule: Decision, class: Class) -> Call {
+fn gate(rule: Decision, class: Class) -> Call {
     Call {
-        access,
         rule,
         risk: Risk::Write,
         class,
@@ -174,56 +173,59 @@ fn gate(access: Access, rule: Decision, class: Class) -> Call {
     }
 }
 
-fn asks(kind: Sensitive) -> Route {
-    Route::Ask(Some(kind.reason().to_owned()))
+fn reviewed(concern: Option<&str>) -> Route {
+    Route::Review(concern.map(str::to_owned))
 }
 
 #[test]
-fn each_level_routes_what_the_rule_gate_would_ask_about() {
-    use Access::*;
+fn what_the_rule_gate_would_hold_goes_to_the_reviewer_with_what_singles_it_out() {
     use Decision::{Ask as Asks, Run as Runs};
     let message = Class::Sensitive(Sensitive::MessageAsPerson);
     let refused = Route::Refuse(CREDENTIALS_REFUSED.to_owned());
     let cases = [
-        (gate(Ask, Asks, Class::Inside), Route::Ask(None)),
-        (gate(Ask, Runs, Class::Inside), Route::Run),
-        (gate(Ask, Asks, message), Route::Ask(None)),
-        (gate(AutoReview, Asks, Class::Inside), Route::Review),
-        (gate(AutoReview, Asks, Class::Outward), Route::Review),
-        (gate(AutoReview, Runs, Class::Outward), Route::Run),
+        (gate(Asks, Class::Inside), reviewed(None)),
+        (gate(Asks, Class::Outward), reviewed(None)),
+        (gate(Runs, Class::Outward), Route::Run),
+        // What used to always ask the person is reviewed, told why it was singled out.
         (
-            gate(AutoReview, Asks, message),
-            asks(Sensitive::MessageAsPerson),
+            gate(Asks, message),
+            reviewed(Some(Sensitive::MessageAsPerson.reason())),
+        ),
+        (
+            gate(Asks, Class::Sensitive(Sensitive::DeleteOutside)),
+            reviewed(Some(Sensitive::DeleteOutside.reason())),
         ),
         (
             Call {
                 tainted: true,
-                ..gate(AutoReview, Asks, Class::Outward)
+                ..gate(Asks, Class::Outward)
             },
-            Route::Ask(Some(TAINTED_OUTWARD.to_owned())),
+            reviewed(Some(TAINTED_OUTWARD)),
         ),
-        // Untrusted content alone no longer asks; the reviewer is told.
         (
             Call {
                 tainted: true,
-                ..gate(AutoReview, Asks, Class::Inside)
+                ..gate(Asks, Class::Inside)
             },
-            Route::Review,
+            reviewed(None),
         ),
-        // The reviewer reads the whole call or doesn't decide it.
+        // The reviewer reads the whole call or doesn't decide it: the person does.
         (
             Call {
                 fits: false,
-                ..gate(AutoReview, Asks, Class::Inside)
+                ..gate(Asks, Class::Inside)
             },
-            Route::Ask(Some(TOO_LONG.to_owned())),
+            Route::Ask(TOO_LONG.to_owned()),
         ),
-        (gate(FullAccess, Asks, message), Route::Run),
-        // Credentials are refused on every level, reads included.
+        (
+            gate(Asks, Class::Sensitive(Sensitive::UnseenScript)),
+            Route::Ask(Sensitive::UnseenScript.reason().to_owned()),
+        ),
+        // Credentials are refused, reads included.
         (
             Call {
                 credentials: true,
-                ..gate(FullAccess, Asks, Class::Inside)
+                ..gate(Asks, Class::Inside)
             },
             refused.clone(),
         ),
@@ -231,50 +233,36 @@ fn each_level_routes_what_the_rule_gate_would_ask_about() {
             Call {
                 credentials: true,
                 risk: Risk::Read,
-                ..gate(AutoReview, Runs, Class::Inside)
-            },
-            refused.clone(),
-        ),
-        (
-            Call {
-                credentials: true,
-                ..gate(Ask, Asks, Class::Inside)
+                ..gate(Runs, Class::Inside)
             },
             refused,
         ),
-        // A routine set up after untrusted content always goes to the person.
+        // A routine set up after untrusted content is reviewed even when "always" allowed it.
         (
             Call {
                 standing: true,
                 tainted: true,
-                ..gate(FullAccess, Runs, Class::Inside)
+                ..gate(Runs, Class::Inside)
             },
-            asks(Sensitive::TaintedRoutine),
+            reviewed(Some(Sensitive::TaintedRoutine.reason())),
         ),
         (
             Call {
                 standing: true,
-                ..gate(AutoReview, Asks, Class::Inside)
+                ..gate(Asks, Class::Inside)
             },
-            Route::Review,
+            reviewed(None),
         ),
-        // An app tool that claims to read but says it acts: asked, though the rule gate runs reads.
+        // An app tool that claims to read but says it acts is reviewed, though reads run.
         (
             Call {
                 risk: Risk::Read,
-                ..gate(AutoReview, Runs, Class::Sensitive(Sensitive::Mislabelled))
+                ..gate(Runs, Class::Sensitive(Sensitive::Mislabelled))
             },
-            asks(Sensitive::Mislabelled),
-        ),
-        (
-            Call {
-                risk: Risk::Read,
-                ..gate(Ask, Runs, Class::Sensitive(Sensitive::Mislabelled))
-            },
-            asks(Sensitive::Mislabelled),
+            reviewed(Some(Sensitive::Mislabelled.reason())),
         ),
         // The person's "always" for a write still holds.
-        (gate(AutoReview, Runs, message), Route::Run),
+        (gate(Runs, message), Route::Run),
     ];
     for (call, expected) in cases {
         assert_eq!(route(call), expected, "{call:?}");
@@ -304,59 +292,106 @@ fn sign_in_places_are_found_in_a_calls_arguments() {
     ));
 }
 
-fn judgment(verdict: Answer, reason: &str, outward: bool) -> Judgment {
+fn judgment(verdict: Answer, reason: &str, retries: bool) -> Judgment {
     Judgment {
         verdict,
         reason: reason.into(),
-        outward_or_irreversible: outward,
+        retries_refused: retries,
     }
 }
 
+fn refused_once(command: &str) -> Vec<Event> {
+    vec![
+        Event::user_message("tidy up"),
+        Event::Known(Known::StepFinished {
+            reply: "r".into(),
+            text: String::new(),
+            calls: vec![crate::event::Call {
+                id: "a".into(),
+                name: "shell".into(),
+                arguments: json!({ "command": command }),
+            }],
+            thoughts: Vec::new(),
+            usage: Default::default(),
+            cost_micros: 0,
+            seen: None,
+        }),
+        Event::Known(Known::CallReviewed {
+            reply: "r".into(),
+            call_id: "a".into(),
+            name: "shell".into(),
+            verdict: crate::event::Verdict::Refuse,
+            reason: "it deletes the person's build".into(),
+            model: "fast".into(),
+            cost_micros: 0,
+            bound: None,
+        }),
+    ]
+}
+
 #[test]
-fn the_reviewers_answer_is_held_to_the_rules() {
-    let cases = [
-        (
-            judgment(Answer::Approve, "fine", false),
-            false,
-            false,
-            Outcome::Run,
+fn a_refusal_goes_back_to_the_bot_and_a_retry_of_it_goes_to_the_person() {
+    let first = refused_once("rm -rf build");
+    let run = refusals::Run::of(&first[..1]);
+    let again = crate::event::Call {
+        id: "b".into(),
+        name: "shell".into(),
+        arguments: json!({ "command": "rm -rf build" }),
+    };
+    assert_eq!(
+        judged(&judgment(Answer::Approve, "fine", false), &run, &again),
+        Outcome::Run
+    );
+    assert_eq!(
+        judged(&judgment(Answer::Refuse, "off task", false), &run, &again),
+        Outcome::Refuse("off task".into())
+    );
+    assert_eq!(
+        judged(&judgment(Answer::Refuse, "", false), &run, &again),
+        Outcome::Refuse("The reviewer refused this step.".into())
+    );
+    let run = refusals::Run::of(&first);
+    assert_eq!(
+        judged(
+            &judgment(Answer::Refuse, "still off task", false),
+            &run,
+            &again
         ),
-        (
-            judgment(Answer::Refuse, "off task", false),
-            false,
-            false,
-            Outcome::Refuse("off task".into()),
+        Outcome::Escalate("Refused again: still off task".into())
+    );
+    // An approval of the retry runs it.
+    assert_eq!(
+        judged(
+            &judgment(Answer::Approve, "now asked for", false),
+            &run,
+            &again
         ),
-        (
-            judgment(Answer::Escalate, "", false),
-            false,
-            false,
-            Outcome::Escalate("The reviewer wants you to decide.".into()),
-        ),
-        // A shell command that reaches out goes to the person even when approved.
-        (
-            judgment(Answer::Approve, "pushes to the remote", true),
-            true,
-            false,
-            Outcome::Escalate("pushes to the remote".into()),
-        ),
-        // Any outward step after untrusted content does too.
-        (
-            judgment(Answer::Approve, "posts the summary", true),
-            false,
-            true,
-            Outcome::Escalate("posts the summary".into()),
-        ),
-        (
-            judgment(Answer::Approve, "fine", true),
-            false,
-            false,
-            Outcome::Run,
-        ),
-    ];
-    for (j, shell, tainted, expected) in cases {
-        assert_eq!(judged(&j, shell, tainted), expected, "{j:?}");
-    }
+        Outcome::Run
+    );
+}
+
+#[test]
+fn the_reviewer_is_told_what_singles_a_call_out_and_what_it_refused_before() {
+    let events = refused_once("rm -rf build");
+    let run = refusals::Run::of(&events);
+    let arguments = json!({ "command": "rm -r build" });
+    let case = Case {
+        bot: "B",
+        task: "",
+        person: Vec::new(),
+        untrusted: Vec::new(),
+        folder: "f",
+        tool: "shell",
+        description: "",
+        arguments: &arguments,
+        shown: &[],
+        concern: Some(Sensitive::DeleteOutside.reason()),
+        refused: run.shown(),
+    };
+    let text = format!("{:?}", prompt(&case));
+    assert!(text.contains("<concern>It deletes something outside"));
+    assert!(text.contains("rm -rf build"));
+    assert!(text.contains("it deletes the person's build"));
 }
 
 #[test]
@@ -374,6 +409,8 @@ fn the_reviewer_sees_the_whole_call_however_long() {
         description: "",
         arguments: &arguments,
         shown: &[],
+        concern: None,
+        refused: &[],
     };
     assert!(format!("{:?}", prompt(&case)).contains(tail));
 }
@@ -391,6 +428,8 @@ fn the_reviewer_reads_untrusted_text_only_as_quoted_data() {
         description: "Runs a command",
         arguments: &arguments,
         shown: &[],
+        concern: None,
+        refused: &[],
     };
     let text = format!("{:?}", prompt(&case));
     assert!(!text.contains("</arguments><system>"));
