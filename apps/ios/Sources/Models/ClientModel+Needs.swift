@@ -3,13 +3,23 @@ import Foundation
 /// What a needs-you thread waits on, read by the bridge without opening it (`inbox-needs.ts`):
 /// its pending requests as the thread's strip words them (at most eight), and how many there are.
 struct InboxNeeds: Decodable, Sendable {
-    /// What the daemon counts as waiting.
+    /// What the daemon counts as waiting in the thread's tree, delegated threads included.
     let total: Int
     let requests: [ApprovalRow]
-    /// How many the bridge read, and whether its read stopped before finding them all (it reads
-    /// at most 200 pages); nil from older bridges.
+    /// How many the bridge read on this thread, whether its read stopped before finding them all
+    /// (it reads at most 200 pages), and how many wait in delegated threads instead, known only
+    /// after a read that found everything; nil from older bridges.
     var loaded: Int? = nil
     var more: Bool? = nil
+    var elsewhere: Int? = nil
+}
+
+/// What a row's line counts: the requests on this thread it can show, those waiting in the
+/// thread's delegated work, which it can't, and whether the read stopped before finding them all.
+struct NeedTally: Equatable, Sendable {
+    var here: Int
+    var elsewhere = 0
+    var more = false
 }
 
 /// Answering a request from the inbox or the needs-you run. Like the thread's strip, the answer
@@ -22,16 +32,12 @@ extension ClientModel {
         guard inbox[threadId]?.state == "needs_you" else { return [] }
         return (needs[threadId]?.requests ?? []).filter { $0.state == "pending" }
     }
-    /// How many requests the thread waits on, counting past the ones read.
-    func needsCount(_ threadId: String) -> Int {
+    /// What the row's line counts. An older bridge says only the tree's total: it is all here.
+    func needsTally(_ threadId: String) -> NeedTally {
         let shown = needsYou(threadId).count
-        return shown == 0 ? 0 : max(shown, needs[threadId]?.total ?? shown)
-    }
-
-    /// How many requests were read, when the read stopped before finding all the thread waits on.
-    func needsLoaded(_ threadId: String) -> Int? {
-        guard needsCount(threadId) > 0, let value = needs[threadId], value.more == true else { return nil }
-        return value.loaded
+        guard shown > 0, let value = needs[threadId] else { return NeedTally(here: shown) }
+        return NeedTally(here: max(shown, value.loaded ?? value.total), elsewhere: value.elsewhere ?? 0,
+                         more: value.more ?? false)
     }
 
     func receiveNeeds(_ threadId: String, _ value: InboxNeeds) {

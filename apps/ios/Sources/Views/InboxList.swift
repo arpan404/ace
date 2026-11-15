@@ -342,7 +342,7 @@ private struct InboxThreadCell: View {
         let model = inbox.client(key.machineId)
         let asks = selecting ? [] : model?.needsYou(row.id) ?? []
         let need = model.flatMap { model in
-            asks.isEmpty ? nil : InboxNeedLine(requests: asks, total: model.needsCount(row.id), loaded: model.needsLoaded(row.id), model: model, threadId: row.id) { actions.open(key) }
+            asks.isEmpty ? nil : InboxNeedLine(requests: asks, tally: model.needsTally(row.id), model: model, threadId: row.id) { actions.open(key) }
         }
         // Snoozed and Settled draw each thread as one line, as the web's do; Inbox in three.
         let label = Group {
