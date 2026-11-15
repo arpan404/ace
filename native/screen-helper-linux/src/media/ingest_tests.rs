@@ -245,6 +245,13 @@ async fn a_stalled_route_admits_a_bounded_backlog_then_drops_to_the_next_keyfram
         *legacy.lock().unwrap(),
         admitted.clone().collect::<Vec<_>>()
     );
+    // The keyframe at 30 was dropped too: on a still desktop nothing else would come, so once
+    // routing caught up and there is room again, it is asked for again.
+    assert_eq!(
+        asked.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "the recovery request is re-armed when capacity returns"
+    );
     // Routing caught up: deltas still wait for a keyframe, and the one asked for resumes video.
     ingest.unit(sized(40, false, mib));
     ingest.unit(sized(41, true, mib));

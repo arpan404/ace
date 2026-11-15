@@ -59,6 +59,13 @@ pub struct Moved {
 struct Admission {
     bytes: AtomicUsize,
     skipping: AtomicBool,
+    /// A keyframe is owed: video was dropped and no keyframe has been admitted since. Kept open
+    /// until one is, and asked for again once the queue has room (a still desktop sends
+    /// nothing unless asked).
+    owed: AtomicBool,
+    /// Video was dropped since the last time room came back: room asks for the keyframe again,
+    /// once.
+    rearmed: AtomicBool,
 }
 
 /// What comes in capture order: units, and switches between them.
@@ -111,12 +118,17 @@ impl Ingest {
             return;
         }
         if admission.bytes.load(Ordering::Acquire) + size > ADMIT_LIMIT {
-            if !admission.skipping.swap(true, Ordering::AcqRel) {
+            admission.skipping.store(true, Ordering::Release);
+            admission.rearmed.store(true, Ordering::Release);
+            if !admission.owed.swap(true, Ordering::AcqRel) {
                 (self.keyframe)();
             }
             return;
         }
         admission.skipping.store(false, Ordering::Release);
+        if unit.key {
+            admission.owed.store(false, Ordering::Release);
+        }
         admission.bytes.fetch_add(size, Ordering::AcqRel);
         if self.units.send(Ordered::Unit(unit)).is_err() {
             admission.bytes.fetch_sub(size, Ordering::AcqRel);
@@ -181,7 +193,15 @@ async fn run(
             }
             Some(ordered) = queue.recv() => match ordered {
                 Ordered::Unit(unit) => {
-                    admission.bytes.fetch_sub(unit.payload.len(), Ordering::AcqRel);
+                    let left = admission.bytes.fetch_sub(unit.payload.len(), Ordering::AcqRel)
+                        - unit.payload.len();
+                    // Room again with a keyframe still owed: the one asked for was dropped too.
+                    if left <= ADMIT_LIMIT / 2
+                        && admission.owed.load(Ordering::Acquire)
+                        && admission.rearmed.swap(false, Ordering::AcqRel)
+                    {
+                        (outlets.keyframe)();
+                    }
                     route.publish(&unit, clock.ms(), clock.us(), &mut out);
                     carry(&mut out, &mut connections, &mut outlets);
                     continue;
