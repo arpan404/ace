@@ -35,6 +35,10 @@ export interface FakeSpadeGroup {
     at: number;
     agent: { id: string; name: string; machine: string | null } | null;
   } | null;
+  /** The conversation's seen cursor, as Spade sends it; null when never marked. */
+  seen_seq?: number | null;
+  /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */
+  unseen?: boolean;
 }
 
 /** What the teams need of the rest of the fake. */

@@ -212,7 +212,17 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
   return (
     <GroupScreen group={group} bots={bots} menu={actions.menu}>
       <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
-        <Scroller>
+        <Scroller
+          seen={
+            view.loaded
+              ? {
+                  conversation: group.conversation,
+                  unseen: group.unseen,
+                  seq: group.lastMessage?.seq,
+                }
+              : undefined
+          }
+        >
           {problem ? (
             <Problem text={problem} onRetry={conversation.retry} />
           ) : !view.loaded ? (

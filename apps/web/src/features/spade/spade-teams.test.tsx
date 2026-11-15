@@ -168,7 +168,7 @@ test("a group whose machine goes offline stays listed as away, with nothing to p
   app.crashMachine("studio");
   await waitFor(async () =>
     expect((await (await roster()).findByRole("link", { name: /^Drafts/ })).textContent).toContain(
-      "Away · Studio Mac is offline",
+      "Studio Mac is offline",
     ),
   );
   await screen.findByText("Studio Mac is offline. Drafts is back when it is.");
@@ -186,7 +186,7 @@ test("a group whose machine's Spade stops answering stays listed as unavailable,
   daemon.spade.status = { state: "off" };
   await waitFor(async () =>
     expect((await (await roster()).findByRole("link", { name: /^Drafts/ })).textContent).toContain(
-      "Unavailable · Spade isn't running on Studio Mac",
+      "Off on Studio Mac",
     ),
   );
   await userEvent.click(await (await roster()).findByRole("link", { name: /^Drafts/ }));

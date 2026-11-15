@@ -41,6 +41,10 @@ export interface FakeSpadeAgent {
     at: number;
     from_agent: { id: string; name: string } | null;
   } | null;
+  /** The conversation's seen cursor, as Spade sends it; null when never marked. */
+  seen_seq?: number | null;
+  /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */
+  unseen?: boolean;
   /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
   spending?: FakeSpadeSpending;
   review?: boolean | null;
@@ -724,6 +728,25 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return { status: 204 };
   }
 
+  /**
+   * `PUT /v1/conversations/{id}/seen`: the cursor moves forward to `seq` (the last event when
+   * absent, never past it), the bot's or group's `unseen` clears, and the live stream says so.
+   */
+  private markSeen(id: string, list: readonly Stored[], raw: string | undefined): FakeSpadeAnswer {
+    const body = raw ? (JSON.parse(raw) as Json) : {};
+    const last = list.at(-1)?.seq ?? 0;
+    const asked = typeof body.seq === "number" ? Math.min(body.seq, last) : last;
+    const owner =
+      this.agents.find((candidate) => candidate.conversation === id) ??
+      this.teams.groups.find((candidate) => candidate.conversation === id);
+    if (!owner) return problem(404, "No such conversation.");
+    const seq = Math.max(owner.seen_seq ?? 0, asked);
+    owner.seen_seq = seq;
+    owner.unseen = false;
+    this.spade.emit(`/v1/conversations/${id}/live`, "seen", { seq });
+    return reply({ seen_seq: seq });
+  }
+
   private conversationRoute(
     request: FakeSpadeRequest,
     id: string,
@@ -734,6 +757,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const list = this.events.get(id);
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
+    if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
     if (sub === "events") {
       const after = Number(new URLSearchParams(query).get("after") ?? 0);
       return reply(list.filter((stored) => stored.seq > after));

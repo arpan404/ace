@@ -80,6 +80,20 @@ export async function deleteAgent(target: SpadeTarget, id: string): Promise<void
   await spadeHttp(target, "DELETE", `/v1/agents/${segment(id)}`);
 }
 
+/**
+ * Marks a bot's or group's conversation seen up to `seq` (its last event when absent); Spade
+ * never moves the cursor back. Answers the cursor where it now is.
+ */
+export async function markSeen(
+  target: SpadeTarget,
+  conversation: string,
+  seq: number | undefined,
+): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/conversations/${segment(conversation)}/seen`, {
+    body: seq === undefined ? {} : { seq },
+  });
+}
+
 /** Whether this machine's Spade hosts the main bot (only the first machine Spade ran on does). */
 export async function setMainHosted(target: SpadeTarget, enabled: boolean): Promise<void> {
   await spadeHttp(target, "PUT", "/v1/main", { body: { enabled } });

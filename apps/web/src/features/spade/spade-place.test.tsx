@@ -9,7 +9,7 @@ beforeEach(() => localStorage.clear());
 const now = () => Date.now();
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
-test("Spade lists first, then bots by latest activity, each with what it does now or its last message", async () => {
+test("Spade heads the list, then each bot with what it asks or its last message", async () => {
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({
@@ -31,9 +31,9 @@ test("Spade lists first, then bots by latest activity, each with what it does no
   const list = await roster();
   await waitFor(() =>
     expect(list.getAllByRole("link").map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/^Spade.*No messages yet$/),
-      expect.stringMatching(/^(IN)?Inbox.*Waiting for you$/),
-      expect.stringMatching(/^(GA)?Garden.*You: Water the tomatoes at 6$/),
+      "Spade",
+      "InboxWaiting for you",
+      "GardenYou: Water the tomatoes at 6",
     ]),
   );
 });

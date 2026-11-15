@@ -36,6 +36,8 @@ export interface SpadeGroupLastMessage {
   from: "person" | "agent";
   text: string;
   at: number;
+  /** Its event in the conversation; undefined from a Spade before seen cursors. */
+  seq: number | undefined;
   agent: SpadeGroupBot | undefined;
 }
 
@@ -53,6 +55,10 @@ export interface SpadeGroup {
   /** A few words while it isn't idle: `Research is answering`. */
   status: string | undefined;
   lastMessage: SpadeGroupLastMessage | undefined;
+  /** The conversation's seen cursor: the last event the person has seen; undefined when never marked. */
+  seenSeq: number | undefined;
+  /** It finished and the person hasn't seen it since: never while it works or waits on them. */
+  unseen: boolean;
 }
 
 const time = z.number().catch(0);
@@ -89,10 +95,13 @@ const groupShape = z.object({
       from: z.enum(["person", "agent"]).catch("agent"),
       text: z.string().catch(""),
       at: time.default(0),
+      seq: z.number().int().nonnegative().nullish().catch(undefined),
       agent: spadeGroupBotShape.nullish().catch(undefined),
     })
     .nullish()
     .catch(undefined),
+  seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
+  unseen: z.boolean().catch(false).default(false),
 });
 
 function memberOf(member: z.infer<typeof memberShape>): SpadeGroupMember {
@@ -128,8 +137,16 @@ export function parseSpadeGroupValue(raw: unknown): SpadeGroup | undefined {
     state: group.state,
     status: group.status || undefined,
     lastMessage: last
-      ? { from: last.from, text: last.text, at: last.at, agent: last.agent ?? undefined }
+      ? {
+          from: last.from,
+          text: last.text,
+          at: last.at,
+          seq: last.seq ?? undefined,
+          agent: last.agent ?? undefined,
+        }
       : undefined,
+    seenSeq: group.seen_seq ?? undefined,
+    unseen: group.unseen,
   };
 }
 

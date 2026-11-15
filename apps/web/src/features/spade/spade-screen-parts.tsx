@@ -1,9 +1,10 @@
 import { spadeStateLine } from "@ace/ui-core/spade-chat";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { readingColumn } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { useMarkSeen, type SeenTarget } from "./use-mark-seen.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -22,17 +23,21 @@ function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
 /**
  * A scroller that stays at its end while the person is there, as the conversation grows: on
  * every render and whenever the content's height changes after it. A short conversation starts
- * at the top.
+ * at the top. With `seen`, being at the end marks the conversation seen (`useMarkSeen`).
  */
 export function Scroller(props: {
   /** What floats over its top: the pill of a bot's conversation, which the first line clears. */
   top?: "pill" | undefined;
+  seen?: SeenTarget | undefined;
   children: ReactNode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
+  const reportEnd = useMarkSeen(props.seen);
   useLayoutEffect(() => pinToEnd(scroller.current, atEnd.current));
+  // It opens at its end.
+  useEffect(() => reportEnd(atEnd.current), [reportEnd]);
   useLayoutEffect(() => {
     const inner = content.current;
     if (!inner || typeof ResizeObserver === "undefined") return;
@@ -46,6 +51,7 @@ export function Scroller(props: {
       onScroll={(event) => {
         const element = event.currentTarget;
         atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+        reportEnd(atEnd.current);
       }}
       className="col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
     >

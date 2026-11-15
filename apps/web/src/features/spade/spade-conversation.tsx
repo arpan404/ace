@@ -156,7 +156,14 @@ export function Conversation(props: {
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
       <h1 className="sr-only">{bot.name}</h1>
       <ConversationPill bot={bot} onOpen={openProfile} />
-      <Scroller top="pill">
+      <Scroller
+        top="pill"
+        seen={
+          view.loaded
+            ? { conversation: bot.conversation, unseen: bot.unseen, seq: bot.lastMessage?.seq }
+            : undefined
+        }
+      >
         {bot.kind === "main" && <SpadeKeySetup main={bot} />}
         {problem ? (
           <Problem text={problem} onRetry={conversation.retry} />
