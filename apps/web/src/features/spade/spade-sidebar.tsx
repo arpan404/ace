@@ -4,7 +4,6 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { NewBotDialog } from "./spade-bot-dialog.tsx";
 import { SpadeListSearch, SpadeListTop } from "./spade-list-head.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
 import { searchSpadeList, spadeListEntries } from "./spade-list-rows.ts";
@@ -37,8 +36,9 @@ export function SpadeSidebar() {
   const { groups } = useSpadeGroups(roster);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState<"bot">();
   const navigate = useNavigate();
+  // New bot and New group are conversations of their own (docs/design/spade.md §5).
+  const newBot = () => void navigate({ to: "/spade/new" });
   const open = useParams({
     strict: false,
     select: (params) => params.agentId ?? params.groupId,
@@ -56,7 +56,7 @@ export function SpadeSidebar() {
           searching={searching}
           onSearch={() => (searching ? closeSearch() : setSearching(true))}
           hosts={roster.hosts}
-          onNewBot={() => setCreating("bot")}
+          onNewBot={newBot}
           onNewGroup={() => void navigate({ to: "/spade/groups/new" })}
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
@@ -80,7 +80,7 @@ export function SpadeSidebar() {
                 <Button
                   variant="secondary"
                   className="h-(--spade-pill-button) rounded-full px-4"
-                  onClick={() => setCreating("bot")}
+                  onClick={newBot}
                 >
                   <Icon icon={PlusIcon} size={16} />
                   New bot
@@ -115,9 +115,6 @@ export function SpadeSidebar() {
           )}
         </div>
       </nav>
-      {creating === "bot" && (
-        <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(undefined)} />
-      )}
     </>
   );
 }

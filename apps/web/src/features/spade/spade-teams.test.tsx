@@ -1,5 +1,5 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { botRow, openNew, profileMenu, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
@@ -402,51 +402,6 @@ test("a bot's own chat labels a group's message with the group, not as the perso
   expect(chat.queryByRole("article", { name: "You" })).toBeNull();
 });
 
-test("starting from a template fills the form and sends the template with the time zone", async () => {
-  const { spade } = await spadeApp("/spade", (seed) => {
-    team(seed);
-    seed.teams.templates.push({
-      id: "digest",
-      name: "Morning digest",
-      blurb: "Reads your feeds each morning",
-      task: "Summarise my feeds.",
-      face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
-      model_kind: "fast",
-      routines: [],
-    });
-  });
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  await userEvent.click(await form.findByRole("button", { name: /^Morning digest/ }));
-  expect(form.getByRole<HTMLInputElement>("textbox", { name: "Name" }).value).toBe(
-    "Morning digest",
-  );
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/agents")).toEqual([
-      {
-        name: "Morning digest",
-        task: "Summarise my feeds.",
-        access: "auto_review",
-        template: "digest",
-        time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        avatar: {
-          kind: "character",
-          v: 1,
-          body: "bird",
-          pair: "sky",
-          ears: "none",
-          marking: "cap",
-          eyes: "egg",
-          mouth: "none",
-          cheeks: "none",
-          accessory: "none",
-        },
-      },
-    ]),
-  );
-});
-
 test("Duplicate copies the bot and opens the copy; Export saves its file under its name", async () => {
   const saved: string[] = [];
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
@@ -467,70 +422,25 @@ test("Duplicate copies the bot and opens the copy; Export saves its file under i
   expect(spade.sent("POST", "/v1/agents/research/duplicate")).toEqual([{}]);
 });
 
-test("Import bot sends the file to the machine, says what it left out, then opens the bot", async () => {
-  const { spade } = await spadeApp("/spade", (seed) => {
-    team(seed);
-    seed.teams.leftOut = ["The Linear app isn't connected here."];
+test("Import bot from + refuses a file over 6 MB unread, and opens an imported bot", async () => {
+  const { spade } = await spadeApp("/spade", team);
+  const huge = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
+    type: "application/json",
   });
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
+  const read = vi.spyOn(huge, "text");
+  await openNew("Import bot…");
+  fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [huge] } });
   const file = new File(
     [JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" })],
     "Scout.spade-bot.json",
     { type: "application/json" },
   );
-  await userEvent.upload(form.getByLabelText("Bot file"), file);
-  const done = within(await screen.findByRole("dialog", { name: "Scout is here" }));
-  expect(done.getByRole("list", { name: "Left out" }).textContent).toBe(
-    "The Linear app isn't connected here.",
-  );
+  await openNew("Import bot…");
+  fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [file] } });
+  await screen.findByRole("feed", { name: "Conversation with Scout" });
+  // Only the file that fits was read and sent.
+  expect(read).not.toHaveBeenCalled();
   expect(spade.sent("POST", "/v1/agents/import")).toEqual([
     { format: "spade-bot", version: 1, name: "Scout", task: "Scout news" },
   ]);
-  await userEvent.click(done.getByRole("button", { name: "Open Scout" }));
-  await screen.findByRole("feed", { name: "Conversation with Scout" });
-});
-
-test("Import bot refuses a file over 6 MB without reading or sending it", async () => {
-  const { spade } = await spadeApp("/spade", team);
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  const file = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
-    type: "application/json",
-  });
-  const read = vi.spyOn(file, "text");
-  await userEvent.upload(form.getByLabelText("Bot file"), file);
-  expect((await form.findByRole("alert")).textContent).toBe(
-    "That file is too big for a bot file (6 MB at most).",
-  );
-  expect(read).not.toHaveBeenCalled();
-  expect(spade.sent("POST", "/v1/agents/import")).toEqual([]);
-});
-
-test("an imported bot opens on the machine it was sent to, even if Runs on moved meanwhile", async () => {
-  const { spade, others } = await spadeApp(
-    "/spade",
-    (seed) => {
-      team(seed);
-      seed.teams.leftOut = ["The Linear app isn't connected here."];
-    },
-    { machines: [studio] },
-  );
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  const file = new File(["{}"], "Scout.spade-bot.json", { type: "application/json" });
-  const read = Promise.withResolvers<string>();
-  vi.spyOn(file, "text").mockReturnValue(read.promise);
-  await userEvent.upload(form.getByLabelText("Bot file"), file);
-  // While the file is still being read, the person picks another machine.
-  await userEvent.click(form.getByRole("combobox", { name: "Machine" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
-  read.resolve(
-    JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" }),
-  );
-  const done = within(await screen.findByRole("dialog", { name: "Scout is here" }));
-  await userEvent.click(done.getByRole("button", { name: "Open Scout" }));
-  await screen.findByRole("feed", { name: "Conversation with Scout" });
-  expect(spade.sent("POST", "/v1/agents/import")).toHaveLength(1);
-  expect(others.get("studio")?.sent("POST", "/v1/agents/import")).toEqual([]);
 });

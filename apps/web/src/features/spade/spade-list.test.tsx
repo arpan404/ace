@@ -110,10 +110,10 @@ test("opening a bot that finished unseen marks its conversation seen, and a seen
 
 test("+ offers New bot, New group and Import bot, and an imported bot opens", async () => {
   const { spade } = await spadeApp("/spade", crew);
+  // New bot opens its conversation, not a dialog.
   await openNew("New bot");
-  await screen.findByRole("dialog", { name: "New bot" });
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await screen.findByRole("textbox", { name: "Name" });
+  expect(screen.queryByRole("dialog")).toBeNull();
 
   await openNew("New group");
   await screen.findByRole("dialog", { name: "New group" });
