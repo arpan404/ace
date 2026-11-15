@@ -1,7 +1,13 @@
 import type { ClientApi } from "@ace/client";
 import { useClient, useIntentSender } from "@ace/client-react";
-import type { CommandPayload, InteractionResolution, Question } from "@ace/protocol";
+import type {
+  CommandPayload,
+  InteractionRequest,
+  InteractionResolution,
+  Question,
+} from "@ace/protocol";
 import { withoutSecrets } from "@ace/ui-core";
+import { affirms } from "@ace/projection/interaction-summary";
 import { refusalMessage } from "@/lib/daemon-command.ts";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { answerRequest } from "@/lib/live-actions.ts";
@@ -14,6 +20,7 @@ const failures: Record<string, string> = {
   already_resolved: "Already answered or closed.",
   interaction_expired: "This request expired before your answer arrived.",
   not_found: "This request no longer exists.",
+  request_not_read: "The whole request hadn't loaded yet. Wait for it, then answer again.",
   permission_mode_requires_one_shot: "This mode allows approving one action at a time only.",
   read_only_mutation_denied: "Read only mode can't approve a change.",
 };
@@ -56,23 +63,39 @@ export interface AnswerTarget {
   identity: string | undefined;
   /** Its questions, so a secret answer is kept on this device only as dots. */
   questions: readonly Question[];
+  /**
+   * The summary, when its thread sent the request summarized (`truncated`, ADR 0156) and it
+   * hasn't been read whole here: only a decline goes then.
+   */
+  unread?: InteractionRequest | undefined;
+  /** The request was read whole and shown: a yes to it says so (`readWhole`). */
+  readWhole?: boolean | undefined;
 }
 
 /**
  * Send one answer as a durable intent, through the one gated sender (`answerRequest`): while the
  * thread's copy isn't current it sends nothing (`stale`). The pick shows at once (IR-2, SY-9), a
  * secret in it masked; it is remembered once the daemon accepts it, and offered again if the
- * daemon refuses it. A second answer while one is on its way is dropped (`busy`).
+ * daemon refuses it. A second answer while one is on its way is dropped (`busy`), and so is a
+ * yes to a request not yet read whole (`unread`).
  */
 export function sendAnswer(
   client: ClientApi,
   send: (payload: CommandPayload) => Promise<string>,
   target: AnswerTarget,
   resolution: InteractionResolution,
-): "sent" | "busy" | "stale" {
+): "sent" | "busy" | "stale" | "unread" {
   const { interactionId } = target;
+  if (target.unread && affirms(target.unread, resolution)) return "unread";
   if (pendingAnswers.get(interactionId)) return "busy";
-  const live = answerRequest(client, target.threadId, interactionId, resolution, send);
+  const live = answerRequest(
+    client,
+    target.threadId,
+    interactionId,
+    resolution,
+    send,
+    target.readWhole === true,
+  );
   if (!live.ok) return "stale";
   pendingAnswers.set(interactionId, withoutSecrets(target.questions, resolution));
   void live.sent.then(

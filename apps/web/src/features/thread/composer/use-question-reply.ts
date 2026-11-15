@@ -46,10 +46,16 @@ export function useQuestionReply(threadId: string) {
         interactionId: first.id,
         identity: requestIdentity(first),
         questions: first.request.questions,
+        // A summarized question takes its answers on its card, once read whole.
+        unread: first.truncated ? first.request : undefined,
       },
       resolution,
     );
-    return sent === "sent" ? "answered" : sent === "stale" ? "held" : undefined;
+    return sent === "sent"
+      ? "answered"
+      : sent === "stale" || sent === "unread"
+        ? "held"
+        : undefined;
   };
   return { placeholder, reply };
 }

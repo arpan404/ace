@@ -31,6 +31,7 @@ import {
   type Lease,
   type OneWayMessage,
   type OutputData,
+  type WholeRequestInput,
   type RegistryQuery,
   type RequestOptions,
   type TextReadOptions,
@@ -44,7 +45,7 @@ import {
   type ThreadExport,
   type ThreadSource,
 } from "@ace/client";
-import type { MachinePathKind } from "@ace/protocol";
+import type { InteractionRequest, MachinePathKind } from "@ace/protocol";
 import type {
   TurnsPageResponse,
   ItemsWindowResponse,
@@ -670,6 +671,13 @@ export class RemoteClient implements ClientApi {
     options: RequestOptions = {},
   ) {
     return this.invoke<OutputData>("outputRead", [payload, timeout(options)], options.signal);
+  }
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return this.invoke<InteractionRequest>(
+      "readInteraction",
+      [input, timeout(options)],
+      options.signal,
+    );
   }
   text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
     return this.stream<string>(
