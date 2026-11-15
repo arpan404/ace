@@ -373,9 +373,11 @@ enum Workload {
 /// slower runner sends no more of them.
 enum PerfBudget {
     /// How many times slower than a dev Mac this machine may be: `ACE_PERF_SLACK` (set as
-    /// `TEST_RUNNER_ACE_PERF_SLACK`, as for `TerminalPerformanceTests`), at least 1, else 1.
+    /// `TEST_RUNNER_ACE_PERF_SLACK`, as for `TerminalPerformanceTests`): a finite number of at
+    /// least 1, else 1. `inf` would switch every time budget off.
     static let slack: Double = {
-        guard let value = Double(ProcessInfo.processInfo.environment["ACE_PERF_SLACK"] ?? ""), value >= 1 else { return 1 }
+        guard let value = Double(ProcessInfo.processInfo.environment["ACE_PERF_SLACK"] ?? ""),
+              value.isFinite, value >= 1 else { return 1 }
         return value
     }()
     // Measured medians in brackets (Perf, iOS 26 simulator, 2026-10-22).
