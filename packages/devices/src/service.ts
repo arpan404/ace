@@ -783,12 +783,17 @@ export class DevicesService {
       authorize: (session, actor) => this.authorize(session, actor),
       // ace-media asks for the stream its views need: one more owner of the device's common
       // stream budget, as each viewer is.
-      mediaWant: (session, settings) =>
-        void this.watchWith(session, "ace-media", settings).catch((error: unknown) =>
+      // Set and removed through the stream control, which applies them in order.
+      mediaWant: (session, settings) => {
+        const update: Promise<unknown> = settings
+          ? this.watchWith(session, "ace-media", settings)
+          : (session.streamControl?.remove("ace-media") ?? Promise.resolve());
+        update.catch((error: unknown) =>
           this.options.log?.("warn", "Device stream update for ace-media failed", {
             message: String(error),
           }),
-        ),
+        );
+      },
     };
   }
   private start(session: DeviceSession, fps: number): Promise<void> {

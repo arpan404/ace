@@ -28,21 +28,33 @@ export type DeviceMedia = { attach(producer: IngestProducer): IngestSource };
 
 /**
  * A device's media, with every producer it attaches carrying ace-media's plan for the device's
- * views (`source.want`, D1) to `want` as one stream request: a device runs one stream.
+ * views (`source.want`, D1) to `want` as one stream request: a device runs one stream. `want`
+ * gets undefined when that plan stops holding: an empty plan, the producer pointed back at the
+ * daemon (a route flip, ace-media gone) or its source closed, so ace-media's budget never
+ * outlives its last viewer.
  */
 export function withMediaWant(
   media: DeviceMedia,
-  want: (settings: ScreenStreamSettings) => void,
+  want: (settings: ScreenStreamSettings | undefined) => void,
 ): DeviceMedia {
   return {
-    attach: (producer) =>
-      media.attach({
+    attach: (producer) => {
+      const source = media.attach({
         ...producer,
-        want: (encodes) => {
-          const settings = wantedStreamSettings(encodes);
-          if (settings) want(settings);
+        want: (encodes) => want(wantedStreamSettings(encodes)),
+        point: (address) => {
+          if (!address) want(undefined);
+          return producer.point(address);
         },
-      }),
+      });
+      return {
+        ...source,
+        close: () => {
+          want(undefined);
+          source.close();
+        },
+      };
+    },
   };
 }
 

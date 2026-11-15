@@ -35,8 +35,11 @@ export interface LifecycleOwner {
   authorize(session: DeviceSession, actor: Actor): void;
   /** A failure nobody asked about (a live view ending on its own), for the daemon log. */
   log(message: string, session: DeviceSession, error: unknown): void;
-  /** ace-media's plan for the device's views, as one stream request (`source.want`, D1). */
-  mediaWant?(session: DeviceSession, settings: ScreenStreamSettings): void;
+  /**
+   * ace-media's plan for the device's views, as one stream request (`source.want`, D1);
+   * undefined once it no longer holds.
+   */
+  mediaWant?(session: DeviceSession, settings: ScreenStreamSettings | undefined): void;
 }
 function noop() {}
 

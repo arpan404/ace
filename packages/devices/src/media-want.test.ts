@@ -16,7 +16,7 @@ const producer = (): IngestProducer => ({
 
 it("ace-media's plan for a device's views becomes that device's stream request, within its bounds", () => {
   const attached: IngestProducer[] = [];
-  const asked: ScreenStreamSettings[] = [];
+  const asked: (ScreenStreamSettings | undefined)[] = [];
   const media = withMediaWant(
     {
       attach: (p) => {
@@ -52,7 +52,49 @@ it("ace-media's plan for a device's views becomes that device's stream request, 
     fps: 5,
     bitrate: 128_000,
   });
-  // No plan, no request.
+  // No plan: ace-media's request is withdrawn.
   attached[0]?.want?.([]);
-  expect(asked).toHaveLength(2);
+  expect(asked).toHaveLength(3);
+  expect(asked.at(-1)).toBeUndefined();
+});
+
+it("ace-media's budget for a device goes with its plan, its route and its source", async () => {
+  const attached: IngestProducer[] = [];
+  const asked: (ScreenStreamSettings | undefined)[] = [];
+  let closed = 0;
+  const media = withMediaWant(
+    {
+      attach: (p) => {
+        attached.push(p);
+        return {
+          streaming: () => true,
+          reconnect: () => {},
+          encodes: () => {},
+          key: () => {},
+          picture: () => false,
+          close: () => void closed++,
+        };
+      },
+    },
+    (settings) => void asked.push(settings),
+  );
+  const source = media.attach(producer());
+  const p = attached[0];
+  if (!p) throw new Error("not attached");
+  const plan = [
+    { id: 0, codec: "avc1.42E033", width: 540, height: 1170, fps: 30, bitrate: 900_000 },
+  ];
+  // An empty plan: no media viewer left, so its budget no longer holds the legacy ones back.
+  p.want?.(plan);
+  p.want?.([]);
+  expect(asked.at(-1)).toBeUndefined();
+  // Pointed back at the daemon (a route flip, ace-media gone): the same.
+  p.want?.(plan);
+  await p.point(undefined);
+  expect(asked.at(-1)).toBeUndefined();
+  // And when the source closes.
+  p.want?.(plan);
+  source.close();
+  expect(asked.at(-1)).toBeUndefined();
+  expect(closed).toBe(1);
 });
