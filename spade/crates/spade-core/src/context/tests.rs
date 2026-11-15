@@ -413,6 +413,8 @@ fn job_done(job: &str, name: &str, content: &str) -> Event {
         is_error: false,
         uncertain: false,
         files: Vec::new(),
+        untrusted: false,
+        cost_micros: None,
     })
 }
 
@@ -433,6 +435,47 @@ fn a_job_result_arriving_while_tools_run_waits_for_their_results() {
             "result:c1:No mail",
             "person:<job_result job=\"j1\" tool=\"research\" status=\"ok\">\nThree options\n</job_result>"
         ]
+    );
+}
+
+#[test]
+fn a_helpers_result_is_untrusted_only_when_the_helper_read_something_untrusted() {
+    // `helper` itself vouches for its output; the result says whether the helper read untrusted
+    // content (ADR 0152).
+    let registry = Registry::new([ToolDef {
+        spec: ToolSpec {
+            name: "helper".into(),
+            description: "Hand part of the work to a helper".into(),
+            schema: json!({}),
+        },
+        risk: Risk::Read,
+        untrusted_output: false,
+        deferred: false,
+        background: true,
+    }]);
+    let opened_by = |untrusted: bool| {
+        let result = Event::Known(Known::JobFinished {
+            job: "j1".into(),
+            name: "helper".into(),
+            content: "The build failed on step 3".into(),
+            is_error: false,
+            uncertain: false,
+            files: Vec::new(),
+            untrusted,
+            cost_micros: Some(1_200),
+        });
+        vec![
+            Event::user_message("Why did the build fail?"),
+            result,
+            Event::reply_started("r2", "m"),
+        ]
+    };
+    assert!(!untrusted_turn(&opened_by(false), &registry));
+    let tainted = opened_by(true);
+    assert!(untrusted_turn(&tainted, &registry));
+    assert_eq!(
+        untrusted_sources(&tainted, &registry),
+        vec!["a helper's result".to_owned()]
     );
 }
 

@@ -38,6 +38,10 @@ pub struct Limits {
     pub task: spade_core::task::Policy,
     /// Longest the auto-review may take before the call goes to the person.
     pub review_timeout: Duration,
+    /// Model steps one helper may take (ADR 0152).
+    pub helper_steps: u32,
+    /// What one helper may spend, in micros (ADR 0152).
+    pub helper_cost_micros: u64,
 }
 
 impl Default for Limits {
@@ -57,6 +61,8 @@ impl Default for Limits {
             new_bot_access: spade_core::autonomy::Access::NEW_BOT,
             task: spade_core::task::Policy::default(),
             review_timeout: Duration::from_secs(60),
+            helper_steps: spade_core::helper::MAX_STEPS,
+            helper_cost_micros: spade_core::helper::MAX_COST_MICROS,
         }
     }
 }
@@ -191,6 +197,8 @@ pub enum SendError {
     Disabled,
     #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
     Group,
+    #[error("this is a helper's conversation; it takes no messages")]
+    Helper,
     #[error("the message is empty")]
     Empty,
     #[error("the message is too long")]

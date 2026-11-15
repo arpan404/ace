@@ -55,6 +55,12 @@ const tools: Record<string, ToolWords> = {
   workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
   send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
   research: { base: "research", doing: "Researching", done: "Researched" },
+  // ADR 0152.
+  helper: {
+    base: "hand work to a helper",
+    doing: "Helpers working",
+    done: "Handed work to a helper",
+  },
   delegate: {
     base: "hand work to agents",
     doing: "Handing work to agents",

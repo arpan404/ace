@@ -302,6 +302,8 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
             is_error,
             uncertain: false,
             files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
         })
     };
     let mut events = vec![known(Known::StepFinished {
@@ -485,6 +487,8 @@ fn a_background_job_cut_off_stays_in_the_do_not_repeat_list() {
             is_error: true,
             uncertain: true,
             files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
         }),
     ];
     assert_eq!(

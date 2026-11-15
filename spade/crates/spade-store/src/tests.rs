@@ -211,6 +211,54 @@ fn bot<'a>(id: &'a str, conversation: &'a str, model: &'a str) -> NewAgent<'a> {
 }
 
 #[test]
+fn a_helpers_conversation_is_hidden_belongs_to_its_bot_and_goes_with_it() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
+    let helper = StoredHelper {
+        conversation: "h1".into(),
+        parent: "c1".into(),
+        job: "call_1".into(),
+        reply: "r1".into(),
+        profile: "explore".into(),
+        system: "Read only.".into(),
+        reads_only: true,
+        tools: Some(vec!["web_fetch".into()]),
+        model: "e/m".into(),
+        created_ms: 0,
+    };
+    let first = [Event::user_message("Read the logs")];
+    assert!(store.create_helper(&helper, &first, 6)?);
+    // Starting the same job's helper again (a restart) makes no second one.
+    let again = StoredHelper {
+        conversation: "h2".into(),
+        ..helper.clone()
+    };
+    assert!(!store.create_helper(&again, &first, 7)?);
+    assert!(store.conversation("h2")?.is_none());
+
+    let listed: Vec<String> = store.conversations()?.into_iter().map(|c| c.id).collect();
+    assert_eq!(listed, vec!["c1".to_owned()]);
+    assert_eq!(store.events("h1", 0)?.len(), 1);
+    assert_eq!(
+        store.agent_for_conversation("h1")?.map(|a| a.id),
+        Some("a1".into())
+    );
+    let found = store.helper_for_job("c1", "call_1")?;
+    assert_eq!(
+        found.as_ref().map(|h| h.tools.clone()),
+        Some(helper.tools.clone())
+    );
+    assert_eq!(store.helpers_of("c1")?.len(), 1);
+
+    store.delete_agent("a1")?;
+    assert!(store.conversation("h1")?.is_none());
+    assert!(store.events("h1", 0)?.is_empty());
+    assert!(store.helpers()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn an_agent_and_its_one_conversation_are_created_together() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
@@ -426,13 +474,14 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
             [&picture],
         )?;
         // Back to before the faces migration; the ones after it (routines' `untrusted`, the
-        // skill store) are undone so they can run again.
+        // skill store, helpers) are undone so they can run again.
+        connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
         connection.execute_batch("DROP TABLE skill_uses; DROP TABLE skills;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 3,
+            crate::schema::current_version() as i64 - 4,
         )?;
     }
     let store = Store::open(&path)?;

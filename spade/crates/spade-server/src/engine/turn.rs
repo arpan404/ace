@@ -8,7 +8,7 @@ use std::panic::AssertUnwindSafe;
 
 use futures_util::{FutureExt, StreamExt};
 use spade_core::checkpoint::Checkpoints;
-use spade_core::context::{self, SYSTEM};
+use spade_core::context;
 use spade_core::event::{Call, FailureKind, Known, ReplyEnd, Tokens};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
@@ -135,7 +135,10 @@ pub(super) async fn run(
     }
     // A task still working carries on by itself (ADR 0144). The step is registered while this
     // worker still owns the conversation, so a Stop pressed once it lets go calls it off.
-    let planned = if paused {
+    // A helper's reply closing is its end (ADR 0152): its job hears of it and a queued helper
+    // takes its slot. A helper has no task to carry on, no title and no cap note of its own.
+    let helper = engine.helper_of(&id).is_some();
+    let planned = if paused || helper {
         None
     } else {
         engine.turn_ended(&id).await;
@@ -160,6 +163,10 @@ pub(super) async fn run(
         && Some(&next) != driven.as_ref()
     {
         engine.spawn_turn(&id);
+    }
+    if helper {
+        engine.helper_ended(&id);
+        return;
     }
     name_if_untitled(&engine, &id).await;
     // A turn (or its title) that took the bot to its cap says so, once.
@@ -248,14 +255,21 @@ async fn drive(
                 // step, cost and cap limits and compaction are for endpoint models.
                 let cli = spade_core::brain::CliModel::is(&model);
                 let done = progress(&events);
-                if !cli && done.steps >= engine.limits.max_steps {
+                // A helper has its own limits (ADR 0152), and no indexes: it starts from Spade's
+                // rules, its profile and its task alone.
+                let helper = engine.helper_of(id).is_some();
+                if helper {
+                    if let Some(ended) = helper_limits(engine, done) {
+                        return ended;
+                    }
+                } else if !cli && done.steps >= engine.limits.max_steps {
                     let limit = engine.limits.max_steps;
                     return Ended::Failed(
                         String::new(),
                         format!("the turn reached its limit of {limit} steps"),
                     );
                 }
-                if !cli && done.cost_micros >= engine.limits.turn_cost_micros {
+                if !cli && !helper && done.cost_micros >= engine.limits.turn_cost_micros {
                     return Ended::FailedAs(
                         String::new(),
                         "the turn reached its cost limit".to_owned(),
@@ -269,14 +283,18 @@ async fn drive(
                         Failure::cap(),
                     );
                 }
-                // The bot's own cap (ADR 0135): no model call starts; it says so once.
+                // The bot's own cap (ADR 0135): no model call starts; it says so once. A helper
+                // ends saying why; its bot's conversation says so for the bot.
+                if helper && let Some(why) = engine.cap_refusal(id) {
+                    return Ended::FailedAs(String::new(), why, Failure::cap());
+                }
                 if let Some((_, hit)) = engine.bot_cap(id) {
                     return match engine.close_capped(id, &reply, &hit) {
                         Ok(()) => Ended::Finished,
                         Err(error) => Ended::Failed(String::new(), error.to_string()),
                     };
                 }
-                if super::index::if_needed(engine, id, &events).await {
+                if !helper && super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
                 if super::plugin_hooks::start_if_needed(engine, id, &events, cli).await {
@@ -285,12 +303,12 @@ async fn drive(
                 if !cli && super::plugin_hooks::before_step(engine, id, &events).await {
                     continue;
                 }
-                if super::memory::index_if_due(engine, id, &events) {
+                if !helper && super::memory::index_if_due(engine, id, &events) {
                     continue;
                 }
                 // What the person did on the bot's computer meanwhile (cowork), before the step's
                 // prompt is built, so the step reads it.
-                if engine.offer_person_activity(id) {
+                if !helper && engine.offer_person_activity(id) {
                     continue;
                 }
                 if cli {
@@ -340,6 +358,12 @@ async fn drive(
                         Err(error) => return Ended::Failed(String::new(), error),
                     },
                     Step::Calls => {}
+                    Step::Capped(_) if helper => {
+                        let why = engine
+                            .cap_refusal(id)
+                            .unwrap_or_else(|| "the bot reached its spending cap".to_owned());
+                        return Ended::FailedAs(String::new(), why, Failure::cap());
+                    }
                     Step::Capped(hit) => {
                         return match engine.close_capped(id, &reply, &hit) {
                             Ok(()) => Ended::Finished,
@@ -370,6 +394,26 @@ async fn drive(
     }
 }
 
+/// How a helper's turn ends at its limits (ADR 0152), if it reached one.
+fn helper_limits(engine: &Engine, done: spade_core::turn::Progress) -> Option<Ended> {
+    use spade_core::helper::{over_cost, over_steps};
+    let limits = &engine.limits;
+    if done.steps >= limits.helper_steps {
+        Some(Ended::Failed(
+            String::new(),
+            over_steps(limits.helper_steps),
+        ))
+    } else if done.cost_micros >= limits.helper_cost_micros {
+        Some(Ended::FailedAs(
+            String::new(),
+            over_cost(limits.helper_cost_micros),
+            Failure::cap(),
+        ))
+    } else {
+        None
+    }
+}
+
 /// The model the turn started with, so a conversation keeps one model and its cache.
 fn turn_model(engine: &Engine, events: &[Event], reply: &str) -> String {
     events
@@ -393,8 +437,8 @@ async fn model_step(
 ) -> Step {
     let model = turn_model(engine, events, reply);
     let images = engine.images_for(&model);
-    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
-        .session(id);
+    let system = engine.system_for(id);
+    let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
     let live = engine.live(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
@@ -574,12 +618,15 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
         _ => String::new(),
     };
     let total = progress(&events);
+    // What the person sees the turn cost counts the helpers whose results it read (ADR 0152);
+    // its own $2 limit does not.
+    let helpers = spade_core::helper::cost_in_turn(&events);
     let finished = Event::Known(Known::ReplyFinished {
         reply: reply.to_owned(),
         text,
         input_tokens: None,
         output_tokens: None,
-        cost_micros: total.cost_micros,
+        cost_micros: total.cost_micros + helpers,
     });
     engine.append(id, &finished).map_err(|e| e.to_string())?;
     Ok(true)

@@ -332,6 +332,7 @@ mod tests {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
+            helper: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -340,6 +341,7 @@ mod tests {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
+            helper: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),
@@ -569,6 +571,8 @@ mod tests {
                 is_error: false,
                 uncertain: false,
                 files: Vec::new(),
+                untrusted: false,
+                cost_micros: None,
             }),
         ];
         assert!(!needs_reply(&events));

@@ -1,3 +1,9 @@
+import {
+  parseSpadeEvents,
+  parseSpadeHelpers,
+  spadeHelperSteps,
+  type SpadeHelperStep,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
@@ -84,6 +90,17 @@ export function useSpadeConversation(conversation: string) {
       return spadeHttp(client, "POST", `${path}/approvals/${segment(callId)}`, {
         body: { allowed, always },
       });
+    },
+    /** A helper's steps so far (ADR 0152), read from its own hidden conversation. */
+    async helperSteps(job: string): Promise<readonly SpadeHelperStep[]> {
+      const helpers = parseSpadeHelpers(await spadeHttp(client, "GET", `${path}/helpers`));
+      const helper = helpers?.find((found) => found.job === job);
+      if (!helper) throw new Error("Spade doesn't know this helper.");
+      const events = parseSpadeEvents(
+        await spadeHttp(client, "GET", `/v1/conversations/${segment(helper.conversation)}/events`),
+      );
+      if (!events) throw new Error("Spade's answer didn't make sense.");
+      return spadeHelperSteps(events);
     },
   };
 }

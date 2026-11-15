@@ -40,7 +40,8 @@ impl State {
     /// From the folded transcript: waiting beats working, and background jobs count as working,
     /// so an agent is never shown idle while any of its work runs.
     pub fn of(transcript: &Transcript) -> Self {
-        if !transcript.awaiting.is_empty() || transcript.asking() {
+        // A helper waiting on the person (ADR 0152) counts, even after the reply that started it.
+        if transcript.waiting_on_you() {
             Self::Waiting
         } else if transcript.open_reply().is_some() || !transcript.jobs.is_empty() {
             Self::Working
@@ -130,6 +131,7 @@ pub fn tool_status(tool: &str, bot: Option<&str>) -> String {
         "skill_search" | "skill_load" => "Looking at skills".to_owned(),
         spade_core::tools::TOOL_SEARCH => "Looking for a tool".to_owned(),
         "bots_list" => "Checking the other bots".to_owned(),
+        spade_core::helper::TOOL => "Starting a helper".to_owned(),
         "bot_message" => match bot {
             Some(name) => format!("Asking {name}"),
             None => "Asking another bot".to_owned(),

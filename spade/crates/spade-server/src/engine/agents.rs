@@ -227,12 +227,13 @@ impl Engine {
         let conversation = agent.conversation;
         // Marked first, under the lock deliveries take: from here no message or job result is
         // delivered, and no turn or job starts, so stopping drains everything there is.
+        let helpers = self.helper_conversations(&conversation);
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.deleting
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .insert(conversation.clone());
+            let mut deleting = self.deleting.lock().unwrap_or_else(|p| p.into_inner());
+            deleting.insert(conversation.clone());
+            // Its helpers' conversations go with it (ADR 0152).
+            deleting.extend(helpers.iter().cloned());
         }
         if let Err(error) = self.stop(&conversation) {
             tracing::warn!(%error, "deleting an agent: its stop was not stored");
@@ -265,10 +266,20 @@ impl Engine {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
-        self.deleting
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&conversation);
+        {
+            let mut deleting = self.deleting.lock().unwrap_or_else(|p| p.into_inner());
+            deleting.remove(&conversation);
+            let mut live = self.live.lock().unwrap_or_else(|p| p.into_inner());
+            for helper in &helpers {
+                deleting.remove(helper);
+                if let Some(gone) = live.remove(helper)
+                    && let Some(worker) =
+                        gone.worker.lock().unwrap_or_else(|p| p.into_inner()).take()
+                {
+                    worker.abort();
+                }
+            }
+        }
         deleted?;
         if let Some(plugins) = self.plugins() {
             plugins.forget(id);

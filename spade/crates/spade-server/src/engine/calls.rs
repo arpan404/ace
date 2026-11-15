@@ -49,8 +49,14 @@ pub(super) async fn handle_calls(
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
-    let registry = engine.tools.registry_for(id);
+    let registry = engine.registry_for(id);
     let transcript = Transcript::fold(events);
+    // A helper (ADR 0152) answers to its bot: the bot's access level and "always" answers hold
+    // for it, and what it would ask is asked in the bot's conversation.
+    let helper = engine.helper_of(id);
+    let bot_events = helper
+        .as_ref()
+        .map(|h| engine.load(&h.parent).unwrap_or_default());
     let untrusted = context::untrusted_turn(events, &registry);
     // What a tool keeps (a trusted file, a note, a proposal's source) answers to everything the
     // prompt shows, not just this turn: untrusted text from an earlier turn is still in view.
@@ -78,6 +84,13 @@ pub(super) async fn handle_calls(
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
+            // A helper may use only what its profile allows (ADR 0152), checked before any tool
+            // the turn loop answers itself: a helper's `ask_user` would wait on a question
+            // nobody can see.
+            Status::New if helper.is_some() && registry.get(&name).is_none() => {
+                let refused = ToolOutput::error(helper_refusal(engine, id, &name));
+                finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+            }
             // `ask_user` (ADR 0128) waits like an approval; the person's next message answers it.
             Status::New if name == context::ASK_USER => match super::memory::question(&arguments) {
                 Err(refused) => finish_tool(engine, id, reply, &pending.call, &name, refused).await,
@@ -113,9 +126,21 @@ pub(super) async fn handle_calls(
                         .tools
                         .get_for(id, &name)
                         .and_then(|tool| tool.always_scope_in(&key, &arguments));
-                    let always = match &scope {
-                        Some(scope) => allowed_always_for(engine, id, events, &name, scope),
-                        None => transcript.always_allowed.iter().any(|t| t == &name),
+                    let always_in = |owner: &str, owned: &[Event]| match &scope {
+                        Some(scope) => allowed_always_for(engine, owner, owned, &name, scope),
+                        None => Transcript::fold(owned)
+                            .always_allowed
+                            .iter()
+                            .any(|t| t == &name),
+                    };
+                    let always = match (&helper, &bot_events) {
+                        (Some(h), Some(owned)) => {
+                            always_in(id, events) || always_in(&h.parent, owned)
+                        }
+                        _ => match &scope {
+                            Some(scope) => allowed_always_for(engine, id, events, &name, scope),
+                            None => transcript.always_allowed.iter().any(|t| t == &name),
+                        },
                     };
                     let tainted = match def.risk {
                         // Only saving and rewriting can wait as a suggestion; any other change to
@@ -128,7 +153,10 @@ pub(super) async fn handle_calls(
                     // rule gate would ask about: the person, the reviewer, or neither.
                     // Read now, for this call: a change the person made while earlier calls
                     // of the step were decided holds from here (ADR 0144).
-                    let access = engine.level(id, events);
+                    let access = match (&helper, &bot_events) {
+                        (Some(h), Some(owned)) => engine.level(&h.parent, owned),
+                        _ => engine.level(id, events),
+                    };
                     // What the call reaches, and the files it runs that the reviewer must read.
                     let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
                     else {
@@ -281,9 +309,14 @@ pub(super) async fn handle_calls(
                                 arguments,
                                 scope,
                                 reviewer_reason,
+                                helper: None,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
-                            match engine.record_unless_stopped(id, reply, &asked) {
+                            let recorded = match &helper {
+                                Some(helper) => engine.ask_for_helper(helper, reply, &asked),
+                                None => engine.record_unless_stopped(id, reply, &asked),
+                            };
+                            match recorded {
                                 Ok(true) => {}
                                 Ok(false) => return Handled::Stopped,
                                 Err(error) => return Handled::Failed(error.to_string()),
@@ -337,6 +370,18 @@ pub(super) async fn handle_calls(
         return handled;
     }
     Handled::Continue
+}
+
+/// What a helper is told about a tool its profile leaves out: refused when its bot has it or no
+/// helper may have it, missing otherwise.
+fn helper_refusal(engine: &Engine, id: &str, name: &str) -> String {
+    let barred = spade_core::helper::NEVER.contains(&name)
+        || engine.tools.registry_for(id).get(name).is_some();
+    if barred {
+        format!("Refused: a helper cannot use {name}. Finish the task with your tools and answer.")
+    } else {
+        format!("There is no tool named {name}. Use tool_search to find tools.")
+    }
 }
 
 /// Stores a verdict the rules reached (ADR 0144) unless one is stored for the call already, as
@@ -455,7 +500,7 @@ async fn run_tools(
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
-            let def = engine.tools.registry_for(id).get(&name).cloned();
+            let def = engine.registry_for(id).get(&name).cloned();
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
                 Some(def) => Some(def.risk),
@@ -595,7 +640,7 @@ async fn run_one(
 ) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
-        let registry = engine.tools.registry_for(id);
+        let registry = engine.registry_for(id);
         let found = registry.search(query, 5);
         return ToolOutput::ok(describe(&found));
     }
