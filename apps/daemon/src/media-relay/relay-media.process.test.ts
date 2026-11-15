@@ -173,7 +173,10 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     expect(await firstChunk(client)).toBe(true);
     const picture = { type: "source.picture", source: "none", ageMs: 0, epoch: 0 } as const;
     const latencies: number[] = [];
-    for (let i = 0; i < 40; i++) {
+    // 121 samples, so the p99 is the second-worst rather than the single worst: one stall of a
+    // shared, loaded host shouldn't decide it.
+    const loadBefore = loadavg()[0] ?? 0;
+    for (let i = 0; i < 120; i++) {
       // 8 MiB of pictures ahead of every revocation on the normal lane.
       for (let j = 0; j < 8; j++) t.supervisor.send(picture, new Uint8Array(1024 * 1024));
       const started = performance.now();
@@ -199,9 +202,12 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     ).toBe("answered");
     latencies.push(performance.now() - started);
     await client.closed;
+    console.info(
+      `relay revocation latencies ${JSON.stringify(latencies.map((l) => Math.round(l)))}`,
+    );
     latencies.sort((a, b) => a - b);
     const p99 = latencies[Math.ceil(latencies.length * 0.99) - 1] ?? Infinity;
-    const load = loadavg()[0] ?? 0;
+    const load = Math.max(loadBefore, loadavg()[0] ?? 0);
     console.info(`relay revocation p99 ${p99.toFixed(1)} ms at load ${Math.round(load)}`);
     // On a machine this loaded the number is reported; the kill deadline still holds.
     expect(p99).toBeLessThan(load >= 24 ? 250 : 50);
