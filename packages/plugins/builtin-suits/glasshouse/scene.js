@@ -1,14 +1,18 @@
 // Glasshouse's backdrop: the light inside a conservatory, seen through its panes.
 //
-// Day: a pale mint field warmed by the sun at the top left, two layers of water-like caustics
-// drifting very slowly across it, a few soft sun shafts, and the blurred shadows of fronds
-// swaying at the edges. Night: the same room under moonlight from the top right, cool and dim.
-// Everything is drawn from sprites built once (the caustic tile once per scheme) into a field a
-// third of the window's size, which is soft light anyway, then stretched onto the canvas in one
-// blit, so a frame costs a small fill, a few dozen small blits and one full-size copy. The brightness range stays narrow in each scheme, so text
-// on the panes reads the same everywhere. Signals only brighten the light for a moment.
+// Day: a warm cream-to-mint room with blooms of coloured light (sun gold, honey, leaf green,
+// aqua) drifting very slowly, out-of-focus foliage silhouettes leaning in from the edges, specks
+// of sunlight through the leaves and a slow caustic over everything. Night: the same room under
+// moonlight, blue and teal blooms on deep green-black, the foliage nearly black.
+//
+// The light is composed in a field a third of the window's size (it is all soft light, so the
+// stretch only softens it further) from sprites built once, the caustic tile once per scheme;
+// a frame is a small gradient fill, a few dozen small blits and one full-size copy. The
+// brightness range stays narrow in each scheme so text on the panes reads everywhere. Signals
+// only brighten the light for a moment.
 
 const fieldScale = 1 / 3;
+const tileSize = 384;
 
 let out = null; // the scene's own canvas
 let field = null; // the small canvas the light is composed in
@@ -23,29 +27,38 @@ let now = 0;
 let liftAt = -1e9;
 let lift = 0;
 
-let base = null; // the field's gradient
-let glow = null; // a soft white disc, 256 px
-let tile = null; // seamless caustic tile
+let base = null;
 let pattern = null;
-let shaft = null; // a soft light beam
-let fronds = []; // blurred frond shadows
-
-const tileSize = 384;
+let speck = null; // a soft white disc
+let blooms = []; // coloured glow sprites, per scheme
+let leaves = []; // blurred foliage silhouettes
 
 // Fixed placements, as fractions of the window, so the room is the same every time.
+const bloomSpots = {
+  light: [
+    { rgb: "255,190,90", a: 0.6, x: 0.08, y: 0.0, r: 0.62, d: 0.9 },
+    { rgb: "255,216,130", a: 0.42, x: 0.5, y: 0.08, r: 0.4, d: 1.3 },
+    { rgb: "90,190,200", a: 0.5, x: 0.12, y: 0.98, r: 0.58, d: 0.8 },
+    { rgb: "120,190,110", a: 0.48, x: 0.74, y: 0.92, r: 0.56, d: 1.1 },
+    { rgb: "165,215,150", a: 0.36, x: 0.86, y: 0.32, r: 0.36, d: 1.6 },
+    { rgb: "120,200,190", a: 0.32, x: 0.4, y: 0.55, r: 0.3, d: 1.2 },
+  ],
+  dark: [
+    { rgb: "110,150,235", a: 0.32, x: 0.88, y: 0.04, r: 0.6, d: 0.9 },
+    { rgb: "40,150,150", a: 0.34, x: 0.12, y: 0.86, r: 0.55, d: 1.1 },
+    { rgb: "60,90,170", a: 0.24, x: 0.48, y: 0.45, r: 0.45, d: 1.4 },
+    { rgb: "80,190,200", a: 0.16, x: 0.78, y: 0.8, r: 0.38, d: 0.8 },
+  ],
+};
 const leafSpots = [
-  { x: -0.02, y: -0.04, s: 1.15, r: 0.55, sway: 0.9, kind: 0 },
-  { x: 0.16, y: -0.1, s: 0.8, r: 1.25, sway: 1.3, kind: 1 },
-  { x: 0.98, y: 0.02, s: 1.05, r: 2.5, sway: 1.1, kind: 0 },
-  { x: 0.84, y: -0.08, s: 0.75, r: 1.9, sway: 1.6, kind: 1 },
-  { x: 1.02, y: 0.78, s: 1.2, r: 3.6, sway: 0.8, kind: 0 },
-  { x: -0.04, y: 0.86, s: 1.1, r: -0.6, sway: 1.0, kind: 1 },
+  { x: -0.06, y: -0.1, s: 1.25, r: 0.7, sway: 0.9, kind: 0 },
+  { x: 0.22, y: -0.16, s: 0.85, r: 1.5, sway: 1.3, kind: 1 },
+  { x: 1.04, y: -0.04, s: 1.1, r: 2.3, sway: 1.1, kind: 0 },
+  { x: 1.08, y: 0.62, s: 1.3, r: 3.3, sway: 0.8, kind: 1 },
+  { x: -0.08, y: 0.7, s: 1.15, r: -0.3, sway: 1.0, kind: 0 },
+  { x: 0.46, y: 1.08, s: 0.95, r: -1.6, sway: 1.2, kind: 1 },
 ];
-const shafts = [
-  { x: 0.12, w: 0.16, a: 0.9 },
-  { x: 0.34, w: 0.1, a: 0.6 },
-  { x: 0.55, w: 0.2, a: 0.5 },
-];
+const specks = [];
 
 let seed = 7;
 function random() {
@@ -60,32 +73,18 @@ function canvas(w, h) {
   return c;
 }
 
-function buildGlow() {
-  glow = canvas(256, 256);
-  const g = glow.getContext("2d");
-  const fill = g.createRadialGradient(128, 128, 0, 128, 128, 128);
-  fill.addColorStop(0, "rgba(255,255,255,1)");
-  fill.addColorStop(0.35, "rgba(255,255,255,0.45)");
-  fill.addColorStop(1, "rgba(255,255,255,0)");
+function glowSprite(rgb, size) {
+  const c = canvas(size, size);
+  const g = c.getContext("2d");
+  const half = size / 2;
+  const fill = g.createRadialGradient(half, half, 0, half, half, half);
+  fill.addColorStop(0, `rgba(${rgb},1)`);
+  fill.addColorStop(0.4, `rgba(${rgb},0.5)`);
+  fill.addColorStop(0.75, `rgba(${rgb},0.14)`);
+  fill.addColorStop(1, `rgba(${rgb},0)`);
   g.fillStyle = fill;
-  g.fillRect(0, 0, 256, 256);
-}
-
-function buildShaft() {
-  shaft = canvas(64, 512);
-  const g = shaft.getContext("2d");
-  const across = g.createLinearGradient(0, 0, 64, 0);
-  across.addColorStop(0, "rgba(255,255,255,0)");
-  across.addColorStop(0.5, "rgba(255,255,255,1)");
-  across.addColorStop(1, "rgba(255,255,255,0)");
-  g.fillStyle = across;
-  g.fillRect(0, 0, 64, 512);
-  g.globalCompositeOperation = "destination-in";
-  const along = g.createLinearGradient(0, 0, 0, 512);
-  along.addColorStop(0, "rgba(0,0,0,1)");
-  along.addColorStop(1, "rgba(0,0,0,0)");
-  g.fillStyle = along;
-  g.fillRect(0, 0, 64, 512);
+  g.fillRect(0, 0, size, size);
+  return c;
 }
 
 // A ring of light with an uneven edge, drawn at each wrap offset so the tile repeats seamlessly.
@@ -111,63 +110,86 @@ function buildTile() {
   const sharp = canvas(tileSize, tileSize);
   const g = sharp.getContext("2d");
   g.lineJoin = "round";
-  const tint = scheme === "dark" ? "rgba(190,236,232,0.85)" : "rgba(255,255,250,0.95)";
-  g.strokeStyle = tint;
+  g.strokeStyle = scheme === "dark" ? "rgba(170,230,235,0.9)" : "rgba(255,252,236,0.95)";
   const wobble = new Float32Array(12);
   for (let n = 0; n < 34; n++) {
     for (let i = 0; i < 12; i++) wobble[i] = (random() - 0.5) * 0.28;
-    g.lineWidth = 0.8 + random() * 1.8;
+    g.lineWidth = 1 + random() * 2.2;
     ring(g, random() * tileSize, random() * tileSize, 26 + random() * 46, wobble);
   }
-  tile = canvas(tileSize, tileSize);
+  const tile = canvas(tileSize, tileSize);
   const t = tile.getContext("2d");
-  t.filter = "blur(5px)";
+  t.filter = "blur(6px)";
   t.drawImage(sharp, 0, 0);
-  t.filter = "blur(1.2px)";
+  t.filter = "blur(1.5px)";
   t.drawImage(sharp, 0, 0);
   t.filter = "none";
   pattern = ctx.createPattern(tile, "repeat");
 }
 
-// A frond: a curved stem with leaflets that shorten toward its tip, then blurred into a shadow.
-function buildFrond(kind) {
+// Foliage, drawn sharp then blurred into an out-of-focus silhouette. Kind 0 is a broad leaf with
+// split lobes on a stem; kind 1 a frond of narrow leaflets.
+function buildLeaf(kind) {
   seed = 31 + kind * 13;
-  const size = 360;
+  const size = 300;
   const sharp = canvas(size, size);
   const g = sharp.getContext("2d");
   g.fillStyle = "#000";
   g.strokeStyle = "#000";
   g.lineCap = "round";
-  const pairs = kind === 0 ? 9 : 6;
-  const bend = kind === 0 ? 0.25 : -0.35;
-  g.lineWidth = 3;
-  g.beginPath();
-  g.moveTo(20, size - 20);
-  g.quadraticCurveTo(size * 0.45, size * (0.55 + bend * 0.3), size - 30, 30);
-  g.stroke();
-  for (let i = 1; i <= pairs; i++) {
-    const p = i / (pairs + 1);
-    const q = 1 - p;
-    const x = q * q * 20 + 2 * q * p * size * 0.45 + p * p * (size - 30);
-    const y = q * q * (size - 20) + 2 * q * p * size * (0.55 + bend * 0.3) + p * p * 30;
-    const len = (kind === 0 ? 92 : 120) * (1 - p * 0.6) * (0.85 + random() * 0.3);
-    const wide = kind === 0 ? 0.22 : 0.34;
-    for (const side of [-1, 1]) {
-      const angle = -Math.PI / 4 + side * (Math.PI / 2.6) + (random() - 0.5) * 0.2;
-      g.save();
-      g.translate(x, y);
-      g.rotate(angle);
+  if (kind === 0) {
+    g.lineWidth = 7;
+    g.beginPath();
+    g.moveTo(20, size - 10);
+    g.quadraticCurveTo(70, size * 0.7, 120, size * 0.55);
+    g.stroke();
+    g.save();
+    g.translate(170, 120);
+    g.rotate(-0.55);
+    g.beginPath();
+    g.ellipse(0, 0, 118, 92, 0, 0, Math.PI * 2);
+    g.fill();
+    // Splits in the leaf, cut from its edge toward the midrib.
+    g.globalCompositeOperation = "destination-out";
+    g.lineWidth = 9;
+    for (let i = 0; i < 7; i++) {
+      const a = -Math.PI * 0.8 + i * 0.36;
       g.beginPath();
-      g.moveTo(0, 0);
-      g.quadraticCurveTo(len * 0.5, -len * wide, len, 0);
-      g.quadraticCurveTo(len * 0.5, len * wide, 0, 0);
-      g.fill();
-      g.restore();
+      g.moveTo(Math.cos(a) * 130, Math.sin(a) * 104);
+      g.lineTo(Math.cos(a) * 46, Math.sin(a) * 36);
+      g.stroke();
+    }
+    g.restore();
+    g.globalCompositeOperation = "source-over";
+  } else {
+    g.lineWidth = 4;
+    g.beginPath();
+    g.moveTo(16, size - 16);
+    g.quadraticCurveTo(size * 0.42, size * 0.62, size - 24, 24);
+    g.stroke();
+    const pairs = 8;
+    for (let i = 1; i <= pairs; i++) {
+      const p = i / (pairs + 1);
+      const q = 1 - p;
+      const x = q * q * 16 + 2 * q * p * size * 0.42 + p * p * (size - 24);
+      const y = q * q * (size - 16) + 2 * q * p * size * 0.62 + p * p * 24;
+      const len = 96 * (1 - p * 0.55) * (0.85 + random() * 0.3);
+      for (const side of [-1, 1]) {
+        g.save();
+        g.translate(x, y);
+        g.rotate(-Math.PI / 4 + side * (Math.PI / 2.5) + (random() - 0.5) * 0.2);
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.quadraticCurveTo(len * 0.5, -len * 0.26, len, 0);
+        g.quadraticCurveTo(len * 0.5, len * 0.26, 0, 0);
+        g.fill();
+        g.restore();
+      }
     }
   }
   const soft = canvas(size, size);
   const s = soft.getContext("2d");
-  s.filter = "blur(7px)";
+  s.filter = "blur(12px)";
   s.drawImage(sharp, 0, 0);
   s.filter = "none";
   return soft;
@@ -176,13 +198,13 @@ function buildFrond(kind) {
 function buildBase() {
   base = ctx.createLinearGradient(0, 0, width, height);
   if (scheme === "dark") {
-    base.addColorStop(0, "#0C171C");
-    base.addColorStop(0.55, "#0F1D23");
-    base.addColorStop(1, "#122329");
+    base.addColorStop(0, "#08131A");
+    base.addColorStop(0.5, "#0B1A21");
+    base.addColorStop(1, "#0E1F26");
   } else {
-    base.addColorStop(0, "#E6EEE6");
-    base.addColorStop(0.5, "#D8E5E2");
-    base.addColorStop(1, "#CCDCDB");
+    base.addColorStop(0, "#F0E4C4");
+    base.addColorStop(0.5, "#D8E8D4");
+    base.addColorStop(1, "#C4DFDC");
   }
 }
 
@@ -191,9 +213,11 @@ function build(view) {
   if (!field) {
     field = canvas(1, 1);
     ctx = field.getContext("2d");
-    buildGlow();
-    buildShaft();
-    fronds = [buildFrond(0), buildFrond(1)];
+    speck = glowSprite("255,255,255", 64);
+    leaves = [buildLeaf(0), buildLeaf(1)];
+    seed = 19;
+    for (let i = 0; i < 16; i++)
+      specks.push({ x: random(), y: random(), r: 0.006 + random() * 0.018, v: 0.4 + random() });
   }
   if (view.width !== viewWidth || view.height !== viewHeight) {
     viewWidth = view.width;
@@ -204,52 +228,44 @@ function build(view) {
     field.height = height;
   }
   const next = view.scheme === "dark" ? "dark" : "light";
-  // The blurred caustic tile is the costly sprite: it only changes with the scheme.
+  // The blurred caustic tile and the tinted blooms only change with the scheme.
   if (next !== scheme || !pattern) {
     scheme = next;
     buildTile();
+    blooms = bloomSpots[scheme].map((spot) => glowSprite(spot.rgb, 128));
   }
   buildBase();
 }
 
 function draw(time, view) {
   const still = view.reduceMotion;
+  const dark = scheme === "dark";
+  const t = still ? 0 : time / 1000;
+  const bright = lift * Math.max(0, 1 - (time - liftAt) / 1800);
+  const span = Math.max(width, height);
+
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, width, height);
 
-  const dark = scheme === "dark";
-  const t = still ? 0 : time / 1000;
-  const breathe = still ? 0 : Math.sin(t * 0.12) * 0.04;
-  const bright = lift * Math.max(0, 1 - (time - liftAt) / 1800);
-  const span = Math.max(width, height);
-
-  // The sun (or moon), large and soft, in its corner.
-  const sx = dark ? width * 0.9 : width * 0.08;
-  const sy = -span * 0.08;
-  const sr = span * (dark ? 0.55 : 0.75);
-  ctx.globalAlpha = (dark ? 0.1 : 0.5) + breathe + bright * 0.15;
-  ctx.drawImage(glow, sx - sr, sy - sr, sr * 2, sr * 2);
-
-  // Light shafts falling from that corner.
-  ctx.save();
-  ctx.translate(sx, sy);
-  ctx.rotate(dark ? 0.5 : -0.5);
-  for (const beam of shafts) {
-    const drift = still ? 0 : Math.sin(t * 0.05 + beam.x * 9) * span * 0.01;
-    ctx.globalAlpha = beam.a * (dark ? 0.035 : 0.22);
-    const off = (dark ? -1 : 1) * beam.x * span;
-    ctx.drawImage(shaft, off + drift, 0, beam.w * span, span * 1.3);
+  // Blooms of coloured light, each drifting on its own slow loop.
+  const spots = bloomSpots[scheme];
+  for (let i = 0; i < spots.length; i++) {
+    const spot = spots[i];
+    const x = (spot.x + Math.sin(t * 0.03 * spot.d + i * 1.7) * 0.04) * width;
+    const y = (spot.y + Math.cos(t * 0.025 * spot.d + i) * 0.03) * height;
+    const r = spot.r * span * (1 + Math.sin(t * 0.05 + i) * 0.04);
+    ctx.globalAlpha = Math.min(1, spot.a + bright * 0.12);
+    ctx.drawImage(blooms[i], x - r, y - r, r * 2, r * 2);
   }
-  ctx.restore();
 
   // Caustics: the same tile twice, at two scales, drifting against each other.
   if (pattern) {
     const near = 1.4 * fieldScale;
-    const far = 2.1 * fieldScale;
-    ctx.globalAlpha = (dark ? 0.06 : 0.32) + bright * 0.1;
+    const far = 2.2 * fieldScale;
+    ctx.globalAlpha = (dark ? 0.055 : 0.3) + bright * 0.1;
     ctx.fillStyle = pattern;
     ctx.setTransform(
       near,
@@ -260,7 +276,7 @@ function draw(time, view) {
       (t * 1.6 * fieldScale) % (tileSize * near),
     );
     ctx.fillRect(-tileSize, -tileSize, width / near + tileSize * 2, height / near + tileSize * 2);
-    ctx.globalAlpha = (dark ? 0.045 : 0.22) + bright * 0.08;
+    ctx.globalAlpha = (dark ? 0.035 : 0.18) + bright * 0.08;
     ctx.setTransform(
       far,
       0,
@@ -273,16 +289,25 @@ function draw(time, view) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
-  // Frond shadows at the edges, swaying a few degrees.
-  ctx.globalAlpha = dark ? 0.22 : 0.09;
+  // Specks of sun (or moon) through the leaves, rising very slowly.
+  ctx.globalAlpha = dark ? 0.14 : 0.42;
+  for (const s of specks) {
+    const x = s.x * width + Math.sin(t * 0.1 * s.v + s.y * 9) * span * 0.01;
+    const y = ((((s.y - t * 0.004 * s.v) % 1) + 1) % 1) * height;
+    const r = s.r * span;
+    ctx.drawImage(speck, x - r, y - r, r * 2, r * 2);
+  }
+
+  // Out-of-focus foliage leaning in from the edges, swaying a few degrees.
+  ctx.globalAlpha = dark ? 0.6 : 0.16;
   for (const spot of leafSpots) {
-    const frond = fronds[spot.kind];
-    const size = span * 0.36 * spot.s;
-    const sway = still ? 0 : Math.sin(t * 0.35 * spot.sway + spot.r * 3) * 0.035;
+    const leaf = leaves[spot.kind];
+    const size = span * 0.42 * spot.s;
+    const sway = still ? 0 : Math.sin(t * 0.3 * spot.sway + spot.r * 3) * 0.04;
     ctx.save();
     ctx.translate(spot.x * width, spot.y * height);
     ctx.rotate(spot.r + sway);
-    ctx.drawImage(frond, 0, 0, size, size);
+    ctx.drawImage(leaf, 0, 0, size, size);
     ctx.restore();
   }
   ctx.globalAlpha = 1;
@@ -302,7 +327,6 @@ ace.scene({
   resize(view) {
     build(view);
   },
-  scheme(_next) {},
   frame(time, view) {
     now = time;
     if (view.scheme !== scheme || view.width !== viewWidth || view.height !== viewHeight)

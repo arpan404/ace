@@ -2,7 +2,7 @@
   "format": 1,
   "id": "glasshouse",
   "name": "Glasshouse",
-  "description": "Panes of frosted glass floating in a sunlit conservatory: soft caustics and leaf shadows behind, a clear pane for every answer, and a sweep of light across the glass when work is done.",
+  "description": "Panes of glass floating in a sunlit conservatory: coloured light and soft foliage behind, every surface a lit, refracting pane at its own depth, and a sweep of light across the glass when work is done.",
   "version": "1",
   "base": "ace",
   "dark": {
@@ -17,8 +17,8 @@
     "borderStrong": "#40575F",
     "text": "#E9F2F3",
     "muted": "#B7C8CC",
-    "subtle": "#9DB2B8",
-    "faint": "#6C838A",
+    "subtle": "#A6BAC0",
+    "faint": "#748B92",
     "accent": "#86D4DF",
     "accentHover": "#A8E2EA",
     "accentFg": "#061D22",
@@ -36,7 +36,10 @@
       "com": "#7F969C",
       "punc": "#B3C4C8"
     },
-    "glass": { "blur": 28, "saturate": 160 }
+    "glass": {
+      "blur": 30,
+      "saturate": 135
+    }
   },
   "light": {
     "canvas": "#EEF4F3",
@@ -49,9 +52,9 @@
     "border": "#D0DCDB",
     "borderStrong": "#A9BCBB",
     "text": "#122024",
-    "muted": "#38494E",
-    "subtle": "#4E6267",
-    "faint": "#7D9196",
+    "muted": "#33454A",
+    "subtle": "#46595E",
+    "faint": "#687C81",
     "accent": "#1C6578",
     "accentHover": "#15566A",
     "accentFg": "#FFFFFF",
@@ -69,17 +72,32 @@
       "com": "#6A7F84",
       "punc": "#45575C"
     },
-    "glass": { "blur": 24, "saturate": 170 }
+    "glass": {
+      "blur": 30,
+      "saturate": 115
+    }
   },
   "fonts": {
-    "ui": { "asset": "assets/fonts/Manrope.ttf", "family": "Glasshouse Sans" },
-    "prose": { "asset": "assets/fonts/Manrope.ttf", "family": "Glasshouse Text" },
+    "ui": {
+      "asset": "assets/fonts/Manrope.ttf",
+      "family": "Glasshouse Sans"
+    },
+    "prose": {
+      "asset": "assets/fonts/Manrope.ttf",
+      "family": "Glasshouse Text"
+    },
     "mono": {
       "system": "\"SF Mono\", ui-monospace, Menlo, Consolas, \"DejaVu Sans Mono\", monospace"
     }
   },
-  "shape": { "radius": 1.6, "border": 1, "density": "comfortable" },
-  "motion": { "speed": 1.1 },
+  "shape": {
+    "radius": 1.6,
+    "border": 1,
+    "density": "comfortable"
+  },
+  "motion": {
+    "speed": 1.1
+  },
   "layout": {
     "messages": "bubbles",
     "toolRows": "detailed",
@@ -94,19 +112,28 @@
     "send": "Send"
   },
   "ornaments": [
-    { "slot": "sidebar-header", "asset": "assets/ornaments/arch.svg" },
-    { "slot": "empty-state", "asset": "assets/ornaments/conservatory.svg" }
+    {
+      "slot": "sidebar-header",
+      "asset": "assets/ornaments/arch.svg"
+    },
+    {
+      "slot": "empty-state",
+      "asset": "assets/ornaments/conservatory.svg"
+    }
   ],
-  "scenes": { "app": "scene.js", "celebration": "celebration.js" },
+  "scenes": {
+    "app": "scene.js",
+    "celebration": "celebration.js"
+  },
   "reveal": {
     "app": 1,
-    "rail": 0.6,
-    "sidebar": 0.45,
-    "header": 0.5,
-    "transcript": 0.4,
-    "page": 0.35,
-    "composer": 0.3,
-    "right-panel": 0.35
+    "rail": 0.9,
+    "sidebar": 0.85,
+    "header": 0.85,
+    "transcript": 0.9,
+    "page": 0.9,
+    "composer": 0.75,
+    "right-panel": 0.75
   },
   "terminal": {
     "dark": {
