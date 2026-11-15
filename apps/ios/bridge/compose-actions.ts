@@ -5,6 +5,7 @@ import { ComposeSearch } from "./compose-search.ts";
 import { ChoiceAction, CreateAction, NewThread, type NewThreadMemory } from "./new-thread.ts";
 import { AttachmentTray, Picked, nativeChunks, type ChunkReader } from "./thread-attachments.ts";
 import { ChatProject, chatChoice } from "./chat-project.ts";
+import type { DismissedSends } from "./dismissed-sends.ts";
 
 /*
  * The `compose` (New thread, Add project) actions Swift sends, parsed once and routed to their
@@ -38,6 +39,18 @@ const ComposeAction = z.discriminatedUnion("kind", [
   /** A file picked for the first message, uploaded into the project's draft scope. */
   z.object({ kind: z.literal("attach"), workspaceId: id, file: Picked }),
   z.object({ kind: z.literal("detach"), localId: z.string().min(1).max(64) }),
+  /** A worktree start's card action: Cancel, Don't use worktree, Retry, Continue. */
+  z.object({
+    kind: z.literal("worktree"),
+    commandId: z.string().min(8).max(64),
+    action: z.enum(["cancel", "local", "retry", "continue"]),
+  }),
+  /** Back to New thread on a stopped worktree start, answered on `receipt:<requestId>`. */
+  z.object({
+    kind: z.literal("worktreeBack"),
+    commandId: z.string().min(8).max(64),
+    requestId: z.string().min(1).max(64),
+  }),
 ]);
 export class ComposeActions {
   readonly newThread: NewThread;
@@ -55,6 +68,8 @@ export class ComposeActions {
     now: () => number,
     chunks: ChunkReader = nativeChunks,
     memory?: NewThreadMemory,
+    /** The failed sends the person dealt with, for Back to New thread's Unsent row. */
+    dismissed?: DismissedSends,
   ) {
     this.#owner = owner;
     this.#sink = sink;
@@ -72,7 +87,12 @@ export class ComposeActions {
         adopt: (draftId) => this.search.adopt(draftId),
       },
       memory,
+      dismissed,
     );
+  }
+  /** Stop following worktree starts; for a session that ends. */
+  close(): void {
+    this.newThread.worktrees.close();
   }
   compose(raw: unknown): boolean {
     const parsed = ComposeAction.safeParse(raw);
@@ -96,6 +116,12 @@ export class ComposeActions {
         break;
       case "detach":
         this.#tray?.tray.detach(action.localId);
+        break;
+      case "worktree":
+        this.newThread.worktrees.act(action.commandId, action.action);
+        break;
+      case "worktreeBack":
+        void this.newThread.worktrees.giveBack(action.commandId, action.requestId);
         break;
       case "projects":
         void this.newThread.projects();
