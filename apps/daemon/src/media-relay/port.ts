@@ -5,11 +5,17 @@ import { systemMediaClock } from "@ace/media/supervisor";
 import type { MediaTicketClaim } from "./admit.ts";
 import { MediaRelayStreams, type MediaRelayLink } from "./streams.ts";
 
+/** Hears ace-media's messages and exits. */
+export type MediaRelayWatcher = {
+  message(message: FromMedia, payload: Uint8Array): void;
+  exit(): void;
+};
+
 /** What the daemon's ace-media offers relay streams, once its runtime exists. */
 export type MediaRelayPort = MediaRelayLink & {
   claim: MediaTicketClaim;
-  /** ace-media's messages and exits, from now on. */
-  watch(hooks: { message(message: FromMedia, payload: Uint8Array): void; exit(): void }): void;
+  /** ace-media's messages and exits, from now on, until the returned unsubscribe. */
+  watch(watcher: MediaRelayWatcher): () => void;
 };
 
 /**
@@ -22,15 +28,19 @@ export function lateMediaRelay(
   options: { hostKeys: KeyPair; log?: (line: string) => void },
 ): { streams: MediaRelayStreams; claim: MediaTicketClaim } {
   let watched: MediaRelayPort | undefined;
+  let unwatch: (() => void) | undefined;
   let streams: MediaRelayStreams | undefined;
+  const watcher: MediaRelayWatcher = {
+    message: (message, payload) => streams?.onMessage(message, payload),
+    exit: () => streams?.onExit(),
+  };
+  // One watcher at a time: a new runtime's port replaces the last one's.
   const current = () => {
     const live = port();
     if (live && watched !== live) {
+      unwatch?.();
       watched = live;
-      live.watch({
-        message: (message, payload) => streams?.onMessage(message, payload),
-        exit: () => streams?.onExit(),
-      });
+      unwatch = live.watch(watcher);
     }
     return live;
   };

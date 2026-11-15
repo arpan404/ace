@@ -20,6 +20,7 @@ import {
 } from "@ace/media/supervisor";
 import type { ServiceContext } from "./types.ts";
 import type { MediaRelayPort } from "../media-relay/port.ts";
+import { RuntimeRelayPort } from "../media-relay/runtime-port.ts";
 
 /*
  * The daemon's ace-media for live video (E4, ADR 0147): one `MediaRuntime`, made once the
@@ -99,8 +100,8 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
   let runtimeDir: string | undefined;
   /** Long-lived producers waiting for the runtime, with the source they get then. */
   const waiting = new Map<IngestProducer, { source: IngestSource | undefined }>();
-  /** Relay media streams watching ace-media's messages (D2). */
-  const relayHooks = new Set<Parameters<MediaRelayPort["watch"]>[0]>();
+  /** The runtime's relay port (D2): one for the runtime's life. */
+  let relayPort: RuntimeRelayPort | undefined;
 
   const start = () =>
     (starting ??= (async () => {
@@ -122,13 +123,10 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         id,
         capabilities: platformRouteCapabilities(process.platform),
         log: (level, message, fields) => context.log.log(level, `ace-media: ${message}`, fields),
-        onMessage: (message, payload) => {
-          for (const hooks of relayHooks) hooks.message(message, payload);
-        },
-        onExit: () => {
-          for (const hooks of relayHooks) hooks.exit();
-        },
+        onMessage: (message, payload) => relayPort?.message(message, payload),
+        onExit: () => relayPort?.exit(),
       });
+      relayPort = new RuntimeRelayPort(runtime, () => settings.delivery === "auto");
       for (const [producer, slot] of waiting) slot.source = runtime.sources.add(producer);
       runtime.settingsChanged();
     })().catch((error: unknown) => {
@@ -160,34 +158,9 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
     if (runtimeDir) rmSync(runtimeDir, { recursive: true, force: true });
   });
 
-  const delivery = (live: MediaRuntime): DaemonDelivery => ({
-    ...live.delivery(),
-    connect: (owner) =>
-      settings.delivery === "auto"
-        ? live.connections.connect(owner)
-        : Promise.resolve({
-            ok: false,
-            code: "unavailable",
-            message: "ace-media isn't serving viewers.",
-          }),
-    sessionStarted: (session) => live.links.started(session),
-    sessionEnded: (session) => {
-      live.links.ended(session);
-      void live.connections.sessionClosed(session);
-    },
-    sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
-    relay: {
-      send: (message, payload) => live.supervisor.send(message, payload),
-      closeStream: (message) => void live.supervisor.revoke(message),
-      need: () => live.supervisor.need(),
-      available: () => settings.delivery === "auto" && live.supervisor.health() !== "unavailable",
-      claim: (ticket, claimant) => live.connections.claimRelay(ticket, claimant),
-      watch: (hooks) => void relayHooks.add(hooks),
-    },
-  });
-
   return {
-    delivery: () => (runtime ? delivery(runtime) : undefined),
+    delivery: () =>
+      runtime && relayPort ? daemonDelivery(runtime, relayPort, () => settings) : undefined,
     add: (producer) => runtime?.sources.add(producer),
     routed: (kind) => runtime?.sources.routed(kind) ?? false,
     wanted: (kind) => runtime?.sources.wanted(kind) ?? false,
@@ -209,5 +182,34 @@ function createMedia(context: ServiceContext): DaemonMedia | undefined {
         },
       };
     },
+  };
+}
+
+/**
+ * Delivery by a live runtime, as producers and sessions see it. Built on every lookup; `relay`
+ * is the runtime's one port, so lookups never add watchers.
+ */
+export function daemonDelivery(
+  live: MediaRuntime,
+  relay: MediaRelayPort,
+  settings: () => MediaSettings,
+): DaemonDelivery {
+  return {
+    ...live.delivery(),
+    connect: (owner) =>
+      settings().delivery === "auto"
+        ? live.connections.connect(owner)
+        : Promise.resolve({
+            ok: false,
+            code: "unavailable",
+            message: "ace-media isn't serving viewers.",
+          }),
+    sessionStarted: (session) => live.links.started(session),
+    sessionEnded: (session) => {
+      live.links.ended(session);
+      void live.connections.sessionClosed(session);
+    },
+    sample: (session, rttMs, backlogBytes) => live.links.sample(session, rttMs, backlogBytes),
+    relay,
   };
 }

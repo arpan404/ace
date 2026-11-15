@@ -14,7 +14,10 @@ function fakePort() {
     need: () => () => {},
     available: () => true,
     claim: () => undefined,
-    watch: (hooks) => void watchers.push(hooks),
+    watch: (hooks) => {
+      watchers.push(hooks);
+      return () => watchers.splice(watchers.indexOf(hooks), 1);
+    },
   };
   return { port, sent, watchers };
 }
