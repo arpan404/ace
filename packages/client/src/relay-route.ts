@@ -5,6 +5,8 @@ import { relayCompression } from "./inflate.ts";
 import { AceAccountError } from "./ace-account.ts";
 import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
 import { RelayClosedError } from "./relay-closed.ts";
+import { RELAY_EARLY } from "./relay-early.ts";
+export { RELAY_EARLY } from "./relay-early.ts";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
 import { ClientError, type Transport } from "./types.ts";
 
@@ -64,6 +66,11 @@ export function relayRoute(options: RelayRouteOptions): {
   credential(): Promise<Credential>;
 } {
   let pending: Credential | undefined;
+  /**
+   * This relay said it holds an early frame (ADR 0155, step 1), so a dial without a grant may
+   * offer to send early: memory only, for this route's life.
+   */
+  let earlyKnown = false;
   /** The grant the last attempt offered, when the relay failed before opening for it. */
   let unopened: string | undefined;
   /** An attempt offering `grant` failed before its WebSocket opened: twice in a row names it. */
@@ -129,9 +136,11 @@ export function relayRoute(options: RelayRouteOptions): {
             const grant = relayGrant(credential);
             /** The WebSocket upgrade succeeded: what fails after it says nothing of the grant. */
             let upgraded = false;
-            let opened: PortableRelay;
-            try {
-              opened = await connectPortableRelay({
+            // Offer to send early only where any relay answers something offered: with a grant
+            // (an older relay echoes it), or to a relay that said it is new.
+            const early = grant !== undefined || earlyKnown;
+            const dial = (sendEarly: boolean) =>
+              connectPortableRelay({
                 relayUrl: options.relayUrl,
                 pinnedFingerprint: options.hostId,
                 socket: (url, protocols) => {
@@ -146,13 +155,28 @@ export function relayRoute(options: RelayRouteOptions): {
                 keys: options.keys ?? ephemeralRelayKeys,
                 schedule: options.schedule,
                 signal,
+                early: sendEarly,
               });
+            let opened: PortableRelay;
+            try {
+              try {
+                opened = await dial(early);
+              } catch (error) {
+                const lost =
+                  error instanceof RelayClosedError && error.code === RELAY_EARLY.lostClose;
+                if (!early || !lost || stamp !== epoch) throw error;
+                // The hosted relay lost the held frame: once more at once, after the marker.
+                opened = await dial(false);
+              }
             } catch (error) {
               // Only an upgrade that failed may be the relay refusing the grant; a failure of
               // this attempt, not one the connection called off.
               if (stamp === epoch && !upgraded) upgradeFailed(grant);
+              // A relay that took the early offer before but not now may be an older one again.
+              if (stamp === epoch && !upgraded && grant === undefined) earlyKnown = false;
               throw error;
             }
+            earlyKnown = opened.earlyCapable;
             unopened = undefined;
             if (stamp !== epoch) {
               opened.close();

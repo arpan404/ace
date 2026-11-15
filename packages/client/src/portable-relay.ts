@@ -11,12 +11,15 @@ import {
 } from "@ace/secure-channel";
 import { inflate } from "./inflate.ts";
 import { RelayClosedError } from "./relay-closed.ts";
+import { RELAY_EARLY } from "./relay-early.ts";
 import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
 export interface PortableSocket {
   binaryType: string;
   readonly bufferedAmount: number;
+  /** The subprotocol the server chose (`WebSocket.protocol`); absent or empty for none. */
+  readonly protocol?: string;
   addEventListener(type: "open" | "error", listener: () => void): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
   /** Sockets that know the close code pass it (a browser's CloseEvent does). */
@@ -38,6 +41,11 @@ export interface PortableRelay {
   /** The next message as JSON text (inflated, UTF-8 checked, not schema-parsed) or bytes. */
   receiveRaw(): Promise<string | Uint8Array>;
   close(): void;
+  /**
+   * This relay holds an early frame (ADR 0155, step 1): it let this connection send early, or
+   * its marker said so. A client without a grant may then offer to send early next time.
+   */
+  readonly earlyCapable: boolean;
 }
 export interface PortableRelayOptions {
   relayUrl: string;
@@ -54,6 +62,13 @@ export interface PortableRelayOptions {
   keys(): Pick<HandshakeOptions, "staticKey" | "ephemeralKey">;
   schedule(callback: () => void, delayMs: number): () => void;
   signal?: AbortSignal;
+  /**
+   * Offer to send the first handshake message as soon as the socket opens. Only when the relay
+   * is sure to echo something offered: a grant is offered too (an older relay echoes it), or
+   * this relay answered as a new one before (`earlyCapable`). The message is sent early only if
+   * the relay's upgrade answer says it may; otherwise after the marker, as before.
+   */
+  early?: boolean | undefined;
 }
 const prologue = new TextEncoder().encode("ace daemon relay stream v1");
 
@@ -77,10 +92,18 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   url.search = new URLSearchParams({
     hostId: options.pinnedFingerprint,
     ...(options.purpose ? { purpose: options.purpose } : {}),
+    // Asks a new relay to say in its marker that it holds early frames; older ones ignore it.
+    [RELAY_EARLY.query]: "1",
   }).toString();
   url.hash = "";
-  const socket = options.grant
-    ? options.socket(url.toString(), [`${GRANT_SUBPROTOCOL_PREFIX}${options.grant}`])
+  const protocols = [
+    ...(options.grant ? [`${GRANT_SUBPROTOCOL_PREFIX}${options.grant}`] : []),
+    ...(options.early
+      ? [RELAY_EARLY.subprotocol, ...(options.grant ? [] : [RELAY_EARLY.neutral])]
+      : []),
+  ];
+  const socket = protocols.length
+    ? options.socket(url.toString(), protocols)
     : options.socket(url.toString());
   socket.binaryType = "arraybuffer";
   const queue: (Uint8Array | undefined)[] = Array.from({ length: 256 });
@@ -190,6 +213,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   const aborted = () => close(new Error("Relay connection cancelled"));
   options.signal?.addEventListener("abort", aborted, { once: true });
   const cancel = options.schedule(() => close(new Error("Relay handshake timed out")), 10000);
+  let earlyCapable = false;
   const state = new NoiseXX({
     initiator: true,
     ...options.keys(),
@@ -202,9 +226,18 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
       if (options.signal?.aborted) aborted();
     });
     opened = undefined;
+    // The relay's upgrade answer is the permission: echoed, the first message goes now and the
+    // relay holds it until the daemon joins; otherwise it waits for the marker, as before.
+    const permitted = options.early === true && socket.protocol === RELAY_EARLY.subprotocol;
+    if (permitted) write(state.writeMessage());
     const marker = await next();
-    if (marker.length !== 1 || marker[0] !== 1) throw new Error("Invalid relay pairing marker");
-    write(state.writeMessage());
+    if (
+      marker.length !== 1 ||
+      (marker[0] !== RELAY_EARLY.marker && marker[0] !== RELAY_EARLY.capableMarker)
+    )
+      throw new Error("Invalid relay pairing marker");
+    earlyCapable = permitted || marker[0] === RELAY_EARLY.capableMarker;
+    if (!permitted) write(state.writeMessage());
     if (state.readMessage(await next()).length) throw new Error("Unexpected handshake payload");
     write(state.writeMessage());
     const secured = state.transport;
@@ -231,6 +264,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
   let queuedBytes = 0;
   let receiving = false;
   return {
+    earlyCapable,
     close() {
       options.signal?.removeEventListener("abort", aborted);
       close();
