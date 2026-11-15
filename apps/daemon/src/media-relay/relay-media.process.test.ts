@@ -14,6 +14,8 @@ import { startFilesRelay } from "../files-relay.ts";
 import { RemoteAuth } from "../remote-auth.ts";
 import { Store } from "../store.ts";
 import { MediaRelayStreams } from "./streams.ts";
+import { tabProducer } from "./testing-producer.ts";
+import { StreamAssembler, decodeStreamMessage } from "@ace/browser/stream";
 
 // A relay media stream end to end (D2): the real self-hosted relay, the real ace-media binary
 // under its supervisor, the daemon's relay host with real pairing credentials, and a client
@@ -66,7 +68,8 @@ async function setup() {
     binary,
     runtimeDir,
     dataDir: runtimeDir,
-    settings: () => ({ ...legacyMediaSettings, delivery: "auto" }),
+    settings: () => ({ ...legacyMediaSettings, encode: "auto", delivery: "auto" }),
+    capabilities: { ingest: ["tab"], recordings: false, stills: false, delivery: true },
     host: nodeMediaHost(process.env, (path) => ({ command: path, args: [] })),
     clock: systemMediaClock,
     random: Math.random,
@@ -165,7 +168,42 @@ async function setup() {
     );
     return { client, first: await client.receive() };
   }
+  /** A tab producing into ace-media, and a view of it bound to a relay connection. */
+  function tab() {
+    const producer = tabProducer("t1");
+    cleanups.push(() => producer.stop());
+    const source = runtime.sources.add(producer);
+    return {
+      source,
+      bind(connection: string) {
+        return runtime.viewers.bind({
+          viewer: `tab-${connection}`,
+          session: "s1",
+          connection,
+          target: { kind: "browser", threadId: "t1" },
+          codecs: ["avc1.42E033"],
+          viewport: { width: 800, height: 600, dpr: 1, scale: 1 },
+          local: false,
+          audio: false,
+          shows: (p) => p.threadId === "t1",
+        });
+      },
+    };
+  }
+  /** The first browser video chunk a relay client gets: whether it was a keyframe. */
+  async function firstChunk(client: ClientChannel): Promise<boolean> {
+    const assembler = new StreamAssembler();
+    for (;;) {
+      const frame = await client.receiveFrame();
+      if (!(frame instanceof Uint8Array)) continue;
+      const envelope = assembler.push(frame);
+      const message = envelope && decodeStreamMessage(envelope);
+      if (message?.kind === "browser.video") return message.chunk.key;
+    }
+  }
   return {
+    tab,
+    firstChunk,
     runtime,
     supervisor,
     streams,
@@ -276,6 +314,40 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     expect(after.first).toMatchObject({ type: "welcome" });
     await after.client.send({ type: "ping" });
     expect(await after.client.receive()).toEqual({ type: "pong" });
+  });
+
+  it("pictures reach a relay client starting at a keyframe, and again after ace-media is killed and the client reconnects", async () => {
+    const t = await setup();
+    const tab = t.tab();
+    const connect = async () => {
+      const opens = () => t.received.filter((m) => m.type === "connection.open");
+      const before = opens().length;
+      const ticket = await t.mint(t.phone.deviceId);
+      const { client, first } = await t.media(t.phone, ticket);
+      expect(first).toMatchObject({ type: "welcome" });
+      // The welcome is the daemon's; ace-media opens the connection once it has the keys.
+      await until(() => opens().length > before);
+      const connection = opens().at(-1);
+      if (connection?.type !== "connection.open") throw new Error("no connection");
+      await until(() => tab.source.streaming());
+      expect(tab.bind(connection.connection)).toBe(true);
+      return client;
+    };
+    const before = await connect();
+    expect(await t.firstChunk(before)).toBe(true);
+    const pid = t.supervisor.snapshot().pid;
+    if (!pid) throw new Error("no pid");
+    process.kill(pid, "SIGKILL");
+    await before.closed;
+    // The client asks again with media.connect once ace-media is back, as C1 and C2 do.
+    let after: ClientChannel | undefined;
+    while (!after)
+      try {
+        after = await connect();
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    expect(await t.firstChunk(after)).toBe(true);
   });
 
   it("a stopped ace-media is killed 250 ms into a revocation, and the client's stream closes soon after", async () => {
