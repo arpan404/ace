@@ -647,7 +647,8 @@ fn outlets(
             let event = json!({"event": "stream.ingest", "sessionId": session, "state": "closed", "boundary": boundary});
             if let Ok(mut line) = serde_json::to_vec(&event) {
                 line.push(b'\n');
-                let _ = std::io::stdout().write_all(&line);
+                // Off the route's task: a daemon slow to read stdout never stalls routing.
+                tokio::task::spawn_blocking(move || std::io::stdout().write_all(&line));
             }
         }),
     })

@@ -202,3 +202,126 @@ async fn a_socket_that_cannot_be_opened_leaves_video_on_the_daemons_socket() {
     settle().await;
     assert_eq!(*h.legacy.lock().unwrap(), vec![0]);
 }
+
+fn sized(sequence: u64, key: bool, bytes: usize) -> VideoUnit {
+    VideoUnit {
+        key,
+        payload: vec![1; bytes],
+        ..unit(sequence)
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_stalled_route_admits_a_bounded_backlog_then_drops_to_the_next_keyframe_and_asks_for_one()
+{
+    let legacy: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (l, a) = (legacy.clone(), asked.clone());
+    let ingest = Ingest::spawn(
+        Clock::start(),
+        Outlets {
+            legacy: Box::new(move |unit| l.lock().unwrap().push(unit.sequence)),
+            keyframe: Arc::new(move || {
+                a.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+            closed: Box::new(|_| {}),
+        },
+    );
+    // Nothing awaits here, so the route's task can't run: routing is stalled while the
+    // capture keeps producing 1 MiB units.
+    let mib = 1024 * 1024;
+    for n in 0..40 {
+        ingest.unit(sized(n, n == 0 || n == 30, mib));
+    }
+    let admitted = 0..(ADMIT_LIMIT / mib) as u64;
+    assert!(
+        asked.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+        "a keyframe is asked for as soon as video is dropped"
+    );
+    settle().await;
+    // What was admitted is routed, in order; nothing past the limit was kept, the keyframe at
+    // 30 included, since routing was still stalled when it came.
+    assert_eq!(
+        *legacy.lock().unwrap(),
+        admitted.clone().collect::<Vec<_>>()
+    );
+    // Routing caught up: deltas still wait for a keyframe, and the one asked for resumes video.
+    ingest.unit(sized(40, false, mib));
+    ingest.unit(sized(41, true, mib));
+    ingest.unit(sized(42, false, mib));
+    settle().await;
+    let mut expected: Vec<u64> = admitted.collect();
+    expected.extend([41, 42]);
+    assert_eq!(*legacy.lock().unwrap(), expected);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn starting_and_stopping_captures_leaves_no_task_or_descriptor_behind() {
+    let dir = tempdir::new();
+    let path = dir.0.join("ingest.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut sink = Vec::new();
+                let _ = stream.read_to_end(&mut sink).await;
+            });
+        }
+    });
+    let descriptors = || {
+        std::fs::read_dir("/proc/self/fd")
+            .map(|d| d.count())
+            .unwrap_or(0)
+    };
+    // What the capture hands its route: its publisher, controls and wake socket.
+    let held = Arc::new(());
+    let cycle = |held: Arc<()>| {
+        let (a, b, c) = (held.clone(), held.clone(), held);
+        Ingest::spawn(
+            Clock::start(),
+            Outlets {
+                legacy: Box::new(move |_| {
+                    let _ = &a;
+                }),
+                keyframe: Arc::new(move || {
+                    let _ = &b;
+                }),
+                closed: Box::new(move |_| {
+                    let _ = &c;
+                }),
+            },
+        )
+    };
+    let warm = cycle(held.clone());
+    warm.close();
+    drop(warm);
+    settle().await;
+    let before = descriptors();
+    for n in 0..20 {
+        let ingest = cycle(held.clone());
+        let address = Address {
+            socket: path.to_string_lossy().into_owned(),
+            token: zeroize::Zeroizing::new([1; 32]),
+        };
+        ingest.route(Some(address)).await.unwrap();
+        ingest.unit(unit(n));
+        ingest.close();
+        drop(ingest);
+    }
+    settle().await;
+    settle().await;
+    assert_eq!(
+        Arc::strong_count(&held),
+        1,
+        "every route task ended and let go of its outlets"
+    );
+    assert!(
+        descriptors() <= before,
+        "{} descriptors, {} before",
+        descriptors(),
+        before
+    );
+}

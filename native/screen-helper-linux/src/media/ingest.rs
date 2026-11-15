@@ -1,12 +1,18 @@
 //! The Linux I/O shell around `media_ingest::Route` (docs/media/plan.md, E2): one tokio task
-//! owns the route, and every event reaches it through one queue, in order. The capture
-//! thread's units and `stream.configure`'s switches share that queue, so the route sees them
-//! in the order they happened and a switch keeps its exact boundary. Each connection is a
+//! owns the route. Units from the capture thread come on a queue of their own, admitted only
+//! while fewer than [`ADMIT_LIMIT`] bytes wait (past it, video is dropped to the next keyframe
+//! and one is asked for), so a stalled route never grows the helper. Control (switches,
+//! connection reports, close) has its own queue and is always served first. A switch rides the
+//! unit queue instead, as a marker, so units captured before it are routed before it and the
+//! switch keeps its exact boundary.
+//! Close is terminal: connections are destroyed, connects cancelled, and the task returns,
+//! releasing everything its outlets hold. Each connection is a
 //! Unix socket with a writer task (writes in order, reports each) and a reader (ace-media
 //! never writes on ingest: anything readable means it closed). A tick judges deadlines.
 use media_ingest::{Address, Route, RouteAction, Switch, VideoUnit, route::Config};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
@@ -14,6 +20,9 @@ use tokio::sync::{mpsc, oneshot};
 
 /// How often deadlines (the finish limit, a backlog that won't drain) are judged.
 const TICK: Duration = Duration::from_millis(100);
+
+/// Bytes of units admitted but not yet routed: past it, video is dropped to the next keyframe.
+pub const ADMIT_LIMIT: usize = 8 * 1024 * 1024;
 
 /// The helper's monotonic clock: capture times and the route's `now` read the same one.
 #[derive(Clone, Copy)]
@@ -45,8 +54,20 @@ pub struct Moved {
     pub boundary: Option<u64>,
 }
 
-enum Event {
+/// Units admitted and not yet routed, and whether video is being dropped to a keyframe.
+#[derive(Default)]
+struct Admission {
+    bytes: AtomicUsize,
+    skipping: AtomicBool,
+}
+
+/// What comes in capture order: units, and switches between them.
+enum Ordered {
     Unit(VideoUnit),
+    Begin(Option<Address>, oneshot::Sender<std::io::Result<Moved>>),
+}
+
+enum Event {
     Begin(Option<Address>, oneshot::Sender<std::io::Result<Moved>>),
     Connected(u64, UnixStream),
     ConnectFailed(u64, std::io::Error),
@@ -60,30 +81,54 @@ enum Event {
 #[derive(Clone)]
 pub struct Ingest {
     events: mpsc::UnboundedSender<Event>,
+    units: mpsc::UnboundedSender<Ordered>,
+    admission: Arc<Admission>,
+    keyframe: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Ingest {
     /// Starts the route's task on the current tokio runtime.
     pub fn spawn(clock: Clock, outlets: Outlets) -> Self {
         let (events, inbox) = mpsc::unbounded_channel();
+        let (units, queue) = mpsc::unbounded_channel();
+        let admission = Arc::new(Admission::default());
         let ingest = Self {
             events: events.clone(),
+            units,
+            admission: admission.clone(),
+            keyframe: outlets.keyframe.clone(),
         };
-        tokio::spawn(run(clock, outlets, events, inbox));
+        tokio::spawn(run(clock, outlets, events, inbox, queue, admission));
         ingest
     }
 
-    /// One unit, in capture order. Never blocks: the route bounds what it keeps.
+    /// One unit, in capture order. Never blocks, and never holds more than [`ADMIT_LIMIT`]
+    /// bytes waiting: past it, deltas are dropped until the next keyframe, which is asked for.
     pub fn unit(&self, unit: VideoUnit) {
-        let _ = self.events.send(Event::Unit(unit));
+        let admission = &self.admission;
+        let size = unit.payload.len();
+        if admission.skipping.load(Ordering::Acquire) && !unit.key {
+            return;
+        }
+        if admission.bytes.load(Ordering::Acquire) + size > ADMIT_LIMIT {
+            if !admission.skipping.swap(true, Ordering::AcqRel) {
+                (self.keyframe)();
+            }
+            return;
+        }
+        admission.skipping.store(false, Ordering::Release);
+        admission.bytes.fetch_add(size, Ordering::AcqRel);
+        if self.units.send(Ordered::Unit(unit)).is_err() {
+            admission.bytes.fetch_sub(size, Ordering::AcqRel);
+        }
     }
 
     /// Sends video to `target` from now on (the daemon's socket for `None`), once its
     /// connection is open; an error leaves video where it was.
     pub async fn route(&self, target: Option<Address>) -> std::io::Result<Moved> {
         let (reply, answer) = oneshot::channel();
-        self.events
-            .send(Event::Begin(target, reply))
+        self.units
+            .send(Ordered::Begin(target, reply))
             .map_err(|_| std::io::Error::other("ingest route ended"))?;
         answer
             .await
@@ -112,15 +157,19 @@ async fn run(
     mut outlets: Outlets,
     events: mpsc::UnboundedSender<Event>,
     mut inbox: mpsc::UnboundedReceiver<Event>,
+    mut queue: mpsc::UnboundedReceiver<Ordered>,
+    admission: Arc<Admission>,
 ) {
     let mut route = Route::new(Config::default());
     let mut connections: HashMap<u64, Connection> = HashMap::new();
     let mut waiting: HashMap<u64, oneshot::Sender<std::io::Result<Moved>>> = HashMap::new();
     let mut tick = tokio::time::interval(TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut connects = tokio::task::JoinSet::new();
     let mut out = Vec::new();
     loop {
         let event = tokio::select! {
+            biased;
             event = inbox.recv() => match event {
                 Some(event) => event,
                 None => Event::Close,
@@ -130,9 +179,18 @@ async fn run(
                 carry(&mut out, &mut connections, &mut outlets);
                 continue;
             }
+            Some(ordered) = queue.recv() => match ordered {
+                Ordered::Unit(unit) => {
+                    admission.bytes.fetch_sub(unit.payload.len(), Ordering::AcqRel);
+                    route.publish(&unit, clock.ms(), clock.us(), &mut out);
+                    carry(&mut out, &mut connections, &mut outlets);
+                    continue;
+                }
+                Ordered::Begin(target, reply) => Event::Begin(target, reply),
+            },
+            Some(_) = connects.join_next(), if !connects.is_empty() => continue,
         };
         match event {
-            Event::Unit(unit) => route.publish(&unit, clock.ms(), clock.us(), &mut out),
             Event::Begin(target, reply) => match route.begin(target, clock.ms(), &mut out) {
                 Switch::Same => {
                     let _ = reply.send(Ok(Moved {
@@ -153,7 +211,7 @@ async fn run(
                     }
                     waiting.insert(generation, reply);
                     let events = events.clone();
-                    tokio::spawn(async move {
+                    connects.spawn(async move {
                         let _ = events.send(match UnixStream::connect(&socket).await {
                             Ok(stream) => Event::Connected(generation, stream),
                             Err(error) => Event::ConnectFailed(generation, error),
@@ -187,15 +245,22 @@ async fn run(
             Event::WriteFailed(generation) => route.write_failed(generation, &mut out),
             Event::SocketClosed(generation) => route.socket_closed(generation, &mut out),
             Event::Close => {
+                // Terminal: nothing more is taken, every connection goes, and the task ends,
+                // releasing its outlets (the capture's publisher, controls and wake socket).
+                inbox.close();
+                queue.close();
+                connects.abort_all();
                 route.close(&mut out);
                 carry(&mut out, &mut connections, &mut outlets);
+                for (_, connection) in connections.drain() {
+                    for task in &connection.tasks {
+                        task.abort();
+                    }
+                }
                 for (_, reply) in waiting.drain() {
                     let _ = reply.send(Err(std::io::Error::other("capture stopped")));
                 }
-                if inbox.is_closed() {
-                    return;
-                }
-                continue;
+                return;
             }
         }
         carry(&mut out, &mut connections, &mut outlets);
