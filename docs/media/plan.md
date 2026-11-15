@@ -1944,6 +1944,9 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
     subscriber it dropped (its sink threw, or the hub was cleared) through `ended`.
     `DevicesService.view` passes the same idempotent release its close uses, so the owner's
     count reaches zero and the capture goes back to unwatched.
+- **Review fix (round 7, at `01900bd16e`).** A view the frame hub refuses (its subscriber
+  limit) releases the stream request it had already counted, so the owner's other views can
+  still take the capture back to unwatched.
 - **Link follow** (`media-core/src/link_follow.rs`). When device and screen viewers move
   into ace-media, `LinkFollow` (`packages/browser/src/link-follow.ts`, from M2b) comes with
   them. M2b ported its cap and rounding as `device_control::link_capped`; D1 ports the rest:

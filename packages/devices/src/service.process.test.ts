@@ -998,3 +998,36 @@ it("a viewer whose sink throws gives up its stream request, so the capture goes 
   release();
   await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
 });
+
+it("a resubscribe refused at the hub's subscriber limit leaves no stream request behind", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  const owner = { kind: "human", owner: "viewer" } as const;
+  const views = [await h.service.subscribeEvery(deviceId, owner, () => {})];
+  for (let n = 1; n < 64; n++)
+    views.push(
+      await h.service.subscribeEvery(deviceId, { kind: "human", owner: `viewer-${n}` }, () => {}),
+    );
+  // The hub is full: the owner's resubscribe is refused.
+  await expect(h.service.subscribeEvery(deviceId, owner, () => {})).rejects.toThrow(
+    "Subscriber limit",
+  );
+  for (const release of views) release();
+  await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
+});
+
+it("a view whose sink fails on its first frame, as it attaches, gives up its stream request", async () => {
+  const h = await harness();
+  await bind(h);
+  await h.request({ op: "start", deviceId, fps: 60 });
+  h.publish(1);
+  // The latest frame reaches each new sink at once: one throws during attach, one rejects.
+  await h.service.subscribeEvery(deviceId, { kind: "human", owner: "a" }, () => {
+    throw new Error("sink gone");
+  });
+  await h.service.subscribe(deviceId, { kind: "human", owner: "b" }, () =>
+    Promise.reject(new Error("sink gone")),
+  );
+  await vi.waitFor(() => expect(h.profiles.at(-1)).toEqual(deviceImageStream), { timeout: 2_000 });
+});
