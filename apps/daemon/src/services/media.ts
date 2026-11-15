@@ -27,7 +27,7 @@ import type { ServiceContext } from "./types.ts";
 const MediaEncode = (value: unknown): "auto" | "legacy" => (value === "auto" ? "auto" : "legacy");
 
 /** The binary this daemon runs: the bundled one in a release, the Cargo build from source. */
-function findBinary(): string | undefined {
+export function findMediaBinary(): string | undefined {
   const entry = process.argv[1];
   if (entry && basename(entry) === "ace.mjs")
     return mediaBinaryPath({
@@ -70,7 +70,7 @@ export function startMedia(context: ServiceContext): DaemonMedia | undefined {
 
 function createMedia(context: ServiceContext): DaemonMedia | undefined {
   if (process.platform === "win32") return undefined; // No lanes in the binary there yet.
-  const binary = findBinary();
+  const binary = findMediaBinary();
   if (!binary) return undefined;
   const { services, id, config, resources } = context;
   let settings: MediaSettings = legacyMediaSettings;

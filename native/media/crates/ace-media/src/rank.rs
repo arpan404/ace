@@ -120,6 +120,11 @@ impl RankCache {
         std::fs::rename(&temporary, path)
     }
 
+    /// Every kept result, as the cache file writes it (for `ace doctor`).
+    pub fn report(&self) -> Vec<Value> {
+        self.entries.iter().map(encode).collect()
+    }
+
     pub fn winner(&self, key: &RankKey) -> Option<Backend> {
         self.entries.iter().find(|(k, _)| k == key).map(|e| e.1)
     }

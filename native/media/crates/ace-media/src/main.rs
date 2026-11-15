@@ -14,7 +14,13 @@ fn main() {
         }
         // The start probe on its own, for `ace doctor`: one JSON line, then exit.
         Some("--probe") => {
-            let _ = writeln!(io::stdout().lock(), "{}", ace_media::probe::report());
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let data_dir = match args.as_slice() {
+                [flag, dir] if flag == "--data-dir" => Some(std::path::PathBuf::from(dir)),
+                _ => None,
+            };
+            let report = ace_media::probe::report(data_dir.as_deref());
+            let _ = writeln!(io::stdout().lock(), "{report}");
             std::process::exit(0);
         }
         _ => {}

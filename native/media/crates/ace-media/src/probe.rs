@@ -169,16 +169,25 @@ pub fn probe(
     (Capabilities { slots }, late)
 }
 
-/// `ace-media --probe`: the start probe on its own, as `ace doctor` shows it. One JSON object:
-/// how long the probe took and the list `ready` would carry. The last-resort encoder's trial,
-/// which starts a browser, isn't run here.
-pub fn report() -> String {
+/// `ace-media --probe [--data-dir <dir>]`: the start probe on its own, as `ace doctor` shows
+/// it. One JSON object: how long the probe took, the list `ready` would carry, and the ranking
+/// cache's results under `dir`. The last-resort encoder's trial, which starts a browser, isn't
+/// run here.
+pub fn report(data_dir: Option<&std::path::Path>) -> String {
     let cancel = Cancel::default();
     let started = Instant::now();
     let (capabilities, _late) = probe(trials(), TRIAL_DEADLINE, &cancel);
     let probe_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     cancel.cancel();
-    serde_json::json!({ "probeMs": probe_ms, "capabilities": capabilities.list() }).to_string()
+    let ranking = data_dir
+        .map(|dir| crate::rank::RankCache::load(&crate::rank::RankCache::path(dir)).report())
+        .unwrap_or_default();
+    serde_json::json!({
+        "probeMs": probe_ms,
+        "capabilities": capabilities.list(),
+        "ranking": ranking,
+    })
+    .to_string()
 }
 
 /// M5's CPU path: JPEG decode, scale and JPEG encode, available everywhere.
