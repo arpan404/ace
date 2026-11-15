@@ -10,7 +10,6 @@ import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
 import { useLook } from "./look.ts";
 import { PickerCard } from "./picker-card.tsx";
-import { SuitPreview } from "./suit-preview.tsx";
 
 /*
  * Settings > Appearance > Look: every built-in theme and every installed Suit (ADR 0150) as
@@ -64,11 +63,11 @@ function Problems(props: { summary: SuitSummary }) {
   );
 }
 
-/** The Suit's live miniature once its files are read; a placeholder until then. */
+/** The Suit drawn as the theme cards are, once its files are read; a placeholder until then. */
 function SuitThumbnail(props: { summary: SuitSummary; scheme: Scheme }) {
   const detail = useSuitDetail(props.summary);
   return detail ? (
-    <SuitPreview detail={detail} scheme={props.scheme} />
+    <AppPreview look={{ suit: detail }} scheme={props.scheme} className="aspect-[16/9]" />
   ) : (
     <span aria-hidden className={skeleton} />
   );

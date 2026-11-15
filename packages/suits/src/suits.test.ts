@@ -107,6 +107,26 @@ test("a font naming a missing file is reported; a bundled one passes", () => {
   expect(inspect({ "suit.json": json, "assets/inter.woff2": "font" }).summary.problems).toEqual([]);
 });
 
+test("a thumbnail must be a bundled raster image: a missing one or an SVG is reported", () => {
+  const json = (thumbnail: Record<string, string>) => manifest({ dark: {}, thumbnail });
+  expect(
+    inspect({ "suit.json": json({ dark: "assets/dark.webp" }), "assets/dark.webp": "img" }).summary
+      .problems,
+  ).toEqual([]);
+  expect(inspect({ "suit.json": json({ dark: "assets/dark.webp" }) }).summary.problems).toEqual([
+    expect.objectContaining({ check: "asset", field: "assets/dark.webp", scheme: "dark" }),
+  ]);
+  expect(
+    inspect({ "suit.json": json({ light: "assets/light.svg" }), "assets/light.svg": "<svg/>" })
+      .summary.problems,
+  ).toEqual([
+    expect.objectContaining({
+      check: "asset",
+      message: "thumbnail.light must be a .webp, .jpg or .png file",
+    }),
+  ]);
+});
+
 test("scene is set from scene.js on disk, not from the file's claim", () => {
   const claimed = inspect({ "suit.json": manifest({ dark: {}, scene: true }) });
   expect(claimed.summary.scene).toBe(false);

@@ -142,6 +142,14 @@ export const SuitManifest = z.looseObject({
     .optional(),
   /** True when the folder has `scene.js`; set by the daemon on read, not trusted from the file. */
   scene: z.boolean().default(false),
+  /**
+   * A still of the look's backdrop per scheme, drawn behind its card in Settings > Appearance:
+   * a small .webp, .jpg or .png in `assets/` (about 640 × 400). Without one the card draws a
+   * soft gradient from the palette.
+   */
+  thumbnail: z
+    .object({ light: SuitAssetPath.optional(), dark: SuitAssetPath.optional() })
+    .optional(),
   /** Where things sit (ADR 0150 "Layout"); each value from a fixed set. */
   layout: SuitLayout.optional(),
   /** Static, sanitised SVG or HTML placed in named slots. */

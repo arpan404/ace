@@ -47,6 +47,7 @@ const suitFields = new Set<string>([
 const surfaceFields = "canvas, sidebar, surface, raised, hover, active and code";
 
 const fontExtensions = /\.(woff2|woff|ttf|otf)$/i;
+const thumbnailExtensions = /\.(webp|jpe?g|png)$/i;
 
 export const problem = (
   check: string,
@@ -100,6 +101,27 @@ export function fontProblems(manifest: SuitManifest, files: ReadonlySet<string>)
     else if (!fontExtensions.test(font.asset))
       problems.push(
         problem("asset", `fonts.${role} must be a .woff2, .woff, .ttf or .otf file`, font.asset),
+      );
+  }
+  return problems;
+}
+
+/** Thumbnails that name a file the folder doesn't have, or a file that isn't a raster image. */
+export function thumbnailProblems(
+  manifest: SuitManifest,
+  files: ReadonlySet<string>,
+): SuitProblem[] {
+  const problems: SuitProblem[] = [];
+  for (const scheme of ["light", "dark"] as const) {
+    const path = manifest.thumbnail?.[scheme];
+    if (path === undefined) continue;
+    if (!files.has(path))
+      problems.push(
+        problem("asset", `thumbnail.${scheme} names ${path}, which is missing`, path, scheme),
+      );
+    else if (!thumbnailExtensions.test(path))
+      problems.push(
+        problem("asset", `thumbnail.${scheme} must be a .webp, .jpg or .png file`, path, scheme),
       );
   }
   return problems;

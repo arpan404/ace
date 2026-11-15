@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import type { SuitManifest, SuitProblem, SuitSummary } from "@ace/protocol/suits";
-import { fontProblems, parseManifest, problem, readabilityProblems } from "./checks.ts";
+import {
+  fontProblems,
+  parseManifest,
+  problem,
+  readabilityProblems,
+  thumbnailProblems,
+} from "./checks.ts";
 import { suitLimits } from "./limits.ts";
 import { regionCss } from "./css/regions.ts";
 import { sanitiseSuitCss } from "./css/sanitise.ts";
@@ -197,6 +203,7 @@ export function inspectSuit(
   if (manifest) {
     const present = new Set(files.keys());
     problems.push(...fontProblems(manifest, present));
+    problems.push(...thumbnailProblems(manifest, present));
     problems.push(
       ...regionCss({ id, manifest, assets: assetPaths(present), url: (path) => path }).problems,
     );

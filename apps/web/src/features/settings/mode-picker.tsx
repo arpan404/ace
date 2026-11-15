@@ -2,7 +2,6 @@ import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import type { Mode } from "@/theme/appearance.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
-import { SuitPreview } from "./suit-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";
 import { part } from "@/lib/suit-part.ts";
 
@@ -13,8 +12,8 @@ const modes: { value: Mode; label: string }[] = [
 ];
 
 /**
- * System, Light and Dark, each previewing the current theme as it will look; while a Suit is on,
- * the Suit itself in that scheme (`SuitPreview`). A Suit with one scheme shows it in all three.
+ * System, Light and Dark, each previewing the current look (the theme, or the Suit on screen) as
+ * it will look in that scheme. A Suit with one scheme shows it in all three.
  */
 export function ModePicker() {
   const { appearance, update, resolved, suit } = useTheme();
@@ -33,15 +32,11 @@ export function ModePicker() {
           checked={appearance.mode === value}
           onChoose={() => update({ mode: value })}
           preview={
-            suit ? (
-              <SuitPreview detail={suit} scheme={value === "system" ? "split" : value} />
-            ) : (
-              <AppPreview
-                look={{ theme: resolved.theme }}
-                scheme={value === "system" ? "split" : value}
-                className="aspect-[16/9]"
-              />
-            )
+            <AppPreview
+              look={suit ? { suit } : { theme: resolved.theme }}
+              scheme={value === "system" ? "split" : value}
+              className="aspect-[16/9]"
+            />
           }
         />
       ))}

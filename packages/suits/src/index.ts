@@ -4,7 +4,7 @@
  * folder (`@ace/suits/folder`) needs Node's crypto and stays out of this entry.
  */
 export * from "./palette.ts";
-export { fontProblems, parseManifest, readabilityProblems } from "./checks.ts";
+export { fontProblems, parseManifest, readabilityProblems, thumbnailProblems } from "./checks.ts";
 export * from "./limits.ts";
 export * from "./reveal.ts";
 export { ornamentByteLimit, sanitiseOrnament } from "./ornaments.ts";
