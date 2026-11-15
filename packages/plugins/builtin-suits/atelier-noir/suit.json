@@ -1,0 +1,179 @@
+{
+  "format": 1,
+  "id": "atelier-noir",
+  "name": "Atelier Noir",
+  "description": "A couture atelier after dark: black lacquer, hairline gold rules, a bound register of threads, a ledger of work and a wax seal when the work is done. Ivory paper by day.",
+  "version": "1",
+  "base": "midnight",
+  "dark": {
+    "canvas": "#100E0C",
+    "sidebar": "#0B0A08",
+    "surface": "#16130F",
+    "raised": "#1C1813",
+    "hover": "#221E18",
+    "active": "#2A251D",
+    "code": "#0D0C0A",
+    "border": "#2A251E",
+    "borderStrong": "#4D4333",
+    "text": "#EEE7D8",
+    "muted": "#C9BFAC",
+    "subtle": "#A99E89",
+    "faint": "#7A6F5E",
+    "accent": "#B8996D",
+    "accentHover": "#C6A87C",
+    "accentFg": "#16120B",
+    "accentText": "#D3BE93",
+    "diffAdd": "#141A12",
+    "diffAddFg": "#A9C79A",
+    "diffDel": "#211311",
+    "diffDelFg": "#E0A193",
+    "syntax": {
+      "kw": "#D9B97E",
+      "fn": "#E6D3AE",
+      "str": "#B9C49A",
+      "num": "#E2A98A",
+      "type": "#C9B8D9",
+      "com": "#8A806F",
+      "punc": "#B3A894"
+    },
+    "glass": { "blur": 28, "saturate": 110 }
+  },
+  "light": {
+    "canvas": "#F5F0E6",
+    "sidebar": "#ECE5D7",
+    "surface": "#FAF7F0",
+    "raised": "#FFFDF8",
+    "hover": "#E7DFCF",
+    "active": "#DFD5C2",
+    "code": "#EFE8DA",
+    "border": "#DCD2BF",
+    "borderStrong": "#B9AA8C",
+    "text": "#1D1914",
+    "muted": "#463F34",
+    "subtle": "#625848",
+    "faint": "#958A75",
+    "accent": "#775E3B",
+    "accentHover": "#664F30",
+    "accentFg": "#FFFDF8",
+    "accentText": "#654F2E",
+    "diffAdd": "#E5EAD8",
+    "diffAddFg": "#3E5A2E",
+    "diffDel": "#F1DDD5",
+    "diffDelFg": "#8E3A2A",
+    "syntax": {
+      "kw": "#7A5A22",
+      "fn": "#4A3A1E",
+      "str": "#4F6130",
+      "num": "#8C4A2E",
+      "type": "#5B4A78",
+      "com": "#7D7363",
+      "punc": "#5A5246"
+    },
+    "glass": { "blur": 24, "saturate": 105 }
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"Atelier Sans\", \"Helvetica Neue\", system-ui, sans-serif"
+    },
+    "prose": {
+      "system": "\"Atelier Text\", \"Iowan Old Style\", Georgia, serif"
+    },
+    "mono": {
+      "system": "\"SF Mono\", ui-monospace, Menlo, Consolas, \"DejaVu Sans Mono\", monospace"
+    }
+  },
+  "shape": { "radius": 0.35, "border": 1, "density": "comfortable" },
+  "motion": { "speed": 1.2 },
+  "layout": {
+    "messages": "flat",
+    "toolRows": "detailed",
+    "transcriptWidth": 760,
+    "sidebarWidth": 288
+  },
+  "labels": {
+    "composer-placeholder": "Write to the atelier…",
+    "empty-transcript": "A fresh page. Begin with a line below.",
+    "empty-sidebar": "The register is empty",
+    "working-word": "Composing",
+    "send": "Dispatch"
+  },
+  "ornaments": [
+    { "slot": "sidebar-header", "asset": "assets/ornaments/register-plate.svg" },
+    { "slot": "sidebar-footer", "asset": "assets/ornaments/makers-mark.svg" },
+    { "slot": "transcript-top", "asset": "assets/ornaments/folio-rule.svg" },
+    { "slot": "empty-state", "asset": "assets/ornaments/cartouche.svg" },
+    { "slot": "corner-top-left", "asset": "assets/ornaments/corner-top-left.svg" },
+    { "slot": "corner-top-right", "asset": "assets/ornaments/corner-top-right.svg" },
+    { "slot": "corner-bottom-left", "asset": "assets/ornaments/corner-bottom-left.svg" },
+    { "slot": "corner-bottom-right", "asset": "assets/ornaments/corner-bottom-right.svg" }
+  ],
+  "scenes": { "app": "scene.js", "celebration": "celebration.js" },
+  "reveal": {
+    "app": 0.85,
+    "sidebar": 0.35,
+    "rail": 0.35,
+    "header": 0.55,
+    "transcript": 0.22,
+    "page": 0.22,
+    "composer": 0,
+    "right-panel": 0
+  },
+  "terminal": {
+    "dark": {
+      "background": "#0D0C0A",
+      "foreground": "#E6DECE",
+      "cursor": "#B8996D",
+      "cursorAccent": "#16120B",
+      "selection": "#B8996D40",
+      "ansi": {
+        "black": "#1C1813",
+        "red": "#D98A7A",
+        "green": "#A9C79A",
+        "yellow": "#D9BD7E",
+        "blue": "#9DB1CC",
+        "magenta": "#C6A6C9",
+        "cyan": "#9CC3BC",
+        "white": "#C9BFAC",
+        "brightBlack": "#6E6455",
+        "brightRed": "#EBA796",
+        "brightGreen": "#C3DDB4",
+        "brightYellow": "#EAD39E",
+        "brightBlue": "#BCCDE2",
+        "brightMagenta": "#DDC2DF",
+        "brightCyan": "#BDDCD6",
+        "brightWhite": "#F4EEE2"
+      }
+    },
+    "light": {
+      "background": "#F2ECE0",
+      "foreground": "#24201A",
+      "cursor": "#775E3B",
+      "cursorAccent": "#FFFDF8",
+      "selection": "#775E3B33",
+      "ansi": {
+        "black": "#24201A",
+        "red": "#9A3B2A",
+        "green": "#45602F",
+        "yellow": "#7E5E1E",
+        "blue": "#34507A",
+        "magenta": "#6E4A72",
+        "cyan": "#2F6660",
+        "white": "#8A7F6C",
+        "brightBlack": "#5E5547",
+        "brightRed": "#B24E3B",
+        "brightGreen": "#577540",
+        "brightYellow": "#94722E",
+        "brightBlue": "#46648F",
+        "brightMagenta": "#845C88",
+        "brightCyan": "#3D7B74",
+        "brightWhite": "#3A342B"
+      }
+    },
+    "fontFamily": "\"SF Mono\", ui-monospace, Menlo, monospace",
+    "fontSize": 13,
+    "lineHeight": 1.35,
+    "cursorStyle": "bar",
+    "cursorBlink": true,
+    "reveal": 0
+  }
+}
