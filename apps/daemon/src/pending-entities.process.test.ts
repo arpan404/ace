@@ -65,7 +65,23 @@ async function thread(resolved: number, bytes: number) {
       if (reply.type === "entities.page" && reply.requestId === `p${request}`) return reply.page;
     }
   };
-  return { page };
+  /** A newest-first page, asking for `maxBytes` when given (an older reader does not). */
+  const pageOf = async (before: number, maxBytes: number | undefined) => {
+    client.send({
+      type: "entities.page",
+      requestId: `m${++request}`,
+      threadId: f.thread.id,
+      collection: "interactions",
+      before,
+      limit: 50,
+      ...(maxBytes === undefined ? {} : { maxBytes }),
+    });
+    for (;;) {
+      const reply: ServerMessage = await client.next();
+      if (reply.type === "entities.page" && reply.requestId === `m${request}`) return reply.page;
+    }
+  };
+  return { page, pageOf };
 }
 
 test("a pending request behind many large resolved ones is on the newest page", async () => {
@@ -137,4 +153,17 @@ test("pending requests that fill the newest page still lead on to the resolved o
     before = reply.page.entitiesBefore;
   }
   expect(seen.toSorted()).toEqual(["ask-1", "ask-2", "ask-3", "done-1", "done-2"]);
+});
+
+test("a reader that asks for smaller pages gets them, with the pending request still first", async () => {
+  const { pageOf } = await thread(16, 40 * 1024);
+  const small = await pageOf(Number.MAX_SAFE_INTEGER, 64 * 1024);
+  const whole = await pageOf(Number.MAX_SAFE_INTEGER, undefined);
+  if (small.collection !== "interactions" || whole.collection !== "interactions") throw new Error("shape");
+  const size = (entries: readonly unknown[]) => entries.reduce<number>((n, entry) => n + JSON.stringify(entry).length, 0);
+  expect(small.entries.map((entry) => entry.id)).toContain("waiting");
+  // Without asking, a reader keeps the page it always had.
+  expect(size(whole.entries)).toBeGreaterThan(96 * 1024);
+  expect(size(small.entries)).toBeLessThanOrEqual(64 * 1024 + 41 * 1024);
+  expect(small.entries.length).toBeLessThan(whole.entries.length);
 });

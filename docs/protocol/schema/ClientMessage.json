@@ -2736,6 +2736,11 @@
           "maximum": 200,
           "type": "integer"
         },
+        "maxBytes": {
+          "maximum": 131072,
+          "minimum": 16384,
+          "type": "integer"
+        },
         "requestId": {
           "minLength": 1,
           "type": "string"

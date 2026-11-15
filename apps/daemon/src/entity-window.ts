@@ -9,6 +9,8 @@ const active = `CASE
  WHEN collection='backgroundTasks' THEN json_extract(value,'$.status') IN ('running','unknown')
  ELSE 0 END`;
 const collections = ["agents", "runs", "interactions", "backgroundTasks"] as const;
+/** The bytes of entries a page holds unless the reader asks for less (`maxBytes`). */
+export const entityPageBytes = 128 * 1024;
 export class EntityWindow {
   private sql: (sql: string) => StatementSync;
   private trust: EntityTrust;
@@ -126,22 +128,29 @@ export class EntityWindow {
     return row ? Number(row.created_seq) : 1;
   }
   /** A page of `collection`'s entities created before `before`; `seq` is the reader's to add. */
-  page(thread: Pick<Thread, "id">, collection: EntityCollection, before: number, limit: number) {
+  page(
+    thread: Pick<Thread, "id">,
+    collection: EntityCollection,
+    before: number,
+    limit: number,
+    maxBytes = entityPageBytes,
+  ) {
     const page = { threadId: thread.id };
     // Each case narrows `collection`, so its entries are that collection's entities.
     switch (collection) {
       case "agents":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
       case "runs":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
       case "interactions":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
       case "backgroundTasks":
-        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+        return { ...page, collection, ...this.entries(thread, collection, before, limit, maxBytes) };
     }
   }
   /**
-   * At most 200 entries, the most a page holds, and at most 128 KiB unless one entry is more.
+   * At most 200 entries, the most a page holds, and at most `maxBytes` (128 KiB unless the reader
+   * asked for less) unless one entry is more.
    *
    * The newest page (`before` at the end of time) carries every active entity first, whatever
    * its age, as a snapshot's window does (`fill`): a pending request is never behind pages of
@@ -154,6 +163,7 @@ export class EntityWindow {
     collection: C,
     before: number,
     limit: number,
+    maxBytes: number,
   ): { entries: StoredEntity<C>[]; entitiesBefore: number | null } {
     const most = Math.min(limit, 200);
     const newestPage = before >= Number.MAX_SAFE_INTEGER;
@@ -168,7 +178,7 @@ export class EntityWindow {
       activeFirst && newestPage
         ? [...this.rows(thread.id, collection, "w.active=1", "DESC LIMIT 201")]
         : [];
-    const rows: { created_seq: unknown; value: unknown }[] = actives;
+    const rows = actives;
     let bytes = rows.reduce((total, row) => total + Buffer.byteLength(String(row.value)), 0);
     let oldest = before;
     let more = false;
@@ -185,7 +195,7 @@ export class EntityWindow {
     let taken = 0;
     for (const row of rest) {
       const size = Buffer.byteLength(String(row.value));
-      if (taken >= room || (rows.length && bytes + size > 131072)) {
+      if (taken >= room || (rows.length && bytes + size > maxBytes)) {
         more = true;
         break;
       }

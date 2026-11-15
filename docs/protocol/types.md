@@ -10147,6 +10147,7 @@ Example:
 | collection | yes | [EntityCollection.json](schema/EntityCollection.json) |  |
 | before | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | limit | yes | integer | {"exclusiveMinimum":0,"maximum":200} |
+| maxBytes | no | integer | {"minimum":16384,"maximum":131072} |
 
 Example:
 
@@ -10155,6 +10156,7 @@ Example:
   "before": 10,
   "collection": "agents",
   "limit": 3,
+  "maxBytes": 16387,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"

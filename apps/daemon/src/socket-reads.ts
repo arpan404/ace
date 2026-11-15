@@ -159,6 +159,7 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
             message.collection,
             message.before,
             message.limit,
+            message.maxBytes,
           ),
         });
       } catch {

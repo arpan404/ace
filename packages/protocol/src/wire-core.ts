@@ -387,6 +387,15 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     collection: EntityCollection,
     before: seq.positive(),
     limit: seq.positive().max(200),
+    /**
+     * The most bytes of entries a page holds (16 KiB to 128 KiB) unless one entry alone is more;
+     * 128 KiB without it. Older daemons ignore it. Every pending entity is on the newest page
+     * whatever this is, so a smaller page never hides one.
+     */
+    maxBytes: seq
+      .min(16 * 1024)
+      .max(128 * 1024)
+      .optional(),
   }),
   z.object({
     type: z.literal("threads.page"),
