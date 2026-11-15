@@ -36,6 +36,19 @@ pub fn frame(value: Value, payload: &[u8], lane: Lane) -> Vec<u8> {
     bytes
 }
 
+/// The next frame, or none once the stream ends.
+pub fn try_read_frame(reader: &mut impl Read, lane: Lane) -> Option<FromMedia> {
+    let mut prefix = [0u8; 4];
+    reader.read_exact(&mut prefix).ok()?;
+    let mut bytes = prefix.to_vec();
+    bytes.resize(4 + u32::from_be_bytes(prefix) as usize, 0);
+    reader.read_exact(&mut bytes[4..]).ok()?;
+    match ControlFrame::<FromMedia>::decode(&bytes, lane) {
+        Ok(frame) => Some(frame.message),
+        Err(_) => panic!("invalid frame from ace-media"),
+    }
+}
+
 pub fn read_frame(reader: &mut impl Read, lane: Lane) -> FromMedia {
     let mut prefix = [0u8; 4];
     if let Err(error) = reader.read_exact(&mut prefix) {
@@ -129,34 +142,72 @@ impl Media {
     /// Waits, after `ready` and before any source opens, until the binary holds what this Mac's
     /// VideoToolbox trial finally finds: every step that trial found working is reported the
     /// same way. On a busy machine some arrive only as `capabilities.changed`; a test that
-    /// decides from `ready` alone reads them too early. The binary's trial ends within
-    /// `media_vt::LATE_LIMIT`, so this ends.
+    /// decides from `ready` alone reads them too early. Bounded: a child that never reports
+    /// them fails the test, naming what's missing.
     #[cfg(target_os = "macos")]
     pub fn settle_probe(&mut self) {
-        let family = |c: &Capability| {
-            let codec = c.codec.as_deref().unwrap_or("");
-            (c.step, codec.get(..4).unwrap_or(codec).to_owned())
-        };
         let expected: Vec<Capability> = probed::probed()
             .into_iter()
             .filter(|c| c.state == media_wire::control::TrialState::Ok)
             .collect();
-        let agrees = |held: &[Capability]| {
-            expected.iter().all(|want| {
-                held.iter().any(|c| {
-                    c.backend == want.backend
-                        && family(c) == family(want)
-                        && c.state == want.state
-                        && c.hardware == want.hardware
-                })
-            })
+        let within = probed::settle_within();
+        if let Err(missing) = self.try_settle_probe(&expected, within) {
+            panic!("ace-media never reported, within {within:?}:\n{missing}");
+        }
+    }
+
+    /// `settle_probe` against `expected`, failing after `within` with the expected entries the
+    /// child still hasn't reported. A child that stays silent is killed at the bound, so the
+    /// blocked read ends.
+    #[cfg(target_os = "macos")]
+    pub fn try_settle_probe(
+        &mut self,
+        expected: &[Capability],
+        within: Duration,
+    ) -> Result<(), String> {
+        let family = |c: &Capability| {
+            let codec = c.codec.as_deref().unwrap_or("");
+            (c.step, codec.get(..4).unwrap_or(codec).to_owned())
         };
-        while !agrees(&self.capabilities) {
-            match read_frame(&mut self.stdout, Lane::Normal) {
+        let missing = |held: &[Capability]| -> Vec<Capability> {
+            expected
+                .iter()
+                .filter(|want| {
+                    !held.iter().any(|c| {
+                        c.backend == want.backend
+                            && family(c) == family(want)
+                            && c.state == want.state
+                            && c.hardware == want.hardware
+                    })
+                })
+                .cloned()
+                .collect()
+        };
+        let (settled, watching) = std::sync::mpsc::channel::<()>();
+        let pid = self.child.id().to_string();
+        std::thread::spawn(move || {
+            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = watching.recv_timeout(within) {
+                let _ = Command::new("kill").args(["-9", &pid]).status();
+            }
+        });
+        loop {
+            let left = missing(&self.capabilities);
+            if left.is_empty() {
+                let _ = settled.send(());
+                return Ok(());
+            }
+            let Some(message) = try_read_frame(&mut self.stdout, Lane::Normal) else {
+                let left: Vec<&Capability> = left.iter().collect();
+                return Err(probed::describe(&left));
+            };
+            match message {
                 FromMedia::CapabilitiesChanged { capabilities } => self.capabilities = capabilities,
                 FromMedia::Log { .. } => {}
                 other => {
-                    panic!("expected capabilities.changed while the probe settles, got {other:?}")
+                    let _ = settled.send(());
+                    return Err(format!(
+                        "expected capabilities.changed while the probe settles, got {other:?}"
+                    ));
                 }
             }
         }
