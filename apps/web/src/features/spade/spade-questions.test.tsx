@@ -33,32 +33,53 @@ const card = async (name: string) =>
     ),
   );
 
-test("a card's questions are answered in place: a digit picks an option, then Send", async () => {
+/** The card `name` once it reads `text`: an answered or folded card is drawn anew. */
+const cardWith = async (name: string, text: string) => {
+  await waitFor(async () => expect((await card(name)).getByText(text)).toBeTruthy());
+  return card(name);
+};
+
+test("a card shows one question at a time: a digit picks, Next keeps the answer, and Send sends them all", async () => {
   const { spade } = await spadeApp("/spade/travel", (api) =>
     api.card(travel(api), "q1", seatAndNights),
   );
   const asked = await card("Travel asks 2 questions");
+  expect(asked.getByLabelText("Question 1 of 2")).toBeTruthy();
+  expect(asked.queryByRole("spinbutton")).toBeNull();
+  expect(asked.queryByRole("button", { name: "Send" })).toBeNull();
   // With focus on the options, a digit picks the option it names.
   asked.getByRole("radio", { name: "Window" }).focus();
   await userEvent.keyboard("2");
   expect(asked.getByRole("radio", { name: "Aisle" }).getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(asked.getByRole("button", { name: "Next" }));
   await userEvent.type(asked.getByRole("spinbutton", { name: "How many nights?" }), "3");
   expect(asked.getByText("nights")).toBeTruthy();
+  // Back and forth, each answer stays.
+  await userEvent.click(asked.getByRole("button", { name: "Previous question" }));
+  expect(asked.getByRole("radio", { name: "Aisle" }).getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(asked.getByRole("button", { name: "Next question" }));
+  expect(
+    (asked.getByRole("spinbutton", { name: "How many nights?" }) as HTMLInputElement).value,
+  ).toBe("3");
   await userEvent.click(asked.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: ["Aisle", 3] }]));
-  // Answered, the answers stand where the inputs were.
-  expect(await asked.findByText("3 nights")).toBeTruthy();
-  expect(asked.getByText("Aisle")).toBeTruthy();
-  expect(asked.queryByRole("button", { name: "Send" })).toBeNull();
-  expect(asked.queryByRole("spinbutton")).toBeNull();
+  // Answered, it settles into a bubble with the answers in it.
+  const settled = await cardWith("Travel asks 2 questions", "3 nights");
+  expect(settled.getByText("Aisle")).toBeTruthy();
+  expect(settled.getByText("Answered")).toBeTruthy();
+  expect(settled.queryByRole("button", { name: "Send" })).toBeNull();
+  expect(settled.queryByRole("spinbutton")).toBeNull();
 });
 
-test("Send says what a question still needs, and Spade's own refusal reads under the card", async () => {
+test("Next and Send say what a question still needs, and Spade's refusal turns the card to the question it names", async () => {
   const { spade } = await spadeApp("/spade/travel", (api) =>
     api.card(travel(api), "q1", seatAndNights),
   );
   const asked = await card("Travel asks 2 questions");
+  await userEvent.click(asked.getByRole("button", { name: "Next" }));
+  expect((await asked.findByRole("alert")).textContent).toBe("Window or aisle? Pick one.");
   await userEvent.click(asked.getByRole("radio", { name: "Window" }));
+  await userEvent.click(asked.getByRole("button", { name: "Next" }));
   await userEvent.type(asked.getByRole("spinbutton", { name: "How many nights?" }), "20");
   await userEvent.click(asked.getByRole("button", { name: "Send" }));
   expect((await asked.findByRole("alert")).textContent).toBe("How many nights? At most 14.");
@@ -70,8 +91,13 @@ test("Send says what a question still needs, and Spade's own refusal reads under
   spade.refuseQuestion = { status: 400, error: "Question 1: Window is sold out." };
   await userEvent.click(asked.getByRole("button", { name: "Send" }));
   expect((await asked.findByRole("alert")).textContent).toBe("Question 1: Window is sold out.");
-  // Refused, the card stays open with what the person put in.
-  expect(asked.getByRole("button", { name: "Send" })).toBeTruthy();
+  // Refused, the card stays open on the question Spade named, with what the person put in.
+  expect(asked.getByLabelText("Question 1 of 2")).toBeTruthy();
+  expect(asked.getByRole("radio", { name: "Window" }).getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(asked.getByRole("button", { name: "Next question" }));
+  expect(
+    (asked.getByRole("spinbutton", { name: "How many nights?" }) as HTMLInputElement).value,
+  ).toBe("4");
 });
 
 test("checks count against the most a question takes", async () => {
@@ -104,26 +130,30 @@ test("a lone yes-or-no question is answered by Yes or No", async () => {
   expect(asked.queryByRole("button", { name: "Send" })).toBeNull();
   await userEvent.click(asked.getByRole("button", { name: "Yes" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ answers: [true] }]));
-  expect(await asked.findByText("Answered")).toBeTruthy();
+  const settled = await cardWith("Travel asks: Book the 9:40?", "Answered");
+  expect(settled.getByText("Yes")).toBeTruthy();
 });
 
-test("Answer later keeps the card's inputs, the header and the list count it, and it is answered any time", async () => {
+test("Answer later folds the card to one line, the header counts its questions, and reaching it opens it again", async () => {
   const { spade } = await spadeApp("/spade/travel", (api) =>
     api.card(travel(api), "q1", seatAndNights),
   );
   const asked = await card("Travel asks 2 questions");
   await userEvent.click(asked.getByRole("button", { name: "Answer later" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ defer: true }]));
-  expect(await asked.findByText("For later")).toBeTruthy();
-  expect(asked.queryByRole("button", { name: "Answer later" })).toBeNull();
+  const folded = await cardWith("Travel asks 2 questions", "For later · 2 questions");
+  expect(folded.queryByRole("radio")).toBeNull();
 
-  const later = await screen.findByRole("button", { name: "1 question for later" });
+  // One card of two questions: two questions for later.
+  const later = await screen.findByRole("button", { name: "2 questions for later" });
   await userEvent.click(later);
   await waitFor(() => expect(document.activeElement?.getAttribute("data-question")).toBe("q1"));
-
-  await userEvent.click(asked.getByRole("radio", { name: "Window" }));
-  await userEvent.type(asked.getByRole("spinbutton", { name: "How many nights?" }), "2");
-  await userEvent.click(asked.getByRole("button", { name: "Send" }));
+  const reopened = await card("Travel asks 2 questions");
+  expect(reopened.queryByRole("button", { name: "Answer later" })).toBeNull();
+  await userEvent.click(reopened.getByRole("radio", { name: "Window" }));
+  await userEvent.click(reopened.getByRole("button", { name: "Next" }));
+  await userEvent.type(reopened.getByRole("spinbutton", { name: "How many nights?" }), "2");
+  await userEvent.click(reopened.getByRole("button", { name: "Send" }));
   await waitFor(() =>
     expect(spade.sent("POST", path)).toEqual([{ defer: true }, { answers: ["Window", 2] }]),
   );
@@ -132,7 +162,7 @@ test("Answer later keeps the card's inputs, the header and the list count it, an
   );
 });
 
-test("a card the bot asked without waiting shows on its list row, and Never mind dismisses it", async () => {
+test("a card the bot asked without waiting shows on its list row, folded, and Never mind dismisses it", async () => {
   const { spade } = await spadeApp("/spade", (api) =>
     api.card(travel(api), "q1", [{ prompt: "Which airport?", kind: "text" }], true),
   );
@@ -140,11 +170,14 @@ test("a card the bot asked without waiting shows on its list row, and Never mind
     expect((await botRow("Travel")).textContent).toMatch(/1 question for later$/),
   );
   await userEvent.click(await botRow("Travel"));
+  const folded = await card("Travel asks: Which airport?");
+  expect(folded.getByText("For later · Which airport?")).toBeTruthy();
+  await userEvent.click(folded.getByRole("button", { name: "Answer" }));
   const asked = await card("Travel asks: Which airport?");
-  expect(asked.getByText("For later")).toBeTruthy();
+  expect(asked.getByRole("textbox", { name: "Which airport?" })).toBeTruthy();
   await userEvent.click(asked.getByRole("button", { name: "Never mind" }));
   await waitFor(() => expect(spade.sent("POST", path)).toEqual([{ dismiss: true }]));
-  expect(await asked.findByText("Dismissed")).toBeTruthy();
+  expect(await cardWith("Travel asks: Which airport?", "Dismissed")).toBeTruthy();
 });
 
 test("an older question with no kinds is one text card", async () => {

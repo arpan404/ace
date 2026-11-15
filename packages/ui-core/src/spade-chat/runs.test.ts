@@ -35,6 +35,12 @@ const person = (key: string, when?: string): SpadeChatItem => ({
   sending: when === undefined,
   ...(when ? { at: at(when) } : {}),
 });
+const other = (key: string, id: string): SpadeChatItem => ({
+  kind: "other",
+  key,
+  agent: { id, name: id },
+  text: key,
+});
 const helper = (key: string): SpadeChatItem => ({
   kind: "helper",
   key,
@@ -130,12 +136,6 @@ describe("the chat's rows", () => {
   });
 
   test("another bot's bubbles run under its own name, apart from the bot's", () => {
-    const other = (key: string, id: string): SpadeChatItem => ({
-      kind: "other",
-      key,
-      agent: { id, name: id },
-      text: key,
-    });
     const rows = spadeChatRows([other("x1", "flights"), other("x2", "flights"), bot("a")], {
       now,
       ...zone,

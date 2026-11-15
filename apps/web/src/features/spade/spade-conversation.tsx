@@ -251,9 +251,9 @@ export function Conversation(props: {
         // Covered by the panel, the chat comes back by the panel's own Chat.
         !(panelShown && covering) && (
           <>
-            {view.forLater.length > 0 && (
+            {view.questionsForLater > 0 && (
               <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
-                {spadeForLaterWords(view.forLater.length)}
+                {spadeForLaterWords(view.questionsForLater)}
               </Button>
             )}
             <Button

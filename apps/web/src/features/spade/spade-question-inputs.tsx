@@ -6,12 +6,28 @@ import { Input, Textarea } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 
 const optionRow =
-  "flex w-full min-w-0 items-baseline gap-2 rounded-md px-2 py-1 text-left text-ui transition-colors duration-(--motion-fast) focus-ring hover:bg-hover";
+  "flex min-h-8 w-full min-w-0 items-start gap-3 rounded-md px-2 py-1.5 text-left text-base leading-5 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover pointer-coarse:min-h-11 pointer-coarse:items-center";
+
+/** A field in the card: one line in the card's well, at the answers' size. */
+const well = "bg-chat-well text-base";
+
+/** An option's digit key, at the row's end. */
+function DigitKey(props: { digit: string | undefined }) {
+  if (!props.digit) return null;
+  return (
+    <span
+      aria-hidden
+      className="ml-auto shrink-0 pl-3 text-xs leading-5 text-subtle-foreground tabular-nums pointer-coarse:hidden"
+    >
+      {props.digit}
+    </span>
+  );
+}
 
 /**
- * One question's inputs, by its kind: a text box; options to pick (each with its digit key) and
- * own words when the question takes them; checks with a count; Yes and No; a number with its
- * unit; a date. `onSubmit` is Enter in a one-line field.
+ * One question's inputs, by its kind: a one-line field that grows only as it is typed into;
+ * options to pick (each with its digit key) and own words when the question takes them; checks
+ * with a count; Yes and No; a number with its unit; a date. `onSubmit` is Enter in a field.
  */
 export function QuestionInputs(props: {
   question: SpadeQuestion;
@@ -33,13 +49,13 @@ export function QuestionInputs(props: {
       return (
         <Textarea
           aria-label={question.prompt}
-          rows={2}
+          rows={1}
           placeholder={question.placeholder ?? "Your answer"}
           disabled={disabled}
           value={draft.kind === "text" ? draft.text : ""}
           onChange={(event) => props.onDraft({ kind: "text", text: event.target.value })}
           onKeyDown={enter}
-          className="mt-1.5 bg-background"
+          className={cn(well, "mt-2 min-h-9")}
         />
       );
     case "choice":
@@ -69,26 +85,26 @@ export function QuestionInputs(props: {
           <span className="flex min-w-0 flex-col">
             <span className="wrap-anywhere">{option.label}</span>
             {option.detail && (
-              <span className="text-xs text-muted-foreground wrap-anywhere">{option.detail}</span>
+              <span className="text-ui leading-5 text-muted-foreground wrap-anywhere">
+                {option.detail}
+              </span>
             )}
           </span>
         );
         return many ? (
           <label
             key={option.label}
-            className={cn(optionRow, "cursor-pointer items-center", on && "bg-active")}
+            className={cn(optionRow, "cursor-pointer", on && "bg-chat-well")}
           >
-            <Checkbox
-              checked={on}
-              disabled={disabled}
-              onCheckedChange={() => toggle(option.label)}
-            />
+            <span className="flex h-5 shrink-0 items-center">
+              <Checkbox
+                checked={on}
+                disabled={disabled}
+                onCheckedChange={() => toggle(option.label)}
+              />
+            </span>
             {words}
-            {key && (
-              <span aria-hidden className="ml-auto text-xs text-subtle-foreground">
-                {key}
-              </span>
-            )}
+            <DigitKey digit={key} />
           </label>
         ) : (
           <button
@@ -99,24 +115,26 @@ export function QuestionInputs(props: {
             aria-label={option.label}
             disabled={disabled}
             onClick={() => toggle(option.label)}
-            className={cn(optionRow, on && "bg-active text-foreground")}
+            className={cn(optionRow, on && "bg-chat-well text-foreground")}
           >
-            {key && (
-              <span aria-hidden className="w-3 shrink-0 text-xs text-subtle-foreground">
-                {key}
-              </span>
-            )}
+            <span className="flex h-5 shrink-0 items-center">
+              <span
+                aria-hidden
+                className={cn(
+                  "size-4 rounded-full transition-shadow duration-(--motion-fast)",
+                  on
+                    ? "shadow-[inset_0_0_0_5px_var(--ring)]"
+                    : "shadow-[inset_0_0_0_1.5px_var(--border-strong)]",
+                )}
+              />
+            </span>
             {words}
+            <DigitKey digit={key} />
           </button>
         );
       });
       return (
-        <div className="mt-1.5 flex flex-col gap-0.5">
-          {many && (
-            <p className="px-2 text-xs text-muted-foreground">
-              {`${spadePickCount(question, picks)} picked`}
-            </p>
-          )}
+        <div className="mt-2 flex flex-col gap-0.5">
           {many ? (
             <div
               role="group"
@@ -151,8 +169,13 @@ export function QuestionInputs(props: {
                 })
               }
               onKeyDown={enter}
-              className="mt-1 bg-background"
+              className={cn(well, "mt-1 h-9")}
             />
+          )}
+          {many && (
+            <p className="mt-1.5 text-xs leading-4 text-subtle-foreground tabular-nums">
+              {`${spadePickCount(question, picks)} picked`}
+            </p>
           )}
         </div>
       );
@@ -160,11 +183,11 @@ export function QuestionInputs(props: {
     case "confirm": {
       const value = draft.kind === "confirm" ? draft.value : undefined;
       return (
-        <div className="-mx-2 mt-1 flex gap-1">
+        <div className="-mx-2.5 mt-2 flex gap-1">
           {([true, false] as const).map((answer) => (
             <Button
               key={String(answer)}
-              size="xs"
+              size="sm"
               variant={value === answer ? "secondary" : "ghost"}
               aria-pressed={value === answer}
               disabled={disabled}
@@ -179,7 +202,7 @@ export function QuestionInputs(props: {
     case "number":
     case "date":
       return (
-        <div className="mt-1.5 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <Input
             id={id}
             aria-label={question.prompt}
@@ -191,7 +214,11 @@ export function QuestionInputs(props: {
             value={draft.kind === "field" ? draft.text : ""}
             onChange={(event) => props.onDraft({ kind: "field", text: event.target.value })}
             onKeyDown={enter}
-            className="w-44 bg-background"
+            className={cn(
+              well,
+              "h-9",
+              question.kind === "number" ? "w-24" : question.time ? "w-56" : "w-44",
+            )}
           />
           {question.kind === "number" && question.unit && (
             <label htmlFor={id} className="text-ui text-muted-foreground">

@@ -50,7 +50,7 @@ export function useOpenBot(bot: RosterBot) {
 
 /**
  * The screen's frame for one bot. Its top bar: the bot's face (moving while it works), its name
- * and machine, and a caret; they open the bot's own page. ⋯ holds what acts on the bot: Edit,
+ * over its machine, and a caret; they open the bot's own page. ⋯ holds what acts on the bot: Edit,
  * Memory (its notes, which never show in the chat), Duplicate, Export and Delete.
  */
 export function BotScreen(props: {
@@ -71,24 +71,27 @@ export function BotScreen(props: {
   const navigate = useNavigate();
   const main = bot.kind === "main";
   const headState = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
+  // The bot's name over its machine, quieter.
   const name = (
-    <>
-      <span className="truncate">{bot.name}</span>
-      <span className="truncate font-normal text-muted-foreground">{bot.machine.name}</span>
-    </>
+    <span className="flex min-w-0 flex-col">
+      <span className="truncate text-ui leading-4 font-medium">{bot.name}</span>
+      <span className="truncate text-xs leading-4 font-normal text-subtle-foreground">
+        {bot.machine.name}
+      </span>
+    </span>
   );
   return (
     <Screen
       title={
         props.page ? (
-          <span className="flex min-w-0 items-baseline gap-2">{name}</span>
+          <span className="flex min-w-0 items-center gap-2">{name}</span>
         ) : (
           <Link
             to="/spade/$agentId"
             params={{ agentId: bot.id }}
             search={botSearch(bot, { view: "bot" })}
             aria-label={`${bot.name} on ${bot.machine.name}: open its page`}
-            className="-mx-1 flex min-w-0 items-baseline gap-2 rounded-md px-1 focus-ring hover:bg-hover"
+            className="-mx-1.5 flex min-w-0 items-center gap-2 rounded-md px-1.5 py-0.5 focus-ring hover:bg-hover"
           >
             {name}
             <Icon

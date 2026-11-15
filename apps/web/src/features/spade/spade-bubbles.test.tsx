@@ -9,12 +9,8 @@ afterEach(() => vi.unstubAllGlobals());
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
-/** The face drawn beside a bot's bubble, decorative. */
-const faceIn = (article: HTMLElement) =>
-  article.querySelector<SVGSVGElement>("svg.bot-face") ?? undefined;
-
-test("a bot's face sits beside the last bubble of its run, in that bubble's row", async () => {
-  // With speech, Read aloud sits under each reply: the face stays by the bubble, not by it.
+test("a bot's bubbles in a row are one run: its face once, at the run's first bubble, and the run's time under it", async () => {
+  // With speech, Read aloud sits under each reply: the face stays at the run's top, not by it.
   vi.stubGlobal("speechSynthesis", { speak: vi.fn(), cancel: vi.fn() });
   vi.stubGlobal("SpeechSynthesisUtterance", class extends EventTarget {});
   await spadeApp("/spade/garden", (spade) => {
@@ -27,18 +23,22 @@ test("a bot's face sits beside the last bubble of its run, in that bubble's row"
   });
   const chat = within(await feed("Garden"));
   await chat.findByText("Mulch it after.");
-  const articles = chat.getAllByRole("article", { name: "Garden" });
-  const [first, last] = [articles.at(-2), articles.at(-1)];
-  if (!first || !last) throw new Error("expected two of Garden's bubbles");
-  // Only the last of the run has the face, and it shares the bubble's row.
-  expect(faceIn(first)).toBeUndefined();
-  const face = faceIn(last);
-  expect(face?.parentElement?.parentElement?.textContent).toBe("Mulch it after.");
+  // A day line, then the person's message, then one run of Garden's two bubbles.
+  expect(chat.getByRole("separator", { name: "Today" })).toBeTruthy();
+  const [run, ...more] = chat.getAllByRole("article", { name: "Garden" });
+  if (!run) throw new Error("expected Garden's run");
+  expect(more).toEqual([]);
+  const faces = run.querySelectorAll("svg.bot-face");
+  expect(faces).toHaveLength(1);
+  // The face comes before the run's first words.
+  const first = within(run).getByText("In October.");
+  expect(faces[0]?.compareDocumentPosition(first)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   // Its reply finished while the person watched: the face shows done, then rests.
-  expect(face?.getAttribute("data-state")).toMatch(/^(done|idle)$/);
+  expect(faces[0]?.getAttribute("data-state")).toMatch(/^(done|idle)$/);
+  expect(within(run).getByText(/^\d{1,2}:\d{2}/)).toBeTruthy();
 });
 
-test("another bot's run shows its name above the first message and its face by the last", async () => {
+test("another bot's run shows its name and face once, above its first message", async () => {
   await spadeApp("/spade/garden", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -51,11 +51,11 @@ test("another bot's run shows its name above the first message and its face by t
   const chat = within(await feed("Garden"));
   await chat.findByText("Cover the beds.");
   const runs = chat.getAllByRole("article", { name: "Weather" });
-  expect(runs.map((article) => within(article).queryByText("Weather") !== null)).toEqual([
-    true,
-    false,
-  ]);
-  expect(runs.map((article) => faceIn(article) !== undefined)).toEqual([false, true]);
+  expect(runs).toHaveLength(1);
+  const run = within(runs[0] ?? document.body);
+  expect(run.getAllByText("Weather")).toHaveLength(1);
+  expect(runs[0]?.querySelectorAll("svg.bot-face")).toHaveLength(1);
+  expect(run.getByText("Frost tonight.")).toBeTruthy();
 });
 
 test("a failed reply says what went wrong in one plain sentence, and Try again sends the message again", async () => {

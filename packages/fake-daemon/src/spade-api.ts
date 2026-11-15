@@ -348,7 +348,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (later) {
       this.store(agent.conversation, { type: "question_deferred", call_id: callId, by_bot: true });
       this.store(agent.conversation, { type: "reply_finished", reply: id, text: "" });
-      agent.questions_for_later = (agent.questions_for_later ?? 0) + 1;
+      // Spade counts each question of the card.
+      agent.questions_for_later = (agent.questions_for_later ?? 0) + questions.length;
       return;
     }
     agent.waiting_for = "question";
@@ -761,9 +762,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(refusal.status, refusal.error);
       }
       const events = list.map((stored) => stored.event);
-      const asked = events.some(
+      const card = events.find(
         (event) => event.type === "question_asked" && event.call_id === subId,
       );
+      const asked = card !== undefined;
+      const questions = Array.isArray(card?.questions) ? card.questions.length : 1;
       const settled = events.some(
         (event) =>
           (event.type === "question_answered" || event.type === "question_dismissed") &&
@@ -787,7 +790,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       else return problem(400, "Send exactly one of answers, defer or dismiss.");
       if (agent) {
         const later =
-          (agent.questions_for_later ?? 0) + (body.defer === true ? 1 : deferred ? -1 : 0);
+          (agent.questions_for_later ?? 0) +
+          (body.defer === true ? questions : deferred ? -questions : 0);
         agent.questions_for_later = Math.max(0, later);
         if (agent.waiting_for === "question") this.status(agent, "idle", null);
       }

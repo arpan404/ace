@@ -3,8 +3,8 @@ import {
   type SpadeTaskLine,
   parseSpadeAvatar,
   spadeBubbles,
-  spadeFailureSentence,
-  type SpadeBubbleFailure,
+  spadeChatRows,
+  type SpadeChatRow,
   withProposals,
   type SpadeAvatar,
   type SpadeChatItem,
@@ -12,14 +12,15 @@ import {
   type SpadeProposal,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { formatElapsed } from "@ace/ui-core/time";
 import { Link } from "@tanstack/react-router";
-import { memo, useEffect, useId, useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { memo, useMemo } from "react";
+import { buttonVariants } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { botBubble, personBubble } from "./spade-card.tsx";
+import { Failure, FileChips, ReadAloud, WorkingLine } from "./spade-chat-parts.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { useFaceState } from "./use-face-state.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
@@ -28,7 +29,6 @@ import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.t
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
-import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -41,15 +41,11 @@ export interface ChatBot {
   names: ReadonlyMap<string, string>;
 }
 
-const bubble =
-  "min-w-0 max-w-[80%] rounded-lg px-3 py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
-const botBubble = cn(bubble, "bg-bubble shadow-[inset_0_0_0_1px_var(--border)]");
-const faceRoom = "w-7 shrink-0";
-
 /**
- * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right on the active
- * fill, the bot's on the left with its face beside the last bubble of each run, messages other
- * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
+ * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right, the bot's on
+ * the left in runs (`spadeChatRows`), its face once at the top of each run and the run's time
+ * under it, a day line before the first thing said each day, and messages other bots sent here
+ * under their name and face. Nothing of how the bot works shows: no tool calls,
  * jobs, compaction or the notes it saves (they are in its Memory dialog, ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
@@ -86,9 +82,19 @@ export function SpadeChat(props: {
   onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
 }) {
   const { view, bot } = props;
-  // The notes it saves stay in its Memory dialog, never in the chat.
-  const bubbles = withProposals(spadeBubbles(view), view.entries, props.proposals ?? []).filter(
-    (item) => item.kind !== "remembered",
+  // Days change rarely: the clock as it stands is enough for Today and Yesterday.
+  const now = useSeconds(false);
+  const proposals = props.proposals;
+  const rows = useMemo(
+    () =>
+      // The notes it saves stay in its Memory dialog, never in the chat.
+      spadeChatRows(
+        withProposals(spadeBubbles(view), view.entries, proposals ?? []).filter(
+          (item) => item.kind !== "remembered",
+        ),
+        { now },
+      ),
+    [view, proposals, now],
   );
   // Busy: anything open. Stop stays while it is, waiting on the person too; the face moves only
   // while the bot works itself.
@@ -107,36 +113,34 @@ export function SpadeChat(props: {
   const working = busy && !waiting;
   const task = props.task;
   const lined = working || task !== undefined;
+  const lastRun = rows.findLastIndex((row) => row.kind === "run" && row.sender.kind === "bot");
+  const handlers: Handlers = {
+    endpointName: props.endpointName,
+    onProposal: props.onProposal,
+    onAnswer: props.onAnswer,
+    onQuestion: props.onQuestion,
+    onOpenFile: props.onOpenFile,
+    onRetry: props.onRetry,
+    onHelperSteps: props.onHelperSteps,
+  };
   return (
     <div
       role="feed"
       aria-label={`Conversation with ${bot.name}`}
       aria-busy={view.busy}
-      className="flex flex-col gap-3"
+      className="flex flex-col"
     >
-      {bubbles.map((item, index) => {
-        const next = bubbles[index + 1];
-        const last = index === bubbles.length - 1;
-        // The face sits by the last of a run of one sender's bubbles, or by the working line.
-        const lastOfRun = !(next && sameSender(item, next)) && !(lined && last);
-        const previous = bubbles[index - 1];
-        return (
-          <Bubble
-            key={item.key}
-            item={item}
-            bot={bot}
-            face={lastOfRun && (last ? lastFace : "idle")}
-            first={!(previous && sameSender(previous, item))}
-            endpointName={props.endpointName}
-            onProposal={props.onProposal}
-            onAnswer={props.onAnswer}
-            onQuestion={props.onQuestion}
-            onOpenFile={props.onOpenFile}
-            onRetry={props.onRetry}
-            onHelperSteps={props.onHelperSteps}
-          />
-        );
-      })}
+      {rows.map((row, index) => (
+        <Row
+          key={row.key}
+          row={row}
+          previous={rows[index - 1]}
+          bot={bot}
+          // The bot's last run's face shows how it stands, unless the working line has it.
+          face={index === lastRun && !lined ? lastFace : "idle"}
+          handlers={handlers}
+        />
+      ))}
       {lined &&
         (props.paused ? (
           // Paused by Spade while the person drives: nothing runs, so no clock.
@@ -181,25 +185,7 @@ export function SpadeChat(props: {
   );
 }
 
-const botSide = (item: SpadeChatItem) =>
-  item.kind === "bot" ||
-  item.kind === "ask" ||
-  item.kind === "question" ||
-  item.kind === "skill" ||
-  item.kind === "files";
-
-/** Two bubbles in a row from one sender: the bot's own, or the same other bot's. */
-const sameSender = (a: SpadeChatItem, b: SpadeChatItem) =>
-  (botSide(a) && botSide(b)) ||
-  (a.kind === "other" && b.kind === "other" && a.agent.id === b.agent.id);
-
-const Bubble = memo(function Bubble(props: {
-  item: SpadeChatItem;
-  bot: ChatBot;
-  /** The last of its sender's run: its face shows beside it, in this state. */
-  face: BotFaceState | false;
-  /** The first of its sender's run: another bot's name shows above it. */
-  first: boolean;
+interface Handlers {
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
@@ -208,8 +194,170 @@ const Bubble = memo(function Bubble(props: {
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
+}
+
+/** Room above a row, by what it is and what came before: 4 in a run, 24 between runs. */
+function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): string {
+  if (!previous) return "";
+  if (row.kind === "day") return "mt-10";
+  if (row.kind === "run") return "mt-6";
+  switch (row.item.kind) {
+    case "person":
+      return previous.kind === "item" && previous.item.kind === "person" ? "mt-2" : "mt-6";
+    case "routine":
+    case "group":
+      return previous.kind === "day" ? "mt-2" : "mt-6";
+    default:
+      return "mt-4";
+  }
+}
+
+const Row = memo(function Row(props: {
+  row: SpadeChatRow;
+  previous: SpadeChatRow | undefined;
+  bot: ChatBot;
+  face: BotFaceState;
+  handlers: Handlers;
 }) {
-  const { item, bot } = props;
+  const { row, bot } = props;
+  const space = spaceAbove(row, props.previous);
+  if (row.kind === "day")
+    return (
+      <div
+        role="separator"
+        aria-label={row.label}
+        className={cn("text-center text-xs leading-4 font-medium text-subtle-foreground", space)}
+      >
+        {row.label}
+      </div>
+    );
+  if (row.kind === "run") {
+    const other = row.sender.kind === "other" ? row.sender.agent : undefined;
+    const avatar = other
+      ? (bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id))
+      : bot.avatar;
+    return (
+      <div
+        role="article"
+        aria-label={other ? other.name : bot.name}
+        className={cn("grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-2", space)}
+      >
+        <div className={cn(other ? "pt-5" : "pt-1")}>
+          <SpadeFace avatar={avatar} size={28} state={other ? "idle" : props.face} />
+        </div>
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          {other && (
+            <span className="pl-1 text-xs leading-4 text-subtle-foreground">{other.name}</span>
+          )}
+          {row.items.map((item) => (
+            <RunItem key={item.key} item={item} bot={bot} handlers={props.handlers} />
+          ))}
+        </div>
+        {row.time && (
+          <span className="col-start-2 mt-1 pl-1 text-xs leading-4 text-subtle-foreground tabular-nums">
+            {row.time}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return <Single item={row.item} time={row.time} space={space} handlers={props.handlers} />;
+});
+
+/** One of a run's bubbles: the bot's words, its files, a card, a request or a skill. */
+function RunItem(props: { item: SpadeChatItem; bot: ChatBot; handlers: Handlers }) {
+  const { item, bot, handlers } = props;
+  switch (item.kind) {
+    case "bot": {
+      const words = Boolean(item.text || item.end);
+      const media = (
+        <>
+          {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
+          {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
+        </>
+      );
+      return (
+        <div className="group/reply flex w-full min-w-0 flex-col items-start gap-1">
+          {words ? (
+            <div className={botBubble}>
+              {item.text && <SpadeBubbleText text={item.text} />}
+              {item.end === "failed" && item.failure ? (
+                <Failure
+                  failure={item.failure}
+                  endpoint={item.failure.endpoint && handlers.endpointName?.(item.failure.endpoint)}
+                  spaced={Boolean(item.text)}
+                  onRetry={handlers.onRetry}
+                />
+              ) : (
+                item.end && (
+                  <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
+                    {item.end === "stopped"
+                      ? "Stopped"
+                      : item.end === "failed"
+                        ? "Couldn't finish"
+                        : "Interrupted"}
+                  </p>
+                )
+              )}
+            </div>
+          ) : (
+            media
+          )}
+          {/* What its tools showed the person, after its words (ADR 0134). */}
+          {words && media}
+          {item.text && !item.live && <ReadAloud text={item.text} />}
+          {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
+        </div>
+      );
+    }
+    case "other":
+      return (
+        <div className={botBubble}>
+          <SpadeBubbleText text={item.text} />
+        </div>
+      );
+    case "files":
+      return (
+        <div className={botBubble}>
+          <FileChips paths={item.paths} onOpen={handlers.onOpenFile} first />
+        </div>
+      );
+    case "question":
+      return <SpadeQuestionBubble item={item} botName={bot.name} onReply={handlers.onQuestion} />;
+    case "ask":
+      return (
+        <SpadeRequestBubble
+          item={item}
+          botId={bot.id}
+          botName={bot.name}
+          nameOf={(id) => bot.names.get(id)}
+          onAnswer={handlers.onAnswer}
+        />
+      );
+    case "skill": {
+      const answer = handlers.onProposal;
+      return (
+        <SkillProposal
+          proposal={item.proposal}
+          botName={bot.name}
+          className={botBubble}
+          onAnswer={(save) => (answer ? answer(item.proposal.id, save) : Promise.resolve(false))}
+        />
+      );
+    }
+    default:
+      return null;
+  }
+}
+
+/** A row of its own: the person's message, a routine's or group's label, a quiet line. */
+function Single(props: {
+  item: SpadeChatItem;
+  time: string | undefined;
+  space: string;
+  handlers: Handlers;
+}) {
+  const { item, space } = props;
   switch (item.kind) {
     case "person":
       return (
@@ -217,12 +365,13 @@ const Bubble = memo(function Bubble(props: {
           role="article"
           aria-label="You"
           aria-busy={item.sending || undefined}
-          className={cn("flex flex-col items-end gap-1", item.sending && "opacity-70")}
+          title={props.time}
+          className={cn("flex flex-col items-end gap-1", item.sending && "opacity-70", space)}
         >
           {item.images.length > 0 && <Pictures images={item.images} side="person" />}
           {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
           {item.text && (
-            <div className={cn(bubble, "bg-active")}>
+            <div className={personBubble}>
               <SpadeBubbleText text={item.text} />
               {/* A voice message: its transcript, and the recording to play. */}
               {item.voice && (
@@ -236,15 +385,15 @@ const Bubble = memo(function Bubble(props: {
       );
     case "task-paused":
       return (
-        <p role="note" className="text-xs text-muted-foreground">
+        <p role="note" className={cn("text-xs text-muted-foreground", space)}>
           {item.text}
         </p>
       );
     case "routine":
       // A routine fired (ADR 0129): a small label in the middle, never the person's bubble.
       return (
-        <div role="note" className="flex justify-center">
-          <span className="rounded-full bg-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
+        <div role="note" className={cn("flex justify-center", space)}>
+          <span className="rounded-full bg-chat-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
             {`${item.name} · ${item.label}`}
           </span>
         </div>
@@ -255,9 +404,9 @@ const Bubble = memo(function Bubble(props: {
         <div
           role="note"
           aria-label={`In ${item.group}`}
-          className="flex flex-col items-center gap-1"
+          className={cn("flex flex-col items-center gap-1", space)}
         >
-          <span className="rounded-full bg-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
+          <span className="rounded-full bg-chat-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
             {item.agent ? `In ${item.group} · ${item.agent.name}` : `In ${item.group}`}
           </span>
           {item.text && (
@@ -267,91 +416,11 @@ const Bubble = memo(function Bubble(props: {
           )}
         </div>
       );
-    case "other": {
-      const avatar = bot.others.get(item.agent.id) ?? parseSpadeAvatar(undefined, item.agent.id);
-      return (
-        <div role="article" aria-label={item.agent.name} className="flex flex-col gap-1">
-          {props.first && (
-            <span className="pl-9.5 text-xs text-subtle-foreground">{item.agent.name}</span>
-          )}
-          <div className="flex items-end gap-2.5">
-            {props.face ? (
-              <SpadeFace avatar={avatar} size={28} state={props.face} />
-            ) : (
-              <span aria-hidden className={faceRoom} />
-            )}
-            <div className={botBubble}>
-              <SpadeBubbleText text={item.text} />
-            </div>
-          </div>
-        </div>
-      );
-    }
-    case "bot": {
-      const words = Boolean(item.text || item.end);
-      const media = (
-        <>
-          {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
-          {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
-        </>
-      );
-      return (
-        <BotRow
-          bot={bot}
-          face={props.face}
-          after={
-            <>
-              {/* What its tools showed the person, after its words (ADR 0134). */}
-              {words && media}
-              {item.text && !item.live && <ReadAloud text={item.text} />}
-              {item.files && <FileChips paths={item.files} onOpen={props.onOpenFile} />}
-            </>
-          }
-        >
-          {/* The column beside the face, so a bubble's width is as before. */}
-          <div className="flex min-w-0 flex-1 flex-col items-start">
-            {words ? (
-              <div className={botBubble}>
-                {item.text && <SpadeBubbleText text={item.text} />}
-                {item.end === "failed" && item.failure ? (
-                  <Failure
-                    failure={item.failure}
-                    endpoint={item.failure.endpoint && props.endpointName?.(item.failure.endpoint)}
-                    spaced={Boolean(item.text)}
-                    onRetry={props.onRetry}
-                  />
-                ) : (
-                  item.end && (
-                    <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
-                      {item.end === "stopped"
-                        ? "Stopped"
-                        : item.end === "failed"
-                          ? "Couldn't finish"
-                          : "Interrupted"}
-                    </p>
-                  )
-                )}
-              </div>
-            ) : (
-              <div className="flex min-w-0 flex-col items-start gap-1">{media}</div>
-            )}
-          </div>
-        </BotRow>
-      );
-    }
-    case "files":
-      return (
-        <BotRow bot={bot} face={props.face}>
-          <div className={botBubble}>
-            <FileChips paths={item.paths} onOpen={props.onOpenFile} first />
-          </div>
-        </BotRow>
-      );
     case "handback":
       // The person handed the computer back: Spade's narration as one quiet line, and the names
       // it involved (files, addresses) as plain text behind a disclosure, never as links.
       return (
-        <div role="note" className="flex flex-col items-center gap-1 text-center">
+        <div role="note" className={cn("flex flex-col items-center gap-1 text-center", space)}>
           <p className="max-w-[80%] text-xs text-muted-foreground wrap-anywhere">{item.text}</p>
           {item.data.length > 0 && (
             <Disclosure
@@ -372,19 +441,21 @@ const Bubble = memo(function Bubble(props: {
         </div>
       );
     case "helper": {
-      const read = props.onHelperSteps;
+      const read = props.handlers.onHelperSteps;
       return (
-        <SpadeHelperLine
-          text={item.text}
-          open={item.open}
-          readSteps={read ? () => read(item.job) : undefined}
-        />
+        <div className={space}>
+          <SpadeHelperLine
+            text={item.text}
+            open={item.open}
+            readSteps={read ? () => read(item.job) : undefined}
+          />
+        </div>
       );
     }
     case "search-setup":
       // Web search had nothing to search with: one quiet line and the way to set it up.
       return (
-        <div className="flex items-center gap-1 pl-9.5 text-xs text-muted-foreground">
+        <div className={cn("flex items-center gap-1 pl-9 text-xs text-muted-foreground", space)}>
           <span>Web search isn't set up.</span>
           <Link
             to="/settings/spade"
@@ -395,213 +466,7 @@ const Bubble = memo(function Bubble(props: {
           </Link>
         </div>
       );
-    case "remembered":
+    default:
       return null;
-    case "question":
-      return (
-        <BotRow bot={bot} face={props.face}>
-          <SpadeQuestionBubble
-            item={item}
-            botName={bot.name}
-            className={botBubble}
-            onReply={props.onQuestion}
-          />
-        </BotRow>
-      );
-    case "ask":
-      return (
-        <BotRow bot={bot} face={props.face}>
-          <SpadeRequestBubble
-            item={item}
-            botId={bot.id}
-            botName={bot.name}
-            nameOf={(id) => bot.names.get(id)}
-            className={botBubble}
-            onAnswer={props.onAnswer}
-          />
-        </BotRow>
-      );
-    case "skill": {
-      const answer = props.onProposal;
-      return (
-        <BotRow bot={bot} face={props.face}>
-          <SkillProposal
-            proposal={item.proposal}
-            botName={bot.name}
-            className={botBubble}
-            onAnswer={(save) => (answer ? answer(item.proposal.id, save) : Promise.resolve(false))}
-          />
-        </BotRow>
-      );
-    }
   }
-});
-
-/**
- * A bubble of the bot's: its face (or the room for it) beside the bubble itself, bottom-aligned
- * with it, and anything under the bubble (pictures, Read aloud, file chips) below, in the
- * bubble's column, so the face never drops to their row.
- */
-function BotRow(props: {
-  bot: ChatBot;
-  face: BotFaceState | false;
-  children: React.ReactNode;
-  after?: React.ReactNode;
-}) {
-  return (
-    <div role="article" aria-label={props.bot.name} className="group/reply flex flex-col gap-1">
-      <div className="flex items-end gap-2.5">
-        {props.face ? (
-          <SpadeFace avatar={props.bot.avatar} size={28} state={props.face} />
-        ) : (
-          <span aria-hidden className={faceRoom} />
-        )}
-        {props.children}
-      </div>
-      {props.after && (
-        <div className="flex min-w-0 flex-col items-start gap-1 pl-9.5 empty:hidden">
-          {props.after}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * A failed reply: one plain sentence by its kind, naming the endpoint; Try again, which sends the
- * person's last message again; and Details, the endpoint's own words, which also stay in the
- * activity log.
- */
-function Failure(props: {
-  failure: SpadeBubbleFailure;
-  endpoint: string | undefined;
-  spaced: boolean;
-  onRetry: ((text: string) => Promise<boolean>) | undefined;
-}) {
-  const { failure, onRetry } = props;
-  const [open, setOpen] = useState(false);
-  const [sending, setSending] = useState(false);
-  const retry = failure.retry;
-  return (
-    <>
-      <p className={cn("text-ui text-muted-foreground", props.spaced && "mt-1")}>
-        {spadeFailureSentence(failure.kind, props.endpoint)}
-      </p>
-      {open && failure.error && (
-        <pre
-          aria-label="Details"
-          className="no-scrollbar mt-1.5 max-h-48 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]"
-        >
-          {failure.error}
-        </pre>
-      )}
-      <div className="-mx-2 mt-1 -mb-1 flex flex-wrap gap-1">
-        {retry !== undefined && onRetry && (
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={sending}
-            onClick={() => {
-              setSending(true);
-              void onRetry(retry).then(() => setSending(false));
-            }}
-          >
-            {sending ? "Sending…" : "Try again"}
-          </Button>
-        )}
-        {failure.error && (
-          <Button
-            size="xs"
-            variant="ghost"
-            aria-expanded={open}
-            onClick={() => setOpen((shown) => !shown)}
-          >
-            Details
-          </Button>
-        )}
-      </div>
-    </>
-  );
-}
-
-/**
- * While the bot works: its face moving, its few words, and how long it has been at it; Watch
- * opens the right panel on what it uses.
- */
-function WorkingLine(props: {
-  avatar: SpadeAvatar;
-  state: BotFaceState;
-  label: string;
-  since: number | undefined;
-  onWatch: (() => void) | undefined;
-}) {
-  const now = useSeconds(props.since !== undefined);
-  return (
-    <div role="status" className="flex items-center gap-2.5">
-      <SpadeFace avatar={props.avatar} size={28} state={props.state} />
-      <span className="min-w-0 truncate text-ui text-muted-foreground">{props.label}</span>
-      {props.since !== undefined && (
-        <span className="shrink-0 text-ui text-subtle-foreground tabular-nums">
-          {formatElapsed(now - props.since)}
-        </span>
-      )}
-      {props.onWatch && (
-        <Button size="xs" variant="ghost" onClick={props.onWatch}>
-          Watch
-        </Button>
-      )}
-    </div>
-  );
-}
-
-/**
- * Under a bot's bubble, shown on hover or focus: Read aloud, which reads the reply in the
- * system's voice and becomes Stop reading while it speaks. Nothing where the system can't speak.
- * Leaving the chat (or moving to another bot's) stops it: the reading belongs to this bubble.
- */
-function ReadAloud(props: { text: string }) {
-  const key = useId();
-  const reading = useReading(key);
-  useEffect(() => () => stopReadingOf(key), [key]);
-  if (!canReadAloud()) return null;
-  return (
-    <div
-      className={cn(
-        "-mx-2 -mt-0.5 flex transition-opacity duration-(--motion-fast)",
-        !reading &&
-          "opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100",
-      )}
-    >
-      <Button
-        size="xs"
-        variant="ghost"
-        onClick={() => (reading ? stopReading() : readAloud(key, props.text))}
-      >
-        {reading ? "Stop reading" : "Read aloud"}
-      </Button>
-    </div>
-  );
-}
-/**
- * Files the bot kept (a research report), each by its name: opens it in the bot's files. Under
- * the bubble's words, or alone when no words followed yet.
- */
-function FileChips(props: { paths: readonly string[]; onOpen(path: string): void; first?: true }) {
-  return (
-    <ul aria-label="Files" className={cn("-mx-1 flex flex-wrap gap-1", !props.first && "mt-1.5")}>
-      {props.paths.map((path) => (
-        <li key={path}>
-          <button
-            type="button"
-            aria-label={`Open ${path}`}
-            title={path}
-            onClick={() => props.onOpen(path)}
-            className="max-w-full truncate rounded-sm px-1 text-ui text-muted-foreground underline decoration-border underline-offset-3 transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
-          >
-            {path.split("/").at(-1) ?? path}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
 }

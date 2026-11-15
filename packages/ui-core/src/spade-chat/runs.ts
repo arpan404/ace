@@ -97,6 +97,8 @@ export function spadeChatRows(
 }
 
 const dayMs = 86_400_000;
+/** "2026-11-15" as a whole day count, so two days' distance is a subtraction. */
+const dayNumber = (dayKey: string) => Date.parse(`${dayKey}T00:00:00Z`) / dayMs;
 
 /** Each instant's calendar day in the reader's zone, and its words: Today, Yesterday, Monday. */
 function dayReader(clock: SpadeChatClock) {
@@ -122,9 +124,7 @@ function dayReader(clock: SpadeChatClock) {
     day: "numeric",
     year: "numeric",
   });
-  // "2026-11-15", as a whole day count, so two days' distance is a subtraction.
   const key = (at: number) => keyFormat.format(at);
-  const dayNumber = (dayKey: string) => Date.parse(`${dayKey}T00:00:00Z`) / dayMs;
   const today = dayNumber(key(clock.now));
   return {
     key,

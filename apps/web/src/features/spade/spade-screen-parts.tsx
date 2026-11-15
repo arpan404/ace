@@ -20,7 +20,8 @@ function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
 
 /**
  * A scroller that stays at its end while the person is there, as the conversation grows: on
- * every render and whenever the content's height changes after it.
+ * every render and whenever the content's height changes after it. A short conversation starts
+ * at the top.
  */
 export function Scroller(props: { children: ReactNode }) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -46,7 +47,7 @@ export function Scroller(props: { children: ReactNode }) {
       {/* Room under the last line for the composer floating over the conversation. */}
       <div
         ref={content}
-        className={`${readingColumn} mt-auto w-full pt-6 pb-[calc(var(--composer-clearance,0px)+1rem)]`}
+        className={`${readingColumn} w-full pt-6 pb-[calc(var(--composer-clearance,0px)+1rem)]`}
       >
         {props.children}
       </div>

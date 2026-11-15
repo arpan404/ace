@@ -93,8 +93,11 @@ test("a request the reviewer escalated shows its reason, and Allow answers it", 
       { allowed: true, always: false },
     ]),
   );
-  // It stays in the chat, answered.
-  expect(await request.findByText("Allowed")).toBeTruthy();
+  // It stays in the chat, answered: one line that says how.
+  const answered = within(
+    await screen.findByRole("group", { name: "Scout wants to use book flight. Allowed" }),
+  );
+  expect(answered.getByText("Allowed")).toBeTruthy();
 });
 
 test("the activity log lists the reviewer's verdicts with their reasons, and how the task went on", async () => {

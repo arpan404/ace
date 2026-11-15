@@ -1,21 +1,24 @@
 import {
   spadeRequestCard,
   type SpadeBubble,
+  type SpadeRequestCard,
   type SpadeRequestDetail,
 } from "@ace/ui-core/spade-chat";
+import { Kbd } from "@/components/ui/kbd.tsx";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { CardFooter, NeedsYouLine, quietBubble, RaisedCard } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
 import { notesKey } from "./spade-notes.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
 const code =
-  "no-scrollbar mt-1.5 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]";
+  "no-scrollbar overflow-auto rounded-lg bg-chat-well px-3 py-2 font-mono text-ui leading-5 whitespace-pre-wrap break-all";
 /** Past this much the detail folds to a few lines, with Show all to open it in place. */
 const longChars = 280;
 const longLines = 6;
@@ -26,10 +29,11 @@ const isLong = (text: string) => text.length > longChars || text.split("\n").len
 export type RequestAnswer = "allow" | "always" | "deny";
 
 /**
- * A call the bot wants to make, as its bubble where it asked (ADR 0127): one sentence in Spade's
- * words, the detail that matters for that kind of call (folded when long), the reviewer's reason
- * as one quiet line, then Allow, Deny and, where the gate keeps it, Always allow. Answered, the
- * answer stays in place of the buttons. With focus on an open one, Enter allows and Escape denies.
+ * A call the bot wants to make, as its card where it asked (ADR 0127). Open, it is raised: one
+ * sentence in Spade's words, the reviewer's reason as one quiet line, the detail that matters for
+ * that kind of call (folded when long), then Deny and, where the gate keeps it, Always allow on
+ * the left and Allow on the right. With focus on it, Enter allows and Escape denies. Answered, it
+ * settles to one line ("Allowed · curl -s …") that opens to the whole request.
  */
 export function SpadeRequestBubble(props: {
   item: Ask;
@@ -37,7 +41,6 @@ export function SpadeRequestBubble(props: {
   botName: string;
   /** Another bot's name by its id, for a message it would send. */
   nameOf(id: string): string | undefined;
-  className: string;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
 }) {
   const { item } = props;
@@ -58,16 +61,17 @@ export function SpadeRequestBubble(props: {
       if (!sent) setAnswering(undefined);
     });
   };
+  const named = card.sentence.replace(/\.$/, "");
+  if (!open) return <Answered item={item} card={card} label={`${named}. ${answered(item)}`} />;
   return (
-    <div
+    <RaisedCard
       role="group"
-      aria-label={card.sentence.replace(/\.$/, "")}
+      aria-label={named}
       // Focusable while open, so Enter and Escape answer it from the keyboard.
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-      tabIndex={open ? 0 : undefined}
+      tabIndex={0}
       onKeyDown={(event) => {
-        if (!open) return;
-        // Escape anywhere in it denies; Enter on the bubble itself allows (a button's own Enter
+        // Escape anywhere in it denies; Enter on the card itself allows (a button's own Enter
         // presses that button).
         if (event.key === "Escape") {
           event.preventDefault();
@@ -77,24 +81,21 @@ export function SpadeRequestBubble(props: {
           answer("allow");
         }
       }}
-      className={cn(props.className, "focus-ring")}
     >
-      <p>{card.sentence}</p>
-      {item.reason && <p className="mt-0.5 text-ui text-muted-foreground">{item.reason}</p>}
-      {card.detail && <Detail detail={card.detail} />}
-      <div className="-mx-2 mt-1 -mb-1 flex flex-wrap items-center gap-1">
-        {open ? (
+      <NeedsYouLine>
+        <p>{card.sentence}</p>
+      </NeedsYouLine>
+      <div className="flex flex-col gap-2">
+        {item.reason && (
+          <p className="mt-1 text-ui leading-5 text-muted-foreground">{item.reason}</p>
+        )}
+        {card.detail && <Detail detail={card.detail} />}
+      </div>
+      <CardFooter
+        start={
           <>
             <Button
-              size="xs"
-              variant="ghost"
-              disabled={answering !== undefined}
-              onClick={() => answer("allow")}
-            >
-              {answering === "allow" ? "Allowing…" : "Allow"}
-            </Button>
-            <Button
-              size="xs"
+              size="sm"
               variant="ghost"
               disabled={answering !== undefined}
               onClick={() => answer("deny")}
@@ -103,7 +104,7 @@ export function SpadeRequestBubble(props: {
             </Button>
             {card.always && (
               <Button
-                size="xs"
+                size="sm"
                 variant="ghost"
                 disabled={answering !== undefined}
                 onClick={() => answer("always")}
@@ -112,10 +113,57 @@ export function SpadeRequestBubble(props: {
               </Button>
             )}
           </>
-        ) : (
-          <span className="px-2 text-ui text-muted-foreground">{answered(item)}</span>
-        )}
-      </div>
+        }
+        end={
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={answering !== undefined}
+            onClick={() => answer("allow")}
+          >
+            {answering === "allow" ? "Allowing…" : "Allow"}
+            <Kbd aria-hidden keys="enter" resolve={false} variant="on-primary" className="ml-1.5" />
+          </Button>
+        }
+      />
+    </RaisedCard>
+  );
+}
+
+/**
+ * An answered request as one line in a bubble: how it was answered, then what it was (the
+ * command itself, or the request's words), opening to the whole request.
+ */
+function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
+  const { card } = props;
+  const [shown, setShown] = useState(false);
+  const command = card.detail?.kind === "command" ? card.detail.command : undefined;
+  const what = command ?? card.sentence.replace(/\.$/, "");
+  return (
+    <div role="group" aria-label={props.label} className={cn(quietBubble, "max-w-full")}>
+      <button
+        type="button"
+        aria-expanded={shown}
+        onClick={() => setShown((open) => !open)}
+        className="-mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-baseline gap-2 rounded-sm px-1 text-left text-ui leading-5 focus-ring"
+      >
+        <span className="shrink-0 font-medium text-foreground">{answered(props.item)}</span>
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            command ? "font-mono text-xs text-subtle-foreground" : "text-muted-foreground",
+          )}
+        >
+          {what.split("\n")[0]}
+        </span>
+      </button>
+      {shown && (
+        <div className="mt-1.5 flex flex-col gap-2 text-ui">
+          <p className="text-muted-foreground">{card.sentence}</p>
+          {props.item.reason && <p className="text-muted-foreground">{props.item.reason}</p>}
+          {card.detail && <Detail detail={card.detail} />}
+        </div>
+      )}
     </div>
   );
 }
