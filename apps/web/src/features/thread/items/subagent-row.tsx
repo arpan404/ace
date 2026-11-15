@@ -5,7 +5,6 @@ import {
   subagentLabels,
   subagentRunning,
   subagentMeta,
-  subagentTerminal,
   subagentToolId,
   type SubagentDetail,
 } from "@ace/ui-core";
