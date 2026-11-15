@@ -22,6 +22,7 @@ function device() {
         return {
           streaming: () => false,
           reconnect: () => {},
+          codecs: () => {},
           encodes: () => {},
           key: () => {},
           picture: () => false,

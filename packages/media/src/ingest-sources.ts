@@ -140,6 +140,8 @@ type Entry = {
   /** Keeps ace-media running while settings want this source there, through restarts. */
   release: (() => void) | undefined;
   encodes: EncodeSpec[] | undefined;
+  /** What the producer encodes (`source.codecs`), told to every open. */
+  codecs: string[] | undefined;
   /** Bumped by every switch, so a late answer to an older one is ignored. */
   generation: number;
   /** Ingest failed or was refused: it stays on the daemon until its route changes. */
@@ -176,6 +178,11 @@ export type IngestSource = {
   streaming(): boolean;
   /** The producer's ingest connection ended (it said so): open the source again. */
   reconnect(): void;
+  /**
+   * The codecs the producer encodes, best first (WebCodecs strings): ace-media plans its views
+   * only in these. Never called: whatever the views decode.
+   */
+  codecs(codecs: string[]): void;
   /** For a JPEG source: the encodes ace-media runs for it. */
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
@@ -201,6 +208,7 @@ export class IngestSources {
       live: undefined,
       release: undefined,
       encodes: undefined,
+      codecs: undefined,
       generation: 0,
       failed: false,
       reopens: 0,
@@ -211,6 +219,11 @@ export class IngestSources {
     return {
       streaming: () => entry.state === "ingest",
       reconnect: () => this.#reconnect(entry),
+      codecs: (codecs) => {
+        entry.codecs = [...codecs];
+        const live = entry.live;
+        if (live) this.#send({ type: "source.codecs", source: live.id, codecs: entry.codecs });
+      },
       encodes: (encodes) => {
         entry.encodes = encodes;
         const live = entry.live;
@@ -413,6 +426,7 @@ export class IngestSources {
     this.#live(entry, path);
     entry.state = "opening";
     if (route.egress) this.#send({ type: "source.egress", source: id, on: true });
+    if (entry.codecs) this.#send({ type: "source.codecs", source: id, codecs: entry.codecs });
     if (entry.encodes) this.#send({ type: "source.encodes", source: id, encodes: entry.encodes });
   }
 

@@ -120,6 +120,7 @@ function session(platform = "macos") {
         return {
           streaming: () => false,
           reconnect: () => {},
+          codecs: () => {},
           encodes: () => {},
           key: () => {},
           picture: () => false,
