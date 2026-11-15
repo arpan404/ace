@@ -4,6 +4,7 @@ import {
   spadeCappedLine,
   spadeTaskLine,
   spadeGroupLine,
+  spadeForLaterWords,
   spadeProblemStep,
   spadeSetupSentence,
   spadeStateLine,
@@ -49,7 +50,10 @@ import {
   type RosterGroup,
 } from "./use-spade-groups.ts";
 
-/** The second line of a bot's row: what it does now, a cap it is at, else its latest message. */
+/**
+ * The second line of a bot's row: what it does now, its questions left for later, a cap it is
+ * at, else its latest message.
+ */
 export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
   if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
   if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
@@ -67,6 +71,8 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
     return { text: "Asked you a question", tone: "needs-you" };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
   if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
+  // Cards left for later wait on nothing: a quiet count, never the waiting colour (ADR 0154).
+  if (bot.questionsForLater > 0) return { text: spadeForLaterWords(bot.questionsForLater) };
   // A subscription that couldn't run (signed out, out of quota) until a later reply works: the
   // next step in a few words; the reason and its action are in the conversation.
   if (bot.problem) return { text: spadeProblemStep(bot.problem), tone: "needs-you" };

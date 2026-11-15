@@ -25,3 +25,4 @@ export * from "./group-fold.ts";
 export * from "./web-search.ts";
 export * from "./computer.ts";
 export * from "./request-words.ts";
+export * from "./questions.ts";

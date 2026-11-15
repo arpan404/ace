@@ -3,6 +3,7 @@ import { spadeNeedsSearchSetup } from "./web-search.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeFailureKind, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
+import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -50,8 +51,8 @@ export type SpadeReplyPart =
   | { kind: "call"; key: string; name: string; state: SpadeCallState }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
-  /** The bot asked the person (`ask_user`); their next message answers it. */
-  | { kind: "question"; key: string; text: string }
+  /** The bot asked the person a card of questions (`ask_user`, ADR 0154), where it asked. */
+  | ({ kind: "question"; key: string } & SpadeQuestionCard)
   /** `web_search` had nothing set up to search with: a line that opens its setting. */
   | { kind: "search-setup"; key: string }
   /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
@@ -138,6 +139,8 @@ export type SpadeEntry =
     }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
+  /** A card asked outside the open reply: where it arrived. */
+  | ({ kind: "question"; key: string } & SpadeQuestionCard)
   /**
    * A request asked outside the open reply (a helper's, or one asked after its reply ended):
    * where it arrived, read below the bot's words so far.
@@ -148,6 +151,19 @@ export type SpadeEntry =
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
  * `answer` is undefined until they answered; a request whose reply ended unanswered stays so.
  */
+/** A card of questions, kept where it was asked, with how it stands now. */
+export interface SpadeQuestionCard {
+  callId: string;
+  questions: readonly SpadeQuestion[];
+  standing: SpadeQuestionStanding;
+  /** One per question once answered in the card, or by a message that could stand for them. */
+  answers: readonly unknown[] | undefined;
+  /** A message the person typed answered it (with `answers` when it could stand for them). */
+  typed: boolean;
+  /** The bot asked it without waiting: for later from the start. */
+  askedForLater: boolean;
+}
+
 export interface SpadeRequest {
   callId: string;
   name: string;
@@ -191,8 +207,10 @@ export interface SpadeConversationState {
   /** Running tool calls by call id. */
   running: Map<string, { reply: string; name: string }>;
   approvals: SpadeApproval[];
-  /** The open reply's question waiting on the person's next message. */
+  /** The open reply's card waiting on the person: answered in it or by their next message. */
   question: { reply: string; callId: string } | undefined;
+  /** Cards left for later and not yet answered or dismissed, by call id, oldest first. */
+  forLater: Set<string>;
   /** Background jobs still running, by job id (the id of the call that started each). */
   jobs: Map<string, SpadeJob>;
   /** Jobs a Stop asked to end: their errored end reads as stopped, not failed. */
@@ -242,6 +260,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     running: new Map(),
     approvals: [],
     question: undefined,
+    forLater: new Set(),
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
@@ -316,8 +335,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const mine = state.pending.findIndex((message) => sameMessage(message, event));
       const relayed = event.from_agent || event.from_routine || event.from_group;
       if (mine >= 0 && !relayed) state.pending = state.pending.filter((_, index) => index !== mine);
-      // The person's message here answers the bot's question; another bot's, or a group's, doesn't.
-      if (!event.from_agent && !event.from_group) state.question = undefined;
+      // The person's message here answers the bot's waiting card; another bot's, or a group's,
+      // doesn't. The card says so; `question_answered {typed}` may follow with what it stood for.
+      if (!event.from_agent && !event.from_group && state.question) {
+        const { callId } = state.question;
+        updateQuestion(state, callId, (card) => ({ ...card, standing: "answered", typed: true }));
+        state.question = undefined;
+      }
       steer(state, {
         kind: "user",
         key,
@@ -457,14 +481,48 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           { kind: "shared", key, images: event.images, documents: event.documents },
         ],
       }));
-    case "question_asked":
-      if (state.open?.reply !== event.reply) return false;
-      state.question = { reply: event.reply, callId: event.call_id };
-      updateOpen(state, event.reply, (entry) => ({
-        ...entry,
-        parts: [...entry.parts, { kind: "question", key, text: event.question }],
-      }));
+    case "question_asked": {
+      // Asked again (a replay): the card already stands where it was first asked.
+      if (updateQuestion(state, event.call_id, (card) => card)) return false;
+      const card: { kind: "question"; key: string } & SpadeQuestionCard = {
+        kind: "question",
+        key,
+        callId: event.call_id,
+        questions: spadeCardQuestions(event.questions, event.question),
+        standing: "waiting",
+        answers: undefined,
+        typed: false,
+        askedForLater: false,
+      };
+      if (state.open?.reply === event.reply) {
+        state.question = { reply: event.reply, callId: event.call_id };
+        updateOpen(state, event.reply, (entry) => ({ ...entry, parts: [...entry.parts, card] }));
+      } else steer(state, { ...card, standing: "closed" });
       return true;
+    }
+    case "question_deferred": {
+      if (state.question?.callId === event.call_id) state.question = undefined;
+      const open = updateQuestion(state, event.call_id, (card) =>
+        card.standing === "waiting" || card.standing === "closed"
+          ? { ...card, standing: "deferred", askedForLater: event.by_bot === true }
+          : undefined,
+      );
+      if (open) state.forLater.add(event.call_id);
+      return open;
+    }
+    case "question_answered":
+      if (state.question?.callId === event.call_id) state.question = undefined;
+      state.forLater.delete(event.call_id);
+      return updateQuestion(state, event.call_id, (card) => ({
+        ...card,
+        standing: "answered",
+        answers: event.answers,
+        typed: card.typed || event.typed === true,
+      }));
+    case "question_dismissed":
+      if (state.question?.callId === event.call_id) state.question = undefined;
+      state.forLater.delete(event.call_id);
+      return updateQuestion(state, event.call_id, (card) => ({ ...card, standing: "dismissed" }));
     case "job_started":
       if (event.name === spadeHelperTool)
         // Its line, where it started: the reply's later words read below it.
@@ -558,7 +616,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const before = state.approvals.length;
       if (event.reply) state.approvals = state.approvals.filter((a) => a.reply !== event.reply);
       const asked = state.question !== undefined && state.question.reply === event.reply;
-      if (asked) state.question = undefined;
+      if (asked && state.question) {
+        const { callId } = state.question;
+        updateQuestion(state, callId, (card) =>
+          card.standing === "waiting" ? { ...card, standing: "closed" } : undefined,
+        );
+        state.question = undefined;
+      }
       return state.approvals.length !== before || asked;
     }
     case "renamed":
@@ -650,17 +714,47 @@ function updateRequest(
   callId: string,
   change: (request: SpadeRequest) => SpadeRequest,
 ): boolean {
+  return updatePlaced(state, "request", callId, change);
+}
+
+/**
+ * Change the card for `callId` where it stands, as `updateRequest` does. `change` returns
+ * undefined to leave it; true only when the card is there and changed. A deferred card may be
+ * answered long after: the walk back goes as far as it is.
+ */
+function updateQuestion(
+  state: SpadeConversationState,
+  callId: string,
+  change: (card: SpadeQuestionCard) => SpadeQuestionCard | undefined,
+): boolean {
+  return updatePlaced(state, "question", callId, change);
+}
+
+type Placed = Extract<SpadeEntry, { kind: "request" | "question" }>;
+
+function updatePlaced<K extends Placed["kind"], T>(
+  state: SpadeConversationState,
+  kind: K,
+  callId: string,
+  change: (item: T) => T | undefined,
+): boolean {
+  const fits = (item: { kind: string; callId?: string }): item is Extract<Placed, { kind: K }> =>
+    item.kind === kind && item.callId === callId;
   for (let index = state.entries.length - 1; index >= 0; index--) {
     const entry = state.entries[index];
-    if (entry?.kind === "request" && entry.callId === callId) {
-      state.entries[index] = { ...entry, ...change(entry) };
-      return true;
+    if (!entry) continue;
+    if (fits(entry)) {
+      const next = change(entry as T);
+      if (next !== undefined) state.entries[index] = { ...entry, ...next };
+      return next !== undefined;
     }
-    if (entry?.kind !== "reply") continue;
-    const at = entry.parts.findIndex((part) => part.kind === "request" && part.callId === callId);
+    if (entry.kind !== "reply") continue;
+    const at = entry.parts.findIndex(fits);
     const part = entry.parts[at];
-    if (part?.kind !== "request") continue;
-    state.entries[index] = { ...entry, parts: entry.parts.with(at, { ...part, ...change(part) }) };
+    if (!part || !fits(part)) continue;
+    const next = change(part as T);
+    if (next === undefined) return false;
+    state.entries[index] = { ...entry, parts: entry.parts.with(at, { ...part, ...next }) };
     return true;
   }
   return false;
@@ -768,7 +862,14 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
   state.approvals = state.approvals.filter(
     (approval) => approval.helper !== undefined || approval.reply !== open.reply,
   );
-  if (state.question?.reply === open.reply) state.question = undefined;
+  // A card still waiting when its turn ended can no longer be answered.
+  if (state.question?.reply === open.reply) {
+    const { callId } = state.question;
+    updateQuestion(state, callId, (card) =>
+      card.standing === "waiting" ? { ...card, standing: "closed" } : undefined,
+    );
+    state.question = undefined;
+  }
   for (const [callId, call] of state.running)
     if (call.reply === open.reply) state.running.delete(callId);
   state.open = undefined;

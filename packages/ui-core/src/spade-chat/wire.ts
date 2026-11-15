@@ -132,12 +132,36 @@ const known = z.discriminatedUnion("type", [
     images: spadeImageList,
     documents: spadeDocumentList,
   }),
-  /** The bot asked the person and waits for their next message (ADR 0128). */
+  /**
+   * The bot asked the person a card of questions (ADR 0128, 0154). `question` is the prompts,
+   * one per line; `questions` each with its kind (absent from a Spade before kinds: one text
+   * question), read by `spadeCardQuestions`.
+   */
   z.object({
     type: z.literal("question_asked"),
     reply,
     call_id: z.string(),
-    question: z.string(),
+    question: z.string().catch(""),
+    questions: z.unknown().optional(),
+  }),
+  /** Left for later, by the person or by the bot asking without waiting. */
+  z.object({
+    type: z.literal("question_deferred"),
+    call_id: z.string(),
+    by_bot: z.boolean().nullish().catch(undefined),
+  }),
+  /** The answers, one per question; `late` once deferred, `typed` when a message stood for them. */
+  z.object({
+    type: z.literal("question_answered"),
+    call_id: z.string(),
+    answers: z.array(z.unknown()).catch([]),
+    late: z.boolean().nullish().catch(undefined),
+    typed: z.boolean().nullish().catch(undefined),
+  }),
+  z.object({
+    type: z.literal("question_dismissed"),
+    call_id: z.string(),
+    late: z.boolean().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("job_started"), reply, job: z.string(), name: z.string() }),
   z.object({

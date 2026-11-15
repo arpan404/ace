@@ -25,6 +25,8 @@ import { useFaceState } from "./use-face-state.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
+import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
+import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
 
@@ -50,7 +52,8 @@ const faceRoom = "w-7 shrink-0";
  * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
  * jobs, compaction or the notes it saves (they are in its Memory dialog, ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
- * given (`SpadeRequestBubble`); a question arrives as the bot's bubble, a search with nothing set
+ * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
+ * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set
  * up as one quiet line that opens Settings › Spade › Web search, and a skill the bot offers as a
  * bubble with Save and Discard (ADR 0130), after the reply that made it. While the bot works, one line under its last bubble: its face
  * working, its few words and how long it has been at it, with Watch while it uses its computer
@@ -69,6 +72,8 @@ export function SpadeChat(props: {
   task?: SpadeTaskLine | undefined;
   /** Answer a request: allow once, allow always, or deny. */
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
+  /** Reply to a card of questions; resolves with what to say under it when refused. */
+  onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
@@ -125,6 +130,7 @@ export function SpadeChat(props: {
             endpointName={props.endpointName}
             onProposal={props.onProposal}
             onAnswer={props.onAnswer}
+            onQuestion={props.onQuestion}
             onOpenFile={props.onOpenFile}
             onRetry={props.onRetry}
             onHelperSteps={props.onHelperSteps}
@@ -176,7 +182,11 @@ export function SpadeChat(props: {
 }
 
 const botSide = (item: SpadeChatItem) =>
-  item.kind === "bot" || item.kind === "ask" || item.kind === "skill" || item.kind === "files";
+  item.kind === "bot" ||
+  item.kind === "ask" ||
+  item.kind === "question" ||
+  item.kind === "skill" ||
+  item.kind === "files";
 
 /** Two bubbles in a row from one sender: the bot's own, or the same other bot's. */
 const sameSender = (a: SpadeChatItem, b: SpadeChatItem) =>
@@ -193,6 +203,8 @@ const Bubble = memo(function Bubble(props: {
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
+  /** Reply to a card of questions; resolves with what to say under it when refused. */
+  onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
@@ -385,6 +397,17 @@ const Bubble = memo(function Bubble(props: {
       );
     case "remembered":
       return null;
+    case "question":
+      return (
+        <BotRow bot={bot} face={props.face}>
+          <SpadeQuestionBubble
+            item={item}
+            botName={bot.name}
+            className={botBubble}
+            onReply={props.onQuestion}
+          />
+        </BotRow>
+      );
     case "ask":
       return (
         <BotRow bot={bot} face={props.face}>

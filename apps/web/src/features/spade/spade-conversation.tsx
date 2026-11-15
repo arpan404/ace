@@ -1,4 +1,5 @@
 import {
+  spadeForLaterWords,
   spadeBubbles,
   spadeLiveSurfaces,
   spadeStateLine,
@@ -21,6 +22,8 @@ import { ComputerPanel, type FilesAt } from "./computer/computer-view.tsx";
 import { panelWidth, readPanel, writePanel, type PanelSection } from "./computer/panel-place.ts";
 import { useBotComputer } from "./computer/use-bot-computer.ts";
 import { ConversationSkeleton, message, Problem, Scroller } from "./spade-screen-parts.tsx";
+import { questionAnchor } from "./spade-question-bubble.tsx";
+import { SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeModels } from "./use-spade-models.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -31,6 +34,13 @@ import { useSpadeStatus } from "./use-spade-status.ts";
 const coverQuery = "(max-width: 59.99rem)";
 /** The chat column keeps this much beside the panel. */
 const chatMin = 400;
+
+/** The oldest card left for later: scrolled to and focused, its inputs ready. */
+const showCard = (callId: string | undefined) => {
+  const card = callId ? document.querySelector<HTMLElement>(questionAnchor(callId)) : null;
+  card?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  card?.focus({ preventScroll: true });
+};
 
 const storage = () => (typeof localStorage === "undefined" ? undefined : localStorage);
 
@@ -163,6 +173,23 @@ export function Conversation(props: {
                 .answer(callId, answer !== "deny", answer === "always")
                 .then(() => true, failed(`Couldn't answer ${bot.name}`))
             }
+            onQuestion={(callId, reply) =>
+              conversation.question(callId, reply).then(
+                () => undefined,
+                (error: unknown) => {
+                  // Spade's own words for a rule an answer broke, or a card no longer open.
+                  if (error instanceof SpadeRequestError && error.status === 400)
+                    return error.message;
+                  if (error instanceof SpadeRequestError && error.status === 409)
+                    return "This question isn't open anymore.";
+                  toast.error({
+                    title: `Couldn't answer ${bot.name}`,
+                    description: message(error),
+                  });
+                  return "";
+                },
+              )
+            }
             onOpenFile={(path) =>
               openPanel("files", { files: path.split("/").slice(0, -1).join("/"), file: path })
             }
@@ -223,25 +250,32 @@ export function Conversation(props: {
       actions={
         // Covered by the panel, the chat comes back by the panel's own Chat.
         !(panelShown && covering) && (
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-pressed={panelShown}
-            aria-label={using ? "Computer, in use" : "Computer"}
-            onClick={() =>
-              panelShown
-                ? closePanel()
-                : openPanel(using?.kind ?? readPanel(storage(), memoryKey).section)
-            }
-          >
-            {using ? (
-              <>
-                Computer<span className="text-muted-foreground">{" · in use"}</span>
-              </>
-            ) : (
-              "Computer"
+          <>
+            {view.forLater.length > 0 && (
+              <Button size="sm" variant="ghost" onClick={() => showCard(view.forLater[0])}>
+                {spadeForLaterWords(view.forLater.length)}
+              </Button>
             )}
-          </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-pressed={panelShown}
+              aria-label={using ? "Computer, in use" : "Computer"}
+              onClick={() =>
+                panelShown
+                  ? closePanel()
+                  : openPanel(using?.kind ?? readPanel(storage(), memoryKey).section)
+              }
+            >
+              {using ? (
+                <>
+                  Computer<span className="text-muted-foreground">{" · in use"}</span>
+                </>
+              ) : (
+                "Computer"
+              )}
+            </Button>
+          </>
         )
       }
     >

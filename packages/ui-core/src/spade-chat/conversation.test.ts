@@ -49,7 +49,9 @@ const said = (entries: readonly SpadeEntry[]) =>
                         ? "[search setup]"
                         : part.kind === "request"
                           ? `[asked ${part.answer ?? "open"}]`
-                          : part.text,
+                          : part.kind === "question"
+                            ? `[question ${part.standing}]`
+                            : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
@@ -570,7 +572,9 @@ describe("the conversation as a chat", () => {
                   ? `files: ${bubble.paths.join(", ")}`
                   : bubble.kind === "search-setup"
                     ? "search setup"
-                    : `${bubble.kind}: ${bubble.text}`,
+                    : bubble.kind === "question"
+                      ? `question: ${bubble.callId}`
+                      : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",

@@ -27,8 +27,10 @@ export interface SpadeView {
   status: string | undefined;
   /** Approvals waiting on the person, oldest first, each with its sentence. */
   approvals: readonly (SpadeApproval & { sentence: string })[];
-  /** The bot asked the person a question and waits for their next message. */
+  /** The bot asked the person a card and waits on it (or on their next message). */
   asking: boolean;
+  /** Cards left for later, by call id, oldest first (ADR 0154). */
+  forLater: readonly string[];
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -64,6 +66,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     status: reply !== undefined || state.jobs.size > 0 ? state.status : undefined,
     approvals,
     asking: state.question !== undefined,
+    forLater: [...state.forLater],
   };
 }
 

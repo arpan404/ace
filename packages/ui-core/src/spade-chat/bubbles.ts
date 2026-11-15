@@ -1,4 +1,10 @@
-import type { SpadeApproval, SpadeEntry, SpadeReplyEntry, SpadeRequest } from "./fold.ts";
+import type {
+  SpadeApproval,
+  SpadeEntry,
+  SpadeQuestionCard,
+  SpadeReplyEntry,
+  SpadeRequest,
+} from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
@@ -78,6 +84,11 @@ export type SpadeBubble =
       open: boolean;
     }
   /**
+   * A card of questions (ADR 0154), as the bot's bubble where it asked, with how it stands:
+   * waiting or for later (its inputs), answered, dismissed, or closed.
+   */
+  | ({ kind: "question"; key: string } & SpadeQuestionCard)
+  /**
    * A call that asks the person, as the bot's bubble where it asked: open while it waits on
    * them, then how they answered, or `closed` when its reply ended first. `name`: the tool, for
    * the request's words (`spadeRequestCard`).
@@ -138,6 +149,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   for (const entry of view.entries) {
     if (entry.kind === "request") {
       ask(entry, entry.key);
+      continue;
+    }
+    if (entry.kind === "question") {
+      bubbles.push(entry);
       continue;
     }
     if (entry.kind === "job") {
@@ -323,8 +338,7 @@ function replyBubbles(
       bubbles.push({ kind: "remembered", key: `${entry.key}:${part.key}`, note: part.note });
     } else if (part.kind === "question") {
       flush();
-      words.push(part.text);
-      flush();
+      bubbles.push({ ...part, key: `${entry.key}:${part.key}` });
     } else if (part.kind === "files") {
       flush();
       hold(held, part.key, part.paths);

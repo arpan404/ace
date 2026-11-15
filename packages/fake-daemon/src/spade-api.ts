@@ -30,6 +30,8 @@ export interface FakeSpadeAgent {
   last_activity: number;
   state: "idle" | "working" | "waiting";
   waiting_for: "approval" | "question" | null;
+  /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
+  questions_for_later?: number;
   status: string | null;
   /** Why its latest reply on a subscription failed (ADR 0133). */
   problem?: string | null;
@@ -321,6 +323,40 @@ export class FakeSpadeApi implements FakeSpadeServer {
     agent.waiting_for = "question";
     this.status(agent, "waiting", null);
   }
+
+  /**
+   * A reply that asks a card of questions (ADR 0154) and waits on it; with `later`, the bot asked
+   * without waiting, so it is for later from the start and the reply ends.
+   */
+  card(agent: FakeSpadeAgent, callId: string, questions: Json[], later = false): void {
+    const id = `r${++this.sequence}`;
+    const prompts = questions.map((each) => String(each.prompt ?? "")).join("\n");
+    this.store(agent.conversation, { type: "reply_started", reply: id });
+    this.store(agent.conversation, {
+      type: "step_finished",
+      reply: id,
+      text: "",
+      calls: [{ id: callId, name: "ask_user", arguments: { questions } }],
+    });
+    this.store(agent.conversation, {
+      type: "question_asked",
+      reply: id,
+      call_id: callId,
+      question: prompts,
+      questions,
+    });
+    if (later) {
+      this.store(agent.conversation, { type: "question_deferred", call_id: callId, by_bot: true });
+      this.store(agent.conversation, { type: "reply_finished", reply: id, text: "" });
+      agent.questions_for_later = (agent.questions_for_later ?? 0) + 1;
+      return;
+    }
+    agent.waiting_for = "question";
+    this.status(agent, "waiting", null);
+  }
+
+  /** The answer the next card reply gets instead of 202: a status and Spade's error words. */
+  refuseQuestion: { status: number; error: string } | undefined;
 
   /** The bodies the app sent to `method path`, parsed. */
   sent(method: string, path: string): Json[] {
@@ -716,6 +752,46 @@ export class FakeSpadeApi implements FakeSpadeServer {
           from_agent: null,
         };
       return reply({ seq: list.length }, 202);
+    }
+    if (sub === "questions" && subId && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const refusal = this.refuseQuestion;
+      if (refusal) {
+        this.refuseQuestion = undefined;
+        return problem(refusal.status, refusal.error);
+      }
+      const events = list.map((stored) => stored.event);
+      const asked = events.some(
+        (event) => event.type === "question_asked" && event.call_id === subId,
+      );
+      const settled = events.some(
+        (event) =>
+          (event.type === "question_answered" || event.type === "question_dismissed") &&
+          event.call_id === subId,
+      );
+      const deferred = events.some(
+        (event) => event.type === "question_deferred" && event.call_id === subId,
+      );
+      if (!asked || settled || (body.defer === true && deferred))
+        return problem(409, "That question isn't open.");
+      if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
+      else if (body.dismiss === true)
+        this.store(id, { type: "question_dismissed", call_id: subId, late: deferred || undefined });
+      else if (Array.isArray(body.answers))
+        this.store(id, {
+          type: "question_answered",
+          call_id: subId,
+          answers: body.answers,
+          late: deferred || undefined,
+        });
+      else return problem(400, "Send exactly one of answers, defer or dismiss.");
+      if (agent) {
+        const later =
+          (agent.questions_for_later ?? 0) + (body.defer === true ? 1 : deferred ? -1 : 0);
+        agent.questions_for_later = Math.max(0, later);
+        if (agent.waiting_for === "question") this.status(agent, "idle", null);
+      }
+      return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};

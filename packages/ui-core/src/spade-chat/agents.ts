@@ -52,8 +52,10 @@ export interface SpadeAgent {
   updatedAt: number;
   lastActivity: number;
   state: SpadeAgentState;
-  /** What it waits on the person for while `waiting`: an approval, or (later) a question. */
+  /** What it waits on the person for while `waiting`: an approval, or a question. */
   waitingFor: "approval" | "question" | undefined;
+  /** Its cards the person left for later and hasn't answered or dismissed (ADR 0154). */
+  questionsForLater: number;
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
   /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
@@ -101,6 +103,7 @@ const agentShape = z.object({
   last_activity: time.default(0),
   state: z.enum(["idle", "working", "waiting"]).optional().catch(undefined),
   waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
+  questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
@@ -150,6 +153,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     lastActivity: agent.last_activity,
     state: agent.state ?? (agent.working ? "working" : "idle"),
     waitingFor: agent.waiting_for ?? undefined,
+    questionsForLater: agent.questions_for_later ?? 0,
     status: agent.status || undefined,
     problem: agent.problem || undefined,
     lastMessage: last
