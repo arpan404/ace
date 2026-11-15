@@ -1,4 +1,4 @@
-import { FileIcon, TerminalIcon } from "@phosphor-icons/react";
+import { FileIcon, TerminalIcon } from "@ace/icons";
 import { expect, test } from "vitest";
 import { workspaceActions } from "./actions.ts";
 import { defineWorkspace } from "./definition.ts";

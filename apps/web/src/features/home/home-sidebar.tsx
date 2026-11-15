@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@phosphor-icons/react";
+import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@ace/icons";
 import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";

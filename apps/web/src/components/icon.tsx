@@ -1,15 +1,17 @@
-import type { IconProps, Icon as PhosphorIcon } from "@phosphor-icons/react";
-import { forwardRef } from "react";
+import type { Icon as AceIcon, IconWeight } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
-// The build keeps only these weights in each icon (icon-weights.ts); others would draw nothing.
-import type { TableWeight, UsedIconWeight } from "../../icon-weights.ts";
 
-export type IconGlyph = PhosphorIcon;
+export type IconGlyph = AceIcon;
+
+/** The weights the design draws in: regular at rest, fill when active or a status, bold for a few small glyphs. */
+export type UsedIconWeight = Extract<IconWeight, "regular" | "fill" | "bold">;
+/** The weights a glyph table may pin: the used ones, and two-tone for empty states. */
+export type TableWeight = UsedIconWeight | "duotone";
 
 /**
- * Phosphor icons with the design's weight rules: regular when inactive, fill when active or
- * selected; an empty state's duotone glyph comes from `empty-glyphs.ts`. Icons are decorative
- * unless given a `label`.
+ * An icon with the design's weight rules: regular when inactive, fill when active or selected;
+ * an empty state's two-tone glyph comes from `empty-glyphs.ts`. Icons are decorative unless
+ * given a `label`.
  */
 export function Icon(props: {
   icon: IconGlyph;
@@ -34,16 +36,15 @@ export function Icon(props: {
 
 /**
  * A glyph table's icon, drawn only in `weights`: the asked weight when it is one of them, else
- * the first. The build keeps only these weights in an icon that glyph tables alone draw
- * (`glyphTables` in `icon-weights.ts`), so no caller can ask for one it dropped.
+ * the first. A table pins its look (file-type marks regular, empty states two-tone) whatever a
+ * caller asks for.
  */
 export function pinnedGlyph(Glyph: IconGlyph, weights: readonly TableWeight[]): IconGlyph {
   const [first = "regular"] = weights;
-  const Pinned = forwardRef<SVGSVGElement, IconProps>(function Pinned(props, ref) {
-    const asked = props.weight;
-    const weight = weights.find((kept) => kept === asked) ?? first;
-    return <Glyph {...props} ref={ref} weight={weight} />;
-  });
+  const Pinned: IconGlyph = (props) => {
+    const weight = weights.find((kept) => kept === props.weight) ?? first;
+    return <Glyph {...props} weight={weight} />;
+  };
   Pinned.displayName = Glyph.displayName ?? "Glyph";
   return Pinned;
 }

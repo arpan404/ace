@@ -1,4 +1,4 @@
-import { DownloadSimpleIcon, FileIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { DownloadSimpleIcon, FileIcon, WarningCircleIcon } from "@ace/icons";
 import { checkoutViewLimit, fileLanguage, isMarkdownPath } from "@ace/ui-core";
 import { useMemo, useState } from "react";
 import { wholeBudget, tooLargeToLoad } from "@/components/attachment-content.ts";

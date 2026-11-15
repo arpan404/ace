@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { indexingLabel, resultCountLabel, snippetRuns } from "@ace/ui-core";
-import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon, MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";

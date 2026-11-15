@@ -1,4 +1,4 @@
-import { WarningIcon } from "@phosphor-icons/react";
+import { WarningIcon } from "@ace/icons";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";

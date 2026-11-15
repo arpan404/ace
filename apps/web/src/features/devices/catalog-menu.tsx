@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon, DotsThreeIcon, GearSixIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, DotsThreeIcon, GearSixIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";

@@ -1,4 +1,4 @@
-import { CheckCircleIcon, ClockIcon, TrayIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, ClockIcon, TrayIcon } from "@ace/icons";
 import { tabThreads, threadsTabs, type ThreadsPanel, type ThreadsTab } from "@ace/ui-core";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn.ts";

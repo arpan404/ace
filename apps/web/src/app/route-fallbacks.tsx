@@ -1,4 +1,4 @@
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { Link, useRouter, useRouterState, type ErrorComponentProps } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

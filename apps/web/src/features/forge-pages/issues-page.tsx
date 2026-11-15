@@ -12,7 +12,7 @@ import {
 } from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { CheckIcon, RecordIcon } from "@phosphor-icons/react";
+import { CheckIcon, RecordIcon } from "@ace/icons";
 import type { ForgeIssueList, ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

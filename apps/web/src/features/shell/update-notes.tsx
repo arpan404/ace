@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon } from "@phosphor-icons/react";
+import { ArrowUpRightIcon } from "@ace/icons";
 import { openRelease, releasesUrl, type UpdateStatus } from "@/boot/desktop-updates.ts";
 import { PopoverTitle } from "@/components/ui/popover.tsx";
 import { updateLabel } from "./update-status.ts";

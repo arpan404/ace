@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@ace/icons";
 import { IconButton } from "./icon-button.tsx";
 import { DeferredLoadError } from "@/lib/deferred-component.tsx";
 

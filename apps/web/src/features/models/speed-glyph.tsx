@@ -1,5 +1,5 @@
 import type { Speed } from "@ace/ui-core";
-import { GaugeIcon, LightningIcon } from "@phosphor-icons/react";
+import { GaugeIcon, LightningIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 
 /**

@@ -4,7 +4,7 @@ import {
   CaretLeftIcon,
   DotsThreeIcon,
   SidebarSimpleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { boundaryMarker } from "@/components/ui/rules.ts";
 import { Suspense, useRef, useState, type ReactNode } from "react";

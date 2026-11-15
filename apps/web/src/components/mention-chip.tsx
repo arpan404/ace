@@ -14,7 +14,7 @@ import {
   GlobeSimpleIcon,
   WrenchIcon,
   FlowArrowIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { kindGlyph } from "./attachment-face.tsx";
 import { describeFile } from "./attachment-kind.ts";
 import { Icon } from "./icon.tsx";

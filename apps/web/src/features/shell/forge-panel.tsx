@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BellIcon, CircleDashedIcon, GitPullRequestIcon } from "@phosphor-icons/react";
+import { BellIcon, CircleDashedIcon, GitPullRequestIcon } from "@ace/icons";
 import { PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { projectsParam, rememberedProjects } from "@/lib/forge-projects.ts";

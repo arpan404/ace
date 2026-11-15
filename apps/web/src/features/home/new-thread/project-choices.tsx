@@ -1,11 +1,6 @@
 import { useState } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import {
-  ChatCircleIcon,
-  CheckIcon,
-  FolderPlusIcon,
-  MagnifyingGlassIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleIcon, CheckIcon, FolderPlusIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useConnectionState } from "@ace/client-react";
 import { displayPath, projectBadge, type NewFolder } from "@ace/ui-core";
 import { ProjectMark } from "../row-parts.tsx";

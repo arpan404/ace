@@ -8,7 +8,7 @@ import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
-import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";

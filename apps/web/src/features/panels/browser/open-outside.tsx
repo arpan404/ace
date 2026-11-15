@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ArrowUpRightIcon } from "@ace/icons";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";

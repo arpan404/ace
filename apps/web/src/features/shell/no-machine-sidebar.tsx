@@ -1,4 +1,4 @@
-import { FoldersIcon, GearSixIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, GearSixIcon } from "@ace/icons";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
@@ -62,7 +62,7 @@ function NoMachineRail() {
             aria-current={settings ? undefined : "page"}
             className={railPlaceClass}
           >
-            <Icon icon={FoldersIcon} size={20} active={!settings} />
+            <Icon icon={ChatsCircleIcon} size={20} active={!settings} />
           </Link>
         </Tip>
         <span className="flex-1" />

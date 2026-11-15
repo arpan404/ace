@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useSidebarThread, useThread, useThreadMeta } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { ArrowBendLeftUpIcon } from "@phosphor-icons/react";
+import { ArrowBendLeftUpIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTreeWork } from "@/features/panels/index.ts";

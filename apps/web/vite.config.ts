@@ -5,7 +5,6 @@ import { defineConfig } from "vite";
 import { contentPolicy } from "./content-policy.ts";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 import { katexWoff2 } from "./katex-woff2.ts";
-import { phosphorWeights } from "./icon-weights.ts";
 import { initialChunk, initialPreloads, windowsEntryGuard } from "./initial-preloads.ts";
 import { mermaidChunk } from "./mermaid-chunk.ts";
 import { lazyIconChunk } from "./icon-chunk.ts";
@@ -52,7 +51,6 @@ export default defineConfig(({ mode }) => ({
     tailwindcss(),
     cssWithoutLegacyPolyfills(),
     katexWoff2(),
-    phosphorWeights(),
     zodWithoutJsonSchema(),
     zodWithoutMetadata(),
     zodWithoutUnusedMethods(),

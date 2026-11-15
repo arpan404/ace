@@ -2,7 +2,7 @@ import * as React from "react";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@/lib/cn.ts";
 
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import { IconButton } from "./icon-button.tsx";
 import { layers } from "./menu-styles.ts";
 import { InCard } from "./surface-context.ts";

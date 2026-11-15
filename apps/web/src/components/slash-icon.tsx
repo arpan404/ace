@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import type { IconProps } from "@phosphor-icons/react";
+import type { IconProps } from "@ace/icons";
 
 /** Commands use their literal trigger, at the same size as the other row glyphs. */
 export const SlashIcon = forwardRef<SVGSVGElement, IconProps>(function SlashIcon(

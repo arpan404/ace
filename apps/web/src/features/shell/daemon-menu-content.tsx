@@ -1,6 +1,6 @@
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
-import { DeviceMobileIcon, PlugsIcon, SignOutIcon } from "@phosphor-icons/react";
+import { DeviceMobileIcon, PlugsIcon, SignOutIcon } from "@ace/icons";
 import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
 import { MenuGroup, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";

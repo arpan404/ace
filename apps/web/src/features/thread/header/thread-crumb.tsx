@@ -1,7 +1,7 @@
 import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
 import type { DelegatedFrom } from "@ace/protocol";
 import { agentName, projectBadge } from "@ace/ui-core";
-import { ChatCircleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { ProjectMark } from "@/components/project-mark.tsx";

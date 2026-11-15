@@ -1,6 +1,6 @@
 import type { ThreadReader } from "@ace/client";
 import { useClient, useItem, useThread, useThreadMeta } from "@ace/client-react";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon } from "@ace/icons";
 import { useCallback, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";

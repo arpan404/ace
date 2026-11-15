@@ -9,7 +9,7 @@ import {
   MagnifyingGlassIcon,
   ScrollIcon,
   DotsThreeIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuTrigger, MenuContent, MenuItem } from "@/components/ui/menu.tsx";

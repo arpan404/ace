@@ -29,7 +29,7 @@ import {
   TimerIcon,
   TrashIcon,
   TrayArrowUpIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";

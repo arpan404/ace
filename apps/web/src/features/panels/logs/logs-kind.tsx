@@ -1,4 +1,4 @@
-import { ScrollIcon } from "@phosphor-icons/react";
+import { ScrollIcon } from "@ace/icons";
 import { defineTabKind } from "@/lib/workspace/index.ts";
 import { OutputSkeleton } from "../tab-skeletons.tsx";
 import { logScopeTitle } from "./scopes.ts";

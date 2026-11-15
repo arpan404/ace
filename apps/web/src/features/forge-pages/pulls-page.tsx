@@ -12,7 +12,7 @@ import {
 } from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { GitMergeIcon, GitPullRequestIcon, XCircleIcon } from "@phosphor-icons/react";
+import { GitMergeIcon, GitPullRequestIcon, XCircleIcon } from "@ace/icons";
 import type { ForgePrList, ForgePrRow, VerifyRun } from "@ace/protocol";
 import { useVerifyRuns } from "@/lib/verify.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";

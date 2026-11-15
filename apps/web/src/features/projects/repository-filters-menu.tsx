@@ -1,4 +1,4 @@
-import { DotsThreeIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon } from "@ace/icons";
 import type { RepositoryListInput, SourceControlReadiness } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

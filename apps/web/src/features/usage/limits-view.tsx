@@ -1,4 +1,4 @@
-import { PushPinIcon } from "@phosphor-icons/react";
+import { PushPinIcon } from "@ace/icons";
 import {
   limitDetails,
   railBars,

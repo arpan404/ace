@@ -1,4 +1,4 @@
-import { StackIcon, TimerIcon } from "@phosphor-icons/react";
+import { StackIcon, TimerIcon } from "@ace/icons";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import type { KeymapId } from "@/lib/keymap.ts";

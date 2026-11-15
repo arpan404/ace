@@ -1,6 +1,6 @@
 import { formatBytes } from "@ace/ui-core/byte-size";
 import { formatAgo } from "@ace/ui-core/time";
-import { DotsThreeIcon, FileIcon, FolderIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, FileIcon, FolderIcon } from "@ace/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";

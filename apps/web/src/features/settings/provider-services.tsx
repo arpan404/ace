@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button.tsx";
 import { useRefreshModels } from "@/features/model-picker/index.ts";
 import type { ModelSourceStatus, ProviderKind } from "@ace/protocol";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import {
   SettingAction,

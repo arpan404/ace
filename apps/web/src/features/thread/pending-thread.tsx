@@ -8,7 +8,7 @@ import {
   type TurnActivity,
   worktreeTabLabel,
 } from "@ace/ui-core";
-import { GitForkIcon, ShieldIcon } from "@phosphor-icons/react";
+import { GitForkIcon, ShieldIcon } from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, type Ref, type ComponentType, type ReactNode } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";

@@ -1,6 +1,6 @@
 import {
   BellSimpleIcon,
-  ChatsCircleIcon,
+  RobotIcon,
   DatabaseIcon,
   DeviceMobileIcon,
   DevicesIcon,
@@ -14,7 +14,7 @@ import {
   TerminalWindowIcon,
   UserCircleIcon,
   WrenchIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { ComputerUseIcon, SpadeIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
 
@@ -61,7 +61,7 @@ export const settingsGroupTitles: Record<SettingsGroup, string | undefined> = {
 
 export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/profile", title: "Profile", icon: UserCircleIcon, group: "profile" },
-  { to: "/settings/agents", title: "Agents", icon: ChatsCircleIcon, group: "machine" },
+  { to: "/settings/agents", title: "Agents", icon: RobotIcon, group: "machine" },
   { to: "/settings/providers", title: "Providers", icon: TerminalWindowIcon, group: "machine" },
   { to: "/settings/prompts", title: "Prompts", icon: NotePencilIcon, group: "machine" },
   {

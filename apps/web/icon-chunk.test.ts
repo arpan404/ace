@@ -6,34 +6,37 @@ type ModuleInfo = Rolldown.ModuleInfo;
 
 const web = "/repo/apps/web/src";
 const thread = `${web}/routes/_home.t.$threadId.tsx?tsr-split=component`;
-const icons = "/repo/node_modules/@phosphor-icons/react/dist";
+const icons = "/repo/packages/icons/src";
+
+/** An icon's module in the package. */
+const glyph = (name: string) => `${icons}/glyphs/${name.toLowerCase()}.ts`;
 
 /** A small app: the thread page draws a gear and, through its composer, a robot (renamed). */
 const modules: Record<string, { code: string; importedIds: string[] }> = {
   [thread]: {
-    code: 'import { GearIcon, type Icon } from "@phosphor-icons/react";',
-    importedIds: [`${web}/routes/composer.tsx`, `${icons}/index.es.js`],
+    code: 'import { GearIcon, type Icon } from "@ace/icons";',
+    importedIds: [`${web}/routes/composer.tsx`, `${icons}/index.ts`],
   },
   // A feature's barrel: the thread page's composer takes only its card.
   [`${web}/features/home/index.ts`]: {
     code: [
       'export { Card } from "./card.tsx";',
       'export { Picker } from "./picker.tsx";',
-      'export { StarIcon as Favourite } from "@phosphor-icons/react";',
+      'export { StarIcon as Favourite } from "@ace/icons";',
     ].join("\n"),
     importedIds: [
       `${web}/features/home/card.tsx`,
       `${web}/features/home/picker.tsx`,
-      `${icons}/index.es.js`,
+      `${icons}/index.ts`,
     ],
   },
   [`${web}/features/home/card.tsx`]: {
-    code: 'import { HeartIcon } from "@phosphor-icons/react";',
-    importedIds: [`${icons}/index.es.js`],
+    code: 'import { HeartIcon } from "@ace/icons";',
+    importedIds: [`${icons}/index.ts`],
   },
   [`${web}/features/home/picker.tsx`]: {
-    code: 'import { PaletteIcon } from "@phosphor-icons/react";',
-    importedIds: [`${icons}/index.es.js`],
+    code: 'import { PaletteIcon } from "@ace/icons";',
+    importedIds: [`${icons}/index.ts`],
   },
   // A package barrel through `export *`: a name it doesn't list may come from any of them.
   "/repo/packages/kit/src/index.ts": {
@@ -41,12 +44,12 @@ const modules: Record<string, { code: string; importedIds: string[] }> = {
     importedIds: ["/repo/packages/kit/src/lead.tsx", "/repo/packages/kit/src/other.tsx"],
   },
   "/repo/packages/kit/src/lead.tsx": {
-    code: 'import { BrainIcon } from "@phosphor-icons/react";',
-    importedIds: [`${icons}/index.es.js`],
+    code: 'import { BrainIcon } from "@ace/icons";',
+    importedIds: [`${icons}/index.ts`],
   },
   "/repo/packages/kit/src/other.tsx": {
-    code: 'import { LeafIcon } from "@phosphor-icons/react";',
-    importedIds: [`${icons}/index.es.js`],
+    code: 'import { LeafIcon } from "@ace/icons";',
+    importedIds: [`${icons}/index.ts`],
   },
   // A subpath it can't trace to one module is followed whole.
   "/repo/packages/kit/src/tools.ts": {
@@ -54,16 +57,16 @@ const modules: Record<string, { code: string; importedIds: string[] }> = {
     importedIds: ["/repo/packages/kit/src/tool.tsx", "/repo/packages/kit/src/unused.tsx"],
   },
   "/repo/packages/kit/src/tool.tsx": {
-    code: 'import { WrenchIcon } from "@phosphor-icons/react";',
-    importedIds: [`${icons}/index.es.js`],
+    code: 'import { WrenchIcon } from "@ace/icons";',
+    importedIds: [`${icons}/index.ts`],
   },
   "/repo/packages/kit/src/unused.tsx": {
-    code: 'import { HammerIcon } from "@phosphor-icons/react";',
-    importedIds: [`${icons}/index.es.js`],
+    code: 'import { HammerIcon } from "@ace/icons";',
+    importedIds: [`${icons}/index.ts`],
   },
   [`${web}/routes/composer.tsx`]: {
     code: [
-      'import {\n  RobotIcon as Bot,\n} from "@phosphor-icons/react";',
+      'import {\n  RobotIcon as Bot,\n} from "@ace/icons";',
       'import { Card } from "@/features/home/index.ts";',
       'import { Lead } from "@ace/kit";',
       'import { Tool } from "@ace/kit/tools";',
@@ -73,18 +76,40 @@ const modules: Record<string, { code: string; importedIds: string[] }> = {
       `${web}/features/home/index.ts`,
       "/repo/packages/kit/src/index.ts",
       "/repo/packages/kit/src/tools.ts",
-      `${icons}/index.es.js`,
+      `${icons}/index.ts`,
     ],
   },
   // Only loaded through `import()` from the thread page's code: its icons load with it, later.
   [`${web}/routes/x.tsx`]: {
-    code: 'import { RocketIcon } from "@phosphor-icons/react";',
+    code: 'import { RocketIcon } from "@ace/icons";',
     importedIds: [],
   },
-  [`${icons}/index.es.js`]: {
-    code: 'export { RocketIcon } from "./csr/Rocket.es.js";',
-    importedIds: [`${icons}/csr/Rocket.es.js`],
+  [`${icons}/index.ts`]: {
+    code: 'export { RocketIcon } from "./glyphs/rocket.ts";',
+    importedIds: [`${icons}/glyphs/rocket.ts`],
   },
+  // The package's own modules: one per icon, each importing the shared renderer.
+  ...Object.fromEntries(
+    [
+      "Gear",
+      "Robot",
+      "Rocket",
+      "Heart",
+      "Palette",
+      "Star",
+      "Brain",
+      "Leaf",
+      "Wrench",
+      "Hammer",
+    ].map((name) => [
+      glyph(name),
+      {
+        code: `import { glyph } from "../glyph.ts";\nexport const ${name}Icon = /* @__PURE__ */ glyph("${name}", () => []);`,
+        importedIds: [`${icons}/glyph.ts`],
+      },
+    ]),
+  ),
+  [`${icons}/glyph.ts`]: { code: "export function glyph() {}", importedIds: [] },
 };
 
 /** The module graph as the bundler reports it; the group reads only code and static imports. */
@@ -100,36 +125,33 @@ function chunkOf(id: string) {
 
 describe("the shared icon chunks", () => {
   test("give the icons the thread page statically draws a chunk of their own", () => {
-    expect(chunkOf(`${icons}/csr/Gear.es.js`)).toBe("icons-thread");
-    expect(chunkOf(`${icons}/defs/Gear.es.js`)).toBe("icons-thread");
-    expect(chunkOf(`${icons}/defs/Robot.es.js`)).toBe("icons-thread");
+    expect(chunkOf(glyph("Gear"))).toBe("icons-thread");
+    expect(chunkOf(glyph("Robot"))).toBe("icons-thread");
   });
 
   test("keep icons other pages or later imports draw in the shared chunk", () => {
-    expect(chunkOf(`${icons}/defs/Rocket.es.js`)).toBe("icons");
-    expect(chunkOf(`${icons}/lib/IconBase.es.js`)).toBe("icons");
+    expect(chunkOf(glyph("Rocket"))).toBe("icons");
+    expect(chunkOf(`${icons}/glyph.ts`)).toBe("icons");
   });
 
   test("count only the modules a barrel's imported names come from", () => {
-    expect(chunkOf(`${icons}/defs/Heart.es.js`)).toBe("icons-thread");
-    expect(chunkOf(`${icons}/defs/Palette.es.js`)).toBe("icons");
+    expect(chunkOf(glyph("Heart"))).toBe("icons-thread");
+    expect(chunkOf(glyph("Palette"))).toBe("icons");
     // An icon the barrel re-exports counts only when a page takes it.
-    expect(chunkOf(`${icons}/defs/Star.es.js`)).toBe("icons");
+    expect(chunkOf(glyph("Star"))).toBe("icons");
   });
 
   test("follow every module an export-all barrel or an untraced import could bring", () => {
-    expect(chunkOf(`${icons}/defs/Brain.es.js`)).toBe("icons-thread");
-    expect(chunkOf(`${icons}/defs/Leaf.es.js`)).toBe("icons-thread");
-    expect(chunkOf(`${icons}/defs/Wrench.es.js`)).toBe("icons-thread");
-    expect(chunkOf(`${icons}/defs/Hammer.es.js`)).toBe("icons-thread");
+    expect(chunkOf(glyph("Brain"))).toBe("icons-thread");
+    expect(chunkOf(glyph("Leaf"))).toBe("icons-thread");
+    expect(chunkOf(glyph("Wrench"))).toBe("icons-thread");
+    expect(chunkOf(glyph("Hammer"))).toBe("icons-thread");
   });
 
   test("keep every icon in the shared chunk when the thread page is not in the build", () => {
     const name = lazyIconChunk(`${web}/routes/missing.tsx`).name;
     const chunk =
-      typeof name === "function"
-        ? name(`${icons}/defs/Gear.es.js`, { getModuleInfo: () => null })
-        : name;
+      typeof name === "function" ? name(glyph("Gear"), { getModuleInfo: () => null }) : name;
     expect(chunk).toBe("icons");
   });
 });
