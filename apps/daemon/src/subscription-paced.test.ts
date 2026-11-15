@@ -165,10 +165,16 @@ it("a replay in one frame and in paced pieces, with live events and drops betwee
     const paced = new Client(held);
     const wire: { thread: "a" | "b"; sent: ServerMessage }[] = [];
     const { gate, waiting } = testGate();
-    let stop = open(store, a.id, away, (sent) => {
-      wire.push({ thread: "a", sent });
-      paced.apply(sent);
-    }, gate);
+    let stop = open(
+      store,
+      a.id,
+      away,
+      (sent) => {
+        wire.push({ thread: "a", sent });
+        paced.apply(sent);
+      },
+      gate,
+    );
     const other = open(store, b.id, store.headSeq(), (sent) => wire.push({ thread: "b", sent }));
     let pieces = 0;
     while (waiting.length) {
@@ -179,10 +185,16 @@ it("a replay in one frame and in paced pieces, with live events and drops betwee
         // The connection drops between pieces: the client resumes from what it applied.
         stop();
         waiting.splice(0);
-        stop = open(store, a.id, paced.cursor, (sent) => {
-          wire.push({ thread: "a", sent });
-          paced.apply(sent);
-        }, gate);
+        stop = open(
+          store,
+          a.id,
+          paced.cursor,
+          (sent) => {
+            wire.push({ thread: "a", sent });
+            paced.apply(sent);
+          },
+          gate,
+        );
         continue;
       }
       waiting.shift()?.();
@@ -195,7 +207,9 @@ it("a replay in one frame and in paced pieces, with live events and drops betwee
     open(store, a.id, away, (sent) => whole.apply(sent))();
     expect(paced.state(), `seed ${seed}`).toEqual(whole.state());
     // The replay really went in pieces, and the other thread was not held up behind them.
-    const replayPieces = wire.filter(({ thread, sent }) => thread === "a" && sent.type === "events");
+    const replayPieces = wire.filter(
+      ({ thread, sent }) => thread === "a" && sent.type === "events",
+    );
     expect(replayPieces.length, `seed ${seed}`).toBeGreaterThan(2);
     const firstOther = wire.findIndex(({ thread }) => thread === "b");
     const lastPiece = wire.findLastIndex(

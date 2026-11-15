@@ -15,7 +15,8 @@ async function socketAt(url: string) {
   const messages: ServerMessage[] = [];
   const waiters: (() => void)[] = [];
   socket.on("message", (data) => {
-    for (const line of data.toString().split("\n")) messages.push(ServerMessage.parse(JSON.parse(line)));
+    for (const line of data.toString().split("\n"))
+      messages.push(ServerMessage.parse(JSON.parse(line)));
     for (const wake of waiters.splice(0)) wake();
   });
   await once(socket, "open");
@@ -72,7 +73,8 @@ async function resume(framing: string[], remote: boolean) {
   return { f, client };
 }
 
-const isReplay = (sent: ServerMessage) => sent.type === "events" && sent.subscriptionId === "resume";
+const isReplay = (sent: ServerMessage) =>
+  sent.type === "events" && sent.subscriptionId === "resume";
 
 test("a remote client that asks gets its resume in pieces, each made once it acknowledged enough", async () => {
   const { f, client } = await resume(["lines", "paced-replay"], true);

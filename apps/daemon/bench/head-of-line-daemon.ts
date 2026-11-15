@@ -18,16 +18,18 @@ const isPlugin = (value: unknown): value is Plugin => typeof value === "function
 
 const zlib = new URL("./head-of-line-zlib.ts", import.meta.url).pathname;
 
+/** `text` with `from` replaced by `to`; the channel must still have `from`. */
+function replace(from: string, to: string, text: string): string {
+  if (!text.includes(from)) throw new Error(`The relay channel no longer has: ${from}`);
+  return text.replace(from, to);
+}
+
 /**
  * The channel with each text it receives, and each it sends (handed over, then written), told
  * to the probe: where a client command and its result waited on the relay path.
  */
 function timedChannel(source: string): string {
   const hook = "globalThis.__aceHeadOfLineRelay";
-  const replace = (from: string, to: string, text: string) => {
-    if (!text.includes(from)) throw new Error(`The relay channel no longer has: ${from}`);
-    return text.replace(from, to);
-  };
   let out = replace(
     "onReceive?.(payload.text);",
     `onReceive?.(payload.text); ${hook}?.("in", payload.text);`,

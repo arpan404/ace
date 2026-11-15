@@ -40,7 +40,8 @@ plugin.call(bun, {
     build.onLoad({ filter: /packages\/client\/src\/relay-route\.ts$/ }, (args) => {
       const source = readFileSync(args.path, "utf8");
       const from = "const frame = await opened.receiveRaw();";
-      if (!source.includes(from)) throw new Error(`The client's relay route no longer has: ${from}`);
+      if (!source.includes(from))
+        throw new Error(`The client's relay route no longer has: ${from}`);
       const contents = source.replace(
         from,
         `${from} if (typeof frame === "string") globalThis.__aceHeadOfLineClientRelay?.(frame);`,

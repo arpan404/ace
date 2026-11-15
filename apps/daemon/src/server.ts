@@ -544,7 +544,11 @@ export async function startServer(options: ServerOptions): Promise<{
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
           outbox.packFrames(peer.remote);
-        if (message.channel === undefined && peer.remote && message.framing?.includes("paced-replay"))
+        if (
+          message.channel === undefined &&
+          peer.remote &&
+          message.framing?.includes("paced-replay")
+        )
           replayGate = new ReplayPacer(runtime.now, runtime.delay);
         outbox.shapeEvents({
           rawOnDemand: message.trims?.includes(wireTrims.rawOnDemand) === true,
