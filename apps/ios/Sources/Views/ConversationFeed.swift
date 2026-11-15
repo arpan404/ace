@@ -138,7 +138,7 @@ struct ConversationFeed: View {
                     }
                     Color.clear.frame(height: extent.before).accessibilityHidden(true)
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
-                        TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
+                        TranscriptFeedRowView(row: row, thread: shown, links: links).equatable().id(row.id)
                             .disabled(historyStale)
                             .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear") }
                             // The row's frame in the content, not on screen: a scroll leaves it

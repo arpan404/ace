@@ -32,6 +32,22 @@ struct TranscriptLinks {
     /// A thread's title as the thread list has it, for a fork's "Forked from" divider; nil when
     /// the list doesn't know it.
     var threadTitle: ((String) -> String?)? = nil
+
+    /// What a row's rendering takes from its links. The closures read the models they close over
+    /// when called, so a body calling one is observed on what it reads; links rebuilt with new
+    /// closures but the same key render a row the same.
+    struct Key: Equatable {
+        var stepsModel: ObjectIdentifier?
+        var stepsScreen: ObjectIdentifier?
+        var stepsEpoch: Int?
+        /// Which optional actions a row can offer.
+        var offers: [Bool]
+    }
+    var key: Key {
+        Key(stepsModel: steps.map { ObjectIdentifier($0.model) }, stepsScreen: steps.map { ObjectIdentifier($0.screen) },
+            stepsEpoch: steps?.epoch,
+            offers: [openMedia != nil, openChanges != nil, openMessage != nil, openAgents != nil, threadStatus != nil, threadTitle != nil])
+    }
 }
 
 /// One transcript block. Items render through their own observed rows, so streaming text
