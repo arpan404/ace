@@ -261,12 +261,12 @@ describe("MediaSupervisor", () => {
     supervisor.need();
     await h.clock.advance(0);
     const child = h.host.last;
-    const text = (value: string) => new TextEncoder().encode(value);
-    child.stderr.emit(text("first\n"));
+    const encoder = new TextEncoder();
+    child.stderr.emit(encoder.encode("first\n"));
     // 64 MiB with no newline, in 4 KiB reads: work per read must not grow with the line.
-    const chunk = text("x".repeat(4096));
+    const chunk = encoder.encode("x".repeat(4096));
     for (let i = 0; i < 16_384; i++) child.stderr.emit(chunk);
-    child.stderr.emit(text("\nlast\n"));
+    child.stderr.emit(encoder.encode("\nlast\n"));
     child.exit(1, null);
     await h.clock.advance(0);
     expect(supervisor.snapshot().lastExit?.stderr).toEqual(["first", "x".repeat(4096), "last"]);

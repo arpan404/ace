@@ -134,7 +134,7 @@ it("refuses the real secret on a lane tag already taken, and on any lane once bo
   // The supervisor's egress lane waits until the duplicate has been tried, so the secret is still
   // live in the child while only the priority tag is taken.
   const secret = new Uint8Array(randomBytes(32));
-  let releaseEgress = () => {};
+  let releaseEgress: (() => void) | undefined;
   const egressGate = new Promise<void>((resolve) => (releaseEgress = resolve));
   let priorityAccepted = false;
   let connects = 0;
@@ -171,7 +171,7 @@ it("refuses the real secret on a lane tag already taken, and on any lane once bo
     intruder.destroy();
   };
   await refused("priority");
-  releaseEgress();
+  releaseEgress?.();
   await until(() => supervisor.health() === "healthy");
   // A replay of the secret that opened both lanes is refused on either tag.
   await refused("priority");

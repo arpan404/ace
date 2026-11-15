@@ -10,7 +10,7 @@ const wellFormed = (value: unknown): boolean => {
     return Object.entries(value).every(([key, item]) => key.isWellFormed() && wellFormed(item));
   return true;
 };
-const json = z.unknown().refine(wellFormed);
+const wellFormedJson = z.unknown().refine(wellFormed);
 const u32 = z.number().int().min(0).max(0xffffffff);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Admission = z.discriminatedUnion("kind", [
@@ -256,7 +256,12 @@ export const ToMedia = z.discriminatedUnion("type", [
     pointerTrack: z.boolean(),
   }),
   z.strictObject({ type: z.literal("record.cut"), recording: id, reason: z.enum(["size"]) }),
-  z.strictObject({ type: z.literal("record.meta"), recording: id, epoch: u32, data: json }),
+  z.strictObject({
+    type: z.literal("record.meta"),
+    recording: id,
+    epoch: u32,
+    data: wellFormedJson,
+  }),
   z.strictObject({ type: z.literal("record.stop"), recording: id }),
   z.strictObject({
     type: z.literal("still.take"),
@@ -358,7 +363,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     type: z.literal("log"),
     level: z.enum(["debug", "info", "warn", "error"]),
     message: text,
-    fields: json,
+    fields: wellFormedJson,
   }),
 ]);
 export type FromMedia = z.infer<typeof FromMedia>;
