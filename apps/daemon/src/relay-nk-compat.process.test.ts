@@ -1,4 +1,6 @@
 import { afterEach, expect, it } from "vitest";
+import { createServer, type IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import { WebSocketServer, WebSocket as Ws } from "ws";
 import { DeviceId, HostId } from "@ace/protocol";
 import { newClient as openClient, ready, recordedSockets } from "./relay-nk-test-support.ts";
@@ -40,6 +42,8 @@ it("a new client and a new daemon reconnect with NK, and a dropped NK stream rec
     sockets.drop();
     await again;
     expect(sockets.patterns()[before], `reconnect ${round}`).toBe("nk");
+    // Its first message went in the upgrade request, and the relay took it.
+    expect(sockets.dials[before]?.protocol).toBe("ace.v3");
   }
   expect(sockets.patterns()[0]).toBe("xx");
 });
@@ -133,48 +137,92 @@ it("a daemon that announced NK but no longer takes it costs one refused NK first
   expect(sockets.patterns()).toEqual(["xx", "nk", "xx"]);
 });
 
-it("a relay that drops every NK first message forces XX and nothing else: the pin holds and the daemon is reached", async () => {
-  const h = await newDaemon();
-  // A relay in front of the real one that kills any stream whose first frame isn't 32 bytes.
-  const front = new WebSocketServer({ port: 0, host: "127.0.0.1" });
-  cleanup.push(() => new Promise((resolve) => front.close(resolve)));
-  front.on("connection", (incoming, request) => {
-    const protocol = request.headers["sec-websocket-protocol"];
-    const upstream = new Ws(
-      new URL(request.url ?? "/", h.url).toString(),
-      protocol ? protocol.split(",").map((p) => p.trim()) : [],
-    );
-    const pending: Buffer[] = [];
-    let first = true;
-    incoming.on("message", (data: Buffer) => {
-      if (first) {
-        first = false;
-        if (data.length !== 32) return incoming.terminate();
-      }
-      if (upstream.readyState === Ws.OPEN) upstream.send(data);
-      else pending.push(data);
-    });
-    upstream.on("open", () => {
-      for (const data of pending.splice(0)) upstream.send(data);
-    });
-    upstream.on("message", (data: Buffer) => incoming.send(data));
-    upstream.on("close", () => incoming.close());
-    upstream.on("error", () => incoming.terminate());
-    incoming.on("error", () => upstream.terminate());
-    incoming.on("close", () => upstream.close());
+/**
+ * A hostile relay in front of the real one: it strips the upgrade entries `strip` names and kills
+ * any stream whose first frame is NK-sized (longer than XX's last message). It echoes what the
+ * relay behind chose, as a relay must.
+ */
+async function hostileFront(target: string, strip: (entry: string) => boolean, dropNk = true) {
+  const chosen = new WeakMap<IncomingMessage, string>();
+  const wss = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false,
+    handleProtocols: (_protocols, request) => chosen.get(request) || false,
   });
-  await new Promise((resolve) => front.once("listening", resolve));
-  const address = front.address();
-  const frontUrl = `ws://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+  const server = createServer();
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const header = request.headers["sec-websocket-protocol"] ?? "";
+    const offered = header ? header.split(",").map((entry) => entry.trim()) : [];
+    const upstream = new Ws(
+      new URL(request.url ?? "/", target).toString(),
+      offered.filter((entry) => !strip(entry)),
+    );
+    upstream.on("error", () => socket.destroy());
+    upstream.on("open", () => {
+      chosen.set(request, upstream.protocol);
+      wss.handleUpgrade(request, socket, head, (incoming) => {
+        let first = true;
+        incoming.on("message", (data: Buffer) => {
+          if (first) {
+            first = false;
+            if (dropNk && data.length > 100) return incoming.terminate();
+          }
+          upstream.send(data);
+        });
+        upstream.on("message", (data: Buffer) => incoming.send(data));
+        upstream.on("close", () => incoming.close());
+        incoming.on("close", () => upstream.close());
+        incoming.on("error", () => upstream.terminate());
+      });
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise((resolve) => server.close(resolve)));
+  cleanup.push(() => wss.close());
+  const address = server.address();
+  return `ws://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+}
+
+const isNkEntry = (entry: string) => entry === "ace.v3" || entry.startsWith("ace.n1.");
+const isUpgradeEntry = (entry: string) =>
+  isNkEntry(entry) || entry === "ace.v2" || entry.startsWith("ace.x1.");
+
+it.each([
+  ["strips the NK upgrade entry", isNkEntry, ["xx", "xx"], 1],
+  ["strips both upgrade entries and drops NK first frames", isUpgradeEntry, ["xx", "nk", "xx"], 2],
+] as const)(
+  "a relay that %s forces XX and nothing else: the pin holds and the daemon is reached",
+  async (_name, strip, patterns, reconnectDials) => {
+    const h = await newDaemon();
+    const front = await hostileFront(h.url, strip);
+    const sockets = recordedSockets();
+    const client = openClient(cleanup, front, h.hostId, h.device, sockets.socket);
+    const first = ready(client, 0, () => sockets.dials.length);
+    await client.start();
+    await first;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const again = ready(client, reconnectDials, () => sockets.dials.length);
+    sockets.drop();
+    await again;
+    // NK never ran: XX reached the same pinned daemon, at once.
+    expect(sockets.dials.at(-1)?.protocol).not.toBe("ace.v3");
+    expect(sockets.patterns()).toEqual(patterns);
+    expect(client.connectionState().getSnapshot()).toBe("ready");
+  },
+);
+
+it("a relay that knows step 1 but not the upgrade entries gets the NK first message as its early frame", async () => {
+  const h = await newDaemon();
+  const front = await hostileFront(h.url, isUpgradeEntry, false);
   const sockets = recordedSockets();
-  const client = openClient(cleanup, frontUrl, h.hostId, h.device, sockets.socket);
+  const client = openClient(cleanup, front, h.hostId, h.device, sockets.socket);
   const first = ready(client, 0, () => sockets.dials.length);
   await client.start();
   await first;
-  const again = ready(client, 2, () => sockets.dials.length);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const again = ready(client, 1, () => sockets.dials.length);
   sockets.drop();
   await again;
-  // The NK attempt was dropped; XX reached the same pinned daemon at once.
-  expect(sockets.patterns()).toEqual(["xx", "nk", "xx"]);
-  expect(client.connectionState().getSnapshot()).toBe("ready");
+  expect(sockets.patterns()).toEqual(["xx", "nk"]);
+  expect(sockets.dials[1]?.protocol).toBe("ace.early.1");
 });

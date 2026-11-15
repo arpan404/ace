@@ -7,16 +7,30 @@ import { DeviceId } from "@ace/protocol";
 // what they send, so a test can tell which handshake each dial opened with.
 
 /**
+ * Which handshake a dial opened with: what the relay took from its upgrade request (`ace.v3` NK,
+ * `ace.v2` XX), else its first frame (an XX first message is exactly 32 bytes).
+ */
+function handshake(dial: { sent: number[]; protocol?: string }): "xx" | "nk" {
+  if (dial.protocol === "ace.v3") return "nk";
+  if (dial.protocol === "ace.v2") return "xx";
+  return dial.sent[0] === 32 ? "xx" : "nk";
+}
+
+/**
  * Client sockets, each with the sizes of the binary frames it sent. With `holdConfirm`, an NK
  * dial's confirmation (its second frame) and what follows wait until `confirm()`.
  */
 export function recordedSockets(options: { holdConfirm?: boolean } = {}) {
-  const dials: { sent: number[]; close(): void }[] = [];
+  const dials: { sent: number[]; protocol?: string; close(): void }[] = [];
   const held: (() => void)[] = [];
   let gated = options.holdConfirm === true;
   const socket = (url: string, protocols?: string[]): PortableSocket => {
     const real = browserDeviceSocket(url, protocols);
-    const dial = { sent: [] as number[], close: () => real.close() };
+    const dial: { sent: number[]; protocol?: string; close(): void } = {
+      sent: [],
+      close: () => real.close(),
+    };
+    real.addEventListener("open", () => (dial.protocol = real.protocol ?? ""));
     dials.push(dial);
     return {
       get binaryType() {
@@ -34,15 +48,18 @@ export function recordedSockets(options: { holdConfirm?: boolean } = {}) {
       addEventListener: real.addEventListener.bind(real),
       send(data: string | Uint8Array) {
         dial.sent.push(typeof data === "string" ? data.length : data.length);
-        const nk = dial.sent[0] !== 32;
-        if (gated && nk && (dial.sent.length > 1 || held.length)) held.push(() => real.send(data));
+        const nk = handshake(dial) === "nk";
+        // The confirmation is an NK dial's first frame when the relay took its first message
+        // from the upgrade (`ace.v3`), its second otherwise.
+        const confirmAt = dial.protocol === "ace.v3" ? 0 : 1;
+        if (gated && nk && (dial.sent.length - 1 >= confirmAt || held.length))
+          held.push(() => real.send(data));
         else real.send(data);
       },
       close: () => real.close(),
     };
   };
-  /** Which handshake each dial opened with: an XX first message is exactly 32 bytes. */
-  const patterns = () => dials.map((dial) => (dial.sent[0] === 32 ? "xx" : "nk"));
+  const patterns = () => dials.map(handshake);
   /** Lets the held confirmation, and everything after it, go. */
   const confirm = () => {
     gated = false;

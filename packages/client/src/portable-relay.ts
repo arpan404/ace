@@ -296,7 +296,7 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     if (tookXx && xxState) {
       nkState?.destroy();
       state = xxState;
-    } else xxState?.destroy();
+    } else if (nkState) xxState?.destroy();
     const permitted = options.early === true && socket.protocol === RELAY_EARLY.subprotocol;
     const first = () =>
       state instanceof NoiseNK
