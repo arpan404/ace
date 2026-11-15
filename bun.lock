@@ -273,6 +273,7 @@
         "@ace/protocol": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "@ace/settings": "workspace:*",
+        "@ace/suits": "workspace:*",
         "@ace/themes": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",

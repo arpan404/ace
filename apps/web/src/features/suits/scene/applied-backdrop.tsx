@@ -44,8 +44,16 @@ export function AppliedSuitBackdrop(props: {
         reduceMotion={resolved.reduceMotion}
         onStopped={onStopped}
       />
-      {/* The frame's colour over the scene, so the sidebar's text keeps its contrast. */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 bg-sidebar/35" />
+      {/*
+        The frame's colour over the scene, so the rail's and top bar's text keeps its contrast:
+        it lets `--suit-app-reveal` of the scene through (the Suit's `reveal.app`, held to what
+        reads; theme/suits/suit-layers.ts).
+      */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-10 bg-sidebar"
+        style={{ opacity: "calc(1 - var(--suit-app-reveal, 0.65))" }}
+      />
     </>
   );
 }
