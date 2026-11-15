@@ -90,8 +90,14 @@ A client may send its first Noise message as soon as the socket opens instead of
 readiness marker. The relay holds that one frame until the daemon joins and forwards it right
 after pairing; the marker still goes to the client as today.
 
-- **Negotiation.** A relay that supports it says so with a single negotiated subprotocol (see
-  "One subprotocol" under step 3); a client that does not get it waits for the marker as now.
+- **Negotiation, with no extra round trip.** A client that supports it offers one more
+  subprotocol, `ace.early.1`, beside the grant. A relay that supports it and has reserved room
+  for the frame (below) echoes `ace.early.1` instead of the grant entry (a server echoes exactly
+  one of the offered entries; it still reads the grant from the offered list). The client
+  learns the answer from the upgrade response itself, at the moment its socket opens: echoed,
+  it sends its first message at once; not echoed (an older relay, or no room), it waits for the
+  marker as today. An older relay closes an early sender, so a client never sends early without
+  the echo, and remembers nothing between connections.
 - **One frame, bounded before allocation.** At most one frame per waiting client, at most
   64 KiB (the Noise message limit), and only within aggregate budgets the relay checks before
   it accepts the upgrade, not when the frame arrives: per host (one ace cloud object holds all
@@ -105,11 +111,16 @@ after pairing; the marker still goes to the client as today.
   expiry, on host replacement (a newer registration), and on the client's disconnect.
 - **Hibernation.** ace cloud's object can be evicted between events while sockets stay open;
   memory goes, and a 64 KiB frame does not fit a socket attachment (Cloudflare caps
-  `serializeAttachment` at 2,048 bytes). The relay does not try to keep it: when an object wakes
-  to pair a client whose held frame is gone, it closes that client with a dedicated close code,
-  and the client retries once at once without early sending (the marker path). Durable Object
-  storage would survive eviction, but costs a write per connect for a case that is rare while a
-  join is seconds away.
+  `serializeAttachment` at 2,048 bytes). The relay does not try to keep the frame. Each waiting
+  client's attachment records its early state with its ticket and the host registration
+  generation: `reserved` (room reserved, no frame yet), `held` (a frame received and kept in
+  memory), or nothing (an ordinary marker-path client). When the object wakes, before it admits
+  any new socket, it rebuilds the reservation counts from the `reserved` and `held` attachments,
+  and every `held` client whose frame is no longer in memory is closed with a dedicated close
+  code and its reservation released. That client retries once at once without early sending
+  (the marker path). A `reserved` client whose frame arrives after a wake is held as usual.
+  Durable Object storage would keep the frame, but costs a write per connect for a case that is
+  rare while a join is seconds away.
 - **Misrouting.** A frame forwarded to the wrong daemon fails there: an NK first message is
   encrypted to the pinned daemon's static key and fails decryption at any other; an XX first
   message leads to a responder key that fails the client's pin check.
@@ -152,12 +163,25 @@ every command or outbox replay.
 
 **Confirmation.** The client's first transport message after the daemon's answer (`hello.confirm`)
 proves it holds the ephemeral private key: only the holder of `e` can derive the keys that
-encrypt it. It carries the excluded hello fields the client needs (`installId`, `link`,
-`nextTicket`; a `machineCode` only when the daemon asked). Only then does the daemon run what
-today's hello runs (recognising and folding the install, linking, admitting a machine code,
-holding the grant, enrolling notifications, issuing the next ticket) and lift the limits below.
-Commands, the outbox replay and read markers wait for it, as they wait for the welcome on the
-direct path.
+encrypt it.
+
+- **Order on the daemon's side.** The handshake answer (`<- e, ee`) goes first, before any
+  credit fragment, the welcome or early responses, and nothing bulk is queued ahead of it.
+- **When the client sends it.** As soon as it has authenticated the daemon's answer: it does
+  not wait for the welcome, for a subscribe to complete or for application credit (it is sent
+  outside the flow window, as credit fragments are, and is a few hundred bytes).
+- **No round trip added.** The daemon doesn't acknowledge it before the welcome; the welcome
+  and early responses ride behind the answer, so a confirmation that takes a round trip to
+  arrive delays nothing the client is waiting for. At 400 kbit/s, 256 KiB of early output takes
+  about 5.2 s to download, so the deadline counts from the answer, which is sent first, and the
+  confirmation travels upstream, never behind that output.
+- **Deadline test.** A test holds the 5-second deadline on links with a 0.4 to 1 s round trip
+  and loss stalls: a legitimate client confirms in time. It carries the excluded hello fields the client needs (`installId`, `link`,
+  `nextTicket`; a `machineCode` only when the daemon asked). Only then does the daemon run what
+  today's hello runs (recognising and folding the install, linking, admitting a machine code,
+  holding the grant, enrolling notifications, issuing the next ticket) and lift the limits below.
+  Commands, the outbox replay and read markers wait for it, as they wait for the welcome on the
+  direct path.
 
 #### Replays and work before confirmation
 
@@ -174,18 +198,49 @@ what bounds it:
   1. the real NK attempt is refused;
   2. the client makes one immediate attempt with XX, its pinned key and its device token (today's
      path, with forward secrecy for the token);
-  3. that welcome hands a fresh ticket for the next NK attempt;
-  4. a second refusal in a row on the same host sends the client to XX until a welcome announces
-     NK again, so a relay that keeps burning tickets costs one round trip, not availability.
+  3. that welcome hands a fresh ticket for the next NK attempt, and announces NK again (every
+     welcome from a daemon that takes NK announces it, over either pattern);
+  4. the client counts NK failures per host in a row: a refused or failed NK attempt adds one,
+     an NK attempt that reaches its welcome resets the count to zero, and XX attempts don't
+     change it;
+  5. at two in a row, the client uses XX for that host and tries NK again only after a wait
+     that starts at 10 minutes and doubles up to 24 hours with each further failed try; one
+     success resets the count and the wait.
+
+  A relay that keeps burning tickets can therefore hold a client on the slow path (XX, about
+  440 ms more per connect on 3g-slow) for as long as it keeps doing so. That is a performance
+  and availability downgrade, not a confidentiality break, and a malicious relay can always deny
+  service outright by dropping frames.
+
 - **Repeat work.** The daemon keeps the ephemeral key (`e`, 32 bytes) of every NK first message
   it accepted in the last 5 minutes (one grant lifetime), at most 4,096 entries (128 KiB), and
   refuses an identical one. When the set is full it refuses NK first messages (the clients fall
   back to XX) rather than forgetting entries early. The set is memory only; a daemon restart
   empties it, which lets a grant's first message be replayed once more within that grant's
   remaining life, into a session nobody can use and under the limits below.
-- **Occupy authenticated slots.** Before confirmation a session counts against a per-device
-  limit (2 unconfirmed sessions) and a daemon-wide limit (32), and it must confirm within 5
-  seconds of the daemon's answer or it is closed and everything it acquired released.
+- **Occupy slots and repeat work.** Session counts alone bound concurrency, not CPU, memory or
+  repeated work: fresh grant-bearing attempts could keep refilling slots, and invalid attempts
+  never reach an authenticated limit at all. So the daemon enforces, before it acquires
+  anything for an NK first message:
+  - **Before authentication**, for every NK first message, valid or not: at most 20 per second
+    per daemon (burst 40) and 2 per second per claimed device id (burst 4). The work done for
+    one (decryption, one ticket lookup or one grant signature check, and the uniform refusal)
+    is bounded and the same for every outcome. Over the rate, the attempt is refused without
+    that work, and the client uses XX.
+  - **Admission, once authenticated**, before confirmation: at most 2 unconfirmed sessions per
+    device and 32 per daemon (as before), and at most 6 NK attempts per device per minute;
+    beyond that the client uses XX.
+  - **Memory and replay work**, checked against each thread's stored size before anything is
+    acquired: at most 8 MiB of projections and snapshots per unconfirmed session, 64 MiB
+    across all of them, and at most 2,000 replayed events per session. A subscribe that would
+    go over waits for confirmation.
+  - **Output**: at most 256 KiB queued or sent per unconfirmed session, counting what waits in
+    the session's send queue, not only what has left. The rest waits for confirmation.
+  - **Deadline**: a session must confirm within 5 seconds of the daemon's answer, or it is
+    closed and everything it acquired released (projections, listeners, timers, queued output).
+  - **Tests** must exhaust each of these (a flood of invalid attempts, of fresh grant-bearing
+    attempts, and of sessions that never confirm) and show that confirmed sessions keep their
+    latency and that everything is released.
 - **Learn validity from the answer.** Every refusal of an NK first message (unknown device,
   spent or unknown ticket, expired or wrong grant, a full suppression set) is answered the same
   way: the same padded size and after the same work, so its size and timing don't tell a valid
@@ -261,6 +316,12 @@ the daemon's answer comes back right behind the `101`.
   header's first message taken"; it still reads the grant from the offered list. An older relay
   echoes the grant (or nothing, self-hosted), and the client then sends the first message as a
   frame after the open, or waits for the marker.
+- **Reservation first.** The relay reserves room for the frame (step 1's budgets) atomically
+  before it accepts, decodes or keeps the header's message. With no room, it echoes neither
+  `ace.v2` nor `ace.early.1` (the grant, or nothing), discards the header entry unread, and
+  never forwards it; the absent echo is the client's guarantee of that. The client then sends
+  its first message as a frame after the marker (today's path, in the same connection): one
+  fallback, no retry.
 - **Exactly once.** When `ace.v2` is echoed, the relay forwards the header's message exactly once
   and the client never sends it again as a frame; when it is not, the client sends it once as a
   frame. A relay that sees both closes the client.
@@ -319,9 +380,11 @@ its rules carry over unchanged.
 
 - `apps/daemon/bench/relay-connect.ts` reports each step above; rerun after each step.
 - Step 1: both relays hold, forward and clear the early frame (pairing, expiry, replacement,
-  disconnect), enforce the per-host and per-relay budgets before allocation, close with the
-  dedicated code after an ace cloud object hibernates with a held frame, and an old client
-  against a new relay and a new client against an old relay keep working.
+  disconnect), enforce the per-host and per-relay budgets before allocation, and an old client
+  against a new relay and a new client against an old relay keep working. ace cloud's object
+  evicted before the frame arrives keeps the reservation and holds the frame after waking;
+  evicted after it arrives, the client is closed with the dedicated code and connects again
+  without early sending.
 - Step 2: Noise NK test vectors; an early payload with any excluded field refused; nothing in
   today's hello side effects runs before `hello.confirm`; a replayed first message refused
   (suppression, spent ticket) or confined (grant, under the pre-confirmation limits); the burned
