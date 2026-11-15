@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { CaretRightIcon } from "@phosphor-icons/react";
+import { sceneBar } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 
@@ -59,7 +60,9 @@ export function PrSection(props: {
       aria-label={props.title}
       className="scroll-mt-2 space-y-1.5"
     >
-      <div className="sticky top-0 z-1 -mx-[var(--forge-gutter,1rem)] flex h-8 items-center gap-1 bg-panel px-[var(--forge-gutter,1rem)]">
+      <div
+        className={`sticky top-0 z-1 -mx-[var(--forge-gutter,1rem)] flex h-8 items-center gap-1 bg-panel px-[var(--forge-gutter,1rem)] ${sceneBar}`}
+      >
         <h3 className="min-w-0">
           {props.fixed ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
