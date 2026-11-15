@@ -101,23 +101,29 @@ settle, and the caller must notice so the parent never reads done while it runs.
   - a settled child is read after an interval that grows with its own age: 10 s for its first
     2 minutes, then 30 s until 10 minutes, a minute until an hour, 2.5 minutes until 4 hours,
     and 5 minutes after that (about 390 calls a day for one settled child instead of 8,640);
-    one past its 24 hours, or whose stop is unconfirmed, every 10 s;
+    one whose stop is unconfirmed every 10 s; one reaching its 24 hours is checked at that mark,
+    whatever its interval, and every 10 s after it;
   - a daemon that just started reads every saved child once, 10 s after start;
   - a child whose own read failed (asked alone) waits a backoff that doubles from one poll to
     30 s, whatever its neighbours do, and is asked at its own pace again once it answers; a
     failed read is no check.
-    Due children are taken earliest due first, then those asked longest ago, sixteen to a call, at
-    most 16 calls a turn per machine; more due than fits waits for the next turn, first in line
+    Due children being stopped are taken first, then the earliest due, then those asked longest
+    ago, sixteen to a call, at most 16 calls a turn per machine; more due than fits waits for the next turn, first in line
     then. A child in a call that failed or was refused beside others is implicated: it is asked
     alone at once, and stays alone until it has answered alone and for 10 s doubling to an hour each
     time it is implicated, so a child that only fails beside others can't keep taking calls down.
-    Whether a child is asked alone is saved with it and outlives a restart. A child's failed read
-    counts as the machine's when nothing else there answered around it; the machine answering again
-    (any call getting through) ends that wait, but never the wait of a child whose own read failed
-    while its machine answered others. The calls of a turn run at once, each on its own deadline,
+    Whether a child is asked alone is saved with it and outlives a restart. Whether a machine is
+    down has one source of evidence, used on both sides: when any call to it last got through (a
+    status read, a refusal, a description, any other call). A child's failed read counts as the
+    machine's only when nothing was heard from the machine within two polls before that read; any
+    call getting through ends the machine's episode and the waits it caused, and never the wait of
+    a child whose own read failed while the machine was heard from. Only that child answering ends
+    its own wait. The calls of a turn run at once, each on its own deadline,
     and each answer is applied as it arrives; a child with a call on its way is skipped, so a slow
     call never holds up the next poll or another machine. A pairing linked, linked again or removed
-    in Settings plans again a poll later.
+    in Settings plans again a poll later. While any child is tracked a poll is always set: pairings
+    or a ledger that can't be read, a call whose answer can't be saved, or every child having a
+    call on its way, each sets the next poll one interval away, never "nothing owed".
     No child leaves tracking without a check answered at or after its 24-hour mark (its `settled_at`
     is cleared then), never on a timer, across restarts too. A machine no longer paired as the
     child's device is no answer: the child is never asked and costs no calls, its pairing is looked
@@ -135,26 +141,23 @@ settle, and the caller must notice so the parent never reads done while it runs.
     a minute); with only healthy and failing children, `60 * ceil(W_h / 16) + 6 S + 2 F` a minute
     once the F failing ones reach the 30 s cap. These are checked as properties of the scheduler on
     generated machines of up to 1,000 children, and again on the real ledger driven only by its own
-    timers.
-    found running again reopens: the parent's row shows it running and the parent waits until it
+    timers, with failures injected into the pairings, the store and the machine at random turns.
+    The lease and the stop's bound (ADR 0052) never run out for a child that has only been waiting
+    for its turn. A child's lease runs from the first read since its machine last reported it, and
+    runs out only when a read that went out a whole lease after that one comes back unanswered too,
+    so however many children wait to be asked alone at 16 a second (10,000 take 625 s), none that
+    answers when asked loses contact or its parent's hold. A stop gives up as unconfirmed only after the child was read since its
+    last cancel went out. The 24-hour window ends only on an answered check.
+    A settled child found running again reopens: the parent's row shows it running and the parent waits until it
     settles again. One that ran and settled with a different result hands the parent that result;
     changes that leave the outcome and result alone (a title, a pin) are ignored. Work started
     there more than 24 hours after the child settled is not noticed; the parent was told its result
     long before.
 
-**Every unsettled child is read in turn.** Each poll reads unsettled children with at most 16
-status calls of 16 children each, and at most 64 children from any one machine. Each machine
-with unsettled children has a row in `machine_child_cursors`: the poll turn it was last served
-in, and the id of the last child read there. A poll serves the machines served longest ago,
-however many children the others have or keep gaining, so a machine left out of one poll goes
-first in the next and every machine is served within a bounded number of polls. On each machine
-the poll reads up to its share in id order from where it stopped, wrapping to the first child
-after the last, so every child there comes round within a bounded number of serves. The work per
-poll is bounded by the call budget, never by how many children are active: up to 16 machine
-rows, a few pages from a partial index of unsettled children, and one write per machine served.
-A machine whose page comes back empty leaves the rotation; a new or reopened child brings it
-back. So however many children wait, and however many stay working or unreachable, a later
-child's result always reaches its parent. Listing children (`agents_status`) and a cascading Stop
+**Every unsettled child is read in turn.** The scheduler above plans each machine's turn on its
+own, and a machine whose calls are slow never holds up another's. The work per poll is bounded by
+the call budget, never by how many children are active, so however many children wait, and
+however many stay working or unreachable, a later child's result always reaches its parent. Listing children (`agents_status`) and a cascading Stop
 read by parent through an index on the parent thread: the parent and every thread delegated
 below it here. A Stop reaches every unsettled remote child of the stopped tree, and the listing
 counts every child, with no cap.
