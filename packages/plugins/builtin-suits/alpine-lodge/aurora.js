@@ -47,7 +47,7 @@ function build() {
     { y: 0.18, amp: 0.06, wave: 1.7, speed: 0.7, rgb: "80,214,204", height: 0.26, alpha: 0.46 },
     { y: 0.07, amp: 0.04, wave: 3.1, speed: 1.2, rgb: "176,140,244", height: 0.15, alpha: 0.36 },
     { y: 0.25, amp: 0.05, wave: 2.0, speed: 0.8, rgb: "150,244,196", height: 0.17, alpha: 0.32 },
-  ].map((ribbon) => ({ ...ribbon, sprite: curtain(ribbon.rgb) }));
+  ].map((ribbon) => Object.assign(ribbon, { sprite: curtain(ribbon.rgb) }));
   sparkles = [];
   for (let i = 0; i < 200; i++) {
     sparkles.push({

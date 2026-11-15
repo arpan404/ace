@@ -13,7 +13,6 @@
 
 let ctx = null;
 let doc = null;
-let view = null;
 let backdrop = null; // the painted far layers
 let backdropKey = "";
 let now = 0;
@@ -281,13 +280,11 @@ function draw(v) {
 
 ace.scene({
   init(v) {
-    view = v;
     doc = v.canvas.ownerDocument || document;
     ctx = v.canvas.getContext("2d");
   },
   frame(time, v) {
     now = time;
-    view = v;
     // Snow is slow: every other tick (15 fps at most) is plenty, and halves the cost.
     tick++;
     if (!v.reduceMotion && tick % 2 === 0 && backdropKey !== "") return;
@@ -296,8 +293,7 @@ ace.scene({
   signal(name) {
     if (name === "done" || name === "pr-merged") glintAt = now;
   },
-  resize(v) {
-    view = v;
+  resize(_v) {
     backdropKey = "";
   },
   scheme(_scheme) {
