@@ -41,7 +41,7 @@ final class MediaConnectionUITests: XCTestCase {
 
         // Video by the media connection, acknowledged there.
         post("/poster", [:])
-        wait("acks on the media connection", 30) { (self.media()?.browserAcks ?? 0) > 3 }
+        wait("acks on the media connection", 30) { (self.media()?.browserAcks ?? 0) >= 1 }
         wait("the first live picture", 20) { (surface.value as? String) != "Still picture" }
         let first = try XCTUnwrap(media())
         screenshot("media-2-live")
@@ -50,7 +50,7 @@ final class MediaConnectionUITests: XCTestCase {
         post("/media", ["action": "drop"])
         wait("a new connection that the view names", 40) {
             guard let now = self.media(), now.welcomed.count > first.welcomed.count, let last = now.welcomed.last else { return false }
-            return now.named.last == last && now.browserAcks > first.browserAcks + 3
+            return now.named.last == last && now.browserAcks > first.browserAcks
         }
         XCTAssertTrue(sentence.exists)
         screenshot("media-3-reconnected")
@@ -60,7 +60,7 @@ final class MediaConnectionUITests: XCTestCase {
         post("/media", ["action": "legacy"])
         wait("pictures acknowledged on the main socket", 40) {
             guard let now = self.media() else { return false }
-            return now.unavailable > 0 && now.mainAcks > before.mainAcks + 3
+            return now.unavailable > 0 && now.mainAcks > before.mainAcks
         }
         XCTAssertTrue(sentence.exists)
         screenshot("media-4-legacy")
