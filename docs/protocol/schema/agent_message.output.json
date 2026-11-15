@@ -28,6 +28,9 @@
             "delivered"
           ],
           "type": "string"
+        },
+        "threadId": {
+          "type": "string"
         }
       },
       "required": [

@@ -12,6 +12,7 @@ import { piNative } from "@ace/provider-kit/access-modes";
 import {
   assertSteerTarget,
   InputRejected,
+  type InputSource,
   type ProviderSession,
   type SessionContext,
   type Frame,
@@ -358,7 +359,7 @@ export async function openPiSession(
       input: ContentPart[],
       delivery: "steer" | "queue",
       _commandId?: string,
-      origin?: "ace",
+      origin?: InputSource,
       fence?: import("@ace/engine-api").SteerFence,
     ) {
       // Pi took none of this send until a prompt is written and not refused. Once one prompt

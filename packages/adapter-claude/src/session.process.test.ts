@@ -96,6 +96,30 @@ test("steering reaches an active Claude turn with native immediate priority", as
     await h.session.close("user");
   }
 });
+test("another agent's steer joins the running Claude turn without preempting it", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "steer-wait" }], "queue");
+    await h.wait(subtype("fake_input"));
+    await h.session.send([{ type: "text", text: "a note" }], "steer", "agent-note", "agent");
+    const frame = await h.wait(
+      (f) =>
+        subtype("fake_input")(f) &&
+        JSON.stringify(object(object(object(f.data)["input"])["message"])["content"]).includes(
+          "a note",
+        ),
+    );
+    const input = object(object(frame.data)["input"]);
+    // `next` joins at the next tool boundary; only the person's `now` cuts into the reply.
+    expect(input["priority"]).toBe("next");
+    expect(input["isSynthetic"]).toBeUndefined();
+    expect(h.frames.some((f) => object(object(f.data)["request"])["subtype"] === "interrupt")).toBe(
+      false,
+    );
+  } finally {
+    await h.session.close("user");
+  }
+});
 for (const scenario of ["approval", "question", "plan"] as const)
   test(`${scenario} replies reach the provider and reject duplicate answers`, async () => {
     const h = await harness();

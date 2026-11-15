@@ -77,7 +77,12 @@ export function setup(
   const inputs = new Map<ThreadId, string[]>();
   const inputMessages = new Map<
     ThreadId,
-    { commandId: string; nativeId: string; origin?: "ace"; delivery?: "steer" | "queue" }[]
+    {
+      commandId: string;
+      nativeId: string;
+      origin?: import("@ace/engine-api").InputSource;
+      delivery?: "steer" | "queue";
+    }[]
   >();
   const contexts = new Map<ThreadId, SessionContext>();
   /** Native keys of background tasks ace asked a provider to stop. */

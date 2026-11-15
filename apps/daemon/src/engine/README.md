@@ -62,7 +62,10 @@ waits for a turn: it joins the running one or starts the next. A person's steer 
 running command either: where the provider's steer only lands after the tool (`steerTiming:
 "after_tool"`), the steering lane interrupts the root turn and delivers the steer as the next
 input once it ends (`steer-lane.ts`, ADR 0053, 2026-10-18 amendment "Steer interrupts a running
-command"). Delegated results never interrupt; they wait for the command. That holds when it changes the
+command"). Delegated results and agents' messages never interrupt: the adapter is told whose
+input it sends (`InputSource`), so only the person's steer preempts (Claude priority `now`), and
+where a steer restarts the turn (Cursor) anything but the person's waits for the turn to end
+(ADR 0013, 2026-11-15 amendment). That holds when it changes the
 model or options too, and for a queued message changed to steer: while the tree works its text
 steers now and the change becomes the thread's pending `thread.switch`, ordered right behind it
 and applied at the next whole-tree boundary (`admitSteer`, ADR 0053, 2026-10-18 amendment). With

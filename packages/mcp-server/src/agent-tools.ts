@@ -32,7 +32,7 @@ export const maxDelegateTasks = maxWaitThreads;
 const agents = { toolset: "ace-agents", timeoutMs: controlToolTimeoutMs } as const;
 const childId = ThreadId.describe("From delegate or agents_status.");
 const messagedThread = ThreadId.describe(
-  "A child's or owned thread's id; with full access, any thread.",
+  "Any thread you can read: from threads_find or a message.",
 );
 
 const DelegateTask = z.strictObject({
@@ -153,14 +153,19 @@ const agentMessage = controlTool({
   riskClass: "agent-execution",
   capability: "agents",
   description:
-    "Send follow-up work to a child (any machine), a thread you started or, with full access, any of the person's threads; it keeps its permissions. steer joins the running turn at the next tool boundary (Cursor restarts the turn), queue waits for it to end, restart interrupts its tree and replaces queued input. arrival says which applied.",
+    "Message a thread. Your children (any machine) and threads you started take any delivery: steer joins the running turn at the next tool boundary, queue waits for it to end, restart interrupts its tree and replaces queued input. Any other thread you can read gets a steer only, labelled as yours so it can answer you; another agent's finished child passes it to its top-level thread. A steer never stops running work. The receiver keeps its permissions. arrival says when it lands; threadId which thread got it.",
   input: z.strictObject({
     threadId: messagedThread,
     requestId: fields.requestId,
     text: MessageText.describe("Standing on its own."),
-    delivery: z.enum(["queue", "steer", "restart"]).optional().describe("Default: steer."),
+    delivery: z
+      .enum(["queue", "steer", "restart"])
+      .optional()
+      .describe("Default: steer. queue and restart: your own threads only."),
   }),
-  output: controlResult(z.looseObject({ arrival: MessageArrival })),
+  output: controlResult(
+    z.looseObject({ arrival: MessageArrival, threadId: z.string().optional() }),
+  ),
   run: (input, control) => control.run({ op: "thread.message", ...input }),
 });
 
