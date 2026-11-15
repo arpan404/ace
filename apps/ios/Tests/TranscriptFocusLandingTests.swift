@@ -60,11 +60,47 @@ import Testing
         #expect(landing.step(row: "block:2", frame: nil, band: band) == .scroll(rowID: "block:2"))
     }
 
+    @Test func aReplyNamingNoFocusLetsThePlaceGo() {
+        let reading = TranscriptReading()
+        reading.landing.jumped(to: "item.103")
+        reading.applyReply(reply(focus: nil), operation: "item")
+        #expect(!reading.landing.holdsPlace)
+    }
+
+    @Test func aTurnJumpLandsOnTheItemItsReplyNames() {
+        let reading = TranscriptReading()
+        reading.landing.jumped(to: nil)
+        #expect(!reading.landing.holdsPlace)
+        reading.applyReply(reply(focus: "item.40"), operation: "turn")
+        #expect(reading.landing.target == "item.40")
+    }
+
+    @Test func aPageReplyKeepsAFocusStillLanding() {
+        let reading = TranscriptReading()
+        reading.landing.jumped(to: "item.103")
+        reading.applyReply(reply(focus: "item.103"), operation: "item")
+        reading.applyReply(reply(focus: nil), operation: "older")
+        #expect(reading.landing.target == "item.103")
+    }
+
+    @Test func aReopenedSessionOrRebuildIsNotAFocus() {
+        // Both read an item window, but the reader's own offset is restored, not the item centred.
+        let reading = TranscriptReading()
+        reading.applyReply(reply(focus: "item.103"), operation: "item")
+        #expect(!reading.landing.holdsPlace)
+    }
+
     @Test func theReaderScrollingBeforeATurnsReplyKeepsTheirPlace() {
         var landing = TranscriptFocusLanding()
         landing.jumped(to: nil)
         landing.readerTookOver()
         landing.replied(focus: "item.40")
         #expect(!landing.holdsPlace)
+    }
+
+    private func reply(focus: String?) -> TranscriptReadingReply {
+        TranscriptReadingReply(active: true, hasOlder: true, hasNewer: true, joined: false, focus: focus, count: 200,
+                               freshness: .current, evictedLeading: nil, evictedTrailing: nil, deleted: nil,
+                               beforeSeq: nil, afterSeq: nil, beforeCount: nil, afterCount: nil, blockSeqs: nil)
     }
 }

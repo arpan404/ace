@@ -159,7 +159,10 @@ struct ConversationFeed: View {
                                         viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
                                     }
                                 }
-                                if viewport.sessionAnchor?.rowID == row.id {
+                                if let focus = reading.landing.target, reading.thread != nil {
+                                    // A landing focus re-aims as its row draws and measures.
+                                    if row.block.row.items.contains(focus) { landFocus(proxy) }
+                                } else if viewport.sessionAnchor?.rowID == row.id {
                                     applySessionRestore(proxy: proxy)
                                 } else {
                                     correctHeldRowDrift(rowID: row.id, proxy: proxy)
@@ -222,12 +225,14 @@ struct ConversationFeed: View {
             case .tracking:
                 settle.cancel()
                 viewport.cancelPending()
+                if reading.landing.isActive { reading.landing.readerTookOver() }
                 model.beginReadingScroll()
                 intent.begin()
             // A quick drag can skip tracking: a new gesture is one that starts from rest.
             case .interacting where old == .idle || old == .decelerating || old == .animating:
                 settle.cancel()
                 viewport.cancelPending()
+                if reading.landing.isActive { reading.landing.readerTookOver() }
                 model.beginReadingScroll()
                 intent.begin(); intent.active = true
             case .interacting, .decelerating: intent.active = true
@@ -338,11 +343,15 @@ struct ConversationFeed: View {
             if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
             updateExtent()
             let rows = TranscriptFeedRow.rows(shown)
-                if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
+            if reading.landing.holdsPlace {
+                // A focus still landing owns the place until its row has been shown: no saved
+                // session or held row takes it over, whatever row is on top as pages land.
+                viewport.clearSessionAnchor()
+                landFocus(proxy)
+            } else if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
                     // Session restore owns this pass: a center jump would lose
                     // the saved pixel offset. Coarse-scroll until the row
                     // measures, then refine to the exact offset below.
-                    reading.focus = nil
                     if anchor.frames[session.rowID] == nil {
                         if viewport.correctionFrames == 0 {
                             proxy.scrollTo(session.rowID, anchor: .center)
@@ -351,9 +360,6 @@ struct ConversationFeed: View {
                     } else {
                         applySessionRestore(proxy: proxy)
                     }
-                } else if let focus = reading.focus, let row = reading.thread?.screen.blockOrder.first(where: { reading.thread?.screen.blocks[$0]?.row.items.contains(focus) == true }) {
-                reading.focus = nil
-                proxy.scrollTo("block:\(row)", anchor: .center)
             } else {
                 // Post-measurement layout event: apply the pending semantic
                 // anchor correction, if the viewport still owes one. Gestures
@@ -385,6 +391,8 @@ struct ConversationFeed: View {
             }
             pageIfNeeded(proxy)
         }
+        // A turn's reply names its focus after its rows may have landed: aim at it now.
+        .onChange(of: reading.landing.target) { _, _ in landFocus(proxy) }
         .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
         .onChange(of: thread.loaded) { _, loaded in
             guard loaded else { focusRequested(); return }
@@ -565,6 +573,24 @@ struct ConversationFeed: View {
         if let turn = focus.turn { reading.jump(toTurn: turn, model: model, live: thread) }
         else { reading.jump(to: focus.item, model: model, live: thread) }
     }
+    /// Bring a landing focus's row into view (`TranscriptFocusLanding`): scroll again each time
+    /// its row lands or measures until it is shown, then hold it there as the reader's place.
+    private func landFocus(_ proxy: ScrollViewProxy) {
+        guard let focus = reading.landing.target else { return }
+        let row = reading.shown.flatMap { TranscriptFeedRow.rows($0).first { $0.block.row.items.contains(focus) } }
+        let metrics = intent.metrics
+        // Under the header and above the composer floating over the feed's bottom edge.
+        let band = TranscriptFocusLanding.Band(top: Double(metrics.topInset),
+            bottom: Double(metrics.viewport - metrics.bottomInset - barHeight - keyboardLift))
+        let frame = row.flatMap { anchor.frames[$0.id] }.map { TranscriptFocusLanding.Span(top: Double($0.minY), bottom: Double($0.maxY)) }
+        switch reading.landing.step(row: row?.id, frame: frame, band: band) {
+        case .scroll(let id): proxy.scrollTo(id, anchor: .center)
+        case .landed(let id):
+            viewport.noteCaptured(rowID: id, itemID: focus, top: rowTop(id))
+            pageIfNeeded(proxy)
+        case .wait, .none: break
+        }
+    }
     /// Retry stale history: re-ask the bridge around the reader's anchor item
     /// so the rebuild loads fresh rows instead of merging cached chunks.
     private func retryHistory() {
@@ -730,13 +756,13 @@ struct ConversationFeed: View {
             // this fresh feed has none yet.
             if reading.thread == nil {
                 if let item = anchor.itemID ?? rows.first(where: { $0.id == anchor.rowID })?.block.row.items.first {
-                    reading.jump(to: item, model: model, live: thread)
+                    reading.reopen(around: item, model: model, live: thread)
                 }
             }
         } else if let item = anchor.itemID {
             // Saved row outside the live tail (paged history, or the tail moved
             // on): rebuild the window around the saved item identity.
-            reading.jump(to: item, model: model, live: thread)
+            reading.reopen(around: item, model: model, live: thread)
         } else if reading.thread == nil {
             reading.retry(model: model, live: thread)
         }
@@ -793,6 +819,8 @@ struct ConversationFeed: View {
     /// Tells the bridge the reader left the end or came back to it, when that changed
     /// (`TranscriptEndRead`), never on each turn of a gesture near the end.
     private func endRead(moving: Bool) {
+        // Wherever a landing focus's scroll passes, the reader isn't there yet.
+        guard !reading.landing.holdsPlace else { return }
         let facts = TranscriptEndRead.Facts(
             fromEnd: Double(intent.metrics.bottom), viewport: Double(intent.metrics.viewport),
             moving: moving, windowOpen: reading.thread != nil, joined: reading.joined,
@@ -808,7 +836,8 @@ struct ConversationFeed: View {
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
-        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil else { return }
+        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
+            !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
         let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)

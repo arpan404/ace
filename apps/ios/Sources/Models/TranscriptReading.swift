@@ -99,8 +99,9 @@ struct ThreadFocus: Equatable {
     /// Explicit change evidence from the last reply, grounding the feed's next
     /// extent update. Reset when the window closes.
     private(set) var lastWindow = ReadingWindowMetadata.empty
-    /// The item a jump aimed at, until the feed has scrolled to it.
-    var focus: String?
+    /// The item a jump aims at, holding the reader's place until the feed has shown its row
+    /// (`TranscriptFocusLanding`).
+    var landing = TranscriptFocusLanding()
     @ObservationIgnored private var request: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var retryOperation = "older"
@@ -171,7 +172,7 @@ struct ThreadFocus: Equatable {
         hasOlder = reply.hasOlder
         hasNewer = reply.hasNewer
         joined = reply.joined
-        if let target = reply.focus { focus = target }
+        if operation == "item" || operation == "turn" { landing.replied(focus: reply.focus) }
         if operation != "hold", operation != "follow" { paged = true }
         lastWindow = ReadingWindowMetadata(
             evictedLeading: reply.evictedLeading,
@@ -250,17 +251,25 @@ struct ThreadFocus: Equatable {
     /// Open a window around `item` (a search hit) and bring it into view.
     func jump(to item: String, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
+        landing.jumped(to: item)
+        read("item", model: model, live: live, item: item)
+    }
+    /// Reopen the window around `item` (a saved session) without bringing it into view: the
+    /// session restore puts the reader back at their own offset.
+    func reopen(around item: String, model: ClientModel, live: ThreadModel) {
+        cancel(model: model)
         read("item", model: model, live: live, item: item)
     }
     /// Open a window at turn `ordinal` (the turn list) and bring its ask into view.
     func jump(toTurn ordinal: Int, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
+        landing.jumped(to: nil)
         read("turn", model: model, live: live, turn: ordinal)
     }
     func cancel(model: ClientModel) {
         generation += 1
         request?.cancel(); request = nil
-        loading = false; problem = nil; focus = nil
+        loading = false; problem = nil; landing = TranscriptFocusLanding()
         close(model: model)
         paged = false; hasOlder = true; hasNewer = false; joined = true; followsEnd = true
         isStale = false
