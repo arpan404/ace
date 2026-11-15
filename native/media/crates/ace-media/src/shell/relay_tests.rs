@@ -7,7 +7,6 @@ use super::relay::RelayEvent;
 use super::relay_sockets::RelaySockets;
 use crate::engine::relay::{CloseMode, FRAME_CAPACITY, Pool};
 use media_wire::control::Id;
-use std::os::fd::AsRawFd;
 use std::sync::Weak;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,11 +18,25 @@ pub(super) const END: Duration = Duration::from_secs(3);
 /// Bytes the kernel has received for `socket` and not yet handed to a read.
 #[allow(unsafe_code)]
 pub(super) fn unread(socket: &TcpStream) -> usize {
-    let mut n: libc::c_int = 0;
-    // SAFETY: FIONREAD writes one c_int.
-    let ok = unsafe { libc::ioctl(socket.as_raw_fd(), libc::FIONREAD, &mut n) } == 0;
-    assert!(ok, "FIONREAD");
-    usize::try_from(n).unwrap_or(0)
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        let mut n: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one c_int.
+        let ok = unsafe { libc::ioctl(socket.as_raw_fd(), libc::FIONREAD, &mut n) } == 0;
+        assert!(ok, "FIONREAD");
+        usize::try_from(n).unwrap_or(0)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawSocket;
+        use windows_sys::Win32::Networking::WinSock::{FIONREAD, SOCKET, ioctlsocket};
+        let mut n: u32 = 0;
+        // SAFETY: FIONREAD writes one u32.
+        let ok = unsafe { ioctlsocket(socket.as_raw_socket() as SOCKET, FIONREAD, &mut n) } == 0;
+        assert!(ok, "FIONREAD");
+        n as usize
+    }
 }
 
 /// A relay that answers the upgrade, then does what the test says.
