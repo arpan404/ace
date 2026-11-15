@@ -50,6 +50,9 @@ const source = (provider: string, account: string, daily: number): UsageSource =
   threads: [`thread-${provider}`],
 });
 
+/** A clock time in the reader's locale, with a weekday further out: "14:00", "Sat 2:00 PM". */
+const clock = String.raw`(?:\w{3} )?\d+:\d\d(?: [AP]M)?`;
+
 const appNav = () => screen.findByRole("navigation", { name: "App" });
 
 test("the rail's Usage icon says four accounts' weeks in words, most used first", async () => {
@@ -71,7 +74,7 @@ test("the rail's Usage icon says four accounts' weeks in words, most used first"
   ).toBeTruthy();
 });
 
-test("an account out for the week reads out in the icon's name; the card names who is out", async () => {
+test("an account out for the week reads out in the icon's name; the card says when each window is back", async () => {
   const app = harness();
   session(app.daemon, "codex-personal", 100, 88, 100);
   session(app.daemon, "codex-team", 100, 150, 100);
@@ -86,12 +89,20 @@ test("an account out for the week reads out in the icon's name; the card names w
     name: "Usage: Codex · Personal out for the week, Claude Code · Personal 90% of the week left, Claude Code · Work 90%, Codex · Team out for the week",
   });
   await userEvent.hover(usage);
-  // Both Codex accounts have spent their week; the first comes back when its week resets.
-  const card = await screen.findByText("Codex is out; it's back in 3d.");
-  const body = card.closest("[data-slot=usage-card]");
+  const body = (await screen.findByRole("link", { name: "Open Usage ›" })).closest(
+    "[data-slot=usage-card]",
+  );
   const codex =
     body && within(body as HTMLElement).getByRole("region", { name: "Codex · Personal" });
   expect(codex).toBeTruthy();
+  // No sentence above the rows: each window that is out says when it is back.
+  expect(body?.textContent).not.toContain("is out");
+  expect(
+    within(codex as HTMLElement).getByRole("group", {
+      name: new RegExp(`^Weekly: Out until ${clock}`),
+    }),
+  ).toBeTruthy();
+  expect(within(codex as HTMLElement).getAllByText(new RegExp(`^Back ${clock}$`))).toHaveLength(2);
   // Each account the bars draw is named, with its limits as the Usage page draws them.
   expect(
     within(codex as HTMLElement)
@@ -104,7 +115,7 @@ test("an account out for the week reads out in the icon's name; the card names w
   );
 });
 
-test("the card says when a window runs out as a countdown, like the reset waits beside it", async () => {
+test("the card says when a window runs out and, under it, when it is back", async () => {
   const app = harness();
   // Nine tenths of the session gone in its first hour: out in about seven minutes.
   session(app.daemon, "codex-personal", 90, 4 * 60, 10);
@@ -117,7 +128,25 @@ test("the card says when a window runs out as a countdown, like the reset waits 
   const card = (await screen.findByRole("link", { name: "Open Usage ›" })).closest(
     "[data-slot=usage-card]",
   ) as HTMLElement;
-  expect(within(card).getByText("Out in 7m")).toBeTruthy();
+  const codex = within(card).getByRole("region", { name: "Codex · Personal" });
+  expect(within(codex).getByText(new RegExp(`^Out ~${clock}$`))).toBeTruthy();
+  expect(within(codex).getByText(new RegExp(`^back ${clock}$`))).toBeTruthy();
+});
+
+test("an account's banked resets sit on its name's line in the card, with the way to use one", async () => {
+  const app = harness();
+  session(app.daemon, "codex-personal", 40, 200, 10);
+  const account = app.daemon.services.accounts.find((entry) => entry.id === "codex-personal");
+  if (!account) throw new Error("no account codex-personal");
+  account.quota.resetCredits = { available: 2, nextExpiresAt: null };
+  app.daemon.services.usage.sources = [source("codex", "codex-personal", 900_000)];
+  await app.open("/new");
+  await userEvent.hover(
+    await within(await appNav()).findByRole("link", { name: /^Usage: Codex · Personal/ }),
+  );
+  const region = await screen.findByRole("region", { name: "Codex · Personal" });
+  expect(within(region).getByText(/2 banked resets/)).toBeTruthy();
+  expect(within(region).getByRole("button", { name: "Use one" })).toBeTruthy();
 });
 
 test("with no limits read, the icon shows empty bars and says so", async () => {
