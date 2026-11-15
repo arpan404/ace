@@ -105,13 +105,33 @@ after pairing; the marker still goes to the client as today.
   relay process (Node) at most 256 and 16 MiB. A relay over a budget does not offer early
   sending for that upgrade, and the client waits for the marker. A frame larger than the
   reservation, or a second frame before pairing, closes that client as today.
+- **What the budgets bound, and what they don't.** They bound the frames a relay holds to
+  forward: under 1 MiB per host, 16 MiB per self-hosted relay. They don't bound the bytes a
+  relay's socket layer buffers before relay code sees a message, for any socket, early or not:
+  - **Self-hosted relay:** `ws` buffers at most one 65,535-byte message per socket
+    (`maxPayload`), and a client whose early frame is held is read no more until it is paired.
+    At most one frame is buffered beside at most one held frame per socket, which is about
+    64 MiB for a relay's 1,024 sockets, plus at most 16 MiB of held frames.
+  - **ace cloud:** workerd receives a whole message, up to the platform's 32 MiB per message,
+    before the object sees it, and no Durable Object setting lowers that limit for a socket.
+    So per object (one host), held early frames stay under 1 MiB, while inbound bytes in flight
+    can reach 32 MiB for every socket that reaches it: reserved clients, marker-path clients
+    (outside the early-frame quotas), paired streams and the daemon's own sockets. That is bound
+    only by how many sockets can reach the object (the Worker's upgrade rate limit and the
+    object's admission) and by the object's 128 MiB memory limit, past which the platform
+    resets it. Early frames don't change this.
+- **Every turn-away is the same cut.** A client turned away before it is paired, for any reason
+  (expiry, its host leaving or replaced, a rejection, a refused, text or oversized frame, an
+  unknown purpose, a protocol error), has its queued frames freed at once and is read no more.
+  Its socket is cut after one second whether or not it answers the close, and its reservation
+  comes back only when the socket is gone, or, once paired, when the frame has been forwarded.
 - **Bound to its client.** The held frame is keyed to the exact client socket, the ticket
   offered for it and the host registration generation that received the offer. It is forwarded
   only to the `/join` that carries that ticket under that generation, and cleared on ticket
   expiry, on host replacement (a newer registration), and on the client's disconnect.
 - **Hibernation.** ace cloud's object can be evicted between events while sockets stay open;
   memory goes, and a 64 KiB frame does not fit a socket attachment (Cloudflare caps
-  `serializeAttachment` at 2,048 bytes). The relay does not try to keep the frame. Each waiting
+  `serializeAttachment` at 16,384 bytes). The relay does not try to keep the frame. Each waiting
   client's attachment records its early state with its ticket and the host registration
   generation: `reserved` (room reserved, no frame yet), `held` (a frame received and kept in
   memory), or nothing (an ordinary marker-path client). When the object wakes, before it admits
