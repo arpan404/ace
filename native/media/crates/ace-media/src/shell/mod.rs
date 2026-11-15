@@ -23,6 +23,9 @@ mod relay_tests;
 mod relay_tls;
 mod relay_ws;
 mod sealed;
+mod shutdown;
+#[cfg(test)]
+mod shutdown_tests;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
 mod viewers;
@@ -375,8 +378,6 @@ async fn serve(
                         now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
-                    // Relay closes finish (what they owe the relay, then the socket) first.
-                    let _ = tokio::time::timeout(STDIN_GRACE, relays.settled()).await;
                     break EXIT_OK;
                 }
             },
@@ -486,21 +487,13 @@ async fn serve(
             Step::Shutdown(grace) => {
                 engine.finish();
                 apply(&mut engine, &mut outputs);
-                let half = grace / 2;
-                // Relay closes finish within the budget, before the lanes close.
-                let _ = tokio::time::timeout(half, relays.settled()).await;
-                if let Some(priority) = priority_out.take() {
-                    priority.close(half).await;
-                }
-                stdout.close(half).await;
+                // Relay closes, then both lanes: all inside `grace`.
+                shutdown::shutdown_within(grace, &mut relays, priority_out.take(), stdout).await;
                 return EXIT_OK;
             }
         }
     };
     drop(connections);
-    if let Some(priority) = priority_out.take() {
-        priority.close(STDIN_GRACE).await;
-    }
-    stdout.close(STDIN_GRACE).await;
+    shutdown::shutdown_within(STDIN_GRACE, &mut relays, priority_out.take(), stdout).await;
     code
 }
