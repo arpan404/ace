@@ -1,4 +1,4 @@
-import type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
+import type { DeliveryState, MediaRoute, SourcePicture } from "@ace/browser/live-view";
 
 /*
  * A screen or devices channel's live streams as the phone's views hold them (ADR 0147 §4). The
@@ -16,17 +16,29 @@ export interface StreamChannel {
   ack(picture: SourcePicture, keyframe?: boolean): void;
   /** The view of `source` couldn't decode `codec`: that stream alone asks again without it. */
   fallBack(source: string, codec: string): boolean;
+  watchDeliveries(listener: (state: DeliveryState) => void): () => void;
 }
+
+/** Tells Swift a source's delivery (`PhoneMedia.deliver`), for its view. */
+export type DeliverNatively = (view: "screen" | "device", state: DeliveryState) => void;
 
 export class HeldStreams {
   readonly #channel: StreamChannel;
   readonly #held = new Map<string, () => void>();
-  constructor(channel: StreamChannel) {
+  readonly #view: "screen" | "device";
+  #stopDeliveries: (() => void) | undefined;
+  constructor(channel: StreamChannel, view: "screen" | "device") {
     this.#channel = channel;
+    this.#view = view;
   }
   /** Pictures by this media connection while it has a binding, in the codecs the phone decodes. */
-  useMedia(route: MediaRoute | undefined): void {
+  useMedia(route: MediaRoute | undefined, deliver?: DeliverNatively): void {
     this.#channel.useMedia(route);
+    // Swift draws and acknowledges each source's pictures by the delivery the client sets.
+    this.#stopDeliveries?.();
+    this.#stopDeliveries = deliver
+      ? this.#channel.watchDeliveries((state) => deliver(this.#view, state))
+      : undefined;
   }
   /**
    * A view watches `source`: its stream is held until `release`. Swift asks again whenever its
@@ -45,9 +57,18 @@ export class HeldStreams {
   clear(): void {
     this.#held.clear();
   }
-  /** Swift decoded up to `sequence`; `keyframe`: its decoder lost its place. */
-  ack(source: string, streamId: string, sequence: number, keyframe: boolean): void {
-    this.#channel.ack(decoded(source, streamId, sequence), keyframe);
+  /**
+   * Swift decoded up to `sequence`; `keyframe`: its decoder lost its place. `generation` is the
+   * delivery its picture came for, so the client sends the ack that way, or drops it as stale.
+   */
+  ack(
+    source: string,
+    streamId: string,
+    sequence: number,
+    keyframe: boolean,
+    generation?: number,
+  ): void {
+    this.#channel.ack(decoded(source, streamId, sequence, generation), keyframe);
   }
   /** Swift's decoder couldn't play `codec` for `source`: that stream asks again without it. */
   fallBack(source: string, codec: string): void {
@@ -56,8 +77,14 @@ export class HeldStreams {
 }
 
 /** A live picture Swift decoded, as the channel's ack reads it: its source, stream and sequence. */
-function decoded(sourceId: string, streamId: string, sequence: number): SourcePicture {
+function decoded(
+  sourceId: string,
+  streamId: string,
+  sequence: number,
+  generation: number | undefined,
+): SourcePicture {
   return {
+    ...(generation === undefined ? {} : { generation }),
     sourceId,
     streamId,
     sequence,

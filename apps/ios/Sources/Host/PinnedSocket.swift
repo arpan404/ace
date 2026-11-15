@@ -113,10 +113,15 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
     private var deadline: DispatchWorkItem?
     private var queue: OperationQueue { session.queue }
 
-    init(target: ConnectionTarget, session: PinnedSession? = nil, now: @escaping @Sendable () -> Date = { Date() },
+    /// The way this socket's pictures come (`MediaDelivery`): the channel, or the media
+    /// connection's own socket id.
+    let path: String
+    init(target: ConnectionTarget, session: PinnedSession? = nil, path: String = MediaDelivery.channel,
+         now: @escaping @Sendable () -> Date = { Date() },
          connectTimeout: TimeInterval = PinnedSocket.connectTimeout,
          streams: BrowserStreamHub? = nil, event: @escaping @Sendable (String, SocketPayload) -> Void) {
         self.target = target
+        self.path = path
         self.connectTimeout = connectTimeout
         self.event = event
         self.streams = streams
@@ -184,9 +189,9 @@ final class PinnedSocket: PinnedTaskHandler, @unchecked Sendable {
                 case .success(.data(let bytes)):
                     switch self.router.route(bytes) {
                     case .none: break
-                    case .stream(let message): self.streams?.deliver(message)
-                    case .device(let message): self.streams?.deliver(message)
-                    case .screen(let message): self.streams?.deliverScreen(message)
+                    case .stream(let message): self.streams?.deliver(message, path: self.path)
+                    case .device(let message): self.streams?.deliver(message, path: self.path)
+                    case .screen(let message): self.streams?.deliverScreen(message, path: self.path)
                     case .sdk: self.event("binary", .bytes(bytes))
                     case .broken: self.finish(1002); return
                     }

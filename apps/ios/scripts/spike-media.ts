@@ -97,18 +97,21 @@ export function spikeMedia(port: number, enabled: boolean) {
         main.send(JSON.stringify({ type: "media.connect.result", requestId, result }));
         return true;
       }
-      if (text.includes('"browser.subscribe"') && text.includes('"media"')) {
+      if (text.includes('"browser.subscribe"')) {
         const message = json(text);
-        const media = message?.media as { connection?: unknown } | undefined;
+        if (message?.type !== "browser.subscribe") return false;
+        const threadId = String(message.threadId);
+        const media = message.media as { connection?: unknown } | undefined;
         const connection = typeof media?.connection === "string" ? media.connection : undefined;
         const live = connection ? connections.get(connection) : undefined;
-        if (message?.type === "browser.subscribe" && live?.socket && live.main === main) {
-          asked.set(String(message.requestId), {
-            main,
-            threadId: String(message.threadId),
-            connection: live.id,
-          });
-        }
+        const threads = bound.get(main) ?? new Map<string, string>();
+        bound.set(main, threads);
+        // As ace-media would: a subscribe naming its connection is delivered there from the
+        // start, before the reply; one naming none goes back to the main socket.
+        if (live?.socket && live.main === main) {
+          threads.set(threadId, live.id);
+          asked.set(String(message.requestId), { main, threadId, connection: live.id });
+        } else threads.delete(threadId);
       }
       return false;
     },
@@ -120,9 +123,6 @@ export function spikeMedia(port: number, enabled: boolean) {
       if (!message || !subscribe || subscribe.main !== main) return text;
       asked.delete(String(message.requestId));
       if (message.ok !== true) return text;
-      const threads = bound.get(main) ?? new Map<string, string>();
-      threads.set(subscribe.threadId, subscribe.connection);
-      bound.set(main, threads);
       stats.named.push(subscribe.connection);
       return JSON.stringify({ ...message, media: { connection: subscribe.connection } });
     },

@@ -3,7 +3,7 @@ import { ScreenAck, ScreenOperation, ScreenState } from "@ace/protocol";
 import { z } from "zod";
 import type { MediaRoute } from "@ace/browser/live-view";
 import { scheduler } from "./host.ts";
-import { HeldStreams } from "./held-streams.ts";
+import { HeldStreams, type DeliverNatively } from "./held-streams.ts";
 import { phoneScreenSessions, type ScreenAgentLabel } from "./screen-view.ts";
 import {
   nativeFeatureChannel,
@@ -22,6 +22,8 @@ export const NativeScreenControl = z.discriminatedUnion("type", [
     fallback: z.boolean().optional(),
     /** The codec the decoder couldn't play, with `fallback`. */
     codec: z.string().max(64).optional(),
+    /** The delivery generation Swift's picture came for (`media.delivery`). */
+    generation: z.number().int().nonnegative().optional(),
   }),
   z.object({ type: z.literal("native.screen.close") }),
   z.object({ type: z.literal("native.screen.unwatch"), sessionId: ScreenAck.shape.sessionId }),
@@ -59,7 +61,7 @@ export class NativeScreen {
       id: config.id,
       schedule: (callback, delay) => scheduler.set(delay, callback),
     });
-    this.#streams = new HeldStreams(this.client);
+    this.#streams = new HeldStreams(this.client, "screen");
     this.connection = new NativeFeatureConnection({
       state: () => this.client.getSnapshot(),
       watch: (listener) => this.client.watch(listener),
@@ -70,8 +72,8 @@ export class NativeScreen {
     });
   }
   /** Take the apps' pictures by this media connection while it has a binding (ADR 0147 §4). */
-  useMedia(route: MediaRoute | undefined): void {
-    this.#streams.useMedia(route);
+  useMedia(route: MediaRoute | undefined, deliver?: DeliverNatively): void {
+    this.#streams.useMedia(route, deliver);
   }
   async request(raw: z.infer<typeof NativeScreenRequest>, signal: AbortSignal): Promise<unknown> {
     await this.connection.ready(signal);
@@ -100,6 +102,7 @@ export class NativeScreen {
         action.streamId,
         action.sequence,
         action.keyframe === true,
+        action.generation,
       );
       if (action.fallback) this.#streams.fallBack(action.sessionId, action.codec ?? "hvc1");
     } else if (action.type === "native.screen.unwatch") {

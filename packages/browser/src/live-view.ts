@@ -10,6 +10,7 @@ export {
   isMediaRefusal,
   MediaSubscriptions,
   type AckWay,
+  type DeliveryState,
   type MediaRoute,
   type Settled,
   type Stamped,

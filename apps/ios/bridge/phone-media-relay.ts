@@ -18,6 +18,8 @@ export interface PhoneMediaRelayOptions {
   /** The machine's host id its welcome must name; undefined where the native pin is the check. */
   expectedHostId?: string | undefined;
   credential(): Promise<Credential>;
+  /** Hears each stream's native socket id, the path its pictures come by. */
+  opened?(id: string): void;
 }
 
 const Welcome = z.looseObject({ type: z.literal("welcome"), hostId: z.string().optional() });
@@ -25,6 +27,7 @@ const Welcome = z.looseObject({ type: z.literal("welcome"), hostId: z.string().o
 export function nativeMediaRelay(options: PhoneMediaRelayOptions): OpenMediaRelay {
   return (ticket, events) => {
     const socket = nativeMediaSocket(undefined);
+    options.opened?.(socket.id);
     let welcomed = false;
     let ended = false;
     const end = (code: number) => {

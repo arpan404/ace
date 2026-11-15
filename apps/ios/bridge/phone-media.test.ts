@@ -3,7 +3,6 @@ import { ClientError } from "@ace/client";
 import { mediaHello } from "@ace/client/media";
 import { expect, test } from "vitest";
 import { phoneMedia, type PhoneMediaOwner } from "./phone-media.ts";
-import { nativeMediaRelay } from "./phone-media-relay.ts";
 import { socketEvent } from "./socket.ts";
 
 /*
@@ -136,10 +135,7 @@ const relayed = (connection: string) => ({
 });
 const throughRelay = (main: ReturnType<typeof session>) =>
   phoneMedia(main.owner, {
-    relay: nativeMediaRelay({
-      deviceId: "ios-device",
-      credential: async () => ({ grant: "g.r.a.n.t" }),
-    }),
+    relay: { deviceId: "ios-device", credential: async () => ({ grant: "g.r.a.n.t" }) },
     schedule: never,
     now: () => 0,
     codecs: () => [],

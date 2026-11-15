@@ -45,6 +45,8 @@ function nativeSocket(id: string, opening: string, trust?: TrustMonitor, early?:
 
 /** A media connection's socket: text both ways, plus the one binary hello it opens with. */
 export interface MediaSocket extends Transport {
+  /** The native socket's id: the path its pictures come by (`media.delivery`). */
+  readonly id: string;
   sendBytes(bytes: Uint8Array): void;
 }
 
@@ -59,6 +61,7 @@ export function nativeMediaSocket(url: string | undefined): MediaSocket {
   const opening: MediaSocketOpen = { media: url === undefined ? {} : { url } };
   return {
     ...nativeSocket(id, JSON.stringify(opening)),
+    id,
     sendBytes(bytes) {
       let binary = "";
       for (const byte of bytes) binary += String.fromCharCode(byte);

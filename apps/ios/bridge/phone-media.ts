@@ -1,6 +1,8 @@
 import { ClientError, type ClientCore } from "@ace/client";
-import { MediaConnection, type OpenMediaRelay, type OpenMediaSocket } from "@ace/client/media";
-import type { MediaRoute } from "@ace/browser/live-view";
+import { MediaConnection, type OpenMediaSocket } from "@ace/client/media";
+import { channelPath, type DeliveryState, type MediaRoute } from "@ace/browser/live-view";
+import { call } from "./host.ts";
+import { nativeMediaRelay, type PhoneMediaRelayOptions } from "./phone-media-relay.ts";
 import { nativeMediaSocket } from "./socket.ts";
 import { nativeVideoCodecs } from "./video-codecs.ts";
 
@@ -15,9 +17,10 @@ import { nativeVideoCodecs } from "./video-codecs.ts";
 export type PhoneMediaOwner = Pick<ClientCore, "request" | "connectionGeneration">;
 
 export interface PhoneMediaOptions {
-  socket?: OpenMediaSocket;
+  /** Opens a direct media connection; `opened` hears its native socket's id. */
+  socket?: (opened: (id: string) => void) => OpenMediaSocket;
   /** The machine is reached through the relay: media connections are relay streams. */
-  relay?: OpenMediaRelay | undefined;
+  relay?: Omit<PhoneMediaRelayOptions, "opened"> | undefined;
   schedule(run: () => void, ms: number): () => void;
   /** A monotonic clock in ms (`host.monotonicMs`). */
   now(): number;
@@ -29,28 +32,44 @@ export interface PhoneMedia {
   readonly connection: MediaConnection;
   /** What the live views name in their subscribes and send their acks by. */
   readonly route: MediaRoute;
+  /**
+   * Tells Swift a live source's delivery as the shared client sets it (`media.delivery`): its
+   * generation, and the native socket its pictures come by, or none yet while pending.
+   */
+  deliver(view: "browser" | "screen" | "device", state: DeliveryState): void;
   stop(): void;
 }
 
 /** Codes a lost main socket answers with: worth asking again soon. Anything else stands. */
 const transient = new Set<string>(["offline", "timeout", "aborted", "stale", "busy", "limit"]);
 
-/** Swift's socket as the shared connection takes it: text as text, the hello as bytes. */
-export const nativeOpenMediaSocket: OpenMediaSocket = (url, events) => {
-  const socket = nativeMediaSocket(url);
-  socket.open({
-    open: () => events.open(),
-    message: (text) => events.message(text),
-    binary: (bytes) => events.message(bytes),
-    close: (code) => events.close(code),
-  });
-  return {
-    send: (data) => (typeof data === "string" ? socket.send(data) : socket.sendBytes(data)),
-    close: () => socket.close(),
+/**
+ * Swift's socket as the shared connection takes it: text as text, the hello as bytes. `opened`
+ * hears each socket's native id, the path its pictures come by.
+ */
+export const nativeOpenMediaSocket =
+  (opened: (id: string) => void = () => {}): OpenMediaSocket =>
+  (url, events) => {
+    const socket = nativeMediaSocket(url);
+    opened(socket.id);
+    socket.open({
+      open: () => events.open(),
+      message: (text) => events.message(text),
+      binary: (bytes) => events.message(bytes),
+      close: (code) => events.close(code),
+    });
+    return {
+      send: (data) => (typeof data === "string" ? socket.send(data) : socket.sendBytes(data)),
+      close: () => socket.close(),
+    };
   };
-};
 
 export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): PhoneMedia {
+  /** The native socket opened last, and the one each welcomed connection's pictures come by. */
+  let opened: string | undefined;
+  const sockets = new Map<string, string>();
+  const note = (id: string) => (opened = id);
+  const relay = options.relay ? nativeMediaRelay({ ...options.relay, opened: note }) : undefined;
   const connection = new MediaConnection({
     // A daemon that refuses the request outright (an older build) has no media connection; that
     // answer stands like `unavailable`, and delivery stays on the main socket.
@@ -59,8 +78,8 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
         if (error instanceof ClientError && transient.has(error.code)) throw error;
         return { refused: true };
       }),
-    socket: options.socket ?? nativeOpenMediaSocket,
-    relay: () => options.relay,
+    socket: (options.socket ?? nativeOpenMediaSocket)(note),
+    relay: () => relay,
     schedule: options.schedule,
     now: options.now,
   });
@@ -71,6 +90,27 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
     watch: (listener) => connection.watch(listener),
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
+  };
+  // The connection a welcome bound is the socket opened for it: one is open at a time.
+  connection.watch(() => {
+    const bound = connection.binding()?.connection;
+    if (!bound || !opened) return;
+    if (sockets.size > 32) sockets.clear();
+    sockets.set(bound, opened);
+  });
+  const deliver = (view: "browser" | "screen" | "device", state: DeliveryState) => {
+    const path =
+      state.path === undefined
+        ? null
+        : state.path === channelPath
+          ? "channel"
+          : (sockets.get(state.path) ?? state.path);
+    void call("media.delivery", {
+      view,
+      source: state.source,
+      generation: state.generation,
+      path,
+    }).catch(() => {});
   };
   const generation = owner.connectionGeneration();
   let current = generation.getSnapshot();
@@ -85,6 +125,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
   return {
     connection,
     route,
+    deliver,
     stop() {
       stopFollowing();
       connection.stop();

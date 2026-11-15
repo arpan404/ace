@@ -1,6 +1,6 @@
 import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
-import { MediaSubscriptions, type MediaRoute } from "@ace/browser/live-view";
+import { MediaSubscriptions, type DeliveryState, type MediaRoute } from "@ace/browser/live-view";
 import {
   BrowserCaptureViewport,
   BrowserInput,
@@ -69,7 +69,7 @@ const BrowserAction = z.discriminatedUnion("kind", [
     sequence: z.number().int().nonnegative(),
     keyframe: z.boolean().optional(),
     fallback: z.boolean().optional(),
-    /** The view generation the decoder was started for (`browser.view`'s `generation`). */
+    /** The delivery generation the picture came for (`media.delivery`), as Swift stamped it. */
     generation: z.number().int().nonnegative().optional(),
   }),
 ]);
@@ -137,8 +137,6 @@ interface Watch {
   picture: { width: number; height: number } | undefined;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
-  /** The latest subscribe: the view generation it began at, and its media delivery's generation. */
-  delivery?: { view: number; media: number };
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
@@ -152,6 +150,7 @@ export class BrowserLive {
   /** Whether the view's pictures come by the media connection, and so where its acks go. */
   readonly #media = new MediaSubscriptions();
   #stopMedia: (() => void) | undefined;
+  #stopDeliveries: (() => void) | undefined;
   #owner: BrowserOwner;
   #sink: PatchSink;
   #preview: Preview;
@@ -283,9 +282,17 @@ export class BrowserLive {
    * Take the view's pictures by this media connection while it has a binding (ADR 0147 §4):
    * whenever the binding changes, the view subscribes again and Swift starts a new decoder.
    */
-  useMedia(route: MediaRoute | undefined): void {
+  useMedia(
+    route: MediaRoute | undefined,
+    deliver?: (view: "browser", state: DeliveryState) => void,
+  ): void {
     this.#stopMedia?.();
+    this.#stopDeliveries?.();
     this.#media.use(route);
+    // Swift draws and acknowledges the thread's pictures by the delivery set here.
+    this.#stopDeliveries = deliver
+      ? this.#media.watchDeliveries((state) => deliver("browser", state))
+      : undefined;
     this.#stopMedia = route?.watch(() => {
       const watch = this.#watch;
       if (!watch || !watch.subscribed) return;
@@ -296,6 +303,7 @@ export class BrowserLive {
   }
   dispose(): void {
     this.#stopMedia?.();
+    this.#stopDeliveries?.();
     this.close();
     this.#endFollowing();
     for (const stop of this.#stops.splice(0)) stop();
@@ -473,13 +481,9 @@ export class BrowserLive {
           video: true as const,
           ...(action.keyframe ? { keyframe: true as const } : {}),
         };
-        // Each ack goes the way its decoder's pictures came: the media connection, the main
-        // socket, or nowhere when they came for a subscribe that has been replaced since.
-        const delivery = watch.delivery;
-        const way =
-          delivery && action.generation !== undefined && action.generation >= delivery.view
-            ? this.#media.way(watch.threadId, delivery.media)
-            : "stale";
+        // Each ack goes the way its picture's delivery came (Swift stamps the generation it was
+        // delivered for): the media connection, the main socket, or nowhere once it is stale.
+        const way = this.#media.way(watch.threadId, action.generation);
         if (way === "media") this.#media.route?.ack(ack);
         else if (way === "channel")
           try {
@@ -534,8 +538,6 @@ export class BrowserLive {
     const binding = this.#media.route?.binding()?.connection;
     const begun = this.#media.begin(watch.threadId);
     const { media } = begun.fields;
-    // Swift's decoders from this view generation on show this subscribe's pictures.
-    watch.delivery = { view: watch.generation, media: begun.generation };
     let refused = false;
     void this.#owner
       .request({

@@ -63,8 +63,20 @@ interface Delivery {
  * again for the source until the binding changes. Also the poster the subscribe brought back, and
  * the codecs each source's viewer couldn't decode.
  */
+/**
+ * A source's current delivery, for a viewer whose pictures arrive outside this client (a native
+ * decoder): its generation, and the way its pictures come (`channelPath` or a media connection),
+ * or undefined while the subscribe's reply is pending and pictures may come either way.
+ */
+export interface DeliveryState {
+  source: string;
+  generation: number;
+  path: string | undefined;
+}
+
 export class MediaSubscriptions {
   #route: MediaRoute | undefined;
+  #deliveryListeners = new Set<(state: DeliveryState) => void>();
   /** Generations count up across sources and resets, so an old one never matches again. */
   #next = 0;
   #deliveries = new Map<string, Delivery>();
@@ -102,6 +114,7 @@ export class MediaSubscriptions {
     const asked =
       binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
     this.#deliveries.set(source, { generation, asked, via: undefined });
+    this.#emit(source);
     if (!binding || !asked) return { generation, fields: {} };
     return {
       generation,
@@ -139,6 +152,7 @@ export class MediaSubscriptions {
     const bound = delivery.asked !== undefined && media?.connection === delivery.asked;
     const via = bound && delivery.asked ? delivery.asked : channelPath;
     delivery.via = via;
+    this.#emit(source);
     if (bound && media?.poster) this.#posters.set(source, media.poster);
     // What came the settled way while the reply was on its way shows now; the rest is dropped.
     const held = this.#candidates.get(source)?.settle(via);
@@ -158,6 +172,7 @@ export class MediaSubscriptions {
     if (!delivery || delivery.via !== undefined) return;
     delivery.via = channelPath;
     this.#candidates.delete(source);
+    this.#emit(source);
   }
   /**
    * `generation`'s subscribe failed. True when it is still the current one, had named a media
@@ -220,6 +235,27 @@ export class MediaSubscriptions {
     this.#candidates.clear();
     this.#refused.clear();
     this.#posters.clear();
+  }
+  /**
+   * Hears each change of a source's delivery: a new subscribe (pending while it named a
+   * connection), and the way its reply settled on (or the channel, when it got none in time).
+   */
+  watchDeliveries(listener: (state: DeliveryState) => void): () => void {
+    this.#deliveryListeners.add(listener);
+    return () => void this.#deliveryListeners.delete(listener);
+  }
+  #emit(source: string): void {
+    const delivery = this.#deliveries.get(source);
+    if (!delivery) return;
+    // Unsettled only while a named connection's reply is on its way; otherwise its way is known.
+    const pending = delivery.via === undefined && delivery.asked !== undefined;
+    const state = {
+      source,
+      generation: delivery.generation,
+      path: pending ? undefined : expected(delivery),
+    };
+    // A copy: a listener may stop listening while it hears this.
+    for (const listener of Array.from(this.#deliveryListeners)) listener(state);
   }
   #current(source: string, generation: number): Delivery | undefined {
     const delivery = this.#deliveries.get(source);

@@ -1,5 +1,5 @@
 import type { MediaRoute } from "@ace/browser/live-view";
-import { HeldStreams } from "./held-streams.ts";
+import { HeldStreams, type DeliverNatively } from "./held-streams.ts";
 import { DeviceClient, DeviceClientError } from "@ace/client/devices";
 import {
   AppDeviceId,
@@ -58,6 +58,8 @@ export const NativeDeviceControl = z.discriminatedUnion("type", [
     fallback: z.boolean().optional(),
     /** The codec the decoder couldn't play, with `fallback`. */
     codec: z.string().max(64).optional(),
+    /** The delivery generation Swift's picture came for (`media.delivery`). */
+    generation: z.number().int().nonnegative().optional(),
   }),
   z.object({ type: z.literal("native.devices.close") }),
   z.object({ type: z.literal("native.devices.unwatch"), deviceId: DeviceAck.shape.deviceId }),
@@ -157,7 +159,7 @@ export class NativeDevices {
       id: config.id,
       schedule: (callback, delay) => scheduler.set(delay, callback),
     });
-    this.#streams = new HeldStreams(this.client);
+    this.#streams = new HeldStreams(this.client, "device");
     this.connection = new NativeFeatureConnection({
       state: () => this.client.getSnapshot(),
       watch: (listener) => this.client.watch(listener),
@@ -168,8 +170,8 @@ export class NativeDevices {
     });
   }
   /** Take the devices' pictures by this media connection while it has a binding (ADR 0147 §4). */
-  useMedia(route: MediaRoute | undefined): void {
-    this.#streams.useMedia(route);
+  useMedia(route: MediaRoute | undefined, deliver?: DeliverNatively): void {
+    this.#streams.useMedia(route, deliver);
   }
   async request(raw: z.infer<typeof NativeDeviceRequest>, signal: AbortSignal): Promise<unknown> {
     await this.connection.ready(signal);
@@ -218,6 +220,7 @@ export class NativeDevices {
           action.streamId,
           action.sequence,
           action.keyframe === true,
+          action.generation,
         );
         if (action.fallback) this.#streams.fallBack(action.deviceId, action.codec ?? "hvc1");
         return;

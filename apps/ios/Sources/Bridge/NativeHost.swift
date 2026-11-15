@@ -81,6 +81,7 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(HostError.storage), to: callback); return
         }
         if operation == "http" { http(request.input, callback: callback); return }
+        if operation == "media.delivery" { mediaDelivery(request.input, callback: callback); return }
         if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.current() }; return }
         if operation == "credential.fresh", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.fresh() }; return }
         if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
@@ -130,6 +131,23 @@ final class NativeHost: @unchecked Sendable {
             }
             reply(result, to: callback)
         }
+    }
+    /// The script set a live source's delivery (ADR 0147 §4): its renderer follows it from here on.
+    private struct DeliveryInput: Decodable {
+        let view: String
+        let source: String
+        let generation: Int
+        let path: String?
+    }
+    private func mediaDelivery(_ input: Data, callback: Callback) {
+        guard let value = try? JSONDecoder().decode(DeliveryInput.self, from: input),
+              ["browser", "screen", "device"].contains(value.view), value.generation >= 0,
+              value.source.utf8.count <= 512, (value.path?.utf8.count ?? 0) <= 128 else {
+            reply(.failure(HostError.encoding), to: callback); return
+        }
+        runtime?.browserStreams?.setDelivery(MediaDelivery(generation: value.generation, path: value.path),
+                                             for: DeliveryKey(view: value.view, source: value.source))
+        reply(.success(""), to: callback)
     }
     private func reply(_ result: Result<String, Error>, to callback: Callback) {
         callback.finish()
@@ -195,11 +213,11 @@ final class NativeHost: @unchecked Sendable {
             case (.daemon, nil): socket = PinnedSocket(target: target, session: pinned(target), streams: streams, event: event)
             // Through the relay a media connection is always a relay stream, whatever URL came with it:
             // the phone has no pin for the machine's own listeners there.
-            case (.media, let relay?): socket = RelaySocket(route: relay, purpose: "media", streams: streams, event: event)
+            case (.media, let relay?): socket = RelaySocket(route: relay, purpose: "media", path: id, streams: streams, event: event)
             case (.media(let url?), nil):
                 guard let media = target.media(at: url) else { event("close", .text("1008")); return }
                 // Its own session, held to the media address's host with the daemon's pin.
-                socket = PinnedSocket(target: media, now: services.now, streams: streams, event: event)
+                socket = PinnedSocket(target: media, path: id, now: services.now, streams: streams, event: event)
             default:
                 // A direct media connection without an address, or one that isn't this daemon's
                 // pinned WSS. Never 4003, which means a revoked device.

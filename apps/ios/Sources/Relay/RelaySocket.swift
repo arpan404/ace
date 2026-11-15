@@ -24,6 +24,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// The relay stream's purpose: nil for the daemon's own channels, `media` for a media
     /// connection, whose stream the daemon hands to ace-media once it has admitted the hello.
     private let purpose: String?
+    /// The way this socket's pictures come (`MediaDelivery`): the channel, or the media
+    /// connection's own socket id.
+    private let path: String
     private let event: @Sendable (String, SocketPayload) -> Void
     private let streams: BrowserStreamHub?
     private let keys: @Sendable () -> (NoiseKeys, NoiseKeys)
@@ -54,10 +57,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         case secured(RelaySession)
     }
 
-    init(route: RelayRoute, purpose: String? = nil, streams: BrowserStreamHub? = nil,
+    init(route: RelayRoute, purpose: String? = nil, path: String = MediaDelivery.channel, streams: BrowserStreamHub? = nil,
          keys: @escaping @Sendable () -> (NoiseKeys, NoiseKeys) = { (.generate(), .generate()) },
          event: @escaping @Sendable (String, SocketPayload) -> Void) {
-        self.route = route; self.purpose = purpose; self.streams = streams; self.keys = keys; self.event = event
+        self.route = route; self.purpose = purpose; self.path = path; self.streams = streams; self.keys = keys; self.event = event
         super.init()
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
@@ -286,9 +289,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private func deliver(_ bytes: Data) -> Bool {
         switch router.route(bytes) {
         case .none: break
-        case .stream(let message): streams?.deliver(message)
-        case .device(let message): streams?.deliver(message)
-        case .screen(let message): streams?.deliverScreen(message)
+        case .stream(let message): streams?.deliver(message, path: path)
+        case .device(let message): streams?.deliver(message, path: path)
+        case .screen(let message): streams?.deliverScreen(message, path: path)
         case .sdk: event("binary", .bytes(bytes))
         case .broken: finish(1002, cause: "broken binary message"); return false
         }

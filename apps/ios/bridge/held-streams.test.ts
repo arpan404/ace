@@ -1,4 +1,4 @@
-import type { MediaRoute } from "@ace/browser/live-view";
+import type { DeliveryState, MediaRoute } from "@ace/browser/live-view";
 import { ScreenStreamClient } from "@ace/client/screen-stream";
 import { ScreenState, ServerMessage, type MediaStreamClientMessage } from "@ace/protocol";
 import { expect, test } from "vitest";
@@ -65,10 +65,12 @@ function phone(bound: string | undefined, binds = false) {
   });
   events?.ready();
   events?.message(ServerMessage.parse({ type: "screen.state", state }));
-  const streams = new HeldStreams(client);
-  streams.useMedia(route);
+  const streams = new HeldStreams(client, "screen");
+  const deliveries: ({ view: string } & DeliveryState)[] = [];
+  streams.useMedia(route, (view, delivery) => deliveries.push({ view, ...delivery }));
   return {
     streams,
+    deliveries,
     carried,
     sent,
     subscribes: () => sent.flatMap((m) => (m.operation?.op === "subscribe" ? [m.operation] : [])),
@@ -151,4 +153,33 @@ test("Swift asking for a held app again subscribes it again; releasing it ends i
   await settle();
   // A released app isn't subscribed again when the binding changes.
   expect(app.subscribes()).toHaveLength(2);
+});
+
+test("Swift hears each subscribe's delivery: pending while it names a connection, then its way", async () => {
+  const app = phone("mc_aaaaaaaa", true);
+  app.streams.hold("app");
+  await settle();
+  const [begun, settled] = app.deliveries;
+  expect(begun).toMatchObject({ view: "screen", source: "app", path: undefined });
+  expect(settled).toEqual({ ...begun, path: "mc_aaaaaaaa" });
+});
+
+test("after a rebind, an ack stamped with the old delivery goes nowhere; the new one's goes on", async () => {
+  const app = phone("mc_aaaaaaaa", true);
+  app.streams.hold("app");
+  await settle();
+  const before = app.deliveries.at(-1)?.generation;
+  app.move("mc_bbbbbbbb");
+  await settle();
+  const after = app.deliveries.at(-1);
+  expect(after).toMatchObject({ path: "mc_bbbbbbbb" });
+  expect(after?.generation).not.toBe(before);
+
+  app.streams.ack("app", "capture-1", 40, false, before);
+  expect(app.carried).toEqual([]);
+  expect(app.channelAcks()).toEqual([]);
+  app.streams.ack("app", "capture-2", 1, false, after?.generation);
+  expect(app.carried).toEqual([
+    { type: "screen.ack", sessionId: "app", streamId: "capture-2", sequence: 1 },
+  ]);
 });

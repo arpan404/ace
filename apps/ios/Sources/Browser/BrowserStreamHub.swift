@@ -5,17 +5,41 @@ import Foundation
 /// thread: the live view attaches while it is shown, and nothing is kept while it isn't (the
 /// daemon then has no subscriber for this connection and sends none).
 final class BrowserStreamHub: @unchecked Sendable {
+    /// A picture and the way it came: `MediaDelivery.channel`, or the media socket's id.
+    typealias Sink<Picture> = @Sendable (Picture, String) -> Void
     private let lock = NSLock()
-    private var sink: (@Sendable (BrowserVideoChunk) -> Void)?
-    private var screenSink: (@Sendable (DeviceFrameChunk) -> Void)?
-    private var deviceSink: (@Sendable (DeviceFrameChunk) -> Void)?
+    private var sink: Sink<BrowserVideoChunk>?
+    private var screenSink: Sink<DeviceFrameChunk>?
+    private var deviceSink: Sink<DeviceFrameChunk>?
     private var posterSinks: [LivePoster.Kind: @Sendable (CGImage) -> Void] = [:]
+    /// Each source's latest delivery as the script set it, and the open view that follows it.
+    private var deliveries: [DeliveryKey: MediaDelivery] = [:]
+    private var deliverySinks: [String: @Sendable (String, MediaDelivery) -> Void] = [:]
 
-    func attach(_ sink: (@Sendable (BrowserVideoChunk) -> Void)?) { lock.withLock { self.sink = sink } }
-    func attachScreen(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { screenSink = sink } }
-    func deliverScreen(_ chunk: DeviceFrameChunk) { lock.withLock { screenSink }?(chunk) }
-    func attachDevice(_ sink: (@Sendable (DeviceFrameChunk) -> Void)?) { lock.withLock { deviceSink = sink } }
-    func deliver(_ chunk: DeviceFrameChunk) { lock.withLock { deviceSink }?(chunk) }
+    func attach(_ sink: Sink<BrowserVideoChunk>?) { lock.withLock { self.sink = sink } }
+    func attachScreen(_ sink: Sink<DeviceFrameChunk>?) { lock.withLock { screenSink = sink } }
+    func deliverScreen(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) { lock.withLock { screenSink }?(chunk, path) }
+    func attachDevice(_ sink: Sink<DeviceFrameChunk>?) { lock.withLock { deviceSink = sink } }
+    func deliver(_ chunk: DeviceFrameChunk, path: String = MediaDelivery.channel) { lock.withLock { deviceSink }?(chunk, path) }
+    /// Called on the delivering socket's queue.
+    func deliver(_ chunk: BrowserVideoChunk, path: String = MediaDelivery.channel) { lock.withLock { sink }?(chunk, path) }
+
+    /// `view`'s open renderer follows its sources' deliveries from now on; nil when it closes.
+    func attachDelivery(_ view: String, _ sink: (@Sendable (String, MediaDelivery) -> Void)?) {
+        lock.withLock { deliverySinks[view] = sink }
+    }
+    /// The script set a source's delivery (`media.delivery`).
+    func setDelivery(_ delivery: MediaDelivery, for key: DeliveryKey) {
+        let sink = lock.withLock { () -> (@Sendable (String, MediaDelivery) -> Void)? in
+            deliveries[key] = delivery
+            if deliveries.count > 256 { deliveries.removeAll(); deliveries[key] = delivery }
+            return deliverySinks[key.view]
+        }
+        sink?(key.source, delivery)
+    }
+    /// A source's latest delivery, for a renderer that opens after it was set.
+    func delivery(_ key: DeliveryKey) -> MediaDelivery? { lock.withLock { deliveries[key] } }
+
     /// The open view of `kind` takes the posters its subscribes bring back; nil when it closes.
     func attachPoster(_ kind: LivePoster.Kind, _ sink: (@Sendable (CGImage) -> Void)?) { lock.withLock { posterSinks[kind] = sink } }
     func deliver(_ poster: LivePoster) { lock.withLock { posterSinks[poster.kind] }?(poster.image) }
@@ -25,11 +49,6 @@ final class BrowserStreamHub: @unchecked Sendable {
         let (rest, taken) = PosterReply.take(message)
         if let taken, let poster = PosterReply.decode(taken) { deliver(poster) }
         return rest
-    }
-    /// Called on the delivering socket's queue.
-    func deliver(_ chunk: BrowserVideoChunk) {
-        let sink = lock.withLock { self.sink }
-        sink?(chunk)
     }
 }
 

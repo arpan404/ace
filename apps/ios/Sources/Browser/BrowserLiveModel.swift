@@ -69,17 +69,21 @@ import UIKit
         self.threadId = threadId
         let latest = LatestBrowserPicture()
         let acks = BrowserAcks(visible: visible, send: ack)
-        let renderer = BrowserRenderer(threadId: threadId, present: { latest.put($0) }, ack: { acks.acknowledge($0) })
+        let renderer = BrowserRenderer(threadId: threadId, discard: { _ = latest.take() }, present: { latest.put($0) },
+                                       ack: { acks.acknowledge($0) })
         self.latest = latest
         self.acks = acks
         self.renderer = renderer
         let poster = LatestPoster()
         self.poster = poster
-        streams?.attach { chunk in renderer.receive(chunk) }
+        streams?.attach { chunk, path in renderer.receive(chunk, path: path) }
+        streams?.attachDelivery("browser") { renderer.delivery($0, $1) }
+        if let known = streams?.delivery(DeliveryKey(view: "browser", source: threadId)) { renderer.delivery(threadId, known) }
         streams?.attachPoster(.browser) { poster.put($0) }
     }
     func close(streams: BrowserStreamHub?) {
         streams?.attach(nil)
+        streams?.attachDelivery("browser", nil)
         streams?.attachPoster(.browser, nil)
         poster = nil
         renderer?.close()
@@ -149,9 +153,7 @@ import UIKit
             guard threadId == self.threadId else { return }
             if let generation, generation != info.generation {
                 // The daemon starts this viewer's video again: the last picture stays until its next keyframe.
-                renderer?.reset(generation: info.generation)
-            } else if generation == nil {
-                renderer?.start(generation: info.generation)
+                renderer?.reset()
             }
             generation = info.generation
             if let before = view?.state?.activeTabId, before != info.state?.activeTabId { keepStill() }

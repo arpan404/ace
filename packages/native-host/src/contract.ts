@@ -120,6 +120,22 @@ export interface HostOperations {
    * connection: sent on an open socket before its grant runs out (ADR 0114). `{"grant": …}`.
    */
   "credential.fresh": { input: null; body: never };
+  /**
+   * A live source's delivery as the shared script last set it (ADR 0147 §4): the generation of
+   * its latest subscribe, and the way its pictures come, `"channel"` or a media socket's id
+   * (`socket(id, "open", {media})`), or null while that subscribe's reply is pending. Native code
+   * draws and acknowledges only what came that way, with that generation, holds what comes while
+   * pending (bounded), and starts its decoder over on a new generation. It decides nothing else.
+   */
+  "media.delivery": {
+    input: {
+      view: "browser" | "screen" | "device";
+      source: string;
+      generation: number;
+      path: string | null;
+    };
+    body: never;
+  };
   /** Base64 of up to `limit` bytes of a staged photo or file. */
   "attachment.chunk": { input: { localId: string; offset: number; limit: number }; body: never };
   /**
