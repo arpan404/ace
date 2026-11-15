@@ -22,6 +22,7 @@ import {
 import { approvalRow, preview } from "./presentation.ts";
 import { requestRow } from "./thread-requests.ts";
 import { grantName } from "./approval-names.ts";
+import { declinesOnly, summarizedNote } from "./summarized-requests.ts";
 
 /*
  * An interaction card's row: the spike's approval fields, plus the web's three approval verbs
@@ -136,17 +137,26 @@ function stripOf(interaction: Interaction, reader: RequestReader, command: strin
   }
 }
 
-export function interactionRow(interaction: Interaction, reader: RequestReader, fallback = "") {
+export function interactionRow(asked: Interaction, reader: RequestReader, fallback = "") {
+  // A summarized request offers only declines: the phone never shows it whole (ADR 0156).
+  const summarized = summarizedNote(asked);
+  const interaction = declinesOnly(asked);
   const base = approvalRow(interaction, reader, fallback);
   const request = interaction.request;
+  const row = requestRow(request);
   return {
     ...base,
     ...(request.kind === "question" ? { title: preview(questionTitle(request.questions)) } : {}),
-    ...requestRow(request),
-    // Questions past what a phone card shows are answered on a larger screen.
+    ...row,
+    ...(summarized && row.plan ? { plan: { ...row.plan, truncated: true } } : {}),
+    ...(summarized && row.form ? { form: { ...row.form, unsupported: true, fields: [] } } : {}),
+    ...(summarized ? { truncated: true } : {}),
+    summarized,
+    // Questions past what a phone card shows, or summarized, are answered on a larger screen.
     unanswerable:
       request.kind === "question" &&
-      (request.questions.length > questionLimit ||
+      (summarized !== "" ||
+        request.questions.length > questionLimit ||
         request.questions.some((question) => question.options.length > optionLimit)),
     ...approval(interaction, base.command),
     questions: questions(interaction),

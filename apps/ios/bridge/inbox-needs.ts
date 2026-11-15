@@ -16,6 +16,7 @@ import { dispatchCommand } from "./commands.ts";
 import { interactionRow } from "./interaction-rows.ts";
 import { preview } from "./presentation.ts";
 import { answerResolution } from "./thread-controls.ts";
+import { phoneAnswer } from "./summarized-requests.ts";
 import { RequestAnswer, requestResolution } from "./thread-requests.ts";
 
 /*
@@ -140,7 +141,9 @@ export function needsResolution(
       const option = interaction.request.options.find(
         (candidate) => candidate.id === answer.optionId,
       );
-      return option ? { kind: "approval", optionId: option.id } : undefined;
+      return option
+        ? phoneAnswer(interaction, { kind: "approval", optionId: option.id })
+        : undefined;
     }
     case "question":
       return answerResolution(interaction, answer.answers, answer.dismissed);
