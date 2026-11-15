@@ -53,14 +53,14 @@ export type RouteCapabilities = {
 };
 
 /**
- * Today's build: browser producers stream into ace-media (E4); recordings, stills and delivery
- * still act as legacy.
+ * Today's build: browser producers stream into ace-media (E4), and ace-media serves viewers on
+ * clients' media connections (D1); recordings and stills still act as legacy.
  */
 export const builtRouteCapabilities: RouteCapabilities = {
   ingest: ["tab", "tab-pictures", "user-tab", "embedded"],
   recordings: false,
   stills: false,
-  delivery: false,
+  delivery: true,
 };
 
 /**

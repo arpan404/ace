@@ -119,8 +119,8 @@ fn before_its_keys_a_stream_hands_the_daemon_one_frame_per_pull_in_order() {
     );
     assert_eq!(sent(&out), [vec![7]]);
 
-    engine.relay_frame(&sid("st"), vec![1]);
-    engine.relay_frame(&sid("st"), vec![2]);
+    engine.relay_frame(&sid("st"), vec![1], NOW);
+    engine.relay_frame(&sid("st"), vec![2], NOW);
     assert!(relay_in(&engine.effects().collect::<Vec<_>>()).is_empty());
     let pull = json!({ "type": "relay.pull", "stream": "st" });
     assert_eq!(
@@ -133,7 +133,7 @@ fn before_its_keys_a_stream_hands_the_daemon_one_frame_per_pull_in_order() {
     );
     // A pull ahead of its frame is answered when the frame arrives.
     assert!(relay_in(&send(&mut engine, pull, &[], NOW)).is_empty());
-    engine.relay_frame(&sid("st"), vec![3]);
+    engine.relay_frame(&sid("st"), vec![3], NOW);
     assert_eq!(relay_in(&engine.effects().collect::<Vec<_>>()), [vec![3]]);
 }
 
@@ -144,10 +144,10 @@ fn a_stream_the_daemon_stops_pulling_is_failed_past_its_bound_and_shut() {
     engine.relay_dialed(&sid("st"));
     engine.effects().for_each(drop);
     for n in 0..relay::MAX_HELD_FRAMES {
-        engine.relay_frame(&sid("st"), vec![n as u8]);
+        engine.relay_frame(&sid("st"), vec![n as u8], NOW);
     }
     assert!(engine.effects().next().is_none());
-    engine.relay_frame(&sid("st"), vec![0]);
+    engine.relay_frame(&sid("st"), vec![0], NOW);
     let effects: Vec<Effect> = engine.effects().collect();
     assert!(
         effects
@@ -201,8 +201,8 @@ fn after_the_keys_ace_media_opens_what_the_daemon_never_pulled_and_answers_it() 
         Ok(frame) => frame,
         Err(_) => panic!("seal"),
     };
-    engine.relay_frame(&sid("st"), start);
-    engine.relay_frame(&sid("st"), ping);
+    engine.relay_frame(&sid("st"), start, NOW);
+    engine.relay_frame(&sid("st"), ping, NOW);
     let effects = hand_over(&mut engine, "st", 3);
     assert!(
         effects
@@ -261,7 +261,7 @@ fn a_client_sending_anything_but_acks_and_pings_loses_its_connection() {
         Ok(frame) => frame,
         Err(_) => panic!("seal"),
     };
-    engine.relay_frame(&sid("st"), subscribe);
+    engine.relay_frame(&sid("st"), subscribe, NOW);
     let effects: Vec<Effect> = engine.effects().collect();
     assert_eq!(closed_connections(&effects), ["rc"]);
     assert!(
@@ -292,7 +292,7 @@ fn a_revocation_shuts_the_relay_socket_before_it_is_answered() {
         .position(|e| matches!(e, Effect::Priority(FromMedia::Revoked { .. })));
     assert!(matches!((close, answer), (Some(c), Some(a)) if c < a));
     // A frame still in flight on the shut stream is dropped, not opened.
-    engine.relay_frame(&sid("st"), vec![0; 40]);
+    engine.relay_frame(&sid("st"), vec![0; 40], NOW);
     assert!(sent(&engine.effects().collect::<Vec<_>>()).is_empty());
 }
 

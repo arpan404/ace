@@ -11,6 +11,12 @@ import {
 import type { BrowserService } from "./service.ts";
 import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
+import {
+  mediaSubscribed,
+  viewLink,
+  viewViewport,
+  type MediaDeliveryPort,
+} from "@ace/media/media-viewers";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
 
@@ -65,6 +71,11 @@ export function connectBrowser(
     /** The connection is on this machine (the daemon's loopback listener, never a client claim). */
     local?: boolean;
     /**
+     * Delivery by ace-media (D1) for subscribes that name a media connection, with this main
+     * session's id. Without it, or while ace-media doesn't serve, a subscribe is served here.
+     */
+    media?: { session: string; delivery: () => MediaDeliveryPort | undefined };
+    /**
      * Opens a thread attachment this connection uploaded (the files a person picks for a page's
      * file input). Without it, picking files is refused.
      */
@@ -83,6 +94,12 @@ export function connectBrowser(
     subscribers: Set<string>;
     binary: boolean;
     video?: BrowserVideoRequest | undefined;
+    /**
+     * The viewer ace-media delivers to on the client's media connection. Its capture still runs
+     * here, so the producer streams; its chunks are acknowledged here at once and never sent on
+     * this socket.
+     */
+    media?: string | undefined;
   };
   const subscriptions = new Map<string, Subscription>();
   const sendStream = options.sendStream;
@@ -93,16 +110,25 @@ export function connectBrowser(
       sendStream
         ? {
             video: {
-              send: (chunk) =>
-                entry.binary && entry.video !== undefined
+              send: (chunk) => {
+                if (entry.media) {
+                  queueMicrotask(() =>
+                    service.acknowledgeVideo(threadId, options.connectionId, chunk.sequence, false),
+                  );
+                  return true;
+                }
+                return entry.binary && entry.video !== undefined
                   ? sendStream(service.streamVideo(threadId, chunk))
-                  : false,
+                  : false;
+              },
             },
             audio: {
               send: (chunk) =>
-                entry.binary && entry.video !== undefined
-                  ? sendStream(service.streamAudio(threadId, chunk))
-                  : false,
+                entry.media
+                  ? true
+                  : entry.binary && entry.video !== undefined
+                    ? sendStream(service.streamAudio(threadId, chunk))
+                    : false,
             },
             ...(options.local === true ? { local: true } : {}),
           }
@@ -111,6 +137,39 @@ export function connectBrowser(
       (event) => options.send(event),
       capture,
     );
+  };
+  /**
+   * A subscribe naming a media connection: its viewer on that connection, when ace-media
+   * delivers this browser's video now. A connection of another session is refused; otherwise,
+   * while ace-media doesn't serve, the subscribe is served on this socket.
+   */
+  const bindMedia = (
+    threadId: string,
+    subscriber: string,
+    connection: string,
+    message: Extract<BrowserClientMessage, { type: "browser.subscribe" }>,
+  ): string | undefined => {
+    const media = options.media;
+    const delivery = media?.delivery();
+    const kinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
+    if (!media || !delivery || !kinds.some((kind) => delivery.serves(kind))) return undefined;
+    const viewport = message.viewport;
+    const viewer = `${media.session}/${threadId}/${subscriber}`.slice(0, 64);
+    const link = viewLink(viewport?.link);
+    const bound = delivery.bind({
+      viewer,
+      session: media.session,
+      connection,
+      target: { kind: "browser", threadId },
+      codecs: message.video?.codecs ?? ["avc1.42E033"],
+      viewport: viewViewport(viewport ?? { width: 1280, height: 800, devicePixelRatio: 1 }),
+      local: options.local === true,
+      audio: viewport?.audio === true,
+      ...(link ? { link } : {}),
+      shows: (producer) => producer.threadId === threadId,
+    });
+    if (!bound) throw new Error("media-connection: that media connection isn't this session's");
+    return viewer;
   };
   let pending = 0;
   let closed = false;
@@ -312,6 +371,9 @@ export function connectBrowser(
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";
+            const delivered = message.media
+              ? bindMedia(threadId, subscriber, message.media.connection, message)
+              : undefined;
             // The newest subscriber's build decides how frames travel on this connection.
             const binary = message.binaryFrames === true && sendStream !== undefined;
             // Video travels only as binary stream messages.
@@ -324,16 +386,35 @@ export function connectBrowser(
                 throw new Error("Browser subscriber limit");
               entry.binary = binary;
               entry.video = video;
+              entry.media = delivered;
               if (capture) service.configureCapture(threadId, options.connectionId, capture);
               options.send({ type: "browser.state", state: service.state(threadId) });
               service.replayFrame(threadId, options.connectionId);
               entry.subscribers.add(subscriber);
             } else {
               if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-              entry = { subscribers: new Set([subscriber]), stop() {}, binary, video };
+              entry = {
+                subscribers: new Set([subscriber]),
+                stop() {},
+                binary,
+                video,
+                media: delivered,
+              };
               bind(threadId, entry, capture);
               subscriptions.set(threadId, entry);
               if (capture) service.configureCapture(threadId, options.connectionId, capture);
+            }
+            if (delivered && message.media) {
+              const poster = await options.media?.delivery()?.poster(delivered);
+              if (!closed)
+                options.send({
+                  type: "browser.result",
+                  requestId: message.requestId,
+                  ok: true,
+                  result: null,
+                  media: mediaSubscribed(message.media.connection, poster),
+                });
+              break;
             }
             respond(null);
             break;
@@ -341,6 +422,10 @@ export function connectBrowser(
           case "browser.unsubscribe": {
             const entry = subscriptions.get(threadId);
             entry?.subscribers.delete(message.subscriberId ?? "legacy");
+            if (entry?.media) {
+              options.media?.delivery()?.unbind(entry.media);
+              entry.media = undefined;
+            }
             if (entry && !entry.subscribers.size) {
               entry.stop();
               subscriptions.delete(threadId);
@@ -351,6 +436,15 @@ export function connectBrowser(
           case "browser.capture": {
             const entry = subscriptions.get(threadId);
             if (!entry) throw new Error("Browser viewer is not subscribed");
+            if (entry.media) {
+              const delivery = options.media?.delivery();
+              delivery?.configure(
+                entry.media,
+                viewViewport(message.viewport),
+                message.viewport.audio === true,
+              );
+              delivery?.pause(entry.media, message.viewport.paused === true);
+            }
             service.configureCapture(
               threadId,
               options.connectionId,
@@ -403,7 +497,10 @@ export function connectBrowser(
     },
     close() {
       closed = true;
-      for (const entry of subscriptions.values()) entry.stop();
+      for (const entry of subscriptions.values()) {
+        if (entry.media) options.media?.delivery()?.unbind(entry.media);
+        entry.stop();
+      }
       subscriptions.clear();
       service.disconnect(options.connectionId);
     },

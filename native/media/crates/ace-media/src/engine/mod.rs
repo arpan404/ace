@@ -3,9 +3,11 @@
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
 pub mod base64;
+pub mod delivery;
 pub mod egress;
 pub mod grants;
 pub mod ledger;
+pub mod pieces;
 pub mod recorder;
 pub mod relay;
 pub mod sources;
@@ -14,6 +16,7 @@ pub mod stills;
 mod tests;
 
 use crate::secret::Vault;
+use delivery::{Delivery, MediaOut, Open};
 use egress::EgressSink;
 use grants::{Grant, Grants};
 use media_core::privacy::Decision;
@@ -34,6 +37,11 @@ pub enum Effect {
     NormalWith(FromMedia, Vec<u8>),
     /// Send on the priority lane.
     Priority(FromMedia),
+    /// Send on, or close, a client's media connection (D1).
+    Media {
+        connection: String,
+        out: MediaOut,
+    },
     /// Answer a `ping`: the shell adds what only the OS knows.
     Pong(Id),
     CloseIngest(IngestId),
@@ -178,6 +186,7 @@ pub struct Engine {
     stills: Stills,
     relays: Relays,
     pool: Pool,
+    delivery: Delivery,
     bytes_out: u64,
     out: Vec<Effect>,
 }
@@ -193,6 +202,7 @@ impl Engine {
             stills: Stills::new(Box::new(NoStills)),
             relays: Relays::default(),
             pool: Pool::default(),
+            delivery: Delivery::default(),
             bytes_out: 0,
             out: Vec::new(),
         }
@@ -214,23 +224,59 @@ impl Engine {
         self.stills.finished(outcome, &mut self.out);
     }
 
+    /// Whether effects are waiting to be carried out.
+    pub fn has_effects(&self) -> bool {
+        !self.out.is_empty()
+    }
+
     /// The effects produced so far, in the order they must happen.
     pub fn effects(&mut self) -> std::vec::Drain<'_, Effect> {
+        self.route_relay();
         self.out.drain(..)
+    }
+
+    /// Delivery speaks to connections; a relay connection's messages are sealed for its stream
+    /// here, in place, so they keep their order among the other effects.
+    fn route_relay(&mut self) {
+        if !self.out.iter().any(|e| matches!(e, Effect::Media { connection, .. } if self.grants.relay_stream_of(connection).is_some())) {
+            return;
+        }
+        let pending = std::mem::take(&mut self.out);
+        for effect in pending {
+            match effect {
+                Effect::Media { connection, out } if self.is_relay(&connection) => {
+                    self.relay_media(&connection, out)
+                }
+                other => self.out.push(other),
+            }
+        }
     }
 
     pub fn counts(&self) -> Counts {
         Counts {
             sources: self.sources.len() as u64,
-            viewers: self.grants.viewers() as u64,
+            viewers: self.delivery.views() as u64,
             connections: self.grants.connections() as u64,
-            bytes_out: self.bytes_out,
+            bytes_out: self.bytes_out + self.delivery.bytes_out(),
         }
     }
 
     /// One control message from either lane. Its payload is wiped when this returns, unless it
     /// was handed on (pictures).
     pub fn control(&mut self, message: ToMedia, payload: Zeroizing<Vec<u8>>, now: Now) {
+        self.apply_control(message, payload, now);
+        self.closed_connections(now);
+    }
+
+    /// Connections the grants dropped: delivery ends their views and closes their sockets.
+    fn closed_connections(&mut self, now: Now) {
+        for (connection, reason) in self.grants.take_closed() {
+            self.delivery
+                .connection_closed(&connection, &reason, now.mono_ms, &mut self.out);
+        }
+    }
+
+    fn apply_control(&mut self, message: ToMedia, payload: Zeroizing<Vec<u8>>, now: Now) {
         let out = &mut self.out;
         let vault = &mut self.vault;
         match message {
@@ -262,7 +308,16 @@ impl Engine {
                     None => self.stills.close(source.get(), out),
                 }
             }
-            ToMedia::SourcePage { .. } | ToMedia::SourceCodecs { .. } => {}
+            ToMedia::SourcePage {
+                source,
+                width,
+                height,
+                scale,
+            } => self.delivery.page(source.get(), width, height, scale.get()),
+            ToMedia::SourceCodecs { source, codecs } => {
+                self.delivery
+                    .codecs(source.get(), &codecs, now.mono_ms, out)
+            }
             ToMedia::SourcePicture {
                 source,
                 epoch,
@@ -317,6 +372,7 @@ impl Engine {
                     out,
                 );
                 self.stills.close(source.get(), out);
+                self.delivery.source_closed(source.get());
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::SourceEncodes { source, encodes } => {
@@ -347,9 +403,15 @@ impl Engine {
                 connection,
                 owner,
                 issued,
-                ..
+                source,
+                target,
+                codecs,
+                viewport,
+                local,
+                audio,
+                link,
             } => {
-                self.grants.viewer(
+                let granted = self.grants.viewer(
                     Grant {
                         kind: "viewer.open",
                         id: &viewer,
@@ -359,13 +421,48 @@ impl Engine {
                     },
                     out,
                 );
+                if granted {
+                    let hint_bps = link
+                        .and_then(|l| l.downlink_kbps)
+                        .map(|kbps| f64::from(kbps) * 1000.0);
+                    self.delivery.open(
+                        Open {
+                            viewer,
+                            connection: connection.get().to_owned(),
+                            session: owner.session.get().to_owned(),
+                            source: source.get().to_owned(),
+                            target,
+                            codecs,
+                            viewport,
+                            audio,
+                            local,
+                            hint_bps,
+                        },
+                        now.mono_ms,
+                        out,
+                    );
+                }
             }
-            // Delivery to viewers lands with D1; until then these change nothing here.
-            ToMedia::ViewerConfigure { .. }
-            | ToMedia::ViewerPause { .. }
-            | ToMedia::ViewerResume { .. }
-            | ToMedia::SessionLink { .. } => {}
-            ToMedia::ViewerClose { viewer } => self.grants.viewer_close(viewer.get()),
+            ToMedia::ViewerConfigure {
+                viewer,
+                viewport,
+                audio,
+            } => self
+                .delivery
+                .configure(viewer.get(), viewport, audio, now.mono_ms, out),
+            ToMedia::ViewerPause { viewer } => self.delivery.pause(viewer.get(), now.mono_ms, out),
+            ToMedia::ViewerResume { viewer } => {
+                self.delivery.resume(viewer.get(), now.mono_ms, out)
+            }
+            ToMedia::SessionLink {
+                session, rtt_ms, ..
+            } => self
+                .delivery
+                .session_link(session.get(), rtt_ms, now.mono_ms, out),
+            ToMedia::ViewerClose { viewer } => {
+                self.grants.viewer_close(viewer.get());
+                self.delivery.close_view(viewer.get(), now.mono_ms, out);
+            }
             ToMedia::RelayDial { stream, url } => {
                 let refused = if self.grants.stream_closed(stream.get()) {
                     Err("closed")
@@ -421,13 +518,11 @@ impl Engine {
                     self.grants.close_stream(stream.get(), out);
                     return;
                 }
-                let held = self.relays.take(stream.get());
+                // The relay channel's welcome was the daemon's; the views start now.
+                self.delivery.attached(&connection, now.mono_ms, out);
                 // What the client sent after its hello, which the daemon never pulled.
-                for frame in held {
-                    // Acks are routed to their viewers by D1's delivery.
-                    let _ack = self
-                        .grants
-                        .relay_frame(stream.get(), frame, &self.pool, vault, out);
+                for frame in self.relays.take(stream.get()) {
+                    self.relay_opened(stream.get(), frame, now);
                 }
             }
             ToMedia::RelayClose { id, stream, .. } => {
@@ -542,7 +637,7 @@ impl Engine {
     }
 
     /// A frame arrived on a relay stream's socket.
-    pub fn relay_frame(&mut self, stream: &Id, frame: Vec<u8>) {
+    pub fn relay_frame(&mut self, stream: &Id, frame: Vec<u8>, now: Now) {
         if self.relays.is_pending(stream.get()) {
             let next = self.relays.arrived(stream.get(), frame);
             if matches!(next, ToDaemon::Failed(_)) {
@@ -550,19 +645,60 @@ impl Engine {
             }
             return relay_in(&mut self.out, stream.clone(), next);
         }
-        // Acks are routed to their viewers by D1's delivery.
-        let _ack = self.grants.relay_frame(
-            stream.get(),
-            frame,
-            &self.pool,
-            &mut self.vault,
-            &mut self.out,
-        );
+        self.relay_opened(stream.get(), frame, now);
+        self.closed_connections(now);
+    }
+
+    /// A keyed stream's frame: its client message goes to delivery, as a direct connection's.
+    fn relay_opened(&mut self, stream: &str, frame: Vec<u8>, now: Now) {
+        let opened =
+            self.grants
+                .relay_frame(stream, frame, &self.pool, &mut self.vault, &mut self.out);
+        let Some((connection, message)) = opened else {
+            return;
+        };
+        if !self
+            .delivery
+            .client(&connection, message, now.mono_ms, &mut self.out)
+        {
+            log(
+                &mut self.out,
+                Level::Warn,
+                "media connection closed: a message it doesn't take",
+                &id_of(&connection),
+            );
+            self.grants
+                .close(&connection, "protocol", &mut self.vault, &mut self.out);
+        }
+    }
+
+    /// Whether a connection is a relay stream's (its delivery goes through [`Self::relay_media`]).
+    pub fn is_relay(&self, connection: &str) -> bool {
+        self.grants.relay_stream_of(connection).is_some()
+    }
+
+    /// What delivery sends on a relay connection: sealed for its stream, or its stream shut.
+    /// A piece the client's flow window can't take now is dropped; delivery's acks and keyframe
+    /// requests recover the picture.
+    pub fn relay_media(&mut self, connection: &str, message: MediaOut) {
+        match message {
+            MediaOut::Binary(bytes) => {
+                self.relay_send(connection, true, &bytes);
+            }
+            MediaOut::Text(text) => {
+                self.relay_send(connection, false, text.as_bytes());
+            }
+            MediaOut::Close(_) => {
+                if let Some(stream) = self.grants.relay_stream_of(connection).map(str::to_owned) {
+                    self.grants.close_stream(&stream, &mut self.out);
+                }
+            }
+        }
     }
 
     /// A relay stream's socket failed to open or dropped. Before its keys the daemon hears
     /// `relay.failed`; after them the stream's connection ends.
-    pub fn relay_ended(&mut self, stream: &Id, reason: &str) {
+    pub fn relay_ended(&mut self, stream: &Id, reason: &str, now: Now) {
         let out = &mut self.out;
         if self.relays.is_pending(stream.get()) {
             self.relays.take(stream.get());
@@ -583,6 +719,7 @@ impl Engine {
             self.grants
                 .close(&connection, "relay-closed", &mut self.vault, out);
         }
+        self.closed_connections(now);
     }
 
     /// One message to a relay connection's client (D1's delivery): false when it can't go now.
@@ -612,6 +749,8 @@ impl Engine {
     pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
         if let Some(source) = self.sources.bound(conn) {
             self.stills.frame(source, &frame, &mut self.out);
+            self.delivery
+                .unit(source, &frame, now.mono_ms, &mut self.out);
         }
         self.sources
             .ingest(conn, frame, now, self.egress.as_mut(), &mut self.out);
@@ -619,6 +758,10 @@ impl Engine {
 
     /// A unit a JPEG source's encoder thread finished.
     pub fn encoded(&mut self, source: &str, token: u64, frame: MediaFrame, now: Now) {
+        if self.sources.encoder_is(source, token) {
+            self.delivery
+                .unit(source, &frame, now.mono_ms, &mut self.out);
+        }
         self.sources.encoded(
             source,
             token,
@@ -665,8 +808,46 @@ impl Engine {
 
     /// A client presented a ticket on the direct listener (D1).
     pub fn claim_ticket(&mut self, presented: &[u8], now: Now) -> Option<Id> {
+        let claimed = self
+            .grants
+            .claim(presented, &mut self.vault, now.wall_ms, &mut self.out);
+        if let Some(connection) = &claimed {
+            self.delivery
+                .socket_open(connection, now.mono_ms, &mut self.out);
+        }
+        self.closed_connections(now);
+        claimed
+    }
+
+    /// A text message on an open media connection. A message a media connection doesn't take
+    /// closes it (`4400`), and the daemon hears `connection.closed`.
+    pub fn media_message(&mut self, connection: &str, text: &str, now: Now) {
+        let accepted = media_wire::media_link::ClientMessage::parse(text).is_some_and(|message| {
+            self.delivery
+                .client(connection, message, now.mono_ms, &mut self.out)
+        });
+        if !accepted {
+            log(
+                &mut self.out,
+                Level::Warn,
+                "media connection closed: a message it doesn't take",
+                &id_of(connection),
+            );
+            self.out.push(Effect::Media {
+                connection: connection.to_owned(),
+                out: MediaOut::Close(media_wire::media_link::close::PROTOCOL),
+            });
+            self.grants
+                .close(connection, "protocol", &mut self.vault, &mut self.out);
+            self.closed_connections(now);
+        }
+    }
+
+    /// A client's media connection closed: the connection ends for good.
+    pub fn media_closed(&mut self, connection: &str, now: Now) {
         self.grants
-            .claim(presented, &mut self.vault, now.wall_ms, &mut self.out)
+            .close(connection, "client-closed", &mut self.vault, &mut self.out);
+        self.closed_connections(now);
     }
 
     /// Periodic: barrier hold bounds and ticket expiry.
@@ -676,6 +857,8 @@ impl Engine {
         self.stills.tick(now.mono_ms, &mut self.out);
         self.grants
             .tick(&mut self.vault, now.wall_ms, &mut self.out);
+        self.closed_connections(now);
+        self.delivery.tick(now.mono_ms, &mut self.out);
     }
 
     /// Shutdown or stdin closing: close every recording and connection.
@@ -684,7 +867,17 @@ impl Engine {
         self.stills.finish(&mut self.out);
         self.grants
             .close_all("shutdown", &mut self.vault, &mut self.out);
+        let now = Now {
+            mono_ms: 0,
+            mono_us: 0,
+            wall_ms: 0,
+        };
+        self.closed_connections(now);
     }
+}
+
+fn id_of(value: &str) -> Id {
+    Id::new(value.chars().take(64).collect()).unwrap_or_else(|_| unreachable!())
 }
 
 fn id(value: &str) -> Id {

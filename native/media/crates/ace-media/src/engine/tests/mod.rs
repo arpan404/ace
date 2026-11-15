@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Shared helpers for the engine's behaviour tests.
+mod delivery;
 mod egress;
 mod grants;
 mod pictures;

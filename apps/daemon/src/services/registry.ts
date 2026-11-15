@@ -61,6 +61,7 @@ import { createMachineUpdateSession } from "./machine-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
+import { createMediaConnectSession } from "./media-connect.ts";
 import type { SocketContext } from "./socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
@@ -78,6 +79,7 @@ export const socketServiceFactories = [
   createActivityReadsSession,
   createVerifySession,
   createIconsSession,
+  createMediaConnectSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,

@@ -14,6 +14,7 @@ mod relay;
 mod relay_ws;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
+mod viewers;
 mod writer;
 
 use crate::encode::worker::Output;
@@ -176,6 +177,14 @@ async fn serve(
         Err(error) => return fail(&format!("ingest websocket: {error}")),
     };
     let websocket_port = websocket.local_addr().map_or(0, |a| u32::from(a.port()));
+    // Clients' media connections (D1): loopback, plain WebSocket.
+    let media_listener = match TcpListener::bind(("127.0.0.1", 0)).await {
+        Ok(listener) => listener,
+        Err(error) => return fail(&format!("media listener: {error}")),
+    };
+    let loopback_port = media_listener
+        .local_addr()
+        .map_or(0, |a| u32::from(a.port()));
 
     let probed = tokio::task::spawn_blocking(|| probe(trials(), TRIAL_DEADLINE)).await;
     let Ok((mut capabilities, late)) = probed else {
@@ -221,7 +230,7 @@ async fn serve(
             socket: control_path.to_string_lossy().into_owned(),
         },
         listen: Listen {
-            loopback_port: 0,
+            loopback_port,
             remote_port: None,
         },
     };
@@ -235,6 +244,10 @@ async fn serve(
     let ingest = Ingest::new(ingest_tx);
     ingest::serve_socket(ingest_socket, ingest.clone());
     ingest::serve_websocket(websocket, ingest);
+    let (media_tx, mut media_rx) = mpsc::channel(256);
+    viewers::serve(media_listener, media_tx);
+    let mut outboxes = viewers::Outboxes::default();
+    let mut hellos = viewers::Hellos::default();
 
     let (normal_tx, mut normal_rx) = mpsc::channel(4);
     tokio::spawn(async move {
@@ -340,6 +353,7 @@ async fn serve(
                         pictures: &mut pictures,
                         readers: &mut readers,
                         relays: &mut relays,
+                        media: &mut outboxes,
                         now_ms: clock.now().mono_ms,
                     };
                     apply(&mut engine, &mut outputs);
@@ -389,10 +403,27 @@ async fn serve(
                         relays.adopt(&stream, socket);
                     }
                 }
-                relay::RelayEvent::Frame { stream, frame } => engine.relay_frame(&stream, frame),
+                relay::RelayEvent::Frame { stream, frame } => {
+                    engine.relay_frame(&stream, frame, clock.now())
+                }
                 relay::RelayEvent::Ended { stream, reason } => {
                     relays.close(stream.get());
-                    engine.relay_ended(&stream, reason);
+                    engine.relay_ended(&stream, reason, clock.now());
+                }
+            },
+            Some(event) = media_rx.recv() => match event {
+                viewers::MediaEvent::Hello { ticket, outbox, admit } => {
+                    let now = clock.now();
+                    let mut claim =
+                        |t: &[u8]| engine.claim_ticket(t, now).map(|c| c.get().to_owned());
+                    hellos.present(ticket, outbox, admit, &mut claim, &mut outboxes);
+                }
+                viewers::MediaEvent::Text(connection, text) => {
+                    engine.media_message(&connection, &text, clock.now());
+                }
+                viewers::MediaEvent::Closed(connection) => {
+                    outboxes.close(&connection, media_wire::media_link::close::CLOSED);
+                    engine.media_closed(&connection, clock.now());
                 }
             },
             _ = tick.tick() => {
@@ -400,6 +431,11 @@ async fn serve(
                 engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
                 engine.tick(now);
             }
+        }
+        {
+            let now = clock.now();
+            let mut claim = |t: &[u8]| engine.claim_ticket(t, now).map(|c| c.get().to_owned());
+            hellos.retry(&mut claim, &mut outboxes);
         }
         let mut outputs = Outputs {
             stdout: &stdout,
@@ -409,6 +445,7 @@ async fn serve(
             pictures: &mut pictures,
             readers: &mut readers,
             relays: &mut relays,
+            media: &mut outboxes,
             now_ms: clock.now().mono_ms,
         };
         match apply(&mut engine, &mut outputs) {

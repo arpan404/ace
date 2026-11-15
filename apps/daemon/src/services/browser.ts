@@ -271,6 +271,8 @@ export function createBrowserSession(context: SocketContext): SocketService {
     sendStream: (pieces) => sendBrowserStream(socket, pieces),
     // A viewer on this machine gets its video at the top rate from the first picture.
     local: context.local === true,
+    // Subscribes naming a media connection go to ace-media (D1) while it serves.
+    media: { session: sessionId, delivery: () => options.mediaDelivery?.() },
     // Files the person picks for a page's file input, uploaded by this device as attachments.
     attachment: async (threadId, sha256) => {
       const device = context.device();

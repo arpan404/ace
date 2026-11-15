@@ -3,7 +3,9 @@
 use super::pictures::Pictures;
 use super::readers::Readers;
 use super::relay::RelaySockets;
+use super::viewers::Outboxes;
 use super::writer::Writer;
+use crate::engine::delivery::MediaOut;
 use crate::engine::relay::RelayEffect;
 use crate::engine::sources::IngestId;
 use crate::engine::{Effect, EncodeEffect, Engine};
@@ -31,6 +33,8 @@ pub struct Outputs<'a> {
     pub pictures: &'a mut Pictures,
     pub readers: &'a mut Readers,
     pub relays: &'a mut RelaySockets,
+    /// Clients' media connections.
+    pub media: &'a mut Outboxes,
     /// ace-media's monotonic milliseconds, for when encoder threads were closed.
     pub now_ms: u64,
 }
@@ -55,14 +59,20 @@ pub fn apply(engine: &mut Engine, outputs: &mut Outputs<'_>) -> Step {
         if let Some(exit) = apply_once(engine, outputs, &mut step, &mut backed_up) {
             return exit;
         }
-        if backed_up.is_empty() {
-            return step;
-        }
         for stream in backed_up {
             outputs.relays.close(&stream);
             if let Ok(id) = media_wire::control::Id::new(stream) {
-                engine.relay_ended(&id, "backlog");
+                // Only the monotonic clock matters for a close.
+                let now = crate::engine::Now {
+                    mono_ms: outputs.now_ms,
+                    mono_us: outputs.now_ms.saturating_mul(1_000),
+                    wall_ms: 0,
+                };
+                engine.relay_ended(&id, "backlog", now);
             }
+        }
+        if !engine.has_effects() {
+            return step;
         }
     }
 }
@@ -160,6 +170,14 @@ fn apply_once(
                         readers.close(token, now_ms)
                     }
                     EncodeEffect::Close { token, .. } => pictures.close(token, now_ms),
+                }
+                Ok(())
+            }
+            Effect::Media { connection, out } => {
+                match out {
+                    MediaOut::Binary(bytes) => outputs.media.binary(&connection, bytes),
+                    MediaOut::Text(text) => outputs.media.text(&connection, text),
+                    MediaOut::Close(code) => outputs.media.close(&connection, code),
                 }
                 Ok(())
             }

@@ -8,7 +8,7 @@
 use media_noise::{
     CREDIT_FLAG, FragmentKind, Fragments, MessageAssembler, RelayStream, fragment_cost, read_credit,
 };
-use media_wire::media_link::{ClientMessage, ServerMessage};
+use media_wire::media_link::ClientMessage;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -224,7 +224,7 @@ impl Keyed {
     }
 
     /// Opens one inbound frame: a credit (answered at once), or a fragment of a client message.
-    /// A whole ping is answered with a pong; a whole ack is returned for delivery.
+    /// A whole message (an ack or a ping) is returned for delivery to answer.
     pub fn open(
         &mut self,
         stream: &str,
@@ -281,16 +281,7 @@ impl Keyed {
             return Err(Broken::Protocol);
         }
         let text = std::str::from_utf8(&message.data).map_err(|_| Broken::Protocol)?;
-        match ClientMessage::parse(text).ok_or(Broken::Protocol)? {
-            ClientMessage::Ping { .. } => {
-                let pong =
-                    serde_json::to_vec(&ServerMessage::Pong).map_err(|_| Broken::Protocol)?;
-                // A pong that finds no credit is dropped; the client pings again.
-                let _ = self.send(stream, FragmentKind::Json, &pong, pool, out)?;
-                Ok(None)
-            }
-            ack => Ok(Some(ack)),
-        }
+        ClientMessage::parse(text).ok_or(Broken::Protocol).map(Some)
     }
 
     /// One message to the client (a piece is binary, a control message JSON), whole or not at

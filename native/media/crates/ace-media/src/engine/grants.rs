@@ -46,6 +46,8 @@ pub struct Grants {
     ledger: Ledger,
     viewers: HashMap<String, Viewer>,
     streams: HashMap<String, Keyed>,
+    /// Connections dropped since the engine last asked, with why: delivery closes their sockets.
+    closed: Vec<(String, String)>,
 }
 
 pub struct Grant<'a> {
@@ -84,6 +86,11 @@ impl Grants {
 
     pub fn streams(&self) -> usize {
         self.streams.len()
+    }
+
+    /// The connections dropped since the last call, with their reasons.
+    pub fn take_closed(&mut self) -> Vec<(String, String)> {
+        std::mem::take(&mut self.closed)
     }
 
     /// The ledger's verdict, sent as `grant.refused` when it refuses.
@@ -302,6 +309,14 @@ impl Grants {
         true
     }
 
+    /// The keyed stream a relay connection runs on.
+    pub fn relay_stream_of(&self, connection: &str) -> Option<&str> {
+        self.streams
+            .iter()
+            .find(|(_, s)| s.connection == connection)
+            .map(|(id, _)| id.as_str())
+    }
+
     /// The connection a keyed stream carries.
     pub fn stream_connection(&self, stream: &str) -> Option<&str> {
         self.streams.get(stream).map(|s| s.connection.as_str())
@@ -408,6 +423,7 @@ impl Grants {
             vault.erase(secret);
         }
         self.viewers.retain(|_, v| v.connection != key);
+        self.closed.push((key.to_owned(), reason.to_owned()));
         let streams: Vec<String> = self
             .streams
             .iter()
