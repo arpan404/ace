@@ -5,6 +5,17 @@
     "active": {
       "type": "boolean"
     },
+    "path": {
+      "anyOf": [
+        {
+          "pattern": "^\\/hooks\\/[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "problem": {
       "maxLength": 512,
       "type": "string"
@@ -25,6 +36,7 @@
   },
   "required": [
     "active",
+    "path",
     "url"
   ],
   "type": "object"

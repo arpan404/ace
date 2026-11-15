@@ -3,10 +3,10 @@ import { AutomationWebhooks, signWebhook, type WebhookRequest } from "./index.ts
 import { definition, harness, start } from "./service-test-support.ts";
 
 let counter = 0;
+const bytes = (size: number) => new Uint8Array(size).map(() => ++counter % 256);
 function setup() {
   const h = harness();
   h.now = start;
-  const bytes = (size: number) => new Uint8Array(size).map(() => ++counter % 256);
   const webhooks = () =>
     new AutomationWebhooks(h.store, h.service, { now: () => start, randomBytes: bytes });
   h.service.put(

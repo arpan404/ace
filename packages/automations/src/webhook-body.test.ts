@@ -7,6 +7,8 @@ const read = (body: unknown) =>
     new TextEncoder().encode(typeof body === "string" ? body : JSON.stringify(body)),
     "evt_1",
   );
+const fields = (count: number) =>
+  Object.fromEntries(Array.from({ length: count }, (_, i) => [`f${i}`, i]));
 const nested = (depth: number): unknown => (depth === 1 ? { leaf: 1 } : { a: nested(depth - 1) });
 
 describe("webhook body variables", () => {
@@ -56,8 +58,6 @@ describe("webhook body variables", () => {
   });
 
   it("refuses more leaves than the prompt can hold, rather than dropping some", () => {
-    const fields = (count: number) =>
-      Object.fromEntries(Array.from({ length: count }, (_, i) => [`f${i}`, i]));
     expect(read(fields(webhookBodyLimits.leaves))).toMatchObject({ ok: true });
     expect(read(fields(webhookBodyLimits.leaves + 1))).toMatchObject({ ok: false });
   });

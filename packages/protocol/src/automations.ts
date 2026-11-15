@@ -181,6 +181,11 @@ export type AutomationTriggerError = z.infer<typeof AutomationTriggerError>;
 export const AutomationWebhookState = z.object({
   /** Whether a secret exists: false until the person creates one, and after revoking it. */
   active: z.boolean(),
+  /** `/hooks/<hookId>` while active: the URL's path after the machine's base. Not a secret. */
+  path: z
+    .string()
+    .regex(/^\/hooks\/[0-9a-f]{32}$/)
+    .nullable(),
   url: z.url().max(2048).nullable(),
   problem: z.string().max(512).optional(),
 });
