@@ -308,10 +308,28 @@ table, including timed-out trials and the ranking cache.
   - **Probe.** One trial today, M5's CPU path (`jpeg-decode`, `jpeg-encode`, `scale` on `cpu`,
     never `hardware`). Backends add a `probe::Trial`; trials run on threads of their own and
     `ready` waits at most the 2 s trial deadline.
-  - **Windows.** The lanes on named pipes with a current-user ACL are not built; the binary exits
-    1 there.
+  - **Windows.** The control and ingest sockets are named pipes,
+    `\\.\pipe\ace-media-<pid>-<nonce>c` and `…i`, with one 128-bit nonce from the system RNG
+    shared by both, so their names pair like the socket files. Each pipe has a protected DACL,
+    `D:P(A;;GRGW;;;<current user's SID>)`, refuses remote clients and claims its name as the
+    first instance, so a squatter makes start fail rather than receive connections. Two
+    instances always wait and each accepted one is replaced at once, so clients connecting
+    together never see `ERROR_PIPE_BUSY`. `ready` reports the pipe names where Unix reports
+    paths; Node's `net.createConnection` takes either, so the daemon has no Windows branch.
+    One listener type (`shell/listener.rs`, the pipe in `shell/pipe.rs`) serves the lanes and
+    ingest, so the pending-hello slots, the 2 s hello deadline and the budgets are the same
+    code on both. The runtime directory is created if missing and must be a directory, with no
+    mode check (the pipes' ACL keeps them private). `record.start` fails `recorder-unavailable`;
+    stills use the CPU path. The secret vault and key pages are zeroed straight on the heap:
+    `Box::new` built their 64 KiB-aligned values on the stack first, which faults on Windows
+    x64. Verified on the Windows 11 ARM64 VM with an x64 build under emulation (`ring` needs
+    clang for `aarch64-pc-windows-msvc`, which the VM lacks): the Rust unit tests pass,
+    `supervisor.process.test.ts`'s lane, intruder and kill -9 restart tests pass, and
+    `egress.process.test.ts` passed 4 of 4 runs. The saturated-normal-lane revocation p99
+    measured 65–205 ms there against the 50 ms bound; native ARM64 and x64 hardware are
+    unmeasured.
   - **Acceptance.** `bun run check:media` builds the binary and runs `@ace/media`'s supervisor
-    process test against it. `cargo run --release -p ace-media --example ingest` measures the
+    process test against it (on Windows, the supervisor and egress tests). `cargo run --release -p ace-media --example ingest` measures the
     ingest budget: 0.37 % of a core for 60 fps of 33 KB units on the Mac (0.04 % idle).
 
 ### Types
