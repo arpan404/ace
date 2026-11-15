@@ -77,6 +77,8 @@ export function nativeMediaRelay(options: PhoneMediaRelayOptions): OpenMediaRela
         if (welcomed) events.message(bytes);
       },
       close(code) {
+        // The far end closed it: native code lets go of the socket too (it keeps one until told).
+        socket.close();
         if (ended) return;
         ended = true;
         events.close(code);

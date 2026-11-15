@@ -183,3 +183,41 @@ test("a relay stream the daemon refuses leaves every picture on the main socket"
   expect(asked).toContainEqual(expect.objectContaining({ id, action: "close" }));
   media.stop();
 });
+
+test("media sockets the far end closed leave nothing open natively, however many reconnects", async () => {
+  const asked = nativeSockets();
+  let run: (() => void) | undefined;
+  let next = 0;
+  const main = session(async () => granted(`mc_aaaaaaa${next++}`));
+  // Runs each retry at once: every remote close is followed by a new connection.
+  const media = phoneMedia(main.owner, {
+    schedule: (callback) => {
+      run = callback;
+      return () => {};
+    },
+    now: () => 0,
+    codecs: () => [],
+  });
+  for (let round = 0; round < 5; round++) {
+    await later();
+    const id = asked.filter((entry) => entry.action === "open").at(-1)?.id ?? "";
+    socketEvent(id, "open", "");
+    socketEvent(
+      id,
+      "message",
+      JSON.stringify({ type: "media.welcome", connection: `mc_aaaaaaa${round}` }),
+    );
+    // ace-media went away: the far end closed it.
+    socketEvent(id, "close", "1001");
+    run?.();
+  }
+  await later();
+  const opened = asked.filter((entry) => entry.action === "open").map((entry) => entry.id);
+  const closed = new Set(
+    asked.filter((entry) => entry.action === "close").map((entry) => entry.id),
+  );
+  // Every socket but the one open now has been let go natively.
+  expect(opened.slice(0, -1).filter((id) => !closed.has(id))).toEqual([]);
+  expect(opened.length).toBeGreaterThanOrEqual(5);
+  media.stop();
+});

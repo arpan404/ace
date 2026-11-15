@@ -56,7 +56,11 @@ export const nativeOpenMediaSocket =
       open: () => events.open(),
       message: (text) => events.message(text),
       binary: (bytes) => events.message(bytes),
-      close: (code) => events.close(code),
+      // The far end closed it: native code lets go of the socket too (it keeps one until told).
+      close: (code) => {
+        socket.close();
+        events.close(code);
+      },
     });
     return {
       send: (data) => (typeof data === "string" ? socket.send(data) : socket.sendBytes(data)),
