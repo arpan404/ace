@@ -103,9 +103,14 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
   });
   const control = () => {
     const pid = supervisor.snapshot().pid;
-    // The binary names its control socket itself (`m<pid>c.sock`, or a named pipe with a nonce
-    // on Windows): the one the supervisor dialled. Known before the lanes are both up.
-    if (real) return dialled ?? "";
+    // The binary names its control socket itself in `ready` (`m<pid>c.sock`, or a named pipe
+    // with a nonce on Windows): the one the supervisor dialled, known before both lanes are up.
+    // `supervisor.ingest()` is not it: that stays empty until the process accepts producers.
+    if (real) {
+      if (!dialled)
+        throw new Error("The supervisor has not dialled ace-media's control socket yet");
+      return dialled;
+    }
     return process.platform === "win32"
       ? `\\\\.\\pipe\\ace-media-fake-${pid}`
       : join(runtimeDir, "control.sock");
