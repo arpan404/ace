@@ -87,3 +87,32 @@ it("a check that may not wait on the network gets only cached keys, and a miss f
   await Promise.resolve();
   expect(cache.cached(grantFrom(k2))?.keys).toHaveLength(2);
 });
+
+it("while the key endpoint fails, misses for rotating key ids fetch at most once a minute, one at a time", async () => {
+  let now = 0;
+  let fetches = 0;
+  let inFlight = 0;
+  let most = 0;
+  const cache = grantKeyCache({
+    fetchKeys: async () => {
+      fetches++;
+      most = Math.max(most, ++inFlight);
+      await Promise.resolve();
+      inFlight--;
+      throw new Error("keys unavailable");
+    },
+    now: () => now,
+  });
+  for (let n = 0; n < 50; n++) {
+    expect(cache.cached(grantFrom(signingKey(`k${n}`, n + 1)))).toBeUndefined();
+    await Promise.resolve();
+    await Promise.resolve();
+    now += 500;
+  }
+  // 25 s of misses: the first one fetched, the failure counted toward the cooldown.
+  expect(fetches).toBe(1);
+  expect(most).toBe(1);
+  now = KEY_REFETCH_MS + 1;
+  cache.cached(grantFrom(signingKey("later", 99)));
+  expect(fetches).toBe(2);
+});
