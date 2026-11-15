@@ -41,10 +41,14 @@ const windowsHelper = process.env.ACE_WINDOWS_SCREEN_HELPER?.trim() || undefined
 const windowsRuns = process.platform === "win32" && !!binary && !!windowsHelper;
 const directory = new URL("../../../native/screen-helper/", import.meta.url).pathname;
 
-async function until(condition: () => boolean, ms = 15_000): Promise<void> {
+async function until(
+  condition: () => boolean,
+  ms = 15_000,
+  explain: () => string = () => "",
+): Promise<void> {
   const end = performance.now() + ms;
   while (!condition()) {
-    if (performance.now() > end) throw new Error("timed out");
+    if (performance.now() > end) throw new Error(`timed out ${explain()}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -234,7 +238,22 @@ async function throughAceMedia(run: {
         (entry) =>
           entry.at > flipped && viaEgress.has(entry.frame.header.sequence) === (encode === "auto"),
       );
-    await until(() => onPath().length >= 10);
+    await until(
+      () => onPath().length >= 10,
+      15_000,
+      () =>
+        JSON.stringify({
+          encode,
+          after: frames.filter((entry) => entry.at > flipped).length,
+          h264After: h264().filter((entry) => entry.at > flipped).length,
+          egressAfter: h264().filter(
+            (entry) => entry.at > flipped && viaEgress.has(entry.frame.header.sequence),
+          ).length,
+          ended,
+          health: producers.supervisor.health(),
+          lifecycle: manager.state(id).lifecycle,
+        }),
+    );
   }
   await pause(500);
   // From the last helper-socket frame before the first switch on: before it the socket's own
