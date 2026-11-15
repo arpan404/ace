@@ -14,6 +14,10 @@ import Testing
         var mayCapture = true
         var mayCorrect = true
         var now = 0.0
+        /// A focused open's landing, consulted the way the feed consults it.
+        var landing = TranscriptFocusLanding()
+        /// An 800-point feed with no header, the composer and keyboard over its bottom 200.
+        let geometry = TranscriptFocusLanding.Geometry(viewport: 800, topInset: 0, bottomInset: 0, covered: 200)
 
         init(rows: [String], origin: CGFloat = 0) {
             for (index, id) in rows.enumerated() { layOut(id, y: CGFloat(index) * 100) }
@@ -27,13 +31,31 @@ import Testing
             send(.laidOut(id, CGRect(x: 0, y: y, width: 320, height: height)))
         }
         mutating func send(_ event: TranscriptPlaceKeeper.Event) {
-            let facts = TranscriptPlaceKeeper.Facts(held: held, inset: 0, mayCapture: mayCapture, mayCorrect: mayCorrect)
+            let facts = TranscriptPlaceKeeper.Facts(held: held, inset: 0, focusLanding: landing.holdsPlace,
+                                                    mayCapture: mayCapture, mayCorrect: mayCorrect)
             for action in keeper.next(event, facts: facts, now: now) {
                 switch action {
                 case .hold(let id, let top): held = TranscriptHeldAnchor(rowID: id, itemID: nil, top: top)
                 case .place: corrections.append(action)
                 }
             }
+        }
+        /// The feed's `landFocus`: the landing's next step for `row` (nil until it is among the
+        /// rows), its scroll performed at once, and a landed row handed to the keeper.
+        @discardableResult
+        mutating func landFocus(_ row: String?) -> TranscriptFocusLanding.Step {
+            let frame = row.flatMap { keeper.frames.frame($0) }.map { TranscriptFocusLanding.Span(top: Double($0.minY), bottom: Double($0.maxY)) }
+            let step = landing.step(row: row, frame: frame, in: geometry, now: now)
+            switch step {
+            case .scroll(let id, let anchor?):
+                // Same fraction of the row and of the feed line up.
+                guard let frame = keeper.frames.frame(id) else { break }
+                let target = anchor * (geometry.viewport - Double(frame.height))
+                send(.origin(keeper.frames.origin + CGFloat(target) - frame.minY))
+            case .landed(let id): send(.focusLanded(id))
+            case .scroll, .wait, .none: break
+            }
+            return step
         }
         /// The scroll a correction asked for lands: the row sits at the top it was put at.
         mutating func land(_ action: TranscriptPlaceKeeper.Action) {
@@ -180,5 +202,51 @@ import Testing
         for step in 1...50 { feed.send(.origin(CGFloat(-step))) }
         #expect(feed.held == nil)
         #expect(feed.corrections.isEmpty)
+    }
+
+    @Test func aFocusLandingKeepsThePlaceFromTheRowHeldBeforeIt() {
+        // Reading row b, then a focused open: rows growing above b must not pull the reader back
+        // to b while the focus is on its way.
+        var feed = Feed(rows: ["a", "b", "c"])
+        feed.held = TranscriptHeldAnchor(rowID: "b", itemID: nil, top: 100)
+        feed.landing.jumped(to: "item.f", now: 0)
+        feed.layOut("a", y: 0, height: 160)
+        feed.layOut("b", y: 160)
+        feed.send(.phase(.idle))
+        #expect(feed.corrections.isEmpty)
+    }
+
+    @Test func aFocusedOpenLandsOnItsRowWhateverOrderItsRowsAndReplyArriveIn() {
+        // The window's rows land before the reply, the focus row is drawn last and off screen,
+        // and rows above it grow after it was shown.
+        var feed = Feed(rows: ["a", "b", "c"])
+        feed.landing.jumped(to: "item.f", now: 0)
+        #expect(feed.landFocus(nil) == .wait)
+        feed.landing.replied(focus: "item.f", now: 100)
+        for (index, id) in ["d", "e"].enumerated() { feed.layOut(id, y: CGFloat(300 + index * 100)) }
+        #expect(feed.landFocus("f") == .scroll(rowID: "f", anchor: nil))
+        // Lazy rows above drew at an estimate: the row appears far below the screen.
+        feed.layOut("f", y: 2_000)
+        guard case .scroll = feed.landFocus("f") else { Issue.record("a row off screen is placed again"); return }
+        #expect(feed.landFocus("f") == .landed(rowID: "f"))
+        // Held where it landed: centred in the 600 points above the composer and keyboard.
+        #expect(feed.held == TranscriptHeldAnchor(rowID: "f", itemID: nil, top: 250))
+        #expect(!feed.landing.holdsPlace)
+        // Markdown above sizes itself afterwards: the focus is put back, not left to drift.
+        feed.layOut("e", y: 400, height: 180)
+        feed.layOut("f", y: 2_080)
+        #expect(feed.corrections == [.place(rowID: "f", top: 250)])
+    }
+
+    @Test func theReaderDraggingAwayFromALandedFocusHoldsWhereTheyStop() {
+        var feed = Feed(rows: ["a", "b", "c", "f"])
+        feed.landing.jumped(to: "item.f", now: 0)
+        feed.landing.replied(focus: "item.f", now: 100)
+        while case .scroll = feed.landFocus("f") {}
+        #expect(feed.held?.rowID == "f")
+        feed.send(.phase(.gesture))
+        feed.send(.origin(-150))
+        feed.send(.phase(.idle))
+        #expect(feed.held == TranscriptHeldAnchor(rowID: "b", itemID: nil, top: -50))
     }
 }

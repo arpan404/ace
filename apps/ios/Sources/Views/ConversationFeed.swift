@@ -621,7 +621,7 @@ struct ConversationFeed: View {
         else { reading.jump(to: focus.item, model: model, live: thread) }
     }
     /// Bring a landing focus's row into view (`TranscriptFocusLanding`): scroll again each time
-    /// its row lands or measures until it is shown, then hold it as the reader's place.
+    /// its row lands or measures until it is shown, then hand it to the place keeper to hold.
     private func landFocus(_ proxy: ScrollViewProxy) {
         guard let focus = reading.landing.target else { return }
         let row = reading.shown.flatMap { TranscriptFeedRow.rows($0).first { $0.block.row.items.contains(focus) } }
@@ -636,7 +636,7 @@ struct ConversationFeed: View {
         case .scroll(let id, let fraction):
             proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
         case .landed(let id):
-            viewport.noteCaptured(rowID: id, itemID: focus, top: rowTop(id))
+            keep(.focusLanded(id), proxy: proxy)
             pageIfNeeded(proxy)
         // Released by its deadline or budget: what waited for the focus may run.
         case .none: pageIfNeeded(proxy)
@@ -732,6 +732,7 @@ struct ConversationFeed: View {
     private func placeFacts() -> TranscriptPlaceKeeper.Facts {
         let restoring = viewport.sessionAnchor != nil
         return TranscriptPlaceKeeper.Facts(held: viewport.held, inset: intent.metrics.topInset,
+            focusLanding: reading.landing.holdsPlace,
             mayCapture: viewport.mode == .reading && !viewport.isAiming && !restoring,
             mayCorrect: viewport.canCorrect && !viewport.isAiming && !restoring && viewport.mode != .following
                 && !UIAccessibility.isVoiceOverRunning)
