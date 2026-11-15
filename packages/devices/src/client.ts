@@ -1,8 +1,20 @@
 import { deviceInputTimeout } from "./input-budget.ts";
 import { z } from "zod";
 import { PendingScreenshots } from "./client-screenshots.ts";
-import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
-import { PictureQueue, SharedStreams, type SourcePicture } from "@ace/browser/live-view";
+import {
+  decodeStreamMessage,
+  isStreamPiece,
+  StreamAssembler,
+  type StreamMessage,
+} from "@ace/browser/stream";
+import {
+  MediaSubscriptions,
+  PictureQueue,
+  SharedStreams,
+  type MediaRoute,
+  type SourcePicture,
+} from "@ace/browser/live-view";
+import type { MediaPoster } from "@ace/protocol";
 import {
   type AppDevice as Device,
   type DeviceAck,
@@ -97,8 +109,36 @@ export class DeviceClient {
   /** Stream kind messages (`@ace/browser/stream`) being put back together. */
   private readonly assembler = new StreamAssembler();
   private readonly pictures = new PictureQueue(4);
+  /** Which devices' pictures come by the media connection (ADR 0147 §4). */
+  private readonly media = new MediaSubscriptions();
+  private stopMedia: (() => void) | undefined;
   constructor(options: DeviceClientOptions) {
     this.options = options;
+  }
+  /**
+   * Take live pictures by this media connection when it has a binding: each held stream
+   * subscribes again whenever the binding changes, acks follow the pictures, and requests and
+   * state stay on this channel. `undefined` goes back to the channel alone.
+   */
+  useMedia(route: MediaRoute | undefined): void {
+    this.stopMedia?.();
+    this.stopMedia = undefined;
+    this.media.use(route);
+    if (!route) return;
+    const stops = [
+      route.watch(() => {
+        if (!this.connected) return;
+        for (const deviceId of this.liveStreams.held()) this.subscribe(deviceId);
+      }),
+      route.onStream((message) => this.receiveMedia(message)),
+    ];
+    this.stopMedia = () => {
+      for (const stop of stops) stop();
+    };
+  }
+  /** The still the device's subscribe brought back, to show until its first live picture. */
+  poster(deviceId: string): MediaPoster | undefined {
+    return this.media.poster(deviceId);
   }
   private acceptInventory(devices: Device[]): void {
     this.devices = devices;
@@ -177,6 +217,7 @@ export class DeviceClient {
     this.transport = undefined;
     this.connected = false;
     this.liveStreams.reset();
+    this.media.reset();
     this.states.clear();
     this.devices = [];
     this.inventoryLoaded = false;
@@ -295,6 +336,7 @@ export class DeviceClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
+    if (this.media.ack(picture.sourceId, message)) return;
     try {
       void Promise.resolve(transport.send(message)).catch(() => {});
     } catch {
@@ -303,6 +345,15 @@ export class DeviceClient {
   }
 
   private readonly liveStreams = new SharedStreams();
+  private subscribe(deviceId: string): void {
+    void this.request({ op: "subscribe", deviceId, ...this.media.fields(deviceId) }).catch(
+      () => {},
+    );
+  }
+  private receiveMedia(message: StreamMessage): void {
+    if (message.kind !== "device.frame" || !this.connected || message.frame.still) return;
+    this.pictures.publish({ ...message.frame, sourceId: message.sourceId });
+  }
   /**
    * Keep `deviceId`'s live stream open for one view. Views of the same device share one daemon
    * subscription: the first view subscribes, the last to release unsubscribes.
@@ -310,8 +361,11 @@ export class DeviceClient {
   retainStream(deviceId: string): () => void {
     return this.liveStreams.retain(
       deviceId,
-      () => void this.request({ op: "subscribe", deviceId }).catch(() => {}),
-      () => void this.request({ op: "unsubscribe", deviceId }).catch(() => {}),
+      () => this.subscribe(deviceId),
+      () => {
+        this.media.forget(deviceId);
+        void this.request({ op: "unsubscribe", deviceId }).catch(() => {});
+      },
     );
   }
 
@@ -406,6 +460,10 @@ export class DeviceClient {
               );
             return;
           }
+          if (pending.operation.op === "subscribe" && message.media) {
+            this.media.subscribed(pending.operation.deviceId, message.media);
+            if (this.media.poster(pending.operation.deviceId)) this.notify();
+          }
           if (pending.operation.op === "list") {
             const found = inventory.parse(message.data);
             this.acceptInventory(found.devices);
@@ -457,10 +515,7 @@ export class DeviceClient {
       state.lifecycle === "live" &&
       (state.streamId !== previous?.streamId || previous?.lifecycle !== "live")
     )
-      this.liveStreams.refresh(
-        state.device.id,
-        () => void this.request({ op: "subscribe", deviceId: state.device.id }).catch(() => {}),
-      );
+      this.liveStreams.refresh(state.device.id, () => this.subscribe(state.device.id));
   }
   private failure(error: DeviceFailure | undefined): DeviceClientError {
     return error
