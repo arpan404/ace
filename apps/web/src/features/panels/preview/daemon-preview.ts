@@ -924,7 +924,9 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         });
       };
       function stop() {
-        endDelivery(threadId);
+        // Nobody watches any more: a view that comes back starts afresh (its ladder, what it
+        // refused), not where this one gave up.
+        deliveries.forget(threadId);
         stopRetry(current);
         watches.delete(threadId);
         current.cancel?.();

@@ -93,7 +93,7 @@ type Daemon =
 function withMediaReplies(
   api: ClientApi,
   poster: MediaPoster | undefined,
-  daemon: Daemon,
+  answers: () => Daemon,
   refused: unknown[],
   replay: () => void,
   answered: Promise<void>,
@@ -102,6 +102,7 @@ function withMediaReplies(
     get(target, key) {
       if (key === "request")
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
+          const daemon = answers();
           const named =
             input.type === "browser.subscribe" && "media" in input ? input.media : undefined;
           if (
@@ -150,6 +151,8 @@ async function watching(
   answer: Daemon = "binds",
   decodePoster?: PosterDecoder,
 ) {
+  /** How the daemon answers from now on (`answerAs`). */
+  let mode = answer;
   /** The page's visibility, flipped by the test (`flap`). */
   let pageShown = true;
   const seen = new Set<() => void>();
@@ -173,7 +176,7 @@ async function watching(
     withMediaReplies(
       wire.api,
       poster,
-      answer,
+      () => mode,
       refused,
       // Each replay a later number, so a test can tell which subscribe's it was.
       () => wire.stream(video(++replays, true)),
@@ -240,6 +243,10 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** The daemon answers subscribes this way from now on. */
+    answerAs(next: Daemon) {
+      mode = next;
+    },
     /** The page is hidden, then shown again. */
     flap() {
       for (const visible of [false, true]) {
@@ -501,4 +508,62 @@ test("a disposed preview's retries stop waiting on the clock", async () => {
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
   view.preview.dispose();
   expect(view.pending(mediaRetryDelaysMs[0])).toBe(0);
+});
+
+/** Every ladder step runs out in turn, each subscribe failing: the ladder is spent. */
+async function spend(view: Awaited<ReturnType<typeof watching>>) {
+  await settle();
+  for (const [index, delay] of mediaRetryDelaysMs.entries()) {
+    view.fire(delay);
+    await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
+  }
+  await settle();
+}
+
+test("a view that leaves and comes back starts a fresh ladder, naming the connection again", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await spend(view);
+  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
+  view.unwatch();
+  await settle();
+  // Back before the cache lets the thread go: nothing of the old ladder is inherited.
+  view.preview.watch(thread);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
+  expect(named(view.subscribes()[5]!)).toBe("mc_aaaaaaaaaa");
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
+});
+
+test("a subscribe that succeeds resets the ladder for the next failure", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
+  await settle();
+  view.fire(mediaRetryDelaysMs[0]);
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[1])).toBe(1));
+  // The daemon is back: the second step's retry binds.
+  view.answerAs("binds");
+  view.fire(mediaRetryDelaysMs[1]);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(3));
+  await settle();
+  // A later failure (after a rebind) starts again from the first step.
+  view.answerAs("fails");
+  view.link.move("mc_bbbbbbbbbb");
+  await waitFor(() => expect(view.subscribes()).toHaveLength(4));
+  await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+});
+
+test("past the cooldown the view recovers on the socket once the daemon answers again", async () => {
+  const view = await watching("mc_aaaaaaaaaa", undefined, "fails everything");
+  await spend(view);
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(6));
+  await settle();
+  // That socket try failed too; by the next cooldown's end the daemon answers again.
+  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
+  view.answerAs("binds");
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(7));
+  expect(named(view.subscribes()[6]!)).toBeUndefined();
+  view.wire.stream(video(1, true));
+  await waitFor(() => expect(view.preview.frame(thread)?.sequence).toBe(1));
+  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
 });
