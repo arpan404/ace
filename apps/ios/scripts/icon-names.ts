@@ -226,7 +226,7 @@ export const extra = [
 ];
 
 /**
- * Names the iPhone kept from Phosphor whose `@ace/icons` drawing has another name, by meaning:
+ * Names the iPhone draws whose `@ace/icons` drawing has another name, by meaning:
  * the glyph that draws it, and a turn for a drawing the set has only one way round.
  */
 export const drawnAs: Record<string, { glyph: string; turn?: number }> = {
@@ -258,6 +258,3 @@ export const drawnAs: Record<string, { glyph: string; turn?: number }> = {
   "tree-view": { glyph: "tree-structure" },
   "virtual-reality": { glyph: "goggles" },
 };
-
-/** Names `@ace/icons` has no drawing for yet: still Phosphor's, until the set draws them. */
-export const phosphorOnly = new Set(["caret-up-down", "magnifying-glass-minus"]);
