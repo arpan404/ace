@@ -197,7 +197,7 @@ struct ForgeReactionsRow: View {
         Task { await desk.run(["kind": reaction.viewer ? "reaction.remove" : "reaction.add", "subject": subject, "content": reaction.content]) }
     }
 
-    /// The web's reaction glyphs (Phosphor), by GitHub's reaction name.
+    /// The web's reaction glyphs, by GitHub's reaction name.
     static func icon(_ content: String) -> AceIcon.Name {
         switch content {
         case "+1": .thumbsUp

@@ -25,7 +25,7 @@ import XCTest
         XCTAssertTrue(glyph.waitForExistence(timeout: 10))
         let label = send.label
         // The bridge says how a follow-up goes; the glyph says it in the web's terms.
-        let expected = label == "Steer the running turn" ? "ph-arrow-bend-up-right-bold" : "ph-queue-bold"
+        let expected = label == "Steer the running turn" ? "icon-arrow-bend-up-right-bold" : "icon-queue-bold"
         XCTAssertNotEqual(label, "Send message", "the agent is working, so the message steers or queues")
         XCTAssertEqual(glyph.label, expected)
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())

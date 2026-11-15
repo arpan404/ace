@@ -105,7 +105,7 @@ const pointerTransform = (scale: number, tip: Point) =>
 
 /**
  * ace's one-colour glyphs as template SVGs on the 24 box, for the places that take a named icon
- * (settings rows, menus): `generate-icons.ts` writes them beside Phosphor's, as `ace-<name>`.
+ * (settings rows, menus): `generate-icons.ts` writes them beside the set's, as `icon-ace-<name>`.
  */
 export const aceGlyphSvgs: Record<string, string> = {
   "ace-computer-use": [
