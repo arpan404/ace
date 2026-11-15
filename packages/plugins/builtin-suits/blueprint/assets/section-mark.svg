@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" aria-hidden="true">
+  <g fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="1">
+    <circle cx="60" cy="60" r="34"/>
+    <path d="M26 60 H94"/>
+    <path d="M8 60 H22 M98 60 H112" stroke-dasharray="4 3"/>
+  </g>
+  <g font-family="ui-monospace, Menlo, monospace" font-size="16" text-anchor="middle" fill="currentColor" fill-opacity="0.7">
+    <text x="60" y="52">A</text>
+    <text x="60" y="80">01</text>
+  </g>
+</svg>

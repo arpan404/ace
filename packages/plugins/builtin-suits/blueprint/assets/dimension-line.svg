@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="28" viewBox="0 0 640 28" preserveAspectRatio="none" aria-hidden="true">
+  <g fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-width="1">
+    <path d="M2 4 V24 M638 4 V24"/>
+    <path d="M2 14 H290 M350 14 H638"/>
+    <path d="M2 14 L12 10 M2 14 L12 18 M638 14 L628 10 M638 14 L628 18"/>
+  </g>
+  <text x="320" y="18" text-anchor="middle" font-family="ui-monospace, Menlo, monospace" font-size="11" fill="currentColor" fill-opacity="0.6">1 : 1</text>
+</svg>

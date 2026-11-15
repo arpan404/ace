@@ -18,7 +18,7 @@ const silentContext: unknown = new Proxy(
 );
 
 /** The sandbox page's globals, as far as the runtime reaches for them. */
-function sandbox() {
+function sandbox(context: unknown = silentContext) {
   const replies: unknown[] = [];
   const host = { postMessage: (message: unknown) => replies.push(message) };
   const stranger = { postMessage: () => {} };
@@ -42,7 +42,7 @@ function sandbox() {
           style: {},
           parentNode: null,
           setAttribute() {},
-          getContext: () => silentContext,
+          getContext: () => context,
         };
         canvases.push(canvas);
         return canvas;
@@ -207,16 +207,56 @@ test("a definition without frame, or a second definition, is an error", () => {
   ]);
 });
 
+test("a sample answers with the canvas averaged to the asked grid, once the scene has started", () => {
+  const drawn: unknown[][] = [];
+  const reader = {
+    drawImage: (...args: unknown[]) => drawn.push(args),
+    getImageData: (_x: number, _y: number, w: number, h: number) => ({
+      data: new Uint8ClampedArray(w * h * 4).fill(40),
+    }),
+  };
+  const page = sandbox(reader);
+  page.send({ type: "sample", id: 1, columns: 2, rows: 1 });
+  expect(page.replies).toEqual([]);
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "sample", id: 2, columns: 2, rows: 1 });
+  page.send({ type: "sample", id: 3, columns: 99, rows: 1 });
+  expect(page.replies).toEqual([
+    { type: "ready" },
+    { type: "sample", id: 2, columns: 2, rows: 1, pixels: [40, 40, 40, 40, 40, 40, 40, 40] },
+  ]);
+  // The scene's own canvas, scaled into the grid.
+  expect(drawn).toEqual([[page.canvas(), 0, 0, 2, 1]]);
+});
+
+test("a canvas the runtime can't read (tainted by an image) answers no sample and no error", () => {
+  const page = sandbox({
+    drawImage() {},
+    getImageData() {
+      throw new Error("The canvas has been tainted by cross-origin data.");
+    },
+  });
+  page.ace.scene({ frame() {} });
+  page.send(init);
+  page.send({ type: "sample", id: 1, columns: 4, rows: 4 });
+  page.send({ type: "tick", time: 0 });
+  expect(page.replies).toEqual([{ type: "ready" }, { type: "drawn", time: 0 }]);
+});
+
 /** An offscreen canvas for scenes that paint layers once and blit them. */
 const offscreenDocument = {
   createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
 };
 
-test.each(["starfield", "neon-district"])(
+test.each(["starfield", "neon-district", "neon-district/sidebar", "phosphor"])(
   "the shipped %s scene starts clean, reacts to every signal and draws under the runtime",
   (id) => {
     const source = readFileSync(
-      new URL(`../../plugins/builtin-suits/${id}/scene.js`, import.meta.url),
+      new URL(
+        `../../plugins/builtin-suits/${id.includes("/") ? id : `${id}/scene`}.js`,
+        import.meta.url,
+      ),
       "utf8",
     );
     const page = sandbox();

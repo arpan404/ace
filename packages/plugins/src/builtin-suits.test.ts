@@ -17,7 +17,13 @@ async function home(): Promise<string> {
 
 it("a first run fills the library with the shipped Suits, each one a valid Suit in its own folder", async () => {
   const library = join(await home(), ".ace", "suits");
-  expect(await seedBuiltinSuits(library)).toEqual(["neon-district", "starfield", "warm-paper"]);
+  expect(await seedBuiltinSuits(library)).toEqual([
+    "blueprint",
+    "neon-district",
+    "phosphor",
+    "starfield",
+    "warm-paper",
+  ]);
   for (const id of await readdir(library)) {
     const manifest = SuitManifest.parse(
       JSON.parse(await readFile(join(library, id, "suit.json"), "utf8")),
@@ -25,6 +31,12 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
     expect(manifest.id).toBe(id);
   }
   expect(await readFile(join(library, "starfield", "scene.js"), "utf8")).toContain("ace.scene(");
+  // A Suit's region scenes, styles and ornaments are copied with it.
+  expect(await readFile(join(library, "neon-district", "sidebar.js"), "utf8")).toContain(
+    "ace.scene(",
+  );
+  expect(await readdir(join(library, "blueprint", "assets"))).toContain("title-block.svg");
+  expect(await readFile(join(library, "phosphor", "suit.css"), "utf8")).toContain("[data-part=");
 });
 
 it("a library that already exists is left as the person made it, even with a shipped Suit removed", async () => {

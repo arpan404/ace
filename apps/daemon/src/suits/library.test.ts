@@ -166,7 +166,7 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["neon-district", "starfield", "warm-paper"]);
+  expect(seeded).toEqual(["blueprint", "neon-district", "phosphor", "starfield", "warm-paper"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -174,7 +174,9 @@ test("every Suit ace ships passes every check the daemon runs before one applies
   // The scene Suit is served with its scene; the colours-only one has none.
   expect(detail(await library.read("starfield")).sceneUrl).toMatch(/scene\.html$/);
   expect(detail(await library.read("neon-district")).sceneUrl).toMatch(/scene\.html$/);
+  expect(detail(await library.read("phosphor")).sceneUrl).toMatch(/scene\.html$/);
   expect(detail(await library.read("warm-paper")).sceneUrl).toBeNull();
+  expect(detail(await library.read("blueprint")).sceneUrl).toBeNull();
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {
