@@ -4,7 +4,7 @@ import { WebSocket } from "ws";
 import { AgentId, Item, ItemId, ServerMessage, type ClientMessage } from "@ace/protocol";
 import { wireTrims } from "@ace/projection/wire-trim";
 import { outputReadBytes, pageReplyBytes } from "./reply-bounds.ts";
-import { entryBytes } from "./services/item-raw.ts";
+import { itemRawReplyBytes } from "./services/item-raw.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import type { Store } from "./store.ts";
 
@@ -146,10 +146,33 @@ const message = (id: string, raw: unknown[], text = "Done") =>
     raw,
   });
 
+/** A raw entry whose JSON is exactly `bytes` long: 60,000 bytes of data and a padded name. */
+function entryOf(bytes: number) {
+  const base = { type: "assistant", name: "", data: { text: "y".repeat(60_000) } };
+  return { ...base, name: "n".repeat(bytes - Buffer.byteLength(JSON.stringify(base))) };
+}
+
 const rows: Row[] = [
   {
+    // The old ceiling on one entry: it went through whole, and the reply around it went over.
+    name: "item.raw: an entry exactly 72 KiB long is cut to fit, the next whole",
+    bound: itemRawReplyBytes,
+    async read(store, threadId, ask) {
+      const big = entryOf(72 * 1024);
+      expect(Buffer.byteLength(JSON.stringify(big))).toBe(72 * 1024);
+      const after = Array.from({ length: 2000 }, (_, index) => ({
+        type: "delta",
+        data: { index, text: words(80) },
+      }));
+      const pages = await rawPages(message("edge", [big, ...after]), store, threadId, ask);
+      const [sent, ...rest] = pages.got as { name?: string }[];
+      expect(sent?.name).toMatch(/\[cut: \d+ bytes\]$/);
+      return { replies: pages.replies, got: rest, stored: after };
+    },
+  },
+  {
     name: "item.raw: many entries of the largest size storage keeps inline",
-    bound: pageReplyBytes + envelopeBytes,
+    bound: itemRawReplyBytes,
     read: (store, threadId, ask) =>
       rawPages(
         message(
@@ -166,7 +189,7 @@ const rows: Row[] = [
   },
   {
     name: "item.raw: many small entries",
-    bound: pageReplyBytes + envelopeBytes,
+    bound: itemRawReplyBytes,
     read: (store, threadId, ask) =>
       rawPages(
         message(
@@ -183,7 +206,7 @@ const rows: Row[] = [
   },
   {
     name: "item.raw: one entry that fills a page alone goes whole, by itself",
-    bound: entryBytes + envelopeBytes,
+    bound: itemRawReplyBytes,
     read: (store, threadId, ask) =>
       rawPages(
         message("alone", [
