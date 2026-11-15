@@ -322,8 +322,10 @@ struct ConversationFeed: View {
             applyLayoutRevision()
         }
         .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
+        #if ACE_FIXTURE
         .onChange(of: extent.before) { _, _ in PerfCounters.bump("extent.spacers") }
         .onChange(of: extent.after) { _, _ in PerfCounters.bump("extent.spacers") }
+        #endif
         .onChange(of: reading.thread?.epoch) { _, _ in
             extent.update(change: TranscriptExtent.WindowChange(
                 ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))

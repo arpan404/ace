@@ -39,10 +39,16 @@ enum PerfCounters {
         return timer
     }()
 
-    /// Counts one `name`, such as a body evaluation or a row laid out again.
-    nonisolated static func bump(_ name: String) {
+    /// Counts one `name`, such as a body evaluation or a row laid out again. The name is built
+    /// only when counting is on; outside fixture builds the call is empty.
+    #if ACE_FIXTURE
+    nonisolated static func bump(_ name: @autoclosure () -> String) {
         guard enabled else { return }
         _ = ticker
-        counts.withLock { $0[name, default: 0] += 1 }
+        let key = name()
+        counts.withLock { $0[key, default: 0] += 1 }
     }
+    #else
+    @inline(__always) nonisolated static func bump(_ name: @autoclosure () -> String) {}
+    #endif
 }
