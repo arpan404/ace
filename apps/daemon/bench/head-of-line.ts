@@ -8,6 +8,7 @@
  *
  * - snapshot: the full snapshot that completes a first open of a 600-item thread;
  * - resume: the catch-up after bulky turns (24 KiB tool outputs) ran while the client was away;
+ * - replay: the same on the 600-item thread, whose snapshot costs more, so a replay carries it;
  * - catch-up: the catch-up after a 2,000-delta streamed turn;
  * - live: a stream of deltas at full rate;
  * - raw: the raw-frames view reading an item's provider frames with `item.raw`, page after
@@ -83,6 +84,7 @@ const Probe = z.object({
       }),
     )
     .optional(),
+  relaySent: z.record(z.string(), z.object({ count: z.number(), bytes: z.number() })).optional(),
 });
 const epoch = () => performance.timeOrigin + performance.now();
 
@@ -100,7 +102,7 @@ interface CommandTimes {
   receivedAt?: number;
 }
 type UrgentSet = Partial<Record<Urgent, Wait>> & { failed?: string[]; commands?: CommandTimes[] };
-type Bulk = "snapshot" | "resume" | "catchUp" | "live" | "raw" | "output";
+type Bulk = "snapshot" | "resume" | "replay" | "catchUp" | "live" | "raw" | "output";
 
 /** Resolves when `ready()` first holds, checked on each change `observe` reports. */
 function until(
@@ -439,6 +441,16 @@ async function session(path: LinkPath, profileName: string) {
         ready.threads.away.id,
         async () =>
           Head.parse(await daemon.request({ op: "bulky", thread: ready.threads.away.id, count: 8 }))
+            .head,
+      ),
+    );
+    // A resume whose missed turns arrive as a replay: the thread's own snapshot (the 600-item
+    // thread) costs more than the replay, so the replay, not a snapshot, carries the catch-up.
+    episodes.replay = await probe(() =>
+      catchUp(
+        ready.threads.big.id,
+        async () =>
+          Head.parse(await daemon.request({ op: "bulky", thread: ready.threads.big.id, count: 6 }))
             .head,
       ),
     );

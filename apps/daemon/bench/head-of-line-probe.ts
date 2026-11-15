@@ -24,6 +24,8 @@ export interface RelayCommand {
   sentAt?: number;
 }
 const relayCommands = new Map<string, RelayCommand>();
+/** What the daemon sent on the relay path, by message type: count and bytes (paced pieces apart). */
+const relaySent = new Map<string, { count: number; bytes: number }>();
 const epochNow = () => performance.timeOrigin + performance.now();
 
 /** The daemon's relay channel received `text` (`in`), or is sending it (`send`, then `sent`). */
@@ -41,6 +43,14 @@ export function recordRelay(kind: "in" | "send" | "sent", text: string): void {
     return;
   }
   for (const line of text.split("\n")) {
+    if (kind === "send") {
+      const type = /^\{"type":"([^"]+)"/.exec(line)?.[1] ?? "?";
+      const key = type === "events" && line.includes('"ack":true') ? "events (paced)" : type;
+      const entry = relaySent.get(key) ?? { count: 0, bytes: 0 };
+      entry.count++;
+      entry.bytes += line.length;
+      relaySent.set(key, entry);
+    }
     if (!line.includes('"type":"commandResult"')) continue;
     const commandId = /"commandId":"([^"]+)"/.exec(line)?.[1];
     const known = commandId ? relayCommands.get(commandId) : undefined;
@@ -63,6 +73,7 @@ export function recordDeflate(bytes: number, ms: number): void {
 export function resetProbe(): void {
   deflates.length = 0;
   relayCommands.clear();
+  relaySent.clear();
   gaps.length = 0;
   if (timer) clearTimeout(timer);
   last = performance.now();
@@ -99,5 +110,6 @@ export function readProbe() {
       ms: Math.round(deflate.ms * 100) / 100,
     })),
     relayCommands: [...relayCommands.values()],
+    relaySent: Object.fromEntries(relaySent),
   };
 }
