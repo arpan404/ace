@@ -259,6 +259,9 @@ fn dates_and_date_times_are_iso_8601() {
         "2026-11-15T24:00",
         "2026-11-15T9:30",
         "tomorrow",
+        // A character of several bytes where the clock's digits go is refused, never a panic.
+        "2026-11-15T12:3é00",
+        "2026-11-15T12:30+0é:00",
     ] {
         assert!(check_answers(&at, &[json!(wrong)]).is_err(), "{wrong}");
     }

@@ -442,6 +442,10 @@ fn date(given: &str) -> bool {
 
 /// `YYYY-MM-DDTHH:MM`, optionally with `:SS` and a `Z` or `±HH:MM` offset.
 fn date_time(given: &str) -> bool {
+    // Every valid form is ASCII; checked first so the byte slicing below never splits a character.
+    if !given.is_ascii() {
+        return false;
+    }
     let Some((day, clock)) = given.split_once('T') else {
         return false;
     };
