@@ -11,6 +11,7 @@ mod files;
 mod media;
 mod memory;
 mod oversight;
+mod plugins;
 mod routines;
 mod search;
 mod skills;
@@ -128,6 +129,7 @@ pub fn router(state: AppState) -> Router {
                 .delete(end_maintenance),
         )
         .merge(connectors::routes())
+        .merge(plugins::routes())
         .merge(brains::routes())
         .merge(memory::routes())
         .merge(oversight::routes())

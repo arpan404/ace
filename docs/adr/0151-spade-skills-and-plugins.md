@@ -71,8 +71,9 @@ else, and Spade can reach MCP servers only over HTTP, so a plugin's local server
    sees it.
 9. **Spade reads plugins from the daemon** over the socket: `plugins.list`, the components, and a
    new `plugins.spade` request that answers, for one accepted plugin, its components with their
-   text and its executions (MCP servers and hooks) as accepted. Spade never reads the plugin's
-   folder itself.
+   text and its executions (MCP servers and hooks) as accepted, and the accepted version's folder
+   that `${PLUGIN_ROOT}` names in a command. Spade never reads the plugin's folder itself; it only
+   runs the accepted commands there.
 10. **Each component maps to something a bot already has:**
     - **skills** become store skills with origin `plugin`;
     - **commands** become manual skills: the person starts one from the composer, and the bot never
@@ -109,7 +110,8 @@ else, and Spade can reach MCP servers only over HTTP, so a plugin's local server
     | `Stop`             | a reply about to finish     | ask for one more step, with a reason  |
     | `PreCompact`       | before compacting           | nothing; it runs for its own effects  |
 
-    `matcher` matches the tool name. Exit 0 with nothing on stdout changes nothing; exit 2 refuses
+    `matcher` matches the tool name: names separated by `|`, each exactly, and none or `*` for
+    every tool. Exit 0 with nothing on stdout changes nothing; exit 2 refuses
     or asks for more, with stderr as the reason; stdout on exit 0 is text to add; anything else is
     a failed hook, noted in the activity log, and the turn carries on. A hook can only make Spade
     stricter or add text: it never allows a call the gate would ask about. Text a hook adds is

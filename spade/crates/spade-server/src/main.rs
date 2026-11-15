@@ -334,6 +334,23 @@ async fn run() -> Result<(), Failure> {
         connectors.clone(),
         Store::open(&home.database()).map_err(other)?,
     )));
+    // The person's plugins (ADR 0151), read from ace: rules, hooks and local MCP servers.
+    let plugins = match &ace {
+        Some(link) => {
+            let plugins = spade_server::plugins::Plugins::new(
+                link.clone(),
+                Store::open(&home.database()).map_err(other)?,
+                workspaces.clone(),
+                Shell::system(),
+            );
+            tools = tools.with_source(Arc::new(spade_server::tools::PluginTools::new(
+                plugins.clone(),
+                Store::open(&home.database()).map_err(other)?,
+            )));
+            Some(plugins)
+        }
+        None => None,
+    };
 
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
@@ -351,6 +368,9 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    if let Some(plugins) = &plugins {
+        engine.set_plugins(plugins.clone());
+    }
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());
     if let Some(link) = &ace {
@@ -422,6 +442,9 @@ async fn run() -> Result<(), Failure> {
             .pause_for_stop(spade_core::maintenance::STOP_STEP_ALLOWANCE)
             .await;
         terminals.end_all();
+        if let Some(plugins) = &plugins {
+            plugins.stop_all();
+        }
     };
     let served = spade_server::serve(listener, state, stopping).await;
     home.clear_server_json();

@@ -84,6 +84,7 @@ async fn run(
     plan: Plan,
     focus: Option<&str>,
 ) -> bool {
+    super::plugin_hooks::before_compact(engine, id, events, plan.keep_from).await;
     // The summary request goes after the whole current prompt, with the same tools, so its input
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
     let images = engine.images_for(model);

@@ -101,7 +101,34 @@ export const PluginComponent = z.object({
   providers: z.array(ProviderKind).max(ProviderKind.options.length),
 });
 export type PluginComponent = z.infer<typeof PluginComponent>;
+/**
+ * One accepted plugin as Spade uses it (ADR 0151): its components with their text, and its
+ * executions exactly as accepted. `root` is the accepted version's folder, which `${PLUGIN_ROOT}`
+ * names in a command; Spade runs commands there and never reads the folder itself. A
+ * component's `text` is absent when it did not fit the answer, with `omitted` saying so.
+ */
+export const PluginSpadeComponent = z.strictObject({
+  kind: PluginComponent.shape.kind,
+  name: PluginName,
+  path: z.string().max(512),
+  description: text,
+  title: z.string().min(1).max(200).optional(),
+  text: z.string().max(262144).optional(),
+  omitted: z.string().max(200).optional(),
+});
+export type PluginSpadeComponent = z.infer<typeof PluginSpadeComponent>;
+export const PluginSpade = z.strictObject({
+  install: PluginInstall,
+  enabled: z.boolean(),
+  root: z.string().min(1).max(4096),
+  components: z.array(PluginSpadeComponent).max(1024),
+  executions: PluginReview.shape.executions,
+  unsupported: PluginReview.shape.unsupported,
+});
+export type PluginSpade = z.infer<typeof PluginSpade>;
 export const PluginRequest = z.discriminatedUnion("type", [
+  /** One accepted plugin for Spade's bots (ADR 0151). Read scope. */
+  z.strictObject({ type: z.literal("plugins.spade"), name: PluginName }),
   PluginSkillAvailability.extend({ type: z.literal("plugins.skillAvailability") }),
   z.strictObject({
     type: z.literal("plugins.availability"),
@@ -159,6 +186,7 @@ export const PluginRequest = z.discriminatedUnion("type", [
   }),
 ]);
 export const PluginResponse = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("plugins.spade"), plugin: PluginSpade }),
   z.strictObject({
     type: z.literal("plugins.skillAvailability"),
     availability: PluginSkillAvailability,

@@ -26,6 +26,8 @@ pub enum Kind {
     Access,
     /// Spade carried the bot's task on by itself, or paused it (ADR 0144).
     Task,
+    /// A plugin's hook added text, refused a call, asked for more, or failed (ADR 0151).
+    Hook,
 }
 
 impl Kind {
@@ -42,6 +44,7 @@ impl Kind {
             "cap" => Self::Cap,
             "access" => Self::Access,
             "task" => Self::Task,
+            "hook" => Self::Hook,
             _ => return None,
         })
     }
@@ -364,6 +367,37 @@ impl Log {
                 };
                 let words = format!("{} cap", crate::oversight::dollars(*cap_micros));
                 self.push(stored, Kind::Cap, Fields::named(name, &words));
+            }
+            Known::HookRan { hook, outcomes, .. } => {
+                for outcome in outcomes {
+                    let (words, how) = match &outcome.result {
+                        crate::hooks::HookResult::Nothing => continue,
+                        crate::hooks::HookResult::Text { .. } => ("added text".to_owned(), "added"),
+                        crate::hooks::HookResult::Refused { reason }
+                            if hook == crate::hooks::STOP =>
+                        {
+                            (format!("asked for one more step: {reason}"), "refused")
+                        }
+                        crate::hooks::HookResult::Refused { reason } => {
+                            (format!("refused a call: {reason}"), "refused")
+                        }
+                        crate::hooks::HookResult::Failed { why } => {
+                            (format!("failed: {why}"), "failed")
+                        }
+                    };
+                    let summary = format!("{}'s {hook} hook {words}", outcome.plugin);
+                    self.push(
+                        stored,
+                        Kind::Hook,
+                        Fields {
+                            name: Some(outcome.plugin.clone()),
+                            summary: redact::text(&summary),
+                            outcome: Some(how),
+                            reply: None,
+                            cost: None,
+                        },
+                    );
+                }
             }
             Known::ReplyFinished { reply, .. } => self.turn_ended(stored, reply, "finished"),
             Known::ReplyStopped { reply, .. } => self.turn_ended(stored, reply, "stopped"),

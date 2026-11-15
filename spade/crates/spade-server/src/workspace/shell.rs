@@ -39,6 +39,9 @@ pub struct Job<'a> {
     /// Where the end of everything the command started is recorded, so its owner can wait for
     /// it even when this run is dropped mid-way.
     pub cleanup: Option<Cleanup>,
+    /// Written to the command's stdin, which is then closed (a plugin hook's event, ADR 0151).
+    /// `None` leaves stdin empty.
+    pub stdin: Option<Vec<u8>>,
 }
 
 /// The ends of a command's processes, as they happen: each recorded before it runs and settled
@@ -174,6 +177,7 @@ impl Shell {
             env: &[],
             tee: None,
             cleanup: None,
+            stdin: None,
         })
         .await
     }
@@ -196,7 +200,11 @@ impl Shell {
             .envs(self.environment(home))
             .envs(job.env.iter().cloned())
             .env(platform::MARK, &mark)
-            .stdin(Stdio::null())
+            .stdin(if job.stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -211,6 +219,14 @@ impl Shell {
         );
         contained.delay(self.end_delay);
         let mut readers = Readers::default();
+        if let (Some(mut pipe), Some(bytes)) = (child.stdin.take(), job.stdin) {
+            // A command that never reads its stdin must not hold the run up: the write is its
+            // own task, aborted with the readers.
+            readers.0.push(tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                let _ = pipe.write_all(&bytes).await;
+            }));
+        }
         let stdout = child
             .stdout
             .take()

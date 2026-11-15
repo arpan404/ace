@@ -270,6 +270,9 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
         deleted?;
+        if let Some(plugins) = self.plugins() {
+            plugins.forget(id);
+        }
         self.bot_left(id)?;
         Ok(())
     }

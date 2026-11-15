@@ -29,6 +29,7 @@ import {
 import { importPlugin } from "./import.ts";
 import { PluginClientOperations } from "./client-operations.ts";
 import { Registry } from "./registry.ts";
+import { spadeView } from "./spade-view.ts";
 import { jsonSize, reviewBytes, reviewPage } from "./review-pages.ts";
 import { reviewPlugin, validateComponents } from "./review.ts";
 import type { PluginSnapshot } from "./types.ts";
@@ -339,6 +340,13 @@ export class PluginManager {
   async extensions(provider: import("@ace/protocol").ProviderKind) {
     const snapshots = await this.catalogSnapshots();
     return pluginCatalog(provider, this.client.selected(provider, snapshots));
+  }
+  /** One accepted plugin for Spade (ADR 0151), its files verified again as for execution. */
+  async spade(name: string) {
+    const wanted = PluginName.parse(name);
+    const snapshot = (await this.installed()).find((entry) => entry.install.name === wanted);
+    if (!snapshot) throw new Error("Plugin not installed");
+    return spadeView(snapshot, this.client.availability(wanted));
   }
   catalog(offset: number, limit: number) {
     return this.client.catalog(offset, limit);

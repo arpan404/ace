@@ -1,4 +1,4 @@
-//! Spade's MCP client: one server over the streamable HTTP transport, with its tools as Spade's
+//! Spade's MCP client: one server over the streamable HTTP transport or stdio, with its tools as Spade's
 //! own types and a [`Risk`] for each from its annotations. Used for ace's tools (`spade-ace`) and
 //! for connectors, the person's apps' own servers (`spade-connect`).
 //!
@@ -11,9 +11,11 @@ mod errors;
 mod http;
 pub mod map;
 mod secret;
+pub mod stdio;
 
 pub use client::{McpClient, McpConfig};
 pub use errors::ToolsError;
 pub use map::{McpTool, McpToolResult, Part, Risk};
 pub use reqwest::header::{HeaderName, HeaderValue};
 pub use secret::Secret;
+pub use stdio::{RestartBudget, StdioCommand};

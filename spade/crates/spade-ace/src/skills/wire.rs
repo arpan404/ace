@@ -139,6 +139,9 @@ pub(crate) enum Incoming {
         alias = "spade.computer.drive.result"
     )]
     SpadeResult(SpadeResult),
+    /// `PluginServerMessage` in `packages/protocol/src/plugins.ts`; `response` kept raw.
+    #[serde(rename = "pluginResult")]
+    PluginResult(PluginResult),
     #[serde(other)]
     Other,
 }
@@ -160,6 +163,14 @@ pub(crate) struct SpadeResult {
     pub request_id: String,
     #[serde(flatten)]
     pub fields: serde_json::Map<String, Value>,
+}
+
+/// Mirrors `PluginServerMessage` in `packages/protocol/src/plugins.ts`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PluginResult {
+    pub request_id: String,
+    pub response: Value,
 }
 
 /// Mirrors `SkillsResult` in `packages/protocol/src/skill-library.ts`. `result` stays raw, so a

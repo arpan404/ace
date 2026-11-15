@@ -17,6 +17,7 @@ pub mod brains;
 mod config;
 mod discovery;
 pub mod events;
+pub mod plugins;
 pub mod skills;
 pub mod tools;
 mod url;

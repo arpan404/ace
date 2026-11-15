@@ -150,6 +150,8 @@ pub struct AceSkills {
     next_id: AtomicU64,
     /// Rung by a pushed `skills.changed` and when a socket ends.
     changed: Arc<Notify>,
+    /// The daemon runs one plugin request per socket at a time and refuses a second.
+    plugin_turn: Mutex<()>,
 }
 
 impl AceSkills {
@@ -159,6 +161,7 @@ impl AceSkills {
             config,
             socket: Mutex::new(None),
             next_id: AtomicU64::new(0),
+            plugin_turn: Mutex::new(()),
             changed: Arc::new(Notify::new()),
         }
     }
@@ -366,6 +369,18 @@ impl AceSkills {
             })
         })
         .await
+    }
+
+    /// One read-only plugin request (`PluginRequest` in `packages/protocol/src/plugins.ts`),
+    /// answered with its `response`. Sent one at a time, as the daemon takes them; a read that
+    /// hit a dropped socket is sent once more on a fresh one.
+    pub async fn plugin_request(&self, request: &Value) -> Result<Value, SkillsError> {
+        let _turn = self.plugin_turn.lock().await;
+        let frame = |id: &str| serde_json::json!({ "type": "pluginRequest", "requestId": id, "request": request });
+        match self.spade_frame(frame).await {
+            Err(SkillsError::Unreachable(_)) => self.spade_frame(frame).await,
+            other => other,
+        }
     }
 
     async fn spade_frame(&self, frame: impl FnOnce(&str) -> Value) -> Result<Value, SkillsError> {

@@ -47,7 +47,8 @@ export function createPluginsSession(context: SocketContext): SocketService {
             message.request.type === "plugins.list" ||
             message.request.type === "plugins.readReview" ||
             message.request.type === "plugins.catalog" ||
-            message.request.type === "plugins.source"
+            message.request.type === "plugins.source" ||
+            message.request.type === "plugins.spade"
               ? "read"
               : "admin";
           if (!authorize(scope)) {

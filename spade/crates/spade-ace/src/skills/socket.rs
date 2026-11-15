@@ -301,6 +301,7 @@ fn route(text: &str, waiters: &Waiters, token: &Secret, changed: &Notify) {
         }
         Ok(Incoming::SkillsResult(result)) => (result.request_id, Ok(result.result)),
         Ok(Incoming::SpadeResult(result)) => (result.request_id, Ok(Value::Object(result.fields))),
+        Ok(Incoming::PluginResult(result)) => (result.request_id, Ok(result.response)),
         // The daemon rejects a malformed request with a plain `error` naming its request.
         Ok(Incoming::Error(error)) => match error.request_id {
             Some(id) => (

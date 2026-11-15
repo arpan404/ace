@@ -442,6 +442,7 @@ fn types_for(kinds: &[Kind]) -> Vec<&'static str> {
             Kind::Review => "call_reviewed",
             Kind::Access => "access_changed",
             Kind::Task => "task_continued",
+            Kind::Hook => "hook_ran",
             _ => "cap_reached",
         });
         if *kind == Kind::Task {

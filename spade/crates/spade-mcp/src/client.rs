@@ -29,6 +29,7 @@ use crate::errors::{self, ToolsError};
 use crate::http::{CallRoutes, ROUTE_KEY, RawKeeping};
 use crate::map::{self, McpTool, McpToolResult};
 use crate::secret::Secret;
+use crate::stdio::{FAILED, Process, RestartBudget, StdioCommand};
 
 /// A listing longer than this many pages is treated as a server fault, not followed forever.
 const MOST_PAGES: usize = 64;
@@ -46,6 +47,8 @@ pub struct McpConfig {
     headers: HashMap<HeaderName, HeaderValue>,
     timeout: Duration,
     direct: bool,
+    /// A local server Spade starts, in place of the HTTP address.
+    stdio: Option<StdioCommand>,
 }
 
 impl McpConfig {
@@ -59,6 +62,17 @@ impl McpConfig {
             headers: HashMap::new(),
             timeout,
             direct: false,
+            stdio: None,
+        }
+    }
+
+    /// A local server Spade starts and speaks to over stdio, known as `stdio:<name>`. Started on
+    /// the first listing or call, stopped when unused for its idle time, and started again after
+    /// a crash on the next use, within its restart budget.
+    pub fn stdio(name: &str, command: StdioCommand, timeout: Duration) -> Self {
+        Self {
+            stdio: Some(command),
+            ..Self::new(format!("stdio:{name}"), timeout)
         }
     }
 
@@ -162,7 +176,21 @@ pub struct McpClient {
     closed: AtomicBool,
     /// Stops the live session's service (and anything it has queued) when closed.
     cancel: std::sync::Mutex<Option<RunningServiceCancellationToken>>,
+    /// A stdio server's process and when it was last used (`stdio`).
+    local: Local,
 }
+
+/// A stdio server's lifecycle: the running process (killed when replaced or dropped), its last
+/// use, whether it was stopped for being idle, and its crash restarts.
+struct Local {
+    process: std::sync::Mutex<Option<Arc<Slot>>>,
+    last_used: Arc<std::sync::Mutex<tokio::time::Instant>>,
+    idled: Arc<AtomicBool>,
+    started: AtomicBool,
+    budget: std::sync::Mutex<Option<RestartBudget>>,
+}
+
+type Slot = std::sync::Mutex<Option<Process>>;
 
 /// Why a closed client refuses.
 const WITHDRAWN: &str = "Spade's access to the server was withdrawn";
@@ -177,7 +205,6 @@ impl McpClient {
     /// Nothing is sent until the first `tools` or `call`.
     pub fn new(config: McpConfig) -> Self {
         Self {
-            config,
             session: Mutex::new(None),
             tools: Mutex::new(None),
             stale: Arc::new(AtomicBool::new(true)),
@@ -187,6 +214,14 @@ impl McpClient {
             calls: Semaphore::new(MOST_CALLS),
             closed: AtomicBool::new(false),
             cancel: std::sync::Mutex::new(None),
+            local: Local {
+                process: std::sync::Mutex::new(None),
+                last_used: Arc::new(std::sync::Mutex::new(tokio::time::Instant::now())),
+                idled: Arc::new(AtomicBool::new(false)),
+                started: AtomicBool::new(false),
+                budget: std::sync::Mutex::new(None),
+            },
+            config,
         }
     }
 
@@ -203,6 +238,20 @@ impl McpClient {
         if let Some(token) = token {
             token.cancel();
         }
+        drop(lock(&self.local.process).take());
+    }
+
+    /// The stdio server's process id while it runs, for tests that check it was stopped.
+    pub fn process_id(&self) -> Option<u32> {
+        let slot = lock(&self.local.process).clone()?;
+        lock(&slot).as_ref().and_then(Process::id)
+    }
+
+    /// Whether a stdio server stopped too often and stays failed until replaced.
+    pub fn gave_up(&self) -> bool {
+        lock(&self.local.budget)
+            .as_ref()
+            .is_some_and(RestartBudget::spent)
     }
 
     fn refuse_if_closed(&self) -> Result<(), ToolsError> {
@@ -423,6 +472,7 @@ impl McpClient {
     /// The live session's peer, epoch and call routes, opening a session if there is none.
     async fn peer(&self) -> Result<(Peer<RoleClient>, u64, CallRoutes), ToolsError> {
         self.refuse_if_closed()?;
+        *lock(&self.local.last_used) = tokio::time::Instant::now();
         let mut session = self.session.lock().await;
         if let Some(live) = session.as_ref()
             && !live.service.is_closed()
@@ -462,6 +512,9 @@ impl McpClient {
         &self,
         routes: CallRoutes,
     ) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
+        if let Some(command) = &self.config.stdio {
+            return self.open_stdio(command).await;
+        }
         let client = RawKeeping::new(routes, self.config.direct)
             .map_err(|error| ToolsError::Unavailable(self.config.scrub(error.to_string())))?;
         let mut transport_config =
@@ -482,6 +535,87 @@ impl McpClient {
             .await
             .map_err(|error| errors::from_init(error, &|text| self.config.scrub(text)))
     }
+}
+
+impl McpClient {
+    /// Starts the stdio server and opens a session on its pipes. Every start after the first
+    /// that did not follow an idle stop is a crash restart, counted against the budget.
+    async fn open_stdio(
+        &self,
+        command: &StdioCommand,
+    ) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
+        let now = tokio::time::Instant::now();
+        {
+            let mut budget = lock(&self.local.budget);
+            let budget = budget.get_or_insert_with(|| {
+                RestartBudget::new(command.most_restarts, command.restart_window)
+            });
+            let idled = self.local.idled.swap(false, Ordering::SeqCst);
+            let restart = self.local.started.swap(true, Ordering::SeqCst) && !idled;
+            if budget.spent() || (restart && !budget.restart(now)) {
+                drop(lock(&self.local.process).take());
+                return Err(ToolsError::Unavailable(FAILED.into()));
+            }
+        }
+        // The one before is ended first, whatever state it is in.
+        drop(lock(&self.local.process).take());
+        let (process, stdout, stdin) = Process::spawn(command).map_err(|error| {
+            ToolsError::Unavailable(format!("could not start {}: {error}", command.program))
+        })?;
+        let slot = Arc::new(std::sync::Mutex::new(Some(process)));
+        *lock(&self.local.process) = Some(slot.clone());
+        *lock(&self.local.last_used) = now;
+        watch_idle(
+            Arc::downgrade(&slot),
+            self.local.last_used.clone(),
+            self.local.idled.clone(),
+            command.idle,
+        );
+        let listener = Listener {
+            stale: self.stale.clone(),
+            changes: self.changes.clone(),
+        };
+        listener
+            .serve((stdout, stdin))
+            .await
+            .map_err(|error| errors::from_init(error, &|text| self.config.scrub(text)))
+    }
+}
+
+/// Stops the process in `slot` once it has gone `idle` unused. Ends by itself when the process
+/// is replaced or dropped.
+fn watch_idle(
+    slot: std::sync::Weak<Slot>,
+    last_used: Arc<std::sync::Mutex<tokio::time::Instant>>,
+    idled: Arc<AtomicBool>,
+    idle: Duration,
+) {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    runtime.spawn(async move {
+        loop {
+            let due = *lock(&last_used) + idle;
+            tokio::time::sleep_until(due).await;
+            let Some(slot) = slot.upgrade() else {
+                return;
+            };
+            if lock(&slot).is_none() {
+                return;
+            }
+            if tokio::time::Instant::now() >= *lock(&last_used) + idle {
+                idled.store(true, Ordering::SeqCst);
+                drop(lock(&slot).take());
+                return;
+            }
+        }
+    });
+}
+
+fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// A call's registration, removed however the call ends. When the caller drops a call that was

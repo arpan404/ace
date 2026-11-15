@@ -29,6 +29,8 @@ import { Select } from "@/components/ui/select.tsx";
 import { AccessChoice } from "./spade-access-choice.tsx";
 import { createAgent, editAgent, readModels, type SpadeAgentDraft } from "./spade-api.ts";
 import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx";
+import { PluginChoice, usePluginChoice } from "./spade-bot-plugins.tsx";
+import { pluginsKey } from "./spade-plugin-api.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
@@ -353,6 +355,7 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const apps = useConnectorChoice(bot.id);
+  const plugins = usePluginChoice(bot.id);
   const oversight = useOversightChoice(bot);
   const face = unchangedFace || main ? undefined : sent(avatar);
   const change: Partial<SpadeAgentDraft> = {
@@ -363,7 +366,7 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
     ...(access !== (bot.access ?? "ask") ? { access } : {}),
   };
   const changed =
-    (Object.keys(change).length > 0 || apps.changed || oversight.changed) &&
+    (Object.keys(change).length > 0 || apps.changed || plugins.changed || oversight.changed) &&
     !oversight.invalid &&
     (main || name.trim() !== "");
   const save = async () => {
@@ -372,9 +375,11 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
     try {
       if (Object.keys(change).length > 0) await editAgent(client, bot.id, change);
       await apps.save(client);
+      await plugins.save(client);
       await oversight.save(client);
       await cache.invalidateQueries({ queryKey: agentsKey });
       await cache.invalidateQueries({ queryKey: connectorsKey });
+      await cache.invalidateQueries({ queryKey: pluginsKey });
       props.onClose();
     } catch (error) {
       setProblem(fault(error));
@@ -422,6 +427,9 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
               </Field>
               <Field label="Apps">
                 <ConnectorChoice choice={apps} main={main} />
+              </Field>
+              <Field label="Plugins">
+                <PluginChoice choice={plugins} />
               </Field>
               <AccessChoice name={bot.name} value={access} onChange={setAccess} />
               <OversightFields choice={oversight} />
