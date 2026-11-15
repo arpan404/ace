@@ -126,3 +126,50 @@ test("a stopped scene stays down until the Suit's scene changes", () => {
   scene.rerenderWith({ sceneUrl: `${sceneUrl}?v=2` });
   expect(scene.frame()).not.toBeNull();
 });
+
+const rect = (x: number, y: number, width: number, height: number) =>
+  DOMRect.fromRect({ x, y, width, height });
+/** Past the next animation frame, where the host measures its glass. */
+const nextFrame = () => act(() => new Promise((resolve) => setTimeout(resolve, 40)));
+const isGlass = (message: unknown) => (message as { type?: string }).type === "glass";
+
+test("the app's scene is told where ace's glass sits over it, and told again when a menu opens", async () => {
+  const boxes = new Map<Element | null, DOMRect>();
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    return boxes.get(this) ?? rect(0, 0, 0, 0);
+  });
+  document.documentElement.style.setProperty("--glass-blur", "20px");
+  const sidebar = document.createElement("aside");
+  sidebar.dataset["part"] = "sidebar";
+  sidebar.style.borderTopLeftRadius = "12px";
+  document.body.append(sidebar);
+  try {
+    const scene = mount();
+    boxes.set(scene.frame(), rect(0, 0, 1440, 900));
+    boxes.set(sidebar, rect(8, 40, 300, 852));
+    const sent = scene.load();
+    await nextFrame();
+    expect(sent.findLast(isGlass)).toEqual({
+      type: "glass",
+      rects: [{ x: 8, y: 40, width: 300, height: 852, radius: 12, blur: 20, saturate: 1 }],
+    });
+
+    // A menu portals into <body>, over the scene.
+    const menu = document.createElement("div");
+    menu.className = "ace-floating";
+    boxes.set(menu, rect(600, 100, 240, 320));
+    document.body.append(menu);
+    await nextFrame();
+    expect(sent.findLast(isGlass)).toMatchObject({
+      rects: [
+        { x: 8, width: 300 },
+        { x: 600, y: 100, width: 240, height: 320 },
+      ],
+    });
+    menu.remove();
+  } finally {
+    sidebar.remove();
+    document.documentElement.style.removeProperty("--glass-blur");
+    vi.restoreAllMocks();
+  }
+});

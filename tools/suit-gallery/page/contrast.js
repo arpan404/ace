@@ -1,7 +1,7 @@
 // Text contrast over the live scene, the way the mock draws it. The scene is read through the
 // runtime's own `sample` message (a 32 × 32 grid of the canvas), then for each text element the
-// backdrop under it is composited as the browser draws it: the scene blurred by the glass's
-// blur radius and saturated, the glass tint over it, any fills between (selected row, message
+// backdrop under it is composited as the gallery draws it: the scene blurred by the glass's
+// blur radius and saturated (by the scene runtime, inside the glass rectangles), the glass tint over it, any fills between (selected row, message
 // bubble, code), then the text colour with its alpha. The worst WCAG ratio over the cells under
 // the text is reported. A text part with no glass behind it (the header) sits on the scene.
 const channel = (value) => {
@@ -63,11 +63,11 @@ const saturate = ([r, g, b], s) =>
       const style = getComputedStyle(node);
       const fill = parse(style.backgroundColor);
       if (fill && fill.alpha > 0) fills.unshift(fill);
-      const filter = style.backdropFilter || style.webkitBackdropFilter || "";
-      const b = /blur\(([\d.]+)px\)/.exec(filter);
-      const s = /saturate\(([\d.]+)\)/.exec(filter);
-      if (b) blur = Number(b[1]);
-      if (s) sat = Number(s[1]);
+      // the scene runtime blurs under glass by the glass's own --blur and --saturate
+      if (node.classList.contains("glass")) {
+        blur = parseFloat(style.getPropertyValue("--blur")) || 0;
+        sat = parseFloat(style.getPropertyValue("--saturate")) || 1;
+      }
     }
     return { fills, blur, sat };
   }

@@ -59,6 +59,7 @@ ace.scene({
 - **ace owns the clock.** `frame(time, view)` arrives at most 30 times a second; `time` is ms of running scene time. Never call `requestAnimationFrame` or timers. Take "now" from the last `frame`'s `time`, never `performance.now()`.
 - **Paused** when the window is hidden, blurred for 10 s, or the device saves power; it resumes where it stopped.
 - **Reduce motion**: `frame` comes once with `view.reduceMotion` true. Draw the calm still frame that represents the look; a phone shows that frame too.
+- **Glass is ace's.** Where ace's glass (sidebar, panels, composer, menus) sits over the scene, the runtime draws your canvas blurred inside it after every frame; don't blur anything yourself. With WebGL, create the context with `preserveDrawingBuffer: true`, so the glass and the live check can read your last frame between ticks.
 - **Signals** are a short reaction (a glint, a pulse that fades in a second or two). ace's own markers already show state, so the scene never has to.
 
 ## Budget

@@ -73,6 +73,16 @@ async function serve(path: string, response: ServerResponse) {
   const palette = /^\/scenes\/([^/]+)\/palette\.json$/.exec(path);
   if (palette?.[1] && sceneName.test(palette[1]))
     return file(response, join(root, "scenes", palette[1], "palette.json"));
+  // /bench-frame/<name>.html: the runtime and a scene, same-origin and unsandboxed, so the bench
+  // can drive it with real messages and wait for its canvases to finish drawing.
+  const benchFrame = /^\/bench-frame\/([^/]+)\.html$/.exec(path);
+  if (benchFrame?.[1] && sceneName.test(benchFrame[1]))
+    return send(
+      response,
+      `<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,"><style>html,body{margin:0;height:100%;overflow:hidden}</style></head><body><script src="/bench-runtime.js"></script><script src="/bench/${benchFrame[1]}.js"></script></body></html>`,
+      typeOf(".html"),
+    );
+  if (path === "/bench-runtime.js") return send(response, sceneRuntimeScript, typeOf(".js"));
   // /bench/<name>.js: a scene's own file, loaded unsandboxed by the frame-time bench.
   const bench = /^\/bench\/([^/]+)\.js$/.exec(path);
   if (bench?.[1] && sceneName.test(bench[1]))

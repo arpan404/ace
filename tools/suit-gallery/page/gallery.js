@@ -1,6 +1,9 @@
 // The gallery's host: a small stand-in for ace's scene controller. It loads one scene's sandbox
 // page, sends `init`, owns the clock (at most 30 ticks a second), forwards signals and Reduce
 // motion, and applies the scene's palette to the mock window.
+/** Rounded to half a pixel, so a layout that didn't really move sends the same glass. */
+const half = (value) => Math.round(value * 2) / 2;
+
 (() => {
   "use strict";
 
@@ -68,6 +71,7 @@
       if (key === "name") continue;
       root.setProperty(`--${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`, String(value));
     }
+    queueGlass();
   }
 
   function load(name) {
@@ -104,6 +108,8 @@
     if (!data || typeof data !== "object") return;
     if (data.type === "ready") {
       ready = true;
+      lastGlass = "";
+      queueGlass();
       if (reduce) post({ type: "tick", time: sceneTime });
     } else if (data.type === "drawn") {
       drawnCount += 1;
@@ -135,6 +141,50 @@
     }
   }
   requestAnimationFrame(loop);
+
+  // ace's glass over the scene. A browser's backdrop-filter can't blur the sandboxed scene frame,
+  // so the host sends the runtime the rectangles its glass covers (`glass`) and the runtime
+  // blurs the scene inside them; the glass here keeps only its tint and edge. Re-sent, at most
+  // once a frame, whenever the layout, the palette or the UI's visibility changes.
+  let glassQueued = false;
+  let lastGlass = "";
+  function glassRects() {
+    if (document.getElementById("app").classList.contains("hidden")) return [];
+    const origin = box();
+    const rects = [];
+    for (const element of document.querySelectorAll("#app .glass")) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const style = getComputedStyle(element);
+      rects.push({
+        x: half(rect.left - origin.left),
+        y: half(rect.top - origin.top),
+        width: half(rect.width),
+        height: half(rect.height),
+        radius: half(
+          Math.min(parseFloat(style.borderTopLeftRadius) || 0, rect.width / 2, rect.height / 2),
+        ),
+        blur: parseFloat(style.getPropertyValue("--blur")) || 0,
+        saturate: parseFloat(style.getPropertyValue("--saturate")) || 1,
+      });
+    }
+    return rects;
+  }
+  function queueGlass() {
+    if (glassQueued) return;
+    glassQueued = true;
+    requestAnimationFrame(() => {
+      glassQueued = false;
+      if (!ready) return;
+      const rects = glassRects();
+      const key = JSON.stringify(rects);
+      if (key === lastGlass) return;
+      lastGlass = key;
+      post({ type: "glass", rects });
+      if (reduce) post({ type: "tick", time: sceneTime });
+    });
+  }
+  new ResizeObserver(queueGlass).observe(document.getElementById("app"));
 
   new ResizeObserver(() => {
     if (!ready) return;
@@ -172,10 +222,12 @@
   reduceButton.addEventListener("click", () => setReduce(!reduce));
   reduceButton.setAttribute("aria-pressed", String(reduce));
 
-  hideButton.addEventListener("click", () => {
-    const hidden = document.getElementById("app").classList.toggle("hidden");
+  function setHidden(value) {
+    const hidden = document.getElementById("app").classList.toggle("hidden", value);
     hideButton.setAttribute("aria-pressed", String(hidden));
-  });
+    queueGlass();
+  }
+  hideButton.addEventListener("click", () => setHidden(undefined));
 
   window.addEventListener("keydown", (event) => {
     const index = Number(event.key) - 1;
@@ -187,7 +239,8 @@
     load,
     signal: (name) => post({ type: "signal", signal: name }),
     reduce: setReduce,
-    hide: (value) => document.getElementById("app").classList.toggle("hidden", value),
+    hide: setHidden,
+    glass: glassRects,
     state: () => ({ scene: current, ready, error, fps, sceneTime }),
     contrast,
   };

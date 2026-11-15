@@ -6,6 +6,14 @@
  * to a small grid and answers `sample` with its RGBA bytes, for ace's live contrast check; the
  * scene itself takes no part, and a canvas it can't read answers nothing.
  *
+ * Glass: a browser's backdrop-filter can't reach into this sandboxed, out-of-process frame, so
+ * ace's glass over a scene would show it sharp. The host sends `glass` with the rounded
+ * rectangles its glass covers. For each blur it asks for, the runtime keeps one small canvas over
+ * the scene's: after every frame it draws the scene's own canvas into it, blurred and saturated,
+ * at an eighth to a half of the CSS size, and the browser shows it stretched to the frame and
+ * clipped to those rectangles (`clip-path`), so the edges stay crisp and moving the glass costs
+ * nothing. The scene takes no part in this either.
+ *
  * A scene author writes:
  *
  *   ace.scene({
@@ -41,6 +49,11 @@ export const sceneRuntimeScript = `(function (g) {
   style.width = '100%';
   style.height = '100%';
   style.display = 'block';
+  // The glass layers: the scene, blurred, inside the host's glass rectangles (see "Glass" above).
+  var glassRects = [];
+  var glassLayers = {};
+  var glassBroken = false;
+  var GLASS_RECTS_MAX = 32;
   function place() {
     if (canvas.parentNode) return;
     (doc.body || doc.documentElement).appendChild(canvas);
@@ -91,6 +104,88 @@ export const sceneRuntimeScript = `(function (g) {
     } catch (error) { return null; }
   }
   function finite(value) { return typeof value === 'number' && isFinite(value); }
+  // The host's glass rectangles, kept only when every number is sane; null for a bad message.
+  function glassFrom(list) {
+    if (!Array.isArray(list) || list.length > GLASS_RECTS_MAX) return null;
+    var rects = [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (!r || !finite(r.x) || !finite(r.y) || !finite(r.width) || !finite(r.height) || !finite(r.radius) || !finite(r.blur)) return null;
+      if (r.width <= 0 || r.height <= 0) continue;
+      var saturate = finite(r.saturate) ? Math.min(4, Math.max(0, r.saturate)) : 1;
+      rects.push({ x: r.x, y: r.y, width: r.width, height: r.height, radius: Math.max(0, Math.min(r.radius, r.width / 2, r.height / 2)), blur: Math.min(64, Math.max(0, r.blur)), saturate: saturate });
+    }
+    return rects;
+  }
+  function glassKey(rect) { return rect.blur + '/' + rect.saturate; }
+  // A copy small enough to be cheap and big enough that the blur, not the scaling, sets its look.
+  function glassScale(blur) { return Math.min(0.5, Math.max(0.125, 4 / Math.max(blur, 1))); }
+  function roundedPath(rect) {
+    var x = rect.x, y = rect.y, w = rect.width, h = rect.height, k = rect.radius;
+    var arc = 'A' + k + ' ' + k + ' 0 0 1 ';
+    return 'M' + (x + k) + ' ' + y + 'H' + (x + w - k) + arc + (x + w) + ' ' + (y + k) +
+      'V' + (y + h - k) + arc + (x + w - k) + ' ' + (y + h) +
+      'H' + (x + k) + arc + x + ' ' + (y + h - k) +
+      'V' + (y + k) + arc + (x + k) + ' ' + y + 'Z';
+  }
+  function dropLayer(key) {
+    var layer = glassLayers[key];
+    if (layer.canvas.parentNode) layer.canvas.parentNode.removeChild(layer.canvas);
+    delete glassLayers[key];
+  }
+  // One layer per blur and saturation, shown over the scene and clipped to its rectangles.
+  function arrangeGlass() {
+    var groups = {};
+    for (var i = 0; i < glassRects.length; i++) {
+      var key = glassKey(glassRects[i]);
+      (groups[key] = groups[key] || []).push(glassRects[i]);
+    }
+    for (var old in glassLayers) if (!groups[old]) dropLayer(old);
+    for (var name in groups) {
+      var layer = glassLayers[name];
+      if (!layer) {
+        var made = doc.createElement('canvas');
+        made.setAttribute('aria-hidden', 'true');
+        var look = made.style;
+        look.position = 'fixed';
+        look.inset = '0';
+        look.width = '100%';
+        look.height = '100%';
+        look.display = 'block';
+        look.pointerEvents = 'none';
+        layer = glassLayers[name] = { canvas: made, blur: groups[name][0].blur, saturate: groups[name][0].saturate };
+        (doc.body || doc.documentElement).appendChild(made);
+      }
+      layer.canvas.style.clipPath = "path('" + groups[name].map(roundedPath).join('') + "')";
+    }
+  }
+  // Each layer: the scene's canvas drawn small through its blur. The source is drawn a little
+  // past every edge, so the blur never fades to nothing at the frame's sides.
+  function paintGlass() {
+    for (var key in glassLayers) {
+      var layer = glassLayers[key];
+      var scale = glassScale(layer.blur);
+      var width = Math.max(1, Math.ceil(info.width * scale));
+      var height = Math.max(1, Math.ceil(info.height * scale));
+      if (layer.canvas.width !== width) layer.canvas.width = width;
+      if (layer.canvas.height !== height) layer.canvas.height = height;
+      var context = layer.canvas.getContext('2d');
+      var reach = Math.ceil(layer.blur * scale * 2);
+      context.clearRect(0, 0, width, height);
+      context.filter = 'blur(' + layer.blur * scale + 'px) saturate(' + layer.saturate + ')';
+      context.drawImage(canvas, -reach, -reach, width + reach * 2, height + reach * 2);
+      context.filter = 'none';
+    }
+  }
+  // Glass is ace's own layer: a failure in it turns glass off and never stops the scene.
+  function glassSafely(run) {
+    if (glassBroken) return;
+    try { run(); } catch (error) {
+      glassBroken = true;
+      for (var key in glassLayers) dropLayer(key);
+    }
+  }
+  function glaze() { if (started) glassSafely(paintGlass); }
   g.addEventListener('error', function (event) { fail(event.error || event.message); });
   g.addEventListener('unhandledrejection', function (event) { fail(event.reason); });
   Object.defineProperty(g, 'ace', {
@@ -149,14 +244,24 @@ export const sceneRuntimeScript = `(function (g) {
         if (pixels) reply({ type: 'sample', id: data.id, columns: columns, rows: rows, pixels: pixels });
         return;
       }
+      case 'glass': {
+        var rects = glassFrom(data.rects);
+        if (!rects) return;
+        glassRects = rects;
+        glassSafely(arrangeGlass);
+        // A new layer shows the scene's current picture at once (scenes keep it, as sampling
+        // needs); a moved one only needs its new clip.
+        glaze();
+        return;
+      }
       case 'tick': {
         if (!started || !finite(data.time)) return;
         var time = data.time;
         var drawn = call('frame', [time, view]);
         if (failed) return;
         if (drawn && typeof drawn.then === 'function')
-          drawn.then(function () { if (!failed) reply({ type: 'drawn', time: time }); }, fail);
-        else reply({ type: 'drawn', time: time });
+          drawn.then(function () { if (failed) return; glaze(); reply({ type: 'drawn', time: time }); }, fail);
+        else { glaze(); reply({ type: 'drawn', time: time }); }
         return;
       }
     }

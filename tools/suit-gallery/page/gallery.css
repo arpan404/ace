@@ -114,10 +114,13 @@ body {
 .app.hidden {
   opacity: 0;
 }
+/*
+ * Glass over the scene: tint, edge and highlight only. The blur and saturation (--blur,
+ * --saturate) are drawn by the scene runtime inside these rectangles, because backdrop-filter
+ * can't reach into the sandboxed scene frame (gallery.js sends it the rectangles).
+ */
 .glass {
   background: var(--glass);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
-  backdrop-filter: blur(var(--blur)) saturate(var(--saturate));
   border: 1px solid var(--edge);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.04) inset,

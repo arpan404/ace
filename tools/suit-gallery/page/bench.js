@@ -134,12 +134,95 @@ const tick = () => new Promise((resolve) => requestAnimationFrame(resolve));
     });
   }
 
+  /** The gallery mock's glass at 1440 × 900: sidebar, header, transcript, live pill, composer. */
+  const GLASS = [
+    { x: 10, y: 10, width: 330, height: 836, radius: 18, blur: 16, saturate: 1.5 },
+    { x: 797, y: 10, width: 185, height: 49, radius: 24, blur: 16, saturate: 1.5 },
+    { x: 350, y: 69, width: 1080, height: 677, radius: 18, blur: 16, saturate: 1.5 },
+    { x: 520, y: 756, width: 140, height: 28, radius: 14, blur: 16, saturate: 1.5 },
+    { x: 520, y: 792, width: 740, height: 48, radius: 24, blur: 16, saturate: 1.5 },
+  ];
+
+  /**
+   * The runtime's glass cost: the scene runs under the real runtime in a same-origin frame and
+   * is driven by messages, as ace drives it. Each frame is timed from its tick to `drawn`, then
+   * to both canvases (scene and glass) having finished on the GPU, without glass and with the
+   * mock's five panes. The difference is what glass adds.
+   */
+  async function glassCost(name) {
+    const frame = document.createElement("iframe");
+    frame.style.cssText = `position:fixed;left:0;top:0;width:${WIDTH}px;height:${HEIGHT}px;opacity:0;border:0;pointer-events:none`;
+    frame.src = `/bench-frame/${name}.html`;
+    document.body.append(frame);
+    await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));
+    const win = frame.contentWindow;
+    let waiting = null;
+    const heard = (event) => {
+      if (event.source !== win) return;
+      if (waiting && (event.data.type === "ready" || event.data.type === "drawn")) waiting();
+    };
+    window.addEventListener("message", heard);
+    const next = () => new Promise((resolve) => (waiting = resolve));
+    const ready = next();
+    win.postMessage(
+      {
+        type: "init",
+        scheme: "dark",
+        width: WIDTH,
+        height: HEIGHT,
+        pixelRatio: RATIO,
+        reduceMotion: false,
+      },
+      "*",
+    );
+    await ready;
+    const sceneCanvas = frame.contentDocument.querySelector("canvas");
+    const gl = sceneCanvas.getContext("webgl2");
+    // the glass layers, once glass is sent: every canvas over the scene's
+    const glassLayers = () => [...frame.contentDocument.querySelectorAll("canvas")].slice(1);
+    const pixel = new Uint8Array(4);
+    let time = 0;
+    // Reading a glass layer back with getImageData would move it to software rendering, so its
+    // GPU work is awaited through a bitmap snapshot instead, which leaves it accelerated.
+    async function timed(count) {
+      const cpu = [];
+      const total = [];
+      for (let i = 0; i < count; i += 1) {
+        time += 33.3;
+        const begin = performance.now();
+        const drawn = next();
+        win.postMessage({ type: "tick", time }, "*");
+        await drawn;
+        cpu.push(performance.now() - begin);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        for (const layer of glassLayers()) (await createImageBitmap(layer)).close();
+        total.push(performance.now() - begin);
+      }
+      return { cpu, total };
+    }
+    await timed(WARM);
+    const plain = await timed(FRAMES);
+    win.postMessage({ type: "glass", rects: GLASS }, "*");
+    await timed(WARM);
+    const glazed = await timed(FRAMES);
+    window.removeEventListener("message", heard);
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    frame.remove();
+    return {
+      plainMedian: quantile(plain.total, 0.5),
+      glassMedian: quantile(glazed.total, 0.5),
+      glassP95: quantile(glazed.total, 0.95),
+      added: quantile(glazed.total, 0.5) - quantile(plain.total, 0.5),
+      cpuAdded: quantile(glazed.cpu, 0.5) - quantile(plain.cpu, 0.5),
+    };
+  }
+
   async function run() {
     const table = document.getElementById("results");
     const results = {};
     for (const name of SCENES) {
       document.getElementById("state").textContent = `running ${name}…`;
-      const row = await inFrame(name);
+      const row = { ...(await inFrame(name)), ...(await glassCost(name)) };
       results[name] = row;
       const tr = document.createElement("tr");
       for (const cell of [
@@ -148,6 +231,9 @@ const tick = () => new Promise((resolve) => requestAnimationFrame(resolve));
         ms(row.syncMedian),
         ms(row.syncP95),
         ms(row.signalledP95),
+        ms(row.plainMedian),
+        ms(row.glassMedian),
+        ms(row.added),
         ms(row.gpuMedian),
       ]) {
         const td = document.createElement("td");
