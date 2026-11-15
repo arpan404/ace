@@ -226,8 +226,8 @@ test("a group's menu offers Pin, Open and Delete, and pinning it moves it to the
     });
   });
   await rightClick(await botRow("Crew"));
-  const items = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
-  expect(items).toEqual(["Pin", "Open", "Delete"]);
+  const listed = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+  expect(listed).toEqual(["Pin", "Open", "Delete"]);
   await userEvent.click(screen.getByRole("menuitem", { name: "Pin" }));
   await waitFor(() => expect(spade.sent("PUT", "/v1/groups/crew/pin")).toEqual([{ pinned: true }]));
   const strip = await screen.findByRole("list", { name: "Pinned" });
