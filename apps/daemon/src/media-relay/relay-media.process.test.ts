@@ -4,12 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  legacyMediaSettings,
-  MediaSupervisor,
-  nodeMediaHost,
-  systemMediaClock,
-} from "@ace/media/supervisor";
+import { MediaRuntime } from "@ace/media/runtime";
+import { legacyMediaSettings, nodeMediaHost, systemMediaClock } from "@ace/media/supervisor";
 import type { FromMedia, ToMedia } from "@ace/media/wire";
 import { DeviceId, type ClientMessage } from "@ace/protocol";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
@@ -17,8 +13,7 @@ import { fingerprint, keyPair } from "@ace/secure-channel";
 import { startFilesRelay } from "../files-relay.ts";
 import { RemoteAuth } from "../remote-auth.ts";
 import { Store } from "../store.ts";
-import type { MediaClaimant } from "./admit.ts";
-import { MediaRelayStreams, type MediaGrant } from "./streams.ts";
+import { MediaRelayStreams } from "./streams.ts";
 
 // A relay media stream end to end (D2): the real self-hosted relay, the real ace-media binary
 // under its supervisor, the daemon's relay host with real pairing credentials, and a client
@@ -41,35 +36,6 @@ async function until(condition: () => boolean, ms = 10_000): Promise<void> {
 
 const hex = (bytes: Uint8Array) => Buffer.from(bytes).toString("hex");
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
-
-/** D1's `media.connect` tickets, as the claim sees them: single use, for one device and kind. */
-function tickets() {
-  const issued = new Map<string, { claimant: MediaClaimant; grant: MediaGrant }>();
-  let next = 0;
-  return {
-    mint(device: string, admission: MediaClaimant["admission"] = "pairing") {
-      const ticket = Buffer.from(randomUUID() + randomUUID())
-        .subarray(0, 32)
-        .toString("base64url");
-      const grant: MediaGrant = {
-        connection: `mc_relay${String(++next).padStart(4, "0")}`,
-        owner: { session: "s1", device, admission: { kind: "pairing", generation: 1 } },
-        issued: next,
-      };
-      issued.set(ticket, { claimant: { device, admission }, grant });
-      return ticket;
-    },
-    claim(ticket: string, claimant: MediaClaimant): MediaGrant | undefined {
-      const entry = issued.get(ticket);
-      issued.delete(ticket);
-      if (!entry) return undefined;
-      const same =
-        entry.claimant.device === claimant.device &&
-        entry.claimant.admission === claimant.admission;
-      return same ? entry.grant : undefined;
-    },
-  };
-}
 
 async function setup() {
   if (!binary) throw new Error("ACE_MEDIA_TEST_BINARY is required");
@@ -95,7 +61,7 @@ async function setup() {
   const keys = keyPair();
   const runtimeDir = await mkdtemp(join(tmpdir(), "ace-d2m-"));
   cleanups.push(() => rm(runtimeDir, { recursive: true, force: true }));
-  const supervisor: MediaSupervisor = new MediaSupervisor({
+  const runtime = new MediaRuntime({
     version: execFileSync(binary, ["--version"]).toString().trim(),
     binary,
     runtimeDir,
@@ -105,15 +71,15 @@ async function setup() {
     clock: systemMediaClock,
     random: Math.random,
     listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
-    replay: () => {},
+    id: randomUUID,
     onMessage: (message, payload) => {
       received.push(message);
       streams?.onMessage(message, payload);
     },
-    onEgress: () => {},
     onExit: () => streams?.onExit(),
     log: (level, message, fields) => logs.push(`${level} ${message} ${JSON.stringify(fields)}`),
   });
+  const supervisor = runtime.supervisor;
   cleanups.push(() => supervisor.dispose());
   streams = new MediaRelayStreams({
     link: {
@@ -134,7 +100,6 @@ async function setup() {
   });
   const relay = await startRelay({ limits: { messagesPerSecond: 100_000, messageBurst: 100_000 } });
   cleanups.push(() => relay.close());
-  const claims = tickets();
   const host = await startFilesRelay({
     url: relay.url,
     keys,
@@ -143,9 +108,26 @@ async function setup() {
     store,
     hostId: "daemon-relay-host",
     headSeq: () => 0,
-    media: { streams, claim: claims.claim },
+    media: {
+      streams,
+      claim: (ticket, claimant) => runtime.connections.claimRelay(ticket, claimant),
+    },
   });
   cleanups.push(() => host.close());
+
+  /** `media.connect` on the phone's (or another device's) main session: its ticket. */
+  async function mint(device: string, session = "s1"): Promise<string> {
+    const hold = supervisor.need();
+    cleanups.push(hold);
+    await until(() => (supervisor.listening()?.loopbackPort ?? 0) > 0);
+    const granted = runtime.connections.connect({
+      session,
+      device,
+      admission: { kind: "pairing", generation: 1 },
+    });
+    if (!granted.ok) throw new Error(granted.code);
+    return granted.ticket;
+  }
 
   async function open(purpose?: "media"): Promise<ClientChannel> {
     const client = await connectClientViaRelay({
@@ -183,13 +165,26 @@ async function setup() {
     );
     return { client, first: await client.receive() };
   }
-  return { supervisor, streams, sent, received, logs, claims, phone, tablet, open, hello, media };
+  return {
+    runtime,
+    supervisor,
+    streams,
+    sent,
+    received,
+    logs,
+    mint,
+    phone,
+    tablet,
+    open,
+    hello,
+    media,
+  };
 }
 
 describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_000 }, () => {
   it("hands a stream to ace-media with no frame lost or replayed, and keeps its keys out of every log", async () => {
     const t = await setup();
-    const ticket = t.claims.mint(t.phone.deviceId);
+    const ticket = await t.mint(t.phone.deviceId);
     const client = await t.open("media");
     client.flowControl?.();
     await client.send(t.hello(t.phone, { channel: "media", mediaTicket: ticket }));
@@ -219,7 +214,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
 
   it("refuses media hellos that name another channel, lack a ticket, reuse one or come from another device", async () => {
     const t = await setup();
-    const ticket = t.claims.mint(t.phone.deviceId);
+    const ticket = await t.mint(t.phone.deviceId);
     const files = await t.media(t.phone, ticket, "files");
     expect(files.first).toMatchObject({ type: "error", code: "unauthorized" });
     const none = await t.media(t.phone, undefined);
@@ -229,11 +224,11 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     expect(ok.first).toMatchObject({ type: "welcome" });
     const reused = await t.media(t.phone, ticket);
     expect(reused.first).toMatchObject({ type: "error", code: "unauthorized" });
-    const stolen = await t.media(t.tablet, t.claims.mint(t.phone.deviceId));
+    const stolen = await t.media(t.tablet, await t.mint(t.phone.deviceId));
     expect(stolen.first).toMatchObject({ type: "error", code: "unauthorized" });
     const badToken = await t.media(
       { deviceId: t.phone.deviceId, token: "wrong" },
-      t.claims.mint(t.phone.deviceId),
+      await t.mint(t.phone.deviceId),
     );
     expect(badToken.first).toMatchObject({ type: "error", code: "unauthorized" });
     // Only the one admitted stream got keys.
@@ -244,7 +239,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     const t = await setup();
     const client = await t.open();
     await client.send(
-      t.hello(t.phone, { channel: "media", mediaTicket: t.claims.mint(t.phone.deviceId) }),
+      t.hello(t.phone, { channel: "media", mediaTicket: await t.mint(t.phone.deviceId) }),
     );
     expect(await client.receive()).toMatchObject({ type: "error", code: "unauthorized" });
     await client.closed;
@@ -253,7 +248,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
 
   it("a revocation shuts the client's relay stream and is answered within 50 ms", async () => {
     const t = await setup();
-    const { client, first } = await t.media(t.phone, t.claims.mint(t.phone.deviceId));
+    const { client, first } = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(first).toMatchObject({ type: "welcome" });
     const started = performance.now();
     expect(
@@ -270,14 +265,14 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
 
   it("after ace-media is killed the client's stream ends, and a new stream is handed over by the restarted process", async () => {
     const t = await setup();
-    const before = await t.media(t.phone, t.claims.mint(t.phone.deviceId));
+    const before = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(before.first).toMatchObject({ type: "welcome" });
     const pid = t.supervisor.snapshot().pid;
     if (!pid) throw new Error("no pid");
     process.kill(pid, "SIGKILL");
     await before.client.closed;
     // Nothing holds ace-media up now; the next stream's need starts it again.
-    const after = await t.media(t.phone, t.claims.mint(t.phone.deviceId));
+    const after = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(after.first).toMatchObject({ type: "welcome" });
     await after.client.send({ type: "ping" });
     expect(await after.client.receive()).toEqual({ type: "pong" });
@@ -285,7 +280,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
 
   it("a stopped ace-media is killed 250 ms into a revocation, and the client's stream closes soon after", async () => {
     const t = await setup();
-    const { client, first } = await t.media(t.phone, t.claims.mint(t.phone.deviceId));
+    const { client, first } = await t.media(t.phone, await t.mint(t.phone.deviceId));
     expect(first).toMatchObject({ type: "welcome" });
     const pid = t.supervisor.snapshot().pid;
     if (!pid) throw new Error("no pid");

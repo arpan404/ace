@@ -53,6 +53,7 @@ fn dial(engine: &mut Engine, stream: &str) -> Vec<Effect> {
 }
 
 fn hand_over(engine: &mut Engine, stream: &str, issued: u64) -> Vec<Effect> {
+    ticket(engine, "rc", owner("d1", pairing(1)), issued, 9);
     engine.control(
         message(
             json!({ "type": "relay.keys", "stream": stream, "connection": "rc",
@@ -233,6 +234,7 @@ fn a_piece_waits_for_credit_when_the_clients_window_is_spent() {
     let mut engine = engine();
     dial(&mut engine, "st");
     engine.relay_dialed(&sid("st"));
+    ticket(&mut engine, "rc", owner("d1", pairing(1)), 1, 9);
     engine.control(
         message(
             json!({ "type": "relay.keys", "stream": "st", "connection": "rc",

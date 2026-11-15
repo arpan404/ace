@@ -507,6 +507,8 @@ impl Engine {
                     },
                     payload,
                     dialed,
+                    vault,
+                    now.wall_ms,
                     out,
                 );
                 if !installed {

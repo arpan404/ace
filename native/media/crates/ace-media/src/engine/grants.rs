@@ -231,12 +231,15 @@ impl Grants {
     }
 
     /// `relay.keys`: the stream's cipher states, installed for its connection. The payload is
-    /// wiped whatever happens, and nothing is imported for a refused grant. True when installed.
+    /// wiped whatever happens, and nothing is imported for a refused grant. `now` is the daemon's
+    /// wall clock, as for tickets. True when installed.
     pub fn relay_keys(
         &mut self,
         grant: Grant<'_>,
         keys: Zeroizing<Vec<u8>>,
         dialed: bool,
+        vault: &mut Vault,
+        now: u64,
         out: &mut Vec<Effect>,
     ) -> bool {
         if !self.admit(&grant, Some(grant.id.get()), out) {
@@ -253,18 +256,26 @@ impl Grants {
             );
             return false;
         }
+        // A relay stream opens the connection its `media.ticket` named, once: the ticket the
+        // daemon checked in the hello is consumed here, so it can't open a direct one too.
         let key = grant.connection.get().to_owned();
-        if let Some(existing) = self.connections.get(&key)
-            && existing.owner != *grant.owner
-        {
+        let Some(existing) = self.connections.get(&key) else {
+            refuse(out, &grant, Refusal::UnknownConnection);
+            return false;
+        };
+        if existing.owner != *grant.owner {
             refuse(out, &grant, Refusal::Owner);
             return false;
         }
-        let new = !self.connections.contains_key(&key);
-        let replacing = self.streams.contains_key(grant.id.get());
-        if (new && self.connections.len() >= MAX_CONNECTIONS)
-            || (!replacing && self.streams.len() >= MAX_STREAMS)
-        {
+        let State::Ticket { secret, expires_at } = existing.state else {
+            refuse(out, &grant, Refusal::UnknownConnection);
+            return false;
+        };
+        if expires_at <= now {
+            refuse(out, &grant, Refusal::Expired);
+            return false;
+        }
+        if self.streams.len() >= MAX_STREAMS {
             normal(
                 out,
                 FromMedia::RelayFailed {
@@ -284,26 +295,18 @@ impl Grants {
             );
             return false;
         };
-        self.streams.remove(grant.id.get());
-        if new {
-            self.connections.insert(
-                key.clone(),
-                Connection {
-                    id: grant.connection.clone(),
-                    owner: grant.owner.clone(),
-                    issued: grant.issued,
-                    state: State::Open,
-                },
-            );
-            normal(
-                out,
-                FromMedia::ConnectionOpen {
-                    connection: grant.connection.clone(),
-                    kind: ConnectionKind::Relay,
-                    owner: grant.owner.clone(),
-                },
-            );
+        vault.erase(secret);
+        if let Some(connection) = self.connections.get_mut(&key) {
+            connection.state = State::Open;
         }
+        normal(
+            out,
+            FromMedia::ConnectionOpen {
+                connection: grant.connection.clone(),
+                kind: ConnectionKind::Relay,
+                owner: grant.owner.clone(),
+            },
+        );
         self.streams
             .insert(grant.id.get().to_owned(), Keyed::new(key, transport));
         true

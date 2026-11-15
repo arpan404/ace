@@ -316,29 +316,59 @@ pub(super) fn dialed(engine: &mut Engine, stream: &str) {
     engine.effects().for_each(drop);
 }
 
-fn keys(engine: &mut Engine, stream: &str, who: Value, issued: u64, payload: &[u8]) -> Vec<Effect> {
+fn keys(
+    engine: &mut Engine,
+    stream: &str,
+    connection: &str,
+    who: Value,
+    issued: u64,
+    payload: &[u8],
+) -> Vec<Effect> {
     dialed(engine, stream);
     send(
         engine,
-        json!({ "type": "relay.keys", "stream": stream, "connection": "rc", "owner": who, "issued": issued }),
+        json!({ "type": "relay.keys", "stream": stream, "connection": connection, "owner": who, "issued": issued }),
         payload,
         NOW,
     )
 }
 
 #[test]
-fn relay_keys_install_only_for_a_live_owner_and_close_with_their_stream() {
+fn relay_keys_install_only_on_their_unused_ticket_for_a_live_owner_and_close_with_their_stream() {
     let mut engine = engine();
-    let installed = keys(&mut engine, "st1", owner("d1", pairing(1)), 3, &key_block());
+    let d1 = || owner("d1", pairing(1));
+    // Keys for a connection no ticket opened are refused.
+    let unticketed = keys(&mut engine, "st0", "rc", d1(), 1, &key_block());
+    assert_eq!(
+        refusals(&unticketed),
+        [("relay.keys".into(), Refusal::UnknownConnection)]
+    );
+    ticket(&mut engine, "rc", d1(), 2, 1);
+    let installed = keys(&mut engine, "st1", "rc", d1(), 3, &key_block());
     assert!(matches!(
         installed.as_slice(),
         [Effect::Normal(FromMedia::ConnectionOpen { .. })]
     ));
-    let other = keys(&mut engine, "st2", owner("d2", pairing(1)), 4, &key_block());
+    // The ticket was consumed: it opens nothing more, by relay or directly.
+    assert!(engine.claim_ticket(&[1; 32], NOW).is_none());
+    let again = keys(&mut engine, "st5", "rc", d1(), 4, &key_block());
+    assert_eq!(
+        refusals(&again),
+        [("relay.keys".into(), Refusal::UnknownConnection)]
+    );
+    let other = keys(
+        &mut engine,
+        "st2",
+        "rc",
+        owner("d2", pairing(1)),
+        4,
+        &key_block(),
+    );
     assert_eq!(refusals(&other), [("relay.keys".into(), Refusal::Owner)]);
+    ticket(&mut engine, "rc3", d1(), 4, 3);
     let mut bad = key_block();
     bad[0] ^= 1;
-    let corrupt = keys(&mut engine, "st3", owner("d1", pairing(1)), 4, &bad);
+    let corrupt = keys(&mut engine, "st3", "rc3", d1(), 4, &bad);
     // Corrupt keys fail the stream, and its socket is shut.
     assert!(matches!(
         corrupt.as_slice(),
@@ -350,7 +380,7 @@ fn relay_keys_install_only_for_a_live_owner_and_close_with_their_stream() {
 
     revoke(&mut engine, "r", 5, "d1", None);
     assert_eq!(engine.counts().connections, 0);
-    let late = keys(&mut engine, "st4", owner("d1", pairing(1)), 5, &key_block());
+    let late = keys(&mut engine, "st4", "rc4", d1(), 5, &key_block());
     assert_eq!(refusals(&late), [("relay.keys".into(), Refusal::Revoked)]);
 
     let closed = send(
