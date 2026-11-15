@@ -127,6 +127,24 @@ fn access(word: Option<&str>) -> Result<Option<Access>, Box<Response>> {
 }
 
 #[derive(Deserialize)]
+pub(super) struct Pin {
+    pub(super) pinned: bool,
+}
+
+/// `PUT /v1/agents/{id}/pin`: pins the bot to the top of the list, or unpins it.
+pub(super) async fn pin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<Pin>,
+) -> Response {
+    match state.engine.pin_agent(&id, body.pinned) {
+        Ok(Some(view)) => Json(json!({ "agent": agent_json(&view) })).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such agent"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
 pub(super) struct Main {
     enabled: bool,
 }
@@ -155,6 +173,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "created_at": agent.created_ms,
         "updated_at": agent.updated_ms,
         "last_activity": agent.last_activity_ms,
+        "pinned_at": agent.pinned_ms,
         "state": view.state.name(),
         "working": view.state != AgentState::Idle,
         "waiting_for": view.waiting_for,

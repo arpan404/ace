@@ -346,6 +346,18 @@ impl Engine {
         Ok(self.store.setting(MAIN_ENABLED)?.as_deref() != Some("false"))
     }
 
+    /// Pins an agent to the top of the person's list, or unpins it. Answers its view, or `None`
+    /// for no such agent.
+    pub fn pin_agent(&self, id: &str, pinned: bool) -> Result<Option<AgentView>, StoreError> {
+        if !self
+            .store
+            .set_agent_pinned(id, pinned, self.clock.now_ms())?
+        {
+            return Ok(None);
+        }
+        self.agent_view(id)
+    }
+
     pub fn set_main_enabled(&self, enabled: bool) -> Result<(), StoreError> {
         self.store
             .set_setting(MAIN_ENABLED, (!enabled).then_some("false"))

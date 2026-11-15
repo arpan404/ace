@@ -260,6 +260,7 @@ impl Engine {
             members,
             created_ms: now,
             updated_ms: now,
+            pinned_ms: None,
         };
         self.store.create_group(&group)?;
         self.group_view(&group.id)?.ok_or(GroupError::NotFound)
@@ -360,6 +361,17 @@ impl Engine {
         }
         files.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.path.cmp(&b.path)));
         Ok(Some(files))
+    }
+
+    /// Pins a group to the top of the person's list, or unpins it.
+    pub fn pin_group(&self, id: &str, pinned: bool) -> Result<Option<GroupView>, StoreError> {
+        if !self
+            .store
+            .set_group_pinned(id, pinned, self.clock.now_ms())?
+        {
+            return Ok(None);
+        }
+        self.group_view(id)
     }
 
     pub fn group_view(&self, id: &str) -> Result<Option<GroupView>, StoreError> {

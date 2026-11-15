@@ -51,6 +51,8 @@ export interface SpadeGroup {
   createdAt: number;
   updatedAt: number;
   lastActivity: number;
+  /** When the person pinned it (ms); undefined when it isn't pinned. */
+  pinnedAt: number | undefined;
   state: SpadeAgentState;
   /** A few words while it isn't idle: `Research is answering`. */
   status: string | undefined;
@@ -88,6 +90,7 @@ const groupShape = z.object({
   created_at: time.default(0),
   updated_at: time.default(0),
   last_activity: time.default(0),
+  pinned_at: z.number().nullish().catch(undefined),
   state: z.enum(["idle", "working", "waiting"]).catch("idle").default("idle"),
   status: z.string().nullish().catch(undefined),
   last_message: z
@@ -134,6 +137,7 @@ export function parseSpadeGroupValue(raw: unknown): SpadeGroup | undefined {
     createdAt: group.created_at,
     updatedAt: group.updated_at,
     lastActivity: group.last_activity,
+    pinnedAt: group.pinned_at ?? undefined,
     state: group.state,
     status: group.status || undefined,
     lastMessage: last

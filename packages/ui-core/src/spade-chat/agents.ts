@@ -53,6 +53,8 @@ export interface SpadeAgent {
   createdAt: number;
   updatedAt: number;
   lastActivity: number;
+  /** When the person pinned it (ms); undefined when it isn't pinned. */
+  pinnedAt: number | undefined;
   state: SpadeAgentState;
   /** What it waits on the person for while `waiting`: an approval, or a question. */
   waitingFor: "approval" | "question" | undefined;
@@ -108,6 +110,7 @@ const agentShape = z.object({
   created_at: time.default(0),
   updated_at: time.default(0),
   last_activity: time.default(0),
+  pinned_at: z.number().nullish().catch(undefined),
   state: z.enum(["idle", "working", "waiting"]).optional().catch(undefined),
   waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
   questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
@@ -160,6 +163,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     createdAt: agent.created_at,
     updatedAt: agent.updated_at,
     lastActivity: agent.last_activity,
+    pinnedAt: agent.pinned_at ?? undefined,
     state: agent.state ?? (agent.working ? "working" : "idle"),
     waitingFor: agent.waiting_for ?? undefined,
     questionsForLater: agent.questions_for_later ?? 0,

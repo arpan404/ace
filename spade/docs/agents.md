@@ -145,7 +145,7 @@ All under `/v1`, with the bearer token; JSON; problems are `{"error": "<one line
 fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
-"created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
+"created_at", "updated_at", "last_activity", "pinned_at", "state", "working", "waiting_for", "status",
 "problem", "last_message", "seen_seq", "unseen", "access", "task_state", "continuing"}`
 
 - `access`, `task_state`, `continuing`: the bot's access level and its task as it last said, and
@@ -174,6 +174,15 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 - `unseen`: the bot finished and the person hasn't seen it: `state` is `idle` and the bot's own
   `last_message` is past `seen_seq`. Never true while any of its work runs or waits on the person.
 
+### Pins
+
+`PUT /v1/agents/{id}/pin` and `PUT /v1/groups/{id}/pin` with `{"pinned": bool}` pin a bot or a
+group (Spade, the main bot, too) to the top of the person's list, or unpin it. Answer
+`{"agent"}` or `{"group"}`; `404` for none. Agents and groups carry `pinned_at`: the ms it was
+pinned, or `null`. Pinning a pinned conversation keeps its `pinned_at`, so a list shows the strip
+oldest pin first. Pins live in `agents.pinned_ms` and `groups.pinned_ms`, so every device that
+reads this Spade shows the same strip, and they survive restarts.
+
 ### Seen
 
 `PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a group's
@@ -191,6 +200,7 @@ then.
 | `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
 | `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
+| `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
 | `GET /models`                                 |                                                                            | `{"endpoints","presets","fast_model","new_bot_model", …}` |
 | `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}` | `201 {"endpoint"}`                                         |

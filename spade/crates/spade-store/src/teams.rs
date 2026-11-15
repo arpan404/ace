@@ -74,6 +74,8 @@ pub struct StoredGroup {
     pub members: Vec<StoredMember>,
     pub created_ms: i64,
     pub updated_ms: i64,
+    /// When the person pinned it to the top of their list; `None` when it isn't pinned.
+    pub pinned_ms: Option<i64>,
 }
 
 /// An ask to a bot of another machine, until it ends.
@@ -128,7 +130,7 @@ pub struct InboxEntry {
     pub seq: i64,
 }
 
-const GROUP_COLUMNS: &str = "id, name, lead_id, conversation_id, created_ms, updated_ms";
+const GROUP_COLUMNS: &str = "id, name, lead_id, conversation_id, created_ms, updated_ms, pinned_ms";
 
 fn group_row(row: &Row<'_>) -> rusqlite::Result<StoredGroup> {
     Ok(StoredGroup {
@@ -139,6 +141,7 @@ fn group_row(row: &Row<'_>) -> rusqlite::Result<StoredGroup> {
         members: Vec::new(),
         created_ms: row.get(4)?,
         updated_ms: row.get(5)?,
+        pinned_ms: row.get(6)?,
     })
 }
 
@@ -272,6 +275,18 @@ impl Store {
                 |row| row.get(0),
             )
             .optional()?)
+    }
+
+    /// Pins the group at `now_ms`, or unpins it. Pinning a pinned group keeps its place. Answers
+    /// false when there is no such group.
+    pub fn set_group_pinned(&self, id: &str, pinned: bool, now_ms: i64) -> Result<bool> {
+        let connection = self.lock()?;
+        let changed = connection.execute(
+            "UPDATE groups SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
+             WHERE id = ?1",
+            params![id, pinned, now_ms],
+        )?;
+        Ok(changed > 0)
     }
 
     /// Changes a group's name, lead and members as one write. False when it is gone.

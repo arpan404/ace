@@ -28,6 +28,8 @@ export interface FakeSpadeAgent {
   created_at: number;
   updated_at: number;
   last_activity: number;
+  /** When it was pinned (ms), as Spade sends it; null or absent when it isn't. */
+  pinned_at?: number | null;
   state: "idle" | "working" | "waiting";
   waiting_for: "approval" | "question" | null;
   /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
@@ -460,6 +462,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
+    if (root === "agents" && id && sub === "pin" && request.method === "PUT") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      agent.pinned_at = body.pinned === true ? (agent.pinned_at ?? this.now()) : null;
+      return reply({ agent });
+    }
     if (root === "agents") return this.agentRoute(request.method, id, body);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
