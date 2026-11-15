@@ -80,12 +80,12 @@ test("Next and Send say what a question still needs, and Spade's refusal turns t
   );
   const asked = await card("Travel asks 2 questions");
   await userEvent.click(asked.getByRole("button", { name: "Next" }));
-  expect((await asked.findByRole("alert")).textContent).toBe("Window or aisle? Pick one.");
+  expect((await asked.findByRole("alert")).textContent).toBe("Pick one.");
   await userEvent.click(asked.getByRole("radio", { name: "Window" }));
   await userEvent.click(asked.getByRole("button", { name: "Next" }));
   await userEvent.type(asked.getByRole("spinbutton", { name: "How many nights?" }), "20");
   await userEvent.click(asked.getByRole("button", { name: "Send" }));
-  expect((await asked.findByRole("alert")).textContent).toBe("How many nights? At most 14.");
+  expect((await asked.findByRole("alert")).textContent).toBe("At most 14.");
   expect(spade.sent("POST", path)).toEqual([]);
 
   const nights = asked.getByRole("spinbutton", { name: "How many nights?" });

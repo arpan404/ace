@@ -138,10 +138,10 @@ function OpenCard(props: {
       if (named !== undefined) setPage(named);
     });
   };
+  // The card turns to the question that needs more, so the reason needs no prompt of its own.
   const miss = (index: number, missing: string) => {
-    const prompt = questions[index]?.prompt;
     setPage(index);
-    setProblem(count > 1 && prompt ? `${prompt} ${missing}.` : `${missing}.`);
+    setProblem(`${missing}.`);
   };
   const send = (next = drafts) => {
     if (sending) return;

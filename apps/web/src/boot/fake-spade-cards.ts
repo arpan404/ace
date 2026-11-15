@@ -3,7 +3,9 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 /*
  * `?fakeWorld=spade`, questions: Trips asks a card of three (a text field, checks, yes or no) and
  * waits on it, after one it was answered, one left for later and a helper's line; Lessons waits
- * on one pick-one question. Every card kind and state the chat draws, for checking it by eye.
+ * on one pick-one question; Watcher has a command it was allowed and waits on another it may
+ * allow always; Daily waits on a lone yes-or-no question. Every card kind and state the chat
+ * draws, for checking it by eye.
  */
 export function seedFakeCards(here: FakeSpadeApi) {
   const trips = here.addAgent({
@@ -107,5 +109,48 @@ export function seedFakeCards(here: FakeSpadeApi) {
         { label: "A saudade é uma cidade." },
       ],
     },
+  ]);
+
+  const watcher = here.addAgent({
+    id: "watcher",
+    name: "Watcher",
+    task: "Watch my pull requests.",
+    access: "ask",
+  });
+  here.store(watcher.conversation, { type: "user_message", text: "What's open on ace?" });
+  here.store(watcher.conversation, { type: "reply_started", reply: "r-watch-list" });
+  here.store(watcher.conversation, {
+    type: "step_finished",
+    reply: "r-watch-list",
+    text: "",
+    calls: [{ id: "w-curl", name: "shell" }],
+  });
+  here.store(watcher.conversation, {
+    type: "approval_requested",
+    reply: "r-watch-list",
+    call_id: "w-curl",
+    name: "shell",
+    arguments: { command: "curl -s https://api.github.com/repos/arpan404/ace/pulls" },
+  });
+  here.store(watcher.conversation, {
+    type: "approval_answered",
+    reply: "r-watch-list",
+    call_id: "w-curl",
+    allowed: true,
+    always: false,
+  });
+  here.store(watcher.conversation, {
+    type: "reply_finished",
+    reply: "r-watch-list",
+    text: "Three are open; two wait on your review.",
+  });
+  here.ask(watcher, "w-gh", "shell", {
+    command: "gh pr review 2107 --comment --body-file review.md",
+  });
+
+  const daily = here.addAgent({ id: "daily", name: "Daily", task: "Send me a lesson each day." });
+  here.reply(daily, "Today's lesson is in.");
+  here.card(daily, "q-eight", [
+    { prompt: "Send tomorrow's lesson at 8:00 AM too?", kind: "confirm" },
   ]);
 }
