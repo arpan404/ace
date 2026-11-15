@@ -365,7 +365,7 @@ async fn run() -> Result<(), Failure> {
             spade_core::spending::usd_to_micros,
         ),
         utc_offset_seconds: local_offset_seconds(),
-        limits: Limits::default(),
+        limits: limits(&config),
         skills,
         images: ImageStore::open(&home.images()).map_err(other)?,
         adopt: startup.adopt,
@@ -485,5 +485,16 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
+    }
+}
+
+/// The engine's limits, with what the environment set.
+fn limits(config: &Config) -> Limits {
+    let defaults = Limits::default();
+    Limits {
+        max_parallel_tools: config.parallel_tools.unwrap_or(defaults.max_parallel_tools),
+        helpers_at_once: config.helpers_at_once.unwrap_or(defaults.helpers_at_once),
+        context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
+        ..defaults
     }
 }

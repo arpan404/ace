@@ -43,8 +43,9 @@ its prompt rebuilds to the same bytes after a restart even if a plugin's profile
 
 ## Slots
 
-At most 4 helpers of a bot have a reply open at once (`helper::MOST_RUNNING`). A fifth is stored
-queued (its task and no reply) and starts, oldest first, when a running one ends. Nothing starts
+At most 16 helpers of a bot have a reply open at once (`helper::MOST_RUNNING`, ADR 0158; it was
+4), or what `SPADE_HELPERS_AT_ONCE` sets. One more is stored queued (its task and no reply) and
+starts, oldest first, when a running one ends. Nothing starts
 while Spade is closing for an update; when admission reopens, queued helpers start and running
 ones without a worker carry on.
 

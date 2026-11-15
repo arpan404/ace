@@ -87,4 +87,7 @@ day's spend for every bot together in the person's day; a message after the cap 
 | --------------------- | ------- | ------------------------------------- |
 | `SPADE_DATA_DIR`      | `data`  | Where `spade.sqlite` and `token` live |
 | `SPADE_DAILY_CAP_USD` | unset   | Daily spending cap for all bots       |
+| `SPADE_PARALLEL_TOOLS` | `16`   | Tool calls of one step run at once    |
+| `SPADE_HELPERS_AT_ONCE` | `16`  | Helpers of one bot run at once        |
+| `SPADE_CONTEXT_TOKENS` | unset  | Compact before this many prompt tokens even on a larger window |
 | model settings        |         | See README                            |

@@ -30,14 +30,19 @@ fn last_prompt_tokens(events: &[Event]) -> u32 {
         .unwrap_or(0)
 }
 
-/// The budget: the smaller of the model's context window and Spade's cap.
+/// The budget: the model's own context window (or the fallback for a model that doesn't say),
+/// capped only by a budget the person set.
 fn budget(engine: &Engine, model: &str) -> u32 {
-    let window = engine
-        .models
-        .resolve(model)
-        .and_then(|(_, m)| m.context)
-        .map_or(u32::MAX, |c| u32::try_from(c).unwrap_or(u32::MAX));
-    window.min(engine.limits.context_budget)
+    let window = engine.models.resolve(model).and_then(|(_, m)| m.context);
+    budget_for(window, &engine.limits)
+}
+
+fn budget_for(window: Option<u64>, limits: &super::Limits) -> u32 {
+    window
+        .map_or(limits.context_fallback, |c| {
+            u32::try_from(c).unwrap_or(u32::MAX)
+        })
+        .min(limits.context_budget)
 }
 
 /// Compacts if the prompt has reached the high mark. Returns whether it did.
@@ -153,4 +158,26 @@ pub(super) fn conversation_model(engine: &Engine, id: &str) -> Option<String> {
         Event::Known(Known::ReplyStarted { model, .. }) => Some(model.clone()),
         _ => None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_budget_is_the_models_own_window_unless_the_person_set_a_smaller_one() {
+        let limits = super::super::Limits::default();
+        assert_eq!(budget_for(Some(1_000_000), &limits), 1_000_000);
+        assert_eq!(budget_for(Some(128_000), &limits), 128_000);
+        assert_eq!(
+            budget_for(None, &limits),
+            200_000,
+            "a model that doesn't say"
+        );
+        let capped = super::super::Limits {
+            context_budget: 300_000,
+            ..limits
+        };
+        assert_eq!(budget_for(Some(1_000_000), &capped), 300_000);
+    }
 }

@@ -44,8 +44,8 @@ turn's total.
   running. The gate runs reads; asks for writes unless allowed always; always asks for
   destructive calls and for any write in a turn that read untrusted output (`web_search`,
   `web_fetch`, email). That is the `ask` level; on `auto_review` and `full_access` what the gate
-  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 4); results are cut
-  to 20,000 characters. No call is timed out by the harness: one still running after the
+  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 16 at once, or what
+  `SPADE_PARALLEL_TOOLS` sets; the rest wait their turn); results are cut to 20,000 characters. No call is timed out by the harness: one still running after the
   foreground window (`Limits.foreground`, 30 s) carries on as a background job with the same run,
   its call answered with the job id, and the turn goes on ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). A declined call returns "The person declined this action."
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
@@ -146,7 +146,8 @@ the bot's workspace at `skills/<name>/`.
 ## Compaction
 
 Before each model call, if the endpoint's last reported prompt is at least 75% of the budget
-(the model's context window or 200,000 tokens, whichever is smaller), the engine compacts: it cuts
+(the model's own context window, 200,000 tokens for a model that doesn't say, capped only by
+`SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice; ADR 0158), the engine compacts: it cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
 35% are kept. It asks the conversation's own model for a JSON summary by appending the request to
 the current prompt with the same tools (no typed-output option, which would change the request and
