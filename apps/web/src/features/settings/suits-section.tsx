@@ -1,7 +1,8 @@
 import type { SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { themes, type Scheme } from "@ace/themes";
+import { Link } from "@tanstack/react-router";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { suitReady } from "@/theme/suits/applied-suit.ts";
 import { suitPalette } from "@/theme/suits/suit-css.ts";
 import { useSuitDetail, useSuitLibrary } from "@/theme/suits/suit-library.tsx";
@@ -132,6 +133,24 @@ function statusNote(input: {
   return undefined;
 }
 
+/**
+ * Starts a new thread with the make-a-suit skill named first, on the person's current agent, the
+ * way a skill's "Use in a thread" does: they describe the look and send.
+ */
+function MakeOne(props: { title: string }) {
+  return (
+    <SettingRow title={props.title} description="Describe the look you want and an agent makes it.">
+      <Link
+        to="/new"
+        search={{ skill: "make-a-suit" }}
+        className={buttonVariants({ variant: "secondary", size: "sm" })}
+      >
+        Make one with an agent
+      </Link>
+    </SettingRow>
+  );
+}
+
 export function SuitsSection() {
   const { summaries, failed, preview } = useSuitLibrary();
   const { appearance, suit, suitsOff } = useTheme();
@@ -151,13 +170,15 @@ export function SuitsSection() {
     <SettingSection label={row.title} anchor={row.id} scope="device" card note={note}>
       {summaries === undefined ? (
         <SettingRow title="Reading Suits…" />
-      ) : summaries.length === 0 ? (
-        <SettingRow
-          title={failed ? "Suits couldn't be read" : "No Suits yet"}
-          description="Ask an agent to make one: describe the look you want."
-        />
+      ) : summaries.length === 0 && failed ? (
+        <SettingRow title="Suits couldn't be read" />
       ) : (
-        summaries.map((summary) => <SuitRow key={summary.id} summary={summary} />)
+        <>
+          {summaries.map((summary) => (
+            <SuitRow key={summary.id} summary={summary} />
+          ))}
+          <MakeOne title={summaries.length > 0 ? "Make your own" : "No Suits yet"} />
+        </>
       )}
     </SettingSection>
   );

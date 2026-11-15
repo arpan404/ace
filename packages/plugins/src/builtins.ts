@@ -105,13 +105,13 @@ export async function builtinGuides(
   root = shippedRoot(),
 ): Promise<{ name: string; description: string; body: string; files: Record<string, string> }[]> {
   const [bundle] = await builtinSkills(root);
-  const text = bundle?.text ?? {};
+  const bundled = bundle?.text ?? {};
   const sources = (bundle?.manifest.skills ?? []).map((skill) => ({
     name: skill.name,
-    text: text[`${skill.path}/SKILL.md`] ?? "",
+    text: bundled[`${skill.path}/SKILL.md`] ?? "",
     // Reference files by their path inside the skill (`references/suit-json.md`).
     files: Object.fromEntries(
-      Object.entries(text).flatMap(([path, content]) =>
+      Object.entries(bundled).flatMap(([path, content]) =>
         path.startsWith(`${skill.path}/references/`)
           ? [[path.slice(skill.path.length + 1), content]]
           : [],

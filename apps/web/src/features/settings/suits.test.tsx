@@ -170,3 +170,20 @@ test("while a Suit is on, the theme picker shows it as the chosen custom look, a
   expect(root.getAttribute("data-theme")).toBe("paper");
   expect(chosen()).toEqual(["Paper"]);
 });
+
+test("making a Suit with an agent opens a new thread with the make-a-suit skill named first", async () => {
+  await openAppearance({ suits: fakeSuitLibrary([sunset]).transport });
+  await screen.findByRole("button", { name: "Use Sunset" });
+  await userEvent.click(screen.getByRole("link", { name: "Make one with an agent" }));
+  await screen.findByRole("heading", { level: 1, name: "New thread" });
+  const field = await screen.findByRole("combobox", { name: "Message" });
+  expect(field.textContent).toBe("/make-a-suit ");
+});
+
+test("with no Suits yet, the empty state offers to make one with an agent", async () => {
+  await openAppearance({ suits: fakeSuitLibrary([]).transport });
+  expect(await screen.findByText("No Suits yet")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Make one with an agent" }).getAttribute("href")).toBe(
+    "/new?skill=make-a-suit",
+  );
+});

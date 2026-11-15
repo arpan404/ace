@@ -1,6 +1,6 @@
 ---
 name: make-a-suit
-description: Make or edit a Suit, a whole look for ace, from a description; check it as rendered, then preview it.
+description: Restyle ace as a Suit the person describes, check it as rendered, then preview it.
 ---
 
 # Make a Suit
