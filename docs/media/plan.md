@@ -359,7 +359,7 @@ table, including timed-out trials and the ranking cache.
 | `source.encodes`   | normal   | `source, encodes: EncodeSpec[]` (E4: the encodes ace-media runs for a JPEG source it encodes itself, `tab-pictures` or `user-tab`, while the daemon still plans them; replaces the list, empty stops)                                                                                                                                                        | —                                                                         |
 | `source.key`       | normal   | `source, encode` (E4: that encode's next unit is a keyframe)                                                                                                                                                                                                                                                                                                 | —                                                                         |
 | `media.ticket`     | normal   | `connection, owner, issued, expiresAt` (single use, 30 s)                                                                                                                                                                                                                                                                                                    | the 32-byte ticket                                                        |
-| `viewer.open`      | normal   | `viewer, connection, owner, issued, source, codecs[], viewport: {width, height, dpr, scale}, local, audio, link?` (K3: `link` is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`, the client's word; it only picks the starting step)                                                                                         | —                                                                         |
+| `viewer.open`      | normal   | `viewer, connection, owner, issued, source, target, codecs[], viewport: {width, height, dpr, scale}, local, audio, link?` (K3: `link` is `{effectiveType?, downlinkKbps?, rttMs?, saveData?, expensive?, constrained?}`, the client's word; it only picks the starting step)                                                                                 | —                                                                         |
 | `viewer.configure` | normal   | `viewer, viewport, audio`                                                                                                                                                                                                                                                                                                                                    | —                                                                         |
 | `viewer.close`     | normal   | `viewer`                                                                                                                                                                                                                                                                                                                                                     | —                                                                         |
 | `viewer.pause`     | normal   | `viewer` (K3: the view is hidden or backgrounded; nothing is sent to it)                                                                                                                                                                                                                                                                                     | —                                                                         |
@@ -377,6 +377,7 @@ table, including timed-out trials and the ranking cache.
 | `record.meta`      | normal   | `recording, epoch, data` (pointer or lease change; written with the epoch's decision)                                                                                                                                                                                                                                                                        | —                                                                         |
 | `record.stop`      | normal   | `recording`                                                                                                                                                                                                                                                                                                                                                  | —                                                                         |
 | `still.take`       | normal   | `request, source, maxWidth, maxHeight, maxPixels, quality, deadlineMs`                                                                                                                                                                                                                                                                                       | —                                                                         |
+| `still.poster`     | normal   | `request, source, width, height, deadlineMs` (D1: a viewer's poster, 10–20 KB at the viewport, answered with `still.done` or `still.failed`)                                                                                                                                                                                                                 | —                                                                         |
 
 ### ace-media → daemon (`FromMedia`)
 
@@ -1686,3 +1687,28 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   marker for that path is clean and a planned switch hands over without a forced keyframe.
   Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
   without one.
+
+## D1 notes
+
+- **The contract** (first commit of D1; D2, C1 and C2 branch from it).
+  - `packages/protocol/src/media-connection.ts`: `MediaConnectionId` (`mc_` + 8–61 base64url
+    characters), `MediaTicket` (32 bytes, base64url), `MediaCodec`/`MediaCodecs`,
+    `MediaBinding` (`media: {connection}`), `media.connect` → `media.connect.result`
+    (`{ok: true, connection, url?, ticket, expiresAt}` or `{ok: false, code, message}`),
+    `MediaPoster` and `MediaSubscribed` (`{connection, poster?}`, on `browser.result`,
+    `screen.result` and `devices.result` as `media`).
+  - `media: MediaBinding` on `browser.subscribe` and the screen and device `subscribe`
+    operations; `codecs: MediaCodecs` on the screen and device ones.
+  - `packages/protocol/src/media-stream.ts`, with `media_wire::media_link` its Rust twin and
+    `vectors/media-link/` the shared cases: what crosses the media connection. The hello is
+    binary, 37 bytes (`"ACEC"`, version 1, the 32-byte ticket); ace-media answers
+    `media.welcome {connection}`. Server to client: `ACES` pieces as on the main socket, and
+    `pong`. Client to server: `browser.ack` (without `requestId`), `screen.ack`,
+    `devices.ack` and `ping {rttMs?}`; unknown fields are ignored, anything else closes with 4400. Close codes: 1001 going away, 4400 protocol, 4401 refused hello, 4403 revoked, 4408
+    no hello in 2 s, 4410 closed by its session or the daemon.
+  - The relay hello gains `channel: "media"` and `mediaTicket` (D2 checks them).
+  - `media-wire`: `viewer.open.target`, the client's ids for the view
+    (`{kind: "browser", threadId, tabId?}`, `{kind: "screen", sessionId}`,
+    `{kind: "device", deviceId}`), which ace-media writes into piece headers and matches
+    acks against; and `still.poster`, made by F2's poster path.
+  - The setting `media.delivery` (`auto` | `legacy`, default `legacy`, global only).

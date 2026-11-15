@@ -4,3 +4,4 @@ pub mod control;
 pub mod frame;
 pub mod keys;
 pub mod link;
+pub mod media_link;

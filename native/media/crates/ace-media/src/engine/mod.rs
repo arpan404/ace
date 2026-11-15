@@ -439,6 +439,20 @@ impl Engine {
                 now.mono_ms,
                 out,
             ),
+            ToMedia::StillPoster {
+                request,
+                source,
+                width,
+                height,
+                deadline_ms,
+            } => self.stills.poster(
+                request,
+                &source,
+                media_codec::Size { width, height },
+                deadline_ms,
+                now.mono_ms,
+                out,
+            ),
         }
     }
 

@@ -14,6 +14,11 @@
     },
     "issued": 1,
     "source": "source-1",
+    "target": {
+      "kind": "browser",
+      "threadId": "source-1",
+      "tabId": "source-1"
+    },
     "codecs": ["value"],
     "viewport": {
       "width": 1,

@@ -120,6 +120,13 @@
         "logs.maxBytes": {
           "$ref": "https://ace.local/protocol/v1/LogMaxBytes.json"
         },
+        "media.delivery": {
+          "enum": [
+            "auto",
+            "legacy"
+          ],
+          "type": "string"
+        },
         "media.encode": {
           "enum": [
             "auto",

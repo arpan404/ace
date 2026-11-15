@@ -357,6 +357,9 @@
         "binaryFrames": {
           "type": "boolean"
         },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaBinding.json"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,

@@ -69,12 +69,21 @@ pub struct StillJob {
     pub input: StillInput,
     /// The size to make, already fitted to the request's box and pixel budget.
     pub target: Size,
-    pub quality: u8,
+    pub make: Make,
     /// On ace-media's monotonic clock, in µs.
     pub deadline_us: u64,
 }
 
 /// What a maker made.
+/// What a job makes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Make {
+    /// An agent's still at this JPEG quality (1–100).
+    Still { quality: u8 },
+    /// A viewer's poster: 10–20 KB, its quality searched (`stills::poster`).
+    Poster,
+}
+
 pub struct Made {
     pub jpeg: Vec<u8>,
     pub size: Size,
@@ -152,7 +161,7 @@ struct Request {
     source: String,
     bounds: Size,
     max_pixels: u64,
-    quality: u8,
+    make: Make,
     deadline_ms: u64,
 }
 
@@ -333,7 +342,38 @@ impl Stills {
             source: source.get().to_owned(),
             bounds,
             max_pixels: u64::from(max_pixels),
-            quality,
+            make: Make::Still { quality },
+            deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
+        };
+        self.start(request, out);
+    }
+
+    /// `still.poster`: the source's picture fitted to a viewer's viewport at 10–20 KB, answered
+    /// like a still.
+    pub fn poster(
+        &mut self,
+        request: Id,
+        source: &Id,
+        viewport: Size,
+        deadline_ms: u32,
+        now_ms: u64,
+        out: &mut Vec<Effect>,
+    ) {
+        if viewport.width < 2 || viewport.height < 2 {
+            return failed(out, request, "invalid");
+        }
+        if self.waiting.len() + self.made.len() >= MAX_PENDING
+            || self.made.contains_key(request.get())
+            || self.waiting.iter().any(|r| r.request == request)
+        {
+            return failed(out, request, "busy");
+        }
+        let request = Request {
+            request,
+            source: source.get().to_owned(),
+            bounds: viewport,
+            max_pixels: u64::MAX,
+            make: Make::Poster,
             deadline_ms: now_ms.saturating_add(u64::from(deadline_ms)),
         };
         self.start(request, out);
@@ -403,7 +443,7 @@ impl Stills {
             stream: handle,
             input,
             target,
-            quality: request.quality,
+            make: request.make,
             deadline_us: request.deadline_ms.saturating_mul(1_000),
         };
         match self.maker.take(job) {

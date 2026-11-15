@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaBrowserAck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "keyframe": {
+      "const": true,
+      "type": "boolean"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "browser.ack",
+      "type": "string"
+    },
+    "video": {
+      "const": true,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "sequence"
+  ],
+  "type": "object"
+}

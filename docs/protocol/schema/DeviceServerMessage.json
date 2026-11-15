@@ -8,6 +8,9 @@
         "error": {
           "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
         },
+        "media": {
+          "$ref": "https://ace.local/protocol/v1/MediaSubscribed.json"
+        },
         "ok": {
           "type": "boolean"
         },

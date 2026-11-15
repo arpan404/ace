@@ -357,181 +357,181 @@
     "name": "viewer.open.link:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
   },
   {
     "name": "viewer.open.link:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":null}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":null}"
   },
   {
     "name": "viewer.open.link:empty",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{}}"
   },
   {
     "name": "viewer.open.link.effectiveType:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link.effectiveType:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\"}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\"}}"
   },
   {
     "name": "viewer.open.link.effectiveType:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":null}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":null}}"
   },
   {
     "name": "viewer.open.link.downlinkKbps:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"rttMs\":400,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"rttMs\":400,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link.downlinkKbps:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":1600}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":1600}}"
   },
   {
     "name": "viewer.open.link.downlinkKbps:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":null}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":null}}"
   },
   {
     "name": "viewer.open.link.rttMs:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"saveData\":true,\"expensive\":true,\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link.rttMs:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"rttMs\":400}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"rttMs\":400}}"
   },
   {
     "name": "viewer.open.link.rttMs:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"rttMs\":null}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"rttMs\":null}}"
   },
   {
     "name": "viewer.open.link.saveData:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"expensive\":true,\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"expensive\":true,\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link.saveData:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"saveData\":true}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"saveData\":true}}"
   },
   {
     "name": "viewer.open.link.saveData:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"saveData\":null}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"saveData\":null}}"
   },
   {
     "name": "viewer.open.link.expensive:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link.expensive:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"expensive\":true}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"expensive\":true}}"
   },
   {
     "name": "viewer.open.link.expensive:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"expensive\":null}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"expensive\":null}}"
   },
   {
     "name": "viewer.open.link.constrained:absent",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"expensive\":true}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"3g\",\"downlinkKbps\":1600,\"rttMs\":400,\"saveData\":true,\"expensive\":true}}"
   },
   {
     "name": "viewer.open.link.constrained:present",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"constrained\":false}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"constrained\":false}}"
   },
   {
     "name": "viewer.open.link.constrained:null",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"constrained\":null}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"constrained\":null}}"
   },
   {
     "name": "viewer.open.link.effectiveType:future",
     "direction": "ToMedia",
     "accept": true,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"5g\"}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"5g\"}}"
   },
   {
     "name": "viewer.open.link.effectiveType:over-limit",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"effectiveType\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}"
   },
   {
     "name": "viewer.open.link.downlinkKbps:negative",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":-1}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":-1}}"
   },
   {
     "name": "viewer.open.link.downlinkKbps:fraction",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":1.5}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":1.5}}"
   },
   {
     "name": "viewer.open.link.downlinkKbps:over-u32",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":4294967296}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"downlinkKbps\":4294967296}}"
   },
   {
     "name": "viewer.open.link.rttMs:string",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"rttMs\":\"400\"}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"rttMs\":\"400\"}}"
   },
   {
     "name": "viewer.open.link.saveData:number",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"saveData\":1}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"saveData\":1}}"
   },
   {
     "name": "viewer.open.link.unknown-field",
     "direction": "ToMedia",
     "accept": false,
-    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"bandwidth\":1}}"
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true,\"link\":{\"bandwidth\":1}}"
   },
   {
     "name": "session.link:zero",
@@ -580,5 +580,41 @@
     "direction": "ToMedia",
     "accept": false,
     "json": "{\"type\":\"viewer.resume\"}"
+  },
+  {
+    "name": "viewer.open.target.tabId:absent",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
+  },
+  {
+    "name": "viewer.open.target.tabId:present",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\",\"tabId\":\"tab-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
+  },
+  {
+    "name": "viewer.open.target.tabId:null",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"browser\",\"threadId\":\"source-1\",\"tabId\":null},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
+  },
+  {
+    "name": "viewer.open.target:unknown-kind",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"window\",\"threadId\":\"source-1\"},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
+  },
+  {
+    "name": "viewer.open.target:unknown-field",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"target\":{\"kind\":\"screen\",\"sessionId\":\"s\",\"extra\":1},\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
+  },
+  {
+    "name": "viewer.open.target:absent",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"viewer.open\",\"viewer\":\"source-1\",\"connection\":\"source-1\",\"owner\":{\"session\":\"source-1\",\"device\":\"source-1\",\"admission\":{\"kind\":\"pairing\",\"generation\":1}},\"issued\":1,\"source\":\"source-1\",\"codecs\":[\"value\"],\"viewport\":{\"width\":1,\"height\":1,\"dpr\":1.5,\"scale\":1.5},\"local\":true,\"audio\":true}"
   }
 ]

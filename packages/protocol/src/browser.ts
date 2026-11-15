@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
+import { MediaBinding, MediaCodec, MediaSubscribed } from "./media-connection.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -499,11 +500,7 @@ export const BrowserCaptureViewport = z.object({
 });
 export type BrowserCaptureViewport = z.infer<typeof BrowserCaptureViewport>;
 /** A WebCodecs codec string (`avc1.42E033`, `vp8`, `vp09.00.10.08`). */
-export const BrowserVideoCodec = z
-  .string()
-  .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9.]+$/);
+export const BrowserVideoCodec = MediaCodec;
 /**
  * A viewer that plays video (ADR 0088): the codecs its decoder supports, best first. The daemon
  * encodes the first one its encoder supports and sends JPEG frames otherwise.
@@ -566,6 +563,11 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
      * codecs, with JPEG frames until its first keyframe. Needs `binaryFrames`.
      */
     video: BrowserVideoRequest.optional(),
+    /**
+     * Deliver this view on that media connection (`media.connect`) instead of this socket. Its
+     * `browser.result` carries `media`, with a poster when the tab already has a picture.
+     */
+    media: MediaBinding.optional(),
   }),
   base.extend({ type: z.literal("browser.capture"), viewport: BrowserCaptureViewport }),
   base.extend({ type: z.literal("browser.unsubscribe"), subscriberId: short.optional() }),
@@ -627,6 +629,8 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
     result: z.unknown().optional(),
     error: z.string().max(2048).optional(),
     blocked: BrowserOriginBlock.optional(),
+    /** A `browser.subscribe` that named a media connection: where its pictures go. */
+    media: MediaSubscribed.optional(),
   }),
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),

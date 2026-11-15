@@ -116,6 +116,11 @@ export async function startFilesRelay(
           }
           return;
         }
+        // Relay media streams are D2's: until they land, a hello naming `media` is refused.
+        if (hello.channel === "media") {
+          channel.close();
+          return;
+        }
         channel.authorize();
         // An account device shares its id with the same install's pairing (ADR 0115): revoking
         // that pairing closes only what the pairing opened. An empty id matches no revocation.

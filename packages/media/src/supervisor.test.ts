@@ -22,6 +22,7 @@ const viewerOpen = (viewer: string, who: Owner, issued: number): ToMedia => ({
   owner: who,
   issued,
   source: "source-1",
+  target: { kind: "browser", threadId: "thread-1" },
   codecs: ["h264"],
   viewport: { width: 800, height: 600, dpr: 2, scale: 1 },
   local: true,

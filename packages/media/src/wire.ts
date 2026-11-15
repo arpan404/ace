@@ -23,6 +23,16 @@ const Origin = z.discriminatedUnion("kind", [
   }),
 ]);
 const Owner = z.strictObject({ session: id, device: id, admission: Admission });
+/**
+ * Who a viewer's pictures are for, in the client's own ids (D1): what ace-media writes into each
+ * stream piece's header and reads back from the client's acks.
+ */
+const ViewerTarget = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("browser"), threadId: id, tabId: id.optional() }),
+  z.strictObject({ kind: z.literal("screen"), sessionId: id }),
+  z.strictObject({ kind: z.literal("device"), deviceId: id }),
+]);
+export type ViewerTarget = z.infer<typeof ViewerTarget>;
 const Settings = z.strictObject({
   recordings: z.enum(["auto", "legacy"]),
   stills: z.enum(["auto", "legacy"]),
@@ -188,6 +198,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     owner: Owner,
     issued: sequence,
     source: id,
+    target: ViewerTarget,
     codecs: z.array(z.string()),
     viewport: Viewport,
     local: z.boolean(),
@@ -255,6 +266,18 @@ export const ToMedia = z.discriminatedUnion("type", [
     maxHeight: u32,
     maxPixels: u32,
     quality: u32,
+    deadlineMs: u32,
+  }),
+  /**
+   * A poster for a subscribe reply (ADR 0149): the source's picture fitted to the box at
+   * 10–20 KB, answered like `still.take` with `still.done` (the JPEG) or `still.failed`.
+   */
+  z.strictObject({
+    type: z.literal("still.poster"),
+    request: id,
+    source: id,
+    width: u32,
+    height: u32,
     deadlineMs: u32,
   }),
 ]);
