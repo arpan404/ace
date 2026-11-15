@@ -45,10 +45,17 @@ export function terminalFont(element: Element): string {
  * monospace faces lack come from the symbol faces.
  */
 export function terminalFontFamily(monospace: string): string {
+  // A Suit's family ahead of a stack that already starts with it would repeat faces: keep the first.
+  const seen = new Set<string>();
   const faces = monospace
     .split(",")
     .map((face) => face.trim())
-    .filter(Boolean);
+    .filter((face) => {
+      const key = unquote(face);
+      if (!face || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   const named = faces.filter((face) => !generic.has(unquote(face)));
   const generics = faces.filter((face) => generic.has(unquote(face)));
   const have = new Set(named.map(unquote));

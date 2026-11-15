@@ -82,9 +82,10 @@ export function HandoffScreen(props: {
             <div className="flex flex-1 flex-col">{connect}</div>
           </>
         ) : (
+          // Buttons don't shrink: each takes half the row, not the whole card's width.
           <>
-            {connect}
-            {decline}
+            <div className="flex flex-1 flex-col">{connect}</div>
+            <div className="flex flex-1 flex-col">{decline}</div>
           </>
         )}
       </div>

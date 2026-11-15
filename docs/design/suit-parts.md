@@ -312,5 +312,8 @@ A new Suit restyles open terminals in place; their sessions and scrollback stay.
 - Version 1, 2026-11-14: `nav-item` added.
 - Version 1, 2026-11-14: side panel parts (`panel-tab`, `panel-body`, `panel-toolbar`,
   `terminal-tab`) and their rows, lists, cards, diff files and diff lines are drawn.
-
 - Version 1, 2026-11-14: pages carry `data-page`; the `page` region reads `--suit-page-*`, `reveal.page` and `scenes.page`.
+- Version 1, 2026-11-14: one `page` part per screen, on its canvas (Code review, Settings and
+  setup included). `data-page` values no screen set (`projects`, `project`, `devices`,
+  `notifications`, `search`) are removed; `review` is a pull request's Code tab, and `/pair`
+  shows Settings. A Suit's needs-fixes list is `list` `problems` with `failed` rows.
