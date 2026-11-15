@@ -1,20 +1,20 @@
 import type { SpadeGroupBot } from "@ace/ui-core/spade-chat";
-import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
-import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
+import { cn } from "@/lib/cn.ts";
 import { useMachines } from "@/lib/machines.ts";
+import { useMediaQuery } from "@/lib/media.ts";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeGroupChat, unknownFace, type GroupFace } from "./spade-group-chat.tsx";
-import { EditGroupDialog } from "./spade-group-dialog.tsx";
 import { GroupFaces } from "./spade-group-faces.tsx";
+import { GroupPill } from "./spade-group-pill.tsx";
+import { GroupProfile } from "./spade-group-profile.tsx";
 import { SpadeFace } from "./spade-face.tsx";
-import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
+import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import {
   ConversationSkeleton,
   message,
@@ -23,10 +23,8 @@ import {
   useSpadeLine,
 } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
-import { deleteGroup } from "./spade-teams-api.ts";
 import { useGroupConversation } from "./use-group-conversation.ts";
 import {
-  groupsKey,
   memberMachineKey,
   shownMembers,
   useSpadeGroups,
@@ -35,8 +33,18 @@ import {
 } from "./use-spade-groups.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 
-/** `/spade/groups/<group id>` (with `on` when the group lives on another machine). */
-export function SpadeGroupScreen(props: { groupId: string; machine: string | undefined }) {
+/** A window too narrow for the profile beside a readable chat: the profile covers the chat. */
+const coverQuery = "(max-width: 59.99rem)";
+
+/**
+ * `/spade/groups/<group id>` (with `on` when the group lives on another machine): its
+ * conversation; with `profile` its profile open beside it.
+ */
+export function SpadeGroupScreen(props: {
+  groupId: string;
+  machine: string | undefined;
+  profile?: boolean | undefined;
+}) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
   const { groups, loading } = useSpadeGroups(roster);
@@ -86,16 +94,20 @@ export function SpadeGroupScreen(props: { groupId: string; machine: string | und
         </GroupScreen>
       }
     >
-      <Conversation key={`${group.machine.key}/${group.id}`} group={group} bots={roster.bots} />
+      <Conversation
+        key={`${group.machine.key}/${group.id}`}
+        group={group}
+        bots={roster.bots}
+        profile={props.profile === true}
+      />
     </SpadeMachineScope>
   );
 }
 
-/** The screen's frame for a group: its faces and name in the top bar, and its ⋯ when given. */
+/** The frame for a group that can't answer now: its faces and name in the top bar. */
 function GroupScreen(props: {
   group: RosterGroup;
   bots: readonly RosterBot[];
-  menu?: ReactNode;
   children: ReactNode;
 }) {
   const { group } = props;
@@ -106,7 +118,6 @@ function GroupScreen(props: {
       title={group.name}
       subtitle={members.map((member) => member.name).join(", ")}
       mark={<GroupFaces members={members} size={20} />}
-      menu={props.menu}
     >
       {props.children}
     </Screen>
@@ -114,60 +125,11 @@ function GroupScreen(props: {
 }
 
 /**
- * Edit and Delete for the ⋯, and their dialogs, which live outside the menu so they stay open
- * once it closes.
+ * A group's conversation under its pill (the members' faces and the group's name), which opens
+ * its profile in the side panel; the bar carries no title. In a narrow window the profile covers
+ * the chat, with Chat to go back.
  */
-function useGroupMenu(group: RosterGroup, bots: readonly RosterBot[]) {
-  const client = useSpadeClient();
-  const cache = useQueryClient();
-  const navigate = useNavigate();
-  const toast = useToast();
-  const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState<Confirming>();
-  const remove = async () => {
-    try {
-      await deleteGroup(client, group.id);
-      await cache.invalidateQueries({ queryKey: groupsKey });
-      void navigate({ to: "/spade", replace: true });
-    } catch (error) {
-      toast.error({ title: `Couldn't delete ${group.name}`, description: message(error) });
-    }
-  };
-  const menu = (
-    <>
-      <MenuItem onClick={() => setEditing(true)}>Edit group</MenuItem>
-      <MenuItem
-        danger
-        onClick={() =>
-          setConfirming({
-            title: `Delete ${group.name}?`,
-            body: `This deletes ${group.name} and its conversation. Its bots stay.`,
-            confirm: "Delete group",
-            run: () => void remove(),
-          })
-        }
-      >
-        Delete group
-      </MenuItem>
-    </>
-  );
-  const dialogs = (
-    <>
-      {editing && (
-        <EditGroupDialog
-          group={group}
-          bots={bots}
-          client={client}
-          onClose={() => setEditing(false)}
-        />
-      )}
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </>
-  );
-  return { menu, dialogs, edit: () => setEditing(true) };
-}
-
-function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
+function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; profile: boolean }) {
   const { group, bots } = props;
   const conversation = useGroupConversation(group);
   const { view, problem } = conversation;
@@ -175,8 +137,8 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
   const toast = useToast();
   const machines = useMachines();
   const navigate = useNavigate();
+  const covering = useMediaQuery(coverQuery, false);
   const members = shownMembers(machines, group, bots);
-  const actions = useGroupMenu(group, bots);
   const [stopping, setStopping] = useState(false);
   if (stopping && !view.busy) setStopping(false);
   const stop = () => {
@@ -186,6 +148,15 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
       toast.error({ title: `Couldn't stop ${group.name}`, description: message(error) });
     });
   };
+  const showProfile = (open: boolean) =>
+    void navigate({
+      to: "/spade/groups/$groupId",
+      params: { groupId: group.id },
+      search: {
+        ...(group.machine.primary ? {} : { on: group.machine.key }),
+        ...(open ? { profile: true } : {}),
+      },
+    });
   const faceOf = (bot: SpadeGroupBot): GroupFace => {
     const machineKey = memberMachineKey(machines, group, bot.machine);
     const member = members.find(
@@ -209,72 +180,106 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
       open,
     };
   };
-  return (
-    <GroupScreen group={group} bots={bots} menu={actions.menu}>
-      <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
-        <Scroller
-          seen={
-            view.loaded
-              ? {
-                  conversation: group.conversation,
-                  unseen: group.unseen,
-                  seq: group.lastMessage?.seq,
-                }
-              : undefined
-          }
-        >
-          {problem ? (
-            <Problem text={problem} onRetry={conversation.retry} />
-          ) : !view.loaded ? (
-            line.ready ? (
-              <ConversationSkeleton />
-            ) : (
-              <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
-            )
+  const shown = props.profile;
+  const chat = (
+    <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
+      <h1 className="sr-only">{group.name}</h1>
+      <GroupPill
+        name={group.name}
+        members={members}
+        open={shown}
+        onToggle={() => showProfile(!shown)}
+      />
+      <Scroller
+        top="pill"
+        seen={
+          view.loaded
+            ? {
+                conversation: group.conversation,
+                unseen: group.unseen,
+                seq: group.lastMessage?.seq,
+              }
+            : undefined
+        }
+      >
+        {problem ? (
+          <Problem text={problem} onRetry={conversation.retry} />
+        ) : !view.loaded ? (
+          line.ready ? (
+            <ConversationSkeleton />
           ) : (
-            <SpadeGroupChat
-              name={group.name}
-              view={view}
-              members={group.members.map((member, index) => ({
-                id: member.agent,
-                name: members[index]?.name ?? member.name,
-                machine: member.machine,
-              }))}
-              faceOf={faceOf}
+            <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
+          )
+        ) : (
+          <SpadeGroupChat
+            name={group.name}
+            view={view}
+            members={group.members.map((member, index) => ({
+              id: member.agent,
+              name: members[index]?.name ?? member.name,
+              machine: member.machine,
+            }))}
+            faceOf={faceOf}
+          />
+        )}
+        {view.loaded && !problem && view.rows.length === 0 && (
+          <GroupStart members={members} onAdd={() => showProfile(true)} />
+        )}
+      </Scroller>
+      <SpadeComposer
+        name={group.name}
+        draftKey={`spade:${group.machine.key}:group:${group.id}`}
+        answering={view.busy}
+        blocked={line.ready ? undefined : line.sentence}
+        placeholder={`Message ${group.name}`}
+        mentionNames={members.map((member) => member.name)}
+        onStop={stop}
+        stopping={stopping}
+        // A group with nothing said yet offers to ask one member.
+        chips={
+          view.loaded && view.rows.length === 0
+            ? members.map((member) => ({
+                label: `Ask ${member.name}`,
+                text: `@${member.name} `,
+                face: <SpadeFace avatar={member.avatar} size={18} />,
+              }))
+            : undefined
+        }
+        send={conversation.send}
+      />
+    </div>
+  );
+  return (
+    <Screen title="">
+      <div className="relative flex h-full min-h-0">
+        <div
+          className={cn("min-w-0 flex-1", shown && covering && "invisible")}
+          aria-hidden={shown && covering ? true : undefined}
+        >
+          {chat}
+        </div>
+        {shown && (
+          <aside
+            aria-label={`${group.name}'s profile`}
+            className={cn(
+              "bg-panel",
+              covering ? "absolute inset-0 z-20" : "relative w-96 shrink-0 border-l border-border",
+            )}
+          >
+            <GroupProfile
+              group={group}
+              bots={bots}
+              covering={covering}
+              onClose={() => showProfile(false)}
             />
-          )}
-          {view.loaded && !problem && view.rows.length === 0 && (
-            <GroupStart members={members} onAdd={actions.edit} />
-          )}
-        </Scroller>
-        <SpadeComposer
-          name={group.name}
-          draftKey={`spade:${group.machine.key}:group:${group.id}`}
-          answering={view.busy}
-          blocked={line.ready ? undefined : line.sentence}
-          placeholder={`Message ${group.name}`}
-          mentionNames={members.map((member) => member.name)}
-          onStop={stop}
-          stopping={stopping}
-          // A group with nothing said yet offers to ask one member.
-          chips={
-            view.loaded && view.rows.length === 0
-              ? members.map((member) => ({
-                  label: `Ask ${member.name}`,
-                  text: `@${member.name} `,
-                  face: <SpadeFace avatar={member.avatar} size={18} />,
-                }))
-              : undefined
-          }
-          send={conversation.send}
-        />
+          </aside>
+        )}
       </div>
-      {actions.dialogs}
-    </GroupScreen>
+    </Screen>
   );
 }
 
-/** A group with nothing said yet: who is in it, and Add a bot. */
+/** A group with nothing said yet: who is in it, and Add a member, which opens its Members. */
 function GroupStart(props: { members: readonly ShownMember[]; onAdd(): void }) {
   const names = props.members.map((member) => member.name);
   const list =
@@ -294,7 +299,7 @@ function GroupStart(props: { members: readonly ShownMember[]; onAdd(): void }) {
         {`${list} ${names.length > 1 ? "are" : "is"} in this group.`}
       </p>
       <Button size="sm" variant="ghost" onClick={props.onAdd}>
-        Add a bot
+        Add a member
       </Button>
     </div>
   );
