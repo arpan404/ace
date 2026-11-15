@@ -89,7 +89,10 @@ export const MediaPoster = z.object({
   width: z.number().int().min(1).max(8192),
   height: z.number().int().min(1).max(8192),
   /** The JPEG, base64. */
-  jpeg: z.string().min(1).max(64 * 1024),
+  jpeg: z
+    .string()
+    .min(1)
+    .max(64 * 1024),
 });
 export type MediaPoster = z.infer<typeof MediaPoster>;
 

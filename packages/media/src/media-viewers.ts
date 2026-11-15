@@ -211,13 +211,14 @@ export type MediaDeliveryPort = {
   unbind(viewer: string): void;
 };
 
+const whole = (n: number) => Math.max(1, Math.min(0xffffffff, Math.round(n)));
+
 /** A client's viewport in ace-media's terms. */
 export function viewViewport(viewport: {
   width: number;
   height: number;
   devicePixelRatio: number;
 }): ViewViewport {
-  const whole = (n: number) => Math.max(1, Math.min(0xffffffff, Math.round(n)));
   return {
     width: whole(viewport.width),
     height: whole(viewport.height),

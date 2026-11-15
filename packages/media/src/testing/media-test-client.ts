@@ -75,8 +75,7 @@ export class MediaTestClient {
     const socket = new WebSocket(url);
     socket.binaryType = "arraybuffer";
     let client: MediaTestClient | undefined;
-    let closedWith: (code: number) => void = () => {};
-    const closed = new Promise<number>((resolve) => (closedWith = resolve));
+    const { promise: closed, resolve: closedWith } = Promise.withResolvers<number>();
     return new Promise((resolve, reject) => {
       socket.addEventListener("open", () => socket.send(mediaHello(grant.ticket)));
       socket.addEventListener("close", (event) => {
