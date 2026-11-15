@@ -17,7 +17,7 @@ async function home(): Promise<string> {
 
 it("a first run fills the library with the shipped Suits, each one a valid Suit in its own folder", async () => {
   const library = join(await home(), ".ace", "suits");
-  expect(await seedBuiltinSuits(library)).toEqual(["arcade-cabinet", "quest-journal"]);
+  expect(await seedBuiltinSuits(library)).toEqual(["arcade-cabinet", "atelier-noir", "quest-journal"]);
   for (const id of await readdir(library)) {
     const manifest = SuitManifest.parse(
       JSON.parse(await readFile(join(library, id, "suit.json"), "utf8")),
@@ -34,6 +34,11 @@ it("a first run fills the library with the shipped Suits, each one a valid Suit 
   expect(await readFile(join(journal, "celebration.js"), "utf8")).toContain("ace.scene(");
   expect(await readdir(join(journal, "assets", "fonts"))).toEqual(
     expect.arrayContaining(["Alegreya-OFL.txt", "Almendra-OFL.txt"]),
+  );
+  const atelier = join(library, "atelier-noir");
+  expect(await readFile(join(atelier, "celebration.js"), "utf8")).toContain("ace.scene(");
+  expect(await readdir(join(atelier, "assets", "fonts"))).toEqual(
+    expect.arrayContaining(["BodoniModa-OFL.txt", "Newsreader-OFL.txt", "InstrumentSans-OFL.txt"]),
   );
 });
 
