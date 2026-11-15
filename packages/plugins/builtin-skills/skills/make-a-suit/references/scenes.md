@@ -4,7 +4,49 @@ A scene is an animated backdrop for one region, drawn on one canvas. Add one onl
 
 ## Files and regions
 
-`scene.js` at the Suit's root is the app's scene. Other regions name their own file in `suit.json`'s `scenes`: `app`, `sidebar`, `header`, `composer`, `right-panel`, `page` (behind full pages). File names are letters, digits and dashes ending `.js`, at the root, up to 512 KB each. Every region's scene shares one clock and the same rules. How much of a scene shows is the region's `reveal` (or `--suit-<region>-scene-opacity` from suit.css), held under what keeps that region's text readable.
+`scene.js` at the Suit's root is the app's scene. Other regions name their own file in `suit.json`'s `scenes`: `app`, `sidebar`, `header`, `composer`, `right-panel`, `page` (behind full pages), and `celebration` (above everything, for a moment; see "Celebration"). File names are letters, digits and dashes ending `.js`, at the root, up to 512 KB each. Every region's scene shares one clock and the same rules. How much of a scene shows is the region's `reveal` (or `--suit-<region>-scene-opacity` from suit.css), held under what keeps that region's text readable.
+
+## Celebration
+
+`scenes.celebration` is not a backdrop: it is a moment ace plays ABOVE the whole UI, so a Suit can mark a win the way its look would ("STAGE CLEAR!", a stamp, a burst of petals) at full strength instead of a ghost behind the transcript.
+
+- **When.** Only when the open thread's run finishes (`done`) or one of the person's linked pull requests merges (`pr-merged`). At most once every 10 s, never on a hidden window, never under Reduce motion (there is no still frame of a celebration: it simply doesn't play).
+- **How long.** ace takes the frame down after 4 s at the latest. Play for about 3 s, fade out, then call `ace.finish()` so ace takes it down at once.
+- **What it hears.** `init` (with `view.region === "celebration"`), then right away `signal(name)` with what woke it; no other signals. Start the animation from that signal, timed by `frame`'s `time`.
+- **Transparent.** The frame is clear wherever you draw nothing: create the context with alpha (`getContext("2d")`, never `{ alpha: false }`), `clearRect` every frame, and draw only the effect. Never fill the window.
+- **Out of the way.** The pointer passes through it. ace cuts a hole in it around the approval strip, the Working line, question cards and status icons (plus a few pixels), measured while it plays, so they are never covered whatever you draw; don't try to avoid them yourself.
+- **The same file twice.** One file may serve the app's backdrop and the celebration: branch on `view.region`.
+
+```js
+let ctx,
+  startedAt = -1,
+  now = 0,
+  done = false;
+ace.scene({
+  init(view) {
+    ctx = view.canvas.getContext("2d");
+  },
+  signal(name) {
+    startedAt = now;
+  }, // "done" or "pr-merged"
+  frame(time, view) {
+    now = time;
+    if (startedAt < 0 || done) return;
+    const t = (time - startedAt) / 3000;
+    ctx.setTransform(view.pixelRatio, 0, 0, view.pixelRatio, 0, 0);
+    ctx.clearRect(0, 0, view.width, view.height);
+    if (t >= 1) {
+      done = true;
+      ace.finish();
+      return;
+    }
+    ctx.globalAlpha = t > 0.8 ? (1 - t) / 0.2 : 1;
+    // … draw the burst …
+  },
+});
+```
+
+Arcade Cabinet's `stage-clear.js` is a complete one.
 
 ## The sandbox
 
@@ -23,7 +65,7 @@ let ctx,
 
 ace.scene({
   init(view) {
-    // view: { canvas, width, height, pixelRatio, scheme, reduceMotion }, kept current in place.
+    // view: { canvas, width, height, pixelRatio, scheme, reduceMotion, region }, kept current.
     ctx = view.canvas.getContext("2d");
     stars = Array.from({ length: 240 }, () => ({
       x: Math.random(),

@@ -163,14 +163,15 @@ Ornament files are rebuilt from an allowlist: SVG shapes, gradients, patterns, m
 
 Regions are `app`, `rail`, `sidebar`, `header`, `transcript`, `composer`, `right-panel` (the side panel) and `page` (full pages).
 
-| Field                            | Takes                                                                                                                                     |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `regions.sidebar.background`     | One CSS value (no `{`, `}` or `;`): a colour, gradients, `url(assets/…)` images. Same for every region.                                   |
-| `regions.sidebar.border`         | One `border` value.                                                                                                                       |
-| `regions.sidebar.shadow`         | One `box-shadow` value.                                                                                                                   |
-| `regions.sidebar.backdropFilter` | One `backdrop-filter` value.                                                                                                              |
-| `reveal.app`                     | 0–1: how much of the scene or background behind a region shows through its surface. Same for every region.                                |
-| `scenes.app`                     | A `.js` file at the Suit's root that runs as that region's scene. Regions: `app`, `sidebar`, `header`, `composer`, `right-panel`, `page`. |
+| Field                            | Takes                                                                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `regions.sidebar.background`     | One CSS value (no `{`, `}` or `;`): a colour, gradients, `url(assets/…)` images. Same for every region.                                        |
+| `regions.sidebar.border`         | One `border` value.                                                                                                                            |
+| `regions.sidebar.shadow`         | One `box-shadow` value.                                                                                                                        |
+| `regions.sidebar.backdropFilter` | One `backdrop-filter` value.                                                                                                                   |
+| `reveal.app`                     | 0–1: how much of the scene or background behind a region shows through its surface. Same for every region.                                     |
+| `scenes.app`                     | A `.js` file at the Suit's root that runs as that region's scene. Regions: `app`, `sidebar`, `header`, `composer`, `right-panel`, `page`.      |
+| `scenes.celebration`             | A `.js` file that plays above the whole UI for a moment when the open thread's run finishes or a pull request merges (`references/scenes.md`). |
 
 `regions` values are checked by suit.css's rules and become `--suit-<region>-background`, `-border`, `-shadow` and `-backdrop-filter`. A region's text must stay readable, so `reveal` is held under what the region's text allows over the scene; asking for more shows less. Without `reveal`, regions show: `app`, `rail`, `header` 0.65; `transcript`, `page` 0.3; `sidebar`, `composer`, `right-panel` 0 (solid). A `scene.js` at the root with no `scenes` means `{ "app": "scene.js" }`.
 

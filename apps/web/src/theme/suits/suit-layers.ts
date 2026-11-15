@@ -94,7 +94,8 @@ const statuses = ["working", "waiting", "done", "failed"] as const;
 /**
  * ace's guard (ADR 0150): on the approval strip, the Working line, question cards and status
  * icons, whatever a Suit says, they stay shown at full strength, keep a minimum size and take
- * clicks, status icons keep ace's status colours, and every part keeps ace's focus ring.
+ * clicks, status icons keep ace's status colours, and every part keeps ace's focus ring. The
+ * composer's strip, which a Suit may restyle, stays shown while one of them is inside it.
  *
  * Motion on these parts (animation, transition, transform) is refused at the source: the daemon
  * drops it from suit.css. The guard leaves it alone so ace's own spinners keep turning.
@@ -104,6 +105,8 @@ export const suitGuardSheet = [
   "@layer guard{",
   `[data-suit] ${guarded}{visibility:visible;opacity:1;filter:none;mix-blend-mode:normal;clip-path:none;mask:none;content-visibility:visible;min-width:6px;min-height:6px}`,
   `[data-suit] :is(${part("approval-strip")},${part("question-card")}){pointer-events:auto;min-height:1lh}`,
+  // The composer's strip is the Suit's to frame, but while it holds a request it can't hide it.
+  `[data-suit] ${part("composer-strip")}:has(${guarded}){display:block;visibility:visible;opacity:1;filter:none;mix-blend-mode:normal;clip-path:none;mask:none;content-visibility:visible;pointer-events:auto}`,
   ...statuses.map(
     (state) =>
       `[data-suit] ${part("status-icon")}[data-state="${state}"]{color:var(--status-${state})}`,

@@ -66,16 +66,26 @@ const panelRowClass = cn(
 );
 
 /**
- * A panel row's props for its link or button: the line, the hover fill and the current row's
- * fill, and `data-panel-row`, which marks it as one of the panel's rows (its Suit part, `nav-item`).
+ * A panel row's props for its router link: the line, the hover fill and the current row's fill,
+ * and `data-panel-row`, which marks it as one of the panel's rows (its Suit part, `nav-item`).
+ * While the link points at the open page it is the `active` nav-item, as its `aria-current` says;
+ * a row that knows it is current some other way also sets `data-state` itself.
  */
 export function panelRow(className?: string): {
   "data-panel-row": "";
   "data-part": "nav-item";
+  activeProps: { "data-state": "active" };
   className: string;
 } {
-  return { "data-panel-row": "", "data-part": "nav-item", className: cn(panelRowClass, className) };
+  return {
+    "data-panel-row": "",
+    "data-part": "nav-item",
+    activeProps: activeNavItem,
+    className: cn(panelRowClass, className),
+  };
 }
+
+const activeNavItem = { "data-state": "active" } as const;
 
 /** A panel row's inside: its glyph, its title (one line) and what trails it. */
 export function PanelRowBody(props: {

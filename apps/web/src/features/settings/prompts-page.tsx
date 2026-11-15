@@ -17,6 +17,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { SettingsBody } from "./settings-body.tsx";
 import { PromptEditor } from "./prompt-editor.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 export function PromptsSettingsScreen() {
   const client = useClient(),
@@ -115,6 +116,7 @@ export function PromptsSettingsScreen() {
                     title={
                       <button
                         type="button"
+                        {...part("link")}
                         className="block w-full rounded-sm text-left focus-ring hover:text-foreground"
                         onClick={() => {
                           setEditing({ file, scope: file.scope });

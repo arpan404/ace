@@ -4,6 +4,8 @@ import { beforeEach, expect, test } from "vitest";
 import { AppFrame } from "@/app.tsx";
 import { ConnectionGate } from "@/app/connection-gate.tsx";
 import { SignInLanding, signInLandingStatus } from "@/features/connect/sign-in-landing.tsx";
+import { settingsPages as listedPages } from "@/features/settings/settings-pages.ts";
+import { fakeSuit, fakeSuitLibrary } from "@/test/fake-suits.ts";
 import { fakeClient, harness, memoryKeyValue } from "@/test/harness.tsx";
 
 /*
@@ -46,6 +48,7 @@ const settingsPages: readonly { path: string; variant: string; parts: readonly s
       "settings-row",
       "card:settings-group",
       "switch",
+      "switch-thumb",
       "select",
     ],
   },
@@ -60,6 +63,8 @@ const settingsPages: readonly { path: string; variant: string; parts: readonly s
       "card:picker",
       "card:preview",
       "card:accent",
+      "segmented",
+      "segment",
     ],
   },
   {
@@ -98,6 +103,44 @@ test.each(settingsPages)("Settings $path names its page, frame, groups and rows"
   await harness({ machines: [{ hostId: "build", name: "Build server" }] }).open(page.path);
   await screen.findByRole("navigation", { name: "Settings pages" });
   await waitFor(() => expect(missingIn("settings", page.variant, page.parts)).toEqual([]));
+});
+
+/**
+ * The buttons and links inside Settings' rows and sections that name no part, as
+ * `<page> "<words>"`: each one is a `button` (with its variant), a `link` or another control part.
+ */
+function unnamedControls(path: string): string[] {
+  const holders =
+    '[data-part="settings-row"], [data-part="settings-section"], [data-part="list-row"]';
+  return [...document.querySelectorAll<HTMLElement>(`:is(${holders}) :is(button, a[href])`)]
+    .filter((control) => !control.hasAttribute("data-part"))
+    .map(
+      (control) => `${path} "${control.getAttribute("aria-label") ?? control.textContent?.trim()}"`,
+    );
+}
+
+/** Every page in Settings' list, and the drift list's pages under them. */
+const auditedPages = [
+  ...new Set([...listedPages.map((page) => page.to), ...settingsPages.map((page) => page.path)]),
+];
+
+test.each(auditedPages)("every button and link in Settings %s names its part", async (path) => {
+  await harness({ machines: [{ hostId: "build", name: "Build server" }] }).open(path);
+  await screen.findByRole("navigation", { name: "Settings pages" });
+  await waitFor(() =>
+    expect(document.querySelector('[data-part="page-body"] [data-part]')).not.toBeNull(),
+  );
+  expect(unnamedControls(path)).toEqual([]);
+});
+
+test("Appearance's Suits name their buttons, Make one with an agent a secondary one", async () => {
+  await harness({ suits: fakeSuitLibrary([fakeSuit({ id: "sunset" })]).transport }).open(
+    "/settings/appearance",
+  );
+  const make = await screen.findByRole("link", { name: "Make one with an agent" });
+  expect(make.getAttribute("data-part")).toBe("button");
+  expect(make.getAttribute("data-variant")).toBe("secondary");
+  expect(unnamedControls("/settings/appearance")).toEqual([]);
 });
 
 test("a picked theme and the chosen mode carry the checked state", async () => {

@@ -36,6 +36,7 @@ import { memo, useCallback, useId, useMemo, useState } from "react";
 import { OpenStepsContext, useGroupOpen, useOpenSteps, useStepOpen } from "./step-open.ts";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useAceLog } from "./ace-steps.tsx";
 import { useStepItem, useStepItemsSelect } from "./step-items.ts";
 import { ToolStep } from "./work-log-steps.tsx";
@@ -281,6 +282,7 @@ const GroupView = memo(function GroupView(props: {
           aria-expanded={open}
           aria-controls={panel}
           data-step-group=""
+          {...part("tool-group-header", "working", group.icon)}
           title={group.summary}
           onClick={() => setOpen(!open)}
           className={cn(pressableRowClass, "text-muted-foreground")}
@@ -297,6 +299,7 @@ const GroupView = memo(function GroupView(props: {
         <TranscriptRow
           expanded={open}
           stepGroup
+          suit={part("tool-group-header", open ? "open" : "closed", group.icon)}
           controls={panel}
           onToggle={() => setOpen(!open)}
           lead={<Icon icon={groupIcons[group.icon]} size={16} />}

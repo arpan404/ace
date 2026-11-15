@@ -15,7 +15,10 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
       )}
       {...props}
     >
-      <SwitchPrimitive.Thumb className="size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-(--motion-base) ease-spring data-checked:translate-x-3.5" />
+      <SwitchPrimitive.Thumb
+        data-part="switch-thumb"
+        className="size-4 rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-(--motion-base) ease-spring data-checked:translate-x-3.5"
+      />
     </SwitchPrimitive.Root>
   );
 }

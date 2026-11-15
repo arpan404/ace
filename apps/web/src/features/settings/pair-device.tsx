@@ -12,6 +12,7 @@ import {
 import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
 import { PairingFlow } from "./pairing-flow.tsx";
 import { SheetWays } from "./sheet-ways.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 type Step = "choose" | "account" | "code";
 
@@ -95,6 +96,7 @@ export function PairDeviceDialog(props: {
                 href={`https://${hostedApp}`}
                 target="_blank"
                 rel="noreferrer"
+                {...part("link")}
                 className="text-link hover:underline"
               >
                 {hostedApp}

@@ -119,8 +119,36 @@ test("init hands the scene a view: its canvas sized in device pixels and the hos
     pixelRatio: 2,
     scheme: "dark",
     reduceMotion: false,
+    region: "app",
   });
   expect(page.canvas()).toMatchObject({ width: 1600, height: 1200 });
+});
+
+/** The region a scene's view names after the host's `init`. */
+function regionOf(message: object) {
+  const page = sandbox();
+  let region: unknown;
+  page.ace.scene({ init: (view: { region: unknown }) => (region = view.region), frame() {} });
+  page.send(message);
+  return region;
+}
+
+test("the view names the region the host runs the frame in, so one file can serve several", () => {
+  expect(regionOf({ ...init, region: "celebration" })).toBe("celebration");
+  expect(regionOf(init)).toBe("app");
+  expect(regionOf({ ...init, region: "<script>" })).toBe("app");
+});
+
+test("a celebration says once that it has played out, and only after it started", () => {
+  const page = sandbox();
+  page.ace.scene({ frame() {} });
+  (page.ace as unknown as { finish(): void }).finish();
+  expect(page.replies).toEqual([]);
+  page.send({ ...init, region: "celebration" });
+  const ace = page.ace as unknown as { finish(): void };
+  ace.finish();
+  ace.finish();
+  expect(page.replies).toEqual([{ type: "ready" }, { type: "finished" }]);
 });
 
 test("each tick draws one frame and answers drawn with the tick's time", () => {
@@ -297,6 +325,24 @@ test.each(["arcade-cabinet", "glasshouse", "glasshouse/celebration"])(
     ]);
   },
 );
+
+test("the shipped Arcade Cabinet celebration plays once on what woke it, then says it's done", () => {
+  const source = readFileSync(
+    new URL("../../plugins/builtin-suits/arcade-cabinet/stage-clear.js", import.meta.url),
+    "utf8",
+  );
+  const page = sandbox();
+  new Function("ace", "document", source)(page.ace, offscreenDocument);
+  page.send({ ...init, region: "celebration" });
+  page.send({ type: "signal", signal: "pr-merged" });
+  for (let time = 0; time <= 3300; time += 33) page.send({ type: "tick", time });
+  const replies = page.replies as { type: string }[];
+  expect(replies[0]).toEqual({ type: "ready" });
+  expect(replies.filter((reply) => reply.type === "finished")).toEqual([{ type: "finished" }]);
+  expect(replies.some((reply) => reply.type === "error")).toBe(false);
+  // Every tick is still answered, before and after it finished.
+  expect(replies.filter((reply) => reply.type === "drawn")).toHaveLength(101);
+});
 
 /*
  * Glass. Node has no canvas, so `painter` stands in for a 2D context with just enough of a model

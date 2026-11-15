@@ -177,6 +177,22 @@ its own sandboxed iframe under the same rules, budget and watchdog as the app sc
 30 fps clock. Each region sets how much of its scene shows (`--suit-<part>-scene-opacity`),
 within what the readability checks allow, so a backdrop is as visible as the Suit wants.
 
+### Celebration (added 2026-11-15)
+
+`scenes.celebration` is a moment, not a backdrop: a full-window scene ace mounts ABOVE the UI
+only when the open thread's run finishes (`done`) or a linked pull request merges
+(`pr-merged`). The scene hears that one signal right after `init` (`view.region` is
+`celebration`), plays, and calls `ace.finish()`; ace unmounts it then, or after 4 s at the
+latest. It plays at most once per 10 s, never on a hidden window and never under Reduce motion
+(there is no still frame of a celebration). The pointer passes through it, and the live check
+never samples it as a backdrop.
+
+It never covers a protected part. Those sit inside stacking contexts of their own (the shell's
+isolation, the composer, sheets and menus portaled to the body), so no z-index could slide the
+layer between them and what surrounds them. Instead the layer sits over everything and its
+`clip-path` cuts a hole, a few pixels larger, around every protected part's box, measured again
+every 100 ms while it plays.
+
 ### Guard
 
 ace's own `@layer guard` comes after `@layer suit` and keeps the state of an agent readable

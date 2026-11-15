@@ -2,13 +2,13 @@ import type { SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { themes, type Scheme } from "@ace/themes";
 import { Link } from "@tanstack/react-router";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { suitReady } from "@/theme/suits/applied-suit.ts";
-import { suitPalette } from "@/theme/suits/suit-css.ts";
 import { useSuitDetail, useSuitLibrary } from "@/theme/suits/suit-library.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { settingRow } from "./settings-index.ts";
+import { SuitPreview } from "./suit-preview.tsx";
 
 /*
  * Settings > Appearance > Suits (ADR 0150): the looks agents made, from the daemon's library.
@@ -19,28 +19,13 @@ import { settingRow } from "./settings-index.ts";
 const schemeWords = (schemes: readonly Scheme[]) =>
   schemes.length === 2 ? "Light and dark" : schemes[0] === "light" ? "Light only" : "Dark only";
 
-/** Page, sidebar, accent and text of the Suit in the scheme on screen. Decoration only. */
-function Swatch(props: { summary: SuitSummary; scheme: Scheme }) {
+/** The Suit as it looks in the scheme on screen, once its files are read. Decoration only. */
+function Thumbnail(props: { summary: SuitSummary; scheme: Scheme }) {
   const detail = useSuitDetail(props.summary);
-  const palette = detail ? suitPalette(detail.manifest, props.scheme) : undefined;
-  const colours: [string, string][] = palette
-    ? [
-        ["page", palette.s0],
-        ["sidebar", palette.sidebar],
-        ["accent", palette.accent],
-        ["text", palette.t1],
-      ]
-    : ["page", "sidebar", "accent", "text"].map((region) => [region, "var(--skel)"]);
-  return (
-    <span
-      aria-hidden
-      data-testid="suit-swatch"
-      className="flex h-4 w-12 shrink-0 overflow-hidden rounded-xs shadow-[0_0_0_1px_var(--border)]"
-    >
-      {colours.map(([region, colour]) => (
-        <span key={region} className="flex-1" style={{ background: colour }} />
-      ))}
-    </span>
+  return detail ? (
+    <SuitPreview detail={detail} scheme={props.scheme} className="w-28 shrink-0 rounded-md" />
+  ) : (
+    <span aria-hidden className="block aspect-[16/9] w-28 shrink-0 rounded-md bg-skel" />
   );
 }
 
@@ -62,8 +47,8 @@ function SuitRow(props: { summary: SuitSummary }) {
       variant="suit"
       state={picked ? "selected" : ready ? undefined : "failed"}
       title={
-        <span className="flex items-center gap-2">
-          <Swatch summary={summary} scheme={resolved.scheme} />
+        <span className="flex items-center gap-3">
+          <Thumbnail summary={summary} scheme={resolved.scheme} />
           {summary.name}
         </span>
       }
@@ -143,7 +128,7 @@ function MakeOne(props: { title: string }) {
       <Link
         to="/new"
         search={{ skill: "make-a-suit" }}
-        className={buttonVariants({ variant: "secondary", size: "sm" })}
+        {...buttonLook({ variant: "secondary", size: "sm" })}
       >
         Make one with an agent
       </Link>

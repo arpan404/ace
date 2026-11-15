@@ -25,6 +25,14 @@
  *     motion(reduceMotion) {}, // optional
  *   });
  *
+ *   ace.finish();              // a celebration has played out; the host may take it down
+ *
+ * `view.region` names the region the frame runs in (`app`, `sidebar`, …, or `celebration`, the
+ * moment ace shows above the UI after a run finishes or a pull request merges), so one file can
+ * serve several. A celebration's frame is transparent wherever the scene draws nothing; it gets
+ * the signal that woke it right after `init`, and ace takes it down after 4 s at most, or
+ * sooner once it calls `ace.finish()`.
+ *
  * This is the contract the make-a-suit skill teaches. Only `frame` is required. `view` is one
  * object kept current in place (no allocation per frame); the canvas is sized in device pixels,
  * `width`/`height` are CSS pixels. The scene never schedules its own frames: ace owns the clock.
@@ -41,6 +49,7 @@ export const sceneRuntimeScript = `(function (g) {
   var view = null;
   var started = false;
   var failed = false;
+  var finished = false;
   var canvas = doc.createElement('canvas');
   canvas.setAttribute('aria-hidden', 'true');
   var style = canvas.style;
@@ -84,7 +93,7 @@ export const sceneRuntimeScript = `(function (g) {
     place();
     size(info.width, info.height, info.pixelRatio);
     started = true;
-    view = { canvas: canvas, width: info.width, height: info.height, pixelRatio: info.pixelRatio, scheme: info.scheme, reduceMotion: info.reduceMotion };
+    view = { canvas: canvas, width: info.width, height: info.height, pixelRatio: info.pixelRatio, scheme: info.scheme, reduceMotion: info.reduceMotion, region: info.region };
     try {
       if (typeof definition.init === 'function') definition.init(view);
     } catch (error) { fail(error); return; }
@@ -196,6 +205,12 @@ export const sceneRuntimeScript = `(function (g) {
         definition = value;
         start();
       },
+      // Once, and only from a running scene: a celebration that has played out.
+      finish: function () {
+        if (finished || failed || !started) return;
+        finished = true;
+        reply({ type: 'finished' });
+      },
     }),
     writable: false,
     configurable: false,
@@ -207,7 +222,7 @@ export const sceneRuntimeScript = `(function (g) {
     switch (data.type) {
       case 'init':
         if (info || !finite(data.width) || !finite(data.height) || !finite(data.pixelRatio)) return;
-        info = { width: data.width, height: data.height, pixelRatio: data.pixelRatio, scheme: data.scheme, reduceMotion: data.reduceMotion === true };
+        info = { width: data.width, height: data.height, pixelRatio: data.pixelRatio, scheme: data.scheme, reduceMotion: data.reduceMotion === true, region: typeof data.region === 'string' && /^[a-z-]{1,24}$/.test(data.region) ? data.region : 'app' };
         start();
         return;
       case 'resize':

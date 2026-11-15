@@ -1,4 +1,5 @@
 import { SceneMessage, type SceneHostMessage, type SceneSignal } from "@ace/protocol/suits";
+import type { SuitSceneRegion } from "@ace/protocol/suit-parts";
 
 /**
  * What decides a scene's frames (ADR 0150, "Scenes"). ace owns the clock: this sends `init`,
@@ -42,6 +43,10 @@ export interface SceneStart extends SceneViewport {
   visible: boolean;
   focused: boolean;
   lowPower: boolean;
+  /** The region the frame runs in, told to the scene in `init` (`view.region`). */
+  region?: SuitSceneRegion | undefined;
+  /** A signal the scene hears as soon as it is ready: what woke a celebration. */
+  wake?: SceneSignal | undefined;
 }
 
 export interface SceneControllerDeps {
@@ -50,6 +55,8 @@ export interface SceneControllerDeps {
   post(message: SceneHostMessage): void;
   /** Called once when the watchdog stops the scene; the host unmounts it. */
   stopped(stop: SceneStop): void;
+  /** A celebration said it has played out (`ace.finish()`); the host may take it down. */
+  finished?: (() => void) | undefined;
   /**
    * Where frames come from when scenes share one clock (`createSceneBeat`); without it this
    * scene keeps its own 30 a second.
@@ -186,6 +193,7 @@ export function createSceneController(
         height: facts.height,
         pixelRatio: facts.pixelRatio,
         reduceMotion: facts.reduceMotion,
+        ...(facts.region ? { region: facts.region } : {}),
       });
       cancelReady = scheduler.after(sceneReadyTimeoutMs, () => stop({ reason: "no-ready" }));
     },
@@ -196,11 +204,16 @@ export function createSceneController(
       if (phase === "idle") return;
       // Samples answer the live check (`scene-sample.ts`), not the clock.
       if (message.type === "sample") return;
+      if (message.type === "finished") {
+        if (phase === "ready") deps.finished?.();
+        return;
+      }
       if (message.type === "ready") {
         if (phase !== "starting") return;
         cancelReady?.();
         cancelReady = undefined;
         phase = "ready";
+        if (facts.wake) post({ type: "signal", signal: facts.wake });
         stillFrame();
         update();
         return;

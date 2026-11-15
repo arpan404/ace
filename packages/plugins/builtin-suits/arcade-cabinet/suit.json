@@ -2,7 +2,7 @@
   "format": 1,
   "id": "arcade-cabinet",
   "name": "Arcade Cabinet",
-  "description": "A pixel-art arcade menu: stage select, dialogue boxes, an inventory of steps and a starfield that clears the stage when a pull request merges.",
+  "description": "A pixel-art arcade menu: stage select, dialogue boxes, an inventory of steps and a starfield, and STAGE CLEAR! over everything when a pull request merges.",
   "version": "1",
   "base": "midnight",
   "dark": {
@@ -67,6 +67,7 @@
     { "slot": "corner-bottom-left", "asset": "assets/ornaments/corner-bottom-left.svg" },
     { "slot": "corner-bottom-right", "asset": "assets/ornaments/corner-bottom-right.svg" }
   ],
+  "scenes": { "celebration": "stage-clear.js" },
   "reveal": { "app": 0.9, "transcript": 0.4, "page": 0.3, "header": 0, "rail": 0 },
   "terminal": {
     "dark": {

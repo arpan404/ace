@@ -17,18 +17,20 @@ const readSignalFacts = (reader: SidebarReader) =>
   });
 
 /**
- * Calls `send` with each scene signal the live thread list makes (`sceneSignals`). Threads a
+ * Calls `changed` with the thread list as signals saw it before and after each change. Threads a
  * paired machine's agent started are its owner's news there, so they are left out, as in
- * notifications.
+ * notifications. The first snapshot is history and calls nothing.
  */
-export function useSceneSignals(send: (signal: SceneSignal) => void) {
+export function useSignalChanges(
+  changed: (previous: SignalSnapshot, next: SignalSnapshot) => void,
+) {
   const sidebar = useSidebarStore();
   const ready = useConnectionState() === "ready";
   const facts = useSidebarAll(readSignalFacts, arrayEqual);
   const seen = useRef<SignalSnapshot>(undefined);
-  const sendRef = useRef(send);
+  const changedRef = useRef(changed);
   useEffect(() => {
-    sendRef.current = send;
+    changedRef.current = changed;
   });
   useEffect(() => {
     if (!facts || !sidebar || !ready) return;
@@ -36,6 +38,13 @@ export function useSceneSignals(send: (signal: SceneSignal) => void) {
     const next = signalSnapshot(threads, (thread) => !isRemoteChild(thread));
     const previous = seen.current;
     seen.current = next;
-    if (previous) for (const signal of sceneSignals(previous, next)) sendRef.current(signal);
+    if (previous) changedRef.current(previous, next);
   }, [facts, sidebar, ready]);
+}
+
+/** Calls `send` with each scene signal the live thread list makes (`sceneSignals`). */
+export function useSceneSignals(send: (signal: SceneSignal) => void) {
+  useSignalChanges((previous, next) => {
+    for (const signal of sceneSignals(previous, next)) send(signal);
+  });
 }

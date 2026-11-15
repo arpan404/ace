@@ -125,6 +125,17 @@ export const suitParts = [
   // Spade and chats
   "spade-message",
   "chat-row",
+  // Added 2026-11-15 (platform upgrade)
+  "segmented",
+  "segment",
+  "segmented-thumb",
+  "switch-thumb",
+  "slider-thumb",
+  "tool-group-header",
+  "tool-icon",
+  "composer-strip",
+  "queue-strip",
+  "queue-item",
 ] as const;
 export const SuitPart = z.enum(suitParts);
 export type SuitPart = z.infer<typeof SuitPart>;

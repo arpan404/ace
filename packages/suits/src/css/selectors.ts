@@ -101,7 +101,12 @@ function checkCompound(nodes: readonly CssNode[], parts: Set<SuitPart>): string 
           const inner = node.children?.first;
           if (!inner || inner.type !== "SelectorList") return `:${name}() needs selectors`;
           const nested = new Set<SuitPart>();
-          const reason = checkList(inner, nested, name === "has");
+          // `:not([data-variant])`, `:is([data-state=open], [data-state=selected])`: a state
+          // test on the compound's own part, which names no part of its own.
+          const reason =
+            name !== "has" && stateOnly(inner)
+              ? checkStates(inner)
+              : checkList(inner, nested, name === "has");
           if (reason) return reason;
           // A part named under :is() or :where() is what the subject is; under :not() or :has()
           // it isn't.
@@ -142,6 +147,38 @@ function checkCompound(nodes: readonly CssNode[], parts: Set<SuitPart>): string 
   return undefined;
 }
 
+/** Attributes a state-only `:not()`, `:is()` or `:where()` may test. */
+const stateTests = new Set([...stateAttributes, "data-page"]);
+
+/**
+ * Whether every selector in `list` is one compound of state attributes (`data-state`,
+ * `data-variant`, `data-page`, `data-scheme`) and nothing else: no part, combinator, class, id or
+ * element.
+ */
+function stateOnly(list: SelectorList): boolean {
+  for (const selector of list.children) {
+    if (selector.type !== "Selector") return false;
+    let any = false;
+    for (const node of selector.children) {
+      if (node.type !== "AttributeSelector" || !stateTests.has(node.name.name.toLowerCase()))
+        return false;
+      any = true;
+    }
+    if (!any) return false;
+  }
+  return true;
+}
+
+/** A state-only list's attributes, held to the same value rules as anywhere else. */
+function checkStates(list: SelectorList): string | undefined {
+  for (const selector of list.children)
+    if (selector.type === "Selector") {
+      const reason = checkCompound([...selector.children], new Set());
+      if (reason) return reason;
+    }
+  return undefined;
+}
+
 /** Splits a selector into compounds at its combinators. */
 function compounds(selector: Selector): { nodes: CssNode[]; combinator: string | undefined }[] {
   const result: { nodes: CssNode[]; combinator: string | undefined }[] = [
@@ -176,11 +213,17 @@ function checkList(
   subject: Set<SuitPart>,
   relative: boolean,
 ): string | undefined {
+  // Every selector's own faults (a class, an id, an element) first, then whether each ends on a
+  // part, so a mixed list is refused for what it names.
+  const ends: Set<SuitPart>[] = [];
   for (const selector of list.children) {
     if (selector.type !== "Selector") return "this selector isn't supported";
     const parts = new Set<SuitPart>();
     const reason = checkSelector(selector, parts, relative);
     if (reason) return reason;
+    ends.push(parts);
+  }
+  for (const parts of ends) {
     if (parts.size === 0 && !relative) return "every selector must end on a [data-part]";
     for (const part of parts) subject.add(part);
   }

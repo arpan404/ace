@@ -2,31 +2,19 @@
 // size into a small canvas and scaled up without smoothing, so every star is a crisp pixel.
 // Three layers of stars drift left at different speeds, a ringed planet and two bands of pixel
 // cloud sit far behind. Signals are short: working speeds the drift up, waiting blinks a "!",
-// failed shakes the sky and flashes it red, done twinkles, and a merged pull request shows
-// STAGE CLEAR! with a burst of confetti that settles in about three seconds.
+// failed shakes the sky and flashes it red and done twinkles. STAGE CLEAR! plays above the UI
+// as the Suit's celebration (stage-clear.js), not here.
 // Everything is allocated in init and resize; frame only moves numbers and draws.
 
 const art = 3; // CSS px per art pixel
 const maxStars = 260;
-const maxConfetti = 96;
-const clearMs = 3000;
 
 const sky = ["#0b0920", "#0e0b28", "#120e32", "#16123c"];
 const starColours = ["#4a43a0", "#9a93e0", "#f2efff"];
-const confettiColours = ["#38e0d4", "#f2efff", "#9a93e0", "#ffd866", "#ff9ad5", "#7df0c8"];
 
-// Own 5x7 capitals for the banner, one string of 35 bits per letter.
+// Own 5x7 glyph for the waiting bubble, 35 bits.
 const glyphs = {
-  S: ".#####....#.....###.....#....#####.",
-  T: "#####..#....#....#....#....#....#..",
-  A: ".###.#...##...#######...##...##...#",
-  G: ".###.#...##....#.####...##...#.####",
-  E: "######....#....####.#....#....#####",
-  C: ".###.#...##....#....#....#...#.###.",
-  L: "#....#....#....#....#....#....#####",
-  R: "####.#...##...#####.#.#..#..#.#...#",
   "!": "..#....#....#....#....#.........#..",
-  " ": "",
 };
 
 let ctx = null;
@@ -46,18 +34,11 @@ let speedUntil = -Infinity;
 let waitingAt = -Infinity;
 let failedAt = -Infinity;
 let doneAt = -Infinity;
-let clearAt = -Infinity;
 
 const starX = new Float32Array(maxStars);
 const starY = new Float32Array(maxStars);
 const starLayer = new Uint8Array(maxStars);
 const starPhase = new Float32Array(maxStars);
-
-const confX = new Float32Array(maxConfetti);
-const confY = new Float32Array(maxConfetti);
-const confVX = new Float32Array(maxConfetti);
-const confVY = new Float32Array(maxConfetti);
-const confColour = new Uint8Array(maxConfetti);
 
 let cloudOffset = 0;
 let drift = 0;
@@ -187,70 +168,6 @@ function drawText(text, x, y, scale, colour) {
   }
 }
 
-// The main column sits right of the sidebar, so the celebration centres there, not on the window.
-const centreX = () => Math.round(cols * (cols > 300 ? 0.62 : 0.5));
-
-function startConfetti() {
-  const cx = centreX();
-  const cy = rows * 0.42;
-  for (let i = 0; i < maxConfetti; i++) {
-    const angle = random() * Math.PI * 2;
-    const speed = 30 + random() * 90;
-    confX[i] = cx;
-    confY[i] = cy;
-    confVX[i] = Math.cos(angle) * speed;
-    confVY[i] = Math.sin(angle) * speed - 60;
-    confColour[i] = Math.floor(random() * confettiColours.length);
-  }
-}
-
-function drawClear(since, dt) {
-  const t = since / clearMs;
-  // Rays: eight stepped spokes that grow, then fade with the banner.
-  const cx = centreX();
-  const cy = Math.round(rows * 0.42);
-  const reach = Math.min(1, since / 400) * Math.min(cols, rows) * 0.45;
-  const fade = since > clearMs - 600 ? (clearMs - since) / 600 : 1;
-  pix.globalAlpha = 0.35 * fade;
-  for (let k = 0; k < 8; k++) {
-    const a = (k / 8) * Math.PI * 2 + since * 0.0004;
-    const dx = Math.cos(a);
-    const dy = Math.sin(a);
-    for (let s = 6; s < reach; s += 2) fill("#38e0d4", cx + dx * s, cy + dy * s, 2, 2);
-  }
-  // Confetti under gravity, as square pixels.
-  pix.globalAlpha = fade;
-  const step = dt / 1000;
-  for (let i = 0; i < maxConfetti; i++) {
-    confVY[i] += 120 * step;
-    confX[i] += confVX[i] * step;
-    confY[i] += confVY[i] * step;
-    fill(confettiColours[confColour[i]], confX[i], confY[i], 2, 2);
-  }
-  // The banner: STAGE CLEAR! in a plate, popping in over two steps.
-  const scale = cols > 200 ? 2 : 1;
-  const text = "STAGE CLEAR!";
-  const textW = text.length * 6 * scale - scale;
-  const textH = 7 * scale;
-  const pop = since < 120 ? 0 : 1;
-  const plateW = textW + 12 * scale;
-  const plateH = textH + 8 * scale;
-  const px = Math.round(cx - plateW / 2);
-  const py = Math.round(cy - plateH / 2);
-  if (pop || t > 0.04) {
-    fill("#07061a", px - 1, py, plateW + 2, plateH);
-    fill("#07061a", px, py - 1, plateW, plateH + 2);
-    fill("#38e0d4", px + 1, py, plateW - 2, plateH);
-    fill("#38e0d4", px, py + 1, plateW, plateH - 2);
-    fill("#1b1842", px + 2, py + 2, plateW - 4, plateH - 4);
-    const tx = Math.round(cx - textW / 2);
-    const ty = Math.round(cy - textH / 2);
-    drawText(text, tx + scale, ty + scale, scale, "#07061a");
-    drawText(text, tx, ty, scale, (Math.floor(since / 160) & 1) === 0 ? "#f2efff" : "#b8fff8");
-  }
-  pix.globalAlpha = 1;
-}
-
 function drawWaiting(since) {
   // A "!" bubble in the upper right that blinks for four seconds.
   if (since > 4000) return;
@@ -299,9 +216,6 @@ function draw(time) {
   const sinceWait = time - waitingAt;
   if (sinceWait >= 0) drawWaiting(sinceWait);
 
-  const sinceClear = time - clearAt;
-  if (sinceClear >= 0 && sinceClear < clearMs) drawClear(still ? 1500 : sinceClear, dt);
-
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(buffer, 0, 0, cols * art * ratio, rows * art * ratio);
@@ -326,9 +240,5 @@ ace.scene({
     else if (name === "waiting") waitingAt = now;
     else if (name === "failed") failedAt = now;
     else if (name === "done") doneAt = now;
-    else if (name === "pr-merged") {
-      clearAt = now;
-      startConfetti();
-    }
   },
 });

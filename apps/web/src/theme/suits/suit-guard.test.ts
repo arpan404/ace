@@ -19,6 +19,7 @@ const hostile = [
   `[data-suit="neon"] :is([data-part="approval-strip"]){visibility:hidden;opacity:0;pointer-events:none}`,
   `[data-suit="neon"] [data-part="status-icon"][data-state="working"]{color:rgb(255, 0, 255)}`,
   `[data-suit="neon"] [data-part="sidebar"]{color:rgb(255, 0, 255)}`,
+  `[data-suit="neon"] [data-part="composer-strip"]{display:none;opacity:0;visibility:hidden;filter:blur(9px)}`,
 ].join("\n");
 
 /** `#rrggbb` as computed styles print it. */
@@ -40,6 +41,12 @@ function render(css: string, dark: Record<string, string> = { canvas: "#101014" 
     <div data-part="sidebar">
       <div data-part="approval-strip">Allow the command?</div>
       <span data-part="status-icon" data-state="working">●</span>
+    </div>
+    <div data-part="composer-strip" data-variant="request">
+      <div data-part="question-card">Tabs or Spaces?</div>
+    </div>
+    <div data-part="composer-strip" data-variant="queue">
+      <ul data-part="queue-strip"><li data-part="queue-item">Then run the tests</li></ul>
     </div>`;
 }
 
@@ -79,6 +86,20 @@ describe("ace's guard over a Suit's CSS", () => {
     expect(strip.visibility).toBe("visible");
     expect(strip.opacity).toBe("1");
     expect(strip.pointerEvents).toBe("auto");
+  });
+
+  it("keeps the composer's strip shown while it holds a request, and lets a Suit hide it otherwise", () => {
+    render(hostile);
+    const [request, queue] = [...document.querySelectorAll('[data-part="composer-strip"]')].map(
+      (element) => getComputedStyle(element),
+    );
+    expect(request?.display).toBe("block");
+    expect(request?.visibility).toBe("visible");
+    expect(request?.opacity).toBe("1");
+    expect(request?.filter).toBe("none");
+    expect(find("question-card").visibility).toBe("visible");
+    // The queue holds no agent state: the strip is the Suit's to restyle.
+    expect(queue?.display).toBe("none");
   });
 
   it("keeps a status icon in ace's status colour over a rule that recolours it", () => {

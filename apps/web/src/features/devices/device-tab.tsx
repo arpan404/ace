@@ -3,7 +3,7 @@ import { useSampleTime, useWallClock } from "@/lib/time.ts";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -285,7 +285,7 @@ export function DeviceTab(props: {
         title="Simulators and emulators are off"
         description={`They're turned off for this machine. Turn them on in Settings › Simulators to see ${name} and let agents in this thread use it.`}
         action={
-          <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
+          <Link to="/settings/simulators" {...buttonLook({ variant: "primary" })}>
             Open Settings
           </Link>
         }

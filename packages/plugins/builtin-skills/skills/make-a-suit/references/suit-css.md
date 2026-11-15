@@ -6,7 +6,7 @@ suit.css is parsed, never applied as text. Each rule that survives is scoped to 
 
 - Build each compound from `[data-part]`, `[data-page]`, `[data-state]`, `[data-variant]` and `[data-scheme]` with a value (`[data-scheme="dark"]`). Values are short lower-case words.
 - Every selector ends on a part: `[data-page="usage"] [data-part="stat"]`, never a bare `[data-page="usage"]`.
-- Pseudo-classes: `:hover`, `:focus`, `:focus-visible`, `:focus-within`, `:active`, `:disabled`, `:enabled`, `:checked`, `:empty`, `:placeholder-shown`, the `first-`/`last-`/`only-`/`nth-` family, and `:not()`, `:is()`, `:where()`, `:has()` over the same kind of selectors.
+- Pseudo-classes: `:hover`, `:focus`, `:focus-visible`, `:focus-within`, `:active`, `:disabled`, `:enabled`, `:checked`, `:empty`, `:placeholder-shown`, the `first-`/`last-`/`only-`/`nth-` family, and `:not()`, `:is()`, `:where()`, `:has()` over the same kind of selectors. `:not()`, `:is()` and `:where()` may also test the part's own state attributes alone: `[data-part="button"]:not([data-variant])`, `[data-part="tab"]:is([data-state="selected"], [data-state="active"])`. Classes, ids and elements are refused inside them too.
 - Pseudo-elements: `::before`, `::after`, `::placeholder`, `::selection` and the `::-webkit-scrollbar` family.
 - Combinators work as usual (` `, `>`, `+`, `~`). Nesting does not: write each rule in full.
 - At-rules: `@media` (width ranges and `prefers-*` features only), `@keyframes`, `@font-face`. Nothing else.
@@ -50,7 +50,20 @@ A region over an `assets/` image is listed in `live.unchecked`: check its contra
 
 ## By area
 
-**Window and sidebar.** `app`, `rail`, `rail-item` (`active`), `sidebar`, `sidebar-header`, `sidebar-footer`, `sidebar-tabs`, `project-header`, `thread-list`, `thread-row` (`active` open, `selected`, `unread`), `thread-title`, `thread-meta`, `nav-item` (`active`).
+**Window and sidebar.** `app`, `rail`, `rail-item` (`active`), `sidebar`, `sidebar-header`, `sidebar-footer`, `sidebar-tabs`, `project-header`, `thread-list`, `thread-row` (`active` open, `selected`, `unread`), `thread-title`, `thread-meta`, `nav-item` (`active`: the open Settings page, skill, automation, Code review list or Spade agent).
+
+The open thread, the open page's row, the current place and the selected tab always carry their state, so a cursor is one rule:
+
+```css
+[data-part="thread-row"][data-state="active"]::before,
+[data-part="nav-item"][data-state="active"]::before {
+  content: "▶";
+  color: var(--color-tint);
+}
+[data-part="rail-item"][data-state="active"] {
+  box-shadow: inset 2px 0 0 var(--color-tint);
+}
+```
 
 ```css
 [data-part="thread-row"] {
@@ -70,7 +83,7 @@ A region over an `assets/` image is listed in `live.unchecked`: check its contra
 
 **Header.** `header`, `header-title`, `main`.
 
-**Transcript.** `transcript`, `message-user`, `message-agent`, `message-meta`, `turn-divider` (variant `interrupted`), `tool-row` (`working`, `done`, `failed`, `open`, `closed`; variant the step's kind: `read`, `search`, `list`, `shell`, `edit`, `web`, `tool`, `think`, `note`), `tool-output` (`raw`, `json`), `code-block`, `inline-code`, `diff`, `link`, `attachment` (`image`, `file`). `layout.messages` and `layout.toolRows` pick the structure; suit.css dresses it.
+**Transcript.** `transcript`, `message-user`, `message-agent`, `message-meta`, `turn-divider` (variant `interrupted`), `tool-row` (`working`, `done`, `failed`, `open`, `closed`; variant the step's kind: `read`, `search`, `list`, `shell`, `edit`, `web`, `tool`, `think`, `note`), `tool-group-header` (the row heading a group of steps, "Ran 3 commands": `open`, `closed`, `working`; variant the group's kind), `tool-icon` (the glyph at the start of a `tool-row`), `tool-output` (`raw`, `json`), `code-block`, `inline-code`, `diff`, `link`, `attachment` (`image`, `file`). `layout.messages` and `layout.toolRows` pick the structure; suit.css dresses it.
 
 ```css
 [data-part="message-user"] {
@@ -95,7 +108,7 @@ A region over an `assets/` image is listed in `live.unchecked`: check its contra
 }
 ```
 
-**Composer.** `composer`, `composer-input`, `composer-toolbar`, `composer-send` (variants `send`, `steer`, `queue`, `stop`, `stopping`; state `disabled`), `model-picker` (`open`, `disabled`).
+**Composer.** `composer`, `composer-input`, `composer-toolbar`, `composer-send` (variants `send`, `steer`, `queue`, `stop`, `stopping`; state `disabled`), `model-picker` (`open`, `disabled`). Above it, `composer-strip` (variant what it shows: `request`, `queue`, `sending`, `connection`, `plan`, …) holds requests and the queue: `queue-strip` (variant `paused`) and its `queue-item`s (`selected` while edited, `working` while moving; variants `saving`, `uncertain`).
 
 ```css
 [data-part="composer"] {
@@ -113,12 +126,18 @@ A region over an `assets/` image is listed in `live.unchecked`: check its contra
 }
 ```
 
-**Controls.** `button` (`primary`, `secondary`, `ghost`, `danger`; `disabled`), `icon-button` (`active`, `disabled`), `input` (`multiline`, `search`, `inline`), `select`, `checkbox` / `switch` (`checked`), `slider`, `tabs`, `tab` (`selected`), `badge`, `kbd`, `divider`, `scrollbar`.
+**Controls.** `button` (`primary`, `secondary`, `ghost`, `danger`; `disabled`; links drawn as buttons, such as Settings' Make one with an agent, are `button` too), `link` (text links and underlined text buttons; variants `back`, `row`), `icon-button` (`active`, `disabled`), `input` (`multiline`, `search`, `inline`), `select` (variant `model` for a model picker drawn as one), `checkbox` / `switch` (`checked`) with its `switch-thumb`, `slider` with its `slider-thumb`, `segmented` (a one-of-n control) with its `segment`s (`selected`) and `segmented-thumb` (the sliding pill), `tabs` (variants `words` for a toolbar's word choice, `fleet`, `search-scope`, `computer`, `model-sources`), `tab` (`selected`), `badge`, `kbd`, `divider`, `scrollbar`.
 
 ```css
 [data-part="button"][data-variant="primary"] {
   border-radius: 8px;
   letter-spacing: 0.01em;
+}
+[data-part="switch"][data-state="checked"] [data-part="switch-thumb"] {
+  border-radius: 2px;
+}
+[data-part="segment"][data-state="selected"] {
+  font-weight: 600;
 }
 [data-part="kbd"] {
   border: 1px solid var(--color-border-strong);
@@ -233,7 +252,7 @@ Name fonts in suit.json's `fonts` first; they set ace's own font stacks. For a d
 @font-face {
   font-family: "Suit Display";
   src: url("assets/fonts/display.woff2") format("woff2");
-  font-display: swap;
+  font-display: fallback;
 }
 [data-part="page-title"],
 [data-part="header-title"] {
@@ -241,7 +260,13 @@ Name fonts in suit.json's `fonts` first; they set ace's own font stacks. For a d
 }
 ```
 
-`@font-face` sources must be `.woff2`, `.woff`, `.ttf` or `.otf` files in `assets/`.
+`@font-face` sources must be `.woff2`, `.woff`, `.ttf` or `.otf` files in `assets/`. Give each weight or style its own `@font-face` with `font-weight` / `font-style`.
+
+Bundled fonts never flash a fallback face: when the person switches to your Suit, ace loads every font file from `fonts` and from these `@font-face` rules first (up to 1.5 s) and only then shows the Suit, and font files are cached for as long as the Suit's version stays the same. Keep the files small (subset `.woff2`), so a first switch over a slow link doesn't hit that limit.
+
+## How Settings previews it
+
+Settings > Appearance draws your Suit as it looks: the Suits list, the Custom card and the Light, Dark and System cards each show a small ace window built from real parts (`app`, `rail`, `rail-item`, `sidebar`, `sidebar-header` with its ornament, `thread-list`, `thread-row` with one `active`, `status-icon`, `thread-title`, `thread-meta`, `main`, `header`, `header-title`, `page`, `transcript`, `message-user`, `message-agent`, `link`, `tool-row` (`edit`, `done`), `inline-code`, `working-line`, `composer`, `composer-input`, `composer-toolbar`, `model-picker`, `composer-send`, corner ornaments), with your tokens, suit.css and labels applied, laid out at 960 × 540 and scaled to the card. It is a window of its own: the Suit on screen never reaches it, so write rules from `[data-part]` and `[data-state]` and they show there as in the app. Scenes don't run in it (the frame colour shows), and pages other than `thread` aren't in it.
 
 ## Keyframes and transitions
 
@@ -268,3 +293,5 @@ Your keyframe names are scoped to the Suit; refer to them by the name you wrote.
 ## Guarded parts
 
 On `working-line`, `approval-strip`, `question-card` and `status-icon` only padding, borders (width, style, colour, radius), font family, weight, style, stretch, text transform and `--suit-` variables survive. Everything else on them is a `css` problem.
+
+`composer-strip` is not guarded: frame and colour it freely. While it holds an approval or question, ace keeps it shown, opaque and clickable whatever your CSS says, so never rely on hiding it.

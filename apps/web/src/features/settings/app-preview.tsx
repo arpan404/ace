@@ -14,15 +14,14 @@ function Line(props: { className: string }) {
   return <i className={cn("block h-[0.32em] shrink-0 rounded-full", props.className)} />;
 }
 
-/** A built-in theme, or the Suit on screen (its rules are scoped to `data-suit`). */
-export type PreviewLook = { theme: ThemeId } | { suit: string };
+/** A built-in theme. A Suit has its own miniature (`suit-preview.tsx`). */
+export type PreviewLook = { theme: ThemeId };
 
 /** One scheme of the window: a quiet sidebar, one exchange and the composer. */
 function Layer(props: { look: PreviewLook; scheme: Scheme; className?: string }) {
   return (
     <span
-      data-theme={"theme" in props.look ? props.look.theme : undefined}
-      data-suit={"suit" in props.look ? props.look.suit : undefined}
+      data-theme={props.look.theme}
       data-scheme={props.scheme}
       className={cn(
         "absolute inset-0 grid grid-cols-[28%_1fr] bg-background text-foreground",

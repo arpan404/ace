@@ -2,13 +2,15 @@ import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import { themeIds, themes } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { AppPreview } from "./app-preview.tsx";
+import { SuitPreview } from "./suit-preview.tsx";
 import { PickerCard } from "./picker-card.tsx";
 import { part } from "@/lib/suit-part.ts";
 
 /**
  * Every theme as the app in miniature, in the scheme on screen now: switching Light or Dark above
  * redraws them all, so each shows exactly what choosing it gives. While a Suit is on screen it
- * leads the row as the chosen look, and choosing a theme turns the Suit off.
+ * leads the row as the chosen look, drawn as it really looks (`SuitPreview`), and choosing a
+ * theme turns the Suit off.
  */
 export function ThemeChooser() {
   const { appearance, update, resolved, suit } = useTheme();
@@ -26,13 +28,7 @@ export function ThemeChooser() {
           description={suit.manifest.description || "A Suit made for you"}
           checked
           onChoose={() => undefined}
-          preview={
-            <AppPreview
-              look={{ suit: suit.manifest.id }}
-              scheme={resolved.scheme}
-              className="aspect-[16/9]"
-            />
-          }
+          preview={<SuitPreview detail={suit} scheme={resolved.scheme} />}
         />
       )}
       {themeIds.map((id) => (

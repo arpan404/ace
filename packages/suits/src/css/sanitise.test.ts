@@ -54,6 +54,21 @@ describe("suit.css rules a Suit may write", () => {
       `[data-suit="neon"] :is([data-part=menu],[data-part=popover]):has(>[data-part=menu-item]){backdrop-filter:blur(8px)}`,
     ],
     [
+      "a part without a variant, by :not() of a state attribute",
+      `[data-part=button]:not([data-variant]) { border-radius: 0 }`,
+      `[data-suit="neon"] [data-part=button]:not([data-variant]){border-radius:0}`,
+    ],
+    [
+      "a part in one of two states, by :is() of state attributes",
+      `[data-part=thread-row]:is([data-state=active], [data-state=selected])::before { content: "▶" }`,
+      `[data-suit="neon"] [data-part=thread-row]:is([data-state=active],[data-state=selected])::before{content:"▶"}`,
+    ],
+    [
+      "a part off one page and scheme, by :where() and :not() of page and scheme",
+      `[data-part=list-row]:where([data-scheme=dark]):not([data-page=pulls]) { color: #0ff }`,
+      `[data-suit="neon"] [data-part=list-row]:where([data-scheme=dark]):not([data-page=pulls]){color:#0ff}`,
+    ],
+    [
       "a scrollbar pseudo-element",
       `[data-part=transcript]::-webkit-scrollbar-thumb { background: #f0f }`,
       `[data-suit="neon"] [data-part=transcript]::-webkit-scrollbar-thumb{background:#f0f}`,
@@ -117,6 +132,32 @@ describe("suit.css rules a Suit may not write", () => {
     ],
     ["another attribute", `[data-part=sidebar][aria-hidden] { color: red }`, 1, /aria-hidden/],
     ["a class under :not()", `[data-part=thread-row]:not(.x) { color: red }`, 1, /class/],
+    [
+      "a class beside a state under :not()",
+      `[data-part=thread-row]:not([data-state=active], .x) { color: red }`,
+      1,
+      /class/,
+    ],
+    ["an id under :is()", `[data-part=thread-row]:is(#x) { color: red }`, 1, /id/],
+    ["an element under :where()", `[data-part=thread-row]:where(div) { color: red }`, 1, /element/],
+    [
+      "another attribute under :not()",
+      `[data-part=thread-row]:not([aria-hidden]) { color: red }`,
+      1,
+      /aria-hidden/,
+    ],
+    [
+      "an unknown page under :not()",
+      `[data-part=list-row]:not([data-page=secret]) { color: red }`,
+      1,
+      /published page/,
+    ],
+    [
+      "a state-only :is() as the whole selector",
+      `:is([data-state=active]) { color: red }`,
+      1,
+      /end on a \[data-part\]/,
+    ],
     [
       "a remote url",
       `[data-part=rail] {\n  background: url(https://example.com/a.png)\n}`,
