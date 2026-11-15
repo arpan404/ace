@@ -57,8 +57,8 @@
     0 24px 48px -20px rgb(24 28 34 / 0.22);
   --suit-plate: #ffffff;
   --suit-well: rgb(24 28 34 / 0.055);
-  --suit-page-background: color-mix(in oklab, var(--color-background) 50%, transparent);
-  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 62%, transparent);
+  --suit-page-background: color-mix(in oklab, var(--color-background) 40%, transparent);
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 52%, transparent);
 }
 [data-scheme="dark"] [data-part="app"],
 [data-scheme="dark"] [data-part="menu"],
@@ -295,15 +295,19 @@
 [data-part="page-title"] {
   letter-spacing: -0.018em;
 }
-/* Grouped content is a sheet lifted one step off the page. */
-[data-part="card"]:not([data-variant]),
-[data-part="card"]:is(
-  [data-variant="settings-group"],
-  [data-variant="description"],
-  [data-variant="changes"],
-  [data-variant="check"],
-  [data-variant="connect"]
-),
+/*
+ * Grouped content is a sheet lifted one step off the page. Only in the main column: the side
+ * panel's launcher names its tools with some of the same variants.
+ */
+[data-part="main"] [data-part="card"]:not([data-variant]),
+[data-part="main"]
+  [data-part="card"]:is(
+    [data-variant="settings-group"],
+    [data-variant="description"],
+    [data-variant="changes"],
+    [data-variant="check"]
+  ),
+[data-part="card"][data-variant="connect"],
 [data-part="merge-box"] {
   background: var(--color-surface-1);
   border-color: transparent;

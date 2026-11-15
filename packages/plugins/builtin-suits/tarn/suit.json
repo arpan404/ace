@@ -2,7 +2,7 @@
   "format": 1,
   "id": "tarn",
   "name": "Tarn",
-  "description": "Cool slate and blue-black ink, fine hairlines and soft depth.",
+  "description": "A mountain lake at blue hour behind cool slate panels, in blue-black ink and fine hairlines.",
   "version": "1",
   "base": "ace",
   "dark": {
@@ -72,11 +72,24 @@
     "glass": null
   },
   "fonts": {
-    "ui": { "system": "\"Tarn Sans\", \"Hanken Grotesk\"" },
-    "prose": { "system": "\"Tarn Sans\", \"Hanken Grotesk\"" },
-    "mono": { "asset": "assets/fonts/CommitMono-Regular.woff2", "family": "Tarn Mono" }
+    "ui": {
+      "system": "\"Tarn Sans\", \"Hanken Grotesk\""
+    },
+    "prose": {
+      "system": "\"Tarn Sans\", \"Hanken Grotesk\""
+    },
+    "mono": {
+      "asset": "assets/fonts/CommitMono-Regular.woff2",
+      "family": "Tarn Mono"
+    }
   },
-  "shape": { "radius": 0.75, "border": 1 },
+  "shape": {
+    "radius": 0.75,
+    "border": 1
+  },
+  "reveal": {
+    "right-panel": 0.5
+  },
   "terminal": {
     "fontFamily": "Tarn Mono",
     "fontSize": 12.5,
@@ -130,6 +143,7 @@
         "brightCyan": "#267F92",
         "brightWhite": "#858991"
       }
-    }
+    },
+    "reveal": 0.5
   }
 }

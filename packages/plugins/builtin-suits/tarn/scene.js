@@ -3,8 +3,9 @@
  * light one. Five ridgelines fade into haze, mist drifts between them, and the water holds their
  * reflection with a slow shimmer. Everything is drawn as shapes and gradients each frame, inside
  * a narrow brightness range per scheme, so text over it stays readable and the live check can
- * read every pixel. The only motion is the mist, the shimmer and a few stars; a finished run
- * warms the light on the horizon for a moment.
+ * read every pixel. Little moves, and slowly: mist and cloud drift, the water shimmers, stars
+ * breathe and now and then one falls, a few fireflies wander the shore at night, and by day a
+ * small flock crosses the sky. A finished run warms the light on the horizon for a moment.
  */
 
 /* Where things sit, as fractions of the window. */
@@ -14,23 +15,26 @@ const SAMPLES = 220; // points along each ridgeline
 
 const looks = {
   dark: {
-    sky: ["#0a0d12", "#111722", "#1c293a", "#2e445e"],
-    glow: [138, 172, 210],
+    sky: ["#0b0d10", "#13171e", "#212933", "#364454"],
+    glow: [150, 171, 195],
     glowAlpha: 0.38,
-    ridges: ["#2b3e56", "#233348", "#1b2737", "#131b27", "#0c1119"],
-    ridgeFoot: ["#3a516c", "#2f445b", "#243446", "#1a2532", "#111822"],
-    mist: [164, 186, 212],
-    mistAlpha: 0.15,
-    water: ["#25374d", "#131c28", "#0b0f16"],
+    ridges: ["#323e4d", "#293340", "#1f2731", "#161b22", "#0e1116"],
+    ridgeFoot: ["#435161", "#374452", "#2a343f", "#1e252d", "#14181e"],
+    mist: [172, 185, 201],
+    mistAlpha: 0.16,
+    water: ["#2c3744", "#161c23", "#0c0f13"],
     waterInk: [
-      [37, 55, 77],
-      [11, 15, 22],
+      [44, 55, 68],
+      [12, 15, 19],
     ],
     reflect: 0.5,
-    shimmer: [176, 204, 236],
-    shimmerAlpha: 0.16,
-    star: [214, 226, 244],
+    shimmer: [186, 203, 223],
+    shimmerAlpha: 0.2,
+    star: [220, 228, 240],
     stars: 1,
+    cloudAlpha: 0,
+    birds: null,
+    fireflies: [206, 220, 238],
   },
   light: {
     sky: ["#dfe5ee", "#e7ebf2", "#eff1f5", "#f8f5f0"],
@@ -50,6 +54,9 @@ const looks = {
     shimmerAlpha: 0.5,
     star: [255, 255, 255],
     stars: 0,
+    cloudAlpha: 0.55,
+    birds: [96, 108, 126],
+    fireflies: null,
   },
 };
 
@@ -123,6 +130,8 @@ let ctx;
 let stars = [];
 let dashes = [];
 let mistBands = [];
+let clouds = [];
+let fireflies = [];
 let warmAt = -1e9;
 let now = 0;
 
@@ -133,7 +142,7 @@ function scatter() {
     y: random() * random() * 0.6,
     size: 0.6 + random() * 1.1,
     alpha: 0.25 + random() * 0.6,
-    pace: random() < 0.22 ? 0.4 + random() * 0.8 : 0,
+    pace: random() < 0.4 ? 0.5 + random() * 1.1 : 0,
     phase: random() * 6.283,
   }));
   dashes = Array.from({ length: 46 }, () => ({
@@ -145,10 +154,21 @@ function scatter() {
     phase: random() * 6.283,
   }));
   mistBands = [
-    { y: 0.69, height: 0.07, pace: 0.0000045, offset: 0.1, alpha: 0.8 },
-    { y: 0.74, height: 0.06, pace: -0.0000062, offset: 0.55, alpha: 1 },
-    { y: 0.785, height: 0.045, pace: 0.0000081, offset: 0.3, alpha: 0.9 },
+    { y: 0.69, height: 0.07, pace: 0.000011, offset: 0.1, alpha: 0.8 },
+    { y: 0.74, height: 0.06, pace: -0.000015, offset: 0.55, alpha: 1 },
+    { y: 0.785, height: 0.045, pace: 0.00002, offset: 0.3, alpha: 0.9 },
   ];
+  clouds = [
+    { y: 0.19, height: 0.03, reach: 0.13, lobes: 2, pace: 0.000007, offset: 0.05, alpha: 1 },
+    { y: 0.3, height: 0.024, reach: 0.1, lobes: 2, pace: 0.00001, offset: 0.4, alpha: 0.8 },
+  ];
+  fireflies = Array.from({ length: 14 }, () => ({
+    x: random(),
+    y: 0.7 + random() * 0.09,
+    drift: 0.012 + random() * 0.02,
+    pace: 0.3 + random() * 0.5,
+    phase: random() * 6.283,
+  }));
 }
 
 const rgba = (colour, alpha) => `rgba(${colour[0]},${colour[1]},${colour[2]},${alpha})`;
@@ -224,7 +244,11 @@ function draw(time, view) {
       ctx.fillStyle = rgba(look.star, star.alpha * breath * 0.8);
       ctx.fillRect(star.x * width, star.y * height, star.size, star.size);
     }
+    if (!still) fallingStar(t, width, height, look);
   }
+  if (look.cloudAlpha)
+    for (const cloud of clouds) mist(cloud, t, width, height, look, look.cloudAlpha);
+  if (look.birds && !still) flock(t, width, height, look);
 
   // Ridges from far to near, each fading into haze at its foot, with mist between them.
   for (let index = 0; index < ridgeShapes.length; index++) {
@@ -235,7 +259,9 @@ function draw(time, view) {
     ctx.fillStyle = fill;
     trace(index, width, height, false);
     const band = mistBands[index - 1];
-    if (band) mist(band, t, width, height, look);
+    if (band) mist(band, t, width, height, look, look.mistAlpha);
+    // Fireflies wander in front of the middle ridges, behind the near shore.
+    if (index === 3 && look.fireflies) glimmer(t, width, height, look, still);
   }
 
   // Water: the sky's colour deepening, the ridges mirrored in it, then the light and shimmer.
@@ -296,16 +322,17 @@ function draw(time, view) {
   ctx.fillRect(0, water - 0.5, width, 1);
 }
 
-/** One band of mist: three soft lobes that drift along it and wrap round. */
-function mist(band, t, width, height, look) {
+/** One band of mist or cloud: a few soft lobes that drift along it and wrap round. */
+function mist(band, t, width, height, look, strength) {
   const y = band.y * height;
   const tall = band.height * height;
-  for (let lobe = 0; lobe < 3; lobe++) {
-    const along = (((band.offset + lobe / 3 + t * band.pace) % 1) + 1) % 1;
+  const lobes = band.lobes ?? 3;
+  for (let lobe = 0; lobe < lobes; lobe++) {
+    const along = (((band.offset + lobe / lobes + t * band.pace) % 1) + 1) % 1;
     const x = (along * 1.6 - 0.3) * width;
-    const reach = width * (0.34 + lobe * 0.05);
+    const reach = width * ((band.reach ?? 0.34) + lobe * 0.05);
     const fog = ctx.createRadialGradient(x, y, 0, x, y, reach);
-    fog.addColorStop(0, rgba(look.mist, look.mistAlpha * band.alpha));
+    fog.addColorStop(0, rgba(look.mist, strength * band.alpha));
     fog.addColorStop(1, rgba(look.mist, 0));
     ctx.fillStyle = fog;
     // Pressed flat: a wide, shallow ellipse of fog.
@@ -316,6 +343,86 @@ function mist(band, t, width, height, look) {
     ctx.fillRect(x - reach, y - reach, reach * 2, reach * 2);
     ctx.restore();
   }
+}
+
+/** A number in [0, 1) that is the same for the same `n` and `salt`, with nothing kept. */
+function chance(n, salt) {
+  const value = Math.sin(n * 12.9898 + salt * 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+/** Now and then a star falls: a short streak that fades at both ends, in a new place each time. */
+function fallingStar(t, width, height, look) {
+  const every = 16000;
+  const lasts = 1100;
+  const turn = Math.floor(t / every);
+  const since = t - turn * every - every * 0.4;
+  if (since < 0 || since > lasts) return;
+  const p = since / lasts;
+  const fromX = (0.12 + chance(turn, 1) * 0.7) * width;
+  const fromY = (0.05 + chance(turn, 2) * 0.24) * height;
+  const reach = (0.11 + chance(turn, 3) * 0.08) * width;
+  const fall = reach * (0.32 + chance(turn, 4) * 0.2);
+  const side = chance(turn, 5) < 0.5 ? -1 : 1;
+  const headX = fromX + side * reach * p;
+  const headY = fromY + fall * p;
+  const tail = Math.min(p, 0.32);
+  const tailX = fromX + side * reach * (p - tail);
+  const tailY = fromY + fall * (p - tail);
+  const streak = ctx.createLinearGradient(tailX, tailY, headX, headY);
+  streak.addColorStop(0, rgba(look.star, 0));
+  streak.addColorStop(1, rgba(look.star, 0.85 * Math.sin(p * Math.PI)));
+  ctx.strokeStyle = streak;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(tailX, tailY);
+  ctx.lineTo(headX, headY);
+  ctx.stroke();
+}
+
+/** Fireflies: small lights that wander a little and glow on and off, each at its own pace. */
+function glimmer(t, width, height, look, still) {
+  for (const fly of fireflies) {
+    const turn = still ? fly.phase : t * 0.00022 * fly.pace + fly.phase;
+    const x = (fly.x + Math.sin(turn) * fly.drift) * width;
+    const y = (fly.y + Math.sin(turn * 1.7 + fly.phase) * fly.drift * 0.4) * height;
+    const glow = still ? 0.5 : Math.max(0, Math.sin(t * 0.0011 * fly.pace + fly.phase * 3));
+    if (glow <= 0.02) continue;
+    ctx.fillStyle = rgba(look.fireflies, 0.1 * glow);
+    ctx.fillRect(x - 2.5, y - 2.5, 5, 5);
+    ctx.fillStyle = rgba(look.fireflies, 0.75 * glow);
+    ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.5);
+  }
+}
+
+/** By day a small flock crosses the sky now and then, wings beating slowly. */
+function flock(t, width, height, look) {
+  const every = 30000;
+  const lasts = 19000;
+  const turn = Math.floor(t / every);
+  const since = t - turn * every - every * 0.15;
+  if (since < 0 || since > lasts) return;
+  const p = since / lasts;
+  const leftward = chance(turn, 6) < 0.5;
+  const along = leftward ? 1.08 - p * 1.16 : -0.08 + p * 1.16;
+  const high = 0.16 + chance(turn, 7) * 0.16;
+  const span = Math.max(4, width * 0.0042);
+  ctx.strokeStyle = rgba(look.birds, 0.5);
+  ctx.lineWidth = 1.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  for (let bird = 0; bird < 5; bird++) {
+    // A loose V behind the leader, each bird a little out of step with the rest.
+    const rank = Math.ceil(bird / 2);
+    const wing = bird % 2 === 0 ? 1 : -1;
+    const x = (along - (leftward ? -1 : 1) * rank * 0.012) * width;
+    const y = (high + wing * rank * 0.011 - p * 0.04) * height + Math.sin(t * 0.0012 + bird) * 1.5;
+    const beat = Math.sin(t * 0.0075 + bird * 1.3) * span * 0.45;
+    ctx.moveTo(x - span, y - beat);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + span, y - beat);
+  }
+  ctx.stroke();
 }
 
 ace.scene({
