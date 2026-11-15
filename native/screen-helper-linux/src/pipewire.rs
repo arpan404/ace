@@ -65,6 +65,8 @@ impl Control {
 
 /// The last still published, to send again when someone starts watching a still screen.
 struct Published {
+    /// The visible region of the buffer it was made of: a still of another is stale.
+    region: Region,
     jpeg: Vec<u8>,
     width: u32,
     height: u32,
@@ -192,10 +194,13 @@ impl Frames {
     fn publish(&mut self, buffer: &Pixels<'_>, at: f64, force: bool) -> Result<()> {
         let (w, h, stride, format) = (buffer.width, buffer.height, buffer.stride, buffer.format);
         let source = buffer.bytes;
-        if !self.previous.update(source, w, h, stride, format) && !force {
+        // What the picture shows is its visible region: a crop that moves over unchanged
+        // pixels is a new picture, and a change outside it is none.
+        let region = visible_region(w, h, buffer.crop);
+        if !self.previous.update(source, stride, format, region) && !force {
             return Ok(());
         }
-        let (left, top, rw, rh) = visible_region(w, h, buffer.crop);
+        let (left, top, rw, rh) = region;
         let ratio = (3840f64 / f64::from(rw))
             .min(2160f64 / f64::from(rh))
             .min(1.);
@@ -230,6 +235,7 @@ impl Frames {
         self.publisher
             .frame(jpeg.clone(), ow, oh, scale, at, self.generation())?;
         self.last = Some(Published {
+            region,
             jpeg,
             width: ow,
             height: oh,
@@ -297,6 +303,11 @@ impl Frames {
             };
         }
         self.note_shown(raw.width, raw.height, raw.crop());
+        // The window moved or resized inside its buffer: the cached still shows the old region.
+        let region = visible_region(raw.width, raw.height, raw.crop());
+        if self.last.as_ref().is_some_and(|last| last.region != region) {
+            self.last = None;
+        }
         let watching = self.watching();
         if let Some(settings) = self.video.active(watching) {
             let key = self.video.take_key();
