@@ -62,6 +62,8 @@ struct ConversationFeed: View {
     @State private var intent = TranscriptScrollIntent()
     @State private var settle = TranscriptEndSettle()
     @State private var anchor = TranscriptReadingAnchor()
+    /// Bumped when the rows move to the other stack (`restack`).
+    @State private var stackSwitches = 0
     @State private var extent = TranscriptExtent()
     @State private var viewport = TranscriptViewportController()
     /// Previous resident block-to-items snapshot, for classifying missing
@@ -109,9 +111,14 @@ struct ConversationFeed: View {
     nonisolated private static let contentSpace = "transcript.content"
 
     private func feed(_ proxy: ScrollViewProxy) -> some View {
+        // The stack for these rows (ADR 0157): chosen before they first lay out, switched only by
+        // `restack`, which bumps `stackSwitches` to lay them out again in the other one.
+        let _ = stackSwitches
+        let rowCount = TranscriptFeedRow.rows(shown).count
+        let stack: TranscriptStackChoice.Stack = ready && rowCount > 0 ? anchor.stack.opened(rows: rowCount) : .lazy
         PerfCounters.bump("feed.body")
         let scroller = ScrollView {
-            LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            TranscriptRowsStack(stack: stack) {
                 if let problem = reading.problem {
                     ServiceProblem(message: problem)
                     Button("Retry loading messages") { reading.retry(model: model, live: thread) }
@@ -252,6 +259,7 @@ struct ConversationFeed: View {
                 // After the follow mode above: where the scroll came to rest is held, and a
                 // correction owed while it ran is made (`TranscriptPlaceKeeper`).
                 keep(.phase(.idle), proxy: proxy)
+                restack(rows: TranscriptFeedRow.rows(shown).count, moving: false, replaced: false, proxy: proxy)
                 updateBehind()
                 pageIfNeeded(proxy)
                 if let railPlace, behind { railPlace.settle(currentReaderPlace()) }
@@ -348,8 +356,11 @@ struct ConversationFeed: View {
             .onChange(of: shown.disclosures.opens) { _, _ in disclosuresChanged() }
             .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
             .modifier(SpacerCounts(before: extent.before, after: extent.after))
-            .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced() }
+            .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
             .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
+            .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
+                restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
+            }
             .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
             .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
             // Only the rail's pick is read here, so its other state never re-renders the feed.
@@ -415,11 +426,25 @@ struct ConversationFeed: View {
         applyLayoutRevision()
     }
     /// A new history window: its rows replace the extent's.
-    private func windowReplaced() {
+    private func windowReplaced(proxy: ScrollViewProxy) {
         extent.update(change: TranscriptExtent.WindowChange(
             ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
         let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
         lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+        restack(rows: rows.count, moving: intent.active || intent.animating, replaced: true, proxy: proxy)
+    }
+    /// The rows' count changed, their window was replaced, or the feed came to rest: move the rows
+    /// to the other stack if `TranscriptStackChoice` says so. A switch lays every row out again,
+    /// so the reader's place is installed as a session anchor, restored once the rows measure, and
+    /// a feed following the end goes back to it.
+    private func restack(rows: Int, moving: Bool, replaced: Bool, proxy: ScrollViewProxy) {
+        guard ready, anchor.stack.update(rows: rows, moving: moving, replaced: replaced) != nil else { return }
+        if !following, let top = currentTopRow() {
+            viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
+        }
+        stackSwitches += 1
+        PerfProbe.add("feed.restacks", 1)
+        if following { toEnd(proxy) }
     }
     /// The history window's rows changed: restore, focus or hold the reader's place.
     private func readingRevised(proxy: ScrollViewProxy) {
