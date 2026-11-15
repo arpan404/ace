@@ -133,6 +133,8 @@ export { startedConversation, startedConversationIds } from "./scenarios/started
 export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
 
 export { seedColdStartState, coldTdd } from "./cold-start-state.ts";
+/** Payloads per `item.raw` page the fake answers with. */
+export { rawPageSize } from "./long-thread-wire.ts";
 export { workCardScenario, type WorkCardState } from "./scenarios/work-card.ts";
 export type { SkillSeed } from "./skill-library.ts";
 export {
