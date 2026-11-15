@@ -12,13 +12,16 @@ import type { AutomationWebhookService } from "../automation-webhooks.ts";
 import type { ThreadAutomationRequest } from "../agent-control/thread-automations.ts";
 import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { startAutomationWebhooks } from "../automation-webhooks.ts";
+import { webhookSecrets } from "../automation-webhook-key.ts";
 import { automationWorkspace } from "../automation-workspace.ts";
 import { automationAdmission, automationExecutor } from "../automation-executor.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAutomations(context: ServiceContext): Promise<void> {
   const { config, resources, services, now, id, log } = context;
-  const store = new AutomationStore(join(config.dataDir, "automations.sqlite"));
+  const store = new AutomationStore(join(config.dataDir, "automations.sqlite"), {
+    webhookSecrets: webhookSecrets(config.dataDir),
+  });
   resources.own(() => store.close());
   const service = new AutomationService(
     store,

@@ -109,6 +109,8 @@ export class AutomationWebhooks {
       return refuse("unsupported_media_type");
     const headers = readWebhookHeaders(request.headers);
     if (!headers.ok) return refuse("bad_headers");
+    if (key.secret === undefined)
+      return refuse("unavailable", "Its secret can't be read on this machine; rotate it.");
     const check = verifyWebhook(key.secret, headers.headers, request.body, this.deps.now());
     if (check !== "ok") return refuse(check);
     const variables = webhookVariables(request.body, headers.headers.id);

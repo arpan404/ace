@@ -38,8 +38,10 @@ restart.
   and its libraries in most languages, work unchanged. The secret never travels.
 - **Secret: the person types or pastes one.** Leaves the strength to the person. ace generates it
   instead. Pasting a sender-made secret is a later addition, if senders need it.
-- **Secret in the OS keychain.** The daemon runs headless on servers without one. The secret is
-  kept in the daemon's data directory, as its other private state is.
+- **Secret in the OS keychain.** The daemon runs headless on servers without one, and on macOS an
+  unsigned daemon reaching it through `security` gets an item any of the person's processes can
+  read the same way, so it would protect no more than an owner-only file. Instead the secret is
+  sealed in the store under a key kept in its own owner-only file (decision 11).
 
 ## Decision
 
@@ -122,6 +124,14 @@ restart.
 10. **Each webhook starts at most 60 new runs a minute.** Counted after the signature verifies,
     so someone who knows the URL but not the secret can't spend a real sender's room. Over the
     limit is 429 with `retry-after`; a delivery already admitted still gets its run back.
+
+11. **Secrets are sealed at rest under a key kept outside the store.** AES-256-GCM, each bound to
+    its automation's id, under 32 random bytes in `automation-webhooks.key` (mode 0600) in the
+    daemon's data directory, made the first time a secret is. A copy of `automations.sqlite`
+    alone (a backup, a support bundle, a copied home) holds no usable secret. A secret that
+    can't be opened with the machine's key answers 503 until the person rotates it. Code running
+    as the person can still read both files; nothing short of a signed app's keychain entry
+    would stop that.
 
 ## Consequences
 

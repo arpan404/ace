@@ -1,4 +1,5 @@
 import { logError } from "@ace/diagnostics";
+import { webhookSecrets } from "../automation-webhook-key.ts";
 import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { AgentPreviews } from "./previews.ts";
 export { AgentPreviews } from "./previews.ts";
@@ -37,7 +38,9 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         .get(automationId);
       return row ? owner.parse(row) : undefined;
     });
-  const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"));
+  const automationStore = new AutomationStore(join(config.dataDir, "agent-automations.sqlite"), {
+    webhookSecrets: webhookSecrets(config.dataDir),
+  });
   resources.own(() => automationStore.close());
   const clock = context.options.engine?.clock;
   const automations = new AutomationService(automationStore, {

@@ -1,4 +1,8 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "vitest";
+import { readConfig } from "@ace/daemon";
+import { webhookKeyName } from "./automation-webhook-key.ts";
 import { signWebhook } from "@ace/automations";
 import { AgentControlOperation, Automation, type AutomationWebhookResponse } from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
@@ -163,6 +167,13 @@ test("a signed webhook starts one run, a retry before or after a restart starts 
       const key = secret.slice("whsec_".length);
       expect(JSON.stringify(list)).not.toContain(key);
       expect(JSON.stringify(history)).not.toContain(key);
+      // Nor in a copy of the store's files: it is sealed with a key kept beside them, owner-only.
+      const dataDir = readConfig({ ACE_HOME: join(f.h.home, "daemon") }).dataDir;
+      for (const file of ["automations.sqlite", "automations.sqlite-wal"]) {
+        const path = join(dataDir, file);
+        if (existsSync(path)) expect(readFileSync(path).toString("latin1")).not.toContain(key);
+      }
+      expect(statSync(join(dataDir, webhookKeyName)).mode & 0o777).toBe(0o600);
     } finally {
       await again.client.close();
     }

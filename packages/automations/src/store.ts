@@ -13,6 +13,7 @@ import {
 import { admission, canPromote } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
 import { WebhookKeys } from "./webhook-store.ts";
+import type { SecretBox } from "./webhook-secret-box.ts";
 import { webhookToleranceMs } from "./webhook-signature.ts";
 
 const JobMetadata = z.object({
@@ -54,7 +55,7 @@ export class AutomationStore {
   private statements = new Map<string, StatementSync>();
   /** Webhook automations' hook ids and secrets (ADR 0158). */
   readonly webhooks: WebhookKeys;
-  constructor(path: string) {
+  constructor(path: string, options: { webhookSecrets?: SecretBox } = {}) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
       PRAGMA wal_autocheckpoint=256; PRAGMA journal_size_limit=16777216;
@@ -92,7 +93,7 @@ export class AutomationStore {
         `CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, ${notFinished}))`,
       );
     });
-    this.webhooks = new WebhookKeys(this.db, (sql) => this.sql(sql));
+    this.webhooks = new WebhookKeys(this.db, (sql) => this.sql(sql), options.webhookSecrets);
   }
   close(): void {
     this.statements.clear();
