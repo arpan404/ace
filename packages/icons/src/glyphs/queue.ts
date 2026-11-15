@@ -1,15 +1,10 @@
 import { glyph } from "../glyph.ts";
-import { polygon } from "../geometry.ts";
+import { rect } from "../geometry.ts";
 import { line, shape } from "../parts.ts";
 
-/** A queue: lines waiting in turn, the last beside a play mark. */
+/** Queued messages: a card with more waiting behind it. */
 export const QueueIcon = /* @__PURE__ */ glyph("Queue", () => [
-  line("M3.5 6h17M3.5 12h17M3.5 18h7"),
-  shape(
-    polygon([
-      [15, 14.5, 1],
-      [20.5, 17.75, 1],
-      [15, 21, 1],
-    ]),
-  ),
+  line("M8 3.75h8"),
+  line("M5.5 7h13"),
+  shape(rect(3, 10.25, 18, 10, 4)),
 ]);

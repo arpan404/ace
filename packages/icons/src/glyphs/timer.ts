@@ -1,9 +1,16 @@
 import { glyph } from "../glyph.ts";
-import { circle, detail, line, shape } from "../parts.ts";
+import { arc, arrowhead, onCircle, polyline } from "../geometry.ts";
+import { line } from "../parts.ts";
 
-/** A scheduled run: a stopwatch with its crown and one hand. */
+/** Automations: a clock inside a repeat arrow, for work that runs again on a schedule. */
 export const TimerIcon = /* @__PURE__ */ glyph("Timer", () => [
-  shape(circle(12, 13.25, 8)),
-  detail("M12 13.25 14.75 10.5"),
-  line("M9.75 2.75h4.5M12 2.75v2.5"),
+  line(arc(12, 12, 8.75, 18, 318)),
+  line(arrowhead(onCircle(12, 12, 8.75, 318), 48, 4)),
+  line(
+    polyline([
+      [12, 8],
+      [12, 12, 0.8],
+      [14.75, 13.75],
+    ]),
+  ),
 ]);

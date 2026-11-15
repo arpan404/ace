@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polyline, rect } from "../geometry.ts";
-import { detail, dot, shape } from "../parts.ts";
+import { detail, dot, shape, type Part } from "../parts.ts";
 
-/** An image: a frame holding a hill and the sun. */
-export const ImageIcon = /* @__PURE__ */ glyph("Image", () => [
+/** A frame holding a hill and the sun; also the base of the unavailable image. */
+export const image = (): Part[] => [
   shape(rect(2.5, 4, 19, 16, 4.5)),
   detail(
     polyline([
@@ -15,4 +15,7 @@ export const ImageIcon = /* @__PURE__ */ glyph("Image", () => [
     ]),
   ),
   dot(15.75, 8.75, 1.5),
-]);
+];
+
+/** An image. */
+export const ImageIcon = /* @__PURE__ */ glyph("Image", image);

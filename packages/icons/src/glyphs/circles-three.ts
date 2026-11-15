@@ -1,9 +1,18 @@
 import { glyph } from "../glyph.ts";
-import { circle, shape } from "../parts.ts";
+import { polyline, rect } from "../geometry.ts";
+import { detail, shape } from "../parts.ts";
 
-/** Thread details: three circles in a triangle. */
+/** Thread details: the thread's live activity, a pulse across a card. */
 export const CirclesThreeIcon = /* @__PURE__ */ glyph("CirclesThree", () => [
-  shape(circle(12, 7.25, 4)),
-  shape(circle(7, 16.25, 4)),
-  shape(circle(17, 16.25, 4)),
+  shape(rect(3, 4, 18, 16, 5.5)),
+  detail(
+    polyline([
+      [6.5, 12.5],
+      [9, 12.5, 0.6],
+      [10.75, 9, 0.6],
+      [13.25, 15.75, 0.6],
+      [15, 12.5, 0.6],
+      [17.5, 12.5],
+    ]),
+  ),
 ]);

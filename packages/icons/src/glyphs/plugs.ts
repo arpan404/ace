@@ -1,11 +1,10 @@
 import { glyph } from "../glyph.ts";
 import { line, shape } from "../parts.ts";
 
-/** A connection: a plug about to meet its socket. */
+/** Connected: a plug pushed home into its socket. */
 export const PlugsIcon = /* @__PURE__ */ glyph("Plugs", () => [
-  line("M2.5 12h2.25"),
-  shape("M10.25 6.75v10.5H9a4.25 4.25 0 0 1-4.25-4.25v-2A4.25 4.25 0 0 1 9 6.75Z"),
-  line("M10.25 9.75h2.5M10.25 14.25h2.5"),
-  shape("M14.75 6.75H15a4.25 4.25 0 0 1 4.25 4.25v2A4.25 4.25 0 0 1 15 17.25h-.25Z"),
-  line("M19.25 12h2.25"),
+  line("M5.5 3.25h13"),
+  line("M9.25 3.25v4M14.75 3.25v4"),
+  shape("M7 7.25h10a.75.75 0 0 1 .75.75v3a5.75 5.75 0 0 1-11.5 0V8a.75.75 0 0 1 .75-.75Z"),
+  line("M12 16.75v4.5"),
 ]);
