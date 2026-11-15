@@ -4,6 +4,7 @@ import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts"
 import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 import { spadeCapSentence } from "./oversight.ts";
+import { spadeHelperLine } from "./helper-words.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
@@ -63,6 +64,18 @@ export type SpadeBubble =
   | { kind: "search-setup"; key: string }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
+  /**
+   * A helper the bot started (ADR 0152): one quiet line in Spade's words that expands to the
+   * helper's own steps, read from its job's hidden conversation.
+   */
+  | {
+      kind: "helper";
+      key: string;
+      job: string;
+      text: string;
+      /** Still working (or waiting on the person). */
+      open: boolean;
+    }
   /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
   | {
       kind: "ask";
@@ -126,6 +139,22 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     }
     if (entry.kind === "handback") {
       bubbles.push({ kind: "handback", key: entry.key, text: entry.text, data: entry.data });
+      continue;
+    }
+    if (entry.kind === "helper") {
+      // Its result reaches the bot like a message.
+      if (entry.outcome) {
+        inputs = true;
+        onlyBeats = false;
+      }
+      const waiting = view.approvals.some((approval) => approval.helper?.job === entry.job);
+      bubbles.push({
+        kind: "helper",
+        key: entry.key,
+        job: entry.job,
+        text: spadeHelperLine(entry, waiting),
+        open: entry.outcome === undefined,
+      });
       continue;
     }
     if (entry.kind === "cap") {

@@ -2,6 +2,7 @@ import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
 import { spadeNeedsSearchSetup } from "./web-search.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeFailureKind, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
+import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -121,6 +122,18 @@ export type SpadeEntry =
     }
   /** The bot reached a spending cap (ADR 0135): one bubble of the bot's, once per period. */
   | { kind: "cap"; key: string; scope: "daily" | "monthly"; capMicros: number }
+  /**
+   * A helper the bot started (ADR 0152): one line where it started, updated in place as it
+   * works and ends. `result` is what it handed back, once it has.
+   */
+  | {
+      kind: "helper";
+      key: string;
+      job: string;
+      task: string;
+      outcome: SpadeJobOutcome | undefined;
+      result: string;
+    }
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] };
 
@@ -134,6 +147,8 @@ export interface SpadeApproval {
   arguments: unknown;
   /** Why the model review asked the person rather than let it run (ADR 0135). */
   reason: string | undefined;
+  /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
+  helper?: { job: string; task: string };
 }
 
 export interface SpadeConversationState {
@@ -338,7 +353,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           })),
         ],
       }));
-    case "approval_requested":
+    case "approval_requested": {
+      const helper = event.helper ? helperEntry(state, event.helper.job) : undefined;
       state.approvals = [
         ...state.approvals.filter((approval) => approval.callId !== event.call_id),
         {
@@ -348,10 +364,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           arguments: event.arguments,
           // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
+          ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
-      setCall(state, event.reply, event.call_id, event.name, "waiting");
+      // A helper's call is the helper's, not one of the reply's.
+      if (!event.helper) setCall(state, event.reply, event.call_id, event.name, "waiting");
       return true;
+    }
     case "approval_answered":
       state.approvals = state.approvals.filter((approval) => approval.callId !== event.call_id);
       state.reviews.delete(event.call_id);
@@ -396,6 +415,16 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       }));
       return true;
     case "job_started":
+      if (event.name === spadeHelperTool)
+        // Its line, where it started: the reply's later words read below it.
+        steer(state, {
+          kind: "helper",
+          key,
+          job: event.job,
+          task: spadeHelperTask(state.calls.get(event.job)?.arguments),
+          outcome: undefined,
+          result: "",
+        });
       state.jobs.set(event.job, {
         name: event.name,
         agents: delegatedTasks(state.calls.get(event.job)?.arguments),
@@ -406,6 +435,16 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.jobs.delete(event.job);
       const stopped = state.stopping.delete(event.job);
       const outcome = event.is_error ? (stopped ? "stopped" : "failed") : "done";
+      // An ended helper asks nothing more.
+      state.approvals = state.approvals.filter((approval) => approval.helper?.job !== event.job);
+      const at = state.entries.findIndex(
+        (entry) => entry.kind === "helper" && entry.job === event.job,
+      );
+      const line = state.entries[at];
+      if (line?.kind === "helper") {
+        state.entries[at] = { ...line, outcome, result: event.content ?? "" };
+        return true;
+      }
       // Its result goes to Spade like a message: what Spade says about it reads below it.
       steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
       return true;
@@ -514,6 +553,12 @@ const sameMessage = (
  * A message while a reply is open steers it: the reply carries on under the message, so what
  * Spade says next reads after it. The open step's words so far move down with it.
  */
+/** The line of the helper running `job`, if this conversation shows one. */
+function helperEntry(state: SpadeConversationState, job: string) {
+  const line = state.entries.find((entry) => entry.kind === "helper" && entry.job === job);
+  return line?.kind === "helper" ? line : undefined;
+}
+
 function steer(state: SpadeConversationState, message: SpadeEntry) {
   const open = state.open;
   const entry = open && state.entries[open.index];
@@ -642,7 +687,10 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
     setCallAt(state, call.index, callId);
     state.calls.delete(callId);
   }
-  state.approvals = state.approvals.filter((approval) => approval.reply !== open.reply);
+  // A helper's approval waits on the helper, not on the reply that started it.
+  state.approvals = state.approvals.filter(
+    (approval) => approval.helper !== undefined || approval.reply !== open.reply,
+  );
   if (state.question?.reply === open.reply) state.question = undefined;
   for (const [callId, call] of state.running)
     if (call.reply === open.reply) state.running.delete(callId);
