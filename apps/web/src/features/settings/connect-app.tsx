@@ -1,6 +1,6 @@
 import type { OutsideEndpoint } from "@ace/protocol";
 import { endpointNames, enrollCommand } from "@ace/ui-core/outside-clients";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { CopyCommand } from "@/components/copy-command.tsx";
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import type { ClientApi } from "@ace/client";
+import { automationsQueryKey } from "@/features/automation-data/index.ts";
 import { outsideEndpoints, outsideKeys } from "@/features/connected-apps/index.ts";
 import { settingKeys, type SettingDef } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
@@ -19,10 +20,13 @@ const order: readonly OutsideEndpoint["path"][] = ["local", "tailscale", "relay"
 
 /** Said once, on the relay's row (ADR 0122, Reach). */
 const relayTrust = "ace cloud can read what passes through it; it keeps none of it.";
+/** What ace cloud sees of a webhook (ADR 0158). */
+const webhookTrust = "ace cloud carries webhook bodies in plain text, never the secret.";
 
 /**
  * Settings › a machine › Connect an app: the four addresses an outside client can use, each with
- * Copy, its own on/off and, when it can't serve, why; then the command terminal agents use.
+ * Copy, its own on/off and, when it can't serve, why; after ace cloud's, the switch for
+ * automations' webhooks through it; then the command terminal agents use.
  * Renders inside the machine's scope.
  */
 export function ConnectApp(props: { client: ClientApi }) {
@@ -38,9 +42,10 @@ export function ConnectApp(props: { client: ClientApi }) {
           {query.error.message || "Couldn't read its addresses."}
         </p>
       )}
-      {order.map((path) => (
-        <EndpointRow key={path} path={path} endpoint={byPath.get(path)} />
-      ))}
+      {order.map((path) => [
+        <EndpointRow key={path} path={path} endpoint={byPath.get(path)} />,
+        path === "relay" && <WebhooksRow key="webhooks" />,
+      ])}
       <div className="flex min-h-13 flex-wrap items-center gap-x-2 gap-y-1 py-2.5 text-ui text-muted-foreground">
         For a terminal agent, run <CopyCommand command={enrollCommand} />
       </div>
@@ -100,8 +105,34 @@ function EndpointRow(props: {
   );
 }
 
-/** A path's on/off. */
-function PathSwitch(props: { setting: SettingDef<boolean>; title: string }) {
+/** Automations' webhooks reach this machine through ace cloud only while this is on. */
+function WebhooksRow() {
+  const title = "Automation webhooks through ace cloud";
+  const control = useSettingControl(settingKeys.relayWebhooks, title);
+  return (
+    <HairlineRow
+      id="outside-webhooks"
+      title={title}
+      wide
+      sub={
+        <>
+          {control.value ? "On" : "Off"}
+          <div>{webhookTrust}</div>
+        </>
+      }
+      actions={
+        <PathSwitch
+          setting={settingKeys.relayWebhooks}
+          title={title}
+          refreshes={automationsQueryKey}
+        />
+      }
+    />
+  );
+}
+
+/** A path's on/off; what it changes is read again: the addresses, or webhooks' state. */
+function PathSwitch(props: { setting: SettingDef<boolean>; title: string; refreshes?: QueryKey }) {
   const id = useId();
   const control = useSettingControl(props.setting, props.title);
   const queries = useQueryClient();
@@ -114,7 +145,7 @@ function PathSwitch(props: { setting: SettingDef<boolean>; title: string }) {
         disabled={control.offline}
         onCheckedChange={(on) => {
           control.set(on);
-          void queries.invalidateQueries({ queryKey: outsideKeys.endpoints });
+          void queries.invalidateQueries({ queryKey: props.refreshes ?? outsideKeys.endpoints });
         }}
       />
     </DaemonSlot>

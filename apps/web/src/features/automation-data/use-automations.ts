@@ -27,6 +27,8 @@ const keys = {
   list: ["automations", "list"] as const,
   inbox: ["automations", "inbox"] as const,
 };
+/** Every automation read, for a change elsewhere (a setting) that alters what they show. */
+export const automationsQueryKey = keys.all;
 export const inboxLimit = 50;
 /** How often a running run's outcome is checked for, and how often new runs are. */
 const runningPollMs = 5_000;

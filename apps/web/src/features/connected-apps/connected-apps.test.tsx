@@ -81,6 +81,23 @@ test("Connect an app lists the machine's four addresses, with Tailscale's switch
   expect(await within(section).findByRole("button", { name: /^(Add|Change)$/ })).toBeTruthy();
 });
 
+test("automation webhooks through ace cloud have their own switch, apart from outside apps", async () => {
+  const app = harness();
+  await app.open("/settings/remote/primary");
+  const section = await screen.findByRole("region", { name: "Connect an app" });
+  const webhooks = await within(section).findByRole("switch", {
+    name: "Automation webhooks through ace cloud",
+  });
+  expect(within(section).getByText(/never the secret/)).toBeTruthy();
+  await userEvent.click(webhooks);
+  const read = (key: "remote.relayWebhooks" | "remote.relayMcp") =>
+    app.client
+      .request({ type: "settings.get", key, scope: {} })
+      .then((reply) => reply.entries[0]?.value);
+  await waitFor(async () => expect(await read("remote.relayWebhooks")).toBe(true));
+  expect(await read("remote.relayMcp")).toBe(false);
+});
+
 test("a sign-in approved on another device shows up in the list without reopening Settings", async () => {
   const app = harness();
   await app.open("/settings/remote/primary");

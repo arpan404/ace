@@ -15,6 +15,7 @@ export {
   type RunRequest,
 } from "./automations-source.ts";
 export {
+  automationsQueryKey,
   inboxLimit,
   useAutomationLists,
   useAutomations,
