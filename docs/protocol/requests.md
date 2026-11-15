@@ -3674,6 +3674,7 @@ Example:
 | scope | yes | [SubscriptionScope.json](schema/SubscriptionScope.json) |  |
 | paced | no | boolean |  |
 | afterSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| tail | no | object | {"properties":{"items":{"type":"integer","minimum":1,"maximum":200},"bytes":{"type":"integer","minimum":1024,"maximum":1048576}},"required":["items","bytes"]} |
 
 Example:
 

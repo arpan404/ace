@@ -3600,13 +3600,12 @@ Example:
 
 ```json
 {
-  "seq": 6,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "keep": [],
     "kind": "threads",
-    "seq": 6,
+    "seq": 7,
     "threads": {}
   }
 }

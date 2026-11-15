@@ -1,4 +1,4 @@
-import type { MediaOwner } from "@ace/media/media-connections";
+import type { MediaAdmission, MediaOwner } from "@ace/media/media-connections";
 import { MediaConnectRequest } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -13,21 +13,31 @@ import type { SocketContext, SocketService } from "./socket.ts";
  * `connection.close` on ace-media's priority lane at once.
  */
 
+/**
+ * How a device was admitted, as ace-media compares it: its ace account, or its paired
+ * credential's generation. Main sessions and their channels both use this, so the same device
+ * admitted the same way yields the same admission.
+ */
+export function mediaAdmission(
+  account: string | undefined,
+  generation: string | undefined,
+): MediaAdmission {
+  if (account) return { kind: "account", account };
+  const number = Number(generation ?? 0);
+  return {
+    kind: "pairing",
+    generation: Number.isSafeInteger(number) && number >= 0 ? number : 0,
+  };
+}
+
 /** Who this session is to ace-media: its device and how that device was admitted. */
 export function mediaOwner(context: SocketContext): MediaOwner | undefined {
   const device = context.device();
   if (!device) return undefined;
-  const account = context.accountDevice?.();
-  if (account)
-    return { session: context.sessionId, device, admission: { kind: "account", account } };
-  const generation = Number(context.credentialGeneration?.() ?? 0);
   return {
     session: context.sessionId,
     device,
-    admission: {
-      kind: "pairing",
-      generation: Number.isSafeInteger(generation) && generation >= 0 ? generation : 0,
-    },
+    admission: mediaAdmission(context.accountDevice?.(), context.credentialGeneration?.()),
   };
 }
 

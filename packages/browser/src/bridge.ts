@@ -17,6 +17,7 @@ import {
   viewViewport,
   type MediaDeliveryPort,
 } from "@ace/media/media-viewers";
+import type { MediaOwner } from "@ace/media/media-connections";
 
 type BrowserAccess = Extract<DeviceScope, "read" | "operate">;
 
@@ -71,10 +72,11 @@ export function connectBrowser(
     /** The connection is on this machine (the daemon's loopback listener, never a client claim). */
     local?: boolean;
     /**
-     * Delivery by ace-media (D1) for subscribes that name a media connection, with this main
-     * session's id. Without it, or while ace-media doesn't serve, a subscribe is served here.
+     * Delivery by ace-media (D1) for subscribes that name a media connection, with who this
+     * connection is: its session, device and admission (a main session, or a channel of its
+     * own). Without it, or while ace-media doesn't serve, a subscribe is served here.
      */
-    media?: { session: string; delivery: () => MediaDeliveryPort | undefined };
+    media?: { owner: () => MediaOwner | undefined; delivery: () => MediaDeliveryPort | undefined };
     /**
      * Opens a thread attachment this connection uploaded (the files a person picks for a page's
      * file input). Without it, picking files is refused.
@@ -151,14 +153,15 @@ export function connectBrowser(
   ): string | undefined => {
     const media = options.media;
     const delivery = media?.delivery();
+    const owner = media?.owner();
     const kinds = ["tab", "embedded", "tab-pictures", "user-tab"] as const;
-    if (!media || !delivery || !kinds.some((kind) => delivery.serves(kind))) return undefined;
+    if (!owner || !delivery || !kinds.some((kind) => delivery.serves(kind))) return undefined;
     const viewport = message.viewport;
-    const id = `${media.session}/${threadId}/${subscriber}`.slice(0, 64);
+    const id = `${owner.session}/${threadId}/${subscriber}`.slice(0, 64);
     const link = viewLink(viewport?.link);
     const bound = delivery.bind({
       viewer: id,
-      session: media.session,
+      requester: owner,
       connection,
       target: { kind: "browser", threadId },
       codecs: message.video?.codecs ?? ["avc1.42E033"],

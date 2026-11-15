@@ -10,7 +10,10 @@ import type { FromMedia, ToMedia } from "./wire.ts";
  * - `connect` mints the id and a single-use 32-byte ticket, valid 30 s, and grants it to
  *   ace-media with `media.ticket`.
  * - `view` turns a subscribe naming a connection into `viewer.open`, only for a connection of
- *   the same session (so of the same device and admission).
+ *   the same main session, or of the same device under the same admission: a client that
+ *   subscribes on a channel of its own (iOS opens screen and devices channels beside its main
+ *   session) owns that device's connections there too. Another device, or the same device under
+ *   another admission (another pairing generation, an account), is refused.
  * - `sessionClosed`, `revoke` and ace-media leaving end connections. From a revocation on,
  *   nothing more is minted for its owner.
  *
@@ -223,23 +226,32 @@ export class MediaConnections {
     return undefined;
   }
 
-  /** The connection's owner, when `session` holds it. */
-  owned(session: string, connection: string): MediaOwner | undefined {
+  /**
+   * The connection's owner, when `requester` may bind views on it: its own main session, or a
+   * channel of the same device admitted the same way.
+   */
+  owned(requester: MediaOwner, connection: string): MediaOwner | undefined {
     const held = this.#held.get(connection);
-    return held && held.owner.session === session ? held.owner : undefined;
+    if (!held) return undefined;
+    const { owner } = held;
+    const same =
+      owner.session === requester.session ||
+      (owner.device === requester.device && sameAdmission(owner.admission, requester.admission));
+    return same ? owner : undefined;
   }
 
   /**
-   * A subscribe on `session` naming `connection`: its `viewer.open`, with the owner on it. False
-   * when the connection isn't this session's or ace-media can't take the grant; the caller
+   * A subscribe from `requester` naming `connection`: its `viewer.open`, with the connection's
+   * owner on it. False when `requester` doesn't own the connection (`owned`), or ace-media can't
+   * take the grant; the caller
    * refuses the subscribe or serves it on the main socket.
    */
   view(
-    session: string,
+    requester: MediaOwner,
     connection: string,
     viewer: Omit<ViewerOpen, "type" | "connection" | "owner" | "issued">,
   ): boolean {
-    const owner = this.owned(session, connection);
+    const owner = this.owned(requester, connection);
     if (!owner || this.#isRevoked(owner)) return false;
     return this.#options.port.send({
       type: "viewer.open",

@@ -167,7 +167,7 @@ const owner: MediaOwner = {
 
 function intents(connection: string): ViewIntent[] {
   const base = {
-    session: owner.session,
+    requester: owner,
     connection,
     codecs: ["avc1.42E033"],
     viewport: { width: 800, height: 600, dpr: 1, scale: 1 },
@@ -214,7 +214,7 @@ async function watch(runtime: MediaRuntime) {
 }
 
 it.skipIf(!binary)(
-  "a tab, a screen and a device arrive on one media connection, and nothing on another session's",
+  "a tab, a screen and a device arrive on one media connection, which another device can't bind views onto",
   async () => {
     const { runtime, sources } = start();
     await until(() => sources.every((source) => source.streaming()));
@@ -224,8 +224,20 @@ it.skipIf(!binary)(
     expect([...kinds].toSorted()).toEqual([2, 4, 5]);
     expect(await client.ping()).toBeLessThan(1_000);
     // Another session can't bind a view onto this connection.
-    const stranger = { ...intents(client.connection)[0]!, viewer: "x", session: "main-2" };
+    // Another device can't bind a view onto this connection, from any session of its own.
+    const stranger = {
+      ...intents(client.connection)[0]!,
+      viewer: "x",
+      requester: { ...owner, session: "laptop-channel", device: "laptop" },
+    };
     expect(runtime.viewers.bind(stranger)).toBe(false);
+    // The same device's own channel can (iOS subscribes to screens and devices on channels).
+    const channel = {
+      ...intents(client.connection)[1]!,
+      viewer: "y",
+      requester: { ...owner, session: "screen-channel" },
+    };
+    expect(runtime.viewers.bind(channel)).toBe(true);
   },
 );
 
