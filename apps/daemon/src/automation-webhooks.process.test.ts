@@ -5,9 +5,15 @@ import { expect, test } from "vitest";
 import { readConfig } from "@ace/daemon";
 import { webhookKeyName } from "./automation-webhook-key.ts";
 import { signWebhook } from "@ace/automations";
-import { AgentControlOperation, Automation, type AutomationWebhookResponse } from "@ace/protocol";
+import {
+  AgentControlOperation,
+  Automation,
+  ThreadId,
+  type AutomationWebhookResponse,
+} from "@ace/protocol";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { connectAutomations } from "./automation-socket-test-support.ts";
+import { answer } from "./automation-one-thread-test-support.ts";
 
 // Webhook automations (ADR 0158) on a real daemon: the person's socket, the automation store on
 // disk, a restart, and the handler ace's relay forwards `/m/<hostId>/hooks/…` to. ace cloud's
@@ -282,13 +288,13 @@ test("an agent's webhook automation runs once the person makes its secret, from 
       path: made.webhook?.path,
     });
 
-    const answer = await deliver(
+    const delivered = await deliver(
       f.daemon,
       () => f.h.clock.now(),
       hookIdOf(made),
       made.secret ?? "",
     );
-    expect(answer.status).toBe(202);
+    expect(delivered.status).toBe(202);
     const runs = await f.call({
       op: "automation.manage",
       request: { type: "automation.inbox", requestId: "runs", limit: 10 },
@@ -413,6 +419,53 @@ test("at the person's own URL a webhook runs with its switch on, and never at th
       url: `https://hooks.example.com${path}`,
       urls: [{ via: "custom" }],
     });
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});
+
+test("a webhook run never lands in a thread with more access than the automation allows", async () => {
+  const { f, app, automation, webhook, runs } = await setUp();
+  const threads = () =>
+    f.daemon.store.listThreads().filter((thread) => thread.title.includes("Deploy check"));
+  const access = (id: string) =>
+    f.daemon.store.getThread(ThreadId.parse(id))?.permission?.effective;
+  try {
+    // First it ran by hand, at the machine's full-access default, as a manual automation.
+    const manual = { ...automation, trigger: { kind: "manual" as const }, prompt: "Check it" };
+    expect(
+      await app.ask({ type: "automation.put", requestId: "manual", automation: manual }),
+    ).toMatchObject({ ok: true });
+    await app.ask({
+      type: "automation.run",
+      requestId: "by-hand",
+      id: automation.id,
+      variables: {},
+    });
+    await expect.poll(() => threads().length, wait).toBe(1);
+    const first = threads()[0]?.id ?? "";
+    await expect.poll(() => access(first), wait).toBe("full-access");
+    await answer(f, ThreadId.parse(first), 1, "manual-answer", "Checked.");
+    await expect.poll(async () => (await runs())[0]?.status, wait).toBe("succeeded");
+
+    // Then it became a webhook automation with no access of its own: read-only.
+    expect(
+      await app.ask({ type: "automation.put", requestId: "webhook", automation }),
+    ).toMatchObject({ ok: true });
+    await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
+    const made = await webhook("rotate", "rotate");
+    const sent = await deliver(f.daemon, () => f.h.clock.now(), hookIdOf(made), made.secret ?? "");
+    expect(sent.status).toBe(202);
+    await expect.poll(() => threads().length, wait).toBe(2);
+    const second = threads().find((thread) => thread.id !== first)?.id ?? "";
+    await expect.poll(() => access(second), wait).toBe("read-only");
+    // The webhook's prompt went to the new read-only thread, and none of it to the old one.
+    await expect
+      .poll(() => JSON.stringify(f.h.inputs.get(ThreadId.parse(second)) ?? []), wait)
+      .toContain("Check the prod deploy");
+    expect(JSON.stringify(f.h.inputs.get(ThreadId.parse(first)) ?? [])).not.toContain("prod");
   } finally {
     await app.client.close();
     await f.daemon.close();

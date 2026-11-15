@@ -13,6 +13,12 @@ export interface ExecutionInput {
   /** The provider account instance the run starts on; absent uses the provider's default. */
   instance?: string | undefined;
   access?: Automation["access"] | undefined;
+  /**
+   * The widest access the run's thread may have (ADR 0158, decision 9): set for webhook
+   * automations, whose prompts carry outside text. A thread grown wider since, by the person or
+   * by an earlier trigger, is left for a new one at `access`.
+   */
+  accessCeiling?: NonNullable<Automation["access"]> | undefined;
   workspace: string;
   prompt: string;
   worktree: boolean;

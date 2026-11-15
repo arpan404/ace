@@ -123,7 +123,10 @@ restart.
    a webhook run's prompt ends with a note naming the `{{body.…}}` and `{{webhook.id}}` places
    and saying that text came from outside ace and is data, not instructions. A webhook
    automation with no access of its own starts its thread read-only instead of at the machine's
-   default; an access the person picks is kept. An agent's webhook automation runs in its
+   default; an access the person picks is kept. That access is also a ceiling: a webhook run
+   never goes into a thread that has since grown wider (the person widened it, or it was made
+   by an earlier trigger at the machine's default); it starts a new thread at the automation's
+   access, which becomes the automation's thread. An agent's webhook automation runs in its
    thread, at that thread's access: the person sees that when they make its secret.
 
 10. **Each webhook starts at most 60 new runs a minute.** Counted after the signature verifies,

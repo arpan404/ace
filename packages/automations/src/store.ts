@@ -42,6 +42,7 @@ const Input = z.object({
   effort: z.string().optional(),
   instance: z.string().optional(),
   access: Automation.shape.access,
+  accessCeiling: Automation.shape.access,
   workspace: z.string(),
   prompt: z.string().max(maxMessageBytes),
   worktree: z.boolean(),

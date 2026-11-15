@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
+import { CommandId, ThreadId, WorkspaceId, DeviceId, type AccessMode } from "@ace/protocol";
 import type { Admission, AutomationExecutor, ExecutionInput } from "@ace/automations";
 import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
@@ -61,7 +61,12 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
       deviceId,
       commandId: executionKey,
       admission(input) {
-        const existing = ownThread(input.automationId);
+        const own = ownThread(input.automationId);
+        // A webhook run never goes into a thread wider than its automation allows.
+        const existing =
+          own && withinCeiling(store.getThread(own)?.permission?.effective, input.accessCeiling)
+            ? own
+            : undefined;
         const origin = { kind: "automation" as const, role: input.automationId };
         if (existing)
           return {
@@ -154,4 +159,18 @@ export function launchChoices(input: ExecutionInput): {
 export function automationThreadTitle(name: string | undefined): string {
   const title = name?.trim();
   return title ? `Automation: ${title}`.slice(0, 256) : "Automation run";
+}
+
+const widths = ["read-only", "ask", "auto-review", "full-access"] as const;
+/**
+ * Whether a thread running at `effective` stays within `ceiling`. No ceiling allows anything;
+ * an access ace can't place (unknown, or a provider's own mode) is never within one.
+ */
+export function withinCeiling(
+  effective: AccessMode | null | undefined,
+  ceiling: AccessMode | undefined,
+): boolean {
+  if (ceiling === undefined) return true;
+  if (effective === null || effective === undefined) return false;
+  return widths.indexOf(effective) <= widths.indexOf(ceiling);
 }

@@ -480,6 +480,7 @@ export class AutomationService {
         ...(automation.effort ? { effort: automation.effort } : {}),
         ...(automation.instance ? { instance: automation.instance } : {}),
         ...(access ? { access } : {}),
+        ...(automation.trigger.kind === "webhook" && access ? { accessCeiling: access } : {}),
       };
     } catch (error) {
       failure = message(error);
