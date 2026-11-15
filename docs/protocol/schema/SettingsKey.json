@@ -70,6 +70,8 @@
     "remote.hostedPairingLink",
     "remote.relayMcp",
     "remote.relayWebhooks",
+    "remote.tailscaleWebhooks",
+    "remote.publicUrlWebhooks",
     "remote.tailscaleMcp",
     "remote.mcpPublicUrl",
     "remote.relayUrl",

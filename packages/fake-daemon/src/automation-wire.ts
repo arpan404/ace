@@ -7,6 +7,7 @@ import {
   Automation,
   type ClientMessage,
   type ServerMessage as Message,
+  type SettingsKey,
 } from "@ace/protocol";
 import { FakeAutomationStore } from "./automation-store.ts";
 import { FakeAutomationWebhooks } from "./automation-webhooks.ts";
@@ -40,10 +41,10 @@ export class FakeAutomationWire {
     now: () => number,
     enabled: () => boolean,
     host?: FakeServiceContext,
-    relayedWebhooks: () => boolean = () => false,
+    setting: (key: SettingsKey) => unknown = () => undefined,
   ) {
     this.host = host;
-    this.webhooks = new FakeAutomationWebhooks(relayedWebhooks);
+    this.webhooks = new FakeAutomationWebhooks(setting);
     this.person = new FakeAutomationStore(now, enabled);
     this.threads = new FakeAutomationStore(now, enabled);
   }

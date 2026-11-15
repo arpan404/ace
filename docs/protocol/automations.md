@@ -547,6 +547,7 @@ Example:
 | active | yes | boolean |  |
 | path | yes | union | {"anyOf":[{"type":"string","pattern":"^\\/hooks\\/[0-9a-f]{32}$"},{"type":"null"}]} |
 | url | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+| urls | yes | array | {"maxItems":3,"items":{"type":"object","properties":{"via":{"$ref":"https://ace.local/protocol/v1/AutomationWebhookVia.json"},"url":{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."}},"required":["via","url"]}} |
 | problem | no | string | {"maxLength":512} |
 
 Example:
@@ -555,8 +556,21 @@ Example:
 {
   "active": false,
   "path": null,
-  "url": null
+  "url": null,
+  "urls": []
 }
+```
+
+## AutomationWebhookVia
+
+[JSON Schema](schema/AutomationWebhookVia.json), input validation.
+
+Type: ["custom","tailscale","relay"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"tailscale"
 ```
 
 ## TriggerVariables

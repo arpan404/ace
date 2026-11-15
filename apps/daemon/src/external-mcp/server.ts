@@ -22,6 +22,7 @@ import { daemonComputerToolkit } from "../computer-tools.ts";
 import { computerName } from "../computer-name.ts";
 import type { RelayHttpHandler } from "../relay-http.ts";
 import { baseOfResource, resourceMetadataUrl, type OutsideBase } from "./oauth/base.ts";
+import { hooksPath } from "../automation-webhook-reach.ts";
 import { publicMetadataFetch } from "./oauth/cimd-fetch.ts";
 import { outsideOAuth } from "./oauth/service.ts";
 import {
@@ -148,7 +149,12 @@ export async function externalMcp(context: ServiceContext) {
     // Loopback requests: this endpoint's own address, or the person's public URL by its Host.
     loopback: async (request, serve) => {
       const base = loopbackBase(request.headers, port, reachSettings.current().custom);
-      return base ? oauth(request, base, serve) : new Response("Host not allowed", { status: 403 });
+      if (!base) return new Response("Host not allowed", { status: 403 });
+      // Webhooks only at the person's own URL, never at the loopback address (ADR 0158).
+      const webhooks = context.services.automationWebhooks;
+      if (base.path === "custom" && webhooks && isHookPath(new URL(request.url).pathname))
+        return webhooks.serve(request, "custom");
+      return oauth(request, base, serve);
     },
     challenge: {
       // Challenges point at the metadata of the URL the request came in on (RFC 9728 §5.1).
@@ -195,6 +201,32 @@ export async function externalMcp(context: ServiceContext) {
       ? oauth(request, tailnet, serve, request.headers.get(peerHeader) || undefined)
       : Promise.resolve(new Response(null, { status: 404 })),
   );
+  const onTailscaleHook = await nodeListener(
+    (request) =>
+      context.services.automationWebhooks?.serve(request, "tailscale") ??
+      Promise.resolve(new Response(null, { status: 404 })),
+  );
+  /**
+   * A webhook on the Tailscale listener (ADR 0158): only with `remote.tailscaleWebhooks` on, at
+   * the ts.net name, as outside MCP is checked with its own switch.
+   */
+  const tailscaleHook = (request: IncomingMessage, response: ServerResponse): boolean => {
+    const webhooks = context.services.automationWebhooks;
+    if (!webhooks?.enabled("tailscale")) return false;
+    const socket = request.socket;
+    const servername = socket instanceof TLSSocket ? socket.servername : null;
+    const base = tailscaleBase(
+      {
+        host: request.headers.host ?? null,
+        servername: typeof servername === "string" ? servername : null,
+      },
+      reach().tailscale(),
+      { ...reachSettings.current(), tailscale: true },
+    );
+    if (!base) return false;
+    void onTailscaleHook(request, response);
+    return true;
+  };
   return {
     /** Grants, tokens, access requests and screen use, for the admin protocol and OAuth. */
     outside,
@@ -215,6 +247,7 @@ export async function externalMcp(context: ServiceContext) {
      */
     tailscale(request: IncomingMessage, response: ServerResponse): boolean {
       const path = (request.url ?? "/").split("?")[0] ?? "/";
+      if (isHookPath(path)) return tailscaleHook(request, response);
       if (!outsidePath(path)) return false;
       const socket = request.socket;
       const servername = socket instanceof TLSSocket ? socket.servername : null;
@@ -345,3 +378,5 @@ async function outsideReachSettings(context: ServiceContext) {
     close: () => stop?.(),
   };
 }
+
+const isHookPath = (path: string) => path.startsWith(hooksPath);

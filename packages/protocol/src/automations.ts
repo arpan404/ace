@@ -174,9 +174,13 @@ export const AutomationTriggerError = z.object({
   at: instant,
 });
 export type AutomationTriggerError = z.infer<typeof AutomationTriggerError>;
+/** A way in for webhooks: ace cloud's relay, the Tailscale listener, or the person's own URL. */
+export const AutomationWebhookVia = z.enum(["custom", "tailscale", "relay"]);
+export type AutomationWebhookVia = z.infer<typeof AutomationWebhookVia>;
 /**
- * A webhook automation's address, as the person's lists show it (ADR 0158). `url` is null until
- * the person creates its secret, or while ace's relay can't serve it (`problem` says why).
+ * A webhook automation's addresses, as the person's lists show them (ADR 0158). `urls` has one
+ * per way in that is on and serving, those ace cloud doesn't carry first; `url` is the first of
+ * them, null until the person creates its secret or while no way in serves (`problem` says why).
  */
 export const AutomationWebhookState = z.object({
   /** Whether a secret exists: false until the person creates one, and after revoking it. */
@@ -187,6 +191,7 @@ export const AutomationWebhookState = z.object({
     .regex(/^\/hooks\/[0-9a-f]{32}$/)
     .nullable(),
   url: z.url().max(2048).nullable(),
+  urls: z.array(z.object({ via: AutomationWebhookVia, url: z.url().max(2048) })).max(3),
   problem: z.string().max(512).optional(),
 });
 export type AutomationWebhookState = z.infer<typeof AutomationWebhookState>;

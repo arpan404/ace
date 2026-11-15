@@ -1,9 +1,18 @@
-import type { AutomationWebhookState } from "@ace/protocol";
+import type { AutomationWebhookState, AutomationWebhookVia, SettingsKey } from "@ace/protocol";
 import { sha256Hex } from "./sha256.ts";
 
-/** Where the fake machine's webhooks would be reached: ace cloud's forwarded path (ADR 0158). */
-const base = "https://cloud.acehq.dev/m/fake-host";
-const problem = "Turn on Automation webhooks through ace cloud in Settings.";
+/** Where the fake machine's webhooks are reached on each way in (ADR 0158, decision 3). */
+const bases = {
+  tailscale: "https://fake-mac.tail0fake.ts.net",
+  relay: "https://cloud.acehq.dev/m/fake-host",
+} as const;
+const switches = {
+  custom: "remote.publicUrlWebhooks",
+  tailscale: "remote.tailscaleWebhooks",
+  relay: "remote.relayWebhooks",
+} as const satisfies Record<AutomationWebhookVia, string>;
+const problem =
+  "Turn on a way in for automation webhooks in Settings: your own URL, Tailscale or ace cloud.";
 const encoder = new TextEncoder();
 
 const digest = (text: string) => sha256Hex(encoder.encode(text));
@@ -23,17 +32,31 @@ export class FakeAutomationWebhooks {
   private hooks = new Map<string, string>();
   /** Kept through a revoke, so a secret made again never repeats a revoked one. */
   private rotations = new Map<string, number>();
-  private relayed: () => boolean;
-  constructor(relayed: () => boolean) {
-    this.relayed = relayed;
+  private setting: (key: SettingsKey) => unknown;
+  /** Reads the fake machine's settings: the three switches and `remote.mcpPublicUrl`. */
+  constructor(setting: (key: SettingsKey) => unknown) {
+    this.setting = setting;
+  }
+  /** Each way that is on, those ace cloud doesn't carry first, as the daemon orders them. */
+  private bases(): { via: AutomationWebhookVia; base: string }[] {
+    const own = this.setting("remote.mcpPublicUrl");
+    const custom = typeof own === "string" && own ? new URL(own).origin : undefined;
+    const all = { custom, ...bases };
+    return (["custom", "tailscale", "relay"] as const).flatMap((via) => {
+      const base = all[via];
+      return this.setting(switches[via]) === true && base ? [{ via, base }] : [];
+    });
   }
   /** What a list shows for one webhook automation. */
   state(automationId: string): AutomationWebhookState {
     const hookId = this.hooks.get(automationId);
-    if (!hookId) return { active: false, path: null, url: null };
+    if (!hookId) return { active: false, path: null, url: null, urls: [] };
     const path = `/hooks/${hookId}`;
-    if (!this.relayed()) return { active: true, path, url: null, problem };
-    return { active: true, path, url: `${base}${path}` };
+    const urls = this.bases().map(({ via, base }) => ({ via, url: `${base}${path}` }));
+    const first = urls[0];
+    return first
+      ? { active: true, path, url: first.url, urls }
+      : { active: true, path, url: null, urls, problem };
   }
   /** A new secret; the hook id is made the first time and kept across rotations. */
   rotate(automationId: string): { webhook: AutomationWebhookState; secret: string } {

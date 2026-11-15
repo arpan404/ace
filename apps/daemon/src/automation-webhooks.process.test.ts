@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { readConfig } from "@ace/daemon";
@@ -99,6 +100,7 @@ test("a signed webhook starts one run, a retry before or after a restart starts 
       active: false,
       path: null,
       url: null,
+      urls: [],
     });
 
     // Agents can't make or read a secret: their automation tool has no such request.
@@ -122,7 +124,7 @@ test("a signed webhook starts one run, a retry before or after a restart starts 
     // remote.relayWebhooks is off, so even a signed request is refused.
     expect((await deliver(daemon, () => f.h.clock.now(), hookId, secret)).status).toBe(404);
     await daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
-    await expect.poll(() => daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    await expect.poll(() => daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
     // On, but this test machine isn't registered on ace's relay, so the list says why.
     expect(daemon.automationWebhooks?.state("deploy-check")).toMatchObject({
       active: true,
@@ -145,7 +147,7 @@ test("a signed webhook starts one run, a retry before or after a restart starts 
     });
     await app.client.close();
     daemon = await f.restart();
-    await expect.poll(() => daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    await expect.poll(() => daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
     expect(await (await deliver(daemon, () => f.h.clock.now(), hookId, secret)).json()).toEqual({
       runId,
     });
@@ -186,7 +188,7 @@ test("a wrong secret, a rotated secret, a revoked webhook and a paused automatio
   const { f, app, webhook, runs } = await setUp();
   try {
     await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
-    await expect.poll(() => f.daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
     const first = await webhook("rotate", "rotate-1");
     const old = first.secret ?? "";
     const hookId = hookIdOf(first);
@@ -238,7 +240,7 @@ test("an agent's webhook automation runs once the person makes its secret, from 
   try {
     await f.daemon.settings.set("automations.enabled", true, { kind: "global" });
     await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
-    await expect.poll(() => f.daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
     const saved = await f.call({
       op: "automation.manage",
       request: {
@@ -337,7 +339,7 @@ test("a webhook past 60 new deliveries a minute is told to retry later, with no 
   const { f, app, webhook, runs } = await setUp();
   try {
     await f.daemon.settings.set("remote.relayWebhooks", true, { kind: "global" });
-    await expect.poll(() => f.daemon.automationWebhooks?.enabled(), wait).toBe(true);
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled("relay"), wait).toBe(true);
     const made = await webhook("rotate", "rotate");
     const send = (id: string) =>
       deliver(f.daemon, () => f.h.clock.now(), hookIdOf(made), made.secret ?? "", { id });
@@ -346,6 +348,71 @@ test("a webhook past 60 new deliveries a minute is told to retry later, with no 
     expect(over.status).toBe(429);
     expect(over.headers.get("retry-after")).toBe("60");
     expect((await runs()).some((run) => run.eventKey === "webhook:evt_61")).toBe(false);
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});
+
+/** A real HTTP POST to the outside endpoint's port, with the Host a proxy for `host` would keep. */
+function postAt(
+  port: number,
+  host: string,
+  path: string,
+  secret: string,
+  now: number,
+): Promise<number> {
+  const seconds = Math.floor(now / 1000);
+  const payload = Buffer.from(JSON.stringify({ env: "prod" }));
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        host: "127.0.0.1",
+        port,
+        path,
+        method: "POST",
+        headers: {
+          host,
+          "content-type": "application/json",
+          "content-length": payload.length,
+          "webhook-id": "evt_own",
+          "webhook-timestamp": String(seconds),
+          "webhook-signature": signWebhook(secret, "evt_own", seconds, payload),
+        },
+      },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      },
+    );
+    request.once("error", reject);
+    request.end(payload);
+  });
+}
+
+test("at the person's own URL a webhook runs with its switch on, and never at the loopback address", async () => {
+  const { f, app, webhook, runs } = await setUp();
+  try {
+    const made = await webhook("rotate", "rotate");
+    const path = made.webhook?.path ?? "";
+    const port = Number(new URL(f.daemon.externalMcp?.url ?? "").port);
+    await f.daemon.settings.set("remote.mcpPublicUrl", "https://hooks.example.com", {
+      kind: "global",
+    });
+    const now = () => f.h.clock.now();
+    // Off: the request goes on to the outside MCP endpoint, which has no such page.
+    expect(await postAt(port, "hooks.example.com", path, made.secret ?? "", now())).not.toBe(202);
+    await f.daemon.settings.set("remote.publicUrlWebhooks", true, { kind: "global" });
+    await expect.poll(() => f.daemon.automationWebhooks?.enabled("custom"), wait).toBe(true);
+    // The loopback address itself never serves webhooks, switch or not.
+    expect(await postAt(port, `127.0.0.1:${port}`, path, made.secret ?? "", now())).not.toBe(202);
+    expect(await postAt(port, "hooks.example.com", path, made.secret ?? "", now())).toBe(202);
+    expect(await runs()).toHaveLength(1);
+    // The list leads with the address ace cloud doesn't carry.
+    expect(f.daemon.automationWebhooks?.state("deploy-check")).toMatchObject({
+      url: `https://hooks.example.com${path}`,
+      urls: [{ via: "custom" }],
+    });
   } finally {
     await app.client.close();
     await f.daemon.close();

@@ -1,6 +1,6 @@
 import type { HostHttpOptions, RelayHttpHandler } from "@ace/relay";
 import type { SettingsService } from "@ace/settings";
-import { hooksPath } from "./automation-webhooks.ts";
+import { hooksPath } from "./automation-webhook-reach.ts";
 
 export type { RelayHttpHandler } from "@ace/relay";
 
@@ -23,17 +23,17 @@ export const notServed: RelayHttpHandler = async () => new Response(null, { stat
 export function relayHttp(options: {
   settings(): SettingsService | undefined;
   handler(): RelayHttpHandler | undefined;
-  webhooks(): { enabled(): boolean; relay: RelayHttpHandler } | undefined;
+  webhooks(): { enabled(via: "relay"): boolean; relay: RelayHttpHandler } | undefined;
 }): HostHttpOptions {
   const mcpOn = async () => (await options.settings()?.get("remote.relayMcp"))?.value === true;
   return {
-    enabled: async () => options.webhooks()?.enabled() === true || (await mcpOn()),
+    enabled: async () => options.webhooks()?.enabled("relay") === true || (await mcpOn()),
     handle: async (request, signal, forwarded) => {
       // Well-known OAuth paths arrive as `/.well-known/<name><prefix>/…`; only `<prefix>/hooks/`
       // is a webhook.
       if (new URL(request.url).pathname.startsWith(forwarded.prefix + hooksPath)) {
         const webhooks = options.webhooks();
-        return webhooks?.enabled()
+        return webhooks?.enabled("relay")
           ? webhooks.relay(request, signal, forwarded)
           : notServed(request, signal, forwarded);
       }

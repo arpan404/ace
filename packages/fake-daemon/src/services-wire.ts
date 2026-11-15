@@ -138,7 +138,7 @@ export class FakeServicesWire {
       context.now,
       () => settings.get("automations.enabled") === true,
       context,
-      () => settings.get("remote.relayWebhooks") === true,
+      (key) => settings.get(key),
     );
   }
   seed(seed: ServicesSeed): void {

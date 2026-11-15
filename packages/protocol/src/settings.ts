@@ -238,6 +238,18 @@ export const SettingsValues = z.object({
    */
   "remote.relayWebhooks": z.boolean(),
   /**
+   * Whether automations' signed webhooks reach this machine at its ts.net name on the Tailscale
+   * listener, `https://<name>/hooks/<hookId>` (ADR 0158). Off by default; for senders on the
+   * person's tailnet, or the internet through Tailscale Funnel. ace cloud carries none of it.
+   */
+  "remote.tailscaleWebhooks": z.boolean(),
+  /**
+   * Whether automations' signed webhooks reach this machine at the person's own public URL
+   * (`remote.mcpPublicUrl`), `<url>/hooks/<hookId>`, through the proxy or tunnel that forwards it
+   * to the loopback endpoint (ADR 0158). Off by default. TLS ends at the person's own proxy.
+   */
+  "remote.publicUrlWebhooks": z.boolean(),
+  /**
    * Whether outside MCP clients on the person's tailnet reach this machine at its ts.net name,
    * on the Tailscale listener (ADR 0122). Off by default; serves only while Tailscale has issued
    * the machine's HTTPS certificate.

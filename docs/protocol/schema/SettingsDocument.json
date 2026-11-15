@@ -369,6 +369,9 @@
             }
           ]
         },
+        "remote.publicUrlWebhooks": {
+          "type": "boolean"
+        },
         "remote.relay": {
           "type": "boolean"
         },
@@ -391,6 +394,9 @@
           "type": "boolean"
         },
         "remote.tailscaleMcp": {
+          "type": "boolean"
+        },
+        "remote.tailscaleWebhooks": {
           "type": "boolean"
         },
         "remote.transferIgnoredFiles": {

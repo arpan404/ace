@@ -83,6 +83,8 @@ export const defaults: SettingsValues = {
   "remote.hostedPairingLink": false,
   "remote.relayMcp": false,
   "remote.relayWebhooks": false,
+  "remote.tailscaleWebhooks": false,
+  "remote.publicUrlWebhooks": false,
   "remote.tailscaleMcp": false,
   "remote.mcpPublicUrl": null,
   "remote.relayUrl": "",

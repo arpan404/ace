@@ -31933,7 +31933,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.codex.toolSource":{"anyOf":[{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"An absolute path: starting with / or a drive letter and \\ or /."},{"type":"null"}]},"providers.claude.chrome":{"type":"string","enum":["auto","on","off"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"media.encode":{"type":"string","enum":["auto","legacy"]},"media.delivery":{"type":"string","enum":["auto","legacy"]},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayMcp":{"type":"boolean"},"remote.relayWebhooks":{"type":"boolean"},"remote.tailscaleWebhooks":{"type":"boolean"},"remote.publicUrlWebhooks":{"type":"boolean"},"remote.tailscaleMcp":{"type":"boolean"},"remote.mcpPublicUrl":{"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
@@ -31950,7 +31950,7 @@ Example:
     "providers.planner.tier": "priority",
     "providers.verifier.provider": "cursor",
     "providers.verifier.reasoningEffort": "default",
-    "remote.relayUrl": "wss://relay.example.invalid/",
+    "remote.tailscaleMcp": false,
     "storage.backupWorktrees": true,
     "threads.autoSettleAfter": "never",
     "threads.forkOnSwitch": true,
@@ -31976,7 +31976,7 @@ Example:
 
 ```json
 {
-  "key": "threads.settleOnClose",
+  "key": "threads.keepSettledFor",
   "provenance": "defaults",
   "value": true
 }
@@ -31997,7 +31997,7 @@ Example:
 
 ```json
 {
-  "key": "remote.transferIgnoredFiles",
+  "key": "remote.relayMcp",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -32008,7 +32008,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","providers.codex.toolSource","providers.claude.chrome","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","devices.emulatorWindow","media.encode","media.delivery","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayMcp","remote.relayWebhooks","remote.tailscaleWebhooks","remote.publicUrlWebhooks","remote.tailscaleMcp","remote.mcpPublicUrl","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -32107,7 +32107,7 @@ Example:
 
 ```json
 {
-  "key": "threads.settleOnMerge",
+  "key": "threads.settleOnClose",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -32197,7 +32197,7 @@ Example:
 ```json
 {
   "keys": [
-    "remote.relayWebhooks"
+    "remote.tailscaleWebhooks"
   ],
   "requestId": "example",
   "scope": {
@@ -32357,7 +32357,7 @@ Example:
 ```json
 {
   "keys": [
-    "threads.forkOnSwitch"
+    "threads.limitPolicy"
   ],
   "requestId": "example",
   "scope": {
@@ -32462,6 +32462,8 @@ Example:
 | remote.hostedPairingLink | yes | boolean |  |
 | remote.relayMcp | yes | boolean |  |
 | remote.relayWebhooks | yes | boolean |  |
+| remote.tailscaleWebhooks | yes | boolean |  |
+| remote.publicUrlWebhooks | yes | boolean |  |
 | remote.tailscaleMcp | yes | boolean |  |
 | remote.mcpPublicUrl | yes | union | {"anyOf":[{"type":"string","maxLength":2048,"x-ace-constraint":"Null, or an https origin without path, query, fragment, credentials or trailing slash.","examples":[null,"https://ace.example.com"]},{"type":"null"}]} |
 | remote.relayUrl | yes | string | {"maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]} |
@@ -32478,69 +32480,71 @@ Example:
 
 ```json
 {
-  "access.defaultMode": "full-access",
+  "access.defaultMode": "ask",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": 3,
-  "automations.enabled": false,
-  "browser.backend": "auto",
+  "agents.maxRunningChildren": null,
+  "automations.enabled": true,
+  "browser.backend": "headless",
   "browser.backendLoss": "pause",
   "browser.downloadDefault": "example",
   "browser.downloadDir": "example",
   "browser.profile": "ephemeral",
-  "browser.profileScope": "global",
+  "browser.profileScope": "thread",
   "browser.userChrome.storageReads": true,
-  "clients.keybindings": {},
+  "clients.keybindings": [],
   "clients.theme": 1,
   "computer.blockedApps": [],
-  "computer.lockedUse": false,
-  "devices.emulatorWindow": false,
+  "computer.lockedUse": true,
+  "devices.emulatorWindow": true,
   "devices.enabled": true,
   "generation.autoDraftCommits": true,
   "generation.model": null,
   "host.displayName": "example",
   "host.icon": {
-    "kind": "terminal"
+    "kind": "cpu"
   },
-  "logs.maxBytes": 1048576,
-  "media.delivery": "auto",
+  "logs.maxBytes": 1048584,
+  "media.delivery": "legacy",
   "media.encode": "auto",
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
   "notifications.remotePush": true,
   "projects.roots": [],
-  "providers.claude.chrome": "auto",
+  "providers.claude.chrome": "on",
   "providers.coder.model": "example",
   "providers.coder.provider": null,
-  "providers.coder.reasoningEffort": "low",
-  "providers.coder.tier": "priority",
+  "providers.coder.reasoningEffort": "default",
+  "providers.coder.tier": "fast",
   "providers.codex.toolSource": null,
   "providers.configuration": [],
-  "providers.default": "acp",
+  "providers.default": "opencode",
   "providers.planner.model": "example",
-  "providers.planner.provider": null,
-  "providers.planner.reasoningEffort": "max",
-  "providers.planner.tier": "priority",
+  "providers.planner.provider": "codex",
+  "providers.planner.reasoningEffort": "minimal",
+  "providers.planner.tier": "default",
   "providers.reviewer.model": "example",
   "providers.reviewer.provider": null,
-  "providers.reviewer.reasoningEffort": "default",
-  "providers.reviewer.tier": "priority",
+  "providers.reviewer.reasoningEffort": "high",
+  "providers.reviewer.tier": "flex",
   "providers.verifier.model": "example",
-  "providers.verifier.provider": null,
-  "providers.verifier.reasoningEffort": "low",
-  "providers.verifier.tier": "fast",
+  "providers.verifier.provider": "cursor",
+  "providers.verifier.reasoningEffort": "minimal",
+  "providers.verifier.tier": "default",
   "remote.agentAccess": "read",
   "remote.agentTransfers": false,
-  "remote.enabled": false,
-  "remote.hostedPairingLink": true,
-  "remote.lan": true,
-  "remote.mcpPublicUrl": "https://ace.example.com",
+  "remote.enabled": true,
+  "remote.hostedPairingLink": false,
+  "remote.lan": false,
+  "remote.mcpPublicUrl": null,
+  "remote.publicUrlWebhooks": true,
   "remote.relay": true,
   "remote.relayMcp": false,
-  "remote.relayUrl": "wss://relay.example.invalid/",
+  "remote.relayUrl": "",
   "remote.relayWebhooks": false,
-  "remote.tailscale": false,
+  "remote.tailscale": true,
   "remote.tailscaleMcp": true,
-  "remote.transferIgnoredFiles": true,
-  "remote.transport": "local",
+  "remote.tailscaleWebhooks": false,
+  "remote.transferIgnoredFiles": false,
+  "remote.transport": "relay",
   "sourceControl.preferences": {
     "host": "github.com",
     "hosts": [
@@ -32553,23 +32557,23 @@ Example:
   "spade.enabled": false,
   "storage.backupWorktrees": true,
   "storage.retention": {
-    "threads": 1,
-    "worktrees": 2
+    "logs": 7,
+    "threads": 9
   },
-  "storage.retentionDays": 6,
-  "storage.scheduledCleanup": false,
-  "storage.worktreeRetentionDays": 5,
-  "threads.autoSettleAfter": "never",
-  "threads.followUpBehavior": "steer",
-  "threads.forkOnSwitch": true,
+  "storage.retentionDays": 7,
+  "storage.scheduledCleanup": true,
+  "storage.worktreeRetentionDays": 6,
+  "threads.autoSettleAfter": "1w",
+  "threads.followUpBehavior": "queue",
+  "threads.forkOnSwitch": false,
   "threads.keepSettledFor": "7d",
-  "threads.limitPolicy": "migrate_now",
+  "threads.limitPolicy": "snooze_until_reset",
   "threads.settleOnClose": false,
   "threads.settleOnMerge": false,
-  "threads.sortBy": "created",
-  "threads.unresponsiveAfter": "5m",
+  "threads.sortBy": "manual",
+  "threads.unresponsiveAfter": "2m",
   "threads.useWorktree": true,
-  "worktree.preparationTimeoutMs": 60007
+  "worktree.preparationTimeoutMs": 60006
 }
 ```
 

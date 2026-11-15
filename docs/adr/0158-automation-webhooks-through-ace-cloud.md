@@ -1,4 +1,4 @@
-# 0158: Signed webhooks start automations, reached through ace cloud
+# 0158: Signed webhooks start automations, reached through ace cloud or the person's own ways in
 
 Status: proposed. Date: 2026-11-15. Decided by: the owner (2026-11-15: automation webhooks use
 ace cloud's relayed path, as outside MCP does), the rest proposed in the PR for issue #975.
@@ -55,12 +55,17 @@ restart.
    secret is rotated. Unknown hook ids get 404, so the URL reveals nothing about which automations
    exist.
 
-3. **Reached only through ace cloud, and only when `remote.relayWebhooks` is on.** The setting is
-   off by default and separate from `remote.relayMcp`: letting outside assistants in doesn't open
-   webhooks, and the reverse. The daemon's forwarded-HTTP handler sends `/hooks/…` to the webhook
-   handler and everything else to outside MCP, each behind its own setting. The local listener
-   and the Tailscale listener don't serve `/hooks/`. Both, and the person's own public URL, can be
-   added later on the same handler.
+3. **Reached through ace cloud, Tailscale or the person's own URL, each off until switched on.**
+   The person's switches are `remote.relayWebhooks` (ace cloud, `<origin>/m/<hostId>/hooks/…`),
+   `remote.tailscaleWebhooks` (the Tailscale listener at the ts.net name, for the tailnet or
+   Funnel) and `remote.publicUrlWebhooks` (the person's own URL, `remote.mcpPublicUrl`, through
+   their proxy or tunnel to the loopback endpoint). Each is separate from its outside-MCP
+   counterpart: letting outside assistants in doesn't open webhooks, and the reverse. The
+   daemon's forwarded-HTTP handler sends `/hooks/…` to the webhook handler and everything else to
+   outside MCP, each behind its own switch; the Tailscale listener and the loopback endpoint do
+   the same. The loopback address itself never serves webhooks: only a request whose Host names
+   the person's own URL does. A webhook's state lists a URL per way that serves, those ace cloud
+   doesn't carry first, so the person can keep request bodies off ace cloud.
 
 4. **Requests are signed as Standard Webhooks specifies.** `webhook-id`, `webhook-timestamp`
    (epoch seconds) and `webhook-signature` (`v1,<base64 HMAC-SHA256 of id.timestamp.rawBody>`,
@@ -138,8 +143,9 @@ restart.
 - Senders that speak Standard Webhooks work without custom code. GitHub's own webhooks sign
   differently (`X-Hub-Signature-256`, no timestamp) and aren't accepted. The polled `github`
   trigger still covers them.
-- ace cloud sees webhook bodies in plain text, as it does outside MCP traffic (ADR 0122). It
-  never sees the secret.
+- On the ace cloud path, ace cloud sees webhook bodies in plain text, as it does outside MCP
+  traffic (ADR 0122); it never sees the secret. The Tailscale and own-URL paths keep bodies off
+  ace cloud: TLS ends at the machine or the person's own proxy.
 - Anyone with the secret can still put text into an agent's prompt. Decision 9 marks it and
   starts webhook automations read-only by default, but a person who picks a wider access, or an
   agent's thread running at its own, gives that text the same reach. The Automations screen says
