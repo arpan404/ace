@@ -225,8 +225,8 @@ async function streamed(
   });
   const ingest = handle.ingest?.bind(handle);
   if (!ingest) return handle;
-  let renew = () => {};
-  const encodeIds = new EncodeIds({ ...limits, renew: () => renew() });
+  let renew: (() => void) | undefined;
+  const encodeIds = new EncodeIds({ ...limits, renew: () => renew?.() });
   // The live video's last plan, stamped again when what may run changes.
   let last: readonly VideoEncode[] = [];
   const run = () => handle.encodes(encodeIds.stamp(last));
@@ -414,8 +414,8 @@ function pictureCapture(options: {
   refuse: () => void;
 }): VideoCaptureHandle | undefined {
   const { events } = options;
-  let renew = () => {};
-  const encodeIds = new EncodeIds({ ...options.limits, renew: () => renew() });
+  let renew: (() => void) | undefined;
+  const encodeIds = new EncodeIds({ ...options.limits, renew: () => renew?.() });
   /** The live video's last plan, sent again once encodes waiting for an id can have one. */
   let last: readonly VideoEncode[] = [];
   const run = () =>
