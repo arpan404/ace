@@ -248,3 +248,25 @@ fn a_closed_connection_closes_its_socket_with_its_reason_and_its_views_go() {
     assert!(binaries(&ingest(&mut engine, 1, h264(true, 0, 1, Vec::new()), NOW)).is_empty());
     assert_eq!(engine.counts().viewers, 0);
 }
+
+#[test]
+fn a_view_takes_the_nearest_encode_a_producer_sends_when_it_doesnt_follow_the_plan() {
+    let mut engine = watched(json!({ "kind": "screen", "sessionId": "screen-1" }));
+    // The producer still runs the daemon's own encodes: ids 3 and 4, at two sizes.
+    let mut small = h264(true, 1, 1, Vec::new());
+    small.encode = 3;
+    small.width = 390;
+    small.height = 844;
+    let mut large = h264(true, 2, 1, Vec::new());
+    large.encode = 4;
+    large.codec_string = "avc1.640033".into();
+    ingest(&mut engine, 1, small.clone(), NOW);
+    let first = ingest(&mut engine, 1, large.clone(), NOW);
+    // The plan wants 1170 × 2532 for a 390-point-wide phone at 3×: the large one, whose
+    // profile differs from the one the viewer named but whose family it decodes.
+    assert_eq!(binaries(&first).len(), 1);
+    small.flags = 0;
+    assert!(binaries(&ingest(&mut engine, 1, small, at(1_100))).is_empty());
+    large.flags = 0;
+    assert_eq!(binaries(&ingest(&mut engine, 1, large, at(1_100))).len(), 1);
+}

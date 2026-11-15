@@ -92,7 +92,11 @@ struct View {
     fanout: Fanout,
     rate: LinkRate,
     hint_bps: Option<f64>,
+    /// The encode its plan gives it.
     encode: Option<u32>,
+    /// The encode it is sent: its planned one once the producer sends that, else the closest
+    /// one the producer does send (a producer still planned by the daemon, D1).
+    taking: Option<u32>,
     sequence: u64,
     held: VecDeque<(u64, Vec<Vec<u8>>)>,
     frames: u32,
@@ -108,7 +112,19 @@ struct SourceFacts {
     ids: HashMap<String, u32>,
     wanted: Vec<EncodeSpec>,
     keyframes: HashMap<u32, u64>,
+    /// The encodes the producer actually sends: coded size, codec and when last seen.
+    seen: HashMap<u32, Seen>,
 }
+
+struct Seen {
+    width: u16,
+    height: u16,
+    codec: String,
+    at_ms: u64,
+}
+
+/// An encode not seen for this long no longer counts as produced.
+const SEEN_MS: u64 = 2_000;
 
 #[derive(Default)]
 struct Session {
@@ -186,6 +202,7 @@ impl Delivery {
                 rate: LinkRate::new(limits),
                 hint_bps: open.hint_bps,
                 encode: None,
+                taking: None,
                 sequence: 0,
                 held: VecDeque::new(),
                 frames: 0,
@@ -227,6 +244,7 @@ impl Delivery {
         let mut events = Vec::new();
         view.fanout.stop(|e| events.push(e));
         view.encode = None;
+        view.taking = None;
         view.held.clear();
         let source = view.source.clone();
         self.events(viewer, events, now_ms, out);
@@ -262,6 +280,7 @@ impl Delivery {
             let mut ignored = Vec::new();
             view.fanout.stop(|e| ignored.push(e));
             view.encode = None;
+            view.taking = None;
             view.held.clear();
         }
     }
@@ -450,6 +469,15 @@ impl Delivery {
         }
         if frame.kind == 1 {
             let facts = self.sources.entry(source.to_owned()).or_default();
+            facts.seen.insert(
+                frame.encode,
+                Seen {
+                    width: frame.width,
+                    height: frame.height,
+                    codec: frame.codec_string.clone(),
+                    at_ms: now_ms,
+                },
+            );
             if facts.page.is_none() && frame.display_width > 0 && frame.display_height > 0 {
                 facts.page = Some((
                     f64::from(frame.display_width),
@@ -494,9 +522,48 @@ impl Delivery {
                 }
                 continue;
             }
-            if view.encode != Some(frame.encode) {
+            let wanted = self.sources.get(source).and_then(|facts| {
+                let taking = taking(facts, view.encode, &view.codecs, now_ms);
+                Some((taking?, facts))
+            });
+            let taking_now = wanted.map(|(t, _)| t);
+            if view.taking != taking_now {
+                view.taking = taking_now;
+                view.held.clear();
+                let mut events = Vec::new();
+                view.fanout
+                    .assign(taking_now.map(u64::from), |e| events.push(e));
+                self.events(&key, events, now_ms, out);
+                let Some(view) = self.views.get_mut(&key) else {
+                    continue;
+                };
+                if view.taking != Some(frame.encode) {
+                    continue;
+                }
+                self.deliver(&key, source, message, frame, now_ms, out);
                 continue;
             }
+            if view.taking != Some(frame.encode) {
+                continue;
+            }
+            self.deliver(&key, source, message, frame, now_ms, out);
+        }
+    }
+
+    /// One video unit to one view, through its window.
+    fn deliver(
+        &mut self,
+        key: &str,
+        source: &str,
+        message: u32,
+        frame: &MediaFrame,
+        now_ms: u64,
+        out: &mut Vec<Effect>,
+    ) {
+        {
+            let Some(view) = self.views.get_mut(key) else {
+                return;
+            };
             view.sequence += 1;
             let sequence = view.sequence;
             let Some(built) = build(
@@ -507,7 +574,7 @@ impl Delivery {
                 now_ms as f64,
                 frame,
             ) else {
-                continue;
+                return;
             };
             let mut events = Vec::new();
             let mut sent = 0;
@@ -537,7 +604,7 @@ impl Delivery {
                 );
             }
             self.bytes_out += sent;
-            self.events(&key, events, now_ms, out);
+            self.events(key, events, now_ms, out);
         }
     }
 
@@ -567,7 +634,7 @@ impl Delivery {
                 ),
             }
         }
-        let (source, encode) = (view.source.clone(), view.encode);
+        let (source, encode) = (view.source.clone(), view.taking.or(view.encode));
         if keyframe && let Some(encode) = encode {
             self.request_keyframe(&source, encode, KeyReason::Viewer, now_ms, out);
         }
@@ -714,10 +781,25 @@ impl Delivery {
                 continue;
             }
             view.encode = next;
-            view.held.clear();
-            let mut events = Vec::new();
-            view.fanout.assign(next.map(u64::from), |e| events.push(e));
-            self.events(&key, events, now_ms, out);
+            let produced = next.filter(|id| {
+                self.sources
+                    .get(source)
+                    .and_then(|f| f.seen.get(id))
+                    .is_some_and(|seen| now_ms.saturating_sub(seen.at_ms) < SEEN_MS)
+            });
+            // Its new encode is taken at once when the producer sends it; otherwise the next
+            // unit picks what it can take.
+            if next.is_none() || produced.is_some() {
+                view.taking = produced;
+                view.held.clear();
+                let mut events = Vec::new();
+                view.fanout
+                    .assign(produced.map(u64::from), |e| events.push(e));
+                self.events(&key, events, now_ms, out);
+            } else {
+                let source = source.to_owned();
+                self.request_keyframe(&source, next.unwrap_or(0), KeyReason::Viewer, now_ms, out);
+            }
         }
     }
 
@@ -795,4 +877,44 @@ fn changed(old: &[EncodeSpec], new: &[EncodeSpec]) -> bool {
                 || a.fps != b.fps
                 || (f64::from(a.bitrate) - f64::from(b.bitrate)).abs() > 0.2 * f64::from(a.bitrate)
         })
+}
+
+/// The encode a view takes: its planned one while the producer sends it, else the produced encode
+/// in a codec it decodes whose size is nearest its plan's.
+fn taking(
+    facts: &SourceFacts,
+    planned: Option<u32>,
+    codecs: &[String],
+    now_ms: u64,
+) -> Option<u32> {
+    let planned_id = planned?;
+    let live = |seen: &Seen| now_ms.saturating_sub(seen.at_ms) < SEEN_MS;
+    if facts.seen.get(&planned_id).is_some_and(live) {
+        return Some(planned_id);
+    }
+    let spec = facts.wanted.iter().find(|w| w.id == planned_id);
+    let area = |w: f64, h: f64| w * h;
+    let target = spec.map_or(f64::MAX, |s| area(f64::from(s.width), f64::from(s.height)));
+    facts
+        .seen
+        .iter()
+        .filter(|(_, seen)| live(seen))
+        .filter(|(_, seen)| codecs.is_empty() || codecs.iter().any(|c| same_family(c, &seen.codec)))
+        .min_by(|(a_id, a), (b_id, b)| {
+            let da = (area(f64::from(a.width), f64::from(a.height)) - target).abs();
+            let db = (area(f64::from(b.width), f64::from(b.height)) - target).abs();
+            da.total_cmp(&db).then(a_id.cmp(b_id))
+        })
+        .map(|(id, _)| *id)
+}
+
+/// Two WebCodecs strings of one codec family (`avc1`, `hvc1`/`hev1`, `vp09`, `vp8`, `av01`): a
+/// decoder for one profile of H.264 takes the others a producer sends.
+fn same_family(a: &str, b: &str) -> bool {
+    let family = |c: &str| match c.get(..4) {
+        Some("hev1") => "hvc1".to_owned(),
+        Some(f) => f.to_owned(),
+        None => c.to_owned(),
+    };
+    family(a) == family(b)
 }
