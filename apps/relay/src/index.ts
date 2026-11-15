@@ -11,7 +11,7 @@ export { readRelayConfig } from "./config.ts";
 export { IpBudget } from "./limits.ts";
 export { RelayRoutes } from "./routes.ts";
 export type { EarlyState } from "./routes.ts";
-export { EARLY_FRAME } from "./early-frame.ts";
+export { EARLY_FRAME, UPGRADE_MESSAGE, upgradeMessage } from "./early-frame.ts";
 export { ClientSlots } from "./admission.ts";
 export type { Clock } from "./clock.ts";
 export type { ForwardedHttp, HostHttpOptions, RelayHttpHandler } from "./http-host.ts";

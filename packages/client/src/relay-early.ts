@@ -12,4 +12,8 @@ export const RELAY_EARLY = {
   marker: 1,
   capableMarker: 2,
   lostClose: 4020,
+  /** Step 3: echoed when the relay took the first message from the upgrade request. */
+  inUpgrade: "ace.v2",
+  /** Step 3: the entry carrying that message, in unpadded base64url. */
+  messagePrefix: "ace.x1.",
 } as const;
