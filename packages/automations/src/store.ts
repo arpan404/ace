@@ -12,6 +12,7 @@ import {
 } from "@ace/protocol";
 import { admission, canPromote } from "./decisions.ts";
 import type { ExecutionInput, ExecutionResult } from "./contracts.ts";
+import { WebhookKeys } from "./webhook-store.ts";
 
 const JobMetadata = z.object({
   automation: z.unknown().transform(normalizeAutomation),
@@ -50,6 +51,8 @@ export class AutomationStore {
   private catalogCache: z.infer<typeof CatalogMetadata>[] | undefined;
   private db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
+  /** Webhook automations' hook ids and secrets (ADR 0158). */
+  readonly webhooks: WebhookKeys;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;
@@ -88,6 +91,7 @@ export class AutomationStore {
         `CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, ${notFinished}))`,
       );
     });
+    this.webhooks = new WebhookKeys(this.db, (sql) => this.sql(sql));
   }
   close(): void {
     this.statements.clear();
@@ -151,6 +155,8 @@ export class AutomationStore {
         "INSERT INTO automation_jobs VALUES(?,?,?,?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, nominal=excluded.nominal, due=excluded.due, state=excluded.state",
       ).run(automation.id, body, nominal ?? null, due ?? null, "{}");
       if (automation.trigger.kind !== "github") this.clearPollError(automation.id);
+      // A webhook's URL and secret belong to its trigger: changing the trigger retires both.
+      if (automation.trigger.kind !== "webhook") this.webhooks.forget(automation.id);
       // File trigger health survives saves until the watcher reports readiness;
       // other triggers are healthy immediately after a successful save.
       if (automation.trigger.kind !== "file") this.clearTriggerError(automation.id);
@@ -178,6 +184,7 @@ export class AutomationStore {
       } else if (!live) return false;
       this.clearPollError(id);
       this.clearTriggerError(id);
+      this.webhooks.forget(id);
       this.sql("DELETE FROM automation_state WHERE id=?").run(id);
       this.sql("DELETE FROM automation_jobs WHERE id=?").run(id);
       this.sql(
