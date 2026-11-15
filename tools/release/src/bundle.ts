@@ -42,6 +42,20 @@ export async function bundleDaemon(
     plugins: [
       daemonWithoutKoffi,
       {
+        // css-tree's module build reads its syntax data with `require("../data/patch.json")` and
+        // `require("mdn-data/...")` at run time, files a bundle doesn't ship; its dist build
+        // carries the same data inline.
+        name: "css-tree-inline-data",
+        setup(ctx: PluginBuild) {
+          ctx.onResolve({ filter: /^css-tree$/ }, (args) =>
+            ctx.resolve("css-tree/dist/csstree.esm", {
+              kind: args.kind,
+              resolveDir: args.resolveDir,
+            }),
+          );
+        },
+      },
+      {
         name: "release-paths",
         setup(ctx: PluginBuild) {
           ctx.onLoad(
