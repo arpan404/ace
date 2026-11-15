@@ -9,6 +9,7 @@ import {
 import { readProducerStamp } from "@ace/media/producer-stamp";
 import {
   ScreenStreamConfigured,
+  type ScreenHelperStreamSettings,
   type ScreenStreamIngest,
   type ScreenStreamSettings,
 } from "@ace/protocol";
@@ -16,41 +17,18 @@ import { wireFrame, type Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
 import { StreamOwners } from "./stream-owners.ts";
 import { PathMerge } from "@ace/media/path-merge";
+import { helperEncodesHevc, hevcMain, videoOnlyToMedia, wantedCodec } from "./helper-codecs.ts";
 
 /**
  * A Mac, Windows or Linux screen session as an ace-media producer (docs/media/plan.md, E3, E1,
  * E2). When the route sends screens to ace-media, the helper is given the ingest socket with
- * each `stream.configure` and writes its H.264 there. On Linux the daemon's path keeps today's
+ * each `stream.configure` and writes its H.264 there (a Mac whose HEVC trial worked writes HEVC
+ * while ace-media's views all want it and nobody on the daemon's side needs H.264). On Linux the daemon's path keeps today's
  * JPEG pictures, which the daemon encodes for viewers as before, so only the ace-media route
  * runs the helper's encoder; ace-media's egress brings the units back as the frames the helper's
  * socket would have carried, header for header, for the daemon's legacy viewer, recorder and
  * stills. Both paths go through one ordered merge, so a route change loses or repeats nothing.
  */
-
-/**
- * Whether a screen helper makes its own video: the Mac's (VideoToolbox), Windows' where its
- * start-up trial found a Media Foundation H.264 encoder, and Linux's where one of its encoders
- * (VA-API, NVENC or the last resort) worked. A helper offering only JPEG gets its video from the
- * daemon's last-resort encoder instead.
- */
-export function helperEncodesVideo(
-  capabilities: { platform: string; codecs: readonly string[] } | undefined,
-): boolean {
-  return (
-    (capabilities?.platform === "macos" ||
-      capabilities?.platform === "windows" ||
-      capabilities?.platform.startsWith("linux") === true) &&
-    capabilities.codecs.includes("h264")
-  );
-}
-
-/**
- * Whether a helper's video goes to ace-media only (Linux, E2): on the daemon's path it sends the
- * JPEG pictures the daemon has always encoded itself, so `media.encode: legacy` keeps today's path.
- */
-export function videoOnlyToMedia(capabilities: { platform: string } | undefined): boolean {
-  return capabilities?.platform.startsWith("linux") === true;
-}
 
 /** Where screen sources are opened in ace-media: the daemon's `IngestSources`. */
 export type ScreenMedia = { add(producer: IngestProducer): IngestSource };
@@ -118,6 +96,11 @@ export type ScreenMediaSourceOptions = {
   /** The helper's platform, as its hello names it (`macos`, `windows`, `linux-wayland`): ace-media's
    * origin, and whether the daemon's path carries video (`videoOnlyToMedia`). */
   platform: string;
+  /** The codecs the helper's hello lists (`codecs`): `hevc` on a Mac whose HEVC trial worked. */
+  codecs?: readonly string[];
+  /** The daemon itself needs the screen's video as H.264 (a recording of the frames egress
+   * hands back), so the helper's stream stays H.264 whatever ace-media's views prefer. */
+  daemonNeedsVideo?: () => boolean;
   helper: HelperPort;
   media: ScreenMedia;
   /** A frame from either path, video in sequence order and stills in theirs. */
@@ -157,9 +140,16 @@ export class ScreenMediaSource {
   #tail: Promise<unknown> = Promise.resolve();
   #lastUnit: EgressUnit | undefined;
   #closed = false;
+  /** The helper encodes HEVC toward ace-media (`helperEncodesHevc`). */
+  readonly #hevc: boolean;
+  /** What ace-media's plan wants, as `wantedCodec` reads it. */
+  #mediaCodec: "h264" | "hevc" = "h264";
+  /** The video codec last sent to the helper. */
+  #sentCodec: ScreenHelperStreamSettings["codec"] | undefined;
 
   constructor(options: ScreenMediaSourceOptions) {
     this.#options = options;
+    this.#hevc = helperEncodesHevc({ platform: options.platform, codecs: options.codecs ?? [] });
     this.#merge = new PathMerge<Frame>(daemonPath, {
       emit: (frame) => this.#hand(frame),
       // One encode per session: the helper restarts it at a keyframe.
@@ -193,14 +183,54 @@ export class ScreenMediaSource {
       // empty: neither ever overwrites the other.
       want: (encodes) => {
         const settings = wantedStreamSettings(encodes);
+        this.#mediaCodec = wantedCodec(encodes);
         const update = settings
           ? this.#owners.set(mediaOwner, settings)
           : this.#owners.remove(mediaOwner);
-        void update.catch(() => {});
+        void update.then(() => this.recodec()).catch(() => {});
       },
     });
-    // Every helper encodes H.264 only (`wantedStreamSettings`), whatever a view prefers.
-    this.#source.codecs([...h264Only]);
+    // H.264 first: ace-media plans each view in the first of its own codecs the helper encodes.
+    this.#source.codecs(this.#hevc ? [...h264Only, hevcMain] : [...h264Only]);
+  }
+
+  /**
+   * Whether the helper's video should go out in HEVC: it encodes it, ace-media's views all want
+   * it, video goes to ace-media now, and nobody on the daemon's side needs H.264 (a legacy
+   * viewer, a recording). The stream is shared, so any of those keeps it H.264.
+   */
+  #wantsHevc(): boolean {
+    return (
+      this.#hevc &&
+      this.#mediaCodec === "hevc" &&
+      this.#address !== undefined &&
+      this.#owners.has(mediaOwner) &&
+      !this.#owners.has(legacyOwner) &&
+      this.#options.daemonNeedsVideo?.() !== true
+    );
+  }
+
+  /**
+   * Sends the current stream again when its codec should change (a legacy viewer came or left,
+   * a recording started or stopped, ace-media's plan changed codec) and its size didn't.
+   */
+  recodec(): Promise<void> {
+    return this.#serial(async () => {
+      const settings = this.#settings;
+      if (!settings || settings.codec === "jpeg" || this.#closed) return;
+      if (this.#wire(settings).codec === this.#sentCodec) return;
+      await this.#send(settings);
+    });
+  }
+
+  /** The request the helper gets for `settings` on the current route. A Linux helper's video
+   * goes to ace-media only: on the daemon's path it sends the JPEG pictures the daemon has
+   * always encoded itself. */
+  #wire(settings: ScreenStreamSettings): ScreenHelperStreamSettings {
+    if (!this.#address && videoOnlyToMedia(this.#options)) return { ...settings, codec: "jpeg" };
+    return settings.codec === "h264" && this.#wantsHevc()
+      ? { ...settings, codec: "hevc" }
+      : settings;
   }
 
   /** Whether the helper sends video to ace-media now (its stills then come only on request). */
@@ -236,14 +266,17 @@ export class ScreenMediaSource {
    * request for JPEG ends the legacy viewers' live demand; it is what the helper runs once
    * nobody asks for video.
    */
-  configure(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
+  async configure(settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
+    let result: { codec: "jpeg" | "h264" };
     if (settings.codec !== "h264") {
       this.#idle = settings;
-      return this.#owners.has(legacyOwner)
+      result = await (this.#owners.has(legacyOwner)
         ? this.#owners.remove(legacyOwner)
-        : this.#owners.refresh();
-    }
-    return this.#owners.set(legacyOwner, settings);
+        : this.#owners.refresh());
+    } else result = await this.#owners.set(legacyOwner, settings);
+    // A legacy viewer decodes H.264 only: the stream is H.264 before its request returns.
+    await this.recodec();
+    return result;
   }
 
   /** `stream.configure` with the current route's ingest and epoch. */
@@ -337,14 +370,12 @@ export class ScreenMediaSource {
     const to = address ? address.path : daemonPath;
     if (to !== from) this.#merge.switching(to);
     let reply: ScreenStreamConfigured;
+    const sent = this.#wire(settings);
     try {
       reply = ScreenStreamConfigured.parse(
         await this.#options.helper.request({
           op: "stream.configure",
-          // A Linux helper's video goes to ace-media only: on the daemon's path it sends the
-          // JPEG pictures the daemon has always encoded itself.
-          settings:
-            address || !videoOnlyToMedia(this.#options) ? settings : { ...settings, codec: "jpeg" },
+          settings: sent,
           epoch: screenOpeningEpoch,
           ...(address ? { ingest: address.ingest } : {}),
         }),
@@ -356,6 +387,7 @@ export class ScreenMediaSource {
     }
     const now = reply.ingest === "on" && address ? address.path : daemonPath;
     this.#onPath = now;
+    this.#sentCodec = sent.codec;
     if (now === from) {
       if (to !== from) this.#merge.switching(from);
     } else if (from === daemonPath) {
