@@ -53,15 +53,25 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--perf-probe", "--perf-log"]
         app.launch()
+        // Attached however the test ends, a hang or a failed wait included.
+        addTeardownBlock { @MainActor in
+            let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+            counts.name = "perf counts"
+            counts.lifetime = .keepAlways
+            self.add(counts)
+        }
         app.revealRow("thread.ios-log-long").tap()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
-        // The last turn's finished log is on screen before any swipe: an empty transcript or one
-        // stuck on its placeholder fails here, not on the timing.
-        let shown = NSPredicate(format: "exists == true AND hittable == true")
+        // A finished log is on screen before any swipe: an empty transcript or one stuck on its
+        // placeholder fails here, not on the timing. The feed opens at its end, so the earlier
+        // turns' logs are above the screen: any hittable one counts.
         let logs = app.buttons.matching(identifier: "work.toggle")
-        expectation(for: shown, evaluatedWith: logs.firstMatch)
-        waitForExpectations(timeout: 25)
+        let deadline = Date(timeIntervalSinceNow: 25)
+        while !logs.allElementsBoundByIndex.contains(where: { $0.isHittable }), Date() < deadline {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.5))
+        }
+        XCTAssertTrue(logs.allElementsBoundByIndex.contains { $0.isHittable }, "no finished log on screen")
         XCTAssertTrue(message("Keep relay cursors, part 6.", in: app).exists, "the last turn isn't the one open")
         var slowest: TimeInterval = 0
         var earlier = false
@@ -75,10 +85,6 @@ import XCTest
                     && logs.allElementsBoundByIndex.contains { $0.isHittable }
             }
         }
-        let counts = XCTAttachment(string: app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
-        counts.name = "perf counts"
-        counts.lifetime = .keepAlways
-        add(counts)
         XCTAssertTrue(earlier, "the swipes up never showed an earlier turn's finished log")
         // A settled swipe takes about three seconds, its fling included.
         XCTAssertLessThan(slowest, 15, "a swipe through the finished work logs didn't settle")
