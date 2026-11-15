@@ -70,6 +70,7 @@ impl Clock {
         }
     }
 }
+#[cfg(unix)]
 #[allow(unsafe_code)]
 fn thread_cpu_seconds() -> f64 {
     let mut now = libc::timespec {
@@ -81,6 +82,11 @@ fn thread_cpu_seconds() -> f64 {
         return f64::NAN;
     }
     now.tv_sec as f64 + now.tv_nsec as f64 * 1e-9
+}
+#[cfg(not(unix))]
+fn thread_cpu_seconds() -> f64 {
+    // Windows has no POSIX thread clock. Wall time still decides the gate.
+    f64::NAN
 }
 fn nonce(next: &mut u64) -> [u8; 12] {
     let mut nonce = [0; 12];

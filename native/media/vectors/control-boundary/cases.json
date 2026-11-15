@@ -582,6 +582,48 @@
     "json": "{\"type\":\"viewer.resume\"}"
   },
   {
+    "name": "text:relay.close.reason:lone-high",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"relay.close\",\"id\":\"r1\",\"stream\":\"s1\",\"reason\":\"\\ud800\"}"
+  },
+  {
+    "name": "text:relay.dial.url:lone-low",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"relay.dial\",\"stream\":\"s1\",\"url\":\"wss://relay/\\udc00\"}"
+  },
+  {
+    "name": "text:relay.close.reason:pair",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"relay.close\",\"id\":\"r1\",\"stream\":\"s1\",\"reason\":\"\\ud83d\\ude00\"}"
+  },
+  {
+    "name": "text:source.status.reason:lone-low",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"source.status\",\"source\":\"s1\",\"status\":\"retrying\",\"reason\":\"\\udc00\"}"
+  },
+  {
+    "name": "text:log.message:reversed-pair",
+    "direction": "FromMedia",
+    "accept": false,
+    "json": "{\"type\":\"log\",\"level\":\"info\",\"message\":\"\\udc00\\ud800\",\"fields\":{}}"
+  },
+  {
+    "name": "text:record.meta.data:nested-lone-high",
+    "direction": "ToMedia",
+    "accept": false,
+    "json": "{\"type\":\"record.meta\",\"recording\":\"r1\",\"epoch\":1,\"data\":{\"pointer\":[\"\\ud800\"]}}"
+  },
+  {
+    "name": "text:record.meta.data:nested-pair",
+    "direction": "ToMedia",
+    "accept": true,
+    "json": "{\"type\":\"record.meta\",\"recording\":\"r1\",\"epoch\":1,\"data\":{\"pointer\":[\"\\ud83d\\ude00\"]}}"
+  },
+  {
     "name": "viewer.open.target.tabId:absent",
     "direction": "ToMedia",
     "accept": true,

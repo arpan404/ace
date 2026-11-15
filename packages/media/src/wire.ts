@@ -1,5 +1,16 @@
 import { z } from "zod";
-const id = z.string().refine((value) => value.isWellFormed() && Array.from(value).length <= 64);
+// ace-media's JSON parser refuses lone UTF-16 surrogates, so every string, including those
+// inside free-form fields, must be well-formed Unicode on this side too.
+const text = z.string().refine((value) => value.isWellFormed());
+const id = text.refine((value) => Array.from(value).length <= 64);
+const wellFormed = (value: unknown): boolean => {
+  if (typeof value === "string") return value.isWellFormed();
+  if (Array.isArray(value)) return value.every(wellFormed);
+  if (typeof value === "object" && value !== null)
+    return Object.entries(value).every(([key, item]) => key.isWellFormed() && wellFormed(item));
+  return true;
+};
+const wellFormedJson = z.unknown().refine(wellFormed);
 const u32 = z.number().int().min(0).max(0xffffffff);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Admission = z.discriminatedUnion("kind", [
@@ -11,12 +22,12 @@ const Origin = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("tab-pictures") }),
   z.strictObject({ kind: z.literal("user-tab") }),
   z.strictObject({ kind: z.literal("embedded") }),
-  z.strictObject({ kind: z.literal("screen"), platform: z.string() }),
-  z.strictObject({ kind: z.literal("simulator"), streamUrl: z.string(), stillUrl: z.string() }),
-  z.strictObject({ kind: z.literal("scrcpy"), host: z.string(), port: u32 }),
+  z.strictObject({ kind: z.literal("screen"), platform: text }),
+  z.strictObject({ kind: z.literal("simulator"), streamUrl: text, stillUrl: text }),
+  z.strictObject({ kind: z.literal("scrcpy"), host: text, port: u32 }),
   z.strictObject({
     kind: z.literal("emulator-frames"),
-    path: z.string(),
+    path: text,
     width: u32,
     height: u32,
     stride: u32,
@@ -40,7 +51,7 @@ const Settings = z.strictObject({
   delivery: z.enum(["auto", "legacy"]),
 });
 const Remote = z.strictObject({
-  addresses: z.array(z.string()),
+  addresses: z.array(text),
   port: u32,
   certificateBytes: u32,
   keyBytes: u32,
@@ -72,7 +83,7 @@ const LinkHint = z.strictObject({
 });
 const EncodeSpec = z.strictObject({
   id: u32,
-  codec: z.string(),
+  codec: text,
   width: u32,
   height: u32,
   fps: u32,
@@ -84,7 +95,7 @@ const Backend = z.enum(["vt", "mf", "vaapi", "nv", "chrome", "cpu"]);
 /** One probe result (ADR 0148). `codec` is absent for `scale`; sizes are 0 unless `ok`. */
 const Capability = z.strictObject({
   step: Step,
-  codec: z.string().optional(),
+  codec: text.optional(),
   backend: Backend,
   hardware: z.boolean(),
   zeroCopy: z.boolean(),
@@ -103,10 +114,10 @@ const SourceStep = z.strictObject({
 const Acceleration = z.strictObject({
   steps: z.array(SourceStep),
   degraded: z.boolean(),
-  reason: z.string().optional(),
+  reason: text.optional(),
 });
-const Ingest = z.strictObject({ socket: z.string(), websocketPort: u32 });
-const Control = z.strictObject({ socket: z.string() });
+const Ingest = z.strictObject({ socket: text, websocketPort: u32 });
+const Control = z.strictObject({ socket: text });
 const Listen = z.strictObject({ loopbackPort: u32, remotePort: u32.optional() });
 const Stats = z.strictObject({
   sources: sequence,
@@ -118,7 +129,7 @@ const Stats = z.strictObject({
   priorityLagMs: sequence,
 });
 const Part = z.strictObject({
-  path: z.string(),
+  path: text,
   index: u32,
   bytes: sequence,
   durationMs: sequence,
@@ -128,9 +139,9 @@ export const ToMedia = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("init"),
     protocol: z.literal(1),
-    version: z.string(),
-    runtimeDir: z.string(),
-    dataDir: z.string(),
+    version: text,
+    runtimeDir: text,
+    dataDir: text,
     settings: Settings,
   }),
   z.strictObject({ type: z.literal("ping"), id: id }),
@@ -158,7 +169,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     height: u32,
     scale: z.number().finite().nonnegative(),
   }),
-  z.strictObject({ type: z.literal("source.codecs"), source: id, codecs: z.array(z.string()) }),
+  z.strictObject({ type: z.literal("source.codecs"), source: id, codecs: z.array(text) }),
   z.strictObject({ type: z.literal("source.picture"), source: id, ageMs: u32, epoch: u32 }),
   z.strictObject({
     type: z.literal("source.epoch"),
@@ -199,7 +210,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     issued: sequence,
     source: id,
     target: ViewerTarget,
-    codecs: z.array(z.string()),
+    codecs: z.array(text),
     viewport: Viewport,
     local: z.boolean(),
     audio: z.boolean(),
@@ -223,7 +234,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     rttMs: u32,
     backlogBytes: sequence,
   }),
-  z.strictObject({ type: z.literal("relay.dial"), stream: id, url: z.string() }),
+  z.strictObject({ type: z.literal("relay.dial"), stream: id, url: text }),
   z.strictObject({ type: z.literal("relay.out"), stream: id }),
   z.strictObject({ type: z.literal("relay.pull"), stream: id }),
   z.strictObject({
@@ -233,12 +244,12 @@ export const ToMedia = z.discriminatedUnion("type", [
     owner: Owner,
     issued: sequence,
   }),
-  z.strictObject({ type: z.literal("relay.close"), id: id, stream: id, reason: z.string() }),
+  z.strictObject({ type: z.literal("relay.close"), id: id, stream: id, reason: text }),
   z.strictObject({
     type: z.literal("connection.close"),
     id: id,
     connection: id,
-    reason: z.string(),
+    reason: text,
   }),
   z.strictObject({
     type: z.literal("revoke"),
@@ -251,12 +262,17 @@ export const ToMedia = z.discriminatedUnion("type", [
     type: z.literal("record.start"),
     recording: id,
     source: id,
-    directory: z.string(),
+    directory: text,
     maxBytes: sequence,
     pointerTrack: z.boolean(),
   }),
   z.strictObject({ type: z.literal("record.cut"), recording: id, reason: z.enum(["size"]) }),
-  z.strictObject({ type: z.literal("record.meta"), recording: id, epoch: u32, data: z.unknown() }),
+  z.strictObject({
+    type: z.literal("record.meta"),
+    recording: id,
+    epoch: u32,
+    data: wellFormedJson,
+  }),
   z.strictObject({ type: z.literal("record.stop"), recording: id }),
   z.strictObject({
     type: z.literal("still.take"),
@@ -286,7 +302,7 @@ export const FromMedia = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("ready"),
     protocol: z.literal(1),
-    version: z.string(),
+    version: text,
     pid: u32,
     capabilities: z.array(Capability),
     ingest: Ingest,
@@ -309,7 +325,7 @@ export const FromMedia = z.discriminatedUnion("type", [
     type: z.literal("source.status"),
     source: id,
     status: z.enum(["starting", "playing", "retrying", "ended"]),
-    reason: z.string().optional(),
+    reason: text.optional(),
     attempts: u32.optional(),
     acceleration: Acceleration.optional(),
   }),
@@ -336,27 +352,27 @@ export const FromMedia = z.discriminatedUnion("type", [
     kind: z.enum(["direct", "relay"]),
     owner: Owner,
   }),
-  z.strictObject({ type: z.literal("connection.closed"), connection: id, reason: z.string() }),
+  z.strictObject({ type: z.literal("connection.closed"), connection: id, reason: text }),
   z.strictObject({
     type: z.literal("grant.refused"),
-    kind: z.string(),
+    kind: text,
     id: id,
     reason: z.enum(["owner", "revoked", "expired", "unknown-connection"]),
   }),
   z.strictObject({ type: z.literal("relay.dialed"), stream: id }),
-  z.strictObject({ type: z.literal("relay.failed"), stream: id, reason: z.string() }),
+  z.strictObject({ type: z.literal("relay.failed"), stream: id, reason: text }),
   z.strictObject({ type: z.literal("relay.in"), stream: id }),
   z.strictObject({
     type: z.literal("record.part"),
     recording: id,
-    path: z.string(),
+    path: text,
     index: u32,
     bytes: sequence,
     durationMs: sequence,
     gaps: u32,
   }),
   z.strictObject({ type: z.literal("record.done"), recording: id, parts: z.array(Part) }),
-  z.strictObject({ type: z.literal("record.failed"), recording: id, reason: z.string() }),
+  z.strictObject({ type: z.literal("record.failed"), recording: id, reason: text }),
   z.strictObject({
     type: z.literal("still.done"),
     request: id,
@@ -365,12 +381,12 @@ export const FromMedia = z.discriminatedUnion("type", [
     /** The path the still took, step by step, with its picture-sized copies. */
     steps: z.array(SourceStep),
   }),
-  z.strictObject({ type: z.literal("still.failed"), request: id, reason: z.string() }),
+  z.strictObject({ type: z.literal("still.failed"), request: id, reason: text }),
   z.strictObject({
     type: z.literal("log"),
     level: z.enum(["debug", "info", "warn", "error"]),
-    message: z.string(),
-    fields: z.unknown(),
+    message: text,
+    fields: wellFormedJson,
   }),
 ]);
 export type FromMedia = z.infer<typeof FromMedia>;
