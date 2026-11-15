@@ -98,7 +98,7 @@
 }
 
 /* Pages: fills, not boxes. */
-[data-part="card"],
+[data-part="card"]:not([data-part="card"][data-variant="picker"], [data-part="card"][data-variant="preview"], [data-part="card"][data-variant="accent"]),
 [data-part="stat"] {
   border-color: transparent;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent);

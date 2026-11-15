@@ -96,7 +96,7 @@
 }
 
 /* Pages: drawn boxes and ruled rows. */
-[data-part="card"],
+[data-part="card"]:not([data-part="card"][data-variant="picker"], [data-part="card"][data-variant="preview"], [data-part="card"][data-variant="accent"]),
 [data-part="stat"] {
   border-color: var(--color-border);
   box-shadow: none;

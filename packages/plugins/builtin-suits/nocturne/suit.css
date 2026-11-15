@@ -82,7 +82,7 @@
 }
 
 /* Pages: glass panes on the night, each lit along its top edge. */
-[data-part="card"],
+[data-part="card"]:not([data-part="card"][data-variant="picker"], [data-part="card"][data-variant="preview"], [data-part="card"][data-variant="accent"]),
 [data-part="stat"] {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.05),

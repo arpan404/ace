@@ -94,13 +94,13 @@
 }
 
 /* Pages: drawn boxes, ruled rows, the selected one marked at the edge. */
-[data-part="card"],
+[data-part="card"]:not([data-part="card"][data-variant="picker"], [data-part="card"][data-variant="preview"], [data-part="card"][data-variant="accent"]),
 [data-part="stat"] {
   border-color: var(--color-border);
   box-shadow: 0 1px 2px rgb(20 33 45 / 0.04);
 }
 
-[data-scheme="dark"] :is([data-part="card"], [data-part="stat"]) {
+[data-scheme="dark"] :is([data-part="card"]:not([data-part="card"][data-variant="picker"], [data-part="card"][data-variant="preview"], [data-part="card"][data-variant="accent"]), [data-part="stat"]) {
   box-shadow: none;
 }
 
