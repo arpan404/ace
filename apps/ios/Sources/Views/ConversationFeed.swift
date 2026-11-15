@@ -225,14 +225,14 @@ struct ConversationFeed: View {
             case .tracking:
                 settle.cancel()
                 viewport.cancelPending()
-                if reading.landing.isActive { reading.landing.readerTookOver() }
+                readerTookOver()
                 model.beginReadingScroll()
                 intent.begin()
             // A quick drag can skip tracking: a new gesture is one that starts from rest.
             case .interacting where old == .idle || old == .decelerating || old == .animating:
                 settle.cancel()
                 viewport.cancelPending()
-                if reading.landing.isActive { reading.landing.readerTookOver() }
+                readerTookOver()
                 model.beginReadingScroll()
                 intent.begin(); intent.active = true
             case .interacting, .decelerating: intent.active = true
@@ -257,6 +257,12 @@ struct ConversationFeed: View {
                     // A scroll that wasn't the person's drag (the status bar's tap to the top,
                     // VoiceOver) left the end far behind: stop following, as a drag would.
                     setFollowing(false)
+                }
+                // An assistive scroll (VoiceOver's three-finger swipe, Switch Control) is the
+                // reader's own though no finger tracked it; the feed's own scrolls are excluded.
+                if !touched, old == .animating || old == .decelerating, !settle.isRunning, !keyboardMoving,
+                   UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning {
+                    readerTookOver()
                 }
                 updateBehind()
                 pageIfNeeded(proxy)
@@ -318,6 +324,7 @@ struct ConversationFeed: View {
 
     private func observeReading<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content.onChange(of: acceptedSend) { _, _ in
+            readerTookOver()
             reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
@@ -515,6 +522,7 @@ struct ConversationFeed: View {
             updateBehind()
         }
         .onChange(of: jumps) { _, _ in
+            readerTookOver()
             reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
@@ -558,6 +566,7 @@ struct ConversationFeed: View {
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
     private func stepTurn(_ direction: Int, proxy: ScrollViewProxy) {
+        readerTookOver()
         let rows = TranscriptFeedRow.rows(shown)
         let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
         let top = intent.metrics.topInset
@@ -603,6 +612,11 @@ struct ConversationFeed: View {
         case .none: pageIfNeeded(proxy)
         case .wait: break
         }
+    }
+    /// The reader took the feed somewhere themselves (a drag, a turn key, Scroll to end, a
+    /// send, VoiceOver): a focus still landing or still awaited stops pulling them back.
+    private func readerTookOver() {
+        if reading.landing.isActive { reading.landing.readerTookOver() }
     }
     /// Retry stale history: re-ask the bridge around the reader's anchor item
     /// so the rebuild loads fresh rows instead of merging cached chunks.
