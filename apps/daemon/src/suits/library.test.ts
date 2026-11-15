@@ -166,7 +166,7 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  expect(seeded).toEqual(["arcade-cabinet"]);
+  expect(seeded).toEqual(["arcade-cabinet", "atelier-noir"]);
   for (const id of seeded) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
@@ -183,6 +183,10 @@ test("every Suit ace ships passes every check the daemon runs before one applies
     "empty-state",
     "sidebar-header",
   ]);
+  // Atelier Noir also serves its celebration, the moment that plays above the UI.
+  const atelier = detail(await library.read("atelier-noir"));
+  expect(Object.keys(atelier.sceneUrls).toSorted()).toEqual(["app", "celebration"]);
+  expect(atelier.css).toContain('[data-suit="atelier-noir"]');
 });
 
 test("a Suit without a scene serves no scene page and no runtime", async () => {
