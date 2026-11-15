@@ -113,7 +113,9 @@ function Sidebar(props: {
           data-sidebar="sidebar"
           aria-hidden={collapsed || undefined}
           inert={collapsed}
-          className="no-scrollbar flex size-full min-h-0 flex-col bg-sidebar"
+          // Under a Suit's scene the frame's own veil (applied-backdrop.tsx) already sits behind the
+          // rail at the Suit's reveal, so this panel lets it through instead of hiding the scene.
+          className="no-scrollbar flex size-full min-h-0 flex-col bg-sidebar [[data-suit-scene]_&]:bg-transparent"
         >
           {props.children}
         </div>
