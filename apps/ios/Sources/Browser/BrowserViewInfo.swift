@@ -95,6 +95,8 @@ struct BrowserViewInfo: Codable, Sendable, Equatable {
         /// ready, paused or recovering.
         let status: String
         let reason: String?
+        /// One sentence while the tab's video runs degraded on the processor; empty otherwise.
+        var degraded: String? = nil
         let loading: Bool
         let loadError: String?
         let activeTabId: String?

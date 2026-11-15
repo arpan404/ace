@@ -35,7 +35,15 @@ enum AnnexB {
         return units
     }
 
-    static func type(_ unit: Data) -> UInt8 { unit[unit.startIndex] & 0x1f }
+    static func type(_ unit: Data) -> UInt8 { unit[unit.startIndex] & 31 }
+    static func hevcType(_ unit: Data) -> UInt8 { (unit[unit.startIndex] >> 1) & 63 }
+
+    static func hevcParameterSets(_ data: Data) -> [Data]? {
+        let units = nalUnits(data)
+        let groups = [UInt8(32), 33, 34].map { kind in units.filter { $0.count >= 2 && hevcType($0) == kind } }
+        return groups.allSatisfy { !$0.isEmpty } ? groups.flatMap { $0 } : nil
+    }
+    static func isHEVCKeyframe(_ unit: Data) -> Bool { [19, 20, 21].contains(hevcType(unit)) }
 
     /// A keyframe's parameter sets, or nil when it doesn't carry both kinds.
     static func parameterSets(_ data: Data) -> (sequence: [Data], picture: [Data])? {
@@ -48,7 +56,12 @@ enum AnnexB {
     /// The access unit as VideoToolbox decodes it: every NAL unit but the parameter sets (which
     /// configure the decoder instead), each behind its four-byte big-endian length.
     static func lengthPrefixed(_ data: Data) throws -> Data {
-        let units = nalUnits(data).filter { type($0) != sequenceParameterSet && type($0) != pictureParameterSet }
+        try prefixLengths(nalUnits(data).filter { type($0) != sequenceParameterSet && type($0) != pictureParameterSet })
+    }
+    static func hevcLengthPrefixed(_ data: Data) throws -> Data {
+        try prefixLengths(nalUnits(data).filter { ![32, 33, 34].contains(hevcType($0)) })
+    }
+    private static func prefixLengths(_ units: [Data]) throws -> Data {
         guard !units.isEmpty else { throw ParseError.noNALUnits }
         var out = Data(capacity: units.reduce(0) { $0 + 4 + $1.count })
         for unit in units {
