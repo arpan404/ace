@@ -28,8 +28,16 @@ struct PhoneLookEnvironment: ViewModifier {
     @AppStorage(PhoneLook.solidKey) private var solid = false
     @AppStorage(PhoneLook.densityKey) private var density = "comfortable"
     @Environment(SuitLookModel.self) private var suits: SuitLookModel?
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(PhoneLook.backdropKey) private var backdrop = "still"
+    /// A Suit's still shows while Backdrop is Still and surfaces may be translucent.
+    private var stillShows: Bool {
+        suits?.applied != nil && backdrop == "still" && !solid && !reduceTransparency && SuitStill.shared.frame(scheme) != nil
+    }
     func body(content: Content) -> some View {
         content
+            .environment(\.aceBackdrop, stillShows)
             // A Suit's density stands over the device's while the Suit shows.
             .environment(\.aceDensityId, suits?.applied?.density ?? density)
             .environment(\.aceReduceMotion, systemReduceMotion || reduceMotion)

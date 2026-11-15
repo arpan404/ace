@@ -197,7 +197,8 @@ struct ConversationFeed: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
-        .background(AceTheme.Colours.background)
+        // The page, or a Suit's still under it (ADR 0150).
+        .background { SuitPageBackground() }
         .overlay(alignment: .top) {
             if reading.loading, reading.operation == "older" || reading.operation == "newer" {
                 AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceDesign.Size.tap, height: AceDesign.Space.related)

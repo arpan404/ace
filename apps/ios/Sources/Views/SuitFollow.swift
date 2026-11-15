@@ -41,7 +41,10 @@ struct SuitFollow: ViewModifier {
         do {
             let suit = try await client.service(["type": "suit.read", "id": wanted], as: PhoneSuit.self)
             guard !Task.isCancelled else { return }
-            if suit.unavailable == nil { await fetchFonts(suit, from: client) }
+            if suit.unavailable == nil {
+                await fetchFonts(suit, from: client)
+                await fetchStills(suit, from: client)
+            }
             guard !Task.isCancelled else { return }
             suits.show(suit)
             SuitAssets.prune(keeping: suit)
@@ -61,7 +64,24 @@ struct SuitFollow: ViewModifier {
         }
     }
 
+    /// Each scheme's still, read once per version, with the page tint at which words read over
+    /// it. One that can't be read or solved leaves that scheme without a backdrop.
+    private func fetchStills(_ suit: PhoneSuit, from client: ClientModel) async {
+        for (scheme, path) in [("light", suit.stills.light), ("dark", suit.stills.dark)] {
+            guard let path, let colours = suit.colours[scheme] else { continue }
+            let asked: [String: Any] = ["type": "suit.asset", "id": suit.id, "contentHash": suit.contentHash, "path": path]
+            guard let file = try? await SuitAssets.fetched(suit, path, fetch: { try await client.service(asked, as: AssetReply.self).data }),
+                  let image = UIImage(contentsOfFile: file.path) else { continue }
+            let cells = SuitStill.cells(image)
+            guard !cells.isEmpty else { continue }
+            let solve: [String: Any] = ["type": "suit.stillTint", "colours": colours, "cells": cells]
+            guard let tint = try? await client.service(solve, as: TintReply.self).tint else { continue }
+            SuitStill.keep(tint: tint, suit: suit, scheme: scheme)
+        }
+    }
+
     struct AssetReply: Decodable { let mimeType: String; let data: String }
+    struct TintReply: Decodable { let tint: Double }
 }
 
 /// Puts the Suit on screen into the palette, the font faces and the shape tokens, or the theme
@@ -78,5 +98,6 @@ struct SuitFollow: ViewModifier {
             return SuitFonts.face(slot, file: file)
         }
         SuitFaces.shared.wear(ui: face(suit?.fonts.ui), prose: face(suit?.fonts.prose), mono: face(suit?.fonts.mono))
+        SuitStill.shared.wear(suit)
     }
 }

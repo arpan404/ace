@@ -72,11 +72,12 @@ struct InboxList: View {
     /// the rows, so the system collapses the title with nothing pinned beneath it.
     var header: AnyView? = nil
     @Environment(\.onSidebarGlass) private var onGlass
+    @Environment(\.aceBackdrop) private var backdrop
     /// The needs-you run is open.
     @State private var running = false
     /// The run's pages, here so they outlive any redraw of the run's screen.
     @State private var run = NeedsRunQueue()
-    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
+    private var surface: Color { onGlass || backdrop ? .clear : AceTheme.Colours.background }
     /// Where the list is scrolled: a tab switch takes it back to its very top, the large title
     /// open again over the tabs.
     @State private var position = ScrollPosition()
@@ -146,7 +147,8 @@ struct InboxList: View {
             .listStyle(.plain)
             .scrollPosition($position)
             .scrollContentBackground(.hidden)
-            .background(surface)
+            // A Suit's still lies behind the rows; over sidebar glass the glass shows instead.
+            .background { if backdrop && !onGlass { SuitPageBackground() } else { surface } }
             .environment(\.defaultMinListRowHeight, 0)
             // Select mode is the system's own: a check circle on each row, two-finger drag and
             // (on iPad) Shift or Command with the pointer or arrows to pick several.
@@ -289,7 +291,8 @@ extension View {
 
 private struct InboxRowChrome: ViewModifier {
     @Environment(\.onSidebarGlass) private var onGlass
-    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
+    @Environment(\.aceBackdrop) private var backdrop
+    private var surface: Color { onGlass || backdrop ? .clear : AceTheme.Colours.background }
     func body(content: Content) -> some View {
         content
             .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Size.listInset,
