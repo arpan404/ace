@@ -300,7 +300,7 @@ test("the subagent card deduplicates a launch and its spawn call and opens the c
 
 const said = "Three modules still import the legacy reader.";
 
-test("a usage-limit pause reads as a complete turn: its Worked for head, its last message in full, and the resume is a new turn below", async () => {
+test("a usage-limit pause reads as a complete turn while held; its resume carries the same turn on", async () => {
   const app = harness();
   app.play(limitPausedTurn()).runUntilBlocked();
   await app.open("/t/thread-limit-paused");
@@ -318,33 +318,54 @@ test("a usage-limit pause reads as a complete turn: its Worked for head, its las
 
   act(() => app.daemon.apply("thread-limit-paused", resumeAfterLimit));
   const resumed = await within(feed).findByText("Picking the flag removal back up.");
-  // The paused turn keeps its head and answer; the resumed work is its own turn after them.
-  const kept = within(feed).getByRole("button", { name: /^Worked for/ });
-  expect(follows(kept, within(feed).getByText(said))).toBe(true);
-  expect(follows(within(feed).getByText(said), resumed)).toBe(true);
-  expect(within(feed).getByText(said).closest("details")).toBeNull();
+  // One turn again, working: no head of its own above the resume, and ace's Continue no bubble.
+  await waitFor(() =>
+    expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull(),
+  );
+  const wait = within(feed).getByRole("note", { name: "Waited for the usage limit" });
+  expect(follows(within(feed).getByText(said), wait) && follows(wait, resumed)).toBe(true);
+  expect(within(feed).queryByText("Continue where you left off.")).toBeNull();
 });
 
 const resumeAfterLimit = [
   { type: "limit.cleared", agent: "root" } as const,
   { type: "turn.started", agent: "root", nativeTurnId: "resume", trigger: "limit_resume" } as const,
+  {
+    type: "item.upsert",
+    agent: "root",
+    item: "resume-input",
+    draft: {
+      type: "message",
+      role: "user",
+      complete: true,
+      synthetic: true,
+      origin: { kind: "limit_resume" },
+      parts: [{ type: "text", text: "Continue where you left off." }],
+    },
+  } as const,
   message("root", "resumed", "assistant", "Picking the flag removal back up."),
 ];
 
-test("a paused turn in history reads the same complete turn after a reload", async () => {
+test("a turn resumed after its limit reads as one turn after a reload, its wait folded inside Worked for", async () => {
   const app = harness();
   app.play(limitPausedTurn()).runUntilBlocked();
-  app.daemon.apply("thread-limit-paused", resumeAfterLimit);
+  app.daemon.apply("thread-limit-paused", [
+    ...resumeAfterLimit,
+    { type: "turn.ended", agent: "root", nativeTurnId: "resume", outcome: "completed" },
+  ]);
   await app.open("/t/thread-limit-paused");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const head = await within(feed).findByRole("button", { name: /^Worked for/ });
-  const answer = within(feed).getByText(said);
-  expect(follows(head, answer)).toBe(true);
-  expect(answer.closest("details")).toBeNull();
-  expect(follows(answer, within(feed).getByText("Picking the flag removal back up."))).toBe(true);
-  expect(within(feed).queryByRole("note", { name: /^Worked/ })).toBeNull();
-  // The resume ended the paused turn; nothing calls it stopped or interrupted.
+  const resumed = await within(feed).findByText("Picking the flag removal back up.");
+  const heads = await within(feed).findAllByRole("button", { name: /^Worked for/ });
+  expect(heads).toHaveLength(1);
+  expect(follows(heads[0]!, resumed)).toBe(true);
+  // Nothing outside the fold says the turn waited; nothing calls it stopped or interrupted.
+  expect(within(feed).queryByText(/usage limit/)).toBeNull();
   expect(within(feed).queryByRole("note", { name: /^Stopped|^Interrupted/ })).toBeNull();
+  await userEvent.click(heads[0]!);
+  expect(
+    await within(feed).findByRole("note", { name: "Waited for the usage limit" }),
+  ).toBeTruthy();
 });
 
 /** A held turn's head and answer, in that order, with the steps after the answer folded. */
@@ -369,42 +390,6 @@ test("a turn still held at its limit shows the message it said before more steps
   const reloaded = harness({ daemon: app.daemon });
   await reloaded.open("/t/thread-limit-paused");
   await heldTurnReads();
-});
-
-test("a paused turn that said nothing and took no step reads Worked for as plain text, with nothing to open", async () => {
-  const app = harness();
-  app
-    .play({
-      thread: {
-        id: "thread-limit-silent",
-        workspaceId: "ace",
-        title: "Split the CI matrix by package",
-        provider: "codex",
-        live: { account: "codex-team" },
-      },
-      steps: [
-        {
-          kind: "facts",
-          facts: [
-            rootAgent("codex"),
-            turn("root"),
-            message("root", "ask", "user", "Split the CI matrix by package"),
-          ],
-        },
-        {
-          kind: "facts",
-          label: "limited",
-          facts: [{ type: "retry", agent: "root", on: "rate_limit", message: "Usage limit." }],
-        },
-      ],
-    })
-    .runUntilBlocked();
-  app.daemon.apply("thread-limit-silent", resumeAfterLimit);
-  await app.open("/t/thread-limit-silent");
-  const feed = await screen.findByRole("feed", { name: "Transcript" });
-  await within(feed).findByText("Picking the flag removal back up.");
-  expect(await within(feed).findByText(/^Worked for/)).toBeTruthy();
-  expect(within(feed).queryByRole("button", { name: /^Worked for/ })).toBeNull();
 });
 
 test("the changed-files card waits until the subagents a turn started have finished too", async () => {
