@@ -111,7 +111,10 @@ impl<const INTERVAL: u64> Transport<INTERVAL> {
     }
     /// Two fresh keys at nonce 0 and no flow credit: a private channel between two processes
     /// that derived its keys itself (ace-media's control lanes), not a relay key block.
-    pub fn from_keys(send: Zeroizing<[u8; 32]>, receive: Zeroizing<[u8; 32]>) -> Result<Self, Error> {
+    pub fn from_keys(
+        send: Zeroizing<[u8; 32]>,
+        receive: Zeroizing<[u8; 32]>,
+    ) -> Result<Self, Error> {
         if INTERVAL == 0 {
             return Err(Error::InvalidKeyBlock);
         }

@@ -20,10 +20,7 @@ pub fn sealed(raw: Stream, records: Records) -> DuplexStream {
         // Both reused for the lane's life: sealing allocates nothing per record.
         let mut chunk = vec![0u8; MAX_PLAIN];
         let mut out = Vec::with_capacity(MAX_PLAIN + 18);
-        loop {
-            let Ok(n) = from_shell.read(&mut chunk).await else {
-                break;
-            };
+        while let Ok(n) = from_shell.read(&mut chunk).await {
             if n == 0 {
                 break;
             }
