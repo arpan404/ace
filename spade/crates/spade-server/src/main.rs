@@ -372,6 +372,8 @@ async fn run() -> Result<(), Failure> {
     bots.set(&engine);
     if let Some(plugins) = &plugins {
         engine.set_plugins(plugins.clone());
+        // Plugin agents are helper profiles of the bots allowed their plugins.
+        engine.set_profile_source(plugins.clone());
     }
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());

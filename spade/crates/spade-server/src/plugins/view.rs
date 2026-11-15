@@ -53,11 +53,11 @@ pub struct Usable {
     /// Skills (a bot loads them) and commands (manual skills only the person starts), for the
     /// skill store.
     pub skills: Vec<crate::skill_store::PluginSkill>,
+    /// Agents, as helper profiles (ADR 0152).
+    pub profiles: Vec<spade_core::helper::Profile>,
     pub hooks: Vec<Hook>,
     pub local: Vec<LocalServer>,
     pub remote: Vec<RemoteServer>,
-    /// Components kept for later work (the skill store, helper profiles): exposed, not used.
-    pub seams: Vec<NotUsed>,
     pub not_used: Vec<NotUsed>,
 }
 
@@ -111,10 +111,16 @@ to."
                         .unwrap_or_else(|| "Its text did not arrive.".to_owned()),
                 }),
             },
-            "agent" => out.seams.push(NotUsed {
-                what,
-                reason: "Helpers from a plugin's agents are not built yet.".to_owned(),
-            }),
+            "agent" => match &component.text {
+                Some(text) => out.profiles.push(profile(component, text)),
+                None => out.not_used.push(NotUsed {
+                    what,
+                    reason: component
+                        .omitted
+                        .clone()
+                        .unwrap_or_else(|| "Its text did not arrive.".to_owned()),
+                }),
+            },
             other => out.not_used.push(NotUsed {
                 what,
                 reason: format!("Spade has nothing to use a {other} for."),
@@ -214,6 +220,69 @@ plugin's headers are not sent."
     out
 }
 
+/// A plugin agent as a helper profile: its text (without frontmatter) is the instructions, a
+/// `tools` list in its frontmatter narrows the tools (never past what every helper is denied),
+/// and a `model` is kept for the engine, which uses it only when the person has that model.
+fn profile(component: &spade_ace::plugins::Component, text: &str) -> spade_core::helper::Profile {
+    let front = frontmatter(text).unwrap_or("");
+    let about = match component.description.trim() {
+        "" => field(front, "description").unwrap_or_default(),
+        description => description.to_owned(),
+    };
+    spade_core::helper::Profile {
+        name: component.name.clone(),
+        about: about
+            .lines()
+            .next()
+            .unwrap_or("")
+            .chars()
+            .take(200)
+            .collect(),
+        instructions: body(text).trim().to_owned(),
+        reads_only: false,
+        tools: tool_list(front),
+        model: field(front, "model").filter(|m| !m.is_empty() && m != "inherit"),
+    }
+}
+
+/// A frontmatter field's value on its own line, unquoted.
+fn field(front: &str, key: &str) -> Option<String> {
+    front.lines().find_map(|line| {
+        let value = line.strip_prefix(key)?.strip_prefix(':')?;
+        Some(unquote(value.trim()).to_owned())
+    })
+}
+
+fn unquote(value: &str) -> &str {
+    value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
+        .unwrap_or(value)
+}
+
+/// The `tools` frontmatter field: `a, b`, `[a, b]` or one `- a` per line below it. `None` when
+/// absent or empty, which narrows nothing.
+fn tool_list(front: &str) -> Option<Vec<String>> {
+    let mut lines = front.lines();
+    lines.find(|line| line.starts_with("tools:"))?;
+    let inline = field(front, "tools").unwrap_or_default();
+    let inline = inline.trim_start_matches('[').trim_end_matches(']');
+    let mut tools: Vec<String> = inline
+        .split(',')
+        .map(|t| unquote(t.trim()).to_owned())
+        .filter(|t| !t.is_empty())
+        .collect();
+    if tools.is_empty() {
+        tools = lines
+            .map_while(|line| line.trim_start().strip_prefix("- "))
+            .map(|t| unquote(t.trim()).to_owned())
+            .filter(|t| !t.is_empty())
+            .collect();
+    }
+    (!tools.is_empty()).then_some(tools)
+}
+
 /// A skill's folder in the plugin, from its SKILL.md's path.
 fn skill_folder(path: &str) -> String {
     path.strip_suffix("/SKILL.md").unwrap_or("").to_owned()
@@ -302,6 +371,42 @@ mod tests {
         assert!(!text.contains("Strict TS."));
         let reasons: Vec<&str> = usable.not_used.iter().map(|n| n.what.as_str()).collect();
         assert_eq!(reasons, ["rule ts", "rule huge", "style: lsp server"]);
+    }
+
+    #[test]
+    fn an_agent_becomes_a_profile_whose_frontmatter_names_its_tools_and_model() {
+        let style = plugin(
+            json!([
+                {"kind": "agent", "name": "reviewer", "path": "agents/reviewer.md",
+                 "description": "Reviews diffs",
+                 "text": "---\nname: reviewer\ntools: lookup, \"note\"\nmodel: fake/m\n---\nReview the diff.\n"},
+                {"kind": "agent", "name": "listed", "path": "agents/listed.md", "description": "",
+                 "text": "---\ndescription: Lists things\ntools:\n  - lookup\nmodel: inherit\n---\nList.\n"},
+                {"kind": "agent", "name": "plain", "path": "agents/plain.md", "description": "d",
+                 "text": "Just do it."},
+            ]),
+            json!([]),
+        );
+        let profiles = usable(&style, false).profiles;
+        assert_eq!(profiles[0].instructions, "Review the diff.");
+        assert_eq!(profiles[0].about, "Reviews diffs");
+        assert_eq!(
+            profiles[0].tools,
+            Some(vec!["lookup".into(), "note".into()])
+        );
+        assert_eq!(profiles[0].model.as_deref(), Some("fake/m"));
+        assert_eq!(profiles[1].tools, Some(vec!["lookup".into()]));
+        assert_eq!(
+            (profiles[1].about.as_str(), profiles[1].model.as_deref()),
+            ("Lists things", None)
+        );
+        assert_eq!(
+            (
+                profiles[2].tools.as_ref(),
+                profiles[2].instructions.as_str()
+            ),
+            (None, "Just do it.")
+        );
     }
 
     #[test]

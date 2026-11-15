@@ -595,6 +595,7 @@ impl Spade {
         }
         bots.set(&engine);
         if let Some(plugins) = plugins {
+            engine.set_profile_source(plugins.clone());
             engine.set_plugins(plugins);
         }
         if let (Some(search), Ok(url)) = (&search, engine.searxng_url()) {

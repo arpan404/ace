@@ -102,6 +102,8 @@ pub struct PluginView {
     /// Skills its bots may load, and commands (manual skills only the person starts).
     pub skills: Vec<String>,
     pub commands: Vec<String>,
+    /// Agents, as helper profiles of the bots allowed the plugin.
+    pub agents: Vec<String>,
     pub hooks: Vec<String>,
     pub servers: Vec<ServerState>,
     /// Remote servers, added as connectors by URL.
@@ -359,7 +361,8 @@ impl Plugins {
                         .map(|server| self.servers.state(agent, name, &server.name))
                         .collect(),
                     remote: usable.remote,
-                    not_used: usable.seams.into_iter().chain(usable.not_used).collect(),
+                    agents: usable.profiles.iter().map(|p| p.name.clone()).collect(),
+                    not_used: usable.not_used,
                 }
             })
             .collect();
@@ -392,6 +395,16 @@ impl crate::skill_store::PluginAccess for Plugins {
 
     fn refresh(&self) -> BoxFuture<'_, ()> {
         Box::pin(self.refresh_briefly())
+    }
+}
+
+/// The agents of the plugins a bot may use now, as its helpers' profiles (ADR 0152, point 4).
+impl crate::engine::ProfileSource for Plugins {
+    fn profiles(&self, agent: &str) -> Vec<spade_core::helper::Profile> {
+        self.for_agent(agent)
+            .iter()
+            .flat_map(|plugin| view::usable(plugin, false).profiles)
+            .collect()
     }
 }
 

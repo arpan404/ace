@@ -27,7 +27,8 @@ use crate::tools::ToolOutput;
 /// Where helper profiles come from besides the built-in `explore` and `general`: the person's
 /// plugin agents (ADR 0151) fill one. A profile named like a built-in one never replaces it.
 pub trait ProfileSource: Send + Sync {
-    fn profiles(&self) -> Vec<Profile>;
+    /// The profiles the bot `agent` may give its helpers.
+    fn profiles(&self, agent: &str) -> Vec<Profile>;
 }
 
 /// The longest task a helper is given, in characters.
@@ -63,11 +64,12 @@ impl Engine {
         let _ = self.helpers.source.set(source);
     }
 
-    /// Every profile a helper can have: the built-in ones, then the source's.
-    pub(crate) fn helper_profiles(&self) -> Vec<Profile> {
+    /// Every profile a helper of the bot conversation `bot` can have: the built-in ones, then
+    /// the source's for its bot.
+    pub(crate) fn helper_profiles(&self, bot: &str) -> Vec<Profile> {
         let mut profiles = vec![Profile::explore(), Profile::general()];
-        if let Some(source) = self.helpers.source.get() {
-            for profile in source.profiles() {
+        if let (Some(source), Some(agent)) = (self.helpers.source.get(), self.agent_of(bot)) {
+            for profile in source.profiles(&agent) {
                 if !profiles.iter().any(|p| p.name == profile.name) {
                     profiles.push(profile);
                 }
@@ -174,10 +176,10 @@ impl Engine {
             .map(str::trim)
             .filter(|p| !p.is_empty())
             .unwrap_or(helper::DEFAULT_PROFILE);
-        let profiles = self.helper_profiles();
+        let profiles = self.helper_profiles(bot);
         let Some(profile) = profiles.into_iter().find(|p| p.name == wanted) else {
             let names: Vec<String> = self
-                .helper_profiles()
+                .helper_profiles(bot)
                 .into_iter()
                 .map(|p| format!("{} ({})", p.name, p.about))
                 .collect();

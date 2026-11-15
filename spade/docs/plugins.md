@@ -49,7 +49,7 @@ Decided in `plugins/view.rs` from the daemon's answer alone:
 | Remote MCP servers | Listed for the person to add as an app by URL, signed in like any connector; the plugin's headers are not sent                                             |
 | Skills             | Store skills with origin `plugin` (below): searched, indexed and loaded, with their files, by the bots allowed the plugin                                  |
 | Commands           | Manual store skills with origin `plugin`: only the person starts one; the bot never finds, indexes or loads one                                            |
-| Agents             | Listed as not used yet: they wait for helper profiles (ADR 0152)                                                                                           |
+| Agents             | Helper profiles of the bots allowed the plugin (ADR 0152, [helpers.md](helpers.md)): instructions, `tools` and `model` from the agent's file               |
 
 Anything ace could not import (`unsupported`) and any execution of a kind this Spade doesn't
 know is listed too. The settings page shows all of these as "Not used by Spade", each with its
@@ -175,7 +175,7 @@ Under `/v1` with Spade's bearer token. `503` when Spade isn't set up with ace.
 | `PUT /agents/{id}/plugins` | `{plugins: [name]}` | The same, after storing; `400` for a plugin not accepted in ace, `404` |
 
 A Plugin is `{name, version, enabled_in_ace, allowed, rules: [name], skills: [name], commands:
-[name], hooks: [event], servers:
+[name], agents: [name], hooks: [event], servers:
 [{name, state, tools, problem}], remote: [{name, url}], not_used: [{what, reason}]}`, where a
 server's `state` is `not_started`, `running`, `stopped` (idle) or `failed`.
 
@@ -185,7 +185,6 @@ what it brings, a remote server's address to add in Apps, and the "Not used by S
 ## Not yet
 
 - Starting a command from the composer: commands are in the store as manual skills, but the
-  composer has no command picker yet. Agents as helper profiles: exposed by `plugins.spade` for
-  that work.
+  composer has no command picker yet.
 - Remote servers are not added as connectors by themselves: the person adds the address.
 - A server's `cwd` from the plugin is not used: every server runs in the bot's workspace.

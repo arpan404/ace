@@ -838,3 +838,95 @@ async fn a_plugins_skills_reach_only_the_bots_allowed_it_and_its_commands_are_ne
     assert!(store.views()?.iter().all(|v| v.origin != "plugin"));
     Ok(())
 }
+
+/// A bot step that starts a helper of `profile` and pauses briefly.
+fn starts_helper(id: &str, profile: &str) -> Script {
+    Script::reply("")
+        .call(
+            id,
+            "helper",
+            json!({ "task": "Review the diff", "profile": profile }),
+        )
+        .call(&format!("{id}p"), "pause", json!({}))
+}
+
+#[tokio::test]
+async fn a_plugin_agent_is_a_helper_profile_of_the_bots_allowed_it_until_the_plugin_is_off()
+-> Result {
+    let kit = plugin(
+        "kit",
+        &"9".repeat(64),
+        "/nowhere",
+        json!([{ "kind": "agent", "name": "reviewer", "path": "agents/reviewer.md",
+                 "description": "Reviews diffs",
+                 "text": "---\nname: reviewer\ntools: lookup, helper\nmodel: nowhere/x\n---\nReview the diff closely.\n" }]),
+        json!([]),
+    );
+    let pause = FakeTool::new("pause", Risk::Read, "ok").slow(Duration::from_millis(300));
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("Hello."),
+            Script::reply("").plain(r#"{"title":"Review"}"#),
+            starts_helper("h1", "reviewer"),
+            Script::reply("The diff looks fine."),
+            Script::reply("Reviewed."),
+            starts_helper("h2", "reviewer"),
+            Script::reply("No reviewer now."),
+        ],
+        vec![
+            Arc::new(pause) as Arc<dyn Tool>,
+            Arc::new(FakeTool::new("lookup", Risk::Read, "found")),
+            Arc::new(FakeTool::new("send_note", Risk::Read, "sent")),
+        ],
+        options(FakeAce::with(vec![kit])),
+    )
+    .await?;
+    let (agent, chat) = bot(&spade, "Reviewer", &["kit"]).await?;
+    spade.say(&chat, "Hi").await?;
+    spade.wait_for(&chat, "renamed").await?;
+
+    spade.say(&chat, "Review it").await?;
+    let events = wait(&spade, &chat, "job_finished", 1).await?;
+    let done = of_type(&events, "job_finished");
+    assert_eq!(done[0]["content"], "The diff looks fine.", "{:?}", done);
+    let request = spade
+        .fake
+        .seen()
+        .into_iter()
+        .map(|seen| seen.body)
+        .find(|body| body.to_string().contains("You are a helper Spade started"))
+        .ok_or("the helper made no request")?;
+    assert!(
+        request.to_string().contains("Review the diff closely."),
+        "{request}"
+    );
+    let offered = request["tools"].to_string();
+    // Its list narrows the tools; naming `helper` never gives it one.
+    assert!(offered.contains("\"lookup\""), "{offered}");
+    for left_out in ["send_note", "pause", "helper"] {
+        assert!(
+            !offered.contains(&format!("\"{left_out}\"")),
+            "{left_out}: {offered}"
+        );
+    }
+    // A model the person has no endpoint for: the bot's.
+    assert_eq!(request["model"], "m", "{}", request["model"]);
+    wait(&spade, &chat, "reply_finished", 2).await?;
+
+    // Turned off for the bot: the profile is gone.
+    spade
+        .put(
+            &format!("/v1/agents/{agent}/plugins"),
+            json!({ "plugins": [] }),
+        )
+        .await?;
+    spade.say(&chat, "Review it again").await?;
+    let events = wait(&spade, &chat, "job_finished", 2).await?;
+    let done = of_type(&events, "job_finished");
+    let refused = done[1]["content"].as_str().unwrap_or_default();
+    assert!(
+        refused.contains("no helper profile named reviewer"),
+        "{refused}"
+    );
+    Ok(())
+}

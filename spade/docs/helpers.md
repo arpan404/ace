@@ -94,12 +94,16 @@ same way, so `explore` keeps read-only ace and connector tools. A call to a tool
 leaves out is answered with a refusal and never run, checked before anything the turn loop
 answers itself (a helper's `ask_user` would wait on a question nobody sees).
 
-**Plugin agents' profiles.** `engine::ProfileSource` is the seam: `fn profiles(&self) ->
-Vec<Profile>`, set once with `Engine::set_profile_source`. A `Profile` has a name, a one-line
-`about`, its instructions, `reads_only`, an optional tool list (by name: it only narrows) and an
-optional model (`endpoint/model`; used when the person still has it, else the bot's model). A
-profile named like a built-in one never replaces it. Nothing fills the source yet; the plugin
-work (ADR 0151) will.
+**Plugin agents' profiles.** `engine::ProfileSource` is the seam: `fn profiles(&self, agent:
+&str) -> Vec<Profile>`, set once with `Engine::set_profile_source`. A `Profile` has a name, a
+one-line `about`, its instructions, `reads_only`, an optional tool list (by name: it only
+narrows) and an optional model (used when it names a model of the person's endpoints, else the
+bot's model). A profile named like a built-in one never replaces it. The person's plugins fill
+it (ADR 0151, `plugins/view.rs`): each agent of a plugin the bot may use now is a profile, its
+text without frontmatter the instructions, its description the `about`, its frontmatter `tools`
+(`a, b`, `[a, b]` or one `- a` a line) the tool list, and its `model` (not `inherit`) the model.
+Turned off for the bot or in ace, the plugin's profiles go; a helper already made keeps the
+profile it was made with.
 
 ## The gate
 
