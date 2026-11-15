@@ -58,7 +58,7 @@
   --suit-lift-3:
     0 1px 2px rgb(0 0 0 / 0.4), 0 10px 24px -6px rgb(0 0 0 / 0.45),
     0 30px 60px -20px rgb(0 0 0 / 0.62);
-  --suit-pane: color-mix(in oklab, var(--color-background) 52%, transparent);
+  --suit-pane: color-mix(in oklab, var(--color-background) 64%, transparent);
   --suit-frost: color-mix(in oklab, var(--color-sidebar) 74%, transparent);
   --suit-frost-raised: color-mix(in oklab, var(--color-surface-2) 84%, transparent);
   --suit-frost-field: color-mix(in oklab, var(--color-surface-1) 80%, transparent);
@@ -92,7 +92,7 @@
 /* ── Regions: frosted panes over the rain ───────────────────────────────────────────────── */
 
 /*
- * The reading column and full pages: a darker pane that lets about half the rain through, sharp,
+ * The reading column and full pages: a darker pane that lets a third of the rain through, sharp,
  * as through a window; the panes round it are frosted.
  */
 [data-part="app"] {
