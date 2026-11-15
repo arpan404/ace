@@ -229,6 +229,13 @@ pub fn instructions(system: &str, events: &[Event]) -> String {
     if let Some(index) = skills.filter(|index| !index.is_empty()) {
         system.push_str(&format!("\n\n{index}"));
     }
+    // The person's plugins' rules and SessionStart text, frozen at the first turn (ADR 0151).
+    if let Some((rules, added)) = crate::hooks::started(events) {
+        let plugins = crate::hooks::instructions(rules, added);
+        if !plugins.is_empty() {
+            system.push_str(&format!("\n\n{plugins}"));
+        }
+    }
     // The bot's notes, frozen until the next compaction (ADR 0128).
     if let Some(notes) = crate::memory::latest_index(events).filter(|n| !n.is_empty()) {
         system.push_str(&format!("\n\n{notes}"));
@@ -459,6 +466,15 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     push_person(&mut out, text, Vec::new());
                 } else {
                     held.push((text, Vec::new()));
+                }
+            }
+            Known::HookRan { hook, outcomes, .. } => {
+                if let Some(text) = crate::hooks::shown(hook, outcomes) {
+                    if pending.is_empty() {
+                        push_person(&mut out, text, Vec::new());
+                    } else {
+                        held.push((text, Vec::new()));
+                    }
                 }
             }
             Known::TaskContinued { nudge, .. } => {
@@ -800,6 +816,11 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
         Event::Known(Known::ToolFinished {
             untrusted: true, ..
         }) => true,
+        // A plugin hook's text may relay anything (ADR 0151).
+        Event::Known(Known::HookRan { hook, outcomes, .. }) => {
+            crate::hooks::untrusted(hook, outcomes)
+        }
+        Event::Known(Known::PluginsStarted { added, .. }) => !added.is_empty(),
         // Names of files and pages from the person's turn at the computer (ADR 0142).
         Event::Known(
             Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
@@ -851,6 +872,11 @@ fn describe_event(events: &[Event], event: &Event) -> String {
         Event::Known(Known::ComputerHandedBack { .. }) => {
             "file names and addresses from the person's turn at the computer".to_owned()
         }
+        Event::Known(Known::HookRan { outcomes, .. }) => {
+            let plugin = outcomes.first().map_or("", |o| o.plugin.as_str());
+            format!("text from the plugin {plugin}'s hook")
+        }
+        Event::Known(Known::PluginsStarted { .. }) => "text from a plugin's hook".to_owned(),
         Event::Known(Known::PersonActivity { .. }) => {
             "file names and addresses from the person's work on the computer".to_owned()
         }
@@ -927,5 +953,7 @@ fn ends_reply(event: &Event) -> bool {
 
 #[cfg(test)]
 mod media_tests;
+#[cfg(test)]
+mod plugin_tests;
 #[cfg(test)]
 mod tests;

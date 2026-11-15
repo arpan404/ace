@@ -203,6 +203,8 @@ impl Transcript {
                 }
             }
             Known::SkillsIndexed { .. }
+            | Known::PluginsStarted { .. }
+            | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }
             | Known::ContextCompacted { .. }

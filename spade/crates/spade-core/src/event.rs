@@ -47,6 +47,24 @@ pub enum Known {
     SkillsIndexed {
         text: String,
     },
+    /// The person's plugins at a conversation's first turn (ADR 0151): their rules, and what
+    /// their `SessionStart` hooks added, fixed like the skill index so the prompt's top stays
+    /// cached. `added` is a hook's text: untrusted.
+    PluginsStarted {
+        #[serde(default)]
+        rules: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        added: String,
+    },
+    /// What the person's plugin hooks answered at one of Spade's events (ADR 0151), stored once
+    /// so a rebuilt prompt is the same and a restart never runs them again for it. `target` names
+    /// what they answered: a call id, a message's or step's event index.
+    HookRan {
+        hook: String,
+        target: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        outcomes: Vec<crate::hooks::HookOutcome>,
+    },
     /// The bot's notes for the cached top of the prompt (ADR 0128), stored before the first model
     /// call and once after each compaction, so the top changes only when the conversation
     /// compacts.

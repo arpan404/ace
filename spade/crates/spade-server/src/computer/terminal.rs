@@ -788,6 +788,7 @@ impl Terminal {
                     env: &carried.env,
                     tee: Some(tee),
                     cleanup: Some(cleanup),
+                    stdin: None,
                 },
             )
             .await;
