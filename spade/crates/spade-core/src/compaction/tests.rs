@@ -688,3 +688,86 @@ fn a_turn_is_never_cut_at_a_step_whose_prompt_missed_a_message() {
     assert!(!step_starts(&events, 0).contains(&missed));
     assert!(step_starts(&events, 0).contains(&2));
 }
+
+/// A write that outlived the foreground window (ADR 0158): stored as a foreground call, answered
+/// at once that it moved to the background, then ended (or not) as job `id`.
+fn handed_off(id: &str, name: &str) -> Vec<Event> {
+    vec![
+        step_calling(&[(id, name)]),
+        tool_started(id, name, Some(Risk::Write), false),
+        Event::Known(Known::JobStarted {
+            reply: "r".into(),
+            job: id.into(),
+            name: name.into(),
+        }),
+        tool_ended(
+            id,
+            name,
+            false,
+            false,
+            &crate::context::moved_to_background(id, 30),
+        ),
+    ]
+}
+
+fn job_ended(id: &str, name: &str, is_error: bool, uncertain: bool, content: &str) -> Event {
+    Event::Known(Known::JobFinished {
+        job: id.into(),
+        name: name.into(),
+        content: content.into(),
+        is_error,
+        uncertain,
+        files: Vec::new(),
+        untrusted: false,
+        cost_micros: None,
+    })
+}
+
+#[test]
+fn a_write_handed_to_the_background_takes_its_outcome_from_its_job() {
+    let registry = Registry::default();
+    let listed = |end: Option<Event>| {
+        let mut events = handed_off("w1", "deploy");
+        events.extend(end);
+        carried_out(&events, events.len(), &registry)
+    };
+    let line = |note: &str| vec![format!(r#"deploy (call w1) {{"id":"w1"}}{note}"#)];
+    assert_eq!(
+        listed(None),
+        line(", still running in the background; its result has not arrived"),
+        "no end yet: still running, not done"
+    );
+    assert_eq!(
+        listed(Some(job_ended("w1", "deploy", false, false, "deployed"))),
+        line(""),
+        "done only once its job succeeded"
+    );
+    assert_eq!(
+        listed(Some(job_ended("w1", "deploy", true, false, "exit 1: build failed"))),
+        Vec::<String>::new(),
+        "a failed job is not carried out"
+    );
+    let maybe = line(MAYBE);
+    assert_eq!(
+        listed(Some(job_ended(
+            "w1",
+            "deploy",
+            true,
+            false,
+            crate::context::JOB_STOPPED
+        ))),
+        maybe,
+        "stopped by the person: may have taken effect"
+    );
+    assert_eq!(
+        listed(Some(job_ended(
+            "w1",
+            "deploy",
+            true,
+            true,
+            crate::context::JOB_LOST
+        ))),
+        maybe,
+        "lost in a restart: may have taken effect"
+    );
+}

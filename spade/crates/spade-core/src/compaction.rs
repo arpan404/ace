@@ -239,8 +239,11 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
 const MAYBE: &str = ", may have taken effect; check before trying it again";
 
 /// What became of a write made before the cut, for the summary's "already carried out" list.
+/// A call that outlived the foreground window and was handed to the background (ADR 0158) is
+/// stored with `background: false` and answered at once that its job began; like a background
+/// tool's, its outcome is its job's end, never that answer.
 fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static str> {
-    if background {
+    if background || started_job(events, call_id) {
         let ended = events.iter().find_map(|event| match event {
             Event::Known(Known::JobFinished {
                 job,
