@@ -73,8 +73,8 @@ items done after shallow checks, and declare the whole job finished because some
    `working`, `checking` (a claim waits for its check, or the check runs), `not_yet`,
    `unchecked` and `done`. `done` needs a `done` verdict on the latest claim and no
    background job still running (ace priority 1).
-6. **API.** `GET /v1/agents/{id}/task` answers `{goal, criteria, items, verdict, progress,
-   checkpoint}`; every agent in the roster adds `task_progress {state, items_total,
+6. **API.** `GET /v1/agents/{id}/task` answers `{task: {goal, items, verdict, checkpoint,
+   progress}}` (the goal carries its criteria; `null` with no goal ever); every agent in the roster adds `task_progress {state, items_total,
    items_closed, items_verified}`. `task_state` (ADR 0144) stays the bot's own word, so a
    client shows "done" only from `task_progress.state`.
 

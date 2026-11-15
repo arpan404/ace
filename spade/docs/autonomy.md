@@ -221,6 +221,34 @@ starts under, then signals the workers, so a Stop pressed at any point after a r
 the step off. A step waiting out its backoff waits on the engine's clock; Stop
 on an idle bot with a step waiting stores `stop_requested` with no reply and calls the step off.
 
+## Goals, plans and the check of done
+
+[ADR 0159](../../docs/adr/0159-spade-goals-plans-and-verification.md). The rules are pure, in
+`spade_core::goal` (`change`, `verify`, `view`); the engine answers the tools itself
+(`engine/goals.rs`).
+
+- `task_goal {title, criteria}` drafts the goal while none is open. Its `text` is the person's
+  latest message (else the bot's task). Refused while a goal is open: only the person changes it.
+- `task_plan {op, …}`: `add {text, parent?}`, `split {item, into}`, `start {item}`,
+  `done {item, evidence}`, `blocked {item, reason}`. Spade numbers items (`1`, `2`, `2.1`).
+  Evidence is `{kind: output, call}` (a finished call or job of this conversation, not a plan
+  call), `{kind: file, path}` (a call here named the file) or `{kind: url, url}`.
+- Events: `goal_set {goal, title, text, criteria, by, verifier?}`, `goal_cleared {goal}`,
+  `plan_changed {goal, change}`, `plan_checkpoint {goal, item, done, total}` (with each `done`),
+  `task_verified {goal, claim, verdict, criteria, rejected, missing, model, cost_micros}`.
+- When a reply ends with the latest `task_status` `done`, a goal open and no job running,
+  `verify::claim` decides: open or blocked items, an empty plan, or nothing changed since the
+  last `not_yet` are answered `not_yet` without a model. Otherwise the verifier (the goal's
+  `verifier`, else the review model) gets the goal, criteria, items and the evidence's stored
+  results, quoted. `done` needs every criterion met and no item rejected. A check that can't
+  run stores `unchecked`. Registered like a waiting step, so Stop calls it off; a restart checks
+  an unchecked claim again.
+- `not_yet` reads as `working` for `task::next`; the next `task_continued` nudge appends a
+  `<check>` with what's missing and a `<plan_next>` naming the item to resume. Plan calls count
+  as an effect for the no-progress pause.
+- After a compaction the instructions end with the goal and plan as they stood when it was
+  stored (`view::pinned`), so the prompt top changes only at compactions.
+
 ## API
 
 - `POST /v1/agents` and `PATCH /v1/agents/{id}` take `access`: `ask`, `auto_review` or
@@ -231,3 +259,11 @@ on an idle bot with a step waiting stores `stop_requested` with no reply and cal
   person.
 - `GET /v1/agents/{id}/activity`: kinds `access` (name is the level) and `task` (`continued`,
   `paused`); `review` entries' outcome is `allowed`, `escalated` or `refused`.
+- `GET /v1/agents/{id}/task` answers `{"task": {goal, items, verdict, checkpoint, progress}}` or
+  `{"task": null}`. `PUT /v1/agents/{id}/task/goal` with `{title, criteria, text?, verifier?}`
+  sets the goal or changes the open one (`400` when invalid); `DELETE` ends it (`409` with none
+  open). Every agent shows `task_progress {state, items_total, items_closed, items_verified}`;
+  `state` is `none`, `working`, `checking`, `not_yet`, `unchecked` or `done`. Show "done" only
+  from it, never from `task_state`.
+- Activity kind `task` adds `goal drafted`, `goal set`, `goal ended`, `checkpoint`, and the
+  verdicts `done`, `not_yet`, `unchecked`.
