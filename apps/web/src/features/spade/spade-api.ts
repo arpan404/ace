@@ -60,8 +60,25 @@ export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
   time_zone?: string;
 };
 
-export async function createAgent(target: SpadeTarget, draft: SpadeNewAgent) {
-  const body = await spadeHttp(target, "POST", "/v1/agents", { body: draft });
+/**
+ * Makes a bot. With `first`, its first message goes in the same call (the new-bot conversation):
+ * Spade makes the bot and sends the message together, or does neither and says why.
+ */
+export async function createAgent(
+  target: SpadeTarget,
+  draft: SpadeNewAgent,
+  first?: { text: string; images: readonly { data: string }[] },
+) {
+  const sent = first
+    ? {
+        ...draft,
+        first_message: {
+          text: first.text,
+          ...(first.images.length ? { images: first.images.map(({ data }) => ({ data })) } : {}),
+        },
+      }
+    : draft;
+  const body = await spadeHttp(target, "POST", "/v1/agents", { body: sent });
   return sure(parseSpadeAgent(body), "new agent");
 }
 

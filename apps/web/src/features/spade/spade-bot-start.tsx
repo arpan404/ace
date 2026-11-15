@@ -1,12 +1,41 @@
 import type { ClientApi } from "@ace/client";
-import type { SpadeAgent, SpadeTemplate } from "@ace/ui-core/spade-chat";
-import { useQuery } from "@tanstack/react-query";
+import { faceForId, shuffleFace, storedBotFace, suggestBotNames } from "@ace/ui-core/bot-face";
+import {
+  spadeAccessChoices,
+  spadeAgentNameMax,
+  spadeAgentTaskMax,
+  spadeNewBotAccess,
+  type SpadeAccess,
+  type SpadeAgent,
+  type SpadeTemplate,
+} from "@ace/ui-core/spade-chat";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { BotFace } from "@/components/bot-face.tsx";
+import { ConfirmDialog } from "@/components/confirm-dialog.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import {
+  Menu,
+  MenuContent,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
+import { Screen } from "@/features/shell/index.ts";
+import { readingColumn } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { createAgent, type SpadeNewAgent } from "./spade-api.ts";
+import type { SpadeMessage } from "./spade-attachments.ts";
+import { AvatarPopover, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
+import { SpadeComposer } from "./spade-composer.tsx";
+import { SpadeMachineScope, useSpadeClient } from "./spade-machine.tsx";
+import { SpadeModelPicker } from "./spade-model-picker.tsx";
+import { ConversationSkeleton, Scroller, useSpadeLine } from "./spade-screen-parts.tsx";
+import { SpadeStateStrip } from "./spade-state.tsx";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
-import type { SpadeHost } from "./use-spade-roster.ts";
+import { useSpadeModels } from "./use-spade-models.ts";
+import { agentsKey, useSpadeRoster, useWornPairs, type SpadeHost } from "./use-spade-roster.ts";
 
 /*
  * Two ways to start a bot besides a blank form (ADR 0132): from one of the templates Spade ships,
@@ -132,5 +161,362 @@ export function ImportBot(props: {
         {importing ? "Importing…" : "Import bot"}
       </Button>
     </>
+  );
+}
+
+/** The face at the head of a new bot's conversation, in px (`--spade-profile-face`). */
+const headFace = 96;
+
+/** The quiet line's controls: words that brighten under the pointer, no box until hovered. */
+const quiet =
+  "-mx-0.5 flex h-6 max-w-full min-w-0 items-center rounded-md px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:text-foreground data-popup-open:bg-hover data-popup-open:text-foreground";
+
+/** `name`, or "Research 2", "Research 3"… when a bot already has it. */
+export function freeName(name: string, taken: readonly string[]): string {
+  const used = new Set(taken.map((each) => each.trim().toLowerCase()));
+  if (!used.has(name.trim().toLowerCase())) return name;
+  let count = 2;
+  while (used.has(`${name} ${count}`.toLowerCase())) count += 1;
+  return `${name} ${count}`;
+}
+
+/** The avatar a draft sends: its picture, or its face as stored. */
+const avatarOf = (draft: AvatarDraft): SpadeNewAgent["avatar"] => {
+  if (draft.kind === "image") return draft;
+  if (draft.kind === "face") return storedBotFace(draft.face, draft.raw);
+  return undefined;
+};
+
+/**
+ * `/spade/new` (docs/design/spade.md §5): New bot is a conversation, not a form. At its head the
+ * bot as it will be: its face, which opens the face popover; its name, edited where it shows (a
+ * name that suits the face until the person types one); and one quiet line, its model (the
+ * model for new bots unless changed), access and machine, each changed in place. Below, the
+ * templates to start from. The first message is its task: Send makes the bot and its first
+ * message in one call, and opens its conversation. Import is in the list's + only.
+ */
+export function NewBotStart() {
+  const line = useSpadeLine();
+  const roster = useSpadeRoster(line.ready);
+  // The machine the person chose, kept while it is out of reach: never another one silently.
+  const [chosen, setChosen] = useState<{ key: string; name: string }>();
+  const host =
+    roster.hosts.find((candidate) => candidate.spade.key === (chosen?.key ?? "primary")) ??
+    (chosen ? undefined : roster.hosts[0]);
+  if (!host)
+    return (
+      <Screen title="">
+        <h1 className="sr-only">New bot</h1>
+        <div className={`${readingColumn} pt-6`}>
+          {!line.ready ? (
+            <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />
+          ) : roster.loading ? (
+            <ConversationSkeleton />
+          ) : (
+            <p className="text-ui text-muted-foreground">
+              {chosen
+                ? `${chosen.name} isn't reachable right now.`
+                : "Spade isn't reachable right now."}
+            </p>
+          )}
+        </div>
+      </Screen>
+    );
+  return (
+    <SpadeMachineScope
+      key={host.spade.key}
+      machine={host.machine}
+      unavailable={
+        <Screen title="">
+          <p className={`${readingColumn} pt-6 text-ui text-muted-foreground`}>
+            {`${host.machine.name} is offline.`}
+          </p>
+        </Screen>
+      }
+    >
+      <NewBotConversation
+        host={host}
+        hosts={roster.hosts}
+        names={roster.bots.map((bot) => bot.name)}
+        blocked={line.ready ? undefined : line.sentence}
+        onMachine={(next) => setChosen({ key: next.spade.key, name: next.machine.name })}
+      />
+    </SpadeMachineScope>
+  );
+}
+
+function NewBotConversation(props: {
+  host: SpadeHost;
+  hosts: readonly SpadeHost[];
+  /** Names the person's bots already have, which a suggested name avoids. */
+  names: readonly string[];
+  blocked: string | undefined;
+  onMachine(host: SpadeHost): void;
+}) {
+  const client = useSpadeClient();
+  const cache = useQueryClient();
+  const navigate = useNavigate();
+  const worn = useWornPairs();
+  const [avatar, setAvatar] = useState<AvatarDraft>(() => ({
+    kind: "face",
+    face: shuffleFace(Math.random, undefined, worn),
+  }));
+  const face = draftFace(avatar);
+  const [fallback] = useState(() => face ?? faceForId("new"));
+  // Undefined: the name follows the face until the person types one.
+  const [typed, setTyped] = useState<string>();
+  const suggested =
+    suggestBotNames(face ?? fallback, "").find((each) => !props.names.includes(each)) ?? "New bot";
+  const name = typed ?? suggested;
+  const [model, setModel] = useState("");
+  const [access, setAccess] = useState<SpadeAccess>(spadeNewBotAccess);
+  const [template, setTemplate] = useState<SpadeTemplate>();
+  const models = useSpadeModels(props.blocked === undefined);
+  const send = async (message: SpadeMessage) => {
+    if (message.documents?.length)
+      throw new Error("A first message takes words and pictures. Send other files once it's made.");
+    const zone = template ? browserTimeZone() : undefined;
+    const avatarSent = avatarOf(avatar);
+    const agent = await createAgent(
+      client,
+      {
+        name: name.trim() || suggested,
+        // The first message is its task; a template brings its own.
+        task: template ? "" : message.text.slice(0, spadeAgentTaskMax),
+        ...(model ? { model } : {}),
+        access,
+        ...(template ? { template: template.id } : {}),
+        ...(zone === undefined ? {} : { time_zone: zone }),
+        ...(avatarSent ? { avatar: avatarSent } : {}),
+      },
+      message,
+    );
+    await cache.invalidateQueries({ queryKey: agentsKey });
+    void navigate({
+      to: "/spade/$agentId",
+      params: { agentId: agent.id },
+      search: props.host.spade.primary ? {} : { on: props.host.spade.key },
+      replace: true,
+    });
+  };
+  const shown = name.trim() || suggested;
+  return (
+    <Screen title="">
+      <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
+        <h1 className="sr-only">New bot</h1>
+        <Scroller>
+          <div className="flex flex-col items-center gap-2 pt-2">
+            <AvatarPopover
+              value={avatar}
+              fallback={face ?? fallback}
+              takenPairs={worn}
+              size={headFace}
+              onChange={(next) => {
+                setAvatar(next);
+                // A template's face changed is the person's own bot now.
+                setTemplate(undefined);
+              }}
+            />
+            <input
+              aria-label="Name"
+              value={name}
+              maxLength={spadeAgentNameMax}
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(event) => setTyped(event.target.value)}
+              onBlur={() => typed !== undefined && !typed.trim() && setTyped(undefined)}
+              className="field-sizing-content h-8 max-w-full min-w-24 rounded-md bg-transparent px-2 text-center text-xl leading-7 font-semibold text-foreground transition-colors duration-(--motion-fast) outline-none placeholder:text-subtle-foreground hover:bg-hover focus-visible:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <RunsWith
+              hosts={props.hosts}
+              host={props.host}
+              name={shown}
+              model={model}
+              newBotModel={models.data?.newBotModel}
+              onModel={setModel}
+              access={access}
+              onAccess={setAccess}
+              onMachine={props.onMachine}
+            />
+          </div>
+          <TemplateRows
+            client={client}
+            machineKey={props.host.spade.key}
+            value={template?.id}
+            onChange={(picked) => {
+              setTemplate(picked);
+              if (!picked) return setTyped(undefined);
+              setTyped(freeName(picked.name, props.names));
+              setAvatar({ kind: "face", face: picked.face });
+            }}
+          />
+        </Scroller>
+        <SpadeComposer
+          name={shown}
+          draftKey="spade:new-bot"
+          answering={false}
+          blocked={props.blocked}
+          placeholder={template ? `What should ${shown} do first?` : `What should ${shown} do?`}
+          send={send}
+        />
+      </div>
+    </Screen>
+  );
+}
+
+/**
+ * The one quiet line under a new bot's name: its model, access and machine, each opening its own
+ * choice where it shows. A single machine is said, not offered.
+ */
+function RunsWith(props: {
+  hosts: readonly SpadeHost[];
+  host: SpadeHost;
+  name: string;
+  /** "": the model for new bots. */
+  model: string;
+  newBotModel: string | undefined;
+  onModel(model: string): void;
+  access: SpadeAccess;
+  onAccess(access: SpadeAccess): void;
+  onMachine(host: SpadeHost): void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const accessLabel =
+    spadeAccessChoices.find((choice) => choice.value === props.access)?.label ?? props.access;
+  const machineName = props.host.machine.primary ? "This machine" : props.host.machine.name;
+  const dot = (
+    <span aria-hidden className="text-subtle-foreground">
+      ·
+    </span>
+  );
+  return (
+    <div className="flex max-w-full min-w-0 flex-wrap items-center justify-center gap-x-1">
+      <SpadeModelPicker
+        label="Model"
+        value={props.model || props.newBotModel || ""}
+        none={props.newBotModel ? undefined : "Your first usable model"}
+        onChange={(next) => props.onModel(next === props.newBotModel ? "" : next)}
+        // The words alone: no box, source or caret on the quiet line.
+        className={cn(
+          quiet,
+          "w-auto max-w-64 justify-start gap-0 bg-transparent pr-1.5 pl-1.5 @max-[440px]:w-auto [&>span>span]:hidden [&>svg]:hidden",
+        )}
+      />
+      {dot}
+      <Menu>
+        <MenuTrigger aria-label={`Access: ${accessLabel}`} className={quiet}>
+          {accessLabel}
+        </MenuTrigger>
+        <MenuContent align="center">
+          <MenuRadioGroup
+            value={props.access}
+            onValueChange={(next: unknown) => {
+              const picked = spadeAccessChoices.find((choice) => choice.value === next);
+              if (!picked || picked.value === props.access) return;
+              if (picked.value === "full_access") setConfirming(true);
+              else props.onAccess(picked.value);
+            }}
+          >
+            {spadeAccessChoices.map((choice) => (
+              <MenuRadioItem key={choice.value} value={choice.value}>
+                {choice.label}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuContent>
+      </Menu>
+      {dot}
+      {props.hosts.length > 1 ? (
+        <Menu>
+          <MenuTrigger aria-label={`Machine: ${machineName}`} className={quiet}>
+            <span className="truncate">{machineName}</span>
+          </MenuTrigger>
+          <MenuContent align="center">
+            <MenuRadioGroup
+              value={props.host.spade.key}
+              onValueChange={(next: unknown) => {
+                const picked = props.hosts.find((each) => each.spade.key === next);
+                if (picked) props.onMachine(picked);
+              }}
+            >
+              {props.hosts.map((each) => (
+                <MenuRadioItem key={each.spade.key} value={each.spade.key}>
+                  {each.machine.primary ? "This machine" : each.machine.name}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuContent>
+        </Menu>
+      ) : (
+        <span className="px-1 text-ui text-muted-foreground">{machineName}</span>
+      )}
+      <ConfirmDialog
+        confirming={
+          confirming
+            ? {
+                title: `Give ${props.name} full access?`,
+                body: "It will never ask before it acts, even to pay, send as you, publish or delete. You keep Stop, spend limits and the activity log.",
+                confirm: "Give full access",
+                run: () => props.onAccess("full_access"),
+              }
+            : undefined
+        }
+        onDone={() => setConfirming(false)}
+      />
+    </div>
+  );
+}
+
+/**
+ * The templates to start from, as the list's rows: face, name and what it does. Picking one
+ * names the bot and gives it the template's face and task; picking it again lets it go.
+ */
+function TemplateRows(props: {
+  client: ClientApi;
+  machineKey: string;
+  value: string | undefined;
+  onChange(template: SpadeTemplate | undefined): void;
+}) {
+  const client = props.client;
+  const templates = useQuery({
+    queryKey: ["spade", "templates", props.machineKey],
+    queryFn: ({ signal }) => readTemplates(client, { signal }),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  if (!templates.data?.length) return null;
+  return (
+    <section aria-labelledby="new-bot-templates" className="mt-7 flex flex-col">
+      <h2 id="new-bot-templates" className="mb-1.5 px-3 text-xs font-medium text-muted-foreground">
+        Start from
+      </h2>
+      <ul className="flex flex-col gap-0.5">
+        {templates.data.map((template) => {
+          const picked = props.value === template.id;
+          return (
+            <li key={template.id}>
+              <button
+                type="button"
+                aria-pressed={picked}
+                onClick={() => props.onChange(picked ? undefined : template)}
+                className={cn(
+                  "flex h-(--spade-list-row) w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover",
+                  picked && "bg-active hover:bg-active",
+                )}
+              >
+                <BotFace face={template.face} size={40} />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-ui font-medium text-foreground">
+                    {template.name}
+                  </span>
+                  {template.blurb && (
+                    <span className="truncate text-ui text-muted-foreground">{template.blurb}</span>
+                  )}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

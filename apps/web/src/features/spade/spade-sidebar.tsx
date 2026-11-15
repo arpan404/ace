@@ -1,10 +1,9 @@
 import { spadeSetupSentence, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { PlusIcon } from "@phosphor-icons/react";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { NewBotDialog } from "./spade-bot-dialog.tsx";
 import { NewGroupDialog } from "./spade-group-dialog.tsx";
 import { SpadeListFoot, SpadeListHead, SpadeListSearch } from "./spade-list-head.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
@@ -38,7 +37,10 @@ export function SpadeSidebar() {
   const { groups } = useSpadeGroups(roster);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
-  const [creating, setCreating] = useState<"bot" | "group">();
+  const [creating, setCreating] = useState<"group">();
+  const navigate = useNavigate();
+  // New bot is a conversation of its own (docs/design/spade.md §5).
+  const newBot = () => void navigate({ to: "/spade/new" });
   const open = useParams({
     strict: false,
     select: (params) => params.agentId ?? params.groupId,
@@ -60,7 +62,7 @@ export function SpadeSidebar() {
           searching={searching}
           onSearch={() => (searching ? closeSearch() : setSearching(true))}
           hosts={roster.hosts}
-          onNewBot={() => setCreating("bot")}
+          onNewBot={newBot}
           onNewGroup={() => setCreating("group")}
         />
         {setup && line.ready && <SpadeStateStrip line={{ ...line, sentence: setup }} />}
@@ -84,7 +86,7 @@ export function SpadeSidebar() {
                 <Button
                   variant="secondary"
                   className="h-(--spade-pill-button) rounded-full px-4"
-                  onClick={() => setCreating("bot")}
+                  onClick={newBot}
                 >
                   <Icon icon={PlusIcon} size={16} />
                   New bot
@@ -120,9 +122,6 @@ export function SpadeSidebar() {
         </div>
       </nav>
       <SpadeListFoot />
-      {creating === "bot" && (
-        <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(undefined)} />
-      )}
       {creating === "group" && (
         <NewGroupDialog
           hosts={roster.hosts}
