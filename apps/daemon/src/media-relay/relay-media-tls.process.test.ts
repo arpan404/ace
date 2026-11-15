@@ -41,7 +41,7 @@ describe.skipIf(!binary)("relay media streams over wss://", { timeout: 30_000 },
     );
     const opened = t.received.findLast((m) => m.type === "connection.open");
     if (opened?.type !== "connection.open") throw new Error("no connection");
-    expect(tab.bind(opened.connection)).toBe(true);
+    expect(tab.bind(opened.connection)).toMatch(/^view-/);
     expect(await firstChunk(client)).toBe(true);
   });
 

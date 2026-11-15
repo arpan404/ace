@@ -207,9 +207,9 @@ export async function setup(cleanups: (() => unknown)[], tls?: RelayTls) {
     const source = runtime.sources.add(producer);
     return {
       source,
-      bind(connection: string) {
+      /** Binds a view of the tab to `connection`: the view id the daemon allocated, if any. */
+      bind(connection: string): string | undefined {
         return runtime.viewers.bind({
-          viewer: `tab-${connection}`,
           requester: {
             session: "s1",
             device: phone.deviceId,

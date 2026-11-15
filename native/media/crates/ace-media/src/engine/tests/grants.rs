@@ -430,4 +430,12 @@ fn an_all_zero_ticket_is_never_stored_and_never_opens_a_connection() {
     ticket(&mut engine, "c1", owner("d1", pairing(1)), 2, 5);
     assert!(engine.claim_ticket(&[0; 32], NOW).is_none());
     assert!(engine.claim_ticket(&[5; 32], NOW).is_some());
+    // Zero but for its last byte is a ticket like any other: every byte counts.
+    let mut last = [0u8; 32];
+    last[31] = 1;
+    ticket(&mut engine, "c2", owner("d1", pairing(1)), 3, 1);
+    assert!(
+        engine.claim_ticket(&last, NOW).is_none(),
+        "not the ticket granted"
+    );
 }

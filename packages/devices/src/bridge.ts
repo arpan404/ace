@@ -80,10 +80,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
     const requester = delivery?.owner();
     const kinds = ["simulator", "scrcpy", "emulator-frames"] as const;
     if (!requester || !port || !kinds.some((kind) => port.serves(kind))) return undefined;
-    const viewer = `${requester.session}/${deviceId}`.slice(0, 64);
     const link = viewLink(operation.link);
-    const bound = port.bind({
-      viewer,
+    const viewer = port.bind({
       requester,
       connection,
       target: { kind: "device", deviceId },
@@ -95,7 +93,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       ...(link ? { link } : {}),
       shows: (producer) => producer.deviceId === deviceId,
     });
-    if (!bound) throw new Error("media-connection: that media connection isn't this session's");
+    if (viewer === undefined)
+      throw new Error("media-connection: that media connection isn't this session's");
     return viewer;
   };
   const streams = new DeviceSubscriptions();
@@ -234,6 +233,8 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
           let requestActor = actor;
           if (operation.op === "subscribe") {
             const slot = streams.reserve(operation.deviceId);
+            // The view granted for this subscribe, so a failure after it undoes it.
+            let granted: string | undefined;
             try {
               const guard = () => {
                 deviceAccess(operation.deviceId);
@@ -243,6 +244,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               const viewer = operation.media
                 ? bindMedia(deviceId, operation.media.connection, operation)
                 : undefined;
+              granted = viewer;
               if (viewer) mediaSubscribes.set(message.requestId, viewer);
               const view = pictures.open(deviceId, {
                 keyframe: () =>
@@ -281,6 +283,10 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
               }
             } catch (error) {
               slot.cancel();
+              if (granted) {
+                peer.delivery?.port()?.unbind(granted);
+                mediaSubscribes.delete(message.requestId);
+              }
               throw error;
             }
           } else if (operation.op === "unsubscribe") {

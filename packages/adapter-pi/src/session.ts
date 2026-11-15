@@ -10,6 +10,7 @@ import { finished } from "node:stream/promises";
 import { piLaunchArgs } from "./launch-args.ts";
 import { piNative } from "@ace/provider-kit/access-modes";
 import {
+  assertSteerTarget,
   InputRejected,
   type ProviderSession,
   type SessionContext,
@@ -358,6 +359,7 @@ export async function openPiSession(
       delivery: "steer" | "queue",
       _commandId?: string,
       origin?: "ace",
+      fence?: import("@ace/engine-api").SteerFence,
     ) {
       // Pi took none of this send until a prompt is written and not refused. Once one prompt
       // is accepted, a later failure leaves the send partly taken, so it may have run.
@@ -376,6 +378,8 @@ export async function openPiSession(
         // Validate every admission before the first one can reach the harness.
         const inputs = nativeCommandInputs(input).map(piInput);
         for (const content of inputs) {
+          // Before the first prompt only: once one is taken, the rest belong with it.
+          if (accepted === 0) assertSteerTarget(delivery, fence);
           requested = true;
           await rpc.request("prompt", {
             ...content,
@@ -384,6 +388,7 @@ export async function openPiSession(
           accepted++;
         }
       } catch (error) {
+        if (error instanceof InputRejected && accepted === 0) throw error;
         if (accepted === 0 && (!requested || error instanceof PiCommandRefused))
           throw new InputRejected(error instanceof Error ? error.message : String(error), {
             cause: error,

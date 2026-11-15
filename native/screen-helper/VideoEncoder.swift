@@ -79,6 +79,11 @@ final class VideoEncoder {
         self.units = units; self.completed = completed; self.dropped = dropped
         self.keyframeInterval = keyframeInterval
     }
+    /// Delivers submitted units before their output route changes. The session stays open.
+    func drain() {
+        if let session { VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid) }
+    }
+
     func requestKeyframe() { lock.lock(); keyframe = true; lock.unlock() }
     /// A sample is being encoded: the next one would be refused as busy.
     var busyNow: Bool { lock.lock(); defer { lock.unlock() }; return busy }

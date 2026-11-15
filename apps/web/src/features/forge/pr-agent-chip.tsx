@@ -8,6 +8,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { useNow } from "@/lib/time.ts";
+import { useLiveList } from "@/lib/live-connection.ts";
 import { cn } from "@/lib/cn.ts";
 import type { ForgePrDetail } from "@ace/protocol";
 import { presenceLead, presenceWords } from "./pr-presence.ts";
@@ -37,9 +38,14 @@ function Marks(props: { cards: readonly ThreadCard[] }) {
   );
 }
 
-/** The tasks linked to this PR as live cards, and the loudest of them with its words. */
+/**
+ * The tasks linked to this PR as live cards, and the loudest of them with its words. None while
+ * the thread list isn't confirmed (`useLiveList`): a saved "working" or "done" may be stale, so
+ * nothing here claims one, as the sidebar's rows don't.
+ */
 export function useLinkedTasks(detail: Pick<ForgePrDetail, "relatedThreads">) {
   const now = useNow();
+  const live = useLiveList();
   const key = detail.relatedThreads
     .filter((t) => !t.archived)
     .map((t) => t.id)
@@ -55,7 +61,8 @@ export function useLinkedTasks(detail: Pick<ForgePrDetail, "relatedThreads">) {
       }),
     [ids],
   );
-  const entries = useSidebar(keys, select, arrayEqual) ?? noEntries;
+  const listed = useSidebar(keys, select, arrayEqual) ?? noEntries;
+  const entries = live ? listed : noEntries;
   const cards = entries.map((entry: ThreadListEntry) =>
     threadCard({ entry, baseline: 0, settled: false, now }),
   );

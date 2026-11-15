@@ -128,10 +128,8 @@ export function screenConnection(
     const port = delivery?.port();
     const requester = delivery?.owner();
     if (!requester || !port || !port.serves("screen")) return undefined;
-    const viewer = `${requester.session}/screen/${sessionId}`.slice(0, 64);
     const link = viewLink(operation.link);
-    const bound = port.bind({
-      viewer,
+    const viewer = port.bind({
       requester,
       connection,
       target: { kind: "screen", sessionId },
@@ -143,7 +141,8 @@ export function screenConnection(
       ...(link ? { link } : {}),
       shows: (producer) => producer.kind === "screen" && producer.sessionId === sessionId,
     });
-    if (!bound) throw new Error("media-connection: that media connection isn't this session's");
+    if (viewer === undefined)
+      throw new Error("media-connection: that media connection isn't this session's");
     delivered.set(sessionId, viewer);
     return viewer;
   };
@@ -325,6 +324,11 @@ export function screenConnection(
               converter.close();
               follow.close();
               view.close();
+              // The grant made for this subscribe goes with it.
+              if (viewer) {
+                peer.delivery?.port()?.unbind(viewer);
+                delivered.delete(sessionId);
+              }
               throw error;
             }
             peer.send({
@@ -341,7 +345,7 @@ export function screenConnection(
           case "stream.configure": {
             // A view ace-media delivers is planned there at the size it asks for.
             const mediaViewer = delivered.get(operation.sessionId);
-            if (mediaViewer)
+            if (mediaViewer) {
               peer.delivery?.port()?.configure(
                 mediaViewer,
                 viewViewport({
@@ -351,6 +355,11 @@ export function screenConnection(
                 }),
                 false,
               );
+              // The helper runs ace-media's plan for that view (`source.want`): this request
+              // only resizes the view there, never reconfiguring the helper against it.
+              data = { codec: operation.settings.codec };
+              break;
+            }
             // The view's request, with its bit rate held to what its link carries.
             const follow = follows.get(operation.sessionId);
             data = follow

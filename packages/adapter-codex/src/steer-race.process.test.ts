@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
-import { InputRejected } from "@ace/engine-api";
+import { InputRejected, SteerTargetLost } from "@ace/engine-api";
 import { obj } from "./native.ts";
 
 test("a steer rejected because its turn ended delivers the same input in a new turn", async () => {
@@ -90,6 +90,66 @@ test("a steer Codex refuses for a turn it already left is reported as unread, ne
       (frame) => frame.dir === "send" && obj(frame.data)["method"] === "turn/start",
     );
     expect(starts).toHaveLength(1);
+  } finally {
+    await h.dispose();
+  }
+});
+
+/** The id Codex gave the turn the test started, read from its own turn/started frame. */
+function startedTurn(frames: readonly { dir: string; data: unknown }[]): string {
+  const started = frames.find((frame) => obj(frame.data)["method"] === "turn/started");
+  const id = obj(obj(obj(started?.data)["params"])["turn"])["id"];
+  if (typeof id !== "string") throw new Error("No turn started");
+  return id;
+}
+
+test.each(["steer-race", "steer-replaced-turn", "steer-replaced-after-end"])(
+  "a fenced steer whose turn is gone at the write (%s) is refused unread, never sent into another turn",
+  async (mode) => {
+    const h = await sessionHarness(false, mode);
+    try {
+      await h.session.send([{ type: "text", text: "running" }], "queue");
+      await h.wait((frame) => obj(frame.data)["method"] === "turn/started");
+      const turn = startedTurn(h.frames);
+      await expect(
+        h.session.send([{ type: "text", text: "correction" }], "steer", "fenced", undefined, {
+          turn,
+          current: () => true,
+        }),
+      ).rejects.toBeInstanceOf(SteerTargetLost);
+      const deliveries = h.frames.filter(
+        (frame) =>
+          frame.dir === "send" &&
+          ["turn/start", "turn/steer"].includes(String(obj(frame.data)["method"])),
+      );
+      // The one steer went to the turn it named; nothing retried it into another or a new turn.
+      expect(deliveries.map((frame) => obj(frame.data)["method"])).toEqual([
+        "turn/start",
+        "turn/steer",
+      ]);
+      expect(obj(obj(deliveries[1]?.data)["params"])["expectedTurnId"]).toBe(turn);
+    } finally {
+      await h.dispose();
+    }
+  },
+);
+
+test("a fenced steer whose turn the engine no longer runs writes nothing", async () => {
+  const h = await sessionHarness(false, "steer-race");
+  try {
+    await h.session.send([{ type: "text", text: "running" }], "queue");
+    await h.wait((frame) => obj(frame.data)["method"] === "turn/started");
+    await expect(
+      h.session.send([{ type: "text", text: "correction" }], "steer", "fenced", undefined, {
+        turn: startedTurn(h.frames),
+        current: () => false,
+      }),
+    ).rejects.toBeInstanceOf(SteerTargetLost);
+    expect(
+      h.frames.filter(
+        (frame) => frame.dir === "send" && obj(frame.data)["method"] === "turn/steer",
+      ),
+    ).toEqual([]);
   } finally {
     await h.dispose();
   }

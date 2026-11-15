@@ -429,7 +429,7 @@ impl Engine {
                     let hint_bps = link
                         .and_then(|l| l.downlink_kbps)
                         .map(|kbps| f64::from(kbps) * 1000.0);
-                    self.delivery.open(
+                    let replaced = self.delivery.open(
                         Open {
                             viewer,
                             connection: connection.get().to_owned(),
@@ -445,6 +445,9 @@ impl Engine {
                         now.mono_ms,
                         out,
                     );
+                    for viewer in replaced {
+                        self.grants.viewer_close(&viewer);
+                    }
                 }
             }
             ToMedia::ViewerConfigure {

@@ -25,6 +25,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tungstenite",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -410,6 +411,14 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "stats_alloc",
+]
+
+[[package]]
+name = "media-ingest"
+version = "0.1.0"
+dependencies = [
+ "media-wire",
+ "zeroize",
 ]
 
 [[package]]

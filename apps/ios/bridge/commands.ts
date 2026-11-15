@@ -6,6 +6,9 @@ import type { PatchSink } from "./agents.ts";
 export type Receipt = {
   ok: boolean;
   error?: string | undefined;
+  /** The daemon's own words for a refusal, when it gives them ("Git is locked", and why). */
+  title?: string | undefined;
+  detail?: string | undefined;
   /** What still runs when a delete was refused for it (`CommandResult.alive`). */
   alive?: CommandResult["alive"];
   /** What a `thread.create` or `workspace.add` made. */

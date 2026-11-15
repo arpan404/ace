@@ -1,11 +1,8 @@
 import {
   elapsedShown,
   formatElapsed,
-  subagentDetail,
-  subagentLabels,
   subagentRunning,
   subagentMeta,
-  subagentTerminal,
   subagentToolId,
   type SubagentDetail,
 } from "@ace/ui-core";
@@ -21,9 +18,9 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
 import { AgentRowContents, agentRowStyles, type AgentRowParts } from "./agent-row.tsx";
+import { useLive, type Live } from "@/lib/live-connection.ts";
+import { subagentDetailLine, subagentStateWords } from "./live-words.ts";
 import { LostChildAction } from "./lost-child-action.tsx";
-
-export { subagentTones } from "./agent-row.tsx";
 
 /** Only this label subscribes to the shared, visibility-aware injected UI clock. */
 export function SubagentElapsed(props: {
@@ -40,14 +37,14 @@ export function SubagentElapsed(props: {
 }
 
 /** Its second line: what it does now, what it waits on, why it failed, or what it found. */
-function useDetail(threadId: string, entry: SubagentEntry, fresh: boolean): SubagentDetail {
+function useDetail(threadId: string, entry: SubagentEntry, live: Live): SubagentDetail {
   const agent = useAgent(threadId, entry.agentId ?? "");
   const tool = useItem(threadId, subagentToolId(agent) ?? "");
-  return subagentDetail(
+  return subagentDetailLine(
+    live,
     entry,
     agent,
     tool?.type === "tool_call" ? tool.call.title : undefined,
-    fresh,
   );
 }
 
@@ -74,7 +71,9 @@ export function SubagentRow(props: {
 }) {
   const { entry } = props;
   const workspace = useWorkspaceActions(props.threadId);
-  const { detail, kind } = useDetail(props.threadId, entry, props.fresh);
+  // Its words, tone, second line and Review all come from `live-words`, current or stale.
+  const live = useLive(props.fresh);
+  const { detail, kind } = useDetail(props.threadId, entry, live);
   const host = useThreadHost(entry.machine ? entry.childThreadId : undefined, entry.machineHost);
   const meta = useMeta(entry);
   const account = useAgentAccount({
@@ -83,21 +82,21 @@ export function SubagentRow(props: {
     elsewhere: entry.machine !== undefined,
     host,
   });
-  const status = subagentLabels[entry.state];
+  const status = subagentStateWords(live, entry.state).word;
   const label = entry.machine
     ? `${host ? "Open " : ""}${entry.title} on ${entry.machine}, ${status}`
     : entry.childThreadId
       ? `Open ${entry.title}'s thread, ${status}`
       : `Open ${entry.title}, ${status}`;
-  const terminal = subagentTerminal(entry.state);
   const parts: AgentRowParts = {
     mark: { provider: entry.provider, model: entry.model, ...account },
     name: entry.title,
     meta,
     machine: entry.machine,
     state: entry.state,
-    stale: !props.fresh && !terminal,
-    elapsed: (
+    live,
+    // How long it ran, or runs, is the state's too: nothing while it isn't current.
+    elapsed: live.current && (
       <SubagentElapsed
         startedAt={entry.startedAt}
         endedAt={entry.endedAt}

@@ -138,7 +138,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
       const connection = opens().at(-1);
       if (connection?.type !== "connection.open") throw new Error("no connection");
       await until(() => tab.source.streaming());
-      expect(tab.bind(connection.connection)).toBe(true);
+      expect(tab.bind(connection.connection)).toMatch(/^view-/);
       return client;
     };
     const before = await connect();
@@ -169,7 +169,7 @@ describe.skipIf(!binary)("relay media streams through ace-media", { timeout: 30_
     );
     const opened = t.received.findLast((m) => m.type === "connection.open");
     if (opened?.type !== "connection.open") throw new Error("no connection");
-    expect(tab.bind(opened.connection)).toBe(true);
+    expect(tab.bind(opened.connection)).toMatch(/^view-/);
     expect(await firstChunk(client)).toBe(true);
     const picture = { type: "source.picture", source: "none", ageMs: 0, epoch: 0 } as const;
     const latencies: number[] = [];

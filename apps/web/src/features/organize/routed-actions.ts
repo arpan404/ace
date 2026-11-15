@@ -4,6 +4,7 @@ import type {
   ThreadActions,
   ThreadTarget,
 } from "./use-thread-actions.ts";
+import type { Decided } from "@/lib/list-actions.ts";
 import { askBeforeArchive, type useArchiveConfirmation } from "./delete-confirmation.ts";
 
 /** Where one list row's action goes: its machine's actions, and the thread's id there. */
@@ -84,18 +85,27 @@ export function routedThreadActions(
     // One question for the whole selection, every machine's commands counted together: Archive
     // archives every machine's rows, Cancel none (`askBeforeArchive`).
     archiveMany: (items, archived) => {
-      const groups = entries(items);
+      // What the person sees as they are asked: each archive is fenced to it, not to its send.
+      const groups = entries(items).map(
+        ([actions, group]) => [actions, group, actions.decisions(group)] as const,
+      );
       askBeforeArchive(
         archiving,
         groups.flatMap(([actions, group]) => actions.leftRunning(group)),
         () => {
-          for (const [actions, group] of groups) actions.archiveManyNow(group);
+          for (const [actions, group, asked] of groups) actions.archiveManyNow(group, asked);
           archived?.();
         },
       );
     },
-    archiveManyNow: (items) => {
-      for (const [actions, group] of entries(items)) actions.archiveManyNow(group);
+    archiveManyNow: (items, decided) => {
+      for (const [actions, group] of entries(items)) actions.archiveManyNow(group, decided);
+    },
+    decisions: (items) => {
+      const all = new Map<string, Decided>();
+      for (const [actions, group] of entries(items))
+        for (const [id, decided] of actions.decisions(group)) all.set(id, decided);
+      return all;
     },
     leftRunning: (items) =>
       entries(items).flatMap(([actions, group]) => actions.leftRunning(group)),

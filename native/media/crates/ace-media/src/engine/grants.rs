@@ -69,9 +69,12 @@ fn refuse(out: &mut Vec<Effect>, grant: &Grant<'_>, reason: Refusal) {
     );
 }
 
-/// Every byte zero (or nothing at all): a wiped buffer, never a ticket.
+/// Every byte zero (or nothing at all): a wiped buffer, never a ticket. Every byte is read, in
+/// constant time, so how long this takes says nothing about where a presented ticket differs.
 fn is_zero(bytes: &[u8]) -> bool {
-    bytes.iter().all(|byte| *byte == 0)
+    use subtle::ConstantTimeEq;
+    let folded = bytes.iter().fold(0u8, |acc, byte| acc | byte);
+    bool::from(folded.ct_eq(&0))
 }
 
 fn full(out: &mut Vec<Effect>, result: Result<(), Full>) {

@@ -91,6 +91,8 @@ fn main() {
         height: 720,
         scale: 1.0,
         codec: "jpeg".into(),
+        keyframe: None,
+        video_codec: None,
         bytes: payload.len(),
         dirty_rects: None,
     };

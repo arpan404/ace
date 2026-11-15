@@ -6,6 +6,7 @@ import type { Session } from "./session.ts";
 import type { ScreenOptions } from "./options.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { bundles } from "./policy.ts";
+import { helperEncodesVideo, videoOnlyToMedia } from "./media-source.ts";
 import { readTree, findElements } from "./semantic.ts";
 const StreamCodec = z.object({ codec: z.enum(["jpeg", "h264"]) });
 type ObservationPorts = {
@@ -15,6 +16,14 @@ type ObservationPorts = {
   releaseUnused(session: Session): void;
   options: ScreenOptions;
 };
+/** Helpers that serve `stream.keyframe` and `stream.image`: every Mac one, and Windows' when it encodes. */
+function streamsOnRequest(session: Session): boolean {
+  const capabilities = session.helper.capabilities;
+  if (capabilities?.platform === "macos") return true;
+  if (!helperEncodesVideo(capabilities)) return false;
+  // A Linux helper streams video only while it goes to ace-media; otherwise it sends stills.
+  return !videoOnlyToMedia(capabilities) || session.media?.ingesting === true;
+}
 /** Pixel leases and fresh semantic reads do not acquire an agent controller. */
 export class SessionObservations {
   private readonly host: HelperHost;
@@ -101,16 +110,17 @@ export class SessionObservations {
     const settings = ScreenStreamSettings.parse(raw);
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (
-      session.helper.capabilities?.platform !== "macos" ||
-      !session.helper.capabilities.codecs.includes("h264")
-    )
+    const capabilities = session.helper.capabilities;
+    // A Linux helper encodes video only into ace-media: without a media source it stays on
+    // today's JPEG pictures (its media source decides the path).
+    if (!helperEncodesVideo(capabilities) || (videoOnlyToMedia(capabilities) && !session.media))
       return { codec: "jpeg" };
     const result = session.media
       ? await session.media.configure(settings)
       : StreamCodec.parse(await session.helper.request({ op: "stream.configure", settings }));
     // A view may ask just before its subscription lands; the last one leaving switches back.
-    if (result.codec === "h264") session.viewerVideo = true;
+    if (result.codec === "h264" || (session.media && settings.codec === "h264"))
+      session.viewerVideo = true;
     return result;
   }
   /**
@@ -135,8 +145,7 @@ export class SessionObservations {
   async requestKeyframe(id: string): Promise<void> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (session.helper.capabilities?.platform === "macos")
-      await session.helper.request({ op: "stream.keyframe" });
+    if (streamsOnRequest(session)) await session.helper.request({ op: "stream.keyframe" });
   }
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
@@ -145,7 +154,8 @@ export class SessionObservations {
     const lease = session.pixels.acquire();
     try {
       await lease.ready;
-      if (session.helper.capabilities.platform === "macos") {
+      // A helper that streams video makes a still on request; others send stills anyway.
+      if (streamsOnRequest(session)) {
         session.pixels.invalidateImage();
         await session.helper.request({ op: "stream.image" });
       }

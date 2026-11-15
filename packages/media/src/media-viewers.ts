@@ -19,6 +19,7 @@ export type ViewTarget = ViewerOpen["target"];
 export type ViewViewport = ViewerOpen["viewport"];
 
 export type ViewIntent = {
+  /** The view's id in ace-media: `MediaViewers.bind` allocates it, unique in this daemon. */
   viewer: string;
   /** Who subscribed: its main session, or a channel of its own with its device and admission. */
   requester: MediaOwner;
@@ -74,17 +75,18 @@ export class MediaViewers {
   }
 
   /**
-   * A subscribe naming `intent.connection`. False when its requester doesn't own it: the
-   * caller refuses the subscribe. True even before the producer streams into ace-media: the
-   * view is granted once it does.
+   * A subscribe naming `request.connection`: the view's id, allocated here. Undefined when its
+   * requester doesn't own the connection: the caller refuses the subscribe. A view exists even
+   * before its producer streams into ace-media: it is granted once it does.
    */
-  bind(intent: ViewIntent): boolean {
-    if (!this.#options.connections.owned(intent.requester, intent.connection)) return false;
+  bind(request: Omit<ViewIntent, "viewer">): string | undefined {
+    if (!this.#options.connections.owned(request.requester, request.connection)) return undefined;
+    const intent: ViewIntent = { ...request, viewer: `view-${this.#options.id()}` };
     const held: Held = { intent, path: undefined, producer: undefined };
     this.#held.set(intent.viewer, held);
     const live = this.#options.live().find((entry) => intent.shows(entry.producer));
     if (live) this.#grant(held, live.path, live.producer);
-    return true;
+    return intent.viewer;
   }
 
   /** Whether the view is granted under a producer streaming into ace-media now. */
@@ -113,6 +115,15 @@ export class MediaViewers {
     if (!held) return;
     held.intent = { ...held.intent, viewport, audio };
     if (held.path) this.#options.send({ type: "viewer.configure", viewer, viewport, audio });
+  }
+
+  /**
+   * Opens a held view in ace-media again, under its id and its current intent: a subscribe that
+   * failed after its new view replaced this one there puts this one back.
+   */
+  regrant(viewer: string): void {
+    const held = this.#held.get(viewer);
+    if (held?.path !== undefined && held.producer) this.#grant(held, held.path, held.producer);
   }
 
   pause(viewer: string, paused: boolean): void {
@@ -217,11 +228,14 @@ export class MediaViewers {
 export type MediaDeliveryPort = {
   /** Whether ace-media delivers this kind's viewers now (setting, health and route). */
   serves(kind: import("./routes.ts").SourceKind): boolean;
-  bind(intent: ViewIntent): boolean;
+  /** The view's id, or undefined when the requester doesn't own the connection. */
+  bind(request: Omit<ViewIntent, "viewer">): string | undefined;
   granted(viewer: string): boolean;
   poster(viewer: string): Promise<MediaPosterBytes | undefined>;
   configure(viewer: string, viewport: ViewViewport, audio: boolean): void;
   pause(viewer: string, paused: boolean): void;
+  /** Opens a held view again in ace-media, where a newer view of its target replaced it. */
+  regrant(viewer: string): void;
   unbind(viewer: string): void;
 };
 
