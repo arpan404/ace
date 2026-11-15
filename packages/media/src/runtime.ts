@@ -96,7 +96,11 @@ export class MediaRuntime {
     this.sources = new IngestSources({
       port: {
         send: (message, payload) => this.supervisor.send(message, payload),
-        ingest: () => this.supervisor.ingest(),
+        ingest: () => {
+          const ingest = this.supervisor.ingest();
+          const pid = this.supervisor.snapshot().pid;
+          return ingest && { ...ingest, ...(pid ? { pid } : {}) };
+        },
         need: () => this.supervisor.need(),
       },
       router: this.egress,

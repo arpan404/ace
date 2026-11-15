@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
+import { removeWhenFree } from "./supervisor-test-support.ts";
 import { encodeMediaFrame, type MediaFrame } from "./frame.ts";
 import { authenticateLane, connectLane } from "./lanes.ts";
 import {
@@ -39,9 +40,9 @@ const target = real
       launch: (script: string) => ({ command: process.execPath, args: [script] }),
     };
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: (() => void | Promise<void>)[] = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
 async function until(condition: () => boolean, ms = 10_000): Promise<void> {
@@ -65,14 +66,23 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
   const runtimeDir = mkdtempSync(join(tmpdir(), "ace-media-"));
   const exits: MediaExit[] = [];
   const state = { replays: 0, egress: 0 };
+  // The control socket the supervisor dialled for its lanes, as ace-media named it in `ready`.
+  let dialled: string | undefined;
+  const remember = (host: MediaHost): MediaHost => ({
+    spawn: (binary) => host.spawn(binary),
+    connect: (path) => {
+      dialled = path;
+      return host.connect(path);
+    },
+  });
   const supervisor: MediaSupervisor = new MediaSupervisor({
     version: target.version,
     binary: target.binary,
     runtimeDir,
     dataDir: runtimeDir,
     settings: () => ({ ...legacyMediaSettings, stills: "auto" }),
-    host: (hooks.host ?? ((host) => host))(
-      nodeMediaHost({ ...process.env, ...env }, target.launch),
+    host: remember(
+      (hooks.host ?? ((host) => host))(nodeMediaHost({ ...process.env, ...env }, target.launch)),
     ),
     ...(hooks.randomBytes ? { randomBytes: hooks.randomBytes } : {}),
     clock: systemMediaClock,
@@ -87,13 +97,20 @@ function start(env: NodeJS.ProcessEnv = {}, hooks: Hooks = {}) {
     onExit: (exit) => void exits.push(exit),
     log: () => {},
   });
-  cleanups.push(() => {
+  cleanups.push(async () => {
     supervisor.dispose();
-    rmSync(runtimeDir, { recursive: true, force: true });
+    await removeWhenFree(runtimeDir);
   });
   const control = () => {
     const pid = supervisor.snapshot().pid;
-    if (real) return join(runtimeDir, `m${pid}c.sock`);
+    // The binary names its control socket itself in `ready` (`m<pid>c.sock`, or a named pipe
+    // with a nonce on Windows): the one the supervisor dialled, known before both lanes are up.
+    // `supervisor.ingest()` is not it: that stays empty until the process accepts producers.
+    if (real) {
+      if (!dialled)
+        throw new Error("The supervisor has not dialled ace-media's control socket yet");
+      return dialled;
+    }
     return process.platform === "win32"
       ? `\\\\.\\pipe\\ace-media-fake-${pid}`
       : join(runtimeDir, "control.sock");
