@@ -87,7 +87,7 @@ async function offered(early: Uint8Array, grantEntry?: string): Promise<string[]
       },
       send() {},
       close() {},
-    } as PortableSocket;
+    } as unknown as PortableSocket;
   };
   await connectPortableRelay({
     relayUrl: "wss://relay.invalid",

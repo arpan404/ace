@@ -46,6 +46,8 @@ const output = argument("output", "");
 const joinRtt = Number(argument("join-rtt", "0"));
 /** `--in-upgrade=0`: step 1 only, as before step 3 (ADR 0155). */
 const inUpgrade = argument("in-upgrade", "1") !== "0";
+/** `--nk=0`: main's client (XX on every connect); NK for returning streams otherwise. */
+const nk = argument("nk", "1") !== "0";
 const timeoutMs = 120_000;
 
 const Thread = z.object({ id: z.string(), items: z.number(), turns: z.number() });
@@ -146,6 +148,7 @@ function client(
     socket: sockets.socket,
     schedule: (callback, delayMs) => scheduler.set(delayMs, callback),
     inUpgrade,
+    nk,
   });
   return new Client({
     // What the web app passes (apps/web/src/boot/client.ts).
@@ -344,7 +347,7 @@ function table(results: Awaited<ReturnType<typeof measure>>) {
     "connections",
   ] as const;
   const lines = [
-    `step (median ms from dial, ${profile.name}, join rtt ${joinRtt}${inUpgrade ? "" : ", step 1 only"})`.padEnd(
+    `step (median ms from dial, ${profile.name}, join rtt ${joinRtt}${inUpgrade ? "" : ", step 1 only"}${nk ? ", NK" : ", XX"})`.padEnd(
       30,
     ) + "cold  reconnect  relaunch",
   ];
@@ -365,6 +368,7 @@ const result = {
   profile,
   joinRtt,
   inUpgrade,
+  nk,
   runs,
   startedAt: new Date().toISOString(),
   results,

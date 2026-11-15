@@ -37,8 +37,10 @@ const output = argument("output", "");
 const joinRtt = Number(argument("join-rtt", "0"));
 const load = Number(argument("load", "0"));
 const timeoutMs = 60_000;
-const modes = ["step 1", "step 3"] as const;
-type Mode = (typeof modes)[number];
+/** "xx + step 3" is main's client; "nk + step 3" opens returning streams with Noise NK. */
+const modes = argument("modes", "xx + step 3,nk + step 3").split(",") as Mode[];
+const allModes = ["step 1", "xx + step 3", "nk + step 3"] as const;
+type Mode = (typeof allModes)[number];
 
 const Thread = z.object({ id: z.string(), items: z.number(), turns: z.number() });
 const Ready = z.object({
@@ -99,7 +101,7 @@ function client(
   route: { relayUrl: string; relayHostId: string; deviceId: string; token: string },
   socket: ReturnType<typeof sockets>["socket"],
   snapshots: FileSnapshots,
-  inUpgrade: boolean,
+  mode: Mode,
 ) {
   const relayed = relayRoute({
     relayUrl: route.relayUrl,
@@ -107,7 +109,8 @@ function client(
     credential: async () => route.token,
     socket,
     schedule: (callback, delayMs) => scheduler.set(delayMs, callback),
-    inUpgrade,
+    inUpgrade: mode !== "step 1",
+    nk: mode === "nk + step 3",
   });
   return new Client({
     openTail: screenTail,
@@ -184,7 +187,7 @@ async function measure() {
     env: { ACE_RELAY_URL: daemonRelay.toString() },
   });
   let shaper: LinkShaper | undefined;
-  const results: Record<Mode, Resume[]> = { "step 1": [], "step 3": [] };
+  const results: Record<Mode, Resume[]> = { "step 1": [], "xx + step 3": [], "nk + step 3": [] };
   try {
     const { ready } = daemon;
     if (!ready.relayHostId) throw new Error("The daemon did not report a relay host id");
@@ -216,7 +219,7 @@ async function measure() {
         process.stderr.write(`relay-resume: run ${run + 1} of ${runs}, ${mode}\n`);
         const links = sockets();
         const snapshots = new FileSnapshots(join(daemon.home, `client-${mode}-${run}.json`));
-        const connection = client(route, links.socket, snapshots, mode === "step 3");
+        const connection = client(route, links.socket, snapshots, mode);
         await connection.start();
         const thread = connection.thread(threadId);
         const sidebar = connection.threads();
@@ -246,7 +249,7 @@ async function measure() {
           welcome: Math.round(welcome - dialled),
           events: Math.round(events - dialled),
           current: Math.round(done - dialled),
-          taken: last?.protocol === "ace.v2",
+          taken: last?.protocol === "ace.v2" || last?.protocol === "ace.v3",
           dials: links.dials.length - before,
         });
         thread.release();
