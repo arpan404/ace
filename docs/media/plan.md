@@ -1708,12 +1708,16 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   stream ask for shared memory only, and the producer renegotiates. The newest buffer is held
   (handed back once a newer one replaces it), so a keyframe, a still, or someone starting to
   watch encodes the current picture without waiting for the desktop to change, and a picture
-  that arrives too soon waits without a copy. Tiled modifiers (an EGL/VA modifier query) are
+  that arrives too soon waits without a copy. PipeWire's `remove_buffer` clears a held buffer
+  it removes, and a format change hands the held one back first, so redelivery and teardown
+  never touch a buffer of the old format; the capture asks the C shell whether one is held. Tiled modifiers (an EGL/VA modifier query) are
   not offered yet.
 - **Paths per backend** (`encoder.rs`, `gl.rs`).
   - VA-API: a DMA-BUF is imported as a VA surface (`DRM_PRIME_2`) and VPP converts and scales
-    it: 0 readbacks, 0 uploads. Shared memory is uploaded once (`uploads: 1`). VPP takes the
-    whole buffer: a GNOME window's crop is applied on the shared-memory path only.
+    it: 0 readbacks, 0 uploads. Shared memory is uploaded once (`uploads: 1`). VPP is given the
+    whole surface, so a buffer with a crop (`SPA_META_VideoCrop`: GNOME's window streams) never
+    reaches it (`select::dmabuf_use`): the stream moves to shared memory, where only the region
+    is copied out. Applying the crop in VPP (`surface_region`) would need a `media-vaapi` change.
   - NVENC: the DMA-BUF becomes an `EGLImage` on the NVIDIA EGL device (surfaceless OpenGL 3.3
     context, current on the capture thread), bound to a texture; one framebuffer blit crops and
     scales it into the texture NVENC encodes (`NV_ENC_DEVICE_TYPE_OPENGL`). Shared memory is one
@@ -1730,7 +1734,10 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
 - **Ingest** (`media/ingest.rs`). The writer, route, retirement and framing are E1's sans-IO
   `media-ingest` crate; the helper only drives it: one tokio task owns the `Route`, and units
   from the capture thread and switches from `stream.configure` reach it through one queue, so
-  a switch keeps its exact boundary. Each connection has a writer task and a reader (EOF means
+  a switch keeps its exact boundary. Units wait at most 8 MiB (`ADMIT_LIMIT`); past it video
+  is dropped to the next keyframe and one is asked for, so a stalled route never grows the
+  helper. Connection reports and close have a queue of their own, served first; close is
+  terminal (connects cancelled, connections destroyed, the task gone). Each connection has a writer task and a reader (EOF means
   ace-media closed it), and a 100 ms tick judges deadlines. A cut sends video back to the
   daemon's socket at once and says so with `stream.ingest`. The helper never calls
   `legacy_still`: its boundary is the last video unit, which is what the daemon's merge waits for.
@@ -1744,6 +1751,12 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   - the helper's unit tests, and the ingest shell against real sockets: route flips with no
     unit lost or repeated and an end frame on every replaced path, ace-media's connection
     dropping → the daemon's socket at once, a socket that can't be opened;
+  - `tests/crop_paths.rs` (`ACE_E2_ENCODERS=1`): a buffer red outside a green region, through
+    the encoders the machine has (here the last resort), decoded by ffmpeg: no red, and the
+    region's size;
+  - `tests/computer/run-renegotiate.sh`: the helper built with AddressSanitizer in its C shell,
+    renegotiating its buffers (debug builds take `ACE_SCREEN_TEST_REALLOCATE_MS`) while it holds
+    one and is asked for keyframes and stills; before the fix it crashed in `deliver()`;
   - `tests/computer/run-video.sh` in headless GNOME 48 through the real RemoteDesktop/ScreenCast
     portal and PipeWire (shared memory), the last-resort encoder on Debian's Chromium: the hello
     reports `chrome`, not hardware, not zero copy; video starts at a keyframe with SPS/PPS;
@@ -1762,7 +1775,8 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
 DMA-BUF` on stderr and the hello's first encoder `vaapi`, `hardware` and `zeroCopy` true;
      then, in the desktop session, `ACE_SCREEN_VAAPI=1 ACE_SCREEN_INTEGRATION=1
 ACE_MEDIA_TEST_BINARY=… ACE_LINUX_HELPER=… bun --bun x vitest run
-src/media-ingest.linux.process.test.ts` in `packages/screen`. Record the "Acceleration
+src/media-ingest.linux.process.test.ts` in `packages/screen`, and
+     `ACE_SCREEN_VAAPI=1 ACE_E2_ENCODERS=1 cargo test --test crop_paths` in the helper. Record the "Acceleration
      acceptance" Linux columns (1080p60 and 4K30 CPU per stream, copies 0 / 0 on DMA-BUF, 0 / 1 on
      shared memory) with distribution, kernel, Mesa and `intel-media-driver` versions.
   2. NVIDIA (driver ≥ 590): after B5's `ACE_NV_HEADERS` layout check passes, the same with
@@ -1770,5 +1784,6 @@ src/media-ingest.linux.process.test.ts` in `packages/screen`. Record the "Accele
   3. A two-GPU laptop (Intel + NVIDIA): the screen is captured on one GPU; check that a DMA-BUF
      the other can't import falls back to shared memory (`capture: shared memory`) and keeps
      streaming.
-  4. A window share on GNOME with VA-API on DMA-BUF: check whether the encoded picture shows the
-     window's surroundings (no crop on that path yet).
+  4. A window share on GNOME with VA-API: it must say `capture: shared memory` after its first
+     cropped buffer and show nothing outside the window; a whole-screen share stays on DMA-BUF.
+     With NVENC (`ACE_MEDIA_NV=1`), a window share stays on DMA-BUF and the GL blit crops it.
