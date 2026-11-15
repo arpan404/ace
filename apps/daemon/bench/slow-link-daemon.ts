@@ -250,10 +250,7 @@ async function seedThread(title: string, first: number, count: number): Promise<
 }
 
 const recorded = await recordedTurns();
-/**
- * The recordings' own text (tool outputs and messages, each once), for raw payloads that
- * deflate as real provider output does: repeated, it repeats only past deflate's window.
- */
+/** The recordings' own text (tool outputs and messages, each once). */
 const recordedPieces = new Set<string>();
 for (const item of recorded.flat()) {
   if (item.output) recordedPieces.add(item.output);
@@ -261,7 +258,28 @@ for (const item of recorded.flat()) {
     for (const part of item.draft.parts ?? [])
       if (part.type === "text") recordedPieces.add(part.text);
 }
-const recordedText = [...recordedPieces].join("\n");
+const recordedWords = [...recordedPieces].join("\n").split(/\s+/).filter(Boolean);
+/**
+ * `bytes` of text made of the recordings' words in a fixed pseudo-random order, eleven to a
+ * line: it deflates about as real provider output does (2.5 to 3 to one), where the recorded
+ * text itself repeated would repeat inside deflate's 32 KiB window and shrink far more.
+ */
+function providerText(bytes: number): string {
+  let state = 0x2545f491;
+  const lines: string[] = [];
+  let length = 0;
+  while (length < bytes) {
+    const words: string[] = [];
+    for (let index = 0; index < 11; index++) {
+      state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+      words.push(recordedWords[state % recordedWords.length] ?? "");
+    }
+    const line = words.join(" ");
+    lines.push(line);
+    length += line.length + 1;
+  }
+  return lines.join("\n").slice(0, bytes);
+}
 const shapes = threadShapes(recorded);
 const threads: Record<string, { id: string; items: number; turns: number }> = {};
 /** Older threads by id, for head-of-line.ts to raise questions and sends on. */
@@ -363,9 +381,7 @@ process.on("message", (input: unknown) => {
         return;
       }
       if (request.op === "raw-turn") {
-        const pad = recordedText
-          .repeat(Math.ceil(request.bytes / recordedText.length))
-          .slice(0, request.bytes);
+        const pad = providerText(request.bytes);
         await turn(request.thread, "Run the long command", { kind: "turn", turn: 0, pad });
         process.send?.({ id: request.id, head: daemon.store.headSeq() });
         return;
