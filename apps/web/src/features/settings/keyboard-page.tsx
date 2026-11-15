@@ -34,6 +34,7 @@ import {
 import { useDeviceKeymap } from "@/lib/device-keymap.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { GlobalShortcuts } from "./keyboard-global.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /** The page's sections, in order; an id not listed lands in "Other". */
 const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
@@ -429,6 +430,7 @@ function ShortcutRow(props: {
             aria-label={`${label} shortcut`}
             aria-describedby={described}
             aria-pressed={recording}
+            {...part("button", recording && "active", "shortcut")}
             onClick={() => props.onRecord(!recording)}
             onKeyDown={props.onKeyDown}
             className="rounded-sm px-1 py-0.5 transition-shadow duration-(--motion-fast) hover:bg-accent focus-ring aria-pressed:bg-accent"

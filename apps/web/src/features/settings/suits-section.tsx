@@ -2,7 +2,7 @@ import type { SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { themes, type Scheme } from "@ace/themes";
 import { Link } from "@tanstack/react-router";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { suitReady } from "@/theme/suits/applied-suit.ts";
 import { suitPalette } from "@/theme/suits/suit-css.ts";
 import { useSuitDetail, useSuitLibrary } from "@/theme/suits/suit-library.tsx";
@@ -143,7 +143,7 @@ function MakeOne(props: { title: string }) {
       <Link
         to="/new"
         search={{ skill: "make-a-suit" }}
-        className={buttonVariants({ variant: "secondary", size: "sm" })}
+        {...buttonLook({ variant: "secondary", size: "sm" })}
       >
         Make one with an agent
       </Link>

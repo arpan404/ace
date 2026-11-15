@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { part } from "@/lib/suit-part.ts";
 
 /** One way to do what a sheet is for: its name, a sentence, and whether it's the one to pick. */
 export interface Way<K extends string> {
@@ -23,6 +24,7 @@ export function SheetWays<K extends string>(props: {
           <button
             type="button"
             onClick={() => props.onPick(way.key)}
+            {...part("list-row", undefined, "way")}
             className="flex w-full items-start gap-3 rounded-lg px-2 py-3 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
           >
             <span

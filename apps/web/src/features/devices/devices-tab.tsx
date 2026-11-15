@@ -2,7 +2,7 @@ import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
 import { useRef, useState, type ReactNode } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SearchField } from "@/components/search-field.tsx";
@@ -101,7 +101,7 @@ export function DevicesTab(props: { threadId: string }) {
         title="Simulators and emulators are off"
         description="They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them."
         action={
-          <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
+          <Link to="/settings/simulators" {...buttonLook({ variant: "primary" })}>
             Open Settings
           </Link>
         }
@@ -149,11 +149,7 @@ export function DevicesTab(props: { threadId: string }) {
               description="Create one in Xcode or Android Studio, then refresh."
               action={
                 <div className="flex gap-2">
-                  <Link
-                    to="/settings/simulators"
-                    hash="tools"
-                    className={buttonVariants({ size: "sm" })}
-                  >
+                  <Link to="/settings/simulators" hash="tools" {...buttonLook({ size: "sm" })}>
                     Set up tools…
                   </Link>
                   <Button size="sm" onClick={devices.refresh}>

@@ -1,4 +1,5 @@
 import { windowsHelpActions } from "@/boot/help-actions.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * Windows: Help, Report an issue and Show logs, which macOS and Linux keep in the app menu. Plain
@@ -13,6 +14,7 @@ export function HelpRows(props: { scope?: object }) {
         <button
           key={action.id}
           type="button"
+          {...part("link")}
           className="h-8 rounded-sm text-md text-foreground hover:underline focus-ring"
           onClick={() => void action.run().catch(() => {})}
         >

@@ -12,6 +12,7 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { QueuedAttachments } from "./queued-attachments.tsx";
@@ -107,7 +108,11 @@ export function QueuedTray(props: {
   };
   return (
     <>
-      <section aria-label="Message queue" className="w-full text-xs text-muted-foreground">
+      <section
+        aria-label="Message queue"
+        {...part("queue-strip", undefined, queue.page?.paused ? "paused" : undefined)}
+        className="w-full text-xs text-muted-foreground"
+      >
         <div className="flex h-5.5 min-w-0 items-center gap-1.5 px-1">
           <Icon icon={QueueIcon} size={12} className="shrink-0" />
           <span className="min-w-0 truncate">
@@ -176,6 +181,11 @@ export function QueuedTray(props: {
                 <li
                   key={message.id}
                   data-queue-id={message.id}
+                  {...part(
+                    "queue-item",
+                    edited ? "selected" : busy ? "working" : undefined,
+                    saving ? "saving" : ambiguous ? "uncertain" : undefined,
+                  )}
                   aria-busy={busy}
                   aria-label={
                     saving

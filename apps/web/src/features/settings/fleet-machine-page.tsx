@@ -22,11 +22,13 @@ import { MachinePause } from "./machine-pause.tsx";
 import { MachineSoftware } from "./machine-software.tsx";
 import { useMachineAction } from "./machine-unlock.tsx";
 import { SettingsBody } from "./settings-body.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const back = (
   <Link
     to="/settings/remote"
     aria-label="Back to Fleet"
+    {...part("link", undefined, "back")}
     className="inline-flex items-center gap-1 rounded-xs text-muted-foreground focus-ring hover:text-foreground"
   >
     <CaretLeftIcon aria-hidden size={12} />

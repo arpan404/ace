@@ -22,6 +22,7 @@ import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 type Effort = SettingsValues["providers.coder.reasoningEffort"];
 const effortOptions: readonly SelectOption<Effort>[] = roleEffortChoices;
@@ -95,6 +96,7 @@ function RoleRow(props: { role: RunRole }) {
             <PopoverTrigger
               // Drawn as a Select, so the Roles column matches the selects around it.
               data-slot="select"
+              {...part("select", offline && "disabled", "model")}
               disabled={offline}
               className={cn(selectTrigger, "min-w-36")}
               aria-label={`${row.title}: ${label}`}
@@ -111,6 +113,7 @@ function RoleRow(props: { role: RunRole }) {
               <button
                 type="button"
                 aria-pressed={!provider}
+                {...part("menu-item", !provider && "selected")}
                 className="flex h-8 w-full items-center gap-2 border-b border-border px-3 text-left text-ui hover:bg-accent focus-ring-inset"
                 onClick={() => pick(null)}
               >

@@ -213,7 +213,10 @@ export function StepRow(
         "text-muted-foreground",
       )}
     >
-      <span className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground">
+      <span
+        data-part="tool-icon"
+        className="flex min-w-5 shrink-0 items-center justify-center text-subtle-foreground"
+      >
         <StepGlyph
           threadId={props.threadId}
           item={props.item}
