@@ -20,7 +20,7 @@ function stored(api: FakeSpadeApi, ace: boolean) {
 }
 
 test("a skill written in Spade is added to ace's library from Settings", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => stored(api, true));
+  const { spade } = await spadeApp("/settings/spade/apps", (api) => stored(api, true));
   const section = within(await screen.findByRole("region", { name: "Skills" }));
   section.getByText("release-notes");
   expect(section.queryByText("review-code")).toBeNull();
@@ -29,10 +29,46 @@ test("a skill written in Spade is added to ace's library from Settings", async (
   await waitFor(() => expect(screen.queryByRole("region", { name: "Skills" })).toBeNull());
 });
 
-test("with ace away, Settings says so and offers no button", async () => {
-  await spadeApp("/settings/spade", (api) => stored(api, false));
+test("with ace away, a skill written in Spade offers no way to add it", async () => {
+  await spadeApp("/settings/spade/apps", (api) => stored(api, false));
   const section = within(await screen.findByRole("region", { name: "Skills" }));
   section.getByText("release-notes");
-  section.getByText(/Add them to ace's library once ace is running/);
   expect(section.queryByRole("button", { name: "Add to ace's library" })).toBeNull();
+});
+
+test("each skill names the bots that use it, and one no bot uses or wrote stays out", async () => {
+  await spadeApp("/settings/spade/apps", (api) => {
+    stored(api, true);
+    api.addAgent({ id: "inbox", kind: "bot", name: "Inbox" });
+    api.skillStore.skills = [
+      {
+        id: "skl_1",
+        name: "review-code",
+        description: "Review a branch",
+        origin: "ace",
+        written_by: [],
+        used_by: ["inbox"],
+      },
+      {
+        id: "skl_2",
+        name: "deploy",
+        description: "Ship it",
+        origin: "ace",
+        written_by: [],
+        used_by: [],
+      },
+      {
+        id: "sks_1",
+        name: "release-notes",
+        description: "Write release notes",
+        origin: "spade",
+        written_by: ["main"],
+        used_by: ["main", "inbox"],
+      },
+    ];
+  });
+  const section = within(await screen.findByRole("region", { name: "Skills" }));
+  await section.findByText("Inbox");
+  expect(section.getByText("Spade, Inbox")).toBeTruthy();
+  expect(section.queryByText("deploy")).toBeNull();
 });

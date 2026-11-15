@@ -30,10 +30,7 @@ function browserTab() {
 }
 
 const connectors = async () =>
-  within(
-    (await screen.findByRole("heading", { name: "Connectors" })).closest("section") ??
-      document.body,
-  );
+  within(await screen.findByRole("region", { name: "Connected apps" }));
 
 async function openCatalogue() {
   await userEvent.click(await screen.findByRole("button", { name: "Connect an app" }));
@@ -41,7 +38,7 @@ async function openCatalogue() {
 }
 
 test("signing in to an app opens its page in the browser, and its row follows the sign-in", async () => {
-  const { spade } = await spadeApp("/settings/spade", seed);
+  const { spade } = await spadeApp("/settings/spade/apps", seed);
   const tab = browserTab();
   const dialog = await openCatalogue();
   await userEvent.click(dialog.getByRole("button", { name: "Sign in for Linear" }));
@@ -58,7 +55,7 @@ test("signing in to an app opens its page in the browser, and its row follows th
 });
 
 test("a token goes to Spade in one request, and Disconnect removes the app", async () => {
-  const { spade } = await spadeApp("/settings/spade", seed);
+  const { spade } = await spadeApp("/settings/spade/apps", seed);
   const dialog = await openCatalogue();
   await userEvent.click(dialog.getByRole("button", { name: "Use a token for Linear" }));
   await userEvent.type(dialog.getByLabelText("Token for Linear"), "lin-key-1");
@@ -75,7 +72,7 @@ test("a token goes to Spade in one request, and Disconnect removes the app", asy
 });
 
 test("a server added by address reaches local addresses only when the person says it is theirs", async () => {
-  const { spade } = await spadeApp("/settings/spade", seed);
+  const { spade } = await spadeApp("/settings/spade/apps", seed);
   const dialog = await openCatalogue();
   await userEvent.type(
     dialog.getByRole("textbox", { name: "Another server" }),
@@ -97,7 +94,7 @@ test("a server added by address reaches local addresses only when the person say
 });
 
 test("an app that registers no clients by itself asks for the person's client ID", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
     seed(api);
     api.connectors.needsClient.add("linear");
   });
@@ -117,7 +114,7 @@ test("an app that registers no clients by itself asks for the person's client ID
 });
 
 test("an app whose sign-in ended reconnects from its row", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
     seed(api);
     api.connectors.connectors.push({
       id: "linear",
@@ -142,7 +139,7 @@ const checked = (element: HTMLElement) => element.getAttribute("aria-checked") =
 test("an app whose sign-in ends later shows it without a reload", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    const { spade } = await spadeApp("/settings/spade", (api) => {
+    const { spade } = await spadeApp("/settings/spade/apps", (api) => {
       seed(api);
       api.connectors.connectors.push({
         id: "linear",
@@ -275,7 +272,7 @@ const followed = () => vi.advanceTimersByTimeAsync(2_100);
 
 test("a device sign-in shows its code in the app's row, with Copy code and Open, until it connects", () =>
   onFakeTimers(async (user) => {
-    const { spade } = await spadeApp("/settings/spade", withGitHub);
+    const { spade } = await spadeApp("/settings/spade/apps", withGitHub);
     const tab = browserTab();
     const dialog = await openCatalogue();
     await user.click(dialog.getByRole("button", { name: "Sign in for GitHub" }));
@@ -305,7 +302,7 @@ test("a device sign-in shows its code in the app's row, with Copy code and Open,
 
 test("a device code that expired or was declined says so, and Try again shows a new code", () =>
   onFakeTimers(async (user) => {
-    const { spade } = await spadeApp("/settings/spade", withGitHub);
+    const { spade } = await spadeApp("/settings/spade/apps", withGitHub);
     browserTab();
     const dialog = await openCatalogue();
     await user.click(dialog.getByRole("button", { name: "Sign in for GitHub" }));
@@ -338,7 +335,7 @@ const asana = {
 };
 
 test("an app through Spade Cloud signs in in the browser and its row says it signs in through the cloud", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
     seed(api);
     api.connectors.catalogue.push(asana);
     api.connectors.viaCloud.add("asana");
@@ -359,7 +356,7 @@ test("an app through Spade Cloud signs in in the browser and its row says it sig
 });
 
 test("signed out of ace, an app through Spade Cloud says to sign in to ace instead of asking for a client ID", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/apps", (api) => {
     seed(api);
     api.connectors.catalogue.push(asana);
     api.connectors.viaCloud.add("asana");
@@ -380,7 +377,7 @@ test("signed out of ace, an app through Spade Cloud says to sign in to ace inste
 });
 
 test("an app through Spade Cloud that can't renew while signed out of ace says so, with Sign in to ace", async () => {
-  await spadeApp("/settings/spade", (api) => {
+  await spadeApp("/settings/spade/apps", (api) => {
     seed(api);
     api.connectors.connectors.push({
       id: "asana",

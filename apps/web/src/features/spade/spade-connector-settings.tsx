@@ -31,7 +31,7 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
   const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
   return (
-    <div className={settingsGroup}>
+    <section aria-label="Connected apps" className={settingsGroup}>
       <SettingCard>
         {connectors.isPending ? (
           <LoadingRows label="Apps" rows={2} />
@@ -58,7 +58,7 @@ export function ConnectorSettings(props: { ready: boolean; names: ReadonlyMap<st
           onClose={() => setAdding(false)}
         />
       )}
-    </div>
+    </section>
   );
 }
 

@@ -24,6 +24,7 @@ test("opening Spade or its settings while the daemon hides it leads away from th
   for (const [path, away] of [
     ["/spade", "/"],
     ["/settings/spade", "/settings"],
+    ["/settings/spade/models", "/settings"],
   ] as const) {
     const history = createMemoryHistory({ initialEntries: [path] });
     const app = harness({ history });
