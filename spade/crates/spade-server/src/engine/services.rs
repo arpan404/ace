@@ -27,15 +27,19 @@ impl Engine {
         self.services.get()
     }
 
-    /// Starts service `name` running `command` in `cwd` for conversation `id`; its id.
+    /// Starts service `name` running `command` in `cwd` for tool call `key`
+    /// (`conversation.call`); its id. Refused once the person stopped the reply or job that made
+    /// the call: admitted and stored under the record lock Stop stores its marker under, so a
+    /// service started before the marker is there for Stop to end, and none starts after it.
     pub(crate) fn service_start(
         self: &Arc<Self>,
-        id: &str,
+        key: &str,
         name: &str,
         command: &str,
         cwd: &str,
         keep: bool,
     ) -> Result<String, String> {
+        let (id, call) = super::wakes::split_key(key);
         let services = self.services().ok_or("Services are not available here.")?;
         let bot = self
             .agent_of(id)
@@ -44,26 +48,51 @@ impl Engine {
             return Err("A service name is 1 to 40 of letters, digits, - _ and .".to_owned());
         }
         services.folder(&bot, cwd)?;
-        let events = self.load(id).map_err(|e| e.to_string())?;
-        if service::running(events.iter())
-            .iter()
-            .any(|s| s.name == name)
-        {
-            return Err(format!(
-                "{name} is already running; stop it with service_stop first, or pick another name."
-            ));
-        }
+        self.registering("service", id);
         let id_of = self.ids.next("s");
-        let started = Event::Known(Known::ServiceStarted {
-            service: id_of.clone(),
-            name: name.to_owned(),
-            command: command.to_owned(),
-            cwd: cwd.to_owned(),
-            keep,
-            restarts: 0,
-        });
-        self.record(id, &started).map_err(|e| e.to_string())?;
+        {
+            let _order = super::wakes::lock(&self.record_lock);
+            let events = self.load(id).map_err(|e| e.to_string())?;
+            let stopped = match call {
+                Some(call) => spade_core::turn::call_stopped(&events, call),
+                None => false,
+            };
+            if stopped {
+                return Err(super::wakes::STOPPED.to_owned());
+            }
+            if service::running(events.iter())
+                .iter()
+                .any(|s| s.name == name)
+            {
+                return Err(format!(
+                    "{name} is already running; stop it with service_stop first, or pick another \
+                     name."
+                ));
+            }
+            let started = Event::Known(Known::ServiceStarted {
+                service: id_of.clone(),
+                name: name.to_owned(),
+                command: command.to_owned(),
+                cwd: cwd.to_owned(),
+                keep,
+                restarts: 0,
+            });
+            self.append(id, &started).map_err(|e| e.to_string())?;
+        }
         self.launch(id, &bot, &id_of, name, command, cwd)?;
+        // Stop came between the write and the launch, and may have ended the service before its
+        // process ran: the process stops too.
+        let stopped = call.is_some_and(|call| {
+            self.load(id)
+                .is_ok_and(|events| spade_core::turn::call_stopped(&events, call))
+        });
+        if stopped {
+            services.stop(&id_of);
+            if let Err(error) = self.service_stop(id, &id_of) {
+                tracing::warn!(%error, "could not store that a stopped service ended");
+            }
+            return Err(super::wakes::STOPPED.to_owned());
+        }
         self.announce(id);
         Ok(id_of)
     }
@@ -138,7 +167,7 @@ impl Engine {
             tracing::error!(%error, "could not store that a service ended");
         }
         if let Some(name) = name {
-            self.wake_on_service_end(id, &name, how);
+            self.wake_on_service_end(id, service, &name, how);
         }
         self.announce(id);
     }

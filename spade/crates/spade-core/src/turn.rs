@@ -178,6 +178,19 @@ pub fn job_stopped(events: &[Event], job: &str) -> bool {
         })
 }
 
+/// Whether the person stopped the work tool call `call` belongs to: the reply that made it, or
+/// the background job it runs as. What such a call would start outside the turn (a wake, a
+/// service) must not begin.
+pub fn call_stopped(events: &[Event], call: &str) -> bool {
+    job_stopped(events, call)
+        || events.iter().any(|e| match e {
+            Event::Known(Known::ToolStarted { call_id, reply, .. }) if call_id == call => {
+                stop_requested(events, reply)
+            }
+            _ => false,
+        })
+}
+
 /// Whether something arrived for the model that `reply` never answered and that should open a new
 /// reply once `reply` closes: a message, or a job result not silenced by a stop, stored after the
 /// reply's last step was prompted, or, if the person stopped the reply, after that stop.

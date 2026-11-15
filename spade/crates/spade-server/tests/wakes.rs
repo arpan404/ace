@@ -626,3 +626,115 @@ async fn a_long_job_gets_one_check_in_per_slot() -> Result {
     );
     Ok(())
 }
+
+/// Holds every wake as it is about to be admitted, until the test lets it go: the notify says
+/// one reached the hold, the sender lets it go.
+fn hold_wakes(spade: &Spade) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let wait = std::sync::Mutex::new(wait);
+    let at = reached.clone();
+    spade.engine.hold_registrations(Arc::new(move |what, _| {
+        if what != "wake" {
+            return;
+        }
+        at.notify_one();
+        if let Ok(wait) = wait.lock() {
+            let _ = wait.recv_timeout(Duration::from_secs(10));
+        }
+    }));
+    (reached, go)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_wait_on_a_job_that_ends_as_the_wait_is_set_is_refused_and_never_left_waiting() -> Result
+{
+    let research = FakeTool::new("research", Risk::Read, "Three good options")
+        .background()
+        .slow(Duration::from_millis(200));
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("c1", "research", json!({ "topic": "flights" })),
+            Script::reply("").call(
+                "c2",
+                "wait_for",
+                json!({ "condition": { "kind": "job", "job": "c1" }, "reason": "the research" }),
+            ),
+            Script::reply("It already found them."),
+            title(),
+            Script::reply("Three options."),
+        ],
+        vec![Arc::new(research) as Arc<dyn Tool>],
+        Options::default(),
+    )
+    .await?;
+    let (reached, go) = hold_wakes(&spade);
+    let agent = spade.new_agent("Deployer", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Research flights").await?;
+    // The wait is held after it was asked for; the job ends meanwhile.
+    tokio::time::timeout(Duration::from_secs(10), reached.notified()).await?;
+    spade.wait_for(&conversation, "job_finished").await?;
+    go.send(())?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 1)
+        .await?;
+    let answered = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c2")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(answered["is_error"], true, "{answered}");
+    assert!(
+        answered["content"]
+            .as_str()
+            .is_some_and(|c| c.contains("not running")),
+        "{answered}"
+    );
+    assert!(
+        spade.engine.wakes(&conversation)?.is_empty(),
+        "a wait on an ended job was left open"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sleep_asked_for_as_the_person_presses_stop_is_never_left_open() -> Result {
+    let clock = ManualClock::at(T0);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("c1", "sleep_until", json!({ "after": "2h", "reason": "x" })),
+            Script::reply("Sleeping."),
+            title(),
+        ],
+        Vec::new(),
+        on(&clock),
+    )
+    .await?;
+    let (reached, go) = hold_wakes(&spade);
+    let agent = spade.new_agent("Deployer", "").await?;
+    let conversation = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Sleep").await?;
+    // Stop lands while the sleep is between being asked for and being stored.
+    tokio::time::timeout(Duration::from_secs(10), reached.notified()).await?;
+    let (status, body) = spade
+        .post(&format!("/v1/conversations/{conversation}/stop"), json!({}))
+        .await?;
+    assert!(status < 300, "{body}");
+    go.send(())?;
+    state_reads(&spade, &conversation, "idle").await?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        spade.engine.wakes(&conversation)?.is_empty(),
+        "a sleep from the stopped reply is still open"
+    );
+    let events = spade.events(&conversation).await?;
+    assert_eq!(count(&events, "wake_set"), 0, "{:?}", types(&events));
+    Ok(())
+}

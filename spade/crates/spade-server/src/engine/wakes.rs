@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use spade_core::event::Known;
 use spade_core::wake::{self, CancelledBy, Cause, Condition, Open, Purpose};
-use spade_core::{Event, Transcript};
+use spade_core::{Event, Transcript, turn};
 use spade_store::StoreError;
 use tokio::sync::Notify;
 
@@ -65,8 +65,21 @@ pub(super) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Why a wake was not set.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum WakeError {
+    /// It may not be set now: what it waits on is gone, or the person stopped the work asking.
+    #[error("{0}")]
+    Refused(String),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// What a tool call refused after Stop reads.
+pub(super) const STOPPED: &str = "The person pressed Stop, so nothing more starts from this reply.";
+
 impl Engine {
-    /// Stores a new wake for conversation `id` and arms it. `reply` empty means the open reply's.
+    /// Stores a new wake for conversation `id` and arms it, on the open reply.
     pub(crate) fn set_wake(
         self: &Arc<Self>,
         id: &str,
@@ -74,23 +87,56 @@ impl Engine {
         due_ms: Option<i64>,
         condition: Option<Condition>,
         reason: &str,
-    ) -> Result<String, StoreError> {
+    ) -> Result<String, WakeError> {
+        self.register_wake(id, None, purpose, due_ms, condition, reason)
+    }
+
+    /// [`Engine::set_wake`] for the tool call `key` (`conversation.call`): refused once the
+    /// person stopped the reply or job that made the call.
+    pub(crate) fn set_wake_for(
+        self: &Arc<Self>,
+        key: &str,
+        purpose: Purpose,
+        due_ms: Option<i64>,
+        condition: Option<Condition>,
+        reason: &str,
+    ) -> Result<String, WakeError> {
+        let (id, call) = split_key(key);
+        self.register_wake(id, call, purpose, due_ms, condition, reason)
+    }
+
+    /// Admits and stores a wake under the record lock, the lock Stop stores its marker under and
+    /// a job's end is delivered under: a wake from stopped work, or on a job that has ended, is
+    /// never stored, and one stored before the marker is there for Stop to cancel.
+    fn register_wake(
+        self: &Arc<Self>,
+        id: &str,
+        call: Option<&str>,
+        purpose: Purpose,
+        due_ms: Option<i64>,
+        condition: Option<Condition>,
+        reason: &str,
+    ) -> Result<String, WakeError> {
+        self.registering("wake", id);
         let wake = self.ids.next("w");
-        let reply = Transcript::fold(self.load(id)?.iter())
-            .open_reply()
-            .and_then(|m| m.reply.clone())
-            .unwrap_or_default();
-        let event = Event::Known(Known::WakeSet {
-            wake: wake.clone(),
-            reply: reply.clone(),
-            purpose: purpose.clone(),
-            due_ms,
-            condition: condition.clone(),
-            reason: reason.to_owned(),
-        });
-        self.record(id, &event)?;
-        self.arm(
-            id,
+        let open = {
+            let _order = lock(&self.record_lock);
+            let events = self.load(id)?;
+            let reply = Transcript::fold(events.iter())
+                .open_reply()
+                .and_then(|m| m.reply.clone())
+                .unwrap_or_default();
+            let condition =
+                admit(&events, call, &reply, &purpose, condition).map_err(WakeError::Refused)?;
+            let event = Event::Known(Known::WakeSet {
+                wake: wake.clone(),
+                reply: reply.clone(),
+                purpose: purpose.clone(),
+                due_ms,
+                condition: condition.clone(),
+                reason: reason.to_owned(),
+            });
+            self.append(id, &event)?;
             Open {
                 wake: wake.clone(),
                 reply,
@@ -98,42 +144,38 @@ impl Engine {
                 due_ms,
                 condition,
                 reason: reason.to_owned(),
-            },
-        );
+            }
+        };
+        self.arm(id, open);
+        // Settled or cancelled between the write and arming it: nothing stays armed for it.
+        if !self
+            .load(id)
+            .is_ok_and(|events| wake::is_open(&events, &wake))
+        {
+            self.disarm(id, &wake);
+        }
         self.announce(id);
         Ok(wake)
     }
 
-    /// `wait_for` from conversation `id`: checks `condition` can happen, fixes what it needs
-    /// (a file's stamp), and sets the wait; its id.
+    /// `wait_for` from tool call `key` (`conversation.call`): checks `condition` can happen,
+    /// fixes what it needs (a file's stamp), and sets the wait; its id. Whether the job or service
+    /// it names still runs is checked as the wait is stored.
     pub(crate) fn wait_for(
         self: &Arc<Self>,
-        id: &str,
+        key: &str,
         condition: Condition,
         timeout_ms: Option<i64>,
         reason: &str,
     ) -> Result<String, String> {
-        let events = self.load(id).map_err(|e| e.to_string())?;
+        let (id, _) = split_key(key);
         let condition = match condition {
-            Condition::Job { job } => {
-                if !Transcript::fold(events.iter()).jobs.contains(&job) {
-                    return Err(format!(
-                        "Job {job} is not running, so there is nothing to wait for."
-                    ));
-                }
-                Condition::Job { job }
-            }
             Condition::ServiceLine { service, pattern } => {
-                running_service(&events, &service)?;
                 regex::RegexBuilder::new(&pattern)
                     .size_limit(1 << 20)
                     .build()
                     .map_err(|e| format!("The pattern is not a valid regex: {e}"))?;
                 Condition::ServiceLine { service, pattern }
-            }
-            Condition::ServiceExit { service } => {
-                running_service(&events, &service)?;
-                Condition::ServiceExit { service }
             }
             Condition::File { path, .. } => {
                 let (target, _) = self
@@ -145,7 +187,8 @@ impl Engine {
             Condition::Url { url } => {
                 if !loopback(&url) {
                     return Err(
-                        "wait_for polls only this machine's own addresses (localhost, 127.0.0.1,                          [::1]); use web_fetch for anything else."
+                        "wait_for polls only this machine's own addresses (localhost, 127.0.0.1, \
+                         [::1]); use web_fetch for anything else."
                             .to_owned(),
                     );
                 }
@@ -157,7 +200,7 @@ impl Engine {
             other => other,
         };
         let due = timeout_ms.map(|ms| self.now_ms() + ms.clamp(0, wake::LONGEST_MS));
-        self.set_wake(id, Purpose::Wait, due, Some(condition), reason)
+        self.set_wake_for(key, Purpose::Wait, due, Some(condition), reason)
             .map_err(|e| e.to_string())
     }
 
@@ -460,16 +503,24 @@ impl Engine {
         }
     }
 
-    /// A line `name`'s service printed: the waits whose pattern it matches fire, with the line
-    /// as untrusted data.
-    pub(crate) fn wake_on_service_line(self: &Arc<Self>, id: &str, name: &str, line: &str) {
+    /// A line service `service` (named `name`) printed: the waits whose pattern it matches fire,
+    /// with the line as untrusted data.
+    pub(crate) fn wake_on_service_line(
+        self: &Arc<Self>,
+        id: &str,
+        service: &str,
+        name: &str,
+        line: &str,
+    ) {
+        let this = service;
         let hits: Vec<(String, String)> = lock(&self.wakes.armed)
             .get(id)
             .map(|list| {
                 list.iter()
                     .filter(|a| {
                         matches!(&a.open.condition,
-                            Some(Condition::ServiceLine { service, .. }) if service == name)
+                            Some(Condition::ServiceLine { service, .. })
+                                if service == name || service == this)
                             && a.pattern.as_ref().is_some_and(|p| p.is_match(line))
                     })
                     .map(|a| (id.to_owned(), a.open.wake.clone()))
@@ -489,16 +540,26 @@ impl Engine {
         }
     }
 
-    /// `name`'s service ended (`how`: "exited with code 1", "was stopped"): the waits for its
-    /// exit fire, and so do the waits for a line it never printed.
-    pub(super) fn wake_on_service_end(self: &Arc<Self>, id: &str, name: &str, how: &str) {
+    /// Service `service` (named `name`) ended (`how`: "exited with code 1", "was stopped"): the
+    /// waits for its exit fire, and so do the waits for a line it never printed. A wait matches
+    /// by name, and by id for waits stored before waits were kept by name.
+    pub(super) fn wake_on_service_end(
+        self: &Arc<Self>,
+        id: &str,
+        service: &str,
+        name: &str,
+        how: &str,
+    ) {
+        let this = service;
         let hits: Vec<(String, String)> = lock(&self.wakes.armed)
             .get(id)
             .map(|list| {
                 list.iter()
                     .filter(|a| match &a.open.condition {
                         Some(Condition::ServiceExit { service })
-                        | Some(Condition::ServiceLine { service, .. }) => service == name,
+                        | Some(Condition::ServiceLine { service, .. }) => {
+                            service == name || service == this
+                        }
                         _ => false,
                     })
                     .map(|a| (id.to_owned(), a.open.wake.clone()))
@@ -600,17 +661,58 @@ fn start_timer(engine: &Arc<Engine>) {
     });
 }
 
-/// The running service named `name`, or why there is none.
-fn running_service(events: &[Event], name: &str) -> Result<(), String> {
-    if spade_core::service::running(events.iter())
-        .iter()
-        .any(|s| s.name == name || s.service == name)
-    {
-        Ok(())
-    } else {
-        Err(format!(
-            "No service named {name} is running; service_status lists yours."
-        ))
+/// Whether wake `purpose`, from tool call `call` (else on `reply`), may be set now, and its
+/// condition as stored: a service named by its id is kept by its name, the one identifier the
+/// service's lines and end are reported under. Run under the record lock.
+fn admit(
+    events: &[Event],
+    call: Option<&str>,
+    reply: &str,
+    purpose: &Purpose,
+    condition: Option<Condition>,
+) -> Result<Option<Condition>, String> {
+    let stopped = match (call, purpose) {
+        (Some(call), _) => turn::call_stopped(events, call),
+        (None, Purpose::Retry { job: Some(job), .. }) => turn::job_stopped(events, job),
+        (None, _) => !reply.is_empty() && turn::stop_requested(events, reply),
+    };
+    if stopped {
+        return Err(STOPPED.to_owned());
+    }
+    Ok(match condition {
+        Some(Condition::Job { job }) => {
+            if !Transcript::fold(events.iter()).jobs.contains(&job) {
+                return Err(format!(
+                    "Job {job} is not running, so there is nothing to wait for."
+                ));
+            }
+            Some(Condition::Job { job })
+        }
+        Some(Condition::ServiceLine { service, pattern }) => Some(Condition::ServiceLine {
+            service: running_service(events, &service)?,
+            pattern,
+        }),
+        Some(Condition::ServiceExit { service }) => Some(Condition::ServiceExit {
+            service: running_service(events, &service)?,
+        }),
+        other => other,
+    })
+}
+
+/// The name of the running service named or with id `name`, or why there is none.
+fn running_service(events: &[Event], name: &str) -> Result<String, String> {
+    spade_core::service::running(events.iter())
+        .into_iter()
+        .find(|s| s.name == name || s.service == name)
+        .map(|s| s.name)
+        .ok_or_else(|| format!("No service named {name} is running; service_status lists yours."))
+}
+
+/// A tool call's key, `conversation.call`, as its conversation and call.
+pub(super) fn split_key(key: &str) -> (&str, Option<&str>) {
+    match key.split_once('.') {
+        Some((id, call)) => (id, Some(call)),
+        None => (key, None),
     }
 }
 

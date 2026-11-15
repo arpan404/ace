@@ -89,7 +89,7 @@ impl Tool for SleepUntil {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let (engine, id) = (self.0.get(), caller(key));
+        let (engine, key) = (self.0.get(), key.to_owned());
         Box::pin(async move {
             let Some(engine) = engine else {
                 return ToolOutput::error("Spade is stopping.");
@@ -119,7 +119,7 @@ impl Tool for SleepUntil {
                 return ToolOutput::error("You can sleep for at most a year at a time.");
             }
             let due = due.max(now);
-            match engine.set_wake(&id, Purpose::Sleep, Some(due), None, &reason(args.reason)) {
+            match engine.set_wake_for(&key, Purpose::Sleep, Some(due), None, &reason(args.reason)) {
                 Ok(wake) => ToolOutput::ok(format!(
                     "Sleeping until {} (wake {wake}). End your reply now; Spade wakes you then \
                      with a <wake> note.",
@@ -179,7 +179,7 @@ impl Tool for WaitFor {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let (engine, id) = (self.0.get(), caller(key));
+        let (engine, key) = (self.0.get(), key.to_owned());
         Box::pin(async move {
             let Some(engine) = engine else {
                 return ToolOutput::error("Spade is stopping.");
@@ -193,7 +193,7 @@ impl Tool for WaitFor {
                 Err(why) => return ToolOutput::error(why),
             };
             let words = args.condition.words();
-            match engine.wait_for(&id, args.condition, timeout, &reason(args.reason)) {
+            match engine.wait_for(&key, args.condition, timeout, &reason(args.reason)) {
                 Ok(wake) => {
                     let until = timeout
                         .map(|ms| format!(", at most until {}", utc(engine.now_ms() + ms)))

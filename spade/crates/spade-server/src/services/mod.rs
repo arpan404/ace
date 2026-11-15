@@ -95,7 +95,11 @@ impl Services {
         let log = Arc::new(Mutex::new(Log::default()));
         let tee: Tee = {
             let (log, bots) = (log.clone(), self.bots.clone());
-            let (conversation, name) = (launch.conversation.clone(), launch.name.clone());
+            let (conversation, service, name) = (
+                launch.conversation.clone(),
+                launch.service.clone(),
+                launch.name.clone(),
+            );
             Arc::new(move |bytes: &[u8]| {
                 let lines = lock(&log).push(bytes);
                 if lines.is_empty() {
@@ -103,7 +107,7 @@ impl Services {
                 }
                 if let Some(engine) = bots.get() {
                     for line in lines {
-                        engine.wake_on_service_line(&conversation, &name, &line);
+                        engine.wake_on_service_line(&conversation, &service, &name, &line);
                     }
                 }
             })

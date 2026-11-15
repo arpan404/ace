@@ -46,7 +46,11 @@ looking at it.
    job running. A task with an open wake is not carried on by itself (ADR 0144), and no claim
    of done is checked while one is open (ADR 0159); the wake is its next step. The person can wake it early (`cause: person`) or cancel the
    wake (`wake_cancelled {by: person}`). Stop cancels every open wake (`by: stop`) and stops the
-   bot's services. The bot can cancel its own with `wake_cancel`.
+   bot's services. A wake or service is admitted under the record lock Stop stores its marker
+   under, and refused once the reply or job that asked for it is stopped, so after Stop returns
+   none from the stopped work exists. A wait on a job is checked against the job still running
+   in the same lock its end is delivered under, and a wait on a service named by its id is kept
+   by the service's name. The bot can cancel its own with `wake_cancel`.
 5. **Owned services.** `service_start {name, command, cwd?, keep?}` runs a long-lived process
    (a dev server, a watcher) through the workspace shell: same built environment carrying none of
    Spade's secrets, same system-only `PATH`, its own process group (a job object on Windows),

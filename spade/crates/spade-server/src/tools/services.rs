@@ -94,7 +94,7 @@ impl Tool for ServiceStart {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let (services, id) = (self.0.clone(), caller(key));
+        let (services, key) = (self.0.clone(), key.to_owned());
         Box::pin(async move {
             let Some(engine) = services_engine(&services) else {
                 return ToolOutput::error("Spade is stopping.");
@@ -104,7 +104,7 @@ impl Tool for ServiceStart {
                 Err(output) => return output,
             };
             let cwd = args.cwd.unwrap_or_default();
-            match engine.service_start(&id, &args.name, &args.command, &cwd, args.keep) {
+            match engine.service_start(&key, &args.name, &args.command, &cwd, args.keep) {
                 Ok(service) => ToolOutput::ok(format!(
                     "Started service {} ({service}). It runs on after this call; read its output \
                      with service_logs, or wait_for its line.",

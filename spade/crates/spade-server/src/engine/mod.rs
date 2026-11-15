@@ -197,6 +197,11 @@ pub struct Engine {
     /// which hold it there to order a Stop against it. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
     helper_start_hold: Mutex<Option<HelperStartHold>>,
+    /// Run, blocking, just before a wake or a service is admitted and stored; none outside
+    /// tests, which hold it there to order a Stop or a job's end against it. Only with the
+    /// `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    registration_hold: Mutex<Option<RegistrationHold>>,
 }
 
 /// What [`Engine::hold_turn_ends`] runs, given the conversation.
@@ -207,6 +212,11 @@ pub type TurnEndHold =
 /// What [`Engine::hold_helper_starts`] runs, given the bot's conversation.
 #[cfg(feature = "test-hooks")]
 pub type HelperStartHold = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// What [`Engine::hold_registrations`] runs, given what is registered (`wake`, `service`) and
+/// the conversation.
+#[cfg(feature = "test-hooks")]
+pub type RegistrationHold = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// What `starting` says until setup has run long enough to say more.
 const STARTING: &str = "setting up endpoints";
@@ -278,6 +288,8 @@ impl Engine {
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
             helper_start_hold: Mutex::default(),
+            #[cfg(feature = "test-hooks")]
+            registration_hold: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -901,6 +913,30 @@ impl Engine {
             .lock()
             .unwrap_or_else(|p| p.into_inner()) = Some(hold);
     }
+
+    /// Has every wake and service run `hold` (blocking) just before it is admitted and stored.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_registrations(&self, hold: RegistrationHold) {
+        *self
+            .registration_hold
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(hold);
+    }
+
+    #[cfg(feature = "test-hooks")]
+    pub(super) fn registering(&self, what: &str, id: &str) {
+        let hold = self
+            .registration_hold
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hold) = hold {
+            hold(what, id);
+        }
+    }
+
+    #[cfg(not(feature = "test-hooks"))]
+    pub(super) fn registering(&self, _what: &str, _id: &str) {}
 
     #[cfg(feature = "test-hooks")]
     pub(super) fn helper_starting(&self, bot: &str) {

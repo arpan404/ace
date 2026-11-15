@@ -10,10 +10,12 @@ mod support;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use spade_core::autonomy::Access;
+use spade_server::clock::Ids;
 use spade_server::services::Services;
 use spade_server::tools::{EngineHandle, Tool, service_tools};
 use spade_server::workspace::Workspaces;
@@ -39,10 +41,16 @@ async fn start(
     workspaces: &Workspaces,
     access: Access,
 ) -> Result<(Spade, Arc<Services>)> {
+    start_on(scripts, options(workspaces, access)).await
+}
+
+/// [`start`] with `options`.
+async fn start_on(scripts: Vec<Script>, options: Options) -> Result<(Spade, Arc<Services>)> {
+    let workspaces = options.workspaces.clone().ok_or("no workspaces")?;
     let bots = EngineHandle::default();
-    let services = Services::new(workspaces.clone(), Shell::system(), bots.clone());
+    let services = Services::new(workspaces, Shell::system(), bots.clone());
     let tools: Vec<Arc<dyn Tool>> = service_tools(&services);
-    let spade = Spade::start_with(scripts, tools, options(workspaces, access)).await?;
+    let spade = Spade::start_with(scripts, tools, options).await?;
     bots.set(&spade.engine);
     spade.engine.set_services(services.clone());
     Ok((spade, services))
@@ -412,4 +420,149 @@ async fn a_url_wait_polls_only_loopback_and_fires_when_it_answers() -> Result {
     })
     .await?;
     Ok(())
+}
+
+/// Counting ids, but every service's id is `s_web`, so a script can name it.
+struct KnownServiceId(AtomicU64);
+
+impl Ids for KnownServiceId {
+    fn next(&self, prefix: &str) -> String {
+        if prefix == "s" {
+            return "s_web".to_owned();
+        }
+        format!("{prefix}_{}", self.0.fetch_add(1, Ordering::SeqCst) + 1)
+    }
+}
+
+#[tokio::test]
+async fn waits_on_a_service_named_by_its_id_fire_on_its_line_and_its_exit() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start_on(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "sleep 1; echo ready; sleep 1; exit 4" }),
+            ),
+            Script::reply("").call(
+                "s2",
+                "wait_for",
+                json!({ "condition": { "kind": "service_line", "service": "s_web",
+                                       "pattern": "ready" },
+                        "reason": "the server" }),
+            ),
+            Script::reply("Waiting for it to be ready."),
+            title(),
+            Script::reply("").call(
+                "s3",
+                "wait_for",
+                json!({ "condition": { "kind": "service_exit", "service": "s_web" },
+                        "reason": "the server's end" }),
+            ),
+            Script::reply("Waiting for it to end."),
+            Script::reply("It ended."),
+        ],
+        Options {
+            ids: Some(Arc::new(KnownServiceId(AtomicU64::new(0)))),
+            ..options(&workspaces, Access::FullAccess)
+        },
+    )
+    .await?;
+    let bot = told(&spade, &workspaces, "Run the server").await?;
+    let events = spade
+        .wait_for_count(&bot.conversation, "reply_finished", 2)
+        .await?;
+    assert!(
+        last_prompt(&spade).contains("service web printed a matching line"),
+        "the line wait never fired"
+    );
+    let set: Vec<&Value> = events.iter().filter(|e| e["type"] == "wake_set").collect();
+    assert_eq!(set[0]["condition"]["service"], "web", "{set:?}");
+    spade
+        .wait_for_count(&bot.conversation, "reply_finished", 3)
+        .await?;
+    assert!(
+        last_prompt(&spade).contains("service web exited with code 4"),
+        "the exit wait never fired"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_service_asked_for_as_the_person_presses_stop_never_runs_on() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "echo $$ > pid.txt; exec sleep 60" }),
+            ),
+            Script::reply("Started."),
+            title(),
+        ],
+        &workspaces,
+        Access::FullAccess,
+    )
+    .await?;
+    // The service is held after it was asked for, until the stop is in.
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let (go, wait) = std::sync::mpsc::channel::<()>();
+    let wait = std::sync::Mutex::new(wait);
+    let at = reached.clone();
+    spade.engine.hold_registrations(Arc::new(move |what, _| {
+        if what != "service" {
+            return;
+        }
+        at.notify_one();
+        if let Ok(wait) = wait.lock() {
+            let _ = wait.recv_timeout(Duration::from_secs(10));
+        }
+    }));
+    let agent = spade.new_agent("Runner", "").await?;
+    let field = |name: &str| agent[name].as_str().unwrap_or_default().to_owned();
+    let (id, conversation) = (field("id"), field("conversation"));
+    let folder = workspaces.of(&id)?.path()?;
+    spade.say(&conversation, "Run the server").await?;
+    tokio::time::timeout(Duration::from_secs(10), reached.notified()).await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{conversation}/stop"), json!({}))
+        .await?;
+    assert!(status < 300);
+    go.send(())?;
+    let bot = Bot {
+        id,
+        conversation,
+        folder,
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while bot_state(&spade, &bot).await? != "idle" {
+        if Instant::now() > deadline {
+            return Err("the bot never went idle".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let running = services_of(&spade, &bot)
+        .await?
+        .iter()
+        .filter(|s| s["state"] == "running")
+        .count();
+    assert_eq!(running, 0, "a service from the stopped reply runs on");
+    if let Ok(pid) = std::fs::read_to_string(bot.folder.join("pid.txt")) {
+        assert!(!alive(&pid), "its process runs on");
+    }
+    Ok(())
+}
+
+async fn bot_state(spade: &Spade, bot: &Bot) -> Result<String> {
+    let (_, body) = spade.get("/v1/agents").await?;
+    Ok(body["agents"]
+        .as_array()
+        .and_then(|a| a.iter().find(|a| a["id"] == bot.id.as_str()))
+        .and_then(|a| a["state"].as_str())
+        .unwrap_or_default()
+        .to_owned())
 }

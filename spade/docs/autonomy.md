@@ -279,7 +279,10 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
   while the wake is open. With a note the model reads `<wake id cause from="spade">` (with any
   `data` as untrusted `<wake_data>`), which steers an open turn or opens a reply. A job's end or a
   message that settles a wait is stored with it and adds no note. `wake_cancelled {wake, by}`:
-  `person`, `bot` or `stop`. Open wakes are armed from the events when Spade opens for work; one
+  `person`, `bot` or `stop`. A wake (and a service) is admitted under the record lock: refused
+  once the person stopped the reply or job asking for it, and a job wait refused once the job has
+  ended. Stop sweeps wakes and services again after its marker, so none from the stopped work
+  outlives it. A service wait names the service by name or id and is stored by name. Open wakes are armed from the events when Spade opens for work; one
   already due fires on the timer's first look. The timer looks at least once a minute.
 - The roster state is `sleeping` while a wake is open and nothing else runs, and while the open
   turn waits out an outage with no job running; `status` says what for and until when; the

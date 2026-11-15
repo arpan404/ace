@@ -14,8 +14,8 @@ impl Engine {
     /// Stops the open turn and the conversation's background jobs. Returns whether anything was
     /// running.
     ///
-    /// The stop is stored first: the turn's worker, job starts, job results and restart recovery
-    /// all honour it. If storing it fails, everything running is still stopped now, the stop is
+    /// The stop is stored first: the turn's worker, job starts, job results, wakes, services and
+    /// restart recovery all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
         // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
@@ -71,6 +71,10 @@ impl Engine {
             }
             (loaded, reply, jobs, pending, stored)
         };
+        // A wake or service the stopped work stored before the marker, after the first sweep,
+        // ends too. One stored after the marker was refused (both are admitted under the record
+        // lock), so once Stop returns none from the stopped work exists.
+        let woke = self.stop_wakes(id) || woke;
         // Then the workers are told.
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
