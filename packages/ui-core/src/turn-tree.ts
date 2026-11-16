@@ -402,6 +402,10 @@ export class TurnTree {
   get subagents() {
     return this.agents;
   }
+  /** Whether `subagents` counts this agent: a child below the root that works, waits or asks. */
+  countsAgent(agentId: string): boolean {
+    return this.entries.get(`agent:${agentId}`)?.agent === true;
+  }
   get backgroundCommands() {
     return this.shells.size;
   }

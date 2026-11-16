@@ -46,11 +46,11 @@ import Testing
         #expect(ThreadFoot(pill: older).named.transcriptShows(.subagents, live: true))
     }
 
-    private func group(live: Bool?, machines: [String]) -> BlockRow.Agents {
+    private func group(live: Bool?, counted: Bool? = true, machines: [String]) -> BlockRow.Agents {
         BlockRow.Agents(status: "", entries: machines.enumerated().map { index, machine in
             BlockRow.Agents.Entry(id: "a\(index)", agentId: "a\(index)", threadId: "", title: "Child \(index)", state: "working",
                                   label: "Running", token: "working", provider: "codex", model: "", result: "", machine: machine)
-        }, live: live)
+        }, live: live, counted: counted)
     }
 
     @Test func aLiveGroupOnThisMachineIsLeftToThePill() {
@@ -60,6 +60,13 @@ import Testing
     @Test func aSettledGroupOrOneFromAnOlderBridgeKeepsItsRow() {
         #expect(!group(live: false, machines: [""]).leavesToPill)
         #expect(!group(live: nil, machines: [""]).leavesToPill)
+    }
+
+    @Test func aLiveGroupWithAChildThePillsTreeDoesNotCountKeepsItsRow() {
+        // A delegated child the list shows working after the parent's copy went stale: the pill
+        // counts only its sibling and its sheet can't open it, so only the row shows it.
+        #expect(!group(live: true, counted: false, machines: ["", ""]).leavesToPill)
+        #expect(!group(live: true, counted: nil, machines: [""]).leavesToPill)
     }
 
     @Test func aLiveGroupWithAChildOnAnotherMachineKeepsItsRowWhichOpensItThere() {

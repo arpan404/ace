@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
 import { HostId, ThreadId } from "@ace/protocol";
-import { commands, connect, fixture, open, reset, rows, until } from "./thread-harness.ts";
+import { commands, connect, fixture, latest, open, reset, rows, until } from "./thread-harness.ts";
 
 /*
  * The subagent and question rows the native transcript draws, worded as the web's: over the
@@ -285,6 +285,59 @@ test("a delegated child the thread list still shows working never reads done in 
     return agents?.title === "1 subagent ran" ? agents : undefined;
   }, "the launch reads as ran");
   expect(ended.token).not.toBe("working");
+});
+
+test("a child the list shows working but the parent's tree no longer counts is not left to the pill", async () => {
+  const fake = fixture();
+  // The delegated child works on: the list has it as working.
+  fake.createThread({
+    id: "gap-child",
+    workspaceId: "ace",
+    title: "Relay protocol reference",
+    provider: "codex",
+  });
+  fake.apply("gap-child", [facts.rootAgent("codex"), facts.turn("root")]);
+  // The parent's copy says that child is done (stale after a reconnect), while a native
+  // subagent of its own still works, so the pill names subagents.
+  fake.createThread({ id: "gap-parent", workspaceId: "ace", title: "Docs", provider: "codex" });
+  fake.apply("gap-parent", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    delegated("gap-child", "settled"),
+    spawn("s1", "Audit reconnects"),
+    facts.subagent("codex", "auditor", "Auditor", "s1"),
+    facts.turn("auditor", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  open(connect(fake), "gap-parent");
+  type Group = { live?: boolean; counted?: boolean; entries: { title: string; state: string }[] };
+  const group = () =>
+    rows("thread.block").find((row) => row.kind === "subagents")?.agents as Group | undefined;
+  const states = () =>
+    group()
+      ?.entries.map((entry) => entry.state)
+      .join(",");
+  // Both children are live in the group, the delegated one at the list's state. The tree the
+  // pill and the Agents sheet read counts only the auditor, so the group keeps its row.
+  const stale = await until(
+    () => (states() === "working,working" ? group() : undefined),
+    "both children working",
+  );
+  expect(stale).toMatchObject({ live: true, counted: false });
+  // The pill names subagents meanwhile (the auditor), so leaving the row to it would hide the
+  // delegated child.
+  const pill = latest("thread.pill")?.pill as
+    | { covers?: { subagents: boolean } }
+    | null
+    | undefined;
+  expect(pill?.covers?.subagents).toBe(true);
+  // Once the delegated child ends, the only live child is one the tree counts.
+  fake.apply("gap-child", [facts.endTurn("root")]);
+  const counted = await until(
+    () => (group()?.entries[0]?.state !== "working" && group()?.live ? group() : undefined),
+    "the delegated child ended",
+  );
+  expect(counted.counted).toBe(true);
 });
 
 test("a child delegated to another machine names that machine and its host, to open it there", async () => {

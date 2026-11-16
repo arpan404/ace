@@ -43,10 +43,12 @@ extension PillRow.Covers {
 
 extension BlockRow.Agents {
     /// Whether the pill can stand in for this group while it is live: some child still works, waits
-    /// or asks, and the Agents sheet the pill opens can open every child. A child on another
-    /// machine opens there only from its row here, so a group holding one keeps its row.
+    /// or asks, every such child is one the pill counts and its Agents sheet lists (`counted`),
+    /// and the sheet can open every child. A child the group knows from the thread list but the
+    /// parent's tree doesn't (a stale copy after a reconnect) shows only here, and a child on
+    /// another machine opens there only from its row here, so a group holding either keeps it.
     var leavesToPill: Bool {
-        live == true && entries.allSatisfy { $0.machine.isEmpty }
+        live == true && counted == true && entries.allSatisfy { $0.machine.isEmpty }
     }
 }
 
