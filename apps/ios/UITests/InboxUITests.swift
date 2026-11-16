@@ -99,6 +99,9 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
         app.launchWithArguments()
+        // The fixture build asks for notifications on first launch.
+        let prompt = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
+        if prompt.waitForExistence(timeout: 3) { prompt.tap() }
         // The row shows the command it waits on; it has no buttons of its own.
         let command = "git push origin fix/queue"
         let row = app.revealRow("thread.\(allowed)")
