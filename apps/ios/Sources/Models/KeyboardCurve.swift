@@ -6,6 +6,11 @@ import Foundation
 /// the composer it carries move as a critically damped spring whose response is 0.65 of that
 /// duration, starting as the notification is posted.
 enum KeyboardCurve {
+    /// How long after the notification what the system draws starts to follow the curve, as seen
+    /// from a value set for a frame's target time: the rows led the composer by two 60 Hz frames
+    /// in every traced move without it.
+    static let delay = 1.0 / 30
+
     /// The spring's response for a move the notification says lasts `duration` seconds.
     static func response(_ duration: Double) -> Double { duration * 0.65 }
 

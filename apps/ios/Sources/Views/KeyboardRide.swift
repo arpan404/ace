@@ -3,7 +3,7 @@ import UIKit
 
 /// The rows following the transcript's end as the keyboard moves: drawn `shift` points from
 /// where the scroll puts them, set every frame from the keyboard's curve (`KeyboardCurve`) at the
-/// time the frame is shown, measured from the notification. A SwiftUI animation would start when
+/// time the frame is shown, measured from the notification less the curve's `delay`. A SwiftUI animation would start when
 /// its change commits, frames after the keyboard does; this lands each frame where the keyboard
 /// is, hitches included (#2170). Only `KeyboardRideOffset` reads `shift`, so a frame redraws the
 /// offset and nothing under it.
@@ -49,7 +49,7 @@ import UIKit
 
     fileprivate func tick(_ link: CADisplayLink) {
         guard let move else { return }
-        let elapsed = link.targetTimestamp - move.start
+        let elapsed = link.targetTimestamp - move.start - KeyboardCurve.delay
         let distance = Double(move.to - move.from)
         if KeyboardCurve.settled(elapsed, duration: move.duration, distance: distance) {
             stop()
