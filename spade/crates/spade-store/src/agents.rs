@@ -24,6 +24,15 @@ fn generated_color(seed: &str) -> &'static str {
     AVATAR_COLORS[(hash % AVATAR_COLORS.len() as u64) as usize]
 }
 
+/// The settings key prefix for a bot made from a marketplace recipe (ADR 0168): where it came
+/// from and the built-in tools it is narrowed to, as JSON the server shapes.
+pub const BOT_RECIPE: &str = "bot_recipe";
+
+/// One bot's recipe settings key.
+pub fn recipe_key(agent: &str) -> String {
+    format!("{BOT_RECIPE}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -252,6 +261,11 @@ impl Store {
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",
             params![crate::spend::roles_key(id)],
+        )?;
+        // The recipe it was made from (ADR 0168).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![recipe_key(id)],
         )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",

@@ -16,6 +16,7 @@ mod memory;
 mod oversight;
 mod plugins;
 mod questions;
+mod recipes;
 mod routines;
 mod routing;
 mod search;
