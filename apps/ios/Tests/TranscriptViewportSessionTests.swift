@@ -502,7 +502,8 @@ import Testing
         follow.moveStarted(lift: 0, follows: true)
         #expect(follow.riding)
         #expect(follow.base == 0)
-        #expect(follow.landed(lift: 300), "the scroll goes to the end to take the rows' offset over")
+        let scrolls = follow.landed(lift: 300)
+        #expect(scrolls, "the scroll goes to the end to take the rows' offset over")
         #expect(!follow.riding)
         #expect(follow.base == 300)
     }
@@ -512,14 +513,16 @@ import Testing
         follow.moveStarted(lift: 0, follows: true)
         follow.readerTookOver()
         #expect(!follow.riding, "the rows stay where the reader's scroll has them")
-        #expect(!follow.landed(lift: 300), "landing leaves the reader where they are")
+        let scrolls = follow.landed(lift: 300)
+        #expect(!scrolls, "landing leaves the reader where they are")
     }
 
     @Test func rowsAwayFromTheEndDontRide() {
         var follow = TranscriptKeyboardFollow()
         follow.moveStarted(lift: 0, follows: false)
         #expect(!follow.riding)
-        #expect(!follow.landed(lift: 300))
+        let scrolls = follow.landed(lift: 300)
+        #expect(!scrolls)
     }
 
     @Test func aMoveStartingMidRideKeepsTheLiftTheScrollAllowsFor() {
