@@ -20,13 +20,32 @@ export interface ChallengeTable {
 
 export async function challengesOf(db: D1Database, publisher: string): Promise<ChallengeTable[]> {
   const { results } = await db
-    .prepare("SELECT * FROM verification_challenges WHERE publisher = ?1 ORDER BY kind")
+    .prepare(
+      `SELECT * FROM verification_challenges WHERE publisher = ?1 AND kind IN ('domain', 'github')
+        ORDER BY kind`,
+    )
     .bind(publisher)
     .all<ChallengeTable>();
   return results;
 }
 
-/** A new token for a claim, replacing any earlier one of the same kind. */
+/** The proof field that names a challenge's subject: `$.domain` or `$.login`. */
+const subjectPath = "CASE ?2 WHEN 'domain' THEN '$.domain' ELSE '$.login' END";
+
+/**
+ * Whether a challenge's subject is one of the proofs the publisher's mark was granted on: the
+ * signed verified list stores those as the publisher's `proofs` (ADR 0173 §13).
+ */
+const approvedSubject = (subject: string) =>
+  `EXISTS (SELECT 1 FROM publishers p, json_each(p.proofs) j WHERE p.id = ?1 AND p.verified = 1
+    AND json_extract(j.value, '$.kind') = ?2
+    AND json_extract(j.value, ${subjectPath}) = ${subject})`;
+
+/**
+ * A new token for a claim, replacing any earlier one of the same kind. A verified publisher's
+ * passed challenge on an approved proof is kept aside as `<kind>:approved` first, so the weekly
+ * re-check still has the token the mark was granted on.
+ */
 export async function issueChallenge(
   db: D1Database,
   input: {
@@ -37,32 +56,49 @@ export async function issueChallenge(
     now: number;
   },
 ): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO verification_challenges (publisher, kind, subject, token, expires, state)
-        VALUES (?1, ?2, ?3, ?4, ?5, 'waiting')
-        ON CONFLICT (publisher, kind) DO UPDATE SET subject = excluded.subject,
-          token = excluded.token, expires = excluded.expires, state = 'waiting', problem = NULL`,
-    )
-    .bind(
-      input.publisher,
-      input.kind,
-      input.subject,
-      input.token,
-      input.now + tokenHours * 3_600_000,
-    )
-    .run();
+  const keep = `EXISTS (SELECT 1 FROM verification_challenges c WHERE c.publisher = ?1
+    AND c.kind = ?2 AND c.state = 'passed' AND ${approvedSubject("c.subject")})`;
+  await db.batch([
+    db
+      .prepare(
+        `DELETE FROM verification_challenges WHERE publisher = ?1 AND kind = ?2 || ':approved'
+          AND ${keep}`,
+      )
+      .bind(input.publisher, input.kind),
+    db
+      .prepare(
+        `UPDATE verification_challenges SET kind = kind || ':approved'
+          WHERE publisher = ?1 AND kind = ?2 AND state = 'passed'
+          AND ${approvedSubject("verification_challenges.subject")}`,
+      )
+      .bind(input.publisher, input.kind),
+    db
+      .prepare(
+        `INSERT INTO verification_challenges (publisher, kind, subject, token, expires, state)
+          VALUES (?1, ?2, ?3, ?4, ?5, 'waiting')
+          ON CONFLICT (publisher, kind) DO UPDATE SET subject = excluded.subject,
+            token = excluded.token, expires = excluded.expires, state = 'waiting', problem = NULL`,
+      )
+      .bind(
+        input.publisher,
+        input.kind,
+        input.subject,
+        input.token,
+        input.now + tokenHours * 3_600_000,
+      ),
+  ]);
 }
 
 /**
- * Records a check's outcome. A pass spends the token (only a waiting or failed one may pass) and
- * adds the proof, with the account proof every applicant has; the publisher then waits for a
- * maintainer unless already verified.
+ * Records a check's outcome. A pass spends the token (only a waiting or failed one may pass) and,
+ * in the same batch, merges the proof into the publisher's current proofs, with the account proof
+ * every applicant has; the publisher then waits for a maintainer. A verified publisher's proofs
+ * are the approved ones and stay as they are: the passed challenge is the new proof's record.
  */
 export async function recordCheck(
   db: D1Database,
-  publisher: PublisherTable,
-  challenge: ChallengeTable,
+  publisher: string,
+  challenge: { token: string },
   outcome: { passed: MarketVerificationProof } | { problem: string },
   now: number,
 ): Promise<void> {
@@ -72,30 +108,31 @@ export async function recordCheck(
         `UPDATE verification_challenges SET state = 'failed', problem = ?3
           WHERE publisher = ?1 AND token = ?2 AND state != 'passed'`,
       )
-      .bind(publisher.id, challenge.token, outcome.problem.slice(0, 500))
+      .bind(publisher, challenge.token, outcome.problem.slice(0, 500))
       .run();
     return;
   }
-  const proofs = proofsOf(publisher).filter(
-    (proof) => proof.kind !== "account" && proof.kind !== outcome.passed.kind,
-  );
-  const next: MarketVerificationProof[] = [{ kind: "account" }, ...proofs, outcome.passed];
-  const spent = await db
-    .prepare(
-      `UPDATE verification_challenges SET state = 'passed', problem = NULL
-        WHERE publisher = ?1 AND token = ?2 AND state != 'passed' AND expires > ?3`,
-    )
-    .bind(publisher.id, challenge.token, now)
-    .run();
-  if (spent.meta.changes !== 1) return;
-  await db
-    .prepare(
-      `UPDATE publishers SET proofs = ?2, verification_at = ?3,
-        verification = CASE WHEN verification = 'verified' THEN 'verified' ELSE 'applied' END
-        WHERE id = ?1`,
-    )
-    .bind(publisher.id, JSON.stringify(next.slice(0, 8)), now)
-    .run();
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE verification_challenges SET state = 'passed', problem = NULL
+          WHERE publisher = ?1 AND token = ?2 AND state != 'passed' AND expires > ?3`,
+      )
+      .bind(publisher, challenge.token, now),
+    db
+      .prepare(
+        `UPDATE publishers SET verification_at = ?3, verification = 'applied',
+          proofs = (SELECT json_group_array(json(value)) FROM (
+            SELECT '{"kind":"account"}' AS value, 0 AS rank, 0 AS position
+            UNION ALL SELECT value, 1, key FROM json_each(publishers.proofs)
+              WHERE json_extract(value, '$.kind') NOT IN ('account', ?4)
+            UNION ALL SELECT ?5, 2, 0
+            ORDER BY rank, position LIMIT 8))
+          WHERE id = ?1 AND verified = 0 AND EXISTS (SELECT 1 FROM verification_challenges
+            WHERE publisher = ?1 AND token = ?2 AND state = 'passed')`,
+      )
+      .bind(publisher, challenge.token, now, outcome.passed.kind, JSON.stringify(outcome.passed)),
+  ]);
 }
 
 export function verificationStatus(
@@ -123,7 +160,11 @@ export function verificationStatus(
   };
 }
 
-/** Verified publishers due a weekly re-check of their domain proof, a bounded batch. */
+/**
+ * Verified publishers due a weekly re-check of their approved domain proof, a bounded batch: the
+ * passed challenge on the domain the mark was granted on, the newer one when the publisher
+ * proved that domain again, else the one kept aside when they applied again.
+ */
 export async function dueRechecks(
   db: D1Database,
   now: number,
@@ -133,7 +174,13 @@ export async function dueRechecks(
     .prepare(
       `SELECT c.publisher, c.subject AS domain, c.token FROM verification_challenges c
         JOIN publishers p ON p.id = c.publisher
-        WHERE p.verified = 1 AND c.kind = 'domain' AND c.state = 'passed' AND p.rechecked < ?1
+        WHERE p.verified = 1 AND p.rechecked < ?1 AND c.state = 'passed'
+        AND c.kind IN ('domain', 'domain:approved')
+        AND EXISTS (SELECT 1 FROM json_each(p.proofs)
+          WHERE json_extract(value, '$.kind') = 'domain' AND json_extract(value, '$.domain') = c.subject)
+        AND NOT (c.kind = 'domain:approved' AND EXISTS (SELECT 1 FROM verification_challenges n
+          WHERE n.publisher = c.publisher AND n.kind = 'domain' AND n.state = 'passed'
+          AND n.subject = c.subject))
         ORDER BY p.rechecked LIMIT ?2`,
     )
     .bind(now - 7 * 86_400_000, limit)

@@ -23,6 +23,7 @@ import {
 import { addAppeal, offerTransfer } from "./store/me-transfers.ts";
 import { changeHandle, setPins } from "./store/profiles.ts";
 import { addWithdrawal, storePending } from "./store/publish.ts";
+import { dueRechecks, recordCheck } from "./store/verification.ts";
 
 /*
  * Races on a publisher's own routes (ADR 0173 §5): a request checks ownership, then something
@@ -255,5 +256,108 @@ describe("two renames from the same handle", () => {
       displayName: "Someone else",
     });
     expect(response.status).toBe(409);
+  });
+});
+
+const proofsOfPublisher = async (id: string) =>
+  JSON.parse(
+    (
+      await market.db
+        .prepare("SELECT proofs FROM publishers WHERE id = ?1")
+        .bind(id)
+        .first<{ proofs: string }>()
+    )?.proofs ?? "[]",
+  ) as unknown[];
+const tokenOf = async (id: string, kind: string) =>
+  (
+    await market.db
+      .prepare("SELECT token FROM verification_challenges WHERE publisher = ?1 AND kind = ?2")
+      .bind(id, kind)
+      .first<{ token: string }>()
+  )?.token ?? "";
+
+describe("verification checks", () => {
+  it("two checks that pass at once both keep their proof", async () => {
+    const applicant = await establishedPublisher(market, "acct_race_proofs", "race-proofs");
+    const applied = await asAccount(market, "acct_race_proofs", "POST", "/v1/me/verification", {
+      domain: "proofs.example",
+      github: "proofs-org",
+    });
+    expect(applied.status).toBe(200);
+    const now = Date.now();
+    // Each request read the publisher before the other wrote.
+    await Promise.all([
+      recordCheck(
+        market.db,
+        applicant.id,
+        { token: await tokenOf(applicant.id, "domain") },
+        { passed: { kind: "domain", domain: "proofs.example", via: "dns" } },
+        now,
+      ),
+      recordCheck(
+        market.db,
+        applicant.id,
+        { token: await tokenOf(applicant.id, "github") },
+        { passed: { kind: "github", login: "proofs-org", via: "gist" } },
+        now,
+      ),
+    ]);
+    expect(await proofsOfPublisher(applicant.id)).toEqual(
+      expect.arrayContaining([
+        { kind: "account" },
+        { kind: "domain", domain: "proofs.example", via: "dns" },
+        { kind: "github", login: "proofs-org", via: "gist" },
+      ]),
+    );
+  });
+
+  it("a verified publisher who applies again is still re-checked on the domain it was verified on", async () => {
+    const verified = await establishedPublisher(market, "acct_race_verified", "race-reapplier");
+    const approved = [
+      { kind: "account" },
+      { kind: "domain", domain: "approved.example", via: "dns" },
+    ];
+    await market.db.batch([
+      market.db
+        .prepare(
+          `UPDATE publishers SET verified = 1, verification = 'verified', proofs = ?2, rechecked = 0
+            WHERE id = ?1`,
+        )
+        .bind(verified.id, JSON.stringify(approved)),
+      market.db
+        .prepare(
+          `INSERT INTO verification_challenges (publisher, kind, subject, token, expires, state)
+            VALUES (?1, 'domain', 'approved.example', 'approved-token', 0, 'passed')`,
+        )
+        .bind(verified.id),
+    ]);
+    const applied = await asAccount(market, "acct_race_verified", "POST", "/v1/me/verification", {
+      domain: "new.example",
+    });
+    expect(applied.status).toBe(200);
+    const status = await jsonOf<{ challenges: { subject: string; state: string }[] }>(applied);
+    expect(status.challenges).toEqual([
+      expect.objectContaining({ subject: "new.example", state: "waiting" }),
+    ]);
+    const due = (await dueRechecks(market.db, Date.now(), 1000)).filter(
+      (row) => row.publisher === verified.id,
+    );
+    expect(due).toEqual([
+      { publisher: verified.id, domain: "approved.example", token: "approved-token" },
+    ]);
+    // The new domain passing doesn't change the proofs the mark was granted on.
+    await recordCheck(
+      market.db,
+      verified.id,
+      { token: await tokenOf(verified.id, "domain") },
+      { passed: { kind: "domain", domain: "new.example", via: "dns" } },
+      Date.now(),
+    );
+    expect(await proofsOfPublisher(verified.id)).toEqual(approved);
+    expect(
+      (await dueRechecks(market.db, Date.now(), 1000)).filter(
+        (row) => row.publisher === verified.id,
+      ),
+    ).toEqual([{ publisher: verified.id, domain: "approved.example", token: "approved-token" }]);
   });
 });

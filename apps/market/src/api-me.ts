@@ -350,8 +350,7 @@ async function verification(
             : challenge.kind === "domain"
               ? await checkDomain(challenge.subject, challenge.token, context.fetch)
               : await checkGithub(challenge.subject, challenge.token, context.fetch);
-        const current = (await publisherById(db, row.id)) ?? row;
-        await recordCheck(db, current, challenge, outcome, context.now);
+        await recordCheck(db, row.id, challenge, outcome, context.now);
       }
       return status((await publisherById(db, row.id)) ?? row);
     }
