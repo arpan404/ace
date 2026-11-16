@@ -30,11 +30,7 @@ import UIKit
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { note in
             let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
             let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-            let curve = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int ?? -1
-            MainActor.assumeIsolated {
-                KeyboardDriftProbe.shared.began(end: end, duration: duration)
-                PerfProbe.record(["keyboard.note": "\(duration)s curve \(curve) end \(end.debugDescription)"])
-            }
+            MainActor.assumeIsolated { KeyboardDriftProbe.shared.began(end: end, duration: duration) }
         }
     }
 

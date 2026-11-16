@@ -638,20 +638,12 @@ private struct GoalPresentation: Identifiable {
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
 /// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
 /// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
-/// words never show in the gap above the keyboard or behind the home indicator.
-///
-/// The bar doesn't take the system's keyboard avoidance: it moves by an offset from the keyboard's
-/// own notification, the lift and curve the transcript's end scrolls by (`ConversationFeed`), so
-/// the two start in the same update and never drift apart (#2170). The offset moves the bar's
-/// taps with it; nothing around it is resized.
+/// words never show in the gap above the keyboard or behind the home indicator. The bar takes the
+/// system's keyboard avoidance, which moves it on the keyboard's own curve; the transcript's end
+/// follows it on the same curve (`ConversationFeed.keyboardWillMove`).
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
     @ViewBuilder let bar: () -> Bar
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    /// How far the docked keyboard reaches above the bar's resting foot.
-    @State private var lift: CGFloat = 0
-    /// The area the bar rests at the foot of, keyboard ignored, in screen points.
-    @State private var column: CGRect = .zero
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
@@ -662,19 +654,6 @@ private struct FloatingBar<Bar: View>: ViewModifier {
                 .frame(maxWidth: .infinity)
                 .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-                .offset(y: -lift)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-        }
-        .background {
-            Color.clear.ignoresSafeArea(.keyboard, edges: .bottom)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { column = $0 }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            guard let move = KeyboardMove(note) else { return }
-            let next = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboard: move.end))
-            guard next != lift else { return }
-            PerfProbe.record(["keyboard.bar": "lift \(next) column \(column.debugDescription)"]) // DIAG
-            withAnimation(reduceMotion ? nil : AceDesign.Motion.keyboard(move.duration)) { lift = next }
         }
     }
 }

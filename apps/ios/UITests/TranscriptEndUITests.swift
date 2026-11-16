@@ -164,7 +164,7 @@ import XCTest
         transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         let closing = keyboardMotion(app, "close")
-        let report = "opening \(opening), closing \(closing) DIAG \(app.descendants(matching: .any)["perf.probe"].value as? String ?? "")"
+        let report = "opening \(opening), closing \(closing)"
         XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
         XCTAssertTrue(opening.drift <= 4 && closing.drift <= 4, "the gap holds each way: \(report)")
     }
