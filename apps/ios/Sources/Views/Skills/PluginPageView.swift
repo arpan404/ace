@@ -44,7 +44,7 @@ struct PluginPageView: View {
                             Toggle(isOn: Binding(get: { agent.on }, set: { setAgent(agent.id, on: $0) })) {
                                 HStack(spacing: AceDesign.Space.related) {
                                     ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
-                                    Text(agent.name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                                    Text(agent.name).aceFont(AceDesign.TextRole.rowTitle)
                                         .foregroundStyle(AceDesign.Ink.primary)
                                 }
                             }
@@ -54,7 +54,7 @@ struct PluginPageView: View {
                     }
                     QuietSectionRow {
                         Text(plugin.enabled ? "Each agent switched on here can load everything \(plugin.name) ships." : "Switched off: no agent loads it until it is enabled again.")
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -67,7 +67,7 @@ struct PluginPageView: View {
                                 QuietSectionRow {
                                     QuietRowText(title: component.title ?? component.name, detail: component.description)
                                     Text(component.enabled && !component.providers.isEmpty ? component.kind.capitalized : "Off")
-                                        .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                        .aceFont(AceDesign.TextRole.action)
                                         .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
                                     RowCaret()
                                 }
@@ -80,14 +80,14 @@ struct PluginPageView: View {
                     QuietSection {
                         Button { review = PluginReviewRequest(operation: ["type": "plugins.update", "name": plugin.name]) } label: {
                             QuietSectionRow {
-                                Text("Check for update").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                Text("Check for update").aceFont(AceDesign.TextRole.action)
                                     .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
                             }
                         }
                         .buttonStyle(.row)
                         Button(role: .destructive) { removing = true } label: {
                             QuietSectionRow {
-                                Text("Remove plugin").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                Text("Remove plugin").aceFont(AceDesign.TextRole.action)
                                     .foregroundStyle(AceTheme.StatusText.failed)
                             }
                         }

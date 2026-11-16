@@ -96,13 +96,13 @@ struct NewThreadStartFromPage: View {
                 .accessibilityIdentifier("newThread.startFrom.kind")
             }
             if let problem {
-                Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
+                Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
                     .listRowBackground(Color.clear)
             }
             if let list = shown {
                 let rows = showingAll ? list.rows : Array(list.rows.prefix(list.limit))
                 if rows.isEmpty {
-                    Text(list.none).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+                    Text(list.none).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                         .listRowBackground(Color.clear)
                 }
                 ForEach(rows) { row in
@@ -141,7 +141,7 @@ struct NewThreadStartFromPage: View {
     private func rowView(_ row: NewThreadStartFrom.Row) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             Text(verbatim: "#\(row.number)").monospacedDigit()
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
+                .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
             QuietRowText(title: row.title, detail: row.note?.text, tone: AceDesign.Ink.primary)
             if picking == row.id { ProgressView().controlSize(.small) }
         }

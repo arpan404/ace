@@ -94,7 +94,7 @@ struct InboxChip: View {
             Text(title).lineLimit(1)
             Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
         }
-        .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+        .aceFont(AceDesign.TextRole.segment)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.horizontal, AceDesign.Space.row)
         // The segmented control's height beside it, taking taps over 44.

@@ -63,7 +63,7 @@ struct AgentTreePage: View {
     private func header(_ sheet: AgentSheet) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             Text(sheet.summary?.text ?? (sheet.treeRunning ? "Working" : "Finished"))
-                .aceFont(AceDesign.TextRole.header, relativeTo: .title3)
+                .aceFont(AceDesign.TextRole.header)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
@@ -90,7 +90,7 @@ struct AgentTreePage: View {
                 case .more(let key, let count, let finished, let level):
                     Button { expanded.insert(key) } label: {
                         Text(finished ? "Show \(count) finished" : "Show \(count) more")
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                             .padding(.leading, CGFloat(level) * AgentTreeRails.indent + AceDesign.Size.lead + AceDesign.Space.related)
                             .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
@@ -141,7 +141,7 @@ struct AgentTreePage: View {
             .padding(.top, AceDesign.Space.group)
         if !model.canOperate {
             Text("View only: this phone can't answer or stop agents.")
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .padding(.top, AceDesign.Space.related)
                 .accessibilityIdentifier("agents.readOnly")
@@ -155,7 +155,7 @@ struct AgentTreePage: View {
             model.sheet(["kind": "agents.more", "list": list])
         } label: {
             Text([paging == list ? "Loading…" : title, detail].compactMap { $0 }.joined(separator: " · "))
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
                 .contentShape(Rectangle())

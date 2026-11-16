@@ -59,11 +59,11 @@ struct FilePathRow: View {
                 .foregroundStyle(AceDesign.Ink.subtle)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 Text(verbatim: String(parts.last ?? Substring(path)))
-                    .aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    .aceMonospace(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                 if parts.count > 1 {
                     Text(verbatim: parts.dropLast().joined(separator: "/"))
-                        .aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption)
+                        .aceMonospace(AceDesign.TextRole.branch)
                         .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.head)
                 }
             }

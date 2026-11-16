@@ -102,17 +102,17 @@ import UIKit
 
     // MARK: Type
 
-    /// Five roles, two weights, Dynamic Type through the system's own text styles, sized as
-    /// Mail, Messages and Reminders are at the default size: large title 34 (real large titles
-    /// only), title 17 (message text, sheet titles), body 16 (row titles), meta 13, caption 11.
-    /// Nothing is drawn bigger than its role.
+    /// Five roles, two weights, each one of the system's own text styles so Dynamic Type scales
+    /// it exactly: large title 34 (real large titles only), title and body 17 (message text,
+    /// sheet titles, row titles), meta 13, caption 11. Nothing is drawn bigger than its role.
+    /// `TextRole` (AceType.swift) is the same scale for text that sets its own line height.
     enum Typeface {
         /// A place's name: More, Settings, a section root.
         static let largeTitle = Font.largeTitle
         /// Message text, sheet titles.
         static let title = Font.body
         /// Row titles, answers, settings labels.
-        static let body = Font.callout
+        static let body = Font.body
         /// Project, branch, time, counts.
         static let meta = Font.footnote
         /// Tiny labels.
@@ -123,44 +123,6 @@ import UIKit
         /// The two weights.
         static let regular = Font.Weight.regular
         static let strong = Font.Weight.semibold
-    }
-
-    /// The approved scale (the "premium" mockup) as sizes for text drawn with `aceFont`, each
-    /// scaled against the system text style named beside it, so Dynamic Type grows them from the
-    /// default size. Nothing on screen is drawn larger than its role.
-    enum TextRole {
-        /// More's and Settings' large title, bold. `.largeTitle`.
-        static let largeTitle = AceTheme.TypeStyle(size: 30, lineHeight: 36, weight: 700, tracking: -0.4)
-        /// The home screen's own title ("ace ⌄"). `.headline`.
-        static let header = AceTheme.TypeStyle(size: 17, lineHeight: 22, weight: 600, tracking: -0.2)
-        /// An open thread's title in its bar. `.subheadline`.
-        static let navTitle = AceTheme.TypeStyle(size: 15, lineHeight: 20, weight: 600, tracking: 0)
-        /// "project · branch" under it. `.caption`.
-        static let navSubtitle = AceTheme.TypeStyle(size: 11.5, lineHeight: 14, weight: 400, tracking: 0)
-        /// The person's message, in its bubble. `.body`.
-        static let message = AceTheme.TypeStyle(size: 15.5, lineHeight: 21.4, weight: 400, tracking: 0)
-        /// The agent's answer, a little more open. `.body`.
-        static let answer = AceTheme.TypeStyle(size: 15.5, lineHeight: 23, weight: 400, tracking: 0)
-        /// A row's title (a thread, a chat), a grouped row's label, the composer's words. `.callout`.
-        static let rowTitle = AceTheme.TypeStyle(size: 15.5, lineHeight: 20, weight: 400, tracking: -0.15)
-        /// A request strip's sentence, and the segmented control's words. `.subheadline`.
-        static let segment = AceTheme.TypeStyle(size: 13.5, lineHeight: 18, weight: 400, tracking: 0)
-        /// A strip's actions, a grouped row's value. `.subheadline`.
-        static let action = AceTheme.TypeStyle(size: 14, lineHeight: 18, weight: 400, tracking: 0)
-        /// A transcript step ("Edited …"). `.footnote`.
-        static let step = AceTheme.TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
-        /// Project, the scope under a title, "Worked for", a section label. `.footnote`.
-        static let meta = AceTheme.TypeStyle(size: 12.5, lineHeight: 16, weight: 400, tracking: 0)
-        /// A row's time, a count, a chip's words. `.caption`.
-        static let time = AceTheme.TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
-        /// Code in a step or a strip. `.caption`.
-        static let code = AceTheme.TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
-        /// A row's last line: branch (mono), pull request, lines changed. `.caption2`.
-        static let branch = AceTheme.TypeStyle(size: 11, lineHeight: 14, weight: 400, tracking: 0)
-        /// Tiny labels. `.caption2`.
-        static let caption = AceTheme.TypeStyle(size: 11, lineHeight: 13, weight: 400, tracking: 0)
-        /// A tab's word under its icon. `.caption2`.
-        static let tab = AceTheme.TypeStyle(size: 10, lineHeight: 12, weight: 400, tracking: 0)
     }
 
     // MARK: Colour
@@ -304,9 +266,9 @@ extension AceDesign.Size {
     static let rowCorner: CGFloat = 16
     /// Between a title and the lines around it.
     static let rowLineGap: CGFloat = 2
-    /// The three lines' heights: project and status, title, branch.
-    static let rowLine1: CGFloat = 16
-    static let rowLine2: CGFloat = 20
+    /// The three lines' heights: project and status (footnote), title (body), branch (caption 2).
+    static let rowLine1: CGFloat = 18
+    static let rowLine2: CGFloat = 22
     static let rowLine3: CGFloat = 15
     static let rowLastLineGap: CGFloat = 3
     /// A row's status icon (line 1), pin and pull request glyphs, and the provider mark.
@@ -417,31 +379,14 @@ extension AceDesign.Space {
 }
 
 extension AceDesign {
-    /// What the composer types with: the approved scale's 15.5pt row size on its own lines.
+    /// What the composer types with: the row title's body size on its own lines.
     static func inputAttributes(traits: UITraitCollection) -> [NSAttributedString.Key: Any] {
-        let style = TextRole.rowTitle
-        let font = AceTheme.uiFont(style, relativeTo: .body, traits: traits)
+        let role = TextRole.rowTitle
+        let font = role.uiFont(traits: traits)
         let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = UIFontMetrics(forTextStyle: .body).scaledValue(for: style.lineHeight, compatibleWith: traits)
+        paragraph.minimumLineHeight = UIFontMetrics(forTextStyle: role.uiTextStyle).scaledValue(for: role.lineHeight, compatibleWith: traits)
         paragraph.maximumLineHeight = paragraph.minimumLineHeight
         return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
-    }
-}
-
-extension AceDesign {
-    /// Large titles at 30pt bold and inline titles at 15pt semibold (the approved scale), set
-    /// on the system bar's appearance so every stack draws them, scaled with Dynamic Type.
-    static func applyBarTitles() {
-        let large = TextRole.largeTitle
-        let inline = TextRole.navTitle
-        let bar = UINavigationBar.appearance()
-        bar.largeTitleTextAttributes = [
-            .font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: .systemFont(ofSize: large.size, weight: .bold)),
-            .kern: large.tracking,
-        ]
-        bar.titleTextAttributes = [
-            .font: UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .systemFont(ofSize: inline.size, weight: .semibold)),
-        ]
     }
 }
 

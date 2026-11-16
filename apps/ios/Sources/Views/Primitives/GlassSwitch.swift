@@ -42,7 +42,7 @@ struct CapsuleSegments<Value: Hashable>: View {
                 Text(choice.title)
                 if let short = choice.short { Text(short) }
             }
-            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.segment)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
             .lineLimit(1)

@@ -16,12 +16,12 @@ struct QuietProblemRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(title).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("service.problem")
                 if let detail, !detail.isEmpty {
-                    Text(detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(detail).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }

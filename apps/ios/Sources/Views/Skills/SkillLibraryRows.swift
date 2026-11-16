@@ -50,7 +50,7 @@ struct PluginsSection: View {
                 } label: {
                     QuietSectionRow {
                         QuietRowText(title: plugin.name, detail: plugin.summary)
-                        Text(plugin.version).aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        Text(plugin.version).aceFont(AceDesign.TextRole.action)
                             .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
                         RowCaret()
                     }
@@ -61,7 +61,7 @@ struct PluginsSection: View {
             ForEach(reviews) { pending in
                 Button { review(PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id])) } label: {
                     QuietSectionRow {
-                        Text("Finish reviewing \(pending.name)").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        Text("Finish reviewing \(pending.name)").aceFont(AceDesign.TextRole.action)
                             .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
                     }
                 }
@@ -70,7 +70,7 @@ struct PluginsSection: View {
             if model.canOperate {
                 Button(action: install) {
                     QuietSectionRow {
-                        Text("Install plugin").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        Text("Install plugin").aceFont(AceDesign.TextRole.action)
                             .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
                     }
                 }
@@ -80,7 +80,7 @@ struct PluginsSection: View {
             if more {
                 Button(action: loadMore) {
                     QuietSectionRow {
-                        Text("Show more plugin skills").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        Text("Show more plugin skills").aceFont(AceDesign.TextRole.action)
                             .foregroundStyle(AceDesign.Ink.muted)
                     }
                 }

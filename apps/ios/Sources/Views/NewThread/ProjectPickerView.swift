@@ -221,7 +221,7 @@ struct AddProjectView: View {
                                 if adding == folder.path {
                                     ProgressView().accessibilityLabel("Adding \(folder.name)")
                                 } else if folder.project {
-                                    Text("Added").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                    Text("Added").aceFont(AceDesign.TextRole.action)
                                         .foregroundStyle(AceDesign.Ink.subtle)
                                 }
                             }
@@ -234,10 +234,10 @@ struct AddProjectView: View {
             }
         case "forbidden":
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text("Add it on your computer").aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text("Add it on your computer").aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.primary)
                 Text("This computer doesn't let this phone browse its folders. In ace on your computer, choose Add project.")
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, AceDesign.Space.margin)
@@ -284,7 +284,7 @@ struct AddProjectView: View {
 
 /// A page's one quiet line: what was searched and found nothing, or why there's no list.
 @MainActor private func quietLine(_ text: String) -> some View {
-    Text(text).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+    Text(text).aceFont(AceDesign.TextRole.meta)
         .foregroundStyle(AceDesign.Ink.muted)
         .padding(.horizontal, AceDesign.Space.margin)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -296,9 +296,9 @@ private struct QuietPathRow: View {
     let path: String
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Text(name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+            Text(name).aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
-            Text(verbatim: path).aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption)
+            Text(verbatim: path).aceMonospace(AceDesign.TextRole.branch)
                 .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -83,7 +83,7 @@ struct DevicesScreen: View {
     @ViewBuilder private func running(_ view: DevicesView) -> some View {
         if view.running.isEmpty {
             Text("No devices running.")
-                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                .aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceDesign.Ink.muted)
                 .padding(.vertical, AceDesign.Space.related)
                 .listRowSeparator(.hidden).listRowBackground(AceDesign.Surface.background)
@@ -173,14 +173,14 @@ struct DeviceRow: View {
             AceIcon(DeviceIcon.of(tile.kind), size: AceDesign.Size.icon, relativeTo: .subheadline)
                 .foregroundStyle(AceDesign.Ink.muted).frame(width: AceDesign.Size.lead).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
-                Text(tile.name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(tile.name).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                 if !tile.detail.isEmpty {
-                    Text(tile.detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(tile.detail).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
                 if !tile.control.isEmpty {
-                    Text(tile.control).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(tile.control).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.subtle).lineLimit(2)
                 }
             }
@@ -204,12 +204,12 @@ struct DeviceNote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             if let title {
-                Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(title).aceFont(AceDesign.TextRole.rowTitle)
                     .fontWeight(.semibold)
                     .foregroundStyle(AceDesign.Ink.primary)
                     .accessibilityAddTraits(.isHeader)
             }
-            Text(sentence).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+            Text(sentence).aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceDesign.Ink.muted)
             if let action {
                 Button(action, action: run).buttonStyle(.textAction(.prominent))

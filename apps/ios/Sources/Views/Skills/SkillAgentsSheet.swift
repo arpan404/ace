@@ -24,7 +24,7 @@ struct SkillAgentsSheet: View {
                         if draft.contains(where: { $0.locked && $0.on }) {
                             QuietSectionRow {
                                 Text("Agents that read the folder \(page.title) is saved in always see it.")
-                                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                    .aceFont(AceDesign.TextRole.meta)
                                     .foregroundStyle(AceDesign.Ink.muted)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -60,10 +60,10 @@ struct SkillAgentToggles: View {
                     HStack(spacing: AceDesign.Space.related) {
                         ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                            Text(agent.name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                            Text(agent.name).aceFont(AceDesign.TextRole.rowTitle)
                                 .foregroundStyle(AceDesign.Ink.primary)
                             if agent.locked && agent.on {
-                                Text("Reads its folder").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                Text("Reads its folder").aceFont(AceDesign.TextRole.meta)
                                     .foregroundStyle(AceDesign.Ink.muted)
                             }
                         }

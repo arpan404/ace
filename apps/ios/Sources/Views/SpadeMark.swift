@@ -138,7 +138,7 @@ struct SpadeSoonScreen: View {
         VStack(spacing: AceDesign.Space.margin) {
             SpadeMark(size: AceDesign.Size.spade).foregroundStyle(AceTheme.Colours.foreground)
             Text("Spade is coming soon.")
-                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                .aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .accessibilityIdentifier("spade.soon")
         }

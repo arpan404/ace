@@ -24,10 +24,6 @@ import QuartzCore
             return drafts
         }
     }
-    init() {
-        // The system bar's titles on the approved scale, for every stack in the app.
-        AceDesign.applyBarTitles()
-    }
     var body: some Scene {
         WindowGroup {
             Group {

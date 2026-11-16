@@ -82,7 +82,7 @@ struct NewThreadPills: View {
             if let problem = model.place?.problem {
                 // Where it runs can't be chosen until the branches arrive: say why, and ask again.
                 HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
-                    Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(problem).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceTheme.StatusText.failed)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: AceDesign.Space.related)

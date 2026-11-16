@@ -46,7 +46,7 @@ struct ThreadsTabsBar: View {
                 Text(tab.label).lineLimit(1)
                 if tab.counted && total > 0 {
                     Text(total.formatted()).monospacedDigit()
-                        .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+                        .aceFont(AceDesign.TextRole.time)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
                 if lit {
@@ -54,7 +54,7 @@ struct ThreadsTabsBar: View {
                         .accessibilityHidden(true)
                 }
             }
-            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.segment)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.chipTab)

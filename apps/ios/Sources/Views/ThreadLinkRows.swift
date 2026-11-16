@@ -27,7 +27,7 @@ struct ThreadLinkChip: View {
             Text(name).lineLimit(1).truncationMode(.tail)
                 .foregroundStyle(AceTheme.Colours.foreground)
         }
-        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        .aceFont(AceDesign.TextRole.meta)
         .padding(.horizontal, AceDesign.Space.related)
         .frame(minHeight: AceDesign.Size.slimControl)
         .background(AceDesign.Surface.fill, in: AceShape.capsule)
@@ -47,14 +47,14 @@ struct TaskCardRow: View {
         let from = parent.isEmpty ? nil : links?.threadTitle?(parent)
         let heading = event.text == "Handoff" && from != nil ? "Handoff from \(from ?? "")" : event.text
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(heading).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+            Text(heading).aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
-            Text(event.detail).aceFont(AceDesign.TextRole.message, relativeTo: .body)
+            Text(event.detail).aceFont(AceDesign.TextRole.message)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .textSelection(.enabled)
             if !parent.isEmpty {
                 HStack(spacing: AceDesign.Space.tight) {
-                    Text("Back to").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text("Back to").aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                     ThreadLinkChip(threadId: parent, title: from, fallback: "the parent thread", open: links?.openThread)
                 }
