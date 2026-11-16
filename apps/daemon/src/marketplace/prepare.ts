@@ -54,13 +54,16 @@ export interface PreparePorts {
   /** Withdrawn hashes and their reasons, from the newest verified list. */
   withdrawn: () => ReadonlyMap<string, string>;
   /** ADR 0014's review of a plugin from these bytes. */
-  preparePlugin: (input: {
-    name: string;
-    hash: string;
-    commit: string;
-    origin: { repository: string; ref: string };
-    files: readonly ArchiveFile[];
-  }) => Promise<PluginReview>;
+  preparePlugin: (input: PluginFilesInput) => Promise<PluginReview>;
+}
+
+/** What ADR 0014's manager needs to review a plugin from bytes the marketplace verified. */
+export interface PluginFilesInput {
+  name: string;
+  hash: string;
+  commit: string;
+  origin: { repository: string; ref: string };
+  files: readonly ArchiveFile[];
 }
 
 const parseVersion = (value: string) => {
@@ -105,16 +108,17 @@ export async function prepareEntry(
     throw new Refused(`${name} doesn't pass ace's checks`, { problems: checked.problems });
   if (checked.hash !== fetched.hash)
     throw new Refused("The files don't match the hash they were offered under");
-  const plugin =
+  const pluginInput: PluginFilesInput | undefined =
     entryType === "spade-plugin"
-      ? await ports.preparePlugin({
+      ? {
           name,
           hash: checked.hash,
           commit: fetched.commit,
           origin: fetched.origin,
           files: checked.files,
-        })
+        }
       : undefined;
+  const plugin = pluginInput ? await ports.preparePlugin(pluginInput) : undefined;
   return {
     source: source.id,
     type: entryType,
@@ -129,6 +133,7 @@ export async function prepareEntry(
     byAce: fetched.byAce,
     checked,
     plugin,
+    pluginInput,
   };
 }
 

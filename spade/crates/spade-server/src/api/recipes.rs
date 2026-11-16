@@ -64,6 +64,36 @@ pub(super) async fn create(state: AppState, body: RecipeBody) -> Response {
             "a recipe's bot records where it came from: from_recipe {source, name, version}",
         );
     };
+    // A transaction already made its bot: answer with that bot, make no second one.
+    if let Some(transaction) = from_recipe.transaction.as_deref() {
+        if transaction.is_empty()
+            || transaction.len() > 80
+            || !transaction
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return refused(
+                StatusCode::BAD_REQUEST,
+                "an install transaction is a short id",
+            );
+        }
+        let found = state.engine.bot_for_transaction(transaction);
+        match found {
+            Ok(Some(id)) => {
+                return match state.engine.agent_view(&id) {
+                    Ok(Some(view)) => (
+                        StatusCode::OK,
+                        Json(json!({ "agent": agent_json(&view), "left_out": [] })),
+                    )
+                        .into_response(),
+                    Ok(None) => refused(StatusCode::CONFLICT, "the transaction's bot just went"),
+                    Err(error) => refused(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+                };
+            }
+            Ok(None) => {}
+            Err(error) => return refused(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        }
+    }
     // The daemon has just accepted these plugins, so the last reading may not have them yet.
     if !body.grants.plugins.is_empty()
         && let Some(plugins) = state.engine.plugins()

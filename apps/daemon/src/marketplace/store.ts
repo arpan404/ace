@@ -12,7 +12,13 @@ import {
   type FeedEntry,
   type HashedFile,
 } from "@ace/marketplace";
-import { storedMarketInstall, storedMarketListing, storedMarketSource } from "../stored-decode.ts";
+import {
+  storedMarketInstall,
+  storedMarketJournal,
+  storedMarketListing,
+  storedMarketSource,
+} from "../stored-decode.ts";
+import { journalHashes, type Journal } from "./journal.ts";
 
 /*
  * The daemon's marketplace registry (ADR 0168 §6): its sources, what the person accepted, and
@@ -70,7 +76,8 @@ export class MarketStore {
     db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS sources (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS installs (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (type, name));
-      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS journal (id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
     return new MarketStore(root, db);
   }
 
@@ -143,6 +150,24 @@ export class MarketStore {
     this.#db.prepare("DELETE FROM installs WHERE type = ? AND name = ?").run(type, name);
   }
 
+  /** Installs that started and didn't finish: each step written down before it was taken. */
+  journals(): Journal[] {
+    return this.#db
+      .prepare("SELECT data FROM journal ORDER BY id")
+      .all()
+      .map((row) => storedMarketJournal(String(row["data"])));
+  }
+
+  saveJournal(journal: Journal): void {
+    this.#db
+      .prepare("INSERT OR REPLACE INTO journal (id, data) VALUES (?, ?)")
+      .run(journal.id, JSON.stringify(journal));
+  }
+
+  dropJournal(id: string): void {
+    this.#db.prepare("DELETE FROM journal WHERE id = ?").run(id);
+  }
+
   meta(key: string): string | undefined {
     const row = this.#db.prepare("SELECT value FROM meta WHERE key = ?").get(key);
     return row ? String(row["value"]) : undefined;
@@ -188,7 +213,13 @@ export class MarketStore {
 
   /** Drops pinned bytes no install still names. */
   async collect(): Promise<void> {
-    const keep = new Set(this.installs().map((install) => `${install.hash}.tar`));
+    // Bytes an unfinished install may need to put back stay too.
+    const keep = new Set(
+      [
+        ...this.installs().map((install) => install.hash),
+        ...this.journals().flatMap(journalHashes),
+      ].map((hash) => `${hash}.tar`),
+    );
     for (const name of await readdir(join(this.#root, "objects")))
       if (!keep.has(name)) await rm(join(this.#root, "objects", name), { force: true });
   }

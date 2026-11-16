@@ -13,6 +13,16 @@ const Made = z.object({
   agent: z.object({ id: z.string().min(1).max(80) }),
   left_out: z.array(z.string().max(500)).max(64).optional(),
 });
+const Agents = z.object({
+  agents: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(80),
+        from_recipe: z.object({ transaction: z.string().max(80).optional() }).nullish(),
+      }),
+    )
+    .max(10_000),
+});
 const BotPlugins = z.object({
   plugins: z.array(z.object({ name: z.string().max(64), allowed: z.boolean() })).max(1024),
 });
@@ -83,21 +93,34 @@ export function spadePort(connection: () => SpadeConnection | undefined): SpadeP
             ...(recipe.needs.tools ? { tools: recipe.needs.tools } : {}),
             notes: recipe.notes,
           },
-          from_recipe: input.fromRecipe,
+          // Spade answers a second request with the same transaction with the bot it made.
+          from_recipe: { ...input.fromRecipe, transaction: input.transaction },
           grants: input.grants,
           start_routines: input.startRoutines,
         }),
       );
       return { id: made.agent.id, leftOut: made.left_out ?? [] };
     },
-    async allowPlugin(bot, plugin) {
+    async pluginsOf(bot) {
       const path = `/v1/agents/${encodeURIComponent(bot)}/plugins`;
       const current = BotPlugins.parse(await call(live(), "GET", path));
-      const allowed = new Set(
-        current.plugins.filter((item) => item.allowed).map((item) => item.name),
-      );
-      allowed.add(plugin);
-      await call(live(), "PUT", path, { plugins: [...allowed].toSorted() });
+      return current.plugins
+        .filter((item) => item.allowed)
+        .map((item) => item.name)
+        .toSorted();
+    },
+    async setPlugins(bot, plugins) {
+      await call(live(), "PUT", `/v1/agents/${encodeURIComponent(bot)}/plugins`, {
+        plugins: [...new Set(plugins)].toSorted(),
+      });
+    },
+    async findBot(transaction) {
+      const listed = Agents.parse(await call(live(), "GET", "/v1/agents"));
+      return listed.agents.find((agent) => agent.from_recipe?.transaction === transaction)?.id;
+    },
+    async deleteBot(id) {
+      // Workers it made in the moments it existed stop with it.
+      await call(live(), "DELETE", `/v1/agents/${encodeURIComponent(id)}?workers=stop`);
     },
   };
 }

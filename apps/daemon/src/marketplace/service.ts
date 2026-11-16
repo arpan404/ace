@@ -1,11 +1,11 @@
 import { join } from "node:path";
 import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
-import type { PluginReview } from "@ace/protocol/plugins";
 import type { MarketKeySet } from "@ace/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
 import { GitCatalogs } from "./git.ts";
 import { MarketHttp, type MarketFetch } from "./http.ts";
+import { undoJournal } from "./journal.ts";
 import {
   installReview,
   removeInstall,
@@ -15,7 +15,7 @@ import {
   type SpadePort,
   type SuitPort,
 } from "./install.ts";
-import { readWithdrawn, refreshSource } from "./listings.ts";
+import { learnWithdrawn, readWithdrawn, refreshSource } from "./listings.ts";
 import { newer, prepareWithBrings, Refused } from "./prepare.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { MarketStore, type StoredSource } from "./store.ts";
@@ -26,11 +26,8 @@ import { MarketStore, type StoredSource } from "./store.ts";
  * accepted bytes are pinned and checked on every read; each type lands with its owner.
  */
 
-export interface MarketPluginPort extends PluginPort {
-  prepareFiles(
-    input: Parameters<import("./prepare.ts").PreparePorts["preparePlugin"]>[0],
-  ): Promise<PluginReview>;
-}
+/** The plugin manager as the marketplace uses it (`plugin-port.ts`). */
+export type MarketPluginPort = PluginPort;
 
 export interface MarketplaceOptions {
   root: string;
@@ -103,6 +100,8 @@ export class MarketplaceService {
       });
     const service = new MarketplaceService(options, store);
     await service.#git.collect();
+    // An install a crash interrupted is undone before anything else runs.
+    await service.#recover();
     const last = Math.min(...store.sources().map((source) => source.readAt ?? 0));
     service.#daily(options.now() - last > dayMs ? 5 * 60_000 : dayMs);
     return service;
@@ -338,8 +337,39 @@ export class MarketplaceService {
       void this.#serial(() => this.#refreshAll()).catch(() => {});
   }
 
+  /** Undoes every install a failure or crash left journaled; what can't be undone now waits. */
+  async #recover(): Promise<void> {
+    for (const journal of this.#store.journals())
+      await undoJournal(this.#installPorts(), journal).catch(() => false);
+  }
+
+  #transactionId(): string {
+    return `install-${this.#options
+      .id()
+      .replace(/[^a-zA-Z0-9-]/g, "")
+      .slice(0, 60)}`;
+  }
+
+  /**
+   * After an install was undone, the plugin reviews it accepted are spent: ask ADR 0014's
+   * manager for new ones over the same verified bytes, so the person can press Install again.
+   */
+  async #renewPluginReviews(review: PreparedReview): Promise<void> {
+    const plugins = this.#options.plugins();
+    if (!plugins) return;
+    for (const entry of [review, ...review.brings]) {
+      if (!entry.plugin || !entry.pluginInput) continue;
+      await plugins.cancel(entry.plugin.id).catch(() => {});
+      entry.plugin = await plugins.prepareFiles(entry.pluginInput).catch(() => entry.plugin);
+    }
+  }
+
   async #applyWithdrawals(): Promise<void> {
     const withdrawn = readWithdrawn(this.#store).hashes;
+    // A review of withdrawn bytes, or of a recipe that brings them, ends here.
+    for (const [id, pending] of this.#pending)
+      if ([pending.review, ...pending.review.brings].some((entry) => withdrawn[entry.hash]))
+        await this.#cancel(id);
     for (const install of this.#store.installs()) {
       const reason = withdrawn[install.hash];
       if (
@@ -447,7 +477,31 @@ export class MarketplaceService {
     if (built.review.blocked) return error("refused", built.review.blocked);
     if (pending.review.type === "spade-bot" && !this.#options.spade.ready())
       return error("unavailable", "Spade isn't running. Start Spade to make this bot.");
-    const installed = await installReview(this.#installPorts(), pending.review, choices);
+    await this.#recover();
+    // A withdrawal learned since the review counts: for the entry and for all it brings.
+    await learnWithdrawn(this.#store, this.#http(), this.#options.keys).catch(() => {});
+    const withdrawn = readWithdrawn(this.#store).hashes;
+    for (const entry of [pending.review, ...pending.review.brings]) {
+      const reason = withdrawn[entry.hash];
+      if (!reason) continue;
+      await this.#cancel(id);
+      return error(
+        "refused",
+        `${entry.type}/${entry.name} ${entry.version} was withdrawn: ${reason}`,
+      );
+    }
+    let installed;
+    try {
+      installed = await installReview(
+        this.#installPorts(),
+        pending.review,
+        choices,
+        this.#transactionId(),
+      );
+    } catch (thrown) {
+      await this.#renewPluginReviews(pending.review);
+      throw thrown;
+    }
     this.#pending.delete(id);
     this.#emit();
     return { op: "done", installed: publicInstall(installed) };

@@ -73,7 +73,12 @@ describe("installing a bot recipe", () => {
     expect(spade.made).toEqual([
       expect.objectContaining({
         recipe: expect.objectContaining({ name: "Inbox", model: "fast" }),
-        from_recipe: { source: "market", name: "inbox", version: "1.0.0" },
+        from_recipe: {
+          source: "market",
+          name: "inbox",
+          version: "1.0.0",
+          transaction: expect.stringMatching(/^install-/),
+        },
         grants: { connectors: [], plugins: ["mail-tools"], skills: ["triage-mail"] },
         start_routines: false,
       }),

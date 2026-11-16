@@ -14,6 +14,10 @@ pub struct FromRecipe {
     pub source: String,
     pub name: String,
     pub version: String,
+    /// The daemon's install transaction: one transaction makes one bot, however often it is
+    /// sent, and the daemon finds the bot by it to undo an install it lost track of.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
 }
 
 /// What the store keeps for a bot made from a recipe.
@@ -37,6 +41,20 @@ impl Engine {
     pub fn bot_recipe(&self, agent: &str) -> Option<BotRecipe> {
         let text = self.store.setting(&recipe_key(agent)).ok()??;
         serde_json::from_str(&text).ok()
+    }
+
+    /// The bot made under install transaction `transaction`, if there is one.
+    pub fn bot_for_transaction(&self, transaction: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .store
+            .agents()?
+            .into_iter()
+            .map(|agent| agent.id)
+            .find(|id| {
+                self.bot_recipe(id)
+                    .and_then(|recipe| recipe.from_recipe.transaction)
+                    .is_some_and(|t| t == transaction)
+            }))
     }
 
     /// The built-in tools the top-level bot whose conversation is `conversation` is narrowed

@@ -157,11 +157,21 @@ export async function fakeMarket() {
   };
 }
 
-/** Spade's two routes the marketplace calls, recording what it was asked. */
+type CreateMode = "ok" | "fail" | "drop" | "hang";
+
+/**
+ * Spade's routes the marketplace calls (agents, a bot's plugins), recording what it was asked.
+ * A create can fail, make the bot and drop the answer, or make it and never answer; a bot made
+ * with a transaction id already used answers with that bot, as Spade does.
+ */
 export async function fakeSpade() {
   const made: Record<string, unknown>[] = [];
+  const bots = new Map<string, { from_recipe?: unknown }>();
   const allowed = new Map<string, string[]>();
-  let failCreate = false;
+  let createMode: CreateMode = "ok";
+  let failPluginWrites = new Set<string>();
+  let beforeCreate: (() => Promise<void> | void) | undefined;
+  const hanging: ServerResponse[] = [];
   const token = "spade-test-token";
   const server = createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`)
@@ -172,15 +182,45 @@ export async function fakeSpade() {
       ? JSON.parse(Buffer.concat(chunks).toString("utf8"))
       : undefined;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (request.method === "GET" && url.pathname === "/v1/agents")
+      return send(response, 200, {
+        agents: [...bots].map(([id, bot]) => ({ id, from_recipe: bot.from_recipe })),
+      });
     if (request.method === "POST" && url.pathname === "/v1/agents") {
-      if (failCreate) return send(response, 500, { error: "The bot couldn't be made" });
+      const input = body as { from_recipe?: { transaction?: string } };
+      const transaction = input.from_recipe?.transaction;
+      const existing = [...bots].find(
+        ([, bot]) =>
+          transaction !== undefined &&
+          (bot.from_recipe as { transaction?: string } | undefined)?.transaction === transaction,
+      );
+      if (existing) return send(response, 200, { agent: { id: existing[0] } });
+      await beforeCreate?.();
+      if (createMode === "fail") return send(response, 500, { error: "The bot couldn't be made" });
       made.push(body as Record<string, unknown>);
-      return send(response, 201, { agent: { id: `bot_${made.length}` } });
+      const id = `bot_${made.length}`;
+      bots.set(id, { from_recipe: input.from_recipe });
+      if (createMode === "drop") return response.destroy();
+      if (createMode === "hang") return void hanging.push(response);
+      return send(response, 201, { agent: { id } });
+    }
+    const agent = /^\/v1\/agents\/([^/]+)$/.exec(url.pathname);
+    if (agent?.[1] && request.method === "DELETE") {
+      const deleted = bots.delete(decodeURIComponent(agent[1]));
+      return send(
+        response,
+        deleted ? 200 : 404,
+        deleted ? { ok: true } : { error: "no such agent" },
+      );
     }
     const plugins = /^\/v1\/agents\/([^/]+)\/plugins$/.exec(url.pathname);
     if (plugins?.[1]) {
       const bot = decodeURIComponent(plugins[1]);
-      if (request.method === "PUT") allowed.set(bot, (body as { plugins: string[] }).plugins);
+      if (request.method === "PUT") {
+        if (failPluginWrites.has(bot))
+          return send(response, 500, { error: "The bot's plugins couldn't be saved" });
+        allowed.set(bot, (body as { plugins: string[] }).plugins);
+      }
       return send(response, 200, {
         plugins: (allowed.get(bot) ?? []).map((name) => ({ name, allowed: true })),
         cli: false,
@@ -192,15 +232,32 @@ export async function fakeSpade() {
   let running = true;
   return {
     made,
+    bots,
     allowed,
     connection: () => (running ? { host: "127.0.0.1", port, token } : undefined),
+    setCreate(mode: CreateMode) {
+      createMode = mode;
+    },
     setFailCreate(value: boolean) {
-      failCreate = value;
+      createMode = value ? "fail" : "ok";
+    },
+    /** Writes of these bots' plugins fail. */
+    setFailPluginWrites(failing: string[]) {
+      failPluginWrites = new Set(failing);
+    },
+    /** Runs as Spade starts making a bot, before it answers. */
+    onCreate(run: () => Promise<void> | void) {
+      beforeCreate = run;
     },
     setRunning(value: boolean) {
       running = value;
     },
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const response of hanging.splice(0)) response.destroy();
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   };
 }
 
@@ -260,20 +317,22 @@ export async function marketplaceHarness(options: {
   const manager = await PluginManager.open({ root: join(root, "plugins"), now: () => clock, id });
   const plugins = new PluginService(manager);
   const key = testKey();
-  const service = await MarketplaceService.open({
-    root: join(root, "marketplace"),
-    now: () => clock,
-    id,
-    fetch: (url, init) => fetch(url, init),
-    origin: options.origin,
-    keys: keySetOf(key),
-    git: gitRuntime(),
-    suits: () => suits,
-    plugins: () => pluginPort(() => plugins),
-    spade: spadePort(options.spade.connection),
-    schedule: () => () => {},
-    allowLocalGit: true,
-  });
+  const open = () =>
+    MarketplaceService.open({
+      root: join(root, "marketplace"),
+      now: () => clock,
+      id,
+      fetch: (url, init) => fetch(url, init),
+      origin: options.origin,
+      keys: keySetOf(key),
+      git: gitRuntime(),
+      suits: () => suits,
+      plugins: () => pluginPort(() => plugins),
+      spade: spadePort(options.spade.connection),
+      schedule: () => () => {},
+      allowLocalGit: true,
+    });
+  let service = await open();
   const ask = async <Op extends MarketResult["op"]>(
     operation: MarketOperation,
     op: Op,
@@ -285,7 +344,21 @@ export async function marketplaceHarness(options: {
   };
   return {
     root,
-    service,
+    get service() {
+      return service;
+    },
+    /** Stops the service as a crash would, mid-request or not, and starts it again. */
+    async restart() {
+      service.close();
+      service = await open();
+    },
+    /** What the plugin manager has accepted, by name. */
+    async acceptedPlugins() {
+      const list = await plugins.handle({ type: "plugins.list" });
+      return list.type === "plugins.list"
+        ? Object.fromEntries(list.installs.map((install) => [install.name, install.hash]))
+        : {};
+    },
     suits,
     plugins,
     key,

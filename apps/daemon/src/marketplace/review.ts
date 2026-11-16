@@ -37,6 +37,8 @@ export interface PreparedEntry {
   checked: CheckedEntry;
   /** ADR 0014's review of a plugin, made from these bytes. */
   plugin?: PluginReview | undefined;
+  /** How `plugin` was asked for, to ask again if an install that used it is undone. */
+  pluginInput?: import("./prepare.ts").PluginFilesInput | undefined;
   /** The installed version this one would replace. */
   previous?: { version: string; files: readonly ArchiveFile[] } | undefined;
 }

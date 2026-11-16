@@ -453,3 +453,21 @@ async fn a_failure_after_the_bot_was_made_removes_it_again() -> Result {
     assert!(bots(&spade).await?.is_empty(), "the half-made bot is gone");
     Ok(())
 }
+
+#[tokio::test]
+async fn one_install_transaction_makes_one_bot_however_often_it_is_sent() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let mut body = install(recipe(), no_grants(), false);
+    body["from_recipe"]["transaction"] = json!("install-7");
+    let (status, first) = spade.post("/v1/agents", body.clone()).await?;
+    assert_eq!(status, 201, "{first}");
+    assert_eq!(first["agent"]["from_recipe"]["transaction"], "install-7");
+    let (status, again) = spade.post("/v1/agents", body).await?;
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(id(&again["agent"]), id(&first["agent"]));
+    assert_eq!(bots(&spade).await?.len(), 1);
+    // The daemon finds the bot by its transaction to undo an install it lost track of.
+    let listed = bots(&spade).await?;
+    assert_eq!(listed[0]["from_recipe"]["transaction"], "install-7");
+    Ok(())
+}

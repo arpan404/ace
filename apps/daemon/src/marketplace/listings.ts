@@ -34,6 +34,26 @@ export function readWithdrawn(store: MarketStore): WithdrawnState {
   return raw ? (JSON.parse(raw) as WithdrawnState) : { issued: 0, hashes: {} };
 }
 
+/**
+ * Reads the market's signed withdrawn list and keeps it if it is newer than the one held. Every
+ * hash a verified list ever named stays withdrawn, so replaying an older list undoes nothing.
+ */
+export async function learnWithdrawn(
+  store: MarketStore,
+  http: MarketHttp | undefined,
+  keys: MarketKeySet,
+): Promise<void> {
+  if (!http) return;
+  const signed = await http.withdrawn();
+  if (signed === undefined) return;
+  const list = verifyWithdrawn(signed, keys);
+  const state = readWithdrawn(store);
+  if (list.issued <= state.issued) return;
+  for (const entry of list.withdrawn) state.hashes[entry.hash] = entry.reason;
+  state.issued = list.issued;
+  store.setMeta(withdrawnKey, JSON.stringify(state));
+}
+
 async function readMarket(
   store: MarketStore,
   http: MarketHttp,
@@ -62,16 +82,7 @@ async function readMarket(
     categories: categories.success ? categories.data.categories : next.categories,
     featured: featured.success ? featured.data.entries : next.featured,
   };
-  const signed = await http.withdrawn();
-  if (signed !== undefined) {
-    const list = verifyWithdrawn(signed, keys);
-    const state = readWithdrawn(store);
-    if (list.issued > state.issued) {
-      for (const entry of list.withdrawn) state.hashes[entry.hash] = entry.reason;
-      state.issued = list.issued;
-      store.setMeta(withdrawnKey, JSON.stringify(state));
-    }
-  }
+  await learnWithdrawn(store, http, keys);
   await store.saveListing(source.id, next);
   return { ...source, stamp, etag };
 }

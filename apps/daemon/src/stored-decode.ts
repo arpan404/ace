@@ -241,3 +241,5 @@ export const storedMarketInstall = (text: string) =>
   JSON.parse(text) as import("./marketplace/store.ts").StoredInstall;
 export const storedMarketListing = (text: string) =>
   JSON.parse(text) as import("./marketplace/store.ts").StoredListing;
+export const storedMarketJournal = (text: string) =>
+  JSON.parse(text) as import("./marketplace/journal.ts").Journal;
