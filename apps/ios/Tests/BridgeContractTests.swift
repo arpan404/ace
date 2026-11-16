@@ -242,19 +242,50 @@ import SQLite3
         let screen = try #require(model.thread?.screen)
         model.requestModels()
         try await until("the model sheet") { screen.modelsState == "ready" && screen.modelList.current != nil }
-        let list = screen.modelList
-        let current = try #require(list.current)
-        // Another model on the same account that switches at once, and a level that isn't its default.
-        let models: [ComposeAgent.Model] = list.read.agents.first { $0.provider == current.provider }?.models ?? []
-        let target = try #require(models.first { candidate in
-            let other = candidate.account == current.account && candidate.key != current.key
-            return other && list.moves[candidate.id] == nil && candidate.efforts.count > 1
-        })
+        let target = try switchTarget(screen.modelList)
         let effort = try #require(target.efforts.first { $0.id != target.defaultEffort }).id
         #expect(await model.switchModel(key: target.key, account: target.account, confirmed: true, effort: effort))
         try await until("the thread on the new model at the effort picked with it") {
             screen.modelList.current?.key == target.key && screen.tune?.effort == effort
         }
+    }
+    /// A move confirmed on one thread and sent as its sheet closes after another thread opened:
+    /// it goes nowhere, and the bridge refuses it even when it reaches the other thread's visit.
+    @Test func aMoveHeldOnOneThreadNeverReachesAnother() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-plan")
+        try await until { model.thread?.id == "ios-plan" && model.thread?.loaded == true }
+        let first = try #require(model.thread)
+        model.requestModels()
+        try await until("the first thread's models") { first.screen.modelsState == "ready" && first.screen.modelList.current != nil }
+        let target = try switchTarget(first.screen.modelList)
+        let move = HeldModelMove(threadId: first.id, epoch: first.epoch, key: target.key, account: target.account,
+                                 effort: target.efforts.last?.id)
+        model.open("ios-stream")
+        try await until { model.thread?.id == "ios-stream" && model.thread?.loaded == true }
+        let second = try #require(model.thread)
+        model.requestModels()
+        try await until("the second thread's models") { second.screen.modelsState == "ready" }
+        let before = second.screen.modelList.current
+        #expect(await model.send(move) == false)
+        let stamped = await model.switchModel(key: move.key, account: move.account, confirmed: true,
+                                              effort: move.effort, epoch: move.epoch)
+        #expect(stamped == false)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(second.screen.modelList.current == before)
+    }
+    /// Another model on the thread's account that switches at once and has levels to pick.
+    private func switchTarget(_ list: ThreadModels) throws -> ComposeAgent.Model {
+        let current = try #require(list.current)
+        let models: [ComposeAgent.Model] = list.read.agents.first { $0.provider == current.provider }?.models ?? []
+        return try #require(models.first { candidate in
+            let other = candidate.account == current.account && candidate.key != current.key
+            return other && list.moves[candidate.id] == nil && candidate.efforts.count > 1
+        })
     }
     private func target() throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,

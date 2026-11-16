@@ -21,8 +21,9 @@ struct ModelPickerSheet: View {
     @State private var shown: String?
     @State private var expanded: Set<String> = []
     @State private var asking: Asking?
-    /// A move the person confirmed, sent as the sheet closes with what was picked for it.
-    @State private var held: NewThreadPickerRows.Chosen?
+    /// A move the person confirmed, sent as the sheet closes with what was picked for it, to the
+    /// thread and visit it was confirmed on.
+    @State private var held: HeldModelMove?
     /// Effort and speed picked for a model the thread isn't on yet, as the rows show them.
     @State private var heldEffort: String?
     @State private var heldSpeed: String?
@@ -129,15 +130,19 @@ struct ModelPickerSheet: View {
             if !moved, asking == nil, picked == target { picked = nil }
         }
     }
-    /// The person said yes: the move waits for the sheet to close, to go with its effort and speed.
+    /// The person said yes: the move waits for the sheet to close, to go with its effort and speed,
+    /// pinned to the thread and visit on screen now.
     private func hold(_ target: NewThreadPickerRows.Chosen) {
+        guard let thread = model.thread else { picked = nil; return }
         picked = target
-        held = target
+        held = HeldModelMove(threadId: thread.id, epoch: thread.epoch, key: target.key, account: target.account)
     }
+    /// The sheet is closing: the held move goes to its own thread, or nowhere if that has gone.
     private func sendHeld() {
-        guard let target = held else { return }
+        guard var move = held else { return }
         held = nil
-        let effort = heldEffort, speed = heldSpeed
-        Task { _ = await model.switchModel(key: target.key, account: target.account, confirmed: true, effort: effort, speed: speed) }
+        move.effort = heldEffort
+        move.speed = heldSpeed
+        Task { _ = await model.send(move) }
     }
 }
