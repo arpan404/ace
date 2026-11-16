@@ -4,6 +4,12 @@ import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts"
 import type { SpadeFailureKind, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
+import {
+  emptySpadeCapabilities,
+  foldSpadeCapability,
+  type SpadeCapabilityState,
+} from "./fold-capabilities.ts";
+import type { SpadeQuiet } from "./quiet.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -44,7 +50,9 @@ export type SpadeCallState =
   | "failed"
   | "declined"
   /** The reply ended before the call had a result. */
-  | "skipped";
+  | "skipped"
+  /** The auto-review refused it (ADR 0163): it never ran, and the bot was told why. */
+  | "refused";
 
 export type SpadeReplyPart =
   | { kind: "text"; key: string; text: string }
@@ -59,6 +67,8 @@ export type SpadeReplyPart =
        * detail there.
        */
       logged?: number;
+      /** Why the auto-review refused it, when it did. */
+      reason?: string;
     }
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -164,7 +174,9 @@ export type SpadeEntry =
    * A request asked outside the open reply (a helper's, or one asked after its reply ended):
    * where it arrived, read below the bot's words so far.
    */
-  | ({ kind: "request"; key: string; at?: number } & SpadeRequest);
+  | ({ kind: "request"; key: string; at?: number } & SpadeRequest)
+  /** An event that is nobody's words, as one quiet line where it happened (`spadeQuietLine`). */
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number };
 
 /**
  * A call that asked the person, kept where it asked so its bubble stays in place once answered.
@@ -242,6 +254,8 @@ export interface SpadeConversationState {
   caps: Set<string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
   status: string | undefined;
+  /** Open wakes and the names their words use (ADR 0160, 0161). */
+  capabilities: SpadeCapabilityState;
 }
 
 /** A message sent from here that Spade hasn't stored yet, as the person sent it. */
@@ -286,6 +300,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     reviews: new Map(),
     caps: new Set(),
     status: undefined,
+    capabilities: emptySpadeCapabilities(),
   };
 }
 
@@ -321,7 +336,9 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
       return changed;
     }
     case "status": {
-      const status = input.state === "idle" ? undefined : input.status;
+      // Asleep, its words are the resting line's, from its wakes.
+      const status =
+        input.state === "idle" || input.state === "sleeping" ? undefined : input.status;
       if (state.status === status) return false;
       state.status = status;
       return true;
@@ -349,6 +366,10 @@ function foldStored(state: SpadeConversationState, stored: SpadeStored): boolean
 
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
   const key = `s${stored.seq}`;
+  const capability = foldSpadeCapability(state.capabilities, event, (quiet) =>
+    steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
+  );
+  if (capability !== undefined) return capability;
   switch (event.type) {
     case "user_message": {
       const mine = state.pending.findIndex((message) => sameMessage(message, event));
@@ -593,6 +614,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return true;
     }
     case "call_reviewed": {
+      // A refusal returns to the bot as `Not run: <reason>`; its step says so (ADR 0163).
+      if (event.verdict === "refuse") return refuseCall(state, event.call_id, event.reason);
       if (event.verdict !== "escalate") return false;
       state.reviews.set(event.call_id, event.reason);
       updateRequest(state, event.call_id, (request) => ({ ...request, reason: event.reason }));
@@ -856,8 +879,14 @@ function setCall(
     // `call_tool` reaches a deferred tool; once Spade names that tool, the call reads as it.
     const named = name && part.name === "call_tool" ? name : part.name;
     const logged = part.logged ?? seq;
-    // Spade answers a declined call with an errored result; it stays what the person chose.
-    const next = part.state === "declined" && callState === "failed" ? "declined" : callState;
+    // Spade answers a declined call with an errored result; it stays what the person chose. A
+    // refused call's result is its refusal, so it stays refused.
+    const next =
+      part.state === "declined" && callState === "failed"
+        ? "declined"
+        : part.state === "refused" && (callState === "done" || callState === "failed")
+          ? "refused"
+          : callState;
     if (part.state === next && named === part.name && logged === part.logged) return;
     const parts = entry.parts.slice();
     parts[at] = {
@@ -887,6 +916,23 @@ function setCall(
       },
     ],
   }));
+}
+
+/** Mark call `callId` refused by the auto-review, with its reason, wherever its step stands. */
+function refuseCall(state: SpadeConversationState, callId: string, reason: string): boolean {
+  for (let index = state.entries.length - 1; index >= 0; index--) {
+    const entry = state.entries[index];
+    if (entry?.kind !== "reply") continue;
+    const at = entry.parts.findIndex((part) => part.kind === "call" && part.key === callId);
+    const part = entry.parts[at];
+    if (part?.kind !== "call") continue;
+    state.entries[index] = {
+      ...entry,
+      parts: entry.parts.with(at, { ...part, state: "refused", reason: reason.trim() }),
+    };
+    return true;
+  }
+  return false;
 }
 
 /** The part of reply `reply` (a steered reply has several) that lists call `callId`. */
@@ -924,6 +970,19 @@ function closeReply(
   return true;
 }
 
+/** The last words reply `reply` said, in its part at `index` or the parts above it. */
+function lastWords(state: SpadeConversationState, index: number, reply: string) {
+  for (let at = index; at >= 0; at--) {
+    const entry = state.entries[at];
+    if (entry?.kind !== "reply") continue;
+    // Another reply above: this one's parts all sit below it.
+    if (entry.reply !== reply) return undefined;
+    const text = entry.parts.findLast((part) => part.kind === "text");
+    if (text) return text;
+  }
+  return undefined;
+}
+
 /**
  * End the open reply. A finished reply's text repeats its last step's, already shown; any other
  * end carries the open step's words, which no step stored.
@@ -933,7 +992,8 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
   if (!open) return;
   const entry = state.entries[open.index];
   if (entry?.kind === "reply") {
-    const last = entry.parts.findLast((part) => part.kind === "text");
+    // A steered reply's last words may sit in an earlier part of it, above what steered it.
+    const last = lastWords(state, open.index, entry.reply);
     const words = end.kind === "finished" ? (last?.text === text ? "" : text) : text || entry.live;
     const parts: SpadeReplyPart[] = words.trim()
       ? [...entry.parts, { kind: "text", key: `${entry.key}:end`, text: words }]

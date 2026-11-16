@@ -11,6 +11,8 @@ import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 import { spadeCapSentence } from "./oversight.ts";
 import { spadeHelperLine } from "./helper-words.ts";
+import type { SpadeQuiet } from "./quiet.ts";
+import { spadeCallLine } from "./words.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
@@ -73,6 +75,18 @@ type SpadeBubbleOf =
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** Web search had nothing set up: a quiet line that opens Settings › Spade › Web search. */
   | { kind: "search-setup"; key: string }
+  /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet }
+  /**
+   * A reply's steps folded into one line under its words, shown when the auto-review refused
+   * one (ADR 0163): "2 steps, 1 not run", opening to each step, a refusal with its reason.
+   */
+  | {
+      kind: "steps";
+      key: string;
+      label: string;
+      steps: readonly { key: string; text: string; refused: boolean }[];
+    }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /**
@@ -173,6 +187,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
             ? `Paused after ${entry.steps} steps on its own. Send a message to let it carry on.`
             : `Paused: its last ${entry.steps} steps changed nothing. Send a message to let it carry on.`,
       });
+      continue;
+    }
+    if (entry.kind === "quiet") {
+      bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
       continue;
     }
     if (entry.kind === "handback") {
@@ -413,9 +431,37 @@ function replyBubbles(
     if (tail()) attach();
     else say("", false);
   }
+  const steps = refusedSteps(entry);
+  if (steps) bubbles.push(steps);
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
+}
+
+/**
+ * A reply's steps as one folded line, when the auto-review refused any: the refusals are what
+ * the person should be able to find, so only then do its steps show. Undefined otherwise.
+ */
+const steps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
+
+function refusedSteps(entry: SpadeReplyEntry): Extract<SpadeBubble, { kind: "steps" }> | undefined {
+  const calls = entry.parts.filter((part) => part.kind === "call");
+  const refused = calls.filter((call) => call.state === "refused").length;
+  if (!refused) return undefined;
+  const ran = calls.length - refused;
+  return {
+    kind: "steps",
+    key: `${entry.key}:steps`,
+    label: ran ? `${steps(ran)}, ${refused} not run` : `${steps(refused)} not run`,
+    steps: calls.map((call) => ({
+      key: call.key,
+      text:
+        call.state === "refused" && call.reason
+          ? `${spadeCallLine(call.name, call.state)} · ${call.reason}`
+          : spadeCallLine(call.name, call.state),
+      refused: call.state === "refused",
+    })),
+  };
 }
 
 interface Held {

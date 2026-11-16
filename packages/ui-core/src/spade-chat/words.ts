@@ -148,6 +148,8 @@ export function spadeCallLine(name: string, state: SpadeCallState): string {
       return `You declined: ${words.base}`;
     case "skipped":
       return `Didn't ${words.base}`;
+    case "refused":
+      return `Not run: ${words.base}`;
     case "waiting":
       return `Waiting for you: ${words.base}`;
     case "queued":

@@ -43,6 +43,8 @@ import type { RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { spadeWorks } from "./spade-works.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
+import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
 
 /** Below 680px the profile takes the window (docs/design/spade.md §1). */
 const coverQuery = "(max-width: 42.49rem)";
@@ -83,6 +85,8 @@ export function Conversation(props: {
   const openProfile = useOpenProfile(bot);
   const computer = useBotComputer(bot, conversation.side);
   const endpoints = useSpadeModels(true).data?.endpoints;
+  const client = useSpadeClient();
+  const digests = useSpadeDigests(bot.id);
   const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
   const [stopping, setStopping] = useState(false);
   const covering = useMediaQuery(coverQuery, false);
@@ -231,6 +235,29 @@ export function Conversation(props: {
             }
             endpointName={endpointName}
             onHelperSteps={conversation.helperSteps}
+            digests={digests}
+            onWake={(wake, action) =>
+              actOnWake(client, bot.id, wake, action).then(
+                () => true,
+                failed(
+                  action === "cancel"
+                    ? `Couldn't cancel ${bot.name}'s wait`
+                    : `Couldn't wake ${bot.name}`,
+                ),
+              )
+            }
+            onOpenBot={(id) => {
+              // A worker runs on its maker's machine.
+              const worker = props.roster.find(
+                (other) => other.id === id && other.machine.key === bot.machine.key,
+              );
+              if (worker)
+                void navigate({
+                  to: "/spade/$agentId",
+                  params: { agentId: worker.id },
+                  search: botSearch(worker),
+                });
+            }}
             onRetry={(text) =>
               conversation
                 .send({ text, images: [] })

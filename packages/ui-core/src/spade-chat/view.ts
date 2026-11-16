@@ -1,6 +1,7 @@
 import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 import { spadeHelperApprovalSentence } from "./helper-words.ts";
+import { spadeSoonestWake, type SpadeWake } from "./wakes.ts";
 
 /** The conversation's Working line: what runs, in words, and since when. */
 export interface SpadeWorking {
@@ -33,6 +34,14 @@ export interface SpadeView {
   forLater: readonly string[];
   /** How many questions those cards hold, for "2 questions for later". */
   questionsForLater: number;
+  /**
+   * The wake it rests on while it sleeps or waits instead of working (ADR 0160): the resting
+   * line's. Never done then. Undefined while it works, waits on the person, or has none open.
+   */
+  resting: SpadeWake | undefined;
+  /** Workers' and services' names by id, for the resting line's words. */
+  workers: ReadonlyMap<string, string>;
+  services: ReadonlyMap<string, string>;
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -73,7 +82,27 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     asking: state.question !== undefined,
     forLater: [...state.forLater],
     questionsForLater: questionsIn(state.entries, state.forLater),
+    resting: resting(state, reply !== undefined, approvals.length > 0),
+    workers: state.capabilities.workers,
+    services: state.capabilities.services,
   };
+}
+
+/**
+ * Its wake while it rests, as Spade's roster reads it: waiting on the person beats resting; an
+ * open turn waiting out an outage rests while no job runs; otherwise it works while a reply or a
+ * job is open, and rests on any wake once nothing is.
+ */
+function resting(
+  state: SpadeConversationState,
+  answering: boolean,
+  approvals: boolean,
+): SpadeWake | undefined {
+  const wakes = state.capabilities.wakes;
+  if (!wakes.size || approvals || state.question !== undefined || state.jobs.size > 0) return;
+  const open = [...wakes.values()];
+  if (answering && !open.some((wake) => wake.purpose === "outage")) return;
+  return spadeSoonestWake(open);
 }
 
 /**

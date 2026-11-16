@@ -577,7 +577,9 @@ describe("the conversation as a chat", () => {
                     ? "search setup"
                     : bubble.kind === "question"
                       ? `question: ${bubble.callId}`
-                      : `${bubble.kind}: ${bubble.text}`,
+                      : "text" in bubble
+                        ? `${bubble.kind}: ${bubble.text}`
+                        : bubble.kind,
       ),
     ).toEqual([
       "person: Find me a flight",

@@ -47,6 +47,16 @@ delegating to an autonomous one.
    failed and off, the states that must read at a glance and when a picture face can't pose.
    Working has no dot; the face moving says it (docs/design/spade.md).
 
+   Amendment (2026-11-15, Spade capabilities, approved by the owner): a face has one more pose,
+   **sleeping**, for a bot that sleeps or waits on a wake ([ADR 0160](0160-spade-wake-and-owned-services.md)):
+   lids down, eyes low, head dipped, held still from the start with no motion to reach it, so it
+   reads the same with reduced motion. It is never idle or done: the roster's `sleeping` state
+   and the live stream's `sleeping` status show it, and the working line's place under the last
+   bubble is taken by the resting line, its twin: the sleeping face, until when and why ("Sleeping
+   until 2:05 PM · staging settles"), and Wake now and Cancel, or Try now for an outage. No dot:
+   like working, the face says it. A picture face, which can't pose, rests in the same line by its
+   words. Only working and thinking still move.
+
 ## Consequences
 
 - The person delegates instead of supervising; the cost is less visibility into a bot's steps

@@ -1,4 +1,5 @@
 import type { SpadeBubble } from "./bubbles.ts";
+import type { SpadeDigestItem } from "./digests.ts";
 import type { SpadeEntry } from "./fold.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
 
@@ -68,7 +69,11 @@ export function parseSpadeProposal(body: string): SpadeProposal | undefined {
   return parseProposal(spadeRecord(spadeJson(body))?.proposal);
 }
 
-export type SpadeChatItem = SpadeBubble | { kind: "skill"; key: string; proposal: SpadeProposal };
+export type SpadeChatItem =
+  | SpadeBubble
+  | { kind: "skill"; key: string; proposal: SpadeProposal }
+  /** A digest (ADR 0165), as a message of the bot's where it was made. */
+  | Extract<SpadeDigestItem, { kind: "digest" }>;
 
 /**
  * The chat's bubbles with each proposal after the last bubble of the reply that made it (or of

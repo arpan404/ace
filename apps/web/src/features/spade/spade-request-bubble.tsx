@@ -1,4 +1,5 @@
 import {
+  spadeAskedAgain,
   spadeRequestCard,
   type SpadeBubble,
   type SpadeRequestCard,
@@ -22,6 +23,7 @@ import {
   settledLine,
 } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
+import { QuietMark } from "./spade-quiet-line.tsx";
 import { notesKey } from "./spade-notes.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
@@ -41,7 +43,9 @@ export type RequestAnswer = "allow" | "always" | "deny";
  * A call the bot wants to make, as its card where it asked (ADR 0127). Open, it is raised: one
  * sentence in Spade's words, the reviewer's reason as one quiet line, the detail that matters for
  * that kind of call (folded when long), then, where the gate keeps it, Always allow, and Deny on
- * the left and Allow on the right. With focus on it, Enter allows and Escape denies. Answered, it
+ * the left and Allow on the right. Asked again after the auto-review refused it (ADR 0163), it
+ * says so ("… asks again to …") and opens with what was refused before. With focus on it, Enter
+ * allows and Escape denies. Answered, it
  * settles to one line ("Allowed · curl -s …") that opens to the whole request.
  */
 export function SpadeRequestBubble(props: {
@@ -70,7 +74,11 @@ export function SpadeRequestBubble(props: {
       if (!sent) setAnswering(undefined);
     });
   };
-  const named = card.sentence.replace(/\.$/, "");
+  // Asked again after a refusal: the card says so, and leads with the refusal.
+  const again = spadeAskedAgain(card.sentence, item.reason);
+  const sentence = again?.sentence ?? card.sentence;
+  const reason = again ? `Refused before: ${again.before}` : item.reason;
+  const named = sentence.replace(/\.$/, "");
   if (!open) return <Answered item={item} card={card} label={`${named}. ${answered(item)}`} />;
   return (
     <RaisedCard
@@ -92,11 +100,11 @@ export function SpadeRequestBubble(props: {
       }}
     >
       <NeedsYouLine glyph="request">
-        <p>{card.sentence}</p>
+        <p>{sentence}</p>
       </NeedsYouLine>
-      {(item.reason || card.detail) && (
+      {(reason || card.detail) && (
         <CardBody>
-          {item.reason && <p className="text-ui leading-5 text-muted-foreground">{item.reason}</p>}
+          {reason && <p className="text-ui leading-5 text-muted-foreground">{reason}</p>}
           {card.detail && <Detail detail={card.detail} />}
         </CardBody>
       )}
@@ -145,9 +153,19 @@ function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
         type="button"
         aria-expanded={shown}
         onClick={() => setShown((open) => !open)}
-        className={cn(settledLine, "rounded-sm text-left focus-ring hover:text-foreground")}
+        className={cn(
+          settledLine,
+          "items-center rounded-sm text-left focus-ring hover:text-foreground",
+        )}
       >
-        <span className="shrink-0 text-subtle-foreground">{answered(props.item)}</span>
+        {/* The quiet line's mark: allowed is met, denied stays open. */}
+        {props.item.state !== "closed" && (
+          <QuietMark
+            mark={props.item.state === "allowed" ? "done" : "open"}
+            label={answered(props.item)}
+          />
+        )}
+        <span className="shrink-0 text-subtle-foreground">{answered(props.item)} ·</span>
         {/* Open, the whole request reads below instead. */}
         {!shown && (
           <span className={cn("min-w-0 truncate", command && "font-mono text-xs")}>
