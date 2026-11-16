@@ -52,10 +52,13 @@ describe("trending caps", () => {
   it("a day counts at most 5,000", () => {
     // Steady traffic lifts the hourly cap; the day's own cap still holds.
     const steady = spread(2_000, range(1, 160));
-    const days = new Map<number, number>();
+    const perDay = new Map<number, number>();
     for (const row of cappedWeek(steady, now))
-      days.set(Math.floor(row.hour / 24), (days.get(Math.floor(row.hour / 24)) ?? 0) + row.count);
-    expect(Math.max(...days.values())).toBe(5_000);
+      perDay.set(
+        Math.floor(row.hour / 24),
+        (perDay.get(Math.floor(row.hour / 24)) ?? 0) + row.count,
+      );
+    expect(Math.max(...perDay.values())).toBe(5_000);
   });
 
   it("hours outside the week count nothing", () => {
