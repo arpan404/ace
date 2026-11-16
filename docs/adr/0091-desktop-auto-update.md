@@ -30,13 +30,11 @@ and the last error.
 
 The flow follows t3code's observed updater behaviour (clean-room: behaviour only, no code).
 
-- **Checks:** at once whenever the app is opened (its window shows, the dock icon or a
-  second launch brings it forward, or the Mac wakes), unless a check started in the last
-  30 s; 15 s after a launch that opens no window; then every 60–90 s from the last check (a
-  minute plus a random offset, so installs don't ask the feed in step); and on request from
-  the app menu or Settings › General › Updates. A background check
-  shows nothing until it finds a newer version, and its failures stay in the log. A
-  person's check shows `checking`, then the result.
+- **Checks:** a few seconds after the daemon is ready, or within a minute of launch if it
+  never becomes ready; then every four to six hours with a random offset. Opening or focusing
+  the window, waking or plugging in checks only after a four-hour gap. The app menu and
+  Settings › General › Updates still check on request. Background checks stay quiet until
+  they find a newer version; a person's check shows `checking`, then the result.
 - **Download:** a found update is `available` until the person clicks to download it. While
   it downloads, its progress shows on the button. A failed download stays on offer with its
   error, ready to retry.

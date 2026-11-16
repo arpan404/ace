@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scheduleChecks, type UpdateSchedule } from "./update-schedule.ts";
+import { scheduleChecks, updateSchedule, type UpdateSchedule } from "./update-schedule.ts";
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -13,7 +13,7 @@ const schedule: UpdateSchedule = {
 };
 
 /** The app's clock and timers, a feed that counts its requests, and whether the app is in use. */
-function app(options: { draws?: number[] } = {}) {
+function app(options: { draws?: number[]; schedule?: UpdateSchedule } = {}) {
   let clock = 0;
   const timers = new Set<{ at: number; callback: () => void }>();
   const checks: number[] = [];
@@ -38,7 +38,7 @@ function app(options: { draws?: number[] } = {}) {
       active: () => state.active,
       daemonRunning: daemon.promise,
     },
-    schedule,
+    options.schedule ?? schedule,
   );
   return {
     schedule: checkSchedule,
@@ -150,4 +150,20 @@ describe("background update checks", () => {
     await a.advance(0);
     expect(a.checks).toEqual([5_000, 35_000]);
   });
+});
+
+it("launches once, ignores repeated focus and wake events, then checks after hours", async () => {
+  const a = app({ schedule: updateSchedule });
+  await a.daemonRunning();
+  await a.advance(5_000);
+  for (let minute = 0; minute < 239; minute++) {
+    await a.advance(60_000);
+    a.schedule.opened();
+  }
+  expect(a.checks).toEqual([5_000]);
+  await a.advance(60_000);
+  expect(a.checks).toEqual([5_000, 14_405_000]);
+  a.schedule.cancel();
+  await a.advance(24 * 60 * 60_000);
+  expect(a.checks).toEqual([5_000, 14_405_000]);
 });
