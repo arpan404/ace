@@ -81,7 +81,7 @@ describe("spade.status from the service and its files", () => {
     ["never listens", { silentForMs: spadeStartGraceMs }, "hasn't started listening"],
     ["is stopped", { service: "stopped" }, "not running"],
     ["can't be read", { service: { error: "launchctl failed" } }, "launchctl failed"],
-    ["couldn't be registered", { problem: "No spade-server in this release." }, "No spade-server"],
+    ["couldn't be registered", { problem: "No spade binary in this release." }, "No spade binary"],
   ])("is failed with the reason when the service %s", (_name, change, words) => {
     const status = spadeState(facts(change));
     expect(status.state).toBe("failed");

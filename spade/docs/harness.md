@@ -209,7 +209,7 @@ pausing (the updater died), admission reopens by itself. A `POST` while closed r
 earlier one. Without a keychain (Linux with no Secret Service) the ace grant is kept in memory
 for that run only.
 
-`spade-server --check-migrations <path>` migrates and integrity-checks the SQLite file at `path`
+`spade --check-migrations <path>` migrates and integrity-checks the SQLite file at `path`
 (a copy) and exits 0 if this build can use it, else 1 with one line saying why. It never opens
 the data folder.
 

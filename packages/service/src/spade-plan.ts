@@ -4,8 +4,8 @@ import { quote, taskXml, xml } from "./plan.ts";
 
 /**
  * Spade's per-user service (ADR 0123), registered beside the daemon's and never under it. The
- * service runs `<ACE_HOME>/releases/spade/current/spade-server` with exactly Spade's environment
- * and appends its output to `<ACE_HOME>/logs/spade.log`. Pure: rendering only, no I/O.
+ * service runs `<ACE_HOME>/releases/spade/current/spade` with exactly Spade's environment and
+ * appends its output to `<ACE_HOME>/logs/spade.log`. Pure: rendering only, no I/O.
  */
 export const spadeLabel = "dev.ace.next.spade";
 export const spadeUnit = "ace-next-spade.service";
@@ -36,6 +36,18 @@ interface PlanBase {
   /** What the service manager runs, with its arguments, first item the program. */
   command: readonly string[];
   logFile: string;
+  /**
+   * The same registration as builds before the binary's rename rendered it, naming
+   * `spade-server`: recognised as ace's own and rewritten, never refused
+   * (`spadeRegistrationKind`).
+   */
+  previous: PreviousSpadeRegistration;
+}
+export interface PreviousSpadeRegistration {
+  content: string;
+  command: readonly string[];
+  /** Windows: the launcher those builds wrote. */
+  launcher?: string;
 }
 export interface DarwinSpadePlan extends PlanBase {
   platform: "darwin";
@@ -87,9 +99,22 @@ export function spadeEnvironment(home: string, platform: SpadePlatform): [string
   ];
 }
 
-/** `spade-server`, or `spade-server.exe` on Windows. */
+/** `spade`, or `spade.exe` on Windows. */
 export const spadeBinaryName = (platform: NodeJS.Platform) =>
+  platform === "win32" ? "spade.exe" : "spade";
+
+/**
+ * The name builds before the rename gave the binary, `spade-server` (`.exe` on Windows). An
+ * installed release folder may still hold only that file; `spade-release.ts` adopts it.
+ */
+export const previousSpadeBinaryName = (platform: NodeJS.Platform) =>
   platform === "win32" ? "spade-server.exe" : "spade-server";
+
+/**
+ * The WQL filter for Spade's processes: `spade.exe`, and `spade-server.exe` as builds before the
+ * binary's rename started it, so an update that rewrites the launcher still ends the old one.
+ */
+export const spadeProcessFilter = `Name='${spadeBinaryName("win32")}' OR Name='${previousSpadeBinaryName("win32")}'`;
 
 /** Spade's service for `home` on `platform`. */
 export function spadeServicePlan(
@@ -97,10 +122,41 @@ export function spadeServicePlan(
   platform: SpadePlatform,
   account: SpadeAccount,
 ): SpadeServicePlan {
-  if (platform === "win32") return windowsPlan(windowsHome.parse(home), account);
+  const plan = render(home, platform, account, spadeBinaryName(platform));
+  const old = render(home, platform, account, previousSpadeBinaryName(platform));
+  const previous: PreviousSpadeRegistration = { content: old.content, command: old.command };
+  if (old.platform === "win32") previous.launcher = old.launcher.content;
+  return { ...plan, previous };
+}
+
+/**
+ * Which of `plan`'s renderings the registration `content` on disk is: `current`, `previous`
+ * (an earlier build's, to be rewritten), or undefined when it is neither, so not ace's.
+ */
+export function spadeRegistrationKind(
+  plan: SpadeServicePlan,
+  content: string,
+): "current" | "previous" | undefined {
+  if (content === plan.content) return "current";
+  if (content === plan.previous.content) return "previous";
+  return undefined;
+}
+
+type Rendered =
+  | Omit<DarwinSpadePlan, "previous">
+  | Omit<LinuxSpadePlan, "previous">
+  | Omit<WindowsSpadePlan, "previous">;
+
+function render(
+  home: string,
+  platform: SpadePlatform,
+  account: SpadeAccount,
+  binary: string,
+): Rendered {
+  if (platform === "win32") return windowsPlan(windowsHome.parse(home), account, binary);
   const root = posixHome.parse(home);
   const userHome = posixHome.parse(account.userHome);
-  const program = posix.join(root, "releases", "spade", "current", "spade-server");
+  const program = posix.join(root, "releases", "spade", "current", binary);
   const logFile = posix.join(root, "logs", "spade.log");
   const environment = spadeEnvironment(root, platform);
   if (platform === "darwin") {
@@ -140,7 +196,11 @@ export function spadeServicePlan(
   };
 }
 
-function windowsPlan(home: string, account: SpadeAccount): WindowsSpadePlan {
+function windowsPlan(
+  home: string,
+  account: SpadeAccount,
+  binary: string,
+): Omit<WindowsSpadePlan, "previous"> {
   const user = Sid.parse(account.sid);
   const systemRoot = windowsHome.parse(account.systemRoot ?? "C:\\Windows");
   const launcher = win32.join(home, "bin", SPADE_CMD_LAUNCHER);
@@ -160,7 +220,7 @@ function windowsPlan(home: string, account: SpadeAccount): WindowsSpadePlan {
     program,
     arguments: args,
     user,
-    launcher: { file: launcher, content: renderSpadeCmdLauncher() },
+    launcher: { file: launcher, content: renderSpadeCmdLauncher(binary) },
   };
 }
 
@@ -190,7 +250,7 @@ const launch = {
  * `endlocal` runs, drops them, sets Spade's four and starts it. The log is rotated here, before
  * Spade holds it open.
  */
-export function renderSpadeCmdLauncher(): string {
+export function renderSpadeCmdLauncher(binary = spadeBinaryName("win32")): string {
   const home = v(launch.home);
   const environment = spadeEnvironment(home, "win32")
     .map(([key, value]) => `set "${key}=${value}"`)
@@ -211,7 +271,7 @@ export function renderSpadeCmdLauncher(): string {
     `if not exist "${home}\\logs" mkdir "${home}\\logs"`,
     `set "${launch.log}=${home}\\logs\\spade.log"`,
     `if exist "${log}" for %%F in ("${log}") do if %%~zF GTR 8388608 move /y "${log}" "${log}.previous" >nul`,
-    `endlocal & ${environment} & "${home}\\releases\\spade\\${v(launch.release)}\\spade-server.exe" >>"${log}" 2>&1`,
+    `endlocal & ${environment} & "${home}\\releases\\spade\\${v(launch.release)}\\${binary}" >>"${log}" 2>&1`,
     "exit /b %ERRORLEVEL%",
     "",
   ].join("\r\n");

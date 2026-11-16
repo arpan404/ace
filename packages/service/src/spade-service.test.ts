@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -26,18 +26,27 @@ async function setup(
 }
 
 async function withBinary(root: string, home: string) {
-  const source = join(root, "spade-server");
+  const source = join(root, "spade");
   await writeFile(source, "#!/bin/sh\n", { mode: 0o755 });
   await installSpadeBinary(home, source, "0.4.0");
 }
 
-/** A launchd or systemd that loads what it is given, reporting `program` as the loaded one. */
-function manager(plan: SpadeServicePlan, program = plan.command[0] ?? "") {
+/**
+ * A launchd or systemd that loads what it is given, reporting `program` as the loaded one (by
+ * default, whatever the registration on disk runs). `running` starts it loaded and running.
+ */
+function manager(plan: SpadeServicePlan, fixed?: string, initially: { running?: boolean } = {}) {
   const calls: string[] = [];
-  let loaded = false;
-  let running = false;
+  let loaded = initially.running ?? false;
+  let running = initially.running ?? false;
+  const loadedProgram = () => {
+    if (fixed !== undefined) return fixed;
+    const content = existsSync(plan.file) ? readFileSync(plan.file, "utf8") : "";
+    return (content === plan.previous.content ? plan.previous.command : plan.command)[0] ?? "";
+  };
   const run: Runner = async (file, args) => {
     const command = `${file} ${args.join(" ")}`;
+    const program = loadedProgram();
     if (args.includes("print") || args.includes("show")) {
       if (plan.platform === "darwin")
         return loaded
@@ -126,9 +135,27 @@ for (const platform of ["darwin", "linux"] as const)
   }) => {
     const { root, home, plan } = await setup(platform, onTestFinished);
     await withBinary(root, home);
-    const fake = manager(plan, join(root, "elsewhere/spade-server"));
+    const fake = manager(plan, join(root, "elsewhere/spade"));
     await installSpadeService(plan, fake.ports).catch(() => {});
     await expect(spadeServiceState(plan, fake.ports)).rejects.toThrow(/Incompatible Spade service/);
+  });
+
+for (const platform of ["darwin", "linux"] as const)
+  test(`${platform}: an update's restart moves a registration naming spade-server onto spade`, async ({
+    onTestFinished,
+  }) => {
+    const { root, home, plan } = await setup(platform, onTestFinished);
+    await withBinary(root, home);
+    // What a build before the binary's rename registered, loaded and running.
+    await mkdir(dirname(plan.file), { recursive: true });
+    await writeFile(plan.file, plan.previous.content);
+    expect(plan.previous.command[0]).toMatch(/current\/spade-server$/);
+    const fake = manager(plan, undefined, { running: true });
+    expect(await spadeServiceState(plan, fake.ports)).toBe("running");
+    await restartSpadeService(plan, fake.ports);
+    expect(await readFile(plan.file, "utf8")).toBe(plan.content);
+    expect(plan.command[0]).toMatch(/current\/spade$/);
+    expect(await spadeServiceState(plan, fake.ports)).toBe("running");
   });
 
 test("the updater's restart never registers an absent service", async ({ onTestFinished }) => {

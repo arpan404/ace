@@ -25,7 +25,7 @@ curl localhost:3000/health   # {"ok":true,"version":"0.1.0","api":1}
 
 | Command                                                         | What it does                          |
 | --------------------------------------------------------------- | ------------------------------------- |
-| `cargo run -p spade-server`                                     | Start the server                      |
+| `cargo run -p spade-server`                                     | Start the server (binary `spade`)     |
 | `cargo test`                                                    | Unit tests and real-server HTTP tests |
 | `cargo clippy --all-targets`                                    | Lint; warnings are errors             |
 | `cargo fmt --all`                                               | Format                                |
@@ -87,5 +87,5 @@ a negative price, a role that names nothing), listing every problem it found.
 ## How it runs
 
 Spade runs on the person's own machine beside the ace daemon. Today the server runs on its own
-(`cargo run -p spade-server`); the ace daemon will start and stop it. It stops cleanly on SIGTERM,
-finishing open requests, and listens on loopback only.
+(`cargo run -p spade-server`, which builds the `spade` binary); the ace daemon will start and
+stop it. It stops cleanly on SIGTERM, finishing open requests, and listens on loopback only.

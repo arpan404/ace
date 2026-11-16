@@ -1,6 +1,7 @@
 /**
- * A stand-in for `spade-server` that follows spade/docs/ace-integration.md: it holds the data
- * directory's lock, binds `SPADE_LISTEN`, writes `token` and then `server.json` atomically,
+ * A stand-in for Spade's binary, `spade`, that follows spade/docs/ace-integration.md: it holds
+ * the data directory's lock, binds `SPADE_LISTEN`, writes `token` and then `server.json`
+ * atomically,
  * answers `/health` without a token and everything else only with it, and exits on SIGTERM.
  *
  * - `PUT /v1/ace` `{grant}` → 204, `DELETE /v1/ace` → 204, `GET /v1/ace` → `{grant, connected}`:

@@ -517,8 +517,7 @@ async fn any_model_the_person_picks_transcribes_whatever_its_saved_capabilities(
 
 #[tokio::test]
 async fn the_server_binary_reads_documents_in_a_child_process() -> Result {
-    let reader =
-        spade_docs::Extractor::child(env!("CARGO_BIN_EXE_spade-server").into(), Vec::new());
+    let reader = spade_docs::Extractor::child(env!("CARGO_BIN_EXE_spade").into(), Vec::new());
     let read = reader.read(b"a,b\n1,2\n".to_vec(), "t.csv").await?;
     assert_eq!(read.text, "a\tb\n1\t2");
     assert_eq!(
@@ -530,7 +529,7 @@ async fn the_server_binary_reads_documents_in_a_child_process() -> Result {
 
 #[tokio::test]
 async fn a_reader_child_past_its_memory_cap_fails_instead_of_growing() -> Result {
-    let program: std::path::PathBuf = env!("CARGO_BIN_EXE_spade-server").into();
+    let program: std::path::PathBuf = env!("CARGO_BIN_EXE_spade").into();
     let big = "word ".repeat(4 * 1024 * 1024).into_bytes();
     let capped =
         spade_docs::Extractor::child(program.clone(), Vec::new()).with_memory(8 * 1024 * 1024);
@@ -609,7 +608,7 @@ async fn the_reader_child_reads_without_ever_building_a_runtime() -> Result {
         "/usr/bin/env".into(),
         vec![
             "TOKIO_WORKER_THREADS=0".into(),
-            env!("CARGO_BIN_EXE_spade-server").into(),
+            env!("CARGO_BIN_EXE_spade").into(),
         ],
     );
     let read = reader.read(b"plain words".to_vec(), "a.txt").await?;

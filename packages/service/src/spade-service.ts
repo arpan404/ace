@@ -10,6 +10,8 @@ import {
   assertSpadeRegistration,
   incompatibleSpadeService,
   readOwnFile,
+  registeredSpadeCommand,
+  spadeRegistrationCurrent,
   systemSpadePorts,
   type SpadeServicePorts,
   type SpadeServiceState,
@@ -48,7 +50,7 @@ async function launchdState(plan: DarwinSpadePlan, run: Runner): Promise<SpadeSe
   if (result.code === 113) return registered === undefined ? "absent" : "stopped";
   if (result.code !== 0) throw new Error(`Cannot query Spade's service: ${result.stderr}`);
   try {
-    loadedIdentity("darwin", plan.file, plan.command, result.stdout);
+    loadedIdentity("darwin", plan.file, registeredSpadeCommand(plan, registered), result.stdout);
   } catch (cause) {
     throw incompatibleSpadeService(plan.file, cause);
   }
@@ -65,7 +67,12 @@ async function systemdState(plan: LinuxSpadePlan, run: Runner): Promise<SpadeSer
   }
   let active: boolean;
   try {
-    active = loadedIdentity("linux", plan.file, plan.command, result.stdout);
+    active = loadedIdentity(
+      "linux",
+      plan.file,
+      registeredSpadeCommand(plan, registered),
+      result.stdout,
+    );
   } catch (cause) {
     throw incompatibleSpadeService(plan.file, cause);
   }
@@ -162,7 +169,8 @@ async function removeSpadeServiceUnlocked(
 
 /**
  * Restarts Spade's program on the installed `current` binary: SIGTERM, then a fresh start.
- * Refuses when the service is absent: the updater never registers Spade by itself.
+ * Refuses when the service is absent: the updater never registers Spade by itself. A
+ * registration from before the binary's rename is rewritten to run `spade` as part of it.
  */
 export async function restartSpadeService(
   plan: SpadeServicePlan,
@@ -180,6 +188,11 @@ async function restartSpadeServiceUnlocked(
 ): Promise<void> {
   const state = await spadeServiceState(plan, ports);
   if (state === "absent") throw new Error("Spade's service is not registered");
+  // A registration an earlier build wrote names `spade-server`: rewriting it is the restart.
+  if (!spadeRegistrationCurrent(plan)) {
+    await installSpadeServiceUnlocked(plan, ports);
+    return;
+  }
   // Windows' launcher rotates the log itself before it starts Spade: while Spade runs, its
   // `>>` redirection holds the file open and the rename would fail.
   if (plan.platform === "win32") return restartSpadeTask(plan, ports);

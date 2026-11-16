@@ -22,7 +22,7 @@ import { SpadeMaintenance, SpadePendingSwap, type SpadeSwapPorts } from "./spade
 export interface SpadeSwapIo {
   home: string;
   plan: SpadeServicePlan;
-  /** The new release's `spade-server`. */
+  /** The new release's `spade`. */
   source: string;
   version: string;
   run?: Runner;

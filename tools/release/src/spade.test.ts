@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { list } from "tar";
 import { desktopAppMarker } from "@ace/service/desktop-update";
-import { bundleRootOfEntry, bundledSpadeServer } from "@ace/service/spade-layout";
+import { bundleRootOfEntry, bundledSpade } from "@ace/service/spade-layout";
 import { expect, test } from "vitest";
 import { createReleaseArchive } from "./archive.ts";
-import { stageSpadeServer, type Cargo } from "./spade-server.ts";
+import { stageSpade, type Cargo } from "./spade.ts";
 
-/** A stand-in `spade-server` whose `--version` prints `version`, as the stamped one does. */
+/** A stand-in `spade` whose `--version` prints `version`, as the stamped one does. */
 const spadeScript = (version: string) => `#!/bin/sh\n[ "$1" = --version ] && echo ${version}\n`;
 
 async function release(onTestFinished: (fn: () => Promise<void>) => void) {
@@ -20,7 +20,7 @@ async function release(onTestFinished: (fn: () => Promise<void>) => void) {
   await writeFile(join(root, "bin/node"), "runtime", { mode: 0o755 });
   await writeFile(join(root, "release.json"), "{}\n");
   const prebuilt = async (version: string) => {
-    const path = join(dir, `spade-server-${version}`);
+    const path = join(dir, `spade-${version}`);
     await writeFile(path, spadeScript(version), { mode: 0o755 });
     return path;
   };
@@ -47,7 +47,7 @@ function fakeCargo(dir: string, triple: string): Cargo {
     );
     const out = join(dir, "spade/target", triple, "release");
     mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, "spade-server"), spadeScript(env.ACE_SPADE_VERSION ?? "0.1.0"), {
+    writeFileSync(join(out, "spade"), spadeScript(env.ACE_SPADE_VERSION ?? "0.1.0"), {
       mode: 0o755,
     });
   };
@@ -56,10 +56,10 @@ function fakeCargo(dir: string, triple: string): Cargo {
 const posix = process.platform !== "win32";
 
 test.runIf(posix)(
-  "a release archive carries the prebuilt spade-server it was given",
+  "a release archive carries the prebuilt spade binary it was given",
   async ({ onTestFinished }) => {
     const { dir, root, prebuilt, archived } = await release(onTestFinished);
-    const how = await stageSpadeServer({
+    const how = await stageSpade({
       repo: dir,
       root,
       target: "linux-x64",
@@ -68,16 +68,16 @@ test.runIf(posix)(
       cargo: noCargo,
     });
     expect(how).toBe("prebuilt");
-    expect(await archived()).toEqual(["bin/node", "release.json", "spade/spade-server"]);
+    expect(await archived()).toEqual(["bin/node", "release.json", "spade/spade"]);
   },
 );
 
 test.runIf(posix)(
-  "a standalone release's daemon finds the spade-server packaging staged",
+  "a standalone release's daemon finds the spade binary packaging staged",
   async ({ onTestFinished }) => {
     const { dir, root, prebuilt } = await release(onTestFinished);
     await writeFile(join(root, "ace.mjs"), "");
-    await stageSpadeServer({
+    await stageSpade({
       repo: dir,
       root,
       target: "linux-x64",
@@ -85,13 +85,13 @@ test.runIf(posix)(
       env: { ACE_SPADE_SERVER_BIN: await prebuilt("0.5.0") },
       cargo: noCargo,
     });
-    const found = bundledSpadeServer(bundleRootOfEntry(join(root, "ace.mjs"), existsSync), "linux");
+    const found = bundledSpade(bundleRootOfEntry(join(root, "ace.mjs"), existsSync), "linux");
     expect(await readFile(found, "utf8")).toBe(spadeScript("0.5.0"));
   },
 );
 
 test.runIf(posix)(
-  "the desktop app's daemon finds the spade-server staged in the app's resources",
+  "the desktop app's daemon finds the spade binary staged in the app's resources",
   async ({ onTestFinished }) => {
     const { dir, prebuilt } = await release(onTestFinished);
     // As apps/desktop/scripts/build.ts lays out dist/, which becomes the app's resources.
@@ -99,7 +99,7 @@ test.runIf(posix)(
     await mkdir(join(resources, "daemon"), { recursive: true });
     await writeFile(join(resources, "daemon/ace.mjs"), "");
     await writeFile(join(resources, "daemon", desktopAppMarker), "{}\n");
-    await stageSpadeServer({
+    await stageSpade({
       repo: dir,
       root: resources,
       target: "darwin-arm64",
@@ -108,17 +108,17 @@ test.runIf(posix)(
       cargo: noCargo,
     });
     const entry = join(resources, "daemon/ace.mjs");
-    const found = bundledSpadeServer(bundleRootOfEntry(entry, existsSync), "darwin");
+    const found = bundledSpade(bundleRootOfEntry(entry, existsSync), "darwin");
     expect(await readFile(found, "utf8")).toBe(spadeScript("0.5.0"));
   },
 );
 
 test.runIf(posix)(
-  "a prebuilt spade-server reporting another version is refused",
+  "a prebuilt spade binary reporting another version is refused",
   async ({ onTestFinished }) => {
     const { dir, root, prebuilt, archived } = await release(onTestFinished);
     await expect(
-      stageSpadeServer({
+      stageSpade({
         repo: dir,
         root,
         target: "linux-x64",
@@ -131,23 +131,23 @@ test.runIf(posix)(
   },
 );
 
-test.runIf(posix)("a Windows release carries spade-server.exe", async ({ onTestFinished }) => {
+test.runIf(posix)("a Windows release carries spade.exe", async ({ onTestFinished }) => {
   const { dir, root, prebuilt, archived } = await release(onTestFinished);
-  await stageSpadeServer({
+  await stageSpade({
     repo: dir,
     root,
     target: "win32-x64",
     version: "0.5.0",
     env: { ACE_SPADE_SERVER_BIN: await prebuilt("0.5.0") },
   });
-  expect(await archived()).toContain("spade/spade-server.exe");
+  expect(await archived()).toContain("spade/spade.exe");
 });
 
 test.runIf(posix)(
   "cargo builds it in release mode for the target, stamped with the release's version",
   async ({ onTestFinished }) => {
     const { dir, root, archived } = await release(onTestFinished);
-    const how = await stageSpadeServer({
+    const how = await stageSpade({
       repo: dir,
       root,
       target: "darwin-arm64",
@@ -157,14 +157,14 @@ test.runIf(posix)(
       cargo: fakeCargo(dir, "aarch64-apple-darwin"),
     });
     expect(how).toBe("built");
-    expect(await archived()).toContain("spade/spade-server");
+    expect(await archived()).toContain("spade/spade");
   },
 );
 
 test("a release that can't build Spade fails loudly", async ({ onTestFinished }) => {
   const { dir, root } = await release(onTestFinished);
   await expect(
-    stageSpadeServer({
+    stageSpade({
       repo: dir,
       root,
       target: "linux-arm64",
@@ -174,7 +174,7 @@ test("a release that can't build Spade fails loudly", async ({ onTestFinished })
     }),
   ).rejects.toThrow(/didn't build/);
   await expect(
-    stageSpadeServer({
+    stageSpade({
       repo: dir,
       root,
       target: "linux-arm64",
@@ -185,10 +185,10 @@ test("a release that can't build Spade fails loudly", async ({ onTestFinished })
 });
 
 test.runIf(posix)(
-  "every release carries spade-server: the old DISABLE_SPADE=1 no longer leaves it out",
+  "every release carries the spade binary: the old DISABLE_SPADE=1 no longer leaves it out",
   async ({ onTestFinished }) => {
     const { dir, root, prebuilt, archived } = await release(onTestFinished);
-    const how = await stageSpadeServer({
+    const how = await stageSpade({
       repo: dir,
       root,
       target: "linux-x64",
@@ -197,6 +197,6 @@ test.runIf(posix)(
       cargo: noCargo,
     });
     expect(how).toBe("prebuilt");
-    expect(await archived()).toContain("spade/spade-server");
+    expect(await archived()).toContain("spade/spade");
   },
 );

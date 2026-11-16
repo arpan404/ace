@@ -95,7 +95,7 @@ export function spadeServerCheck(env: NodeJS.ProcessEnv, cargo: boolean): Check 
     name: "Spade server",
     ok: cargo,
     detail: cargo
-      ? "cargo builds spade-server from spade/"
+      ? "cargo builds spade from spade/"
       : "install Rust (spade/rust-toolchain.toml) or set ACE_SPADE_SERVER_BIN",
     for: "any",
   };

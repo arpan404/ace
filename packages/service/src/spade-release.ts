@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
+import { copyFile, link, lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { ReleaseVersion } from "@ace/protocol";
 import { atomicPointer, pointer, retrySharing, syncDirectory } from "./files.ts";
-import { spadeBinaryName } from "./spade-plan.ts";
+import { previousSpadeBinaryName, spadeBinaryName } from "./spade-plan.ts";
 
 /**
- * Spade's installed binaries (ADR 0123): `<ACE_HOME>/releases/spade/<version>/spade-server`
- * behind a `current` pointer the service runs. Like the daemon's releases, nothing here
- * follows a link: a link where a folder or the binary belongs is refused.
+ * Spade's installed binaries (ADR 0123): `<ACE_HOME>/releases/spade/<version>/spade` behind a
+ * `current` pointer the service runs. Like the daemon's releases, nothing here follows a link:
+ * a link where a folder or the binary belongs is refused.
+ *
+ * Builds before the binary's rename installed it as `spade-server`. A version folder holding
+ * only that file is adopted where it is read: `spade` is added beside it as a second name for
+ * the same file (a copy where the file system has no hard links), so the old file stays
+ * runnable for a registration that still names it until that registration is rewritten.
  */
 export const spadeReleases = (home: string) => join(home, "releases", "spade");
 
@@ -28,6 +33,36 @@ async function realDirectory(path: string): Promise<boolean> {
 async function regularFile(path: string): Promise<void> {
   const info = await lstat(path);
   if (!info.isFile()) throw new Error(`Refusing ${path}: not a plain file`);
+}
+
+/**
+ * Gives a version folder from before the binary's rename its `spade`: a hard link to the
+ * `spade-server` there, or an atomic copy. A folder with neither is left for the caller's check.
+ */
+async function adoptPreviousBinary(folder: string): Promise<void> {
+  const name = join(folder, spadeBinaryName(process.platform));
+  if (await lstat(name).then(() => true, missing)) return;
+  const old = join(folder, previousSpadeBinaryName(process.platform));
+  if (!(await lstat(old).then((info) => info.isFile(), missing))) return;
+  try {
+    await link(old, name);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") return;
+    const staging = `${name}.adopting`;
+    await rm(staging, { force: true });
+    await copyFile(old, staging);
+    const file = await open(staging, "r");
+    await file.chmod(0o755).finally(() => file.close());
+    await flush(staging);
+    await retrySharing(() => rename(staging, name));
+  }
+  await syncDirectory(folder);
+}
+
+/** `false` for a path that isn't there; any other failure is thrown. */
+function missing(error: unknown): false {
+  if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+  throw error;
 }
 
 async function sha256(path: string): Promise<string> {
@@ -66,6 +101,7 @@ export async function stageSpadeBinary(
   const name = spadeBinaryName(process.platform);
   const folder = join(root, release);
   if (await realDirectory(folder)) {
+    await adoptPreviousBinary(folder);
     const existing = join(folder, name);
     await regularFile(existing);
     if ((await sha256(existing)) === (await sha256(source))) return folder;
@@ -89,6 +125,8 @@ export async function flipSpadeCurrent(home: string, version: string): Promise<v
   const release = ReleaseVersion.parse(version);
   const folder = join(spadeReleases(home), release);
   if (!(await realDirectory(folder))) throw new Error(`Spade ${release} is not installed`);
+  // A rollback to a release from before the rename flips to the folder it left.
+  await adoptPreviousBinary(folder);
   await regularFile(join(folder, spadeBinaryName(process.platform)));
   await atomicPointer(join(spadeReleases(home), "current"), release);
 }
@@ -96,7 +134,7 @@ export async function flipSpadeCurrent(home: string, version: string): Promise<v
 /**
  * The version `releases/spade/current` names, or undefined when Spade's binary was never
  * installed. A pointer that names anything but a plain version folder holding the binary is
- * refused, never followed.
+ * refused, never followed. A folder from before the binary's rename is adopted on the way.
  */
 export async function installedSpadeVersion(home: string): Promise<string | undefined> {
   const root = spadeReleases(home);
@@ -108,6 +146,7 @@ export async function installedSpadeVersion(home: string): Promise<string | unde
   if (!version.success) throw new Error(`Refusing Spade's current pointer: ${target}`);
   if (!(await realDirectory(join(root, version.data))))
     throw new Error(`Spade's current pointer names a missing release: ${version.data}`);
+  await adoptPreviousBinary(join(root, version.data));
   await regularFile(join(root, version.data, spadeBinaryName(process.platform)));
   return version.data;
 }

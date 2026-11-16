@@ -2,14 +2,14 @@ import { execFile, execFileSync } from "node:child_process";
 import { chmod, copyFile, lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ReleaseTarget as Target } from "@ace/protocol";
-import { bundledSpadeServer, spadeServerFolder } from "@ace/service/spade-layout";
+import { bundledSpade, spadeFolder } from "@ace/service/spade-layout";
 import { spadeBinaryName } from "@ace/service/spade-service";
 import type { z } from "zod";
 
 type ReleaseTarget = z.infer<typeof Target>;
 
 /**
- * Spade's server ships in every release beside the daemon (ADR 0123), at `spade/spade-server`
+ * Spade's binary, `spade`, ships in every release beside the daemon (ADR 0123), at `spade/spade`
  * (`.exe` on Windows) in the archive and in the desktop app's resources, so the signed
  * manifest and checksums cover it like everything else. `ACE_SPADE_SERVER_BIN` names a
  * prebuilt binary; otherwise cargo builds it from `spade/` in release mode. A build that can't
@@ -17,11 +17,11 @@ type ReleaseTarget = z.infer<typeof Target>;
  * ace's home (ADR 0139), never by the build.
  *
  * Spade reports the version stamped into it at build time (`ACE_SPADE_VERSION`) in `/health`,
- * `server.json` and `spade-server --version`, and the updater waits for exactly the release's
+ * `server.json` and `spade --version`, and the updater waits for exactly the release's
  * version after a swap. So cargo builds with the release's version, and a binary whose
  * `--version` says anything else is refused.
  */
-export { spadeServerFolder };
+export { spadeFolder };
 
 const triples: Record<ReleaseTarget, string> = {
   "darwin-arm64": "aarch64-apple-darwin",
@@ -47,13 +47,13 @@ const systemVersionOf: VersionOf = (binary) =>
   });
 
 /** Where the staged binary goes under a release or desktop `root`. */
-export const stagedSpadeServer = (root: string, target: ReleaseTarget) =>
-  bundledSpadeServer(root, target.startsWith("win32") ? "win32" : "linux");
+export const stagedSpade = (root: string, target: ReleaseTarget) =>
+  bundledSpade(root, target.startsWith("win32") ? "win32" : "linux");
 
 /**
- * Stages `spade-server` for `target` into `root/spade/`. Returns how it got there.
+ * Stages `spade` for `target` into `root/spade/`. Returns how it got there.
  */
-export async function stageSpadeServer(options: {
+export async function stageSpade(options: {
   repo: string;
   root: string;
   target: ReleaseTarget;
@@ -67,7 +67,7 @@ export async function stageSpadeServer(options: {
 }): Promise<"prebuilt" | "built"> {
   const { repo, root, target, env, version } = options;
   const host = options.host ?? `${process.platform}-${process.arch}`;
-  const destination = stagedSpadeServer(root, target);
+  const destination = stagedSpade(root, target);
   const name = spadeBinaryName(target.startsWith("win32") ? "win32" : "linux");
   let source: string;
   let how: "prebuilt" | "built" = "prebuilt";
@@ -106,7 +106,7 @@ export async function stageSpadeServer(options: {
         `${source} reports version ${JSON.stringify(reported.slice(0, 80))}, not this release's ${version}. Build it with ACE_SPADE_VERSION=${version}.`,
       );
   }
-  await mkdir(join(root, spadeServerFolder), { recursive: true });
+  await mkdir(join(root, spadeFolder), { recursive: true });
   await copyFile(source, destination);
   await chmod(destination, 0o755);
   return how;

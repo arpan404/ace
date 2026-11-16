@@ -107,12 +107,12 @@ async fn serve_main() -> std::process::ExitCode {
     }
 }
 
-/// `spade-server --check-migrations <path>`: an updater asks whether this build can open a
+/// `spade --check-migrations <path>`: an updater asks whether this build can open a
 /// snapshot of Spade's database (docs/ace-integration.md, "Updates"). Migrates and checks that
 /// file only; never touches the data folder. Exit 0 if usable, else 1 with one line saying why.
 fn check_migrations(path: Option<&std::ffi::OsString>) -> std::process::ExitCode {
     let Some(path) = path else {
-        eprintln!("usage: spade-server --check-migrations <path to a copy of spade.sqlite>");
+        eprintln!("usage: spade --check-migrations <path to a copy of spade.sqlite>");
         return std::process::ExitCode::from(2);
     };
     match Store::check(std::path::Path::new(path)) {

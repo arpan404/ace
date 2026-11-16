@@ -16,7 +16,7 @@ to one person, or testing a release with Spade, meant a different build, and a r
 
 ## Decision
 
-1. **Every build carries Spade.** Releases always stage `spade-server`, and `DISABLE_SPADE`,
+1. **Every build carries Spade.** Releases always stage Spade's binary (now `spade`), and `DISABLE_SPADE`,
    `ACE_BUILD_DISABLE_SPADE` and `VITE_ACE_SPADE` are gone.
 
 2. **`<ACE_HOME>/features.json` decides, on each machine.** The file is a JSON object; Spade is

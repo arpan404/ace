@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -149,10 +149,42 @@ test.runIf(posix)(
   },
 );
 
+test.runIf(posix)(
+  "an install from before the binary's rename is moved onto spade by the update",
+  async ({ onTestFinished }) => {
+    const world = await setup(onTestFinished, {
+      candidate: spadeBinary("0.5.0"),
+      beforeRename: true,
+    });
+    expect(world.spade()).toMatchObject({ version: "0.4.0" });
+    const result = await world.update("now");
+    expect(result).toEqual({ kind: "swapped", from: "0.4.0", to: "0.5.0" });
+    expect(world.spade()).toMatchObject({ version: "0.5.0" });
+    // launchd now runs `current/spade`, from the registration this build renders.
+    expect(await readFile(world.plan.file, "utf8")).toBe(world.plan.content);
+    expect(world.loadedProgram()).toBe(join(world.home, "releases/spade/current/spade"));
+  },
+);
+
+test.runIf(posix)(
+  "a failed update from before the rename rolls back to the old release under the new name",
+  async ({ onTestFinished }) => {
+    const world = await setup(onTestFinished, {
+      candidate: spadeBinary("0.1.0"),
+      beforeRename: true,
+    });
+    const result = await world.update("now");
+    expect(result.kind === "failed" && result.error).toMatch(/0.4.0 is running again/);
+    expect(await installedSpadeVersion(world.home)).toBe("0.4.0");
+    expect(world.spade()).toMatchObject({ version: "0.4.0" });
+    expect(world.loadedProgram()).toBe(join(world.home, "releases/spade/current/spade"));
+  },
+);
+
 /** The schema a version migrates Spade's database to: its minor number here. */
 const schemaOf = (version: string) => Number(version.split(".")[1]);
 
-/** A stand-in `spade-server`: `--version` prints its stamped version, `--check-migrations` runs `check`. */
+/** A stand-in `spade`: `--version` prints its stamped version, `--check-migrations` runs `check`. */
 function spadeBinary(version: string, check = "exit 0") {
   return { version, check };
 }
@@ -171,6 +203,11 @@ async function setup(
     /** After a restart, a process without Spade's token answers at the new address. */
     impostor?: boolean;
     ignoresKickstart?: boolean;
+    /**
+     * Laid out as a build before the binary's rename left it: the release folder holds only
+     * `spade-server` and launchd runs it from a registration naming that file.
+     */
+    beforeRename?: boolean;
   },
 ) {
   const root = await mkdtemp(join(tmpdir(), "ace-spade-update-"));
@@ -219,11 +256,14 @@ async function setup(
     live.prepare("INSERT INTO turns VALUES (?)").run(text);
     live.close();
   };
-  /** What launchd's start does: run `current`'s binary as Spade. */
+  const plan = spadeServicePlan(home, "darwin", { userHome: root, uid: 501 });
+  /** The program the loaded registration names: launchd keeps it until the job is reloaded. */
+  let program = plan.command[0] ?? "";
+  /** What launchd's start does: run the loaded registration's program as Spade. */
   const start = async () => {
     await close();
     running = undefined;
-    const binary = join(home, "releases/spade/current/spade-server");
+    const binary = program;
     const version = (await checked(runProcess, binary, ["--version"])).stdout.trim();
     if (options.diesEarly === version) return;
     const read = new DatabaseSync(database);
@@ -275,7 +315,6 @@ async function setup(
     if (!impostor) running = { version, pid };
   };
 
-  const plan = spadeServicePlan(home, "darwin", { userHome: root, uid: 501 });
   let loaded = false;
   const run: Runner = async (file, args) => {
     if (file !== "launchctl") return runProcess(file, args);
@@ -284,10 +323,13 @@ async function setup(
         ? {
             code: 0,
             stderr: "",
-            stdout: `\tpath = ${plan.file}\n\tstate = ${running || starting ? "running" : "waiting"}\n\tprogram = ${plan.command[0]}\n\targuments = {\n\t\t${plan.command[0]}\n\t}\n`,
+            stdout: `\tpath = ${plan.file}\n\tstate = ${running || starting ? "running" : "waiting"}\n\tprogram = ${program}\n\targuments = {\n\t\t${program}\n\t}\n`,
           }
         : { code: 113, stderr: "", stdout: "" };
     if (args[0] === "bootstrap") {
+      const registered = await readFile(plan.file, "utf8");
+      program =
+        (registered === plan.previous.content ? plan.previous.command : plan.command)[0] ?? "";
       loaded = true;
       await start();
     }
@@ -321,6 +363,13 @@ async function setup(
     },
   };
   await installSpadeService(plan, service);
+  if (options.beforeRename) {
+    const folder = join(home, "releases/spade/0.4.0");
+    await rename(join(folder, "spade"), join(folder, "spade-server"));
+    await writeFile(plan.file, plan.previous.content);
+    program = plan.previous.command[0] ?? "";
+    await start();
+  }
   const schema = () => {
     const read = new DatabaseSync(database, { readOnly: true });
     try {
@@ -331,6 +380,8 @@ async function setup(
   };
   return {
     home,
+    plan,
+    loadedProgram: () => program,
     requests,
     checkedPath,
     schema,

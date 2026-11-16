@@ -53,9 +53,10 @@ same way costs little.
    folder (`<ACE_HOME>/spade`), its single-instance lock (exit code 3), `server.json` and its
    0600 token file are unchanged.
 
-3. **One release carries both programs.** `spade-server` for each target ships inside the desktop
-   app and the standalone archives, at ace's version, covered by the same signed manifest and the
-   same electron-updater feed. On install it is copied out to
+3. **One release carries both programs.** Spade's binary, `spade` (`spade.exe` on Windows; built
+   from the `spade-server` crate, and named `spade-server` itself until 2026-11-15), for each
+   target ships inside the desktop app and the standalone archives, at ace's version, covered by
+   the same signed manifest and the same electron-updater feed. On install it is copied out to
    `<ACE_HOME>/releases/spade/<version>/`, behind a `current` pointer that the service runs, so
    replacing the app bundle never pulls the binary out from under a running Spade.
 
