@@ -23,3 +23,12 @@ import Observation
         if value { if open.insert(key).inserted { opens += 1 }; closed.remove(key) } else { open.remove(key); closed.insert(key) }
     }
 }
+
+extension ThreadModel {
+    /// Whether the person opened the subagent group in block `blockId`. Kept with the thread's
+    /// other folds, so a page of its history and a revisit after a child show it as left.
+    func isGroupOpen(_ blockId: String) -> Bool { disclosures.isOpen(Self.groupKey(blockId)) }
+    func toggleGroup(_ blockId: String) { disclosures.toggle(Self.groupKey(blockId)) }
+    /// Its own namespace, apart from the work logs' block keys.
+    private static func groupKey(_ blockId: String) -> String { "subagents:\(blockId)" }
+}

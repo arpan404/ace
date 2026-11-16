@@ -47,9 +47,6 @@ import Observation
     var leftRunning: LeftRunningRow?
     /// The thread's goal, for its sheet; nil without one.
     var goal: GoalRow?
-    /// Subagent groups the person opened, by block id. Kept across a reload of the thread, so
-    /// coming back from a child finds the group as it was left.
-    var openGroups: Set<String> = []
     /// Effort and speed for the next message.
     var tune: TuneRow?
     /// The thread's access and the modes it can change to (`thread.access`).
@@ -102,7 +99,6 @@ import Observation
         pill = shown.pill
         leftRunning = shown.leftRunning
         goal = shown.goal
-        openGroups = shown.openGroups
         tune = shown.tune
         access = shown.access
         attachments = shown.attachments
