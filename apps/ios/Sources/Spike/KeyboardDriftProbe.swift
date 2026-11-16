@@ -16,6 +16,8 @@ import UIKit
     private var marks: [Mark: Weak] = [:]
     private var link: CADisplayLink?
     private var gaps: [Double] = []
+    /// Each frame's drawn y of the line, the composer's top and the keyboard's edge.
+    private var trace: [String] = []
     private var lag: Double = 0
     private var until: CFTimeInterval = 0
     private var motion = "open"
@@ -45,6 +47,7 @@ import UIKit
         self.motion = motion
         self.until = until
         gaps = []
+        trace = []
         lag = 0
         // The frame before the motion, then every frame until it has surely settled.
         sample()
@@ -61,6 +64,7 @@ import UIKit
     private func sample() {
         if let line = y(.line), let composer = y(.composer) { gaps.append((composer - line).rounded()) }
         if let foot = y(.composerFoot), let keyboard = y(.keyboard) { lag = max(lag, abs(keyboard - foot).rounded()) }
+        trace.append([Mark.line, .composer, .keyboard].map { y($0).map { String(Int($0.rounded())) } ?? "-" }.joined(separator: "/"))
     }
 
     private func finish() {
@@ -70,7 +74,8 @@ import UIKit
         guard let low = gaps.min(), let high = gaps.max() else { return }
         PerfProbe.record(["keyboard.\(motion).gaps": gaps.map { String(Int($0)) }.joined(separator: ","),
                           "keyboard.\(motion).drift": String(Int(high - low)),
-                          "keyboard.\(motion).lag": String(Int(lag))])
+                          "keyboard.\(motion).lag": String(Int(lag)),
+                          "keyboard.\(motion).trace": trace.joined(separator: " ")])
     }
 
     /// Where `mark`'s edge is drawn on screen this frame, mid-animation included.
