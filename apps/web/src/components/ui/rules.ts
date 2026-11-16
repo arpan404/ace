@@ -32,11 +32,12 @@ export const railDivider = "my-1 h-px w-4 shrink-0 bg-border";
  *
  * - `sceneThrough`: a page's own full-size fill steps aside while a scene shows.
  * - `sceneBar`: a bar that sticks over scrolling content is tinted and blurred instead of solid,
- *   so rows still pass under it unread and the scene still shows beside them.
+ *   so rows still pass under it unread and the scene still shows beside them. Under Solid
+ *   surfaces or reduced transparency nothing blurs, so the bar stays solid there.
  */
 export const sceneThrough = "[[data-suit-scene]_&]:bg-transparent";
 export const sceneBar =
-  "[[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--panel)_72%,transparent)] [[data-suit-scene]_&]:backdrop-blur-md";
+  "[[data-surface=translucent]_[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--panel)_72%,transparent)] [[data-surface=translucent]_[data-suit-scene]_&]:backdrop-blur-md";
 
 /*
  * Containers:
