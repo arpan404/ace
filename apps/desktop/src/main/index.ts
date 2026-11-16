@@ -25,7 +25,7 @@ import { Background } from "./background.ts";
 import { logFolders } from "./daemon/logs.ts";
 import { logFreshStart } from "./daemon/fresh-start-log.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
-import { reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
+import { healthy, reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import { createPageConnection } from "./daemon/page-connection.ts";
@@ -263,6 +263,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
   // ask for the update; the daemon's reply carries the request (ADR 0113).
   let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
   const updateReport = new UpdateReporter({
+    ready: async () => healthy(await runtime.local()),
     send: async (report) => reportAppUpdate(await runtime.local(), report),
     instructed: (instruction) => remoteUpdate?.(instruction),
     withdraw: async () => withdrawAppUpdate(await runtime.local()),
