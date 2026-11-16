@@ -99,58 +99,35 @@ impl Engine {
             .clone()
             .unwrap_or_else(|| self.role_model(id, spade_core::routing::Role::Verify));
         let prompt = verify::prompt(&events, &task).session(id);
-        let admission = self
-            .admit_waiting(id, &model, &prompt, super::ledger::Hint::default())
-            .await
-            .map(|a| a.for_role(spade_core::routing::Role::Verify));
-        let verdict = match admission {
-            // At a cap the check waits for the reset, like a step (ADR 0158).
-            Err(_) if let Some((until_ms, why)) = self.cap_park(id) => {
-                if self.take_token(id, token) {
-                    self.set_status(id, None);
-                    self.park_task(id, until_ms, &why);
+        let admitted = self
+            .admit(id, &model)
+            .for_role(spade_core::routing::Role::Verify);
+        let verdict = {
+            let asked = tokio::time::timeout(
+                VERIFY_TIMEOUT,
+                self.models.generate::<Answer>(&model, &prompt),
+            )
+            .await;
+            match asked {
+                Ok(Ok(generated)) => {
+                    let cost = admitted.settle(&generated.usage);
+                    verify::verdict(&task, claim, generated.value, &model, cost)
                 }
-                return;
-            }
-            Err(refused) => verify::unchecked(
-                &task,
-                claim,
-                &format!(
-                    "The check couldn't run: the bot reached {}.",
-                    refused.reached()
-                ),
-                &model,
-                0,
-            ),
-            Ok(admitted) => {
-                let asked = tokio::time::timeout(
-                    VERIFY_TIMEOUT,
-                    self.models.generate::<Answer>(&model, &prompt),
-                )
-                .await;
-                match asked {
-                    Ok(Ok(generated)) => {
-                        let cost = admitted.settle(&generated.usage);
-                        verify::verdict(&task, claim, generated.value, &model, cost)
+                // The check's model is down for a while: it waits it out and runs again.
+                Ok(Err(error)) if error.transient() => {
+                    admitted.settle_if(error.usage());
+                    if self.take_token(id, token) {
+                        self.set_status(id, None);
+                        self.park_check(id, &error);
                     }
-                    // The check's model is down for a while: it waits it out and runs again.
-                    Ok(Err(error)) if error.transient() => {
-                        admitted.settle_if(error.usage());
-                        if self.take_token(id, token) {
-                            self.set_status(id, None);
-                            self.park_check(id, &error);
-                        }
-                        return;
-                    }
-                    Ok(Err(error)) => {
-                        let cost = admitted.settle_if(error.usage());
-                        let why = format!("The check couldn't run: {error}");
-                        verify::unchecked(&task, claim, &why, &model, cost)
-                    }
-                    Err(_) => {
-                        verify::unchecked(&task, claim, "The check took too long.", &model, 0)
-                    }
+                    return;
                 }
+                Ok(Err(error)) => {
+                    let cost = admitted.settle_if(error.usage());
+                    let why = format!("The check couldn't run: {error}");
+                    verify::unchecked(&task, claim, &why, &model, cost)
+                }
+                Err(_) => verify::unchecked(&task, claim, "The check took too long.", &model, 0),
             }
         };
         // The verdict holds only for the goal and claim it was asked about: the person may have

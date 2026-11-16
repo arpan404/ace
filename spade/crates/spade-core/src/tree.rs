@@ -8,23 +8,20 @@ use serde_json::Value;
 use crate::event::{Event, Known};
 use crate::goal::view::State as Progress;
 use crate::transcript::Transcript;
-use crate::wake::{Condition, ParkReason, Purpose};
 
 pub const BOT_CREATE: &str = "bot_create";
 pub const WORKER_MESSAGE: &str = "worker_message";
 pub const WORKER_STATUS: &str = "worker_status";
 pub const WORKER_RESULT: &str = "worker_result";
 pub const WORKER_STOP: &str = "worker_stop";
-pub const WORKER_BUDGET: &str = "worker_budget";
 
 /// The tools that coordinate workers.
-pub const TOOLS: [&str; 6] = [
+pub const TOOLS: [&str; 5] = [
     BOT_CREATE,
     WORKER_MESSAGE,
     WORKER_STATUS,
     WORKER_RESULT,
     WORKER_STOP,
-    WORKER_BUDGET,
 ];
 
 /// The most of a worker's last reply a report quotes, in characters.
@@ -79,8 +76,6 @@ pub struct Link {
     pub call: String,
     #[serde(default)]
     pub grants: Grants,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub budget_micros: Option<u64>,
     /// Its first message, delivered when it may start (it waits queued until then).
     #[serde(default)]
     pub brief: String,
@@ -102,8 +97,6 @@ pub struct Started {
     pub conversation: Option<String>,
     /// The call that started it.
     pub call: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub budget_micros: Option<u64>,
 }
 
 /// How a worker settled.
@@ -116,8 +109,6 @@ pub enum ReportState {
     Finished,
     /// An approval or a question waits on the person.
     NeedsYou,
-    /// Its subtree is at its budget, or a cap holds: it waits.
-    Parked,
     Failed,
     /// Stopped by the person or its orchestrator. Stored, and opens a reply only when the
     /// orchestrator waits on that worker.
@@ -134,7 +125,6 @@ impl ReportState {
             Self::Done => "done",
             Self::Finished => "finished",
             Self::NeedsYou => "needs_you",
-            Self::Parked => "parked",
             Self::Failed => "failed",
             Self::Stopped => "stopped",
             Self::Stopping => "stopping",
@@ -148,7 +138,6 @@ impl ReportState {
             Self::Done => "is done (checked)",
             Self::Finished => "finished",
             Self::NeedsYou => "needs the person",
-            Self::Parked => "is waiting for budget",
             Self::Failed => "failed",
             Self::Stopped => "was stopped",
             Self::Stopping => "is being stopped",
@@ -184,14 +173,11 @@ pub fn linked(events: &[Event]) -> Option<Link> {
     events.iter().fold(None, apply)
 }
 
-/// `link` after `event`: made, its budget changed, or detached.
+/// `link` after `event`: made, or detached. A `worker_budget` an earlier build stored (ADR 0161,
+/// retired by ADR 0166) is read as nothing.
 pub fn apply(link: Option<Link>, event: &Event) -> Option<Link> {
     match event {
         Event::Known(Known::WorkerOf(made)) => Some(made.clone()),
-        Event::Known(Known::WorkerBudget { budget_micros, .. }) => link.map(|mut link| {
-            link.budget_micros = *budget_micros;
-            link
-        }),
         Event::Known(Known::WorkerDetached { .. }) => None,
         _ => link,
     }
@@ -201,9 +187,7 @@ pub fn apply(link: Option<Link>, event: &Event) -> Option<Link> {
 pub fn changes_link(event: &Event) -> bool {
     matches!(
         event,
-        Event::Known(
-            Known::WorkerOf(_) | Known::WorkerBudget { .. } | Known::WorkerDetached { .. }
-        )
+        Event::Known(Known::WorkerOf(_) | Known::WorkerDetached { .. })
     )
 }
 
@@ -465,19 +449,9 @@ pub fn settled(events: &[Event], around: Around) -> Option<Settled> {
     if transcript.busy() || around.children_working || around.carries_on {
         return None;
     }
+    // A wake a worker's own schedule set holds it; one that parked it for spend (ADR 0161,
+    // retired by ADR 0166) is cancelled when Spade opens.
     let wakes = crate::wake::open(events);
-    if let Some(parked) = wakes.iter().find(|o| parks(o)) {
-        return Some(Settled {
-            state: ReportState::Parked,
-            epoch: parked.wake.clone(),
-            summary: if parked.reason.is_empty() {
-                "it waits for more budget.".to_owned()
-            } else {
-                parked.reason.clone()
-            },
-            words: None,
-        });
-    }
     if !wakes.is_empty() {
         return None;
     }
@@ -522,45 +496,6 @@ pub fn settled(events: &[Event], around: Around) -> Option<Settled> {
         summary,
         words: last_words(events),
     })
-}
-
-/// A wake that holds a worker for budget or a cap rather than its own schedule.
-fn parks(open: &crate::wake::Open) -> bool {
-    matches!(open.condition, Some(Condition::Budget))
-        || matches!(
-            open.purpose,
-            Purpose::Park {
-                reason: ParkReason::Cap,
-                ..
-            }
-        )
-}
-
-/// The open wakes that hold a worker for budget.
-pub fn budget_waits(events: &[Event]) -> Vec<String> {
-    crate::wake::open(events)
-        .into_iter()
-        .filter(|o| matches!(o.condition, Some(Condition::Budget)))
-        .map(|o| o.wake)
-        .collect()
-}
-
-/// Whether the latest reply closed at a budget (its `cap_reached {scope: budget}` is after the
-/// latest `reply_started`).
-pub fn closed_at_budget(events: &[Event]) -> bool {
-    let started = events
-        .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })));
-    let capped = events.iter().rposition(|e| {
-        matches!(
-            e,
-            Event::Known(Known::CapReached {
-                scope: crate::event::CapScope::Budget,
-                ..
-            })
-        )
-    });
-    matches!((started, capped), (Some(s), Some(c)) if c > s)
 }
 
 enum End {
@@ -625,10 +560,6 @@ pub fn report_text(report: &Report) -> String {
         }
         ReportState::NeedsYou => {
             "Only the person can answer it. Carry on with other work, or wait for it."
-        }
-        ReportState::Parked => {
-            "Raise its budget with worker_budget if the work is worth it, or stop it with \
-             worker_stop."
         }
         ReportState::Failed => "Decide whether to message it to try again, or stop it.",
         ReportState::Stopped | ReportState::Stopping | ReportState::Other => "",

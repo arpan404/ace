@@ -477,8 +477,8 @@ impl Engine {
         }
         start_timer(self);
         self.restore_services();
-        // A task parked on a cap that no longer holds (raised while Spade was closed) carries on.
-        self.unpark_lifted_caps();
+        // A task an earlier build parked for spend carries on: nothing waits for money (ADR 0166).
+        self.retire_spend_parks();
     }
 
     /// An ace thread changed (`state`: done, failed, needs_you): the waits on it fire.

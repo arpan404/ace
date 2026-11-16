@@ -1,5 +1,5 @@
 //! A bot's tools for its workers (ADR 0161): `bot_create`, `worker_message`, `worker_status`,
-//! `worker_result`, `worker_stop` and `worker_budget`. Offered deferred, so a bot that never
+//! `worker_result` and `worker_stop`. Offered deferred, so a bot that never
 //! orchestrates pays nothing for them. The engine does the work (`engine/workers`).
 
 use std::sync::Arc;
@@ -36,8 +36,7 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
              outlive one answer; use a helper for reading you need once, ace's delegate for \
              code, and do sequential work yourself. The brief says the objective, what to hand \
              back, the boundaries and what is ruled out. It gets your tools, connectors \
-             and plugins at most; budget_usd bounds what it and its own workers spend. It \
-             answers at once; the worker reports back here when it settles.",
+             and plugins at most. It answers at once; the worker reports back here when it settles.",
             json!({ "type": "object", "properties": {
                 "name": { "type": "string", "description": "Its name, 1 to 40 characters." },
                 "task": { "type": "string", "description": "What it is for: its standing instructions." },
@@ -45,8 +44,7 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
                 "model": { "type": "string", "description": "A role (main, helper, verify, review, compact, title) or an endpoint/model the person set up for you; yours when unset." },
                 "tools": { "type": "array", "items": { "type": "string" }, "description": "Only these of your tools; all of yours when unset." },
                 "connectors": { "type": "array", "items": { "type": "string" } },
-                "plugins": { "type": "array", "items": { "type": "string" } },
-                "budget_usd": { "type": "number", "description": "What it and its workers may spend, in dollars." }
+                "plugins": { "type": "array", "items": { "type": "string" } }
             }, "required": ["name", "task"] }),
             Risk::Write,
             false,
@@ -62,8 +60,8 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
             false,
         ),
         tree::WORKER_STATUS => (
-            "Your workers as a tree: each one's state, progress, cost, budget and whether it \
-             needs the person. One worker's subtree with worker.",
+            "Your workers as a tree: each one's state, progress, cost and whether it needs the \
+             person. One worker's subtree with worker.",
             json!({ "type": "object", "properties": {
                 "worker": { "type": "string", "description": WORKER }
             } }),
@@ -79,22 +77,12 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
             Risk::Read,
             true,
         ),
-        tree::WORKER_STOP => (
+        _ => (
             "Stops a worker of yours and everything under it.",
             json!({ "type": "object", "properties": {
                 "worker": { "type": "string", "description": WORKER }
             }, "required": ["worker"] }),
             Risk::Read,
-            false,
-        ),
-        _ => (
-            "Sets a worker's budget: what it and its own workers may spend in all, in dollars. A \
-             worker waiting at its budget carries on when it has room again.",
-            json!({ "type": "object", "properties": {
-                "worker": { "type": "string", "description": WORKER },
-                "budget_usd": { "type": "number" }
-            }, "required": ["worker", "budget_usd"] }),
-            Risk::Write,
             false,
         ),
     }
@@ -127,8 +115,7 @@ impl Tool for WorkerTool {
                 tree::WORKER_MESSAGE => engine.worker_message(&key, arguments).await,
                 tree::WORKER_STATUS => engine.worker_status(&key, arguments),
                 tree::WORKER_RESULT => engine.worker_result(&key, arguments),
-                tree::WORKER_STOP => engine.worker_stop(&key, arguments),
-                _ => engine.worker_budget(&key, arguments),
+                _ => engine.worker_stop(&key, arguments),
             }
         })
     }

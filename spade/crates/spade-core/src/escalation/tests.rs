@@ -63,26 +63,22 @@ fn each_wait_that_reaches_the_person_has_the_level_of_what_it_holds() {
             Some(Level::Stop),
         ),
         (
-            json!({ "type": "cap_reached", "scope": "daily", "cap_micros": 1,
-                 "period_start": 0, "resets_at": 1 }),
-            Some(Level::Stop),
-        ),
-        (
             json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "401",
                  "kind": "key" }),
             Some(Level::Stop),
         ),
+        // Waits Spade sits out quietly, the bot's own sleeps, and cap or budget parks an
+        // earlier build stored (ADR 0166: nothing parks for spend).
         (
             json!({ "type": "wake_set", "wake": "w1", "purpose": { "kind": "park", "reason": "cap" },
                  "due_ms": 5 }),
-            Some(Level::Stop),
+            None,
         ),
         (
             json!({ "type": "wake_set", "wake": "w1", "purpose": { "kind": "wait" },
                  "condition": { "kind": "budget" } }),
-            Some(Level::Stop),
+            None,
         ),
-        // Waits Spade sits out quietly, and the bot's own sleeps.
         (
             json!({ "type": "wake_set", "wake": "w1", "purpose": { "kind": "park", "reason": "check" },
                  "due_ms": 5 }),
@@ -151,10 +147,17 @@ fn a_notification_sentence_is_one_plain_line_and_never_shows_arguments() {
         json!({ "type": "wake_set", "wake": "w1", "purpose": { "kind": "wait" },
         "condition": { "kind": "budget" }, "reason": "subtree at budget" }),
     );
-    assert_eq!(
-        sentence(&budget).as_deref(),
-        Some("Waiting for more budget.")
-    );
+    assert_eq!(sentence(&budget), None, "nothing waits for budget");
     let finished = known(json!({ "type": "reply_finished", "reply": "r1", "text": "Done." }));
     assert_eq!(sentence(&finished), None);
+}
+
+#[test]
+fn a_cap_an_earlier_build_stored_still_reads_and_reaches_no_one() {
+    let old = Event::from_json(json!({ "type": "cap_reached", "scope": "daily",
+        "cap_micros": 1, "period_start": 0, "resets_at": 1 }));
+    assert!(matches!(old, Event::Unknown(_)), "kept as raw data");
+    let failed = known(json!({ "type": "reply_failed", "reply": "r1", "text": "",
+        "error": "the bot reached its daily spending cap", "kind": "cap" }));
+    assert_eq!(level(&failed), None, "a reply a cap ended stopped nothing");
 }

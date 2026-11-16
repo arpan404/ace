@@ -281,10 +281,9 @@ fn change_line(event: &Known, task: Option<&Task>) -> Option<String> {
         Known::WorkerReported(report) => {
             format!("Worker {} {}", one_line(&report.name), report.state.words())
         }
-        Known::TaskVerified { .. }
-        | Known::ReplyFailed { .. }
-        | Known::TaskPaused { .. }
-        | Known::CapReached { .. } => escalation::sentence(event)?,
+        Known::TaskVerified { .. } | Known::ReplyFailed { .. } | Known::TaskPaused { .. } => {
+            escalation::sentence(event)?
+        }
         _ => return None,
     })
 }
@@ -308,6 +307,7 @@ fn next(events: &[&Event], task: Option<&Task>) -> Vec<String> {
         let reason = one_line(&wake.reason);
         let what = match (&wake.purpose, &wake.condition) {
             (Purpose::Sleep, _) => "Sleeping".to_owned(),
+            // A wait for budget an earlier build set (ADR 0166): cancelled when Spade opens.
             (Purpose::Wait, Some(Condition::Budget)) => continue,
             (Purpose::Wait, Some(condition)) => format!("Waiting for {}", condition.words()),
             _ => continue,
@@ -380,17 +380,6 @@ fn waiting(events: &[&Event], at: &dyn Fn(usize) -> i64) -> Vec<Waiting> {
         && let Event::Known(known @ Known::ReplyFailed { .. }) = events[i]
     {
         push(&mut waiting, Level::Stop, known, at(i));
-    }
-    for wake in crate::wake::open(events.iter().copied()) {
-        if !escalation::parks(&wake.purpose, wake.condition.as_ref()) {
-            continue;
-        }
-        let found = index_of(&|k| matches!(k, Known::WakeSet { wake: w, .. } if w == &wake.wake));
-        if let Some(i) = found
-            && let Event::Known(known) = events[i]
-        {
-            push(&mut waiting, Level::Stop, known, at(i));
-        }
     }
     waiting.sort_by(|a, b| b.level.cmp(&a.level).then(a.since_ms.cmp(&b.since_ms)));
     waiting

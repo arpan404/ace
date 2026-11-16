@@ -174,6 +174,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::knowledge::SCHEMA,
         backfill: Some(crate::episodes::create),
     },
+    Migration {
+        // ADR 0166: no spending caps; their settings go.
+        sql: crate::oversight::NO_CAPS,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

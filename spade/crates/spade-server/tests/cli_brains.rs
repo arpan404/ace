@@ -197,12 +197,7 @@ async fn start(
     tools: Vec<Arc<dyn Tool>>,
     turns: Vec<Vec<Act>>,
 ) -> Result<(Spade, Arc<Daemon>, String)> {
-    // No money to spend: a subscription never counts toward Spade's cap.
-    let options = Options {
-        cap_usd: 0.0,
-        ..Options::default()
-    };
-    let spade = Spade::start_with(Vec::new(), tools, options).await?;
+    let spade = Spade::start_with(Vec::new(), tools, Options::default()).await?;
     let (daemon, url) = fake_daemon().await?;
     daemon
         .turns
@@ -503,7 +498,6 @@ async fn a_turn_paused_after_a_call_resumes_on_the_cli_and_is_never_recorded_as_
         Duration::from_secs(30),
     )?;
     let options = Options {
-        cap_usd: 0.0,
         brains: Some(Arc::new(move || Ok(AceBrains::new(&tools)))),
         ..Options::default()
     };

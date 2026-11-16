@@ -1,7 +1,7 @@
 //! Wakes (ADR 0160): every timed or event-driven resume of a bot's work. A bot sleeps until a
 //! time or waits for an event; a turn waits out its endpoint's outage; a background job that
-//! failed for a while is parked for a retry; a task waits for a spending cap's reset or for its
-//! check of done to reach its model (ADR 0158). Each is a `wake_set` event; it stays open until
+//! failed for a while is parked for a retry; a task waits for its check of done to reach its
+//! model (ADR 0158). Nothing waits for spend (ADR 0166). Each is a `wake_set` event; it stays open until
 //! a `wake_fired` or a `wake_cancelled` names it. Which wakes are open, which event settles
 //! which, what the model reads when one fires and when a retry or a check-in is due are all
 //! decided here. Pure.
@@ -54,8 +54,7 @@ pub enum Purpose {
         #[serde(default)]
         error: String,
     },
-    /// The bot's task waits before its next step or its check of done: for a spending cap's
-    /// reset, or for the check's model to answer again. When it fires the task carries on; the
+    /// The bot's task waits before its check of done, for the check's model to answer again. When it fires the task carries on; the
     /// wake's `reason` is what the person reads.
     Park {
         reason: ParkReason,
@@ -68,7 +67,8 @@ pub enum Purpose {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParkReason {
-    /// A spending cap: the service's, or one of the bot's own.
+    /// Retired (ADR 0166): a spending cap, as builds with caps stored it. Still read; Spade
+    /// cancels such a wake when it opens and the task carries on ([`for_spend`]).
     Cap,
     /// The check of done could not reach its model for a while.
     Check,
@@ -111,8 +111,8 @@ pub enum Condition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         worker: Option<String>,
     },
-    /// This worker's budget is raised (ADR 0161). Spade sets it when a subtree reaches its
-    /// budget, so the worker waits instead of failing.
+    /// Retired (ADR 0166): a worker's budget raised (ADR 0161). Still read; Spade cancels such a
+    /// wake when it opens and the worker carries on ([`for_spend`]).
     Budget,
 }
 
@@ -179,6 +179,8 @@ pub enum CancelledBy {
     Person,
     Bot,
     Stop,
+    /// Spade itself: a wake an earlier build set for spend (ADR 0166).
+    Spade,
     #[serde(other)]
     Other,
 }
@@ -230,6 +232,19 @@ pub fn open<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<Open> {
     open
 }
 
+/// Whether an open wake holds the task for spend: a cap park or a wait for more budget, which
+/// builds before ADR 0166 stored. Nothing sets these now; they are cancelled when Spade opens.
+pub fn for_spend(open: &Open) -> bool {
+    matches!(open.condition, Some(Condition::Budget))
+        || matches!(
+            open.purpose,
+            Purpose::Park {
+                reason: ParkReason::Cap,
+                ..
+            }
+        )
+}
+
 /// Whether `wake` is still open.
 pub fn is_open(events: &[Event], wake: &str) -> bool {
     open(events).iter().any(|o| o.wake == wake)
@@ -274,7 +289,7 @@ pub fn settled_by(events: &[Event], event: &Event) -> Vec<Event> {
                             | Purpose::Park { .. }
                     )
             }
-            // Any message opens a reply, which meets the cap again if it still holds.
+            // Any message opens a reply, which carries the task on.
             (Known::UserMessage { .. }, _, Purpose::Park { .. }) => true,
             (
                 Known::UserMessage {

@@ -1,5 +1,5 @@
 //! Coordinating workers (ADR 0161): `worker_message`, `worker_status`, `worker_result`,
-//! `worker_stop` and `worker_budget`, on a bot's worker bots, its ace children and its helpers,
+//! and `worker_stop`, on a bot's worker bots, its ace children and its helpers,
 //! and noting the ace children a `delegate` started.
 
 use std::sync::Arc;
@@ -12,7 +12,6 @@ use spade_core::tree::{self, AceChild, Kind, Started};
 use spade_store::StoredHelper;
 
 use super::super::Engine;
-use super::budget::PERSON;
 use crate::tools::ToolOutput;
 
 /// The most of an evidence call's stored result `worker_result` shows, in characters.
@@ -32,8 +31,6 @@ struct Named {
     worker: String,
     #[serde(default)]
     text: String,
-    #[serde(default)]
-    budget_usd: Option<f64>,
 }
 
 impl Engine {
@@ -282,52 +279,6 @@ impl Engine {
         }
     }
 
-    /// `worker_budget`: sets a worker bot's subtree budget.
-    pub(crate) fn worker_budget(self: &Arc<Self>, key: &str, arguments: Value) -> ToolOutput {
-        let Some((caller, _)) = key.split_once('.') else {
-            return ToolOutput::error("Spade could not tell which bot asked.");
-        };
-        let named: Named = match crate::tools::parse(arguments) {
-            Ok(named) => named,
-            Err(refused) => return refused,
-        };
-        let micros = match named.budget_usd {
-            Some(usd) if usd.is_finite() && usd > 0.0 => spade_core::spending::usd_to_micros(usd),
-            _ => return ToolOutput::error("budget_usd is a positive amount of dollars."),
-        };
-        let Ok(Found::Bot { conversation }) = self.find_worker(caller, &named.worker) else {
-            return ToolOutput::error(
-                "Only a worker bot under you has a budget; worker_status lists them.",
-            );
-        };
-        let by = self.agent_name(caller);
-        match self.set_budget(&conversation, Some(micros), &by) {
-            Ok(()) => ToolOutput::ok(format!(
-                "Its budget is {}; it has spent {} so far, with everything under it.",
-                spade_core::oversight::dollars(micros),
-                spade_core::oversight::dollars(self.subtree_spent(&conversation)),
-            )),
-            Err(error) => ToolOutput::error(error.to_string()),
-        }
-    }
-
-    /// The person sets (or with `None` takes away) agent `agent`'s budget as a worker. `None`
-    /// for no such agent; `Some(false)` when it is no worker.
-    pub fn set_agent_budget(
-        self: &Arc<Self>,
-        agent: &str,
-        budget_micros: Option<u64>,
-    ) -> Result<Option<bool>, spade_store::StoreError> {
-        let Some(found) = self.store.agent(agent)? else {
-            return Ok(None);
-        };
-        if self.worker_link(&found.conversation).is_none() {
-            return Ok(Some(false));
-        }
-        self.set_budget(&found.conversation, budget_micros, PERSON)?;
-        Ok(Some(true))
-    }
-
     /// ace answered `delegate` call `key` with `answer` (its first answer, before any wait):
     /// each thread it started is noted as an ace child of the calling bot, once.
     pub(crate) fn ace_delegated(&self, key: &str, arguments: &Value, answer: &str) {
@@ -374,7 +325,6 @@ impl Engine {
                         .unwrap_or_else(|| "ace agent".to_owned()),
                     conversation: None,
                     call: call.to_owned(),
-                    budget_micros: None,
                 }))
             })
             .collect();

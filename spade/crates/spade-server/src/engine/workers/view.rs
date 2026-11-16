@@ -1,6 +1,6 @@
 //! The tree as the API and `worker_status` show it (ADR 0161): each node's state rolled up from
 //! everything under it, its own state, progress from its goal (ADR 0159), what it and its subtree
-//! spent, its budget and whether anything under it needs the person.
+//! spent (information only, ADR 0166) and whether anything under it needs the person.
 
 use serde_json::{Map, Value, json};
 use spade_core::tree;
@@ -26,7 +26,6 @@ impl Engine {
         let agent = self.store.agent_for_conversation(id)?;
         let activity = self.activity(id)?;
         let own = self.own_activity(id)?;
-        let link = self.worker_link(id);
         let events = self.load(id)?;
         let mut children = Vec::new();
         if depth < DEEPEST {
@@ -59,21 +58,6 @@ impl Engine {
                 "children": [],
             }));
         }
-        let parked = self
-            .wakes(id)
-            .unwrap_or_default()
-            .into_iter()
-            .find(|o| {
-                matches!(o.condition, Some(spade_core::wake::Condition::Budget))
-                    || matches!(
-                        o.purpose,
-                        spade_core::wake::Purpose::Park {
-                            reason: spade_core::wake::ParkReason::Cap,
-                            ..
-                        }
-                    )
-            })
-            .map(|o| o.reason);
         let mut node = Map::new();
         node.insert("kind".into(), "bot".into());
         node.insert(
@@ -111,13 +95,6 @@ impl Engine {
             self.store.spent_by(id, 0).unwrap_or(0).into(),
         );
         node.insert("subtree_cost_micros".into(), self.subtree_spent(id).into());
-        node.insert(
-            "budget_micros".into(),
-            link.as_ref()
-                .and_then(|l| l.budget_micros)
-                .map_or(Value::Null, Value::from),
-        );
-        node.insert("parked".into(), parked.map_or(Value::Null, Value::from));
         node.insert("queued".into(), self.worker_queued(id).into());
         node.insert("children".into(), Value::Array(children));
         Ok(Value::Object(node))

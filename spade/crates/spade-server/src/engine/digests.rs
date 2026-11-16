@@ -265,16 +265,7 @@ impl Engine {
     async fn polish(self: &Arc<Self>, conversation: &str, plain: &str) -> Option<String> {
         let model = self.role_model(conversation, Role::Title);
         let prompt = polish::prompt(plain).session(conversation);
-        let admitted = self
-            .admit_waiting(
-                conversation,
-                &model,
-                &prompt,
-                super::ledger::Hint::default(),
-            )
-            .await
-            .ok()?
-            .for_role(Role::Title);
+        let admitted = self.admit(conversation, &model).for_role(Role::Title);
         let asked = tokio::time::timeout(
             POLISH_TIMEOUT,
             self.models.generate::<polish::Polished>(&model, &prompt),

@@ -379,8 +379,8 @@ mod tests {
             Event::Known(Known::ReplyFailed {
                 reply: "r1".into(),
                 text: "Half way".into(),
-                error: "the bot reached its daily spending cap".into(),
-                kind: crate::event::FailureKind::Cap,
+                error: "the model failed while answering".into(),
+                kind: crate::event::FailureKind::Model,
                 endpoint: None,
             }),
         ];
@@ -389,7 +389,7 @@ mod tests {
         };
         assert!(end.is_error);
         assert!(
-            end.content.contains("daily spending cap"),
+            end.content.contains("the model failed while answering"),
             "{}",
             end.content
         );

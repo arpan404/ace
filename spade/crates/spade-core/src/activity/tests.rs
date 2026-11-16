@@ -161,12 +161,11 @@ fn day() -> Vec<Event> {
             output_tokens: None,
             cost_micros: 1_500,
         }),
-        k(Known::CapReached {
-            scope: CapScope::Daily,
-            cap_micros: 1_000_000,
-            period_start: 0,
-            resets_at: 86_400_000,
-        }),
+        // A cap an earlier build stored (ADR 0166 removed caps): read, and no entry.
+        Event::from_json(serde_json::json!({
+            "type": "cap_reached", "scope": "daily", "cap_micros": 1_000_000,
+            "period_start": 0, "resets_at": 86_400_000
+        })),
     ]
 }
 
@@ -197,7 +196,6 @@ fn every_kind_of_work_has_its_entry_with_its_outcome() {
         (Kind::Bot, Some("Research"), Some("sent")),
         (Kind::Tool, Some("web_fetch"), Some("error")),
         (Kind::Spend, None, Some("finished")),
-        (Kind::Cap, Some("daily"), None),
     ];
     assert_eq!(seen, expected);
     let spend = entries.iter().find(|e| e.kind == Kind::Spend);
@@ -300,7 +298,6 @@ fn every_entry_reads_as_a_sentence_with_its_detail_never_raw_arguments() {
             ("Messaged Research", Some("Find the figures")),
             ("Read a web page", Some("https://example.com")),
             ("Finished a turn", Some("1 step")),
-            ("Reached its daily cap", Some("$1.00 cap")),
         ]
     );
     for entry in &entries[3..6] {

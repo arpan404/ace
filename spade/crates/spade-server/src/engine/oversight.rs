@@ -1,14 +1,14 @@
-//! Oversight (ADR 0135, spade/docs/oversight.md): the person's time zone, each bot's caps and
-//! review switch, what each bot spent, the cap check before every model call, and the activity
-//! log. Settings are JSON in the `settings` table; the decisions are `spade_core::oversight`.
+//! Oversight (ADR 0135, spade/docs/oversight.md): the person's time zone, each bot's review
+//! switch, what each bot spent (information only: ADR 0166 removed every spending limit), and the
+//! activity log. Settings are JSON in the `settings` table; the decisions are `spade_core::oversight`.
 
 use jiff::tz::TimeZone;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use spade_core::Event;
 use spade_core::activity::{self, Entry, Kind, Stored};
 use spade_core::event::Known;
-use spade_core::oversight::{self, Caps, Hit, Periods, Spent};
-use spade_core::{Event, turn::progress};
+use spade_core::oversight::{self, Periods, Spent};
 use spade_store::{Agent, OVERSIGHT, StoreError, agent_key};
 
 use super::Engine;
@@ -24,13 +24,10 @@ pub struct Global {
     pub review_model: Option<String>,
 }
 
-/// One bot's settings.
+/// One bot's settings. Caps an earlier build stored beside them are ignored (ADR 0166) and
+/// removed by the store's migration.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentOversight {
-    #[serde(default)]
-    pub daily_cap_micros: Option<u64>,
-    #[serde(default)]
-    pub monthly_cap_micros: Option<u64>,
     /// `None` follows the service's default.
     #[serde(default)]
     pub review: Option<bool>,
@@ -48,8 +45,6 @@ pub struct GlobalChange {
 /// A change to one bot's settings; `Some(None)` clears a value.
 #[derive(Debug, Default)]
 pub struct OversightChange {
-    pub daily_cap_micros: Option<Option<u64>>,
-    pub monthly_cap_micros: Option<Option<u64>>,
     pub review: Option<Option<bool>>,
 }
 
@@ -143,12 +138,6 @@ impl Engine {
             return Err(OversightError::NotFound);
         }
         let mut settings = self.agent_oversight(agent)?;
-        if let Some(cap) = change.daily_cap_micros {
-            settings.daily_cap_micros = cap;
-        }
-        if let Some(cap) = change.monthly_cap_micros {
-            settings.monthly_cap_micros = cap;
-        }
         if let Some(review) = change.review {
             settings.review = review;
         }
@@ -162,45 +151,33 @@ impl Engine {
         self.store.agent(id)
     }
 
-    /// The agent's spend this day and month, its caps, and the cap it is at.
-    pub(crate) fn spending(
-        &self,
-        agent: &Agent,
-    ) -> Result<(Spent, AgentOversight, Option<Hit>), StoreError> {
-        let settings = self.agent_oversight(&agent.id)?;
+    /// What the agent spent this day and this month.
+    pub(crate) fn spent(&self, agent: &Agent) -> Result<Spent, StoreError> {
         let periods = self.periods();
-        let spent = Spent {
+        Ok(Spent {
             today_micros: self
                 .store
                 .spent_by(&agent.conversation, periods.day_start)?,
             month_micros: self
                 .store
                 .spent_by(&agent.conversation, periods.month_start)?,
-        };
-        let caps = Caps {
-            daily_micros: settings.daily_cap_micros,
-            monthly_micros: settings.monthly_cap_micros,
-        };
-        Ok((spent, settings, oversight::hit(caps, spent, periods)))
+        })
     }
 
     /// `{"spending", "review"}` as the API shows them for `agent`.
     pub fn oversight_json(&self, agent: &Agent) -> Result<Value, StoreError> {
-        let (spent, settings, hit) = self.spending(agent)?;
+        let spent = self.spent(agent)?;
+        let settings = self.agent_oversight(&agent.id)?;
         Ok(json!({
             "spending": {
                 "today_micros": spent.today_micros,
                 "month_micros": spent.month_micros,
-                "daily_cap_micros": settings.daily_cap_micros,
-                "monthly_cap_micros": settings.monthly_cap_micros,
-                "capped": hit.map(|h| scope_word(h.scope)),
-                "resets_at": hit.map(|h| h.resets_at),
             },
             "review": settings.review,
         }))
     }
 
-    /// The service-wide view: settings, the service cap and every bot's spend together.
+    /// The service-wide view: settings and every bot's spend together.
     pub fn oversight_view(&self) -> Result<Value, StoreError> {
         let global = self.oversight()?;
         let periods = self.periods();
@@ -212,79 +189,11 @@ impl Engine {
             .map_or_else(|| "UTC".to_owned(), str::to_owned);
         Ok(json!({
             "time_zone": zone,
-            "daily_cap_micros": (self.daily_cap_micros != super::NO_SERVICE_CAP)
-                .then_some(self.daily_cap_micros),
             "today_micros": today,
             "month_micros": month,
             "review_default": global.review_default,
             "review_model": global.review_model,
         }))
-    }
-
-    /// The cap the conversation's bot is at, with its name. `None` when it is at none (or the
-    /// conversation has no bot).
-    pub(crate) fn bot_cap(&self, conversation: &str) -> Option<(String, Hit)> {
-        self.own_cap(conversation)
-            // A budget or a cap on its path to the top of its tree (ADR 0161).
-            .or_else(|| self.tree_cap(conversation, 0))
-    }
-
-    fn own_cap(&self, conversation: &str) -> Option<(String, Hit)> {
-        let agent = self.store.agent_for_conversation(conversation).ok()??;
-        let (_, _, hit) = self.spending(&agent).ok()?;
-        hit.map(|hit| (agent.name, hit))
-    }
-
-    /// Why nothing may start for the conversation's bot now, in words; `None` when it may.
-    pub(crate) fn cap_refusal(&self, conversation: &str) -> Option<String> {
-        self.bot_cap(conversation)
-            .map(|(name, hit)| oversight::refusal(&name, &hit))
-    }
-
-    /// Whether another model call may start for the conversation: under the service's cap and
-    /// the bot's own.
-    pub(crate) fn may_spend(&self, conversation: &str) -> Result<(), String> {
-        if !self.within_cap().unwrap_or(false) {
-            return Err("the service's daily cap".to_owned());
-        }
-        match self.bot_cap(conversation) {
-            Some((_, hit)) => Err(format!("the bot's {} cap", scope_word(hit.scope))),
-            None => Ok(()),
-        }
-    }
-
-    /// Ends the open turn of a bot at its cap before its next model call: says so once per
-    /// period, then closes the reply without words. Nothing new opens: the cap holds.
-    pub(super) fn close_capped(&self, id: &str, reply: &str, hit: &Hit) -> Result<(), StoreError> {
-        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let events = self.load(id)?;
-        let mut closing = Vec::new();
-        if !oversight::said(&events, hit) {
-            closing.push(oversight::reached(hit));
-        }
-        closing.push(Event::Known(Known::ReplyFinished {
-            reply: reply.to_owned(),
-            text: String::new(),
-            input_tokens: None,
-            output_tokens: None,
-            cost_micros: progress(&events).cost_micros,
-        }));
-        self.append_events(id, &closing)?;
-        Ok(())
-    }
-
-    /// After a turn ends: when it took the bot to a cap, the bot says so now, once.
-    pub(super) fn note_if_capped(&self, id: &str) {
-        let Some((_, hit)) = self.bot_cap(id) else {
-            return;
-        };
-        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let Ok(events) = self.load(id) else { return };
-        if !oversight::said(&events, &hit)
-            && let Err(error) = self.append(id, &oversight::reached(&hit))
-        {
-            tracing::error!(%error, "could not store that a bot reached its cap");
-        }
     }
 
     /// The model a conversation's background work (research) uses: its bot's own.
@@ -440,7 +349,7 @@ fn types_for(kinds: &[Kind]) -> Vec<&'static str> {
             Kind::Access => "access_changed",
             Kind::Task => "task_continued",
             Kind::Hook => "hook_ran",
-            _ => "cap_reached",
+            _ => continue,
         });
         if *kind == Kind::Task {
             types.push("task_paused");
@@ -521,13 +430,5 @@ fn page(mut found: Vec<Entry>, limit: usize, older_left: bool, trusted_from: i64
     ActivityPage {
         entries: found,
         next_before,
-    }
-}
-
-fn scope_word(scope: spade_core::event::CapScope) -> &'static str {
-    match scope {
-        spade_core::event::CapScope::Daily => "daily",
-        spade_core::event::CapScope::Monthly => "monthly",
-        spade_core::event::CapScope::Budget => "budget",
     }
 }

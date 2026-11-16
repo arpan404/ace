@@ -12,9 +12,6 @@ use spade_models::Message;
 
 use super::Engine;
 
-/// What compacting by hand answers when a cap was reached as it was about to ask the model.
-pub(super) const AT_CAP: &str = "the bot is at a spending cap";
-
 /// The summary used when the model cannot write one: older turns are left out, visibly.
 const LEFT_OUT: &str = "Earlier messages were left out to fit the model's context; ask the person \
                         if something from before is needed.";
@@ -57,7 +54,8 @@ pub(super) async fn if_needed(
     else {
         return false;
     };
-    run(engine, id, model, events, plan, None).await
+    run(engine, id, model, events, plan, None).await;
+    true
 }
 
 /// Compacts now, keeping only the latest turn, with an optional focus for the summary.
@@ -75,11 +73,8 @@ pub(super) async fn now(
     let Some(keep_from) = compaction::safe_starts(&events, already).last().copied() else {
         return Ok(false);
     };
-    if run(engine, id, model, &events, Plan { keep_from }, focus).await {
-        Ok(true)
-    } else {
-        Err(AT_CAP.to_owned())
-    }
+    run(engine, id, model, &events, Plan { keep_from }, focus).await;
+    Ok(true)
 }
 
 async fn run(
@@ -89,7 +84,7 @@ async fn run(
     events: &[Event],
     plan: Plan,
     focus: Option<&str>,
-) -> bool {
+) {
     super::plugin_hooks::before_compact(engine, id, events, plan.keep_from).await;
     // The summary request goes after the whole current prompt, with the same tools, so its input
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
@@ -103,15 +98,13 @@ async fn run(
     });
     let ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
     let carried = compaction::lines(&ledger);
-    // Admitted like every model call (ADR 0135); at a cap nothing is compacted or spent.
-    // It waits while only calls still running stand in the way.
+    // Paid for like every model call (ADR 0135).
     let hint = super::ledger::turn_hint(events);
     // The `compact` role's model when it fits and costs less (ADR 0162).
     let model = &engine.compact_model(id, model, &prompt, hint);
-    let Ok(admitted) = engine.admit_waiting(id, model, &prompt, hint).await else {
-        return false;
-    };
-    let admitted = admitted.for_role(spade_core::routing::Role::Compact);
+    let admitted = engine
+        .admit(id, model)
+        .for_role(spade_core::routing::Role::Compact);
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
             admitted.settle(&reply.usage);
@@ -152,7 +145,6 @@ async fn run(
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a compaction");
     }
-    true
 }
 
 /// The model this conversation uses: its latest turn's.

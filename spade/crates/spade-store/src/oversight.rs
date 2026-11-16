@@ -1,4 +1,4 @@
-//! What each bot spent, for its caps (ADR 0135), and where its oversight settings are kept. The
+//! What each bot spent, shown as information (ADR 0135, ADR 0166), and where its oversight settings are kept. The
 //! settings themselves are JSON in the `settings` table, shaped by the server.
 
 use std::collections::HashMap;
@@ -12,6 +12,15 @@ use crate::{Result, Store};
 
 /// The service-wide oversight settings' key.
 pub const OVERSIGHT: &str = "oversight";
+
+/// ADR 0166: Spade has no spending limits. The caps earlier builds kept in each bot's settings
+/// are taken out, and a row left with nothing in it goes.
+pub(crate) const NO_CAPS: &str = "
+    UPDATE settings
+       SET value = json_remove(value, '$.daily_cap_micros', '$.monthly_cap_micros')
+     WHERE key LIKE 'oversight:%' AND json_valid(value);
+    DELETE FROM settings WHERE key LIKE 'oversight:%' AND value = '{}';
+";
 
 /// One bot's oversight settings' key.
 pub fn agent_key(agent: &str) -> String {
@@ -69,7 +78,7 @@ impl Store {
 
 /// Event types the activity log reads (ADR 0135): the rest (progress checkpoints, indexes,
 /// titles, compaction) never make an entry.
-pub const ACTIVITY_TYPES: [&str; 22] = [
+pub const ACTIVITY_TYPES: [&str; 21] = [
     "user_message",
     "reply_started",
     "step_finished",
@@ -80,7 +89,6 @@ pub const ACTIVITY_TYPES: [&str; 22] = [
     "job_started",
     "job_finished",
     "call_reviewed",
-    "cap_reached",
     "reply_finished",
     "reply_stopped",
     "reply_failed",

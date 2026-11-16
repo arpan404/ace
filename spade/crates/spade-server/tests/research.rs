@@ -115,7 +115,6 @@ fn budget(pages: usize) -> Budget {
         questions: 5,
         pages,
         time_ms: 60_000,
-        spend_micros: 1_000_000,
     }
 }
 
@@ -267,59 +266,6 @@ async fn research_stops_reading_at_its_time_budget_and_says_so() -> Result {
 }
 
 #[tokio::test]
-async fn research_stops_its_model_calls_at_its_spend_budget() -> Result {
-    let setup = setup(
-        FakeWeb {
-            hits: 2,
-            ..FakeWeb::default()
-        },
-        Budget {
-            spend_micros: 100,
-            ..budget(4)
-        },
-        &[PLAN, REPORT, CHECK],
-    )
-    .await?;
-    let output = research(&setup, QUESTION).await;
-    // The plan (92) leaves room for the report (184 in all); the check would pass the budget.
-    assert_eq!(setup.spade.fake.seen().len(), 2);
-    assert!(
-        output.content.contains("reached the spend budget"),
-        "{}",
-        output.content
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn research_stops_at_the_bots_cap() -> Result {
-    let setup = setup(
-        FakeWeb {
-            hits: 2,
-            ..FakeWeb::default()
-        },
-        budget(4),
-        &[PLAN, REPORT, CHECK],
-    )
-    .await?;
-    setup
-        .spade
-        .put(
-            &format!("/v1/agents/{}/oversight", setup.agent),
-            json!({ "daily_cap_micros": 50 }),
-        )
-        .await?;
-    let output = research(&setup, QUESTION).await;
-    assert_eq!(setup.spade.fake.seen().len(), 1, "only the plan ran");
-    assert!(
-        output.content.contains("the bot's daily cap"),
-        "{}",
-        output.content
-    );
-    Ok(())
-}
-
-#[tokio::test]
 async fn a_research_result_makes_the_rest_of_the_turn_untrusted() -> Result {
     let tool = ResearchTool::new(
         Arc::new(FakeWeb::default()),
@@ -387,17 +333,15 @@ async fn a_report_whose_check_failed_says_it_was_not_verified() -> Result {
 
 #[tokio::test]
 async fn reports_written_at_once_under_one_name_never_overwrite_each_other() -> Result {
-    // No spend budget: no model calls, so every run saves under the question's own name.
+    // The model writes no plan (nothing is scripted), so every run saves under the question's
+    // own name.
     let setup = setup(
         FakeWeb {
             hits: 1,
             delay: Duration::from_millis(50),
             ..FakeWeb::default()
         },
-        Budget {
-            spend_micros: 0,
-            ..budget(1)
-        },
+        budget(1),
         &[],
     )
     .await?;
@@ -417,119 +361,5 @@ async fn reports_written_at_once_under_one_name_never_overwrite_each_other() -> 
     for path in &paths {
         assert!(workspace.text(path)?.contains("## Sources"));
     }
-    assert_eq!(setup.spade.fake.seen().len(), 0);
-    Ok(())
-}
-
-#[tokio::test]
-async fn calls_started_at_once_cannot_all_pass_a_bots_cap() -> Result {
-    // The plan answer is slow, so the runs' first calls overlap; each costs 92 of a 100 cap.
-    let spade = Spade::start(
-        vec![
-            Script::reply("")
-                .plain(PLAN)
-                .delay(Duration::from_millis(300)),
-            Script::reply("").plain(REPORT),
-            Script::reply("").plain(CHECK),
-        ],
-        Vec::new(),
-    )
-    .await?;
-    let handle = EngineHandle::default();
-    handle.set(&spade.engine);
-    let workspaces = Workspaces::new(spade.dir.path().join("workspace"));
-    let tool = ResearchTool::new(
-        Arc::new(FakeWeb {
-            hits: 2,
-            ..FakeWeb::default()
-        }),
-        workspaces,
-        handle,
-    )
-    .with_budget(budget(2));
-    let agent = spade.new_agent("Scout", "").await?;
-    let (id, conversation) = (
-        agent["id"].as_str().unwrap_or_default().to_owned(),
-        agent["conversation"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned(),
-    );
-    spade
-        .put(
-            &format!("/v1/agents/{id}/oversight"),
-            json!({ "daily_cap_micros": 100 }),
-        )
-        .await?;
-    let runs = (0..3).map(|n| {
-        tool.run(
-            &format!("{conversation}.job{n}"),
-            json!({ "question": QUESTION }),
-        )
-    });
-    let outputs = futures_util::future::join_all(runs).await;
-    let said: Vec<&str> = outputs.iter().map(|o| o.content.as_str()).collect();
-    // One plan in flight holds the room: the other two were refused at once, not after the
-    // ledger caught up. The first run then writes (92 + 92) and its check is refused.
-    assert_eq!(spade.fake.seen().len(), 2, "{said:?}");
-    assert!(
-        said.iter().all(|s| s.contains("the bot's daily cap")),
-        "every run says it reached the cap: {said:?}"
-    );
-    let (_, shown) = spade.get(&format!("/v1/agents/{id}/oversight")).await?;
-    assert_eq!(shown["spending"]["today_micros"], 2 * 92);
-    Ok(())
-}
-
-#[tokio::test]
-async fn calls_waiting_only_on_estimates_go_on_once_the_real_cost_is_known() -> Result {
-    // The cap is far above what a call costs (92) but below what the first plan is estimated
-    // at while it runs: the second run waits for it instead of stopping at the cap.
-    let mut answers = vec![
-        Script::reply("")
-            .plain(PLAN)
-            .delay(Duration::from_millis(300)),
-    ];
-    answers.extend((0..8).map(|_| Script::reply("").plain(PLAN)));
-    let spade = Spade::start(answers, Vec::new()).await?;
-    let handle = EngineHandle::default();
-    handle.set(&spade.engine);
-    let tool = ResearchTool::new(
-        Arc::new(FakeWeb {
-            hits: 1,
-            ..FakeWeb::default()
-        }),
-        Workspaces::new(spade.dir.path().join("workspace")),
-        handle,
-    )
-    .with_budget(budget(1));
-    let agent = spade.new_agent("Scout", "").await?;
-    let (id, conversation) = (
-        agent["id"].as_str().unwrap_or_default().to_owned(),
-        agent["conversation"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned(),
-    );
-    spade
-        .put(
-            &format!("/v1/agents/{id}/oversight"),
-            json!({ "daily_cap_micros": 2_000 }),
-        )
-        .await?;
-    let runs = (0..2).map(|n| {
-        tool.run(
-            &format!("{conversation}.job{n}"),
-            json!({ "question": QUESTION }),
-        )
-    });
-    let outputs = futures_util::future::join_all(runs).await;
-    for output in &outputs {
-        assert!(!output.content.contains("cap"), "{}", output.content);
-    }
-    // Both planned, wrote and checked.
-    assert_eq!(spade.fake.seen().len(), 6);
-    let events = spade.events(&conversation).await?;
-    assert!(!events.iter().any(|e| e["type"] == "cap_reached"));
     Ok(())
 }

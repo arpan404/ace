@@ -65,22 +65,10 @@ impl Failure {
             retry_after: error.retry_after(),
         }
     }
-
-    /// A spending cap: the day's, or one of the bot's own caps.
-    fn cap() -> Self {
-        Self {
-            kind: FailureKind::Cap,
-            endpoint: None,
-            transient: false,
-            retry_after: None,
-        }
-    }
 }
 
 /// What one model step produced.
 pub(super) enum Step {
-    /// The bot's own cap held at admission.
-    Capped(spade_core::oversight::Hit),
     Answered,
     Calls,
     Paused,
@@ -148,7 +136,7 @@ pub(super) async fn run(
     // A task still working carries on by itself (ADR 0144). The step is registered while this
     // worker still owns the conversation, so a Stop pressed once it lets go calls it off.
     // A helper's reply closing is its end (ADR 0152): its job hears of it and a queued helper
-    // takes its slot. A helper has no task to carry on, no title and no cap note of its own.
+    // takes its slot. A helper has no task to carry on, and no title of its own.
     let helper = engine.helper_of(&id).is_some();
     let planned = if paused || helper {
         None
@@ -183,8 +171,6 @@ pub(super) async fn run(
         return;
     }
     name_if_untitled(&engine, &id).await;
-    // A turn (or its title) that took the bot to its cap says so, once.
-    engine.note_if_capped(&id);
     if let Some(planned) = planned {
         engine.carry_on_as(&id, planned);
     }
@@ -265,31 +251,12 @@ async fn drive(
             Next::CallModel { reply } => {
                 *driven = Some(reply.clone());
                 let model = turn_model(engine, &events, &reply);
-                // A subscription (ADR 0133) runs its own loop and keeps its own context: Spade's
-                // spending cap and compaction are for endpoint models.
+                // A subscription (ADR 0133) runs its own loop and keeps its own context:
+                // compaction is for endpoint models.
                 let cli = spade_core::brain::CliModel::is(&model);
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
-                // alone. No step count or cost per turn ends a turn (ADR 0158); the person's
-                // spending caps and Stop do.
+                // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();
-                if !cli && !engine.within_cap().unwrap_or(false) {
-                    return Ended::FailedAs(
-                        String::new(),
-                        "today's spending cap is used up".to_owned(),
-                        Failure::cap(),
-                    );
-                }
-                // The bot's own cap (ADR 0135): no model call starts; it says so once. A helper
-                // ends saying why; its bot's conversation says so for the bot.
-                if helper && let Some(why) = engine.cap_refusal(id) {
-                    return Ended::FailedAs(String::new(), why, Failure::cap());
-                }
-                if let Some((_, hit)) = engine.bot_cap(id) {
-                    return match engine.close_capped(id, &reply, &hit) {
-                        Ok(()) => Ended::Finished,
-                        Err(error) => Ended::Failed(String::new(), error.to_string()),
-                    };
-                }
                 if !helper && super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
@@ -328,12 +295,6 @@ async fn drive(
                             }
                         }
                         Step::Calls => {}
-                        Step::Capped(hit) => {
-                            return match engine.close_capped(id, &reply, &hit) {
-                                Ok(()) => Ended::Finished,
-                                Err(error) => Ended::Failed(String::new(), error.to_string()),
-                            };
-                        }
                         Step::Paused => return Ended::Paused,
                         Step::Stopped(text) => return Ended::Stopped(text),
                         Step::Failed(text, error) => return Ended::Failed(text, error),
@@ -370,18 +331,6 @@ async fn drive(
                         Err(error) => return Ended::Failed(String::new(), error),
                     },
                     Step::Calls => {}
-                    Step::Capped(_) if helper => {
-                        let why = engine
-                            .cap_refusal(id)
-                            .unwrap_or_else(|| "the bot reached its spending cap".to_owned());
-                        return Ended::FailedAs(String::new(), why, Failure::cap());
-                    }
-                    Step::Capped(hit) => {
-                        return match engine.close_capped(id, &reply, &hit) {
-                            Ok(()) => Ended::Finished,
-                            Err(error) => Ended::Failed(String::new(), error.to_string()),
-                        };
-                    }
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
@@ -465,25 +414,9 @@ async fn model_step(
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
-    // Admitted against the caps counting calls in flight (ADR 0135); paid for when it ends.
-    // Waits while only the estimates of calls still running stand in the way.
+    // Paid for when it ends (ADR 0135); never refused (ADR 0166).
     let hint = super::ledger::turn_hint(events);
-    let admission = tokio::select! {
-        admission = engine.admit_waiting(id, &model, &prompt, hint) => admission,
-        _ = stopped(stop) => return Step::Stopped(String::new()),
-        _ = pausing(pause, Point::Streaming) => return Step::Paused,
-    };
-    let admitted = match admission {
-        Ok(admitted) => admitted,
-        Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
-        Err(super::ledger::Refusal::Service | super::ledger::Refusal::InFlight) => {
-            return Step::FailedAs(
-                String::new(),
-                "today's spending cap is used up".to_owned(),
-                Failure::cap(),
-            );
-        }
-    };
+    let admitted = engine.admit(id, &model);
     // A step cut off before its usage came is still paid for: its prompt, and what streamed.
     let input = super::ledger::prompt_tokens(&prompt);
     let partly = |text: &str| {
@@ -660,7 +593,7 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
 /// after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     // Never for an agent being deleted: nothing is spent on a conversation about to go.
-    if engine.deleting(id) || engine.may_spend(id).is_err() {
+    if engine.deleting(id) {
         return;
     }
     let Ok(events) = engine.load(id) else { return };
@@ -674,26 +607,21 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let fast = engine.role_model(id, spade_core::routing::Role::Title);
     let prompt = title::prompt(&first).session(id);
     let admitted = engine
-        .admit_waiting(id, &fast, &prompt, super::ledger::Hint::default())
+        .admit(id, &fast)
+        .for_role(spade_core::routing::Role::Title);
+    let suggested = match engine
+        .models
+        .generate::<title::Suggestion>(&fast, &prompt)
         .await
-        .map(|a| a.for_role(spade_core::routing::Role::Title));
-    let suggested = match admitted {
-        // At a cap the title comes from the first message, at no cost.
-        Err(_) => None,
-        Ok(admitted) => match engine
-            .models
-            .generate::<title::Suggestion>(&fast, &prompt)
-            .await
-        {
-            Ok(generated) => {
-                admitted.settle(&generated.usage);
-                title::clean(&generated.value.title)
-            }
-            Err(error) => {
-                admitted.settle_if(error.usage());
-                None
-            }
-        },
+    {
+        Ok(generated) => {
+            admitted.settle(&generated.usage);
+            title::clean(&generated.value.title)
+        }
+        Err(error) => {
+            admitted.settle_if(error.usage());
+            None
+        }
     };
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
@@ -764,7 +692,6 @@ mod tests {
             tools: crate::tools::Toolbox::new(Vec::new()),
             clock: Arc::new(crate::clock::SystemClock),
             ids: Arc::new(crate::clock::CountingIds::default()),
-            daily_cap_micros: 1_000_000,
             utc_offset_seconds: 0,
             limits: super::super::Limits::default(),
             skills: None,

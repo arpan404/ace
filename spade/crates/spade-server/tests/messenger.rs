@@ -135,20 +135,19 @@ async fn a_bot_made_with_its_first_message_starts_on_it_and_a_refused_message_ma
 
 #[tokio::test]
 async fn a_first_message_refused_once_the_bot_exists_takes_the_bot_back() -> Result {
-    // No money to spend: the message is refused as it is sent, after the bot was made.
-    let options = support::Options {
-        cap_usd: 0.0,
-        ..support::Options::default()
-    };
-    let spade = Spade::start_with(Vec::new(), Vec::new(), options).await?;
+    // An attachment that is no image is refused only as it is sent, after the bot was made.
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
     let before = bots(&spade).await?;
+    let not_an_image =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b"plain words");
     let (status, body) = spade
         .post(
             "/v1/agents",
-            json!({ "name": "Trips", "model": "fake/m", "first_message": { "text": "Go" } }),
+            json!({ "name": "Trips", "model": "fake/m",
+                    "first_message": { "text": "Go", "images": [{ "data": not_an_image }] } }),
         )
         .await?;
-    assert_eq!(status, 402, "{body}");
+    assert_eq!(status, 400, "{body}");
     assert_eq!(bots(&spade).await?, before, "the bot went with its message");
     Ok(())
 }

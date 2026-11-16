@@ -56,8 +56,6 @@ struct Arguments {
     connectors: Vec<String>,
     #[serde(default)]
     plugins: Vec<String>,
-    #[serde(default)]
-    budget_usd: Option<f64>,
 }
 
 impl Engine {
@@ -143,13 +141,6 @@ impl Engine {
         }
         let connectors = self.grantable_connectors(&me, &arguments.connectors)?;
         let plugins = self.grantable_plugins(&me.id, &arguments.plugins)?;
-        let budget_micros = match arguments.budget_usd {
-            Some(usd) if !usd.is_finite() || usd <= 0.0 => {
-                return Err("budget_usd is a positive amount of dollars.".to_owned());
-            }
-            Some(usd) => Some(spade_core::spending::usd_to_micros(usd)),
-            None => None,
-        };
         let brief = arguments
             .brief
             .as_deref()
@@ -174,7 +165,6 @@ impl Engine {
                 connectors: connectors.iter().cloned().collect(),
                 plugins: plugins.iter().cloned().collect(),
             },
-            budget_micros,
             brief,
             untrusted,
         };
@@ -194,7 +184,6 @@ impl Engine {
             name: name.clone(),
             conversation: Some(conversation.clone()),
             call: call.clone(),
-            budget_micros,
         }));
         self.registering("worker", caller);
         {
@@ -299,14 +288,11 @@ impl Engine {
         let queued = self
             .load(conversation)
             .is_ok_and(|events| tree::queued(&events));
-        let budget = self.worker_link(conversation).and_then(|l| l.budget_micros);
         let answer = json!({
             "worker": agent.id,
             "name": agent.name,
             "state": if queued { "queued" } else { "working" },
-            "budget_usd": budget.map(|b| b as f64 / 1_000_000.0),
-            "next": "It reports back here when it settles (done, needs the person, parked or \
-                     failed). Carry on, or wait_for {condition: {kind: worker}}. Steer it with \
+            "next": "It reports back here when it settles (done, needs the person or failed). Carry on, or wait_for {condition: {kind: worker}}. Steer it with \
                      worker_message; check it with worker_status and worker_result.",
         });
         ToolOutput::ok(answer.to_string())

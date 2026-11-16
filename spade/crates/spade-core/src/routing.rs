@@ -1,13 +1,11 @@
 //! Model routing (ADR 0162): which model each of a bot's roles uses, what the bot may pick per
-//! call, when helper-level work escalates to the bot's own model, and the budget note a step
-//! Spade starts on its own carries. Pure: the server says what the person configured.
+//! call and when helper-level work escalates to the bot's own model. Pure: the server says what the person configured.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::brain::CliModel;
-use crate::oversight::dollars;
 
 /// What a model call is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -289,60 +287,6 @@ pub fn base_job(job: &str) -> &str {
 /// Which attempt `job` is: 0 for the first, 1 for its rerun.
 pub fn attempt(job: &str) -> u32 {
     u32::from(job.ends_with(RETRY))
-}
-
-/// What a bot is told about its spend.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Budget {
-    pub today_micros: u64,
-    pub month_micros: u64,
-    pub daily_cap_micros: Option<u64>,
-    pub monthly_cap_micros: Option<u64>,
-    /// Today's spend by role, roles that spent nothing left out.
-    pub today_by_role: Vec<(Role, u64)>,
-    /// Each role's model.
-    pub roles: Vec<(Role, String)>,
-}
-
-/// The `<budget>` note: spend so far, the caps and what is left, spend by role, and each role's
-/// model. Information only: caps park the task (ADR 0158), nothing here stops it.
-pub fn note(budget: &Budget) -> String {
-    let period = |spent: u64, cap: Option<u64>, name: &str| match cap {
-        Some(cap) => format!(
-            "{name} {} of the {} cap ({} left)",
-            dollars(spent),
-            dollars(cap),
-            dollars(cap.saturating_sub(spent))
-        ),
-        None => format!("{name} {} (no cap)", dollars(spent)),
-    };
-    let mut text = format!(
-        "<budget>Spent {}; {}.",
-        period(budget.today_micros, budget.daily_cap_micros, "today"),
-        period(budget.month_micros, budget.monthly_cap_micros, "this month")
-    );
-    if !budget.today_by_role.is_empty() {
-        let parts: Vec<String> = budget
-            .today_by_role
-            .iter()
-            .map(|(role, spent)| format!("{} {}", role.name(), dollars(*spent)))
-            .collect();
-        text.push_str(&format!(" Today by role: {}.", parts.join(", ")));
-    }
-    if !budget.roles.is_empty() {
-        let parts: Vec<String> = budget
-            .roles
-            .iter()
-            .map(|(role, model)| format!("{} {model}", role.name()))
-            .collect();
-        text.push_str(&format!(
-            " Models: {}. Pass a cheaper role as helper's model for sub-work; this is \
-             information, not a limit.",
-            parts.join(", ")
-        ));
-    }
-    text.push_str("</budget>");
-    text
 }
 
 #[cfg(test)]

@@ -59,49 +59,36 @@ pub(super) async fn call(
         arguments,
     };
     let prompt = review::prompt(&case).session(id);
-    // Waits while only calls still running stand in the way; only a cap really reached
-    // escalates for that reason.
-    let admission = tokio::select! {
-        admission = engine.admit_waiting(id, &model, &prompt, super::ledger::Hint::default()) => admission.map(|a| a.for_role(spade_core::routing::Role::Review)),
-        _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
-    };
-    let (verdict, reason, cost) = match admission {
-        Err(refused) => (
-            Verdict::Escalate,
-            format!(
-                "The review couldn't run: the bot reached {}.",
-                refused.reached()
-            ),
-            0,
-        ),
-        Ok(admitted) => {
-            let asked = tokio::select! {
-                answer = tokio::time::timeout(
-                    REVIEW_TIMEOUT,
-                    engine.models.generate::<Judgment>(&model, &prompt),
-                ) => answer,
-                _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
-            };
-            match asked {
-                Ok(Ok(generated)) => {
-                    let cost = admitted.settle(&generated.usage);
-                    let reason = generated.value.reason.trim().to_owned();
-                    (Verdict::from(generated.value.verdict), reason, cost)
-                }
-                Ok(Err(error)) => {
-                    let cost = admitted.settle_if(error.usage());
-                    (
-                        Verdict::Escalate,
-                        format!("The review couldn't run: {error}"),
-                        cost,
-                    )
-                }
-                Err(_) => (
-                    Verdict::Escalate,
-                    "The review took too long, so you decide.".to_owned(),
-                    0,
-                ),
+    let admitted = engine
+        .admit(id, &model)
+        .for_role(spade_core::routing::Role::Review);
+    let (verdict, reason, cost) = {
+        let asked = tokio::select! {
+            answer = tokio::time::timeout(
+                REVIEW_TIMEOUT,
+                engine.models.generate::<Judgment>(&model, &prompt),
+            ) => answer,
+            _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
+        };
+        match asked {
+            Ok(Ok(generated)) => {
+                let cost = admitted.settle(&generated.usage);
+                let reason = generated.value.reason.trim().to_owned();
+                (Verdict::from(generated.value.verdict), reason, cost)
             }
+            Ok(Err(error)) => {
+                let cost = admitted.settle_if(error.usage());
+                (
+                    Verdict::Escalate,
+                    format!("The review couldn't run: {error}"),
+                    cost,
+                )
+            }
+            Err(_) => (
+                Verdict::Escalate,
+                "The review took too long, so you decide.".to_owned(),
+                0,
+            ),
         }
     };
     let reviewed = Event::Known(Known::CallReviewed {

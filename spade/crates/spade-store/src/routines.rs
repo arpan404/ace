@@ -439,7 +439,7 @@ mod tests {
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 8,
+                crate::schema::current_version() as i64 - 9,
             )?;
         }
         let store = Store::open(&path)?;

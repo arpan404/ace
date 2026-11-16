@@ -8,13 +8,13 @@ use spade_core::Event;
 use crate::{Result, Store};
 
 impl Store {
-    /// Every `worker_of`, `worker_budget` and `worker_detached` event, by conversation in order.
+    /// Every `worker_of` and `worker_detached` event, by conversation in order.
     pub fn worker_links(&self) -> Result<Vec<(String, Event)>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT conversation_id, body FROM events
              WHERE body LIKE '{\"type\":\"worker_%'
-               AND json_extract(body, '$.type') IN ('worker_of', 'worker_budget', 'worker_detached')
+               AND json_extract(body, '$.type') IN ('worker_of', 'worker_detached')
              ORDER BY conversation_id, seq",
         )?;
         let rows = statement.query_map([], |row| {

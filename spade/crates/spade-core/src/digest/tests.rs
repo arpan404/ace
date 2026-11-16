@@ -218,18 +218,15 @@ fn what_waits_on_the_person_is_listed_loudest_first_with_its_level() {
         .iter()
         .map(|w| (w.level, w.what.as_str()))
         .collect();
+    // A cap park an earlier build stored waits on no one (ADR 0166).
     assert_eq!(
         waiting,
         vec![
-            (
-                Level::Stop,
-                "Waiting: Waiting for the daily cap to reset at 00:00"
-            ),
             (Level::Block, "A question for you: Window or aisle?"),
             (Level::Ask, "A question for you: Which date?"),
         ]
     );
-    assert_eq!(loudest(&digest), Some(Level::Stop));
+    assert_eq!(loudest(&digest), Some(Level::Block));
 }
 
 #[test]

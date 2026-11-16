@@ -1,4 +1,4 @@
-//! Per-bot spending caps, the model review and the activity log (ADR 0135), through the API with
+//! What bots spent, the model review and the activity log (ADR 0135), through the API with
 //! a real database and a scripted fake model. Each model call costs 92 micros (11 tokens in at
 //! $2/M, 7 out at $10/M).
 
@@ -11,11 +11,7 @@ use serde_json::{Value, json};
 use spade_core::tools::Risk;
 use spade_server::tools::Tool;
 use spade_testkit::Script;
-use support::{FakeTool, ManualClock, Options, Result, Spade, types};
-
-/// 2026-11-09T05:30:00Z: 23:30 on the 8th in Chicago, already the 9th in UTC.
-const LATE_EVENING: i64 = 1_794_202_200_000;
-const HOUR: i64 = 3_600_000;
+use support::{FakeTool, Result, Spade, types};
 
 async fn bot(spade: &Spade, name: &str) -> Result<(String, String)> {
     let agent = spade.new_agent(name, "Keeps the person's notes").await?;
@@ -26,14 +22,6 @@ async fn bot(spade: &Spade, name: &str) -> Result<(String, String)> {
             .unwrap_or_default()
             .to_owned(),
     ))
-}
-
-async fn caps(spade: &Spade, agent: &str, body: Value) -> Result<Value> {
-    let (status, shown) = spade
-        .put(&format!("/v1/agents/{agent}/oversight"), body)
-        .await?;
-    assert_eq!(status, 200, "{shown}");
-    Ok(shown)
 }
 
 async fn roster_spending(spade: &Spade, agent: &str) -> Result<Value> {
@@ -84,157 +72,6 @@ async fn settled(spade: &Spade, conversation: &str) -> Result<Vec<Value>> {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-}
-
-#[tokio::test]
-async fn a_bot_at_its_daily_cap_stops_before_its_next_model_call_and_says_so_once() -> Result {
-    let noop = FakeTool::new("noop", Risk::Read, "nothing");
-    let ran = noop.calls();
-    let spade = Spade::start(
-        vec![
-            Script::reply("").call("c1", "noop", json!({})),
-            Script::reply("Never said"),
-        ],
-        vec![Arc::new(noop) as Arc<dyn Tool>],
-    )
-    .await?;
-    let (agent, conversation) = bot(&spade, "Notes").await?;
-    caps(&spade, &agent, json!({ "daily_cap_micros": 50 })).await?;
-
-    spade.say(&conversation, "Tidy my notes").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert_eq!(
-        ran.lock().map(|c| c.len()).unwrap_or(0),
-        1,
-        "the first step's call ran"
-    );
-    assert_eq!(
-        spade.fake.seen().len(),
-        1,
-        "no second step and no title once capped"
-    );
-    assert_eq!(
-        events.iter().filter(|e| e["type"] == "cap_reached").count(),
-        1
-    );
-    let cap = events
-        .iter()
-        .find(|e| e["type"] == "cap_reached")
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(
-        (cap["scope"].clone(), cap["cap_micros"].clone()),
-        (json!("daily"), json!(50))
-    );
-
-    let (status, body) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/messages"),
-            json!({ "text": "Again?" }),
-        )
-        .await?;
-    assert_eq!(status, 402);
-    assert_eq!(
-        body["error"], "Notes is at its daily cap of $0.0001 until midnight.",
-        "the refusal says which cap"
-    );
-    assert_eq!(spade.fake.seen().len(), 1);
-    let spending = roster_spending(&spade, &agent).await?;
-    assert_eq!(spending["capped"], "daily");
-    assert_eq!(spending["today_micros"], 92);
-    assert_eq!(spending["daily_cap_micros"], 50);
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_daily_cap_lifts_at_the_persons_midnight_not_the_machines() -> Result {
-    let clock = ManualClock::at(LATE_EVENING);
-    let spade = Spade::start_with(
-        vec![Script::reply("First"), Script::reply("Second")],
-        Vec::new(),
-        Options {
-            clock: Some(clock.clone()),
-            ..Options::default()
-        },
-    )
-    .await?;
-    let (status, body) = spade
-        .put("/v1/oversight", json!({ "time_zone": "America/Chicago" }))
-        .await?;
-    assert_eq!(
-        (status, body["oversight"]["time_zone"].clone()),
-        (200, json!("America/Chicago"))
-    );
-    let (agent, conversation) = bot(&spade, "Notes").await?;
-    caps(&spade, &agent, json!({ "daily_cap_micros": 50 })).await?;
-    spade.say(&conversation, "One").await?;
-    settled(&spade, &conversation).await?;
-    let spending = roster_spending(&spade, &agent).await?;
-    assert_eq!(spending["capped"], "daily");
-    // Chicago's next midnight is 06:00 UTC on the 9th.
-    assert_eq!(spending["resets_at"], LATE_EVENING + HOUR / 2);
-
-    // Still the 9th in UTC, still the 8th in Chicago: capped.
-    clock.set(LATE_EVENING + HOUR / 2 - 60_000);
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/messages"),
-            json!({ "text": "Two" }),
-        )
-        .await?;
-    assert_eq!(status, 402);
-
-    // Past Chicago's midnight, the same UTC day: a new day for the person.
-    clock.set(LATE_EVENING + HOUR / 2 + 60_000);
-    spade.say(&conversation, "Two").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert!(
-        events
-            .iter()
-            .any(|e| e["type"] == "reply_finished" && e["text"] == "Second")
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_monthly_cap_holds_across_days_until_the_month_ends() -> Result {
-    let clock = ManualClock::at(LATE_EVENING);
-    let spade = Spade::start_with(
-        vec![Script::reply("First"), Script::reply("Next month")],
-        Vec::new(),
-        Options {
-            clock: Some(clock.clone()),
-            ..Options::default()
-        },
-    )
-    .await?;
-    spade
-        .put("/v1/oversight", json!({ "time_zone": "America/Chicago" }))
-        .await?;
-    let (agent, conversation) = bot(&spade, "Notes").await?;
-    caps(&spade, &agent, json!({ "monthly_cap_micros": 50 })).await?;
-    spade.say(&conversation, "One").await?;
-    settled(&spade, &conversation).await?;
-    clock.set(LATE_EVENING + 5 * 24 * HOUR);
-    let (status, body) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/messages"),
-            json!({ "text": "Two" }),
-        )
-        .await?;
-    assert_eq!(status, 402);
-    assert!(
-        body["error"]
-            .as_str()
-            .is_some_and(|e| e.contains("monthly cap")),
-        "{body}"
-    );
-    // 2026-12-01T06:00:00Z is Chicago's December.
-    clock.set(1_796_104_800_000 + 60_000);
-    spade.say(&conversation, "Two").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert!(events.iter().any(|e| e["text"] == "Next month"));
-    Ok(())
 }
 
 /// A write the person allowed "always" in a first turn, then called again in a second. The
@@ -471,88 +308,6 @@ async fn the_activity_log_lists_what_a_bot_did_filtered_and_without_secrets() ->
     assert_eq!(status, 400);
     let (status, _) = spade.get("/v1/agents/nobody/activity").await?;
     assert_eq!(status, 404);
-    Ok(())
-}
-
-#[tokio::test]
-async fn compacting_by_hand_is_refused_for_a_bot_at_its_cap() -> Result {
-    let spade = Spade::start(
-        vec![
-            Script::reply("One"),
-            Script::reply("").plain(r#"{"title":"Notes"}"#),
-            Script::reply("Two"),
-        ],
-        Vec::new(),
-    )
-    .await?;
-    let (agent, conversation) = bot(&spade, "Notes").await?;
-    spade.say(&conversation, "First").await?;
-    settled(&spade, &conversation).await?;
-    spade.say(&conversation, "Second").await?;
-    settled(&spade, &conversation).await?;
-    caps(&spade, &agent, json!({ "daily_cap_micros": 50 })).await?;
-    let calls = spade.fake.seen().len();
-    let (status, body) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/compact"),
-            json!({}),
-        )
-        .await?;
-    assert_eq!(status, 402, "{body}");
-    assert!(
-        body["error"]
-            .as_str()
-            .is_some_and(|e| e.contains("daily cap")),
-        "{body}"
-    );
-    assert_eq!(spade.fake.seen().len(), calls, "no summary was asked for");
-    Ok(())
-}
-
-#[tokio::test]
-async fn the_service_cap_lifts_at_the_persons_midnight_too() -> Result {
-    let clock = ManualClock::at(LATE_EVENING);
-    let spade = Spade::start_with(
-        vec![
-            Script::reply("First"),
-            Script::reply("").plain(r#"{"title":"Notes"}"#),
-            Script::reply("Second"),
-        ],
-        Vec::new(),
-        Options {
-            clock: Some(clock.clone()),
-            // 100 micros: one reply and its title use it up.
-            cap_usd: 0.0001,
-            ..Options::default()
-        },
-    )
-    .await?;
-    spade
-        .put("/v1/oversight", json!({ "time_zone": "America/Chicago" }))
-        .await?;
-    let (_, conversation) = bot(&spade, "Notes").await?;
-    spade.say(&conversation, "One").await?;
-    settled(&spade, &conversation).await?;
-    clock.set(LATE_EVENING + HOUR / 2 - 60_000);
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/messages"),
-            json!({ "text": "Two" }),
-        )
-        .await?;
-    assert_eq!(status, 402, "still the 8th in Chicago");
-    let (_, view) = spade.get("/v1/oversight").await?;
-    assert_eq!(view["oversight"]["today_micros"], 184);
-    // Chicago's 9th, though UTC's day has not changed.
-    clock.set(LATE_EVENING + HOUR / 2 + 60_000);
-    let (_, view) = spade.get("/v1/oversight").await?;
-    assert_eq!(
-        view["oversight"]["today_micros"], 0,
-        "the view and the cap agree"
-    );
-    spade.say(&conversation, "Two").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert!(events.iter().any(|e| e["text"] == "Second"));
     Ok(())
 }
 

@@ -90,7 +90,6 @@ pub fn router(state: AppState) -> Router {
         .route("/agents/{id}/pin", put(agents::pin))
         .route("/agents/{id}/task", get(goals::read))
         .route("/agents/{id}/tree", get(workers::tree))
-        .route("/agents/{id}/budget", put(workers::budget))
         .route(
             "/agents/{id}/task/goal",
             put(goals::set).delete(goals::clear),
@@ -273,7 +272,6 @@ pub(super) fn send_problem(error: &SendError) -> Response {
         | SendError::TooManyImages
         | SendError::TooManyDocuments
         | SendError::Image(_) => StatusCode::BAD_REQUEST,
-        SendError::OverCap | SendError::BotCapped(_) => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -395,9 +393,6 @@ async fn compact(
         Err(CompactError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error @ (CompactError::Busy | CompactError::Nothing)) => {
             problem(StatusCode::CONFLICT, &error.to_string())
-        }
-        Err(error @ (CompactError::OverCap | CompactError::BotCapped(_))) => {
-            problem(StatusCode::PAYMENT_REQUIRED, &error.to_string())
         }
         Err(CompactError::Failed(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }

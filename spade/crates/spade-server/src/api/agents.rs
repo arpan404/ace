@@ -320,8 +320,7 @@ fn make(
         .map_err(|error| Box::new(agent_problem(&error)))
 }
 
-/// Sends a new bot its first message. When Spade refuses it (a cap reached since the check, a
-/// storage failure), the bot is deleted again: the person gets both or neither.
+/// Sends a new bot its first message. When Spade refuses it (a storage failure), the bot is deleted again: the person gets both or neither.
 fn send_first(
     state: &AppState,
     view: &AgentView,

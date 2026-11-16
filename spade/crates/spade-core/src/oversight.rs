@@ -1,17 +1,8 @@
-//! Per-bot spending caps (ADR 0135): the person's day and month, whether a bot is at a cap, and
-//! what it says when it is. Pure: the clock and the zone come in as arguments.
+//! What a bot spent, shown as information (ADR 0135; ADR 0166 removed every spending limit): the
+//! person's day and month, and money in words. Pure: the clock and the zone come in as arguments.
 
 use jiff::tz::TimeZone;
 use jiff::{Timestamp, ToSpan, Zoned};
-
-use crate::event::{CapScope, Event, Known};
-
-/// A bot's own caps, in micros. `None` is no cap.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Caps {
-    pub daily_micros: Option<u64>,
-    pub monthly_micros: Option<u64>,
-}
 
 /// The day and month containing an instant, in the person's zone, as epoch milliseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,15 +18,6 @@ pub struct Periods {
 pub struct Spent {
     pub today_micros: u64,
     pub month_micros: u64,
-}
-
-/// A cap the bot is at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Hit {
-    pub scope: CapScope,
-    pub cap_micros: u64,
-    pub period_start: i64,
-    pub resets_at: i64,
 }
 
 /// The day and month around `now_ms` in `zone`. A day that a clock change makes 23 or 25 hours
@@ -72,66 +54,6 @@ pub fn periods(now_ms: i64, zone: &TimeZone) -> Periods {
     found.unwrap_or_else(|_| fallback())
 }
 
-/// The cap the bot is at, if any. When both hold, the monthly one, since it lasts longer.
-pub fn hit(caps: Caps, spent: Spent, periods: Periods) -> Option<Hit> {
-    let monthly = caps
-        .monthly_micros
-        .filter(|cap| spent.month_micros >= *cap)
-        .map(|cap| Hit {
-            scope: CapScope::Monthly,
-            cap_micros: cap,
-            period_start: periods.month_start,
-            resets_at: periods.next_month,
-        });
-    let daily = caps
-        .daily_micros
-        .filter(|cap| spent.today_micros >= *cap)
-        .map(|cap| Hit {
-            scope: CapScope::Daily,
-            cap_micros: cap,
-            period_start: periods.day_start,
-            resets_at: periods.next_day,
-        });
-    monthly.or(daily)
-}
-
-/// Whether the conversation already said it reached this cap in this period.
-pub fn said(events: &[Event], hit: &Hit) -> bool {
-    events.iter().any(|event| {
-        matches!(event, Event::Known(Known::CapReached { scope, period_start, .. })
-            if *scope == hit.scope && *period_start == hit.period_start)
-    })
-}
-
-/// The event that says it, once.
-pub fn reached(hit: &Hit) -> Event {
-    Event::Known(Known::CapReached {
-        scope: hit.scope,
-        cap_micros: hit.cap_micros,
-        period_start: hit.period_start,
-        resets_at: hit.resets_at,
-    })
-}
-
-/// Why `name` starts nothing: "Research is at its daily cap of $1.00 until midnight."
-pub fn refusal(name: &str, hit: &Hit) -> String {
-    let (which, until) = match hit.scope {
-        CapScope::Daily => ("daily", "midnight"),
-        CapScope::Monthly => ("monthly", "the start of next month"),
-        // A worker's budget doesn't reset (ADR 0161).
-        CapScope::Budget => {
-            return format!(
-                "{name} has used its budget of {}; it waits until the budget is raised.",
-                dollars(hit.cap_micros)
-            );
-        }
-    };
-    format!(
-        "{name} is at its {which} cap of {} until {until}.",
-        dollars(hit.cap_micros)
-    )
-}
-
 /// Micros as dollars: cents from one cent up (`$1.20`), else up to four places (`$0.004`).
 pub fn dollars(micros: u64) -> String {
     if micros >= 10_000 || micros == 0 {
@@ -161,71 +83,6 @@ mod tests {
         assert_eq!(p.next_day, 1_794_204_000_000); // 2026-11-09T06:00:00Z
         assert_eq!(p.month_start, 1_793_509_200_000); // 2026-11-01T05:00:00Z (still CDT)
         assert_eq!(p.next_month, 1_796_104_800_000); // 2026-12-01T06:00:00Z
-    }
-
-    #[test]
-    fn a_bot_is_at_the_cap_it_reached_and_the_monthly_one_wins() {
-        let p = periods(1_794_193_200_000, &TimeZone::UTC);
-        let caps = Caps {
-            daily_micros: Some(1_000_000),
-            monthly_micros: Some(5_000_000),
-        };
-        let under = Spent {
-            today_micros: 999_999,
-            month_micros: 4_000_000,
-        };
-        assert_eq!(hit(caps, under, p), None);
-        let day = hit(
-            caps,
-            Spent {
-                today_micros: 1_000_000,
-                ..under
-            },
-            p,
-        );
-        assert_eq!(
-            day.map(|h| (h.scope, h.resets_at)),
-            Some((CapScope::Daily, p.next_day))
-        );
-        let both = hit(
-            caps,
-            Spent {
-                today_micros: 2_000_000,
-                month_micros: 5_000_000,
-            },
-            p,
-        );
-        assert_eq!(both.map(|h| h.scope), Some(CapScope::Monthly));
-        assert_eq!(
-            hit(Caps::default(), both_spent(), p),
-            None,
-            "no caps, no hit"
-        );
-    }
-
-    fn both_spent() -> Spent {
-        Spent {
-            today_micros: u64::MAX,
-            month_micros: u64::MAX,
-        }
-    }
-
-    #[test]
-    fn a_cap_is_said_once_per_period() {
-        let p = periods(1_794_193_200_000, &TimeZone::UTC);
-        let caps = Caps {
-            daily_micros: Some(0),
-            monthly_micros: None,
-        };
-        let Some(today) = hit(caps, Spent::default(), p) else {
-            panic!("a zero cap holds at once");
-        };
-        let mut events = vec![Event::user_message("hi")];
-        assert!(!said(&events, &today));
-        events.push(reached(&today));
-        assert!(said(&events, &today));
-        let tomorrow = hit(caps, Spent::default(), periods(p.next_day, &TimeZone::UTC));
-        assert!(tomorrow.is_some_and(|t| !said(&events, &t)));
     }
 
     #[test]
