@@ -4,8 +4,10 @@ import { entryRow, signedOf, storedVersion, type EntryJoined, type VersionTable 
 
 /* What the read routes and pages need from D1. */
 
+// Listings show totals as last folded into the index (`counted`, store/downloads.ts), so what a
+// `since` reader holds and what a full read shows agree.
 const joined = `SELECT e.*, p.id AS publisher_id, p.name AS publisher_name,
-  (SELECT COALESCE(SUM(v.downloads), 0) FROM versions v WHERE v.type = e.type AND v.name = e.name)
+  (SELECT COALESCE(SUM(v.counted), 0) FROM versions v WHERE v.type = e.type AND v.name = e.name)
     AS downloads
   FROM entries e JOIN publishers p ON p.id = e.publisher`;
 

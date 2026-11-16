@@ -28,6 +28,8 @@
   ],
   // No request logs: nothing records who read or searched what (ADR 0168 §10).
   "observability": { "enabled": false },
+  // Download totals reach the index's changes every quarter hour (src/store/downloads.ts).
+  "triggers": { "crons": ["*/15 * * * *"] },
   // market.acehq.dev: deploy with `--env production`. The top level is for development and tests.
   "env": {
     "production": {
@@ -51,6 +53,7 @@
         { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
       ],
       "observability": { "enabled": false },
+      "triggers": { "crons": ["*/15 * * * *"] },
     },
   },
 }

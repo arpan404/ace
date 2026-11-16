@@ -5,6 +5,7 @@ import type { Context } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
 import { failure, notFound, tooMany } from "./http.ts";
+import { aggregateDownloads } from "./store/downloads.ts";
 import { missingPage404, pageRoute } from "./pages/serve.ts";
 import { isPublicRead, isSigner, matchRoute, type Route } from "./routes.ts";
 
@@ -83,5 +84,9 @@ export default {
       newId: publisherId,
     };
     return dispatch(request, url, route, context);
+  },
+  /** The cron: folds new download totals into the index's changes. */
+  async scheduled(_controller, env, ctx): Promise<void> {
+    ctx.waitUntil(aggregateDownloads(env.MARKET, Date.now()));
   },
 } satisfies ExportedHandler<Env>;
