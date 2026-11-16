@@ -18,7 +18,10 @@ extension XCUIApplication {
     }
     /// The thread's title when it starts with `text`.
     @MainActor func threadTitle(named text: String) -> XCUIElement {
-        navigationBars.buttons.matching(NSPredicate(format: "label ENDSWITH ', Actions Menu' AND label BEGINSWITH %@", text)).firstMatch
+        // `BEGINSWITH ''` never matches, so no name asks for the menu alone.
+        let menu = "label CONTAINS 'Actions Menu'"
+        let predicate = text.isEmpty ? NSPredicate(format: menu) : NSPredicate(format: "\(menu) AND label BEGINSWITH %@", text)
+        return navigationBars.buttons.matching(predicate).firstMatch
     }
     /// The line under the thread's title: the project, the model and its effort.
     @MainActor func threadSubtitle(containing text: String) -> XCUIElement {
