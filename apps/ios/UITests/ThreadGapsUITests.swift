@@ -34,10 +34,32 @@ import XCTest
         high.tap()
         expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: high)
         waitForExpectations(timeout: 10)
-        app.buttons["modelSheet.close"].tap()
-        XCTAssertTrue(app.buttons["modelSheet.close"].waitForNonExistence(timeout: 10))
+        // Done is the sheet's only bar button.
+        XCTAssertFalse(app.buttons["modelSheet.close"].exists)
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         expectation(for: NSPredicate(format: "value CONTAINS 'High'"), evaluatedWith: app.threadTitle())
         waitForExpectations(timeout: 10)
+        // Another model: the sheet stays open, the row is checked and Effort shows its levels.
+        app.threadTitle().tap()
+        app.titleMenuItem("thread.title.model", label: "Model, effort and speed").tap()
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "threadModel."))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15))
+        let other = (0..<min(rows.count, 20)).map { rows.element(boundBy: $0) }.first { $0.isHittable && !$0.isSelected && $0.isEnabled }
+        XCTAssertNotNil(other)
+        other?.tap()
+        // A move that asks is confirmed on the tap and sent when the sheet closes.
+        let ask = app.alerts.firstMatch
+        if ask.waitForExistence(timeout: 3) {
+            ask.buttons.matching(NSPredicate(format: "label != %@", "Cancel")).firstMatch.tap()
+        }
+        XCTAssertTrue(app.buttons["modelSheet.done"].exists)
+        if let other { expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: other) }
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tune.")).firstMatch.waitForExistence(timeout: 10))
+        screenshot("thread-model-picked")
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
         XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))

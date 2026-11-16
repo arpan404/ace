@@ -14,7 +14,7 @@ enum ModelPickerState: Equatable {
 /// whose models show (`AccountPicker`: Favorites or one account), pinned while the models scroll,
 /// then that account's models as plain rows under hairlines, each with a star. An account that
 /// can't take work says why in one line above its models. Searching hides the tune rows and the
-/// account. Where `confirm` is nil a tap on a model applies it and there is no ✓.
+/// account. A pick brings the Effort row into view and moves VoiceOver focus to it.
 struct ModelPicker: View {
     @Binding var query: String
     let tabs: [ModelPickerTab]
@@ -34,8 +34,11 @@ struct ModelPicker: View {
     var confirming = false
     /// Puts back what the sheet changed as it went, when X closes it.
     var cancel: () -> Void = {}
-    /// The ✓ in the bar; nil where a tap on a model applies it and closes the sheet.
-    let confirm: (() -> Void)?
+    /// Done (✓) in the bar.
+    let confirm: () -> Void
+    /// X beside Done, putting back what the sheet changed (`cancel`); without it Done is the only
+    /// bar button and a swipe down closes the sheet as Done does.
+    var closable = true
     let choose: (ModelPickerRow) -> Void
     let star: (ModelPickerRow) -> Void
     /// Effort and Speed for the model it would run on; nil or empty shows no rows.
@@ -44,13 +47,24 @@ struct ModelPicker: View {
     var pickSpeed: (TuneChoiceRow.Level) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var detent: PresentationDetent = .large
+    /// Counts model picks, so the Effort row comes into view and takes VoiceOver focus after each.
+    @State private var picks = 0
+    @AccessibilityFocusState private var tuneFocus: Bool
 
     private var tab: ModelPickerTab? { tabs.first { $0.id == shown } }
     private var searching: Bool { ModelSearch.active(query) }
 
     var body: some View {
         NavigationStack {
-            List { content }
+            ScrollViewReader { scroller in
+                List { content }
+                    // A model picked: its Effort and Speed are what to set next.
+                    .onChange(of: picks) {
+                        guard let tune, !tune.isEmpty, !searching else { return }
+                        withAnimation { scroller.scrollTo(TuneSection.anchor, anchor: .top) }
+                        tuneFocus = true
+                    }
+            }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
@@ -58,9 +72,11 @@ struct ModelPicker: View {
             .modifier(ModelSearchField(query: $query))
             .navigationTitle("Model").navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
+                if closable {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
+                            .accessibilityLabel("Close").accessibilityIdentifier("modelSheet.close")
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) { confirmButton }
             }
@@ -82,7 +98,7 @@ struct ModelPicker: View {
 
     @ViewBuilder private var content: some View {
         if let tune, !tune.isEmpty, !searching {
-            TuneSection(choices: tune, pickEffort: pickEffort, pickSpeed: pickSpeed)
+            TuneSection(choices: tune, focus: $tuneFocus, pickEffort: pickEffort, pickSpeed: pickSpeed)
         }
         // The account heads its models and stays pinned while they scroll.
         Section { models } header: { if tabs.count > 1 && !searching { accounts } }
@@ -110,7 +126,7 @@ struct ModelPicker: View {
             } else {
                 ForEach(rows) { row in
                     ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: (searching || tab?.note == nil) && row.note == nil,
-                                   choose: { choose(row) }, star: { star(row) })
+                                   choose: { choose(row); picks += 1 }, star: { star(row) })
                 }
                 if hidden > 0 || expanded { moreRow }
             }
@@ -135,10 +151,7 @@ struct ModelPicker: View {
 
     @ViewBuilder private var confirmButton: some View {
         if confirming { ProgressView() }
-        else if let confirm { confirmButton(confirm) }
-    }
-    @ViewBuilder private func confirmButton(_ confirm: @escaping () -> Void) -> some View {
-        if #available(iOS 26, *) {
+        else if #available(iOS 26, *) {
             Button(role: .confirm, action: confirm) { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.onAccent) }
                 .buttonStyle(.glassProminent).tint(AceTheme.Colours.accent)
                 .accessibilityLabel("Done").accessibilityIdentifier("modelSheet.done")

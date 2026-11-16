@@ -55,12 +55,13 @@ import XCTest
         }
         screenshot("newthread-agents")
         showTab(app, "claude:claude-personal")
-        // A tap on a ready agent's model picks it and returns to the form.
+        // A tap on a ready agent's model picks it; Done returns to the form.
         let models = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "model."))
         let visible = (0..<min(models.count, 40)).map { models.element(boundBy: $0) }.first { $0.isHittable }
         XCTAssertNotNil(visible)
         visible?.tap()
-        XCTAssertTrue(app.buttons["modelSheet.close"].waitForNonExistence(timeout: 10))
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         // The strip's Worktree box turns a worktree on; its base shows beside it.
         let worktree = app.buttons["newThread.worktree"]
         if worktree.waitForExistence(timeout: 10), worktree.isEnabled, worktree.value as? String == "Off" {
@@ -183,19 +184,19 @@ import XCTest
         // The demonstration model offers faster tiers.
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
-        // One tap picks the model and closes the sheet.
+        // A tap picks the model and keeps the sheet open: the rows at the top switch to its levels
+        // and come into view. It offers faster tiers, set right there.
         tuned.tap()
-        XCTAssertTrue(app.buttons["modelSheet.close"].waitForNonExistence(timeout: 10))
-        // Opened again, the sheet leads with that model's levels: it offers faster tiers.
-        app.buttons["newThread.agent"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].exists)
         let fast = app.buttons["tune.speed.fast"]
         XCTAssertTrue(fast.waitForExistence(timeout: 15))
+        XCTAssertTrue(fast.isHittable)
         fast.tap()
         expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: fast)
         waitForExpectations(timeout: 10)
         screenshot("newthread-tuning")
-        app.buttons["modelSheet.close"].tap()
-        XCTAssertTrue(app.buttons["modelSheet.close"].waitForNonExistence(timeout: 10))
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         // The pill names the pick with the model.
         expectation(for: NSPredicate(format: "value CONTAINS 'Fast'"), evaluatedWith: app.buttons["newThread.agent"])
         waitForExpectations(timeout: 10)

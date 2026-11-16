@@ -5,8 +5,9 @@ import SwiftUI
 /// Favorites when the person has starred any model, else on the account the draft runs on, with
 /// its model checked wherever it shows. The tabs follow the web's rules (`newThreadTabs` in
 /// `@ace/ui-core/mobile`): a CLI that isn't installed or signed in has no tab, and an account at
-/// its limit says so above its models. Every tap edits the draft at once: a model closes the sheet
-/// and starts at its own default effort and speed.
+/// its limit says so above its models. Every tap edits the draft at once: a model is checked and
+/// starts at its own default effort and speed, which the rows at the top switch to, to set before
+/// closing with Done, a swipe or a tap outside.
 struct NewThreadModelSheet: View {
     @Bindable var compose: ComposeModel
     let drafts: NewThreadDraftModel
@@ -47,7 +48,7 @@ struct NewThreadModelSheet: View {
             rows: listed.rows, hidden: listed.hidden, expanded: open && hasMore && !ModelSearch.active(query),
             toggleMore: { if open { expanded.remove(tab) } else { expanded.insert(tab) } },
             rowPrefix: "model.\(providerOf(tab))", morePrefix: "agent.\(providerOf(tab))",
-            starProblem: read.starProblem, retry: reload, confirm: nil,
+            starProblem: read.starProblem, retry: reload, confirm: { dismiss() }, closable: false,
             choose: pick, star: { star($0.key) },
             tune: choice.model.map { TuneChoices.model($0, effort: choice.effort, speed: draft.speed) },
             pickEffort: { level in tuned { $0.effort = level.id } },
@@ -63,12 +64,11 @@ struct NewThreadModelSheet: View {
     private func providerOf(_ tab: String) -> String { tabs.first { $0.id == tab }?.provider ?? tab }
     private func pick(_ row: ModelPickerRow) {
         // The model it already runs on keeps the effort and speed picked for it.
-        if row.chosen { dismiss(); return }
+        if row.chosen { return }
         let refs = read.tabs.flatMap(\.models)
         guard let ref = refs.first(where: { $0.account + "\u{0}" + $0.key == row.id }),
               let (agent, model) = NewThreadPickerRows.resolve(read.agents, ref) else { return }
         drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account; $0.effort = nil; $0.speed = nil }
-        dismiss()
     }
     /// A tuning pick makes the suggested agent and model the draft's own.
     private func tuned(_ change: @escaping (inout NewThreadDraft) -> Void) {

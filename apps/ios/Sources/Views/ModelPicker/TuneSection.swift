@@ -4,14 +4,27 @@ import SwiftUI
 /// on one glass capsule, one tap each, with the model's default named under it, or why the
 /// provider can't change it now. VoiceOver reads a level as "Effort, Medium, default, selected".
 struct TuneSection: View {
+    /// The List id the sheet scrolls to after a model is picked.
+    static let anchor = "tune"
     let choices: TuneChoices
+    /// VoiceOver lands on the first row after a model is picked.
+    var focus: AccessibilityFocusState<Bool>.Binding
     let pickEffort: (TuneChoiceRow.Level) -> Void
     let pickSpeed: (TuneChoiceRow.Level) -> Void
 
     var body: some View {
         Section {
-            if let effort = choices.effort { line("Effort", effort, id: "tune.effort", pick: pickEffort) }
-            if let speed = choices.speed { line("Speed", speed, id: "tune.speed", pick: pickSpeed) }
+            if let effort = choices.effort {
+                line("Effort", effort, id: "tune.effort", pick: pickEffort).accessibilityFocused(focus)
+            }
+            if let speed = choices.speed {
+                // Focus lands on the first row there is.
+                if choices.effort == nil {
+                    line("Speed", speed, id: "tune.speed", pick: pickSpeed).accessibilityFocused(focus)
+                } else {
+                    line("Speed", speed, id: "tune.speed", pick: pickSpeed)
+                }
+            }
             if let footer = choices.footer {
                 Text(footer).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -21,6 +34,7 @@ struct TuneSection: View {
             }
         }
         .listSectionSeparator(.hidden)
+        .id(Self.anchor)
     }
 
     private func line(_ title: String, _ row: TuneChoiceRow, id: String, pick: @escaping (TuneChoiceRow.Level) -> Void) -> some View {
