@@ -1,0 +1,68 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitVideo.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "audio": {
+      "default": {
+        "muted": false,
+        "volume": 0.6
+      },
+      "properties": {
+        "muted": {
+          "default": false,
+          "type": "boolean"
+        },
+        "volume": {
+          "default": 0.6,
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "fit": {
+      "default": "cover",
+      "enum": [
+        "cover",
+        "contain"
+      ],
+      "type": "string"
+    },
+    "palette": {
+      "default": {
+        "accent": true,
+        "tint": 0.12
+      },
+      "properties": {
+        "accent": {
+          "default": true,
+          "type": "boolean"
+        },
+        "tint": {
+          "default": 0.12,
+          "maximum": 0.25,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "poster": {
+      "$ref": "https://ace.local/protocol/v1/SuitAssetPath.json"
+    },
+    "sources": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SuitVideoPath.json"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "sources"
+  ],
+  "type": "object"
+}

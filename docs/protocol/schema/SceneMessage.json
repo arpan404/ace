@@ -1,0 +1,103 @@
+{
+  "$id": "https://ace.local/protocol/v1/SceneMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "type": {
+          "const": "ready",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "time": {
+          "type": "number"
+        },
+        "type": {
+          "const": "drawn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "time"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "message": {
+          "maxLength": 500,
+          "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "finished",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "columns": {
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "id": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pixels": {
+          "items": {
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4096,
+          "type": "array"
+        },
+        "rows": {
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": {
+          "const": "sample",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "columns",
+        "rows",
+        "pixels"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -9,7 +9,8 @@
         "ace-browser",
         "visualize",
         "ace-threads",
-        "ace-computer-use"
+        "ace-computer-use",
+        "make-a-suit"
       ],
       "type": "string"
     },

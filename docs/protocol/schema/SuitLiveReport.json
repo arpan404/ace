@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitLiveReport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checkId": {
+      "$ref": "https://ace.local/protocol/v1/SuitCheckId.json"
+    },
+    "client": {
+      "enum": [
+        "desktop",
+        "web"
+      ],
+      "type": "string"
+    },
+    "problems": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SuitProblem.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "scheme": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "type": "string"
+    },
+    "screenshot": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/SuitScreenshot.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "screenshotNote": {
+      "maxLength": 300,
+      "type": "string"
+    },
+    "suitId": {
+      "$ref": "https://ace.local/protocol/v1/SuitId.json"
+    },
+    "unchecked": {
+      "items": {
+        "maxLength": 80,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "widths": {
+      "items": {
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991,
+        "type": "integer"
+      },
+      "maxItems": 8,
+      "type": "array"
+    }
+  },
+  "required": [
+    "checkId",
+    "suitId",
+    "client",
+    "scheme",
+    "widths",
+    "problems",
+    "unchecked",
+    "screenshot"
+  ],
+  "type": "object"
+}

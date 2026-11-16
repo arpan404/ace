@@ -183,6 +183,83 @@
       "$ref": "https://ace.local/protocol/v1/PluginServerMessage.json"
     },
     {
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        },
+        "response": {
+          "$ref": "https://ace.local/protocol/v1/SuitResponse.json"
+        },
+        "type": {
+          "const": "suitResult",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "response"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "suits": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "suitsChanged",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "suits"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "$ref": "https://ace.local/protocol/v1/SuitActive.json"
+        },
+        "type": {
+          "const": "suitActive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "active"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "$ref": "https://ace.local/protocol/v1/SuitLiveCheck.json"
+        },
+        "type": {
+          "const": "suitCheck",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "check"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthResult.json"
     },
     {

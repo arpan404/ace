@@ -21,8 +21,8 @@
       "sha256": "7dca39b39c61f8199ce2069701b4587b093dd33825365b7736e62cb662697451"
     },
     "mcp.md": {
-      "bytes": 62279,
-      "sha256": "3082372418093451b8355504511183d37447e1944b54bda681214fe000c5dd7b"
+      "bytes": 62293,
+      "sha256": "7dcc71e924ebafe2cd1fc9830d4bb76e1ed44c78938579d207d2c8d061a72cd4"
     },
     "models.md": {
       "bytes": 16093,
@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 120717,
-      "sha256": "63a4c3cc56376c84cdeababc92031037f7d17722d6b0472690e70efb05b170be"
+      "bytes": 126286,
+      "sha256": "0649ba6eba2052ae83db1bec4d1aed661b84a42b25366ab4d7a4c25a2c98d0f3"
     },
     "requests.md": {
-      "bytes": 118424,
-      "sha256": "330034dbee6262670a0b9af95350d87cc001a1a8dcb671734f592d871128795f"
+      "bytes": 119644,
+      "sha256": "b99a520b8618875489ae805a76f63cc996e0a997e554bb771aea41d40269d9ee"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -917,8 +917,8 @@
       "sha256": "213740b5214753b95aa6b308056df25518570519a4989a1dfcc2ba77de50e14a"
     },
     "schema/ClientMessage.json": {
-      "bytes": 65145,
-      "sha256": "cbf7ab99e65d0c0f4af67f29c03acd96bb3122db7342177bd5fb7a15fac05863"
+      "bytes": 65309,
+      "sha256": "189d55d30f1523b52e997eb551aa0ebc6eeb3b6fe0a8654319ddf82a5ad32e68"
     },
     "schema/Command.json": {
       "bytes": 477,
@@ -3716,6 +3716,22 @@
       "bytes": 346,
       "sha256": "cddad8f9f4cd511f5f7301ba4d5c7990b86f97a873a29abb501eea19f43cd0d4"
     },
+    "schema/SceneGlassRect.json": {
+      "bytes": 711,
+      "sha256": "0be923c509bd0a06c8a85aea533dabc4a12c6fe9120327a110e7fa8efd0ba828"
+    },
+    "schema/SceneHostMessage.json": {
+      "bytes": 3910,
+      "sha256": "725ab2eaa1bcc2a418c0cb468b314f92b7320a2bc366cc5c0c296c74651e9bc7"
+    },
+    "schema/SceneMessage.json": {
+      "bytes": 1896,
+      "sha256": "f87de9ea5246228eec130c5083bc48e4dd42ec5d5444a9009402eea09e8e0702"
+    },
+    "schema/SceneSignal.json": {
+      "bytes": 232,
+      "sha256": "e2d7b7804fe433d5bd66398c18d652466e3525eee9515277b7e4448feb47f6c1"
+    },
     "schema/ScreenAck.json": {
       "bytes": 662,
       "sha256": "35375ec07f5f256410af43db0ab97dd42431c31e748db7085335c4a4e061fc6c"
@@ -3997,8 +4013,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-      "bytes": 46763,
-      "sha256": "09e54e5830b8171ffcb80784a86fade4d8367049f765e17fb6d43c0cb5420e59"
+      "bytes": 48371,
+      "sha256": "9214e3685ec5382ff59f0c1e4f032fe4a9144266092d557b20601932f490d632"
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -4479,6 +4495,150 @@
     "schema/SubscriptionScope.json": {
       "bytes": 1223,
       "sha256": "17efb28d102ab6aff267b6d1ff166d62fbe8bb92930c356ae0f47d3e6644515e"
+    },
+    "schema/SuitActive.json": {
+      "bytes": 1517,
+      "sha256": "48169f332c4ff6a72ea042df1a9efd5a3e4c88986d5944d70a06a4eaacb8ed9f"
+    },
+    "schema/SuitAssetPath.json": {
+      "bytes": 305,
+      "sha256": "5ca0419addcd6d92f450877134bdc07f8d51e63c31b6ac4a42572acee053776a"
+    },
+    "schema/SuitBase.json": {
+      "bytes": 235,
+      "sha256": "3cbb202ffc816be7a505adefa58a3849f62470c6647330011e6700d1260f744f"
+    },
+    "schema/SuitCheckId.json": {
+      "bytes": 180,
+      "sha256": "e75f241b716d083e3972eee4d707812693be9104e6a8a6d1252f7ddc2850edcb"
+    },
+    "schema/SuitClientMessage.json": {
+      "bytes": 523,
+      "sha256": "6283e8380813f75e6e9d974ae80be8b2428d441ae29e41c42772ce805c962cd5"
+    },
+    "schema/SuitDetail.json": {
+      "bytes": 1253,
+      "sha256": "9485f96acacc73f25d0b49c7bb70993e159b39ad68bfc1937229ad86df9cc542"
+    },
+    "schema/SuitFont.json": {
+      "bytes": 700,
+      "sha256": "7c7f0203376e980576c5f10f6a42c54a736ff3fb00cdc216911ae200904749cd"
+    },
+    "schema/SuitId.json": {
+      "bytes": 218,
+      "sha256": "86e9fa995367ea644bf5e864ea2df051b02c01c82c7c5e32349df3e38416688b"
+    },
+    "schema/SuitKeepId.json": {
+      "bytes": 179,
+      "sha256": "a151d917cc32e70039b22816fd1ccb5d74a7237206960ea667b7e6d18ebdca49"
+    },
+    "schema/SuitLabelKey.json": {
+      "bytes": 265,
+      "sha256": "3cd302a98de109a56950bb7eab10ed51d4c88f4c4ba996ceaebef728f677bc32"
+    },
+    "schema/SuitLabels.json": {
+      "bytes": 325,
+      "sha256": "79dca86cfb31a599b3f59da273c0b9860108a715eeb68db91b2695cc004671eb"
+    },
+    "schema/SuitLayout.json": {
+      "bytes": 1232,
+      "sha256": "b09b05196d3bc83515ac0a57dd1dc96a81fd80173510fb228e0639321141eefc"
+    },
+    "schema/SuitLiveCheck.json": {
+      "bytes": 417,
+      "sha256": "749271a25168b26c34ad6c34be58cf124b04561d1c3c686441d45a11bfe7c952"
+    },
+    "schema/SuitLiveReport.json": {
+      "bytes": 1478,
+      "sha256": "a0df5dbadd82ff56ec5750c62f786152b987917f003ed98b5826a93436afda83"
+    },
+    "schema/SuitManifest.json": {
+      "bytes": 3450,
+      "sha256": "668909a0ae099b15aeb25d562f36709b04d343c4426c14fdf1314728b5011ba5"
+    },
+    "schema/SuitOrnament.json": {
+      "bytes": 488,
+      "sha256": "8901bd2124b9014931639dafc48e0c078447f88946d0734b624028509fc95578"
+    },
+    "schema/SuitOrnamentSlot.json": {
+      "bytes": 369,
+      "sha256": "3cbd063dfb8683d496da49abad412bff74c016947f535b137257a791bc01704d"
+    },
+    "schema/SuitPage.json": {
+      "bytes": 456,
+      "sha256": "d720a39dc814fcb25a98cdaa95b748adde3c74fd1b1949c3f3b76434ad313926"
+    },
+    "schema/SuitPalette.json": {
+      "bytes": 3283,
+      "sha256": "c3c6adbec5ebb8904895f4afda5c96203e82a03930d794defffb485fdd41c8b3"
+    },
+    "schema/SuitPart.json": {
+      "bytes": 2132,
+      "sha256": "c6fc2bde86a9297b15553d6151060f9cf07032fd9e0199d724779accc9625fb3"
+    },
+    "schema/SuitProblem.json": {
+      "bytes": 734,
+      "sha256": "3a2551c9e07f8c72d252434d2a06ad7254af45b1d5e5f60e7ab7ba8dfc667c1d"
+    },
+    "schema/SuitRegion.json": {
+      "bytes": 275,
+      "sha256": "7fbe7499bdf7bae877f64049f64a01cd98dc4c7ef3af8b72a2c34ae894b49a9e"
+    },
+    "schema/SuitRegionStyle.json": {
+      "bytes": 706,
+      "sha256": "b93b3ecf998354ffe05e7dbd2e347acd8c3e4d6de55e0e07578c270666bd703d"
+    },
+    "schema/SuitReportMessage.json": {
+      "bytes": 412,
+      "sha256": "9e0b82c118030948ccee6fda6bcefb5f40df609215b8a0b3b13756f0be6fba09"
+    },
+    "schema/SuitRequest.json": {
+      "bytes": 1211,
+      "sha256": "9c815787dd18e3fa3f0a22494cafefc089acddbc98c95767cb785ae154524cb4"
+    },
+    "schema/SuitResponse.json": {
+      "bytes": 2009,
+      "sha256": "dcf2256415bd72f990a24c21ec6df811993ae062531a93217046750574a30dea"
+    },
+    "schema/SuitSceneRegion.json": {
+      "bytes": 269,
+      "sha256": "885681ccaba17a7321ba1451233a8a119df12ace01ac4c6f03212e54ad06f556"
+    },
+    "schema/SuitScenes.json": {
+      "bytes": 326,
+      "sha256": "0b25f23666e10b735c684aa63198523081274376a481e897c0c4269cbba3e5f1"
+    },
+    "schema/SuitScreenshot.json": {
+      "bytes": 705,
+      "sha256": "ba4eccaccc6a7ca1e531820fd62c8ae9d83f09c6c5545461bbc9970eb57d08db"
+    },
+    "schema/SuitServerMessage.json": {
+      "bytes": 1754,
+      "sha256": "9277370ab822e14cfa30c4649669daa8ca1b88ac753b8f82d7a97f25849d5514"
+    },
+    "schema/SuitSummary.json": {
+      "bytes": 858,
+      "sha256": "70608433f232b02c58f6624f23cbb494f7b59892e017be411d40e029ecd55d1b"
+    },
+    "schema/SuitTerminal.json": {
+      "bytes": 986,
+      "sha256": "8a7700e433e239d52497e5d0b10c07ea697f8f93e05d5d5a0bfce116334adb1c"
+    },
+    "schema/SuitTerminalColours.json": {
+      "bytes": 1299,
+      "sha256": "762c84885e84826a81d554c9dc7dd0f7252d4f50ebbb24fccd735f97cc0b05d4"
+    },
+    "schema/SuitVideo.json": {
+      "bytes": 1363,
+      "sha256": "65e4f40471359fd1150f65bf067b83e39ce0083f9cf3c0a5689d0433bc1a2d80"
+    },
+    "schema/SuitVideoPath.json": {
+      "bytes": 361,
+      "sha256": "4115bcead203761b304e359fb03035cdc6a2b50cdc55f15daa416aafa1a7bece"
+    },
+    "schema/SuitsChanged.json": {
+      "bytes": 334,
+      "sha256": "09ea06c4336b15af4802516f879ce247cc35d2b56b122ec98387dad97494ede6"
     },
     "schema/SwitchSelection.json": {
       "bytes": 769,
@@ -5309,8 +5469,8 @@
       "sha256": "efb537d45a843f9defcb09f07ce4642208ffabe2de01a5a37703e855f43528d1"
     },
     "schema/tools_find.input.json": {
-      "bytes": 696,
-      "sha256": "822c065d05ab53478399c0a1ca5f85d56ecbb948433d4e9f2f5b7977645724cb"
+      "bytes": 719,
+      "sha256": "8f543640f27d314a78c094e896e367dce0ddabf907f05bab24e2a35904ca4ae0"
     },
     "schema/tools_find.output.json": {
       "bytes": 1230,
@@ -5333,10 +5493,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1079101,
-      "sha256": "ad0787e9a045a5bafc6a50ee7f1b411f6beec663bb454b3747aeec7ef4b6a5c4"
+      "bytes": 1110583,
+      "sha256": "2b8b0aee18dfafa1f768ac9bfc09a7dec2c04af974beebe8491bf40b660c4eac"
     }
   },
-  "input": "2c7a8c7cb6693f89ec811a0af056de0fac9ee69cd47f09d367bdbd91a25c62e7",
+  "input": "0bb5a8ec3c001146e67aef6735c91e6b733a07200cad948f1d5f20b0cc8c2514",
   "version": 1
 }
