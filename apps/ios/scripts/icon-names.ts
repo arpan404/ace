@@ -258,3 +258,17 @@ export const drawnAs: Record<string, { glyph: string; turn?: number }> = {
   "tree-view": { glyph: "tree-structure" },
   "virtual-reality": { glyph: "goggles" },
 };
+
+/**
+ * The tab bar's glyphs, also written at the bar's own glyph size as `tab-<name>` (outline) and
+ * `tab-<name>-fill` (the chosen tab), so every tab draws one size and the chosen one fills.
+ */
+export const tabIcons = [
+  "folder-simple",
+  "chats",
+  "git-pull-request",
+  "magnifying-glass",
+  "note-pencil",
+];
+/** The system tab bar's glyph box, as Spade's tab mark (`SpadeMark.tabImage`) is drawn. */
+export const tabIconSize = 26;

@@ -1,4 +1,11 @@
-import { ArrowUpIcon, BellSlashIcon, CheckIcon, FolderPlusIcon } from "@ace/icons";
+import {
+  ArrowUpIcon,
+  BellSlashIcon,
+  CheckIcon,
+  FolderPlusIcon,
+  FolderSimpleIcon,
+  NotePencilIcon,
+} from "@ace/icons";
 import { expect, test } from "vitest";
 import { assetSvg, clippedSvg } from "./icon-svg.ts";
 
@@ -122,6 +129,41 @@ test("a new-item icon's hole under its plus is clipped out as a circle", () => {
   // Centred on the plus at 18, 18: from x 11.65 round to x 24.35.
   for (const id of used)
     expect(defined.get(id ?? "")).toContain("M11.65 18A6.35 6.35 0 1 0 24.35 18");
+});
+
+test("a filled folder keeps its lip as a line cut out of the solid body", () => {
+  const svg = assetSvg(FolderSimpleIcon, "fill");
+  expect(svg).not.toContain("<mask");
+  const { used, defined } = clipsOf(svg);
+  expect(used.length).toBeGreaterThan(0);
+  // The lip runs 3,10.75 to 21,10.75 (`h18`) at a 1.75 stroke: a band 0.875 either side of it.
+  for (const id of used) {
+    const { corners } = bandOf(defined.get(id ?? "") ?? "");
+    const expected = [
+      [3, 11.63],
+      [21, 11.63],
+      [21, 9.88],
+      [3, 9.88],
+      [3, 11.63],
+    ];
+    for (const [i, [x, y]] of corners.entries()) {
+      expect(x, `corner ${i} x`).toBeCloseTo(expected[i]?.[0] ?? NaN, 1);
+      expect(y, `corner ${i} y`).toBeCloseTo(expected[i]?.[1] ?? NaN, 1);
+    }
+  }
+});
+
+test("a filled pencil's cut, a relative line, clips the same band as its absolute form", () => {
+  const svg = assetSvg(NotePencilIcon, "fill");
+  expect(svg).not.toContain("<mask");
+  expect(clipsOf(svg).used.length).toBeGreaterThan(0);
+});
+
+test("an icon drawn for the tab bar is sized for it and draws the same shapes", () => {
+  const menu = assetSvg(CheckIcon, "regular");
+  const tab = assetSvg(CheckIcon, "regular", 0, 26);
+  expect(tab).toContain('width="26" height="26"');
+  expect(inner(tab)).toBe(inner(menu));
 });
 
 test("bold draws a heavier stroke than regular from the same drawing", () => {

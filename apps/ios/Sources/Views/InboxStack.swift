@@ -257,22 +257,22 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The person's avatar at the bar's leading edge, then the scope menu and the round compose
-    /// button on one glass capsule at the right. Compose shows where the tab bar doesn't hold it:
+    /// The person's avatar at the bar's leading edge, then the scope menu and compose on one
+    /// glass capsule at the right: system bar buttons with ace's glyphs, at the system's size. Compose shows where the tab bar doesn't hold it:
     /// before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
     /// title menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
         AccountToolbarItem(open: header.page, settings: header.settings)
         if !chats || inbox.showsMachineNames {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu { titleMenu } label: { Image(systemName: "line.3.horizontal.decrease") }
+                Menu { titleMenu } label: { Image(ace: .funnelSimple) }
                     .accessibilityLabel(chats ? "Machine" : "Scope, sort and select")
                     .accessibilityIdentifier("inbox.projects")
             }
         }
         if inbox.canStartThreads && (sizeClass == .regular || !HomeTabs.composeTab) {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: header.compose) { Image(systemName: HomeTabs.symbol(.compose)) }
+                Button(action: header.compose) { Image(ace: HomeTabs.icon(.compose)) }
                     .accessibilityLabel(chats ? "New chat" : "New thread")
                     .accessibilityIdentifier("inbox.compose")
             }
