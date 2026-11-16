@@ -64,3 +64,17 @@ export {
   type MarketSigningKey,
 } from "./signing.ts";
 export { marketOrigin, shippedMarketKeys } from "./keys.ts";
+export {
+  CategoriesUpload,
+  FeaturedUpload,
+  PendingVersion,
+  PendingWithdrawal,
+  PublishAccepted,
+  PublishRefused,
+  SearchBody,
+  SignedReviewUpload,
+  SignedVersionUpload,
+  SignedWithdrawnUpload,
+  SignerPending,
+  WithdrawRequest,
+} from "./service-wire.ts";
