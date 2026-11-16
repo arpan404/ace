@@ -387,6 +387,7 @@ export async function marketplaceHarness(options: {
           return suits.install(...args);
         },
         remove: (suit: string) => suits.remove(suit),
+        folder: (suit: string) => suits.folder(suit),
       }),
       plugins: () => pluginPort(() => plugins),
       spade: spadePort(options.spade.connection),

@@ -67,6 +67,12 @@ export class SuitLibrary {
     this.urls = new SuitUrls(options.key);
   }
 
+  /** A Suit's folder under the library's root; the id is a SuitId, so it stays inside. */
+  folder(id: string): string {
+    if (!SuitId.safeParse(id).success) throw new Error(`${id} isn't a Suit id`);
+    return join(this.#options.root, id);
+  }
+
   /** Makes the root and starts watching it. */
   async start(): Promise<void> {
     await mkdir(this.#options.root, { recursive: true });

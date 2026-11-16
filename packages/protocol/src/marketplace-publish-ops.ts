@@ -32,6 +32,7 @@ import {
   MarketEntryRef,
 } from "./marketplace-publisher.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
+import { SuitId } from "./suits.ts";
 
 /*
  * Publishing and Discover through the daemon (ADR 0173 §2, §11): what `marketplace.request`
@@ -50,6 +51,8 @@ export const MarketDraftSource = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("folder"), path: z.string().min(1).max(4096) }),
   /** Base64 of the folder's tar archive, at most 6 MB. */
   z.strictObject({ kind: z.literal("archive"), archive: z.string().max(8_000_000) }),
+  /** One of the person's own Suits, by id: the daemon reads its folder. */
+  z.strictObject({ kind: z.literal("suit"), id: SuitId }),
 ]);
 export type MarketDraftSource = z.infer<typeof MarketDraftSource>;
 

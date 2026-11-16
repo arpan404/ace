@@ -28,6 +28,8 @@ export interface SuitPort {
     options: { replace: boolean },
   ): Promise<unknown>;
   remove(id: string): Promise<unknown>;
+  /** The full path of one of the person's Suits' folder, to publish it from. */
+  folder(id: string): string;
 }
 
 export interface PluginAvailabilityState {

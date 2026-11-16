@@ -238,6 +238,28 @@ describe("drafts", () => {
     expect(Buffer.from(writeArchive(sent)).equals(Buffer.from(body))).toBe(true);
   });
 
+  it("upload one of the person's Suits from its folder in their library, named by id", async () => {
+    const suit = join(harness.root, "suits", "quiet-hours");
+    await mkdir(suit, { recursive: true });
+    await writeFile(
+      join(suit, "suit.json"),
+      '{"format":1,"id":"quiet-hours","name":"Quiet hours"}',
+    );
+    const result = await publish(
+      {
+        action: "draftCreate",
+        type: "suit",
+        name: "quiet-hours",
+        version: "1.0.0",
+        source: { kind: "suit", id: "quiet-hours" },
+      },
+      grant,
+    );
+    expect(result).toMatchObject({ op: "publish", answer: { kind: "draft" } });
+    const sent = readArchive(new Uint8Array(uploads[0]?.body ?? []), typeLimits.suit);
+    expect(sent.map((file) => file.path)).toEqual(["suit.json"]);
+  });
+
   it("refuse a folder holding a link, before any grant is asked for", async () => {
     await writeFile(join(folder, "SKILL.md"), "---\nname: x\ndescription: y\n---\n");
     const { symlink } = await import("node:fs/promises");

@@ -1,5 +1,10 @@
 import { join } from "node:path";
-import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
+import type {
+  MarketInstalled,
+  MarketOperation,
+  MarketPublishAction,
+  MarketResult,
+} from "@ace/protocol/marketplace";
 import type { WithdrawalTarget } from "@ace/marketplace";
 import { type MarketKeySet } from "@ace/protocol/marketplace";
 import type { GitRuntime } from "@ace/plugins";
@@ -246,6 +251,14 @@ export class MarketplaceService {
     }
   }
 
+  /** A draft from one of the person's Suits names that Suit's folder on this machine. */
+  #ownFolder(action: MarketPublishAction): MarketPublishAction {
+    if (!("source" in action) || action.source?.kind !== "suit") return action;
+    const suits = this.#options.suits();
+    if (!suits) throw new Refused("Suits aren't running on this machine", { code: "not_found" });
+    return { ...action, source: { kind: "folder", path: suits.folder(action.source.id) } };
+  }
+
   async #handle(operation: MarketOperation, ports: MarketRequestPorts): Promise<MarketResult> {
     this.#sweep();
     switch (operation.op) {
@@ -359,7 +372,10 @@ export class MarketplaceService {
           operation.handle,
         );
       case "publish":
-        return publishAction({ http: this.#http(), grant: ports.grant }, operation.request);
+        return publishAction(
+          { http: this.#http(), grant: ports.grant },
+          this.#ownFolder(operation.request),
+        );
       case "report":
         return report(this.#http(), operation);
       case "picture": {

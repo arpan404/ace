@@ -64,6 +64,7 @@ export async function readFolder(root: string): Promise<ArchiveFile[]> {
 
 /** The canonical archive a draft uploads, capped at what the Worker takes. */
 export async function draftArchive(source: MarketDraftSource): Promise<Uint8Array> {
+  if (source.kind === "suit") throw new Refused("A Suit's folder is read by the daemon first");
   const archive =
     source.kind === "folder"
       ? writeArchive(await readFolder(source.path))
