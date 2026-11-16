@@ -27,9 +27,14 @@ import UIKit
     func reading(at time: CFTimeInterval, notified: CFTimeInterval) -> Reading? {
         guard let edge, edge.window != nil else { return nil }
         let layer = edge.layer
-        let animations = (layer.animationKeys() ?? [])
-            .compactMap { layer.animation(forKey: $0) as? CABasicAnimation }
-            .filter { $0.keyPath == "position" || $0.keyPath == "position.y" }
+        var animations = Self.positionAnimations(of: layer)
+        // One UIKit has added but not yet committed has no begin time, and when it will start
+        // can't be known; committing it now gives it one. Counting from the notification instead
+        // missed the first frame of a move by up to 52 pt either way.
+        if animations.contains(where: { $0.beginTime == 0 }) {
+            CATransaction.flush()
+            animations = Self.positionAnimations(of: layer)
+        }
         var y = Double(layer.position.y)
         var source = Source.animation
         if !animations.isEmpty {
@@ -51,15 +56,19 @@ import UIKit
         return Reading(y: top, source: source, moving: !animations.isEmpty)
     }
 
+    private static func positionAnimations(of layer: CALayer) -> [CABasicAnimation] {
+        (layer.animationKeys() ?? [])
+            .compactMap { layer.animation(forKey: $0) as? CABasicAnimation }
+            .filter { $0.keyPath == "position" || $0.keyPath == "position.y" }
+    }
+
     /// `animation`'s value for the edge's y at `time`; nil for a kind of animation this can't read.
     private static func value(of animation: CABasicAnimation, in layer: CALayer, at time: CFTimeInterval,
                               notified: CFTimeInterval) -> Double? {
         guard let from = coordinate(animation.fromValue, keyPath: animation.keyPath) else { return nil }
         let to = coordinate(animation.toValue, keyPath: animation.keyPath) ?? (animation.isAdditive ? 0 : Double(layer.position.y))
         let local = layer.convertTime(time, from: nil)
-        // An animation not yet committed has no begin time. The keyboard it follows started with
-        // its notification: counting from the commit instead put the composer up to 30 pt behind
-        // on the first frames of a move.
+        // Still uncommitted after the flush: count from the notification, as the keyboard does.
         let begin = animation.beginTime > 0 ? animation.beginTime : layer.convertTime(notified, from: nil)
         let elapsed = (local - begin) * Double(animation.speed) + animation.timeOffset
         let fraction: Double
