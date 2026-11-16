@@ -107,6 +107,22 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 - **Nested content** inside a container is concentric with it, ending in a capsule at the smallest level (a code line inside a strip, an image inside a message).
 - No small fixed radius anywhere.
 
+### Type
+
+The iPhone uses iOS's own type scale (owner, 2026-11-15): SF Pro, each role one of the system's text styles at that style's default size, so Dynamic Type scales ace's text exactly as it scales the system's. The roles live in `AceDesign.TextRole` and each names its own style; a view never pairs a role with another style.
+
+| Role (`TextRole`)                                              | Text style  | Size at the default text size |
+| -------------------------------------------------------------- | ----------- | ----------------------------- |
+| Large title (drawn by the system's bar)                        | Large Title | 34, bold                      |
+| Header, an inline bar title (`header`, `navTitle`)             | Headline    | 17, semibold                  |
+| Message, answer, row title (`message`, `answer`, `rowTitle`)   | Body        | 17                            |
+| Strip sentence, segment, action (`segment`, `action`)          | Subheadline | 15                            |
+| Meta, step (`meta`, `step`)                                    | Footnote    | 13                            |
+| Time, code, the bar's subtitle (`time`, `code`, `navSubtitle`) | Caption     | 12                            |
+| Branch, tiny labels (`branch`, `caption`)                      | Caption 2   | 11                            |
+
+The navigation bar's large and inline titles are the system's own, never restyled. Bar buttons are the system's too: a plain button or menu with an icon in a toolbar item, sized and given its glass by iOS, and their glyphs keep the default size at accessibility text sizes (a long press shows them in the Large Content Viewer). The tab bar draws ace's own icons at one size, filled while their tab is chosen.
+
 ### Materials
 
 - Liquid Glass (`glassEffect`) only for floating things: the tab bar, the composer capsule, the request strip, Scroll to end, header buttons, the iPad sidebar's places. The live pills are glass too, grouped as one material, and nothing paints a band behind the thread's foot: the transcript scrolls on under the pills, a strip and the composer capsule and shows through their glass (owner, 2026-11-08). Never glass on glass.
