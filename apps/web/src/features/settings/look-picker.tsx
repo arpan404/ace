@@ -103,7 +103,7 @@ function MakeYourOwn() {
       {...part("card", undefined, "make-look")}
       className="group flex min-w-0 flex-col items-stretch gap-2 text-left outline-none"
     >
-      <span className="grid aspect-[16/9] place-items-center rounded-lg border border-dashed border-border-strong text-muted-foreground transition-colors duration-(--motion-fast) group-hover:border-foreground/40 group-hover:text-foreground group-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)]">
+      <span className="grid aspect-[16/9] place-items-center rounded-lg border border-dashed border-border-strong text-muted-foreground transition-[color,border-color,translate] duration-(--motion-base) ease-(--ease-out) group-hover:border-foreground/40 group-hover:text-foreground group-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)] motion-safe:group-hover:-translate-y-0.5 motion-reduce:transition-none">
         <PlusIcon aria-hidden className="size-5" />
       </span>
       <span

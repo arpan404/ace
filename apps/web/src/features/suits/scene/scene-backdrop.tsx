@@ -1,6 +1,7 @@
 import type { SceneHostMessage, SceneSignal } from "@ace/protocol/suits";
 import type { SuitSceneRegion } from "@ace/protocol/suit-parts";
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/cn.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { watchSavingPower } from "./power.ts";
 import type { SceneFrames } from "./scene-beat.ts";
@@ -139,6 +140,8 @@ function SceneFrame(props: {
   // The page this frame loaded: a later URL for the same frame (a reconnect's read of the same
   // version) must not navigate it, or the scene would start over.
   const [src] = useState(props.sceneUrl);
+  // A backdrop fades in once the scene says it has drawn (`ready`), so it never pops in blank.
+  const [drawn, setDrawn] = useState(false);
   // The page's load, heard from the moment the frame exists: a cached page can finish loading
   // before the effect below runs, and a listener added there would never hear it.
   const loadedEarly = useRef(false);
@@ -193,7 +196,9 @@ function SceneFrame(props: {
     if (loadedEarly.current) onLoad();
     const onMessage = (event: MessageEvent) => {
       const message = messageFromScene(event, element.contentWindow);
-      if (message) scene.receive(message);
+      if (!message) return;
+      scene.receive(message);
+      if (message.type === "ready") setDrawn(true);
     };
     const onFocus = () => scene.setFocused(true);
     const onBlur = () => scene.setFocused(false);
@@ -259,17 +264,17 @@ function SceneFrame(props: {
             // colour scheme: the scene page names `light dark` (daemon suits/http.ts), so the
             // element names none and stays clear over the UI in either scheme.
             { colorScheme: "normal" }
-          : props.region
-            ? { opacity: regionSceneOpacity(props.region) }
-            : undefined
+          : { opacity: drawn ? (props.region ? regionSceneOpacity(props.region) : 1) : 0 }
       }
-      className={
+      className={cn(
         props.fill === "region"
           ? "pointer-events-none absolute inset-0 -z-10 h-full w-full rounded-[inherit] border-0 bg-transparent"
           : props.fill === "above"
             ? "pointer-events-none fixed inset-0 h-full w-full border-0 bg-transparent"
-            : "pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent"
-      }
+            : "pointer-events-none fixed inset-0 -z-10 h-full w-full border-0 bg-transparent",
+        props.fill !== "above" &&
+          "transition-opacity duration-(--motion-slow) ease-(--ease-out) motion-reduce:transition-none",
+      )}
     />
   );
 }
