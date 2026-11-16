@@ -16,10 +16,6 @@ struct ThreadPage: View {
         if let thread = live ?? kept.flatMap({ $0.id == id ? $0 : nil }) {
             ThreadView(model: client, thread: thread, openThread: openThread)
                 .onChange(of: ObjectIdentifier(thread), initial: true) { kept = thread }
-        } else {
-            // The bar takes its title menu from the page as it is pushed: a page that waits for
-            // its thread offers one already, and the thread's own replaces it once it draws.
-            Color.clear.toolbarTitleMenu { Text("Opening…") }
         }
     }
 }
