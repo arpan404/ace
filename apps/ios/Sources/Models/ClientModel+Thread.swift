@@ -65,12 +65,28 @@ extension ClientModel {
     func favoriteModel(_ key: String) { threadAction(["type": "favorite", "key": key]) }
     /// Move the thread to a model on one account; `confirmed` once the person answered the row's
     /// question. The bridge decides what that does: switch, or continue with the next message.
-    func switchModel(key: String, account: String, confirmed: Bool) async -> Bool {
+    /// `epoch` pins it to one generation of the open thread (the current one when nil); the bridge
+    /// refuses it for any other.
+    func switchModel(key: String, account: String, confirmed: Bool, effort: String? = nil, speed: String? = nil,
+                     epoch: Int? = nil) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()
+        var value: [String: Any] = ["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id]
+        if let effort { value["effort"] = effort }
+        if let speed { value["speed"] = speed }
         return await admissions.wait(id: id) {
-            threadAction(["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id])
+            let dispatched = action(threadMessage(value, epoch: epoch))
+            if !dispatched { error = "Could not submit the request. Your draft is still available." }
+            return dispatched
         }
+    }
+    /// A move confirmed in the model sheet, sent as the sheet closes to the visit of the thread it
+    /// was confirmed on and nowhere else, under that visit's generation now (a reconnect gives the
+    /// same visit a new one). False when the person has moved on, or the move wasn't taken.
+    func send(_ move: HeldModelMove) async -> Bool {
+        guard let thread, thread.id == move.threadId, thread.visit == move.visit else { return false }
+        return await switchModel(key: move.key, account: move.account, confirmed: true,
+                                 effort: move.effort, speed: move.speed, epoch: thread.epoch)
     }
     /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
     func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {
@@ -154,4 +170,16 @@ extension ClientModel {
         if let epoch = epoch ?? thread?.epoch { message["epoch"] = epoch }
         return message
     }
+}
+
+/// A model move the person confirmed in a thread's model sheet, held until the sheet closes, with
+/// the thread and visit (`ThreadModel.visit`) it was confirmed on and the effort and speed picked
+/// for it since.
+struct HeldModelMove: Equatable {
+    let threadId: String
+    let visit: Int
+    let key: String
+    let account: String
+    var effort: String?
+    var speed: String?
 }

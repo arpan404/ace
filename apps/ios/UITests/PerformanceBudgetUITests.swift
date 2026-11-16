@@ -286,9 +286,9 @@ import XCTest
                 let item = app.titleMenuItem("thread.title.model", label: "Model")
                 XCTAssertTrue(app.appears(item, timeout: 10), "the title's menu has no Model")
                 item.tap()
-                XCTAssertTrue(app.appears(app.buttons["modelSheet.close"], timeout: 15))
+                XCTAssertTrue(app.appears(app.buttons["modelSheet.done"], timeout: 15))
             })
-            app.buttons["modelSheet.close"].tap()
+            app.buttons["modelSheet.done"].tap()
         }
         report("Agents sheet rows (ms, asked to applied)", agents)
         report("Changes sheet rows (ms, asked to applied)", changes)

@@ -34,17 +34,4 @@ import Foundation
         }
         effort = listed ?? model?.defaultEffort
     }
-
-    /// The fields the model sheet can change, so closing it puts them back.
-    struct Snapshot {
-        let provider: String?, model: String?, account: String?, effort: String?, speed: String?, access: String?
-        init(_ draft: NewThreadDraft) {
-            provider = draft.provider; model = draft.model; account = draft.account
-            effort = draft.effort; speed = draft.speed; access = draft.access
-        }
-        func restore(_ draft: inout NewThreadDraft) {
-            draft.provider = provider; draft.model = model; draft.account = account
-            draft.effort = effort; draft.speed = speed; draft.access = access
-        }
-    }
 }

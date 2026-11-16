@@ -56,6 +56,9 @@ struct TuneRow: Codable, Sendable, Equatable {
     let pending: Bool
     let canReset: Bool
     let notice: String
+    /// The model's own default level and speed, which the model sheet marks.
+    var effortPreset: String? = nil
+    var speedPreset: String? = nil
 }
 /// The thread's access (`bridge/thread-access.ts`): the mode in effect, or the one picked to
 /// replace it at the agent's next turn, and the modes its provider supports. `state` "none" has

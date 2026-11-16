@@ -229,6 +229,95 @@ import SQLite3
         #expect(ledger.groups.map(\.label).contains("Project"))
         #expect(ledger.coverage.complete)
     }
+    /// The model sheet's held switch: the effort picked with a model goes from Swift through the
+    /// bridge's action schema into the daemon's switch, and the thread comes back running it.
+    @Test func anEffortPickedWithAModelReachesTheDaemonWithItsSwitch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-plan")
+        try await until { model.thread?.loaded == true }
+        let screen = try #require(model.thread?.screen)
+        model.requestModels()
+        try await until("the model sheet") { screen.modelsState == "ready" && screen.modelList.current != nil }
+        let target = try switchTarget(screen.modelList)
+        let effort = try #require(target.efforts.first { $0.id != target.defaultEffort }).id
+        #expect(await model.switchModel(key: target.key, account: target.account, confirmed: true, effort: effort))
+        try await until("the thread on the new model at the effort picked with it") {
+            screen.modelList.current?.key == target.key && screen.tune?.effort == effort
+        }
+    }
+    /// A move confirmed on one thread and sent as its sheet closes after another thread opened:
+    /// it goes nowhere, and the bridge refuses it even when it reaches the other thread's visit.
+    @Test func aMoveHeldOnOneThreadNeverReachesAnother() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-plan")
+        try await until { model.thread?.id == "ios-plan" && model.thread?.loaded == true }
+        let first = try #require(model.thread)
+        model.requestModels()
+        try await until("the first thread's models") { first.screen.modelsState == "ready" && first.screen.modelList.current != nil }
+        let target = try switchTarget(first.screen.modelList)
+        let firstEpoch = first.epoch
+        let move = HeldModelMove(threadId: first.id, visit: first.visit, key: target.key, account: target.account,
+                                 effort: target.efforts.last?.id)
+        model.open("ios-stream")
+        try await until { model.thread?.id == "ios-stream" && model.thread?.loaded == true }
+        let second = try #require(model.thread)
+        model.requestModels()
+        try await until("the second thread's models") { second.screen.modelsState == "ready" }
+        let before = second.screen.modelList.current
+        #expect(await model.send(move) == false)
+        let stamped = await model.switchModel(key: move.key, account: move.account, confirmed: true,
+                                              effort: move.effort, epoch: firstEpoch)
+        #expect(stamped == false)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(second.screen.modelList.current == before)
+    }
+    /// A move confirmed on a thread, then a reconnect to the same machine while the sheet is still
+    /// open: the reconnect reopens the thread under a new generation, and the move still lands there.
+    @Test func aMoveHeldAcrossAReconnectStillMovesItsThread() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-plan")
+        try await until { model.thread?.id == "ios-plan" && model.thread?.loaded == true }
+        let thread = try #require(model.thread)
+        model.requestModels()
+        try await until("the thread's models") { thread.screen.modelsState == "ready" && thread.screen.modelList.current != nil }
+        let next = try switchTarget(thread.screen.modelList)
+        // Visited again on the same screen (a new route, a snapshot retry): a later generation than
+        // the reconnect starts from, as when a person has been on a thread a while.
+        model.open("ios-plan")
+        model.open("ios-plan")
+        try await until("the thread read again") { model.thread?.loaded == true && model.thread?.epoch == 3 }
+        let move = HeldModelMove(threadId: thread.id, visit: thread.visit, key: next.key, account: next.account)
+        let confirmedEpoch = thread.epoch
+        await model.connect(target: try target(), directory: root)
+        try await until("the reconnect") { model.connection == "ready" && model.thread?.loaded == true }
+        let reopened = try #require(model.thread)
+        #expect(reopened.id == thread.id)
+        #expect(reopened.epoch != confirmedEpoch)
+        #expect(await model.send(move))
+        model.requestModels()
+        try await until("the thread on the held move's model") { reopened.screen.modelList.current?.key == next.key }
+    }
+    /// Another model on the thread's account that switches at once and has levels to pick.
+    private func switchTarget(_ list: ThreadModels) throws -> ComposeAgent.Model {
+        let current = try #require(list.current)
+        let models: [ComposeAgent.Model] = list.read.agents.first { $0.provider == current.provider }?.models ?? []
+        return try #require(models.first { candidate in
+            let other = candidate.account == current.account && candidate.key != current.key
+            return other && list.moves[candidate.id] == nil && candidate.efforts.count > 1
+        })
+    }
     private func target() throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,
                          credential: { "{\"token\":\"ios-spike-token\"}" })

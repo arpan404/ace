@@ -220,9 +220,9 @@ extension XCUIApplication {
         if first.identifier != "changes.file.\(path)" && first.value as? String == "Open" { first.tap() }
         return buttons["changes.file.\(path)"]
     }
-    /// Closes whichever redesigned sheet is on top with its X.
+    /// Closes whichever redesigned sheet is on top with its X (the model sheet: Done).
     @MainActor func closeSheet() {
-        for id in ["modelSheet.close", "changes.close", "agents.close", "newThread.close", "settings.close"] where buttons[id].exists {
+        for id in ["modelSheet.close", "modelSheet.done", "changes.close", "agents.close", "newThread.close", "settings.close"] where buttons[id].exists {
             buttons[id].tap()
             return
         }

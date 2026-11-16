@@ -24,8 +24,10 @@ type Tune = {
   efforts: { id: string; label: string; short: string }[];
   effort: string;
   effortReason: string;
+  effortPreset: string;
   speeds: { speed: string; label: string }[];
   speed: string;
+  speedPreset: string;
   pending: boolean;
 };
 const tune = () => latest("thread.tune") as Tune | undefined;
@@ -55,6 +57,8 @@ test("a picked effort and speed go out with the next message only, then the pick
     "ultra",
   ]);
   expect(offered.effort).toBe("medium");
+  // The model's own default, which the sheet marks among the levels.
+  expect(offered).toMatchObject({ effortPreset: "medium", speedPreset: "standard" });
   // The composer chip names the level in brief.
   expect(offered.efforts.find((effort) => effort.id === "medium")?.short).toBe("Med");
   expect(offered.speeds.map((speed) => speed.speed)).toEqual(["standard", "fast", "ultrafast"]);
