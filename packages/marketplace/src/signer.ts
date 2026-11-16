@@ -3,12 +3,12 @@ import { checkArchive } from "./checks/index.ts";
 import { VersionBody } from "./feed.ts";
 import { SignerPending } from "./service-wire.ts";
 import {
-  marketPublicKey,
   signManifest,
   signReviewMark,
   signWithdrawn,
   verifyManifest,
   verifyWithdrawn,
+  type MarketKeySet,
   type MarketSigningKey,
 } from "./signing.ts";
 
@@ -16,7 +16,9 @@ import {
  * The maintainer's signer (ADR 0168 §6, `ace market sign`). It runs on a maintainer's machine
  * with the key from a file; the Worker never holds it. It pulls the versions that passed the
  * Worker's checks, runs the same checks again on the bytes the Worker stored, and signs only
- * what passes. The I/O is passed in, so the same core runs against the real market or a test's.
+ * what passes. What it reads back (the withdrawn list, a version's manifest) is checked against
+ * the trusted key set, not only the key signing now, so a rotation keeps both working. The I/O
+ * is passed in, so the same core runs against the real market or a test's.
  */
 
 export interface SignerIo {
@@ -45,6 +47,7 @@ export async function signPending(
   io: SignerIo,
   key: MarketSigningKey,
   now: () => number,
+  trusted: MarketKeySet,
 ): Promise<SignerReport> {
   const pending = SignerPending.parse(await io.get("/v1/signer/pending"));
   const report: SignerReport = { signed: [], refused: [], failed: [], withdrawn: 0 };
@@ -79,8 +82,8 @@ export async function signPending(
     else report.failed.push({ what: label(version), ...answer });
   }
   if (pending.withdrawals.length > 0) {
-    const ours = { keys: [marketPublicKey(key)] };
-    const earlier = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, ours).withdrawn : [];
+    // The list may be the previous key's: what counts is that a trusted key signed it.
+    const earlier = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, trusted).withdrawn : [];
     const known = new Set(earlier.map((entry) => entry.hash));
     const added = pending.withdrawals
       .filter((entry) => !known.has(entry.hash))
@@ -109,6 +112,7 @@ export async function signReview(
   io: SignerIo,
   key: MarketSigningKey,
   now: () => number,
+  trusted: MarketKeySet,
   target: {
     type: MarketEntryType;
     name: string;
@@ -122,7 +126,7 @@ export async function signReview(
       `/v1/entries/${encodeURIComponent(target.type)}/${encodeURIComponent(target.name)}/${encodeURIComponent(target.version)}`,
     ),
   );
-  const manifest = verifyManifest(body.manifest, { keys: [marketPublicKey(key)] });
+  const manifest = verifyManifest(body.manifest, trusted);
   const review = signReviewMark(
     {
       format: "ace-market-review",

@@ -6,6 +6,8 @@ import { MarketEntryName, MarketEntryType } from "@ace/protocol/marketplace";
 import {
   marketOrigin,
   marketPublicKey,
+  shippedMarketKeys,
+  type MarketKeySet,
   marketSigningKey,
   type ArchiveFile,
   type MarketSigningKey,
@@ -107,6 +109,17 @@ async function readFolder(root: string): Promise<ArchiveFile[]> {
 
 const now = () => Date.now();
 
+/**
+ * The keys a read-back signature may be by: the ones this build ships and the key signing now,
+ * so a list or manifest the previous key signed still verifies after a rotation.
+ */
+function trustedWith(key: MarketSigningKey): MarketKeySet {
+  const active = marketPublicKey(key);
+  return {
+    keys: [...shippedMarketKeys.keys.filter((known) => known.id !== active.id), active],
+  };
+}
+
 export async function marketCommand(args: Args): Promise<void> {
   const verb = args.words[1];
   switch (verb) {
@@ -127,7 +140,7 @@ export async function marketCommand(args: Args): Promise<void> {
     case "sign": {
       validateArgs(args, ["key", "url"], 2, 2);
       const key = await readKey(option(args, "key"));
-      const report = await signPending(signerIo(marketUrl(args)), key, now);
+      const report = await signPending(signerIo(marketUrl(args)), key, now, trustedWith(key));
       await print(args, report);
       if (report.failed.length > 0)
         throw new CliFailure("failed", "Some signatures weren't taken by the market");
@@ -138,7 +151,7 @@ export async function marketCommand(args: Args): Promise<void> {
       const match = /^([a-z-]+)\/([^@]+)@(.+)$/.exec(args.words[2] ?? "");
       if (!match) throw new CliFailure("refused", "Name the version as TYPE/NAME@VERSION");
       const key = await readKey(option(args, "key"));
-      const answer = await signReview(signerIo(marketUrl(args)), key, now, {
+      const answer = await signReview(signerIo(marketUrl(args)), key, now, trustedWith(key), {
         type: MarketEntryType.parse(match[1]),
         name: MarketEntryName.parse(match[2]),
         version: match[3] ?? "",

@@ -59,7 +59,7 @@ it("signs what passed, lists it, and a device verifies the bytes it fetches", as
       })
     ).status,
   ).toBe(201);
-  const report = await signPending(io, marketKey, now);
+  const report = await signPending(io, marketKey, now, keySetOf(marketKey));
   expect(report.signed).toContain("spade-skill/signed-skill@1.0.0");
   const body = VersionBody.parse(
     await (await market.fetch("/v1/entries/spade-skill/signed-skill/1.0.0")).json(),
@@ -74,7 +74,7 @@ it("signs what passed, lists it, and a device verifies the bytes it fetches", as
 
   expect(
     (
-      await signReview(io, marketKey, now, {
+      await signReview(io, marketKey, now, keySetOf(marketKey), {
         type: "spade-skill",
         name: "signed-skill",
         version: "1.0.0",
@@ -99,7 +99,7 @@ it("signs a publisher's withdrawal into the withdrawn list", async () => {
     name: "gone-skill",
     files: sampleSkill("gone-skill"),
   });
-  await signPending(io, marketKey, now);
+  await signPending(io, marketKey, now, keySetOf(marketKey));
   const withdraw = await market.fetch(
     "/v1/publish/spade-skill/gone-skill/versions/1.0.0/withdraw",
     {
@@ -112,7 +112,7 @@ it("signs a publisher's withdrawal into the withdrawn list", async () => {
     },
   );
   expect(withdraw.status).toBe(202);
-  const report = await signPending(io, marketKey, now);
+  const report = await signPending(io, marketKey, now, keySetOf(marketKey));
   expect(report.withdrawn).toBe(1);
   const list = verifyWithdrawn(
     await (await market.fetch("/v1/withdrawn")).json(),
@@ -126,7 +126,7 @@ it("leaves a version unlisted when it fails the checks again", async () => {
   const files = folder({ "SKILL.md": "---\nname: tight-skill\ndescription: Fine.\n---\n" });
   await publish(market, { type: "spade-skill", name: "tight-skill", files });
   const tampered: SignerIo = { ...io, object: async () => new Uint8Array(1024) };
-  const report = await signPending(tampered, marketKey, now);
+  const report = await signPending(tampered, marketKey, now, keySetOf(marketKey));
   expect(report.refused.map((entry) => entry.version)).toContain("spade-skill/tight-skill@1.0.0");
   expect((await market.fetch("/v1/entries/spade-skill/tight-skill/1.0.0")).status).toBe(404);
 });
