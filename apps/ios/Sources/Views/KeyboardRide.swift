@@ -30,6 +30,9 @@ import UIKit
         /// The foot of the area the composer rests at, in window points: the lift is how far the
         /// keyboard's edge is above it.
         let foot: CGFloat
+        /// Whether the keyboard's edge has been seen moving in this move: until then a still edge
+        /// is one whose animation UIKit hasn't added yet, not one that has arrived.
+        var edgeMoved = false
     }
 
     var running: Bool { move != nil }
@@ -64,13 +67,22 @@ import UIKit
 
     fileprivate func tick(_ link: CADisplayLink) {
         guard let move else { return }
-        // Where the keyboard is drawn on the frame this one is for.
-        if let reading = edges.reading(at: link.targetTimestamp) {
+        // Where the keyboard is drawn when what's set now reaches the screen: a lift set in this
+        // tick shows a frame after the frame it's computed for, measured on the simulator as the
+        // composer trailing the keyboard by exactly one frame.
+        let frame = link.targetTimestamp - link.timestamp
+        if let reading = edges.reading(at: link.targetTimestamp + frame) {
             let measured = max(0, move.foot - reading.y)
-            if reading.moving || abs(measured - target) < 0.5 {
+            if reading.moving {
+                self.move?.edgeMoved = true
                 PerfProbe.add("keyboard.source.\(reading.source.rawValue)", 1)
                 lift = measured
-                if !reading.moving { land() }
+                return
+            }
+            let over = link.timestamp - move.start > move.duration + 0.1
+            if move.edgeMoved || over, abs(measured - target) < 0.5 {
+                lift = measured
+                land()
                 return
             }
         }
