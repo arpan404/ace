@@ -436,9 +436,8 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
         let _ = upstream.write_all(&rest).await;
     }
     let mut received = 0u64;
-    if opened
-        && let Ok((up, down)) = tokio::io::copy_bidirectional(&mut client, &mut upstream).await
-    {
+    if opened {
+        let (up, down) = relay(&mut client, &mut upstream).await;
         sent += up;
         received += down;
     }
@@ -450,6 +449,37 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
     entry.sent = sent;
     entry.received = received;
     inner.log.append(&entry);
+}
+
+/// Copies both ways until both sides are done; answers the bytes each way, counted as they go
+/// so a side that resets instead of closing still has what it moved logged.
+async fn relay(client: &mut TcpStream, upstream: &mut TcpStream) -> (u64, u64) {
+    let (mut client_read, mut client_write) = client.split();
+    let (mut upstream_read, mut upstream_write) = upstream.split();
+    let up = pipe(&mut client_read, &mut upstream_write);
+    let down = pipe(&mut upstream_read, &mut client_write);
+    tokio::join!(up, down)
+}
+
+async fn pipe(
+    from: &mut (impl tokio::io::AsyncRead + Unpin),
+    to: &mut (impl tokio::io::AsyncWrite + Unpin),
+) -> u64 {
+    let mut buffer = vec![0u8; 16 * 1024];
+    let mut moved = 0u64;
+    loop {
+        match from.read(&mut buffer).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                if to.write_all(&buffer[..read]).await.is_err() {
+                    break;
+                }
+                moved += read as u64;
+            }
+        }
+    }
+    let _ = to.shutdown().await;
+    moved
 }
 
 enum Refusal {

@@ -136,7 +136,10 @@ filesystem and network isolation are both required.
    the grant named as context, until per-value provenance (decision 6) can show that none of its
    arguments came from untrusted text. Some calls are never granted, and they always go to the
    person: a payment, sending as the person, and changing sign-ins, keys or access. The API
-   refuses such a grant. Grants pass down as subsets. A worker's effective grants are its own,
+   refuses such a grant. Sending these straight to the person at the gate also needs a
+   classification that can tell ace's `agent_message` to a bot's own worker from a message to
+   someone else. Until that exists, they keep ADR 0163's route: the reviewer is told the
+   concern, and a bot that retries a refused one reaches the person. Grants pass down as subsets. A worker's effective grants are its own,
    kept only where a grant of its parent covers them, applied up the tree to the top. So a
    person who narrows or revokes a parent's grant narrows every worker under it at once. The
    person may give a worker its own grants, but they never exceed the parent's.

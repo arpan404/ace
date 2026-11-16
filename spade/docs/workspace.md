@@ -67,6 +67,11 @@ Windows still uses, and the rules both share.
   stdout, then `[stderr]` and stderr. A command that timed out or exited non-zero is an error
   result.
 
+**Sandboxed commands.** Where Spade's OS sandbox holds files and network (macOS today), a
+command runs in the bot's sandbox and isn't reviewed unless the classifier finds something that
+could leave through an allowed path; see [security.md](security.md). What follows holds where
+there is no sandbox.
+
 **Asking.** Every shell call is a write and asks, even one that only reads; reading without
 asking goes through the file tools. Answering with `always` allows that exact command (the same
 string) for the bot from then on, and nothing else: `Tool::always_scope` gives the shell's scope

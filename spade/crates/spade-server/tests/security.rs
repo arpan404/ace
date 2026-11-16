@@ -59,6 +59,17 @@ async fn world(
     extra: Vec<Arc<dyn Tool>>,
     scripts: impl FnOnce(&Places) -> Vec<Script>,
 ) -> Result<World> {
+    world_in(false, sandboxed, extra, scripts).await
+}
+
+/// [`world`], its commands run in the bot's terminal (as Spade runs them on macOS) when
+/// `terminal`.
+async fn world_in(
+    terminal: bool,
+    sandboxed: bool,
+    extra: Vec<Arc<dyn Tool>>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
     let dir = tempfile::tempdir()?;
     let root = std::fs::canonicalize(dir.path())?;
     let home = root.join("home");
@@ -69,11 +80,19 @@ async fn world(
     let workspaces = Workspaces::new(data.join("workspace"));
     let late = Arc::new(Late::default());
     let bots = EngineHandle::default();
-    let mut tools: Vec<Arc<dyn Tool>> = workspace_tools(
-        workspaces.clone(),
-        bots.clone(),
-        Shell::system().confined(late.clone()),
-    );
+    let shell = Shell::system().confined(late.clone());
+    let commands = if terminal {
+        let terminals = spade_server::computer::Terminals::new(
+            data.join("terminal"),
+            workspaces.clone(),
+            shell.clone(),
+            Arc::new(SystemClock),
+        );
+        spade_server::computer::shell_commands(&terminals, shell)
+    } else {
+        shell.into()
+    };
+    let mut tools: Vec<Arc<dyn Tool>> = workspace_tools(workspaces.clone(), bots.clone(), commands);
     tools.extend(extra);
     let scripts = scripts(&Places {
         root: root.clone(),
@@ -398,5 +417,28 @@ async fn a_tool_the_person_granted_runs_unreviewed_and_payments_cannot_be_grante
     let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
     assert!(asked(&events).is_empty(), "{:?}", types(&events));
     assert_eq!(calls.lock().map(|c| c.len()).unwrap_or(0), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_terminal_carries_a_commands_folder_and_variables_inside_the_sandbox() -> Result {
+    let w = world_in(true, true, vec![], |_| {
+        vec![
+            shell("c1", "mkdir -p sub && cd sub && export GREETING=hi".to_owned()),
+            Script::reply("").call(
+                "c2",
+                "shell",
+                json!({ "command": "pwd; echo \"$GREETING\"; echo t > \"$TMPDIR/t\" && echo tmp-ok" }),
+            ),
+            Script::reply("Done."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Set up").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    let text = output(&events, "c2");
+    assert!(text.contains("/sub\n"), "{text}");
+    assert!(text.contains("hi\n") && text.contains("tmp-ok"), "{text}");
     Ok(())
 }

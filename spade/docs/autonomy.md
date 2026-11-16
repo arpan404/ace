@@ -57,10 +57,11 @@ untrusted content is in view.
 It catches common ways a command reaches outside the workspace and names them to the reviewer as
 its concern. It is not a containment guarantee: a shell can do more than any
 reading of its words can follow, and a command it lets through can still reach the network or
-write outside the workspace. Containment will come from an OS sandbox in a later change: no
-network, and writes only in the workspace and temp folders, unless the reviewer or the person
-approves an unsandboxed run. Until then, `auto_review` relies on the reviewer for what the
-classifier misses.
+write outside the workspace. Containment is the OS sandbox of
+[ADR 0167](../../docs/adr/0167-spade-security-boundaries.md) ([security.md](security.md)): where
+it holds files and network, a command runs in it without a review unless the classifier finds
+publishing, a server change, mail, a payment or admin rights. Where it doesn't (Linux, Windows,
+or the sandbox off), `auto_review` relies on the reviewer for what the classifier misses.
 
 When it can't follow what a command will run, it doesn't try harder: it sends the command to the
 person as unclear.
@@ -319,7 +320,7 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
   15, 30, 60 and 120 minutes, then every two hours; `tail` is a shell job's terminal output.
 - `service_start {name, command, cwd?, keep?}` (gated like `shell`), `service_status`,
   `service_logs {name, lines?, after?}`, `service_stop`, all deferred. Events `service_started
-{service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
+  {service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
   (`exited`, `stopped`, `lost`, `failed`). Stop and deleting the bot stop its services; after a
   restart `keep` ones start again and the rest are `lost`. A running service does not make the
   bot read as working.
@@ -327,12 +328,12 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 ## API
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
-attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
+  attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
   `parked` the park's reason (`check`). `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
   when not open); `DELETE /v1/agents/{id}/wakes/{wake}` cancels it (`204`, `409`).
 - `GET /v1/agents/{id}/services`: `{services: [{id, name, command, cwd, keep, state, exit_code,
-restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
-next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
+  restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
+  next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
 - Every agent shows `wake` (the soonest open wake, as above, or `null`) and `services` (how many
   run).
 - `POST /v1/agents` and `PATCH /v1/agents/{id}` accept `access` only as `auto_review`, which
