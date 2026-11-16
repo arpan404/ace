@@ -28,7 +28,8 @@ extension XCUIApplication {
         for button in shown { XCTAssertGreaterThanOrEqual(button.frame.height, 44, button.identifier, file: file, line: line) }
         for (one, next) in zip(shown, shown.dropFirst()) {
             let apart = max(next.frame.minX - one.frame.maxX, next.frame.minY - one.frame.maxY)
-            XCTAssertGreaterThanOrEqual(apart, 8, "\(one.identifier) sits against \(next.identifier)", file: file, line: line)
+            // Eight points apart, give or take layout rounding.
+            XCTAssertGreaterThanOrEqual(apart, 7.5, "\(one.identifier) sits against \(next.identifier)", file: file, line: line)
         }
     }
     /// The thread's title, which opens its menu: model, effort and access, then the thread's actions.

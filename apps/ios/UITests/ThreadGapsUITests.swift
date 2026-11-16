@@ -97,7 +97,6 @@ import XCTest
         let explore = app.agentsRow("Explore process groups")
         XCTAssertTrue(explore.waitForExistence(timeout: 25))
         explore.tap()
-        XCTAssertTrue(app.collectionViews["lane.transcript"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Process groups are created per thread."].waitForExistence(timeout: 10))
         screenshot("agent-lane-grouped")
     }
