@@ -2,14 +2,13 @@ import Foundation
 
 /// Layout identity for cached row measurements. A measurement taken under one
 /// revision must never size a spacer under another: rotation, split-view width,
-/// Dynamic Type, density or an opened disclosure invalidates it. The feed's height
-/// never does: a row is as tall as its width makes it, so the keyboard or the
-/// bottom bar changing the height keeps every measurement and the scroll offset. Resident
+/// Dynamic Type, density or an opened disclosure invalidates it. Resident
 /// content changes (paging, streaming, regrouping) never invalidate: rows
 /// carry their own measurements and the extent classifies membership
 /// explicitly, so ordinary transcript motion must not shift the scrollbar.
 struct TranscriptLayoutRevision: Equatable, Sendable {
     var width: Double
+    var height: Double
     /// Description of the Dynamic Type size (e.g. `"large"`, `"accessibility3"`).
     var typeSize: String
     var density: String
@@ -17,13 +16,13 @@ struct TranscriptLayoutRevision: Equatable, Sendable {
     var disclosures: Int
 
     static let `default` = TranscriptLayoutRevision(
-        width: 0, typeSize: "", density: "", disclosures: 0)
+        width: 0, height: 0, typeSize: "", density: "", disclosures: 0)
 
     /// Revision for the given viewport geometry. Takes no resident-content
     /// input by construction: paging and streaming must not invalidate.
-    static func current(width: Double, typeSize: String,
+    static func current(width: Double, height: Double, typeSize: String,
                         density: String, disclosures: Int) -> Self {
-        Self(width: width, typeSize: typeSize,
+        Self(width: width, height: height, typeSize: typeSize,
              density: density, disclosures: disclosures)
     }
 }

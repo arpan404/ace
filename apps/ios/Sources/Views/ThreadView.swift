@@ -124,7 +124,7 @@ struct ThreadView: View {
                                                 openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         behind: $behind, jumps: jumps, railPlace: railPlace)
+                         barHeight: barHeight, behind: $behind, jumps: jumps, railPlace: railPlace)
             .modifier(TurnRailOverlay(model: model, threadId: thread.id, behind: behind, place: railPlace, bottom: barHeight))
             .markdownShelf(threadId: thread.id)
     }
@@ -141,7 +141,7 @@ struct ThreadView: View {
                 } else {
                     ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
                                    changesScope: changesScope, scopeShown: { changesScope = nil },
-                                   openChat: { select(.chat) })
+                                   barHeight: barHeight, openChat: { select(.chat) })
                 }
             }
         }
@@ -162,7 +162,7 @@ struct ThreadView: View {
 
     private func content(pageWidth: CGFloat) -> some View {
         headed
-            .modifier(ThreadFoot(height: $barHeight) { bottomBar })
+            .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -635,19 +635,17 @@ private struct GoalPresentation: Identifiable {
     var id: Int { epoch }
 }
 
-/// The thread's foot as the system's bottom inset: the transcript's insets and keyboard avoidance
-/// are the system's own, so the rows and the composer move together on the keyboard's curve. The
-/// composer keeps the transcript's reading width; under it the page colour runs on down behind
-/// the keyboard's translucent edge and the home indicator.
-///
-/// Not iOS 26's `safeAreaBar`, which would add the soft scroll edge: on iOS 26.1 it drops taps on
-/// the live pills and Scroll to end above the capsule (the capsule's own buttons still work), so
-/// the foot keeps a plain inset until that holds.
-private struct ThreadFoot<Bar: View>: ViewModifier {
+/// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
+/// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
+/// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
+/// words never show in the gap above the keyboard or behind the home indicator.
+private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+        ZStack(alignment: .bottom) {
+            content.ignoresSafeArea(.keyboard, edges: .bottom)
+            // The composer keeps the transcript's reading width; its floor spans the window.
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)
                 .frame(maxWidth: .infinity)
@@ -657,8 +655,8 @@ private struct ThreadFoot<Bar: View>: ViewModifier {
     }
 }
 
-/// The page colour from the composer's lower edge on down, behind the keyboard's translucent edge
-/// and the home indicator. The composer itself stays glass over the transcript.
+/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
+/// edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
     private let below = AceDesign.Size.tap * 8
     private let fade = AceDesign.Space.margin
