@@ -15,6 +15,7 @@ import { part } from "@/lib/suit-part.ts";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { readTemplates } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
 /* What a new bot's conversation (`NewBotStart`) shows under its name: its line and templates. */
 
@@ -96,6 +97,7 @@ export function TemplateRows(props: {
 }) {
   const openMarket = useOpenMarket();
   const client = props.client;
+  const marketplace = useBetaEnabled("marketplace") === true;
   const templates = useQuery({
     queryKey: ["spade", "templates", props.machineKey],
     queryFn: ({ signal }) => readTemplates(client, { signal }),
@@ -135,14 +137,16 @@ export function TemplateRows(props: {
           );
         })}
       </ul>
-      <button
-        type="button"
-        onClick={() => openMarket("bots")}
-        {...part("link")}
-        className="mt-2 self-start rounded-sm px-3 text-ui text-foreground hover:underline focus-ring"
-      >
-        From the marketplace
-      </button>
+      {marketplace && (
+        <button
+          type="button"
+          onClick={() => openMarket("bots")}
+          {...part("link")}
+          className="mt-2 self-start rounded-sm px-3 text-ui text-foreground hover:underline focus-ring"
+        >
+          From the marketplace
+        </button>
+      )}
     </section>
   );
 }

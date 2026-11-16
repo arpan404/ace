@@ -8,6 +8,7 @@
     "./defaults": "./src/defaults.ts",
     "./roles": "./src/roles.ts",
     "./batch": "./src/batch.ts",
+    "./beta": "./src/beta.ts",
     "./remote-networks": "./src/remote-networks-migration.ts"
   },
   "scripts": {

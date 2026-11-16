@@ -26,6 +26,7 @@ import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
 import type { PreparedEntry } from "./review.ts";
 import type { MarketStore, StoredSource } from "./store.ts";
+import { TurnedOff } from "./turned-off.ts";
 
 /*
  * Fetching one version for review (ADR 0168 §6, §8). Everything the device decides, it decides
@@ -206,6 +207,7 @@ async function fromMarket(
   try {
     files = readArchive(await http.object(manifest.hash), typeLimits[type]);
   } catch (error) {
+    if (error instanceof TurnedOff) throw error;
     throw new Refused(error instanceof Error ? error.message : "The archive doesn't read");
   }
   const mismatch = manifestMismatch(manifest, hashFiles(files));

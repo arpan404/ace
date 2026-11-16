@@ -17,6 +17,7 @@ import {
 } from "./install.ts";
 import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
 import { newer, prepareWithBrings, Refused } from "./prepare.ts";
+import { TurnedOff } from "./turned-off.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { MarketStore, type StoredSource } from "./store.ts";
 
@@ -43,6 +44,11 @@ export interface MarketplaceOptions {
   spade: SpadePort;
   /** Runs `run` after `ms`; returns its cancel. */
   schedule: (run: () => void, ms: number) => () => void;
+  /**
+   * Settings › Beta's switch (`beta.marketplace`), read when each request and each queued job
+   * starts, before every network fetch and before every install step. On when absent.
+   */
+  enabled?: () => Promise<boolean>;
   /** Tests add catalogs by local path; people add https addresses only. */
   allowLocalGit?: boolean;
 }
@@ -86,7 +92,13 @@ export class MarketplaceService {
       root: join(options.root, "git"),
       runtime: options.git,
       id: options.id,
+      gate: () => this.#gate(),
     });
+  }
+
+  /** Throws `TurnedOff` while Settings › Beta has the marketplace off. */
+  async #gate(): Promise<void> {
+    if (this.#options.enabled && !(await this.#options.enabled())) throw new TurnedOff();
   }
 
   static async open(options: MarketplaceOptions): Promise<MarketplaceService> {
@@ -123,14 +135,23 @@ export class MarketplaceService {
   #daily(ms: number): void {
     this.#cancelTimer = this.#options.schedule(() => {
       if (this.#closed) return;
-      void this.#refreshAll().finally(() => this.#daily(dayMs));
+      // Off, the refresh stops at its first fetch; the next day tries again.
+      void this.#refreshAll()
+        .catch(() => {})
+        .finally(() => this.#daily(dayMs));
     }, ms);
   }
 
   #http(): MarketHttp | undefined {
     const market = this.#store.source("market");
     return market?.enabled
-      ? new MarketHttp({ origin: this.#options.origin, fetch: this.#options.fetch })
+      ? new MarketHttp({
+          origin: this.#options.origin,
+          fetch: async (url, init) => {
+            await this.#gate();
+            return this.#options.fetch(url, init);
+          },
+        })
       : undefined;
   }
 
@@ -151,12 +172,15 @@ export class MarketplaceService {
       plugins: this.#options.plugins(),
       spade: this.#options.spade,
       now: this.#options.now,
+      gate: () => this.#gate(),
     };
   }
 
   /** Mutations run one at a time, in order. */
   #serial<T>(run: () => Promise<T>): Promise<T> {
-    const next = this.#queue.then(run, run);
+    // Queued before the marketplace was turned off, a job still doesn't start once it is.
+    const start = () => this.#gate().then(run);
+    const next = this.#queue.then(start, start);
     this.#queue = next.catch(() => {});
     return next;
   }
@@ -172,9 +196,11 @@ export class MarketplaceService {
 
   async request(operation: MarketOperation): Promise<MarketResult> {
     try {
+      await this.#gate();
       return await this.#handle(operation);
     } catch (thrown) {
       if (thrown instanceof Refused) return error(thrown.code, thrown.message, thrown.problems);
+      if (thrown instanceof TurnedOff) return error(thrown.code, thrown.message);
       return error("failed", thrown instanceof Error ? thrown.message : "The marketplace failed");
     }
   }

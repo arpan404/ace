@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readConfig, startDaemon } from "@ace/daemon";
 import type { McpAttribution, AgentControlOperation } from "@ace/protocol";
@@ -70,10 +69,9 @@ export async function daemonFixture(
       },
     });
   const daemon = await boot();
-  // A daemon given Spade's seams is one whose features.json shows Spade (ADR 0139), written
-  // once the daemon has made its home.
+  // A daemon given Spade's seams is one with Spade turned on in Settings › Beta (ADR 0139).
   if (options.spade) {
-    writeFileSync(join(h.home, "daemon", "features.json"), '{"spade": true}');
+    await daemon.settings.set("beta.spade", true, { kind: "global" });
     const deadline = Date.now() + 5000;
     while (daemon.spade?.status().hidden === true && Date.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 20));

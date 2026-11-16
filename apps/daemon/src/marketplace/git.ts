@@ -25,17 +25,26 @@ export class GitCatalogs {
   readonly #root: string;
   readonly #runtime: GitRuntime;
   readonly #id: () => string;
+  readonly #gate: () => Promise<void>;
 
-  constructor(options: { root: string; runtime: GitRuntime; id: () => string }) {
+  constructor(options: {
+    root: string;
+    runtime: GitRuntime;
+    id: () => string;
+    /** Throws when the catalog may not be fetched now (the marketplace turned off). */
+    gate?: () => Promise<void>;
+  }) {
     this.#root = options.root;
     this.#runtime = options.runtime;
     this.#id = options.id;
+    this.#gate = options.gate ?? (async () => {});
   }
 
   async #fetched<T>(
     address: string,
     run: (gitRoot: string, commit: string, temporary: string) => Promise<T>,
   ): Promise<T> {
+    await this.#gate();
     const temporary = join(this.#root, `fetch-${this.#id().replace(/[^A-Za-z0-9-]/g, "")}`);
     await mkdir(temporary, { recursive: true, mode: 0o700 });
     let released = false;

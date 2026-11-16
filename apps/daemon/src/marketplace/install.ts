@@ -77,7 +77,14 @@ export interface InstallPorts {
   plugins: PluginPort | undefined;
   spade: SpadePort;
   now: () => number;
+  /**
+   * Throws when the install may not go on (the marketplace turned off); checked before each
+   * step, so a throw undoes the steps before it. Undoing never asks it.
+   */
+  gate?: () => Promise<void>;
 }
+
+const step = (ports: InstallPorts) => ports.gate?.() ?? Promise.resolve();
 
 function record(
   entry: PreparedEntry,
@@ -122,17 +129,21 @@ async function land(
 ): Promise<StoredInstall> {
   const { store } = ports;
   const previous = store.install(entry.type, entry.name);
+  await step(ports);
   await store.pin(entry.hash, entry.type, entry.checked.files);
   switch (entry.type) {
     case "suit": {
       if (!ports.suits) throw new Error("The Suit library isn't ready");
       tx.note({ kind: "suit", name: entry.name, previousHash: previous?.hash });
+      await step(ports);
       await ports.suits.install(entry.name, entry.checked.files, {
         replace: previous !== undefined,
       });
+      await step(ports);
       return saveRecord(ports, tx, record(entry, ports.now(), { target: entry.name }));
     }
     case "spade-skill":
+      await step(ports);
       return saveRecord(ports, tx, record(entry, ports.now(), { target: entry.name }));
     case "spade-plugin": {
       const plugins = ports.plugins;
@@ -150,6 +161,7 @@ async function land(
             : undefined,
         availability: accepted ? await plugins.availability(entry.name) : undefined,
       });
+      await step(ports);
       await plugins.accept({
         id: entry.plugin.id,
         commit: entry.plugin.commit,
@@ -158,8 +170,10 @@ async function land(
       for (const bot of choices.bots) {
         const before = await ports.spade.pluginsOf(bot);
         tx.note({ kind: "bot-plugins", bot, plugins: before });
+        await step(ports);
         await ports.spade.setPlugins(bot, [...before, entry.name]);
       }
+      await step(ports);
       return saveRecord(
         ports,
         tx,
@@ -185,6 +199,7 @@ async function landFolders(
       throw new Error(`A skill called ${folder.name} is already installed`);
     const hashed = hashFiles(folder.files);
     const hash = contentHash(hashed);
+    await step(ports);
     await ports.store.pin(hash, "spade-skill", folder.files);
     saveRecord(ports, tx, {
       source: review.source as MarketInstalled["source"],
@@ -246,9 +261,11 @@ async function installIn(
   }
   skills.push(...(await landFolders(ports, tx, review, inspection.folders)));
   // The recipe's bytes are pinned before the bot exists, so a made bot always has them.
+  await step(ports);
   await ports.store.pin(review.hash, "spade-bot", review.checked.files);
   const granted = grantedNeeds(recipeNeeds(inspection.recipe), choices.needs);
-  const step = tx.note({ kind: "bot", transaction: tx.id });
+  await step(ports);
+  const made = tx.note({ kind: "bot", transaction: tx.id });
   const bot = await ports.spade.createBot({
     recipe: inspection.recipe,
     fromRecipe: { source: review.source, name: review.name, version: review.version },
@@ -262,8 +279,9 @@ async function installIn(
     },
     startRoutines: choices.startRoutines,
   });
-  if (step.kind === "bot") step.id = bot.id;
+  if (made.kind === "bot") made.id = bot.id;
   tx.learned();
+  await step(ports);
   return saveRecord(ports, tx, record(review, ports.now(), { target: bot.id }));
 }
 

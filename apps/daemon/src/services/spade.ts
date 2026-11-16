@@ -12,7 +12,7 @@ import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
-import { watchFeatures, type FeaturesWatchRuntime } from "../spade/features-file.ts";
+import { betaKeys, foldLegacySpadeFlag } from "@ace/settings/beta";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { spadeHostThread } from "./spade-host.ts";
 import { startSpadeComputers } from "./spade-computers.ts";
@@ -23,8 +23,6 @@ import type { ServiceContext } from "./types.ts";
 export interface DaemonSpadeOptions {
   /** The environment Spade's service is planned with; the daemon's by default. */
   env?: NodeJS.ProcessEnv;
-  /** How `features.json` is read and watched; the file system by default. */
-  features?: FeaturesWatchRuntime;
   /** Spade's registration with the service manager; `@ace/service` by default. */
   service?: SpadeServiceControl;
   runtime?: SpadeLinkRuntime;
@@ -64,20 +62,11 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     () => host.current(),
     join(dataDir, "workspace"),
   );
-  // `features.json` (ADR 0139): while Spade is hidden it gets no service, grant or forwarding,
-  // whatever `spade.enabled` says. Applied below, once the switch exists.
-  let onFeatures: ((shown: boolean) => void) | undefined;
-  const features = await watchFeatures({
-    home: config.dataDir,
-    ...(options.features ? { runtime: options.features } : {}),
-    log: (level, message) => log.log(level, message),
-    onChange: (flags) => {
-      link.setHidden(!flags.spade);
-      onFeatures?.(flags.spade);
-    },
-  });
-  context.resources.own(() => features.close(), "spade features");
-  link.setHidden(!features.current().spade);
+  // Settings › Beta's Spade switch (`beta.spade`, ADR 0139): while it is off Spade gets no
+  // service, grant or forwarding, whatever `spade.enabled` says. Followed below, once the
+  // switch exists.
+  let shown = (await services.settings?.get(betaKeys.spade))?.value === true;
+  link.setHidden(!shown);
 
   const sql = {
     statement: (text: string) => store.statement(text),
@@ -171,7 +160,6 @@ export async function startSpade(context: ServiceContext): Promise<void> {
 
   const settings = services.settings;
   if (!settings) return;
-  const shown = () => features.current().spade;
   const toggle = spadeSwitch({
     service,
     link,
@@ -182,27 +170,64 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     now: context.now,
     log: (level, message) => log.log(level, message),
   });
-  const stop = await settings.subscribe({ keys: ["spade.enabled"], scope: {} }, (notification) => {
-    if (notification.type !== "changed") return;
-    const entry = notification.entries.find((each) => each.key === "spade.enabled");
-    if (entry) void toggle.set(shown() && entry.value === true, "changed");
-  });
-  context.resources.own(stop, "spade setting");
-  // Hiding Spade stops its service and retires its grant, as turning it off does, but leaves
-  // `spade.enabled` and Spade's data as they are: showing it again puts back what the setting
-  // says, and a grant the person revoked stays revoked (`started` reconciles that way).
-  onFeatures = (visible) => {
+  // Both settings as last heard, kept here so every decision uses the newest of each: an answer
+  // read before a change is never applied after it.
+  let enabled = false;
+  let heardBeta = false;
+  let heardEnabled = false;
+  const apply = (why: "started" | "changed") => void toggle.set(shown && enabled, why);
+  // Turning Spade off in Beta stops its service and retires its grant, as `spade.enabled` off
+  // does, but leaves that setting and Spade's data as they are: turning it on again puts back
+  // what the setting says, and a grant the person revoked stays revoked (`started` reconciles
+  // that way).
+  const showSpade = (visible: boolean) => {
+    if (visible === shown) return;
+    shown = visible;
+    link.setHidden(!visible);
     log.log(
       "info",
       visible
-        ? "Spade is shown again (features.json)"
-        : "Spade is hidden (features.json): its service stops; its data is kept",
+        ? "Spade is turned on in Settings › Beta"
+        : "Spade is turned off in Settings › Beta: its service stops; its data is kept",
     );
-    void settings.get("spade.enabled").then(
-      (entry) => toggle.set(visible && entry.value === true, visible ? "started" : "changed"),
-      (error: unknown) => log.log("warn", `Reading spade.enabled failed: ${String(error)}`),
-    );
+    apply(visible ? "started" : "changed");
   };
+  const stop = await settings.subscribe(
+    { keys: [betaKeys.spade, "spade.enabled"], scope: {} },
+    (notification) => {
+      if (notification.type !== "changed") return;
+      const entry = notification.entries.find((each) => each.key === "spade.enabled");
+      if (entry) {
+        heardEnabled = true;
+        enabled = entry.value === true;
+      }
+      const beta = notification.entries.find((each) => each.key === betaKeys.spade);
+      if (beta) heardBeta = true;
+      if (beta && (beta.value === true) !== shown) showSpade(beta.value === true);
+      else if (entry) apply("changed");
+    },
+  );
+  context.resources.own(stop, "spade setting");
+  // Read again once subscribed, so a change between the first read and the subscription isn't
+  // lost; a value the subscription already reported is newer and wins.
+  const [betaNow, enabledNow] = await Promise.all([
+    settings.get(betaKeys.spade),
+    settings.get("spade.enabled"),
+  ]);
+  if (!heardEnabled) enabled = enabledNow.value === true;
+  if (!heardBeta && (betaNow.value === true) !== shown) {
+    shown = betaNow.value === true;
+    link.setHidden(!shown);
+  }
   // Not awaited: registering a service can be slow, and the daemon's start doesn't wait on Spade.
-  void toggle.set(shown() && (await settings.get("spade.enabled")).value === true, "started");
+  apply("started");
+  // A home from before Settings › Beta may still show Spade through `features.json`: folded into
+  // `beta.spade` once, off the start path (ADR 0170), and followed through the subscription.
+  void foldLegacySpadeFlag(settings, config.dataDir).then(
+    (turnedOn) => {
+      if (turnedOn) log.log("info", "Spade's features.json flag moved to Settings › Beta");
+    },
+    (error: unknown) =>
+      log.log("warn", `Moving Spade's features.json flag failed: ${String(error)}`),
+  );
 }

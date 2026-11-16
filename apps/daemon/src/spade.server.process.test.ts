@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -13,12 +13,12 @@ import { aceMcpUrl, mcpStatus, spadeEnv, until as poll } from "./spade-test-supp
 
 const pollMs = { waiting: 50, ready: 200 };
 
-/**
- * Shows or hides Spade in `home`'s features.json, as `ace features show|hide spade` does, once
- * the daemon has made the home.
- */
-async function showSpade(home: string, shown: boolean): Promise<void> {
-  await writeFile(join(home, "features.json"), JSON.stringify({ spade: shown }));
+/** Turns Spade on or off in Settings › Beta, as the Beta page and `ace features` do. */
+async function showSpade(
+  daemon: Awaited<ReturnType<typeof startDaemon>>,
+  shown: boolean,
+): Promise<void> {
+  await daemon.settings.set("beta.spade", shown, { kind: "global" });
 }
 
 const backlog = new WeakMap<Client, ServerMessage[]>();
@@ -86,7 +86,7 @@ test("the daemon forwards requests and live streams to the Spade service, follow
     spade: { service: service.control, pollMs },
   });
   onTestFinished(() => daemon.close());
-  await showSpade(home, true);
+  await showSpade(daemon, true);
   await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
   const token = await readFile(daemon.tokenPath, "utf8");
   const client = new Client(daemon.url);
@@ -185,12 +185,43 @@ test("the daemon forwards requests and live streams to the Spade service, follow
     kind: "error",
     code: "unavailable",
   });
+}, 30_000);
 
-  // Hidden in features.json while on: its service stops and requests are refused as hidden, but
-  // its data and the setting stay, so showing it again brings it back as it was.
-  enable(true, "on-again");
-  await poll(() => daemon.spade?.status().state === "ready" || undefined, "Spade on again");
-  await showSpade(home, false);
+test("turning Spade off in Beta stops it and keeps its data and its own switch", async ({
+  onTestFinished,
+}) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-beta-off-")));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "ace");
+  const service = fakeSpadeService(() => home);
+  onTestFinished(() => service.close());
+  const daemon = await startDaemon({
+    engine: noProviderDiscovery,
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    spade: { service: service.control, pollMs },
+  });
+  onTestFinished(() => daemon.close());
+  await showSpade(daemon, true);
+  await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
+  const token = await readFile(daemon.tokenPath, "utf8");
+  const client = new Client(daemon.url);
+  onTestFinished(() => client.close());
+  await once(client.socket, "open");
+  client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("device"), token });
+  client.send({ type: "spade.status", requestId: "s1" });
+  client.send({
+    type: "settings.set",
+    requestId: "on",
+    key: "spade.enabled",
+    value: true,
+    layer: { kind: "global" },
+  });
+  await until(client, status("ready"));
+
+  // Turned off in Beta while on: its service stops and requests are refused as hidden, but its
+  // data and `spade.enabled` stay, so turning it on again brings it back as it was.
+  await writeFile(join(home, "spade", "kept.txt"), "Spade's own data");
+  await showSpade(daemon, false);
   await poll(() => daemon.spade?.status().hidden === true || undefined, "Spade to hide");
   await poll(() => !service.registered() && service.pid() === undefined, "Spade's service to stop");
   client.send({
@@ -202,15 +233,38 @@ test("the daemon forwards requests and live streams to the Spade service, follow
   });
   expect((await until(client, reply("h7"))).result).toMatchObject({
     kind: "error",
-    code: "hidden",
+    message: "Spade is turned off in Settings › Beta.",
   });
   expect((await stat(join(home, "spade"))).isDirectory()).toBe(true);
-  await showSpade(home, true);
+  expect(await readFile(join(home, "spade", "kept.txt"), "utf8")).toBe("Spade's own data");
+  expect((await daemon.settings.get("spade.enabled")).value).toBe(true);
+  await showSpade(daemon, true);
   await poll(
     () => (daemon.spade?.status().state === "ready" && service.registered()) || undefined,
     "Spade to come back",
   );
 }, 30_000);
+
+test("a home whose old features.json shows Spade starts with Spade turned on in Beta, once", async ({
+  onTestFinished,
+}) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-fold-")));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "ace");
+  await mkdir(home);
+  await writeFile(join(home, "features.json"), '{"spade": true}');
+  const service = fakeSpadeService(() => home);
+  onTestFinished(() => service.close());
+  const daemon = await startDaemon({
+    engine: noProviderDiscovery,
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    spade: { service: service.control, pollMs },
+  });
+  onTestFinished(() => daemon.close());
+  await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
+  expect((await daemon.settings.get("beta.spade")).value).toBe(true);
+  await expect(stat(join(home, "features.json"))).rejects.toThrow();
+});
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 /** The bytes the fake answers `GET /v1/images/{n}` with. */
@@ -231,7 +285,7 @@ test("spade.http carries images back as base64 and streams a message with images
     spade: { service: service.control, pollMs },
   });
   onTestFinished(() => daemon.close());
-  await showSpade(home, true);
+  await showSpade(daemon, true);
   await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
   const token = await readFile(daemon.tokenPath, "utf8");
   const client = new Client(daemon.url);

@@ -1,11 +1,11 @@
 import type { CheckResult } from "@ace/diagnostics";
+import { betaOnAtRest } from "@ace/settings/beta";
 import {
   installedSpadeVersion,
   localSpadePlan,
   spadeServiceState,
   type SpadeServiceState,
 } from "@ace/service/spade-service";
-import { loadFeatures } from "../spade/features-file.ts";
 import type { DoctorContext, DoctorFeature } from "./feature.ts";
 import { cliVersion } from "./install.ts";
 
@@ -74,7 +74,7 @@ const failure = (error: unknown, fix: string): Verdict => ({
 });
 const hidden: Verdict = {
   status: "ok",
-  message: "Spade is hidden on this machine (features.json).",
+  message: "Spade is turned off in Settings › Beta.",
   fix: nothing,
 };
 
@@ -88,7 +88,7 @@ export function spadeFeature(ports: SpadePorts): DoctorFeature {
     checks(context) {
       const home = context.config.dataDir;
       let shown: Promise<boolean> | undefined;
-      const isShown = () => (shown ??= loadFeatures(home).then((read) => read.flags.spade));
+      const isShown = () => (shown ??= betaOnAtRest(home, "spade"));
       let state: Promise<SpadeServiceState> | undefined;
       const read = () => (state ??= ports.state(home));
       return [
@@ -98,7 +98,7 @@ export function spadeFeature(ports: SpadePorts): DoctorFeature {
           async run(): Promise<Verdict> {
             try {
               const found = await read();
-              // Hidden Spade has no service once the daemon has seen the flag; one still
+              // Spade turned off has no service once the daemon has seen it; one still
               // registered is checked as usual.
               if (found === "absent" && !(await isShown())) return hidden;
               return spadeServiceVerdict(found);

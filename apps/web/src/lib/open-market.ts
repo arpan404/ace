@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { useCallback } from "react";
 
 /*
  * Opens the Marketplace modal over the page the person is on, by setting `?market=` (the modal's
@@ -11,9 +12,12 @@ export type MarketWhere = string;
 
 export function useOpenMarket() {
   const navigate = useNavigate();
-  return (where: MarketWhere = "discover") =>
-    void navigate({
-      to: ".",
-      search: (previous: Record<string, unknown>) => ({ ...previous, market: where }),
-    });
+  return useCallback(
+    (where: MarketWhere = "discover") =>
+      void navigate({
+        to: ".",
+        search: (previous: Record<string, unknown>) => ({ ...previous, market: where }),
+      }),
+    [navigate],
+  );
 }

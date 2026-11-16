@@ -122,6 +122,19 @@ export const SettingsValues = z.object({
    */
   "spade.enabled": z.boolean(),
   /**
+   * Settings › Beta: Spade is shown on this machine (ADR 0139, amended). Off by default: the app
+   * keeps only Spade's rail mark, as coming soon, and the daemon gives it no service, grant or
+   * forwarding whatever `spade.enabled` says. Off never deletes Spade's data. Replaces the old
+   * `features.json` flag, which a daemon moves here once. Global, admin only.
+   */
+  "beta.spade": z.boolean(),
+  /**
+   * Settings › Beta: ace's marketplace (ADR 0168). Off by default: the app hides every way into
+   * it and the daemon answers marketplace requests as turned off, but what was installed from it
+   * keeps working. Global, admin only.
+   */
+  "beta.marketplace": z.boolean(),
+  /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
    * Read when an emulator boots, so a change applies to the next boot. Emulators the person

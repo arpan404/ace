@@ -6,7 +6,7 @@ import { useDaemonQuery } from "./daemon-query.ts";
 
 /**
  * Whether this window's machine shows Spade (ADR 0139). Every build carries Spade; the daemon
- * decides at run time from `features.json` in its home and says so in `spade.status` (`hidden`).
+ * decides at run time from Settings › Beta (`beta.spade`) and says so in `spade.status` (`hidden`).
  * Hidden, the app keeps only Spade's mark in the rail, as coming soon, and leaves out its screens
  * and settings.
  */
@@ -17,7 +17,7 @@ export const spadeShownKey = ["spade", "shown"] as const;
 
 /**
  * The daemon's word on Spade: true shown, false hidden, undefined until it first answers. Live:
- * `spade.status.changed` follows edits to `features.json` without a reload.
+ * `spade.status.changed` follows the Beta switch without a reload.
  */
 export function useSpadeShown(): boolean | undefined {
   const client = useClient();

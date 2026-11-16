@@ -111,7 +111,7 @@ export async function openApp(path: string, more: MarketplaceSeed = {}) {
 export const findMarket = () => screen.findByRole("dialog", { name: "Marketplace" });
 
 /** Esc closes the modal. */
-export async function expectClosesOnEscape(press: (keys: string) => Promise<void>) {
+export async function expectClosesOnEscape(press: (keys: string) => Promise<unknown>) {
   await findMarket();
   await press("{Escape}");
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Marketplace" })).toBeNull());

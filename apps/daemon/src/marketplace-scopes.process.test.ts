@@ -62,6 +62,14 @@ test("a read device browses the marketplace and hears installs, but only an admi
     const f = await setup({ marketplace: harness.service });
     const reader = await connect(f, sockets, ["read"]);
     const admin = await connect(f, sockets, ["admin"]);
+    // Off in Settings › Beta, every request over the socket is answered as turned off.
+    harness.hooks.on = false;
+    expect(await admin.ask("off", { op: "search", query: "triage" })).toMatchObject({
+      op: "error",
+      code: "unavailable",
+      message: expect.stringContaining("turned off"),
+    });
+    harness.hooks.on = true;
     expect(await reader.ask("refresh", { op: "refresh" })).toMatchObject({
       op: "error",
       code: "forbidden",

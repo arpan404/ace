@@ -5,6 +5,7 @@ import { Icon } from "@/components/icon.tsx";
 import { railPlaceClass } from "@/components/rail-place.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useOpenMarket } from "@/lib/open-market.ts";
 import { formatMarket, parseMarket } from "./market-address.ts";
 
@@ -20,8 +21,10 @@ function useMarketParam(): string | undefined {
 
 /** The Marketplace modal, over any screen while the address has `?market=`. */
 export function MarketHost() {
+  // Off in Settings › Beta, no address opens it, deep links included.
+  const on = useBetaEnabled("marketplace") === true;
   const value = useMarketParam();
-  const view = parseMarket(value);
+  const view = on ? parseMarket(value) : undefined;
   const navigate = useNavigate();
   // Mounted again on each opening, and when a link moves it somewhere the modal didn't: the
   // modal itself writes each move, and those it knows.

@@ -13,6 +13,7 @@ import { useVideoSize } from "@/features/suits/index.ts";
 import { AppPreview } from "./app-preview.tsx";
 import { useLook } from "./look.ts";
 import { PickerCard } from "./picker-card.tsx";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
 /*
  * Settings > Appearance > Look: every built-in theme and every installed Suit (ADR 0150) as
@@ -135,6 +136,7 @@ export function LookPicker() {
   const { appearance, resolved, suitsOff } = useTheme();
   const { summaries, failed } = useSuitLibrary();
   const look = useLook();
+  const marketplace = useBetaEnabled("marketplace") === true;
   return (
     <div className="flex flex-col gap-3">
       <div
@@ -175,14 +177,16 @@ export function LookPicker() {
             ))}
         <MakeYourOwn />
       </div>
-      <button
-        type="button"
-        onClick={() => openMarket("looks")}
-        {...part("link")}
-        className="self-start rounded-sm text-ui text-foreground hover:underline focus-ring"
-      >
-        More Suits
-      </button>
+      {marketplace && (
+        <button
+          type="button"
+          onClick={() => openMarket("looks")}
+          {...part("link")}
+          className="self-start rounded-sm text-ui text-foreground hover:underline focus-ring"
+        >
+          More Suits
+        </button>
+      )}
       {look.note && <p className="text-xs text-muted-foreground">{look.note}</p>}
       {summaries?.length === 0 && failed && (
         <p className="text-xs text-muted-foreground">Your own looks couldn't be read.</p>

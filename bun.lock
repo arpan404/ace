@@ -1000,6 +1000,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@ace/settings": "workspace:*",
         "@ace/workspace": "workspace:*",
         "tar": "7.5.7",
         "zod": "^4.6.5",

@@ -18,6 +18,7 @@ import { cn } from "@/lib/cn.ts";
 import { botFileMax } from "./spade-bot-start.tsx";
 import { importAgent } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
 /* Spade's list top: Search, Spade's apps, plugins and skills, and +; then Spade's search field. */
 
@@ -34,6 +35,7 @@ export function SpadeListTop(props: {
   onNewGroup(): void;
 }) {
   const openMarket = useOpenMarket();
+  const marketplace = useBetaEnabled("marketplace") === true;
   return (
     <div className="mx-2 mt-1 mb-1 flex shrink-0 items-center justify-end gap-2 py-3.5 pr-2">
       <IconButton
@@ -45,18 +47,20 @@ export function SpadeListTop(props: {
         onClick={props.onSearch}
         className={roundButton}
       />
-      <button
-        type="button"
-        onClick={() => openMarket("spade")}
-        aria-label="Apps, plugins and skills"
-        title="Apps, plugins and skills"
-        className={cn(
-          "grid shrink-0 place-items-center text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground",
-          roundButton,
-        )}
-      >
-        <Icon icon={PuzzlePieceIcon} size={18} />
-      </button>
+      {marketplace && (
+        <button
+          type="button"
+          onClick={() => openMarket("spade")}
+          aria-label="Apps, plugins and skills"
+          title="Apps, plugins and skills"
+          className={cn(
+            "grid shrink-0 place-items-center text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:text-foreground",
+            roundButton,
+          )}
+        >
+          <Icon icon={PuzzlePieceIcon} size={18} />
+        </button>
+      )}
       {props.hosts.length > 0 && (
         <AddMenu hosts={props.hosts} onNewBot={props.onNewBot} onNewGroup={props.onNewGroup} />
       )}

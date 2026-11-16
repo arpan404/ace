@@ -1,4 +1,5 @@
 import { maxArchiveBytes } from "@ace/marketplace";
+import { TurnedOff } from "./turned-off.ts";
 
 /*
  * The thin shell around market.acehq.dev's read routes (ADR 0168 §3). Requests carry no account,
@@ -68,6 +69,7 @@ export class MarketHttp {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
+      if (error instanceof TurnedOff) throw error;
       throw new MarketHttpError(
         `The market can't be reached: ${error instanceof Error ? error.message : "no answer"}`,
       );
