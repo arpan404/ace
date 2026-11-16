@@ -132,9 +132,12 @@ import XCTest
         XCTAssertTrue(text.waitForExistence(timeout: 5))
         text.typeText("Keep the window bounded by bytes.")
         button(app, "review.save", "Save").tap()
-        let chat = app.buttons["thread.page.chat"]
-        if !chat.waitForExistence(timeout: 3) { app.closeSheet() }
-        if chat.exists { chat.tap() }
+        // A phone shows Changes as a page, Chat back from ⋯; elsewhere it is a sheet.
+        if app.descendants(matching: .any)["thread.page.changes.body"].waitForExistence(timeout: 3) {
+            app.showThreadPage("chat")
+        } else {
+            app.closeSheet()
+        }
         let chip = app.buttons["composer.comments"]
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         let field = app.otherElements["composer.surface"].firstMatch

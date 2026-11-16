@@ -76,16 +76,13 @@ import XCTest
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 30))
         menu.tap()
-        for id in ["thread.options.conversation", "thread.options.tools", "thread.options.organize"] {
-            let group = app.buttons[id]
-            XCTAssertTrue(group.waitForExistence(timeout: 5))
-            XCTAssertGreaterThanOrEqual(group.frame.height, 44)
+        // One system menu: the conversation's actions one tap away, the organize actions below.
+        for id in ["thread.search", "thread.menu.rename"] {
+            XCTAssertTrue(app.threadMenuItem(id).waitForExistence(timeout: 5), "⋯ offers \(id) at once")
         }
-        XCTAssertFalse(app.buttons["thread.action.delete"].exists, "Organize actions stay out of the initial sheet")
         screenshot("compact-thread-menu")
-        app.buttons["thread.options.organize"].tap()
         for label in ["Copy link", "Pin", "Move to project…", "Turn off auto-settle", "Delete thread"] {
-            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "The grouped menu retains \(label)")
+            XCTAssertTrue(app.threadMenuItem(label).exists, "⋯ keeps \(label)")
         }
         screenshot("thread-menu")
     }
