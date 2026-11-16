@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -153,13 +153,13 @@ test("ace spade on is refused while Spade is turned off in Beta, and works once 
   );
   expect(manager.asked).toEqual([]);
 
-  await featuresCommand(parseArgs(["features", "on", "spade"]), home);
+  await featuresCommand(parseArgs(["features", "on", "spade"]), home, manager.control);
   await featuresCommand(parseArgs(["features"]), home);
   expect(printed.at(-1)).toContain("Spade: on");
   await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
 
-  await featuresCommand(parseArgs(["features", "off", "spade"]), home);
+  await featuresCommand(parseArgs(["features", "off", "spade"]), home, manager.control);
   await featuresCommand(parseArgs(["features"]), home);
   expect(printed.at(-1)).toContain("Spade: off");
   // Off in Beta keeps Spade's own switch as it was.
@@ -192,4 +192,25 @@ test("an old features.json that shows Spade still lets ace spade on through unti
   const manager = serviceManager();
   await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
+});
+
+test("with no daemon running, ace features off spade stops Spade's service and keeps its data and switch", async ({
+  onTestFinished,
+}) => {
+  const home = await shownHome(onTestFinished);
+  const printed = quietStdout(onTestFinished);
+  const manager = serviceManager();
+  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  await writeFile(join(home, "kept.txt"), "Spade's data");
+
+  await featuresCommand(parseArgs(["features", "off", "spade"]), home, manager.control);
+
+  expect(manager.state()).toBe("absent");
+  expect(printed.at(-1)).toContain("service was stopped");
+  expect(await saved(home)).toBe(true);
+  expect(await readFile(join(home, "kept.txt"), "utf8")).toBe("Spade's data");
+
+  // With no service to stop, the words say only what happened.
+  await featuresCommand(parseArgs(["features", "off", "spade"]), home, manager.control);
+  expect(printed.at(-1)).not.toContain("stopped");
 });
