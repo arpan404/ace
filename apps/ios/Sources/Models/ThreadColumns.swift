@@ -80,23 +80,23 @@ enum ThreadColumns {
 enum ReadingColumn {
     static let maxWidth: CGFloat = 720
 
-    /// Where the composer and the request card above it sit in the reading column. A regular
-    /// window gives both the transcript's own margin, so card, composer and text share one
-    /// column's edges, and lifts the composer clear of the window's resize corner. A phone keeps
-    /// its composer close to the edge and the card tucked narrower than it.
+    /// Where the transcript, the composer and the strips above it sit in the reading column. They
+    /// share one edge: the design language's side margin on a phone, the transcript's wider
+    /// reading margin beside the list, where the composer also lifts clear of the window's resize
+    /// corner.
     struct Bar: Equatable {
-        /// From the column's edge to the composer's glass.
+        /// From the column's edge to the transcript's words.
+        let text: CGFloat
+        /// From the column's edge to the composer's glass and a strip's.
         let composer: CGFloat
-        /// From the column's edge to the card's glass.
-        let card: CGFloat
         /// Under the composer, above the bottom safe area.
         let bottom: CGFloat
     }
-    /// The transcript's rows sit this far in from the column's edges.
-    static let textMargin = AceTheme.Spacing.xl
     static func bar(_ sizeClass: UserInterfaceSizeClass?) -> Bar {
-        sizeClass == .regular
-            ? Bar(composer: textMargin, card: textMargin, bottom: AceTheme.Spacing.lg)
-            : Bar(composer: AceTheme.Spacing.md, card: AceTheme.Spacing.md + AceTheme.Spacing.lg, bottom: AceTheme.Spacing.sm)
+        let edge = sizeClass == .regular ? AceTheme.Spacing.xl : AceDesign.Space.margin
+        return Bar(text: edge, composer: edge, bottom: sizeClass == .regular ? AceTheme.Spacing.lg : AceTheme.Spacing.sm)
     }
+    /// Inside a strip's glass, before its lead mark: the mark sits under the composer's +, and the
+    /// strip's words start where the field's words do.
+    static let stripLead = ComposerCapsuleMetrics.aboveInset - AceDesign.Size.rowStatus - AceDesign.Space.related
 }

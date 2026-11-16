@@ -10,7 +10,7 @@ import { socketFrames } from "./socket-frames.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
-import { RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
+import { askLater, RequestScenario, requestScenarios, seedRequest } from "./request-scenarios.ts";
 import { seedAutomations } from "./automations-scenario.ts";
 import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
@@ -437,6 +437,14 @@ const server = Bun.serve<SpikeSocketData>({
       const threadId = `ios-fresh-${scenario}-${++fresh}`;
       seedRequest(daemon, scenario, threadId, details);
       return Response.json({ threadId });
+    }
+    // An approval arriving in a thread the test already has open (a fresh one, never a shared one).
+    if (path === "/review/ask" && request.method === "POST") {
+      const { threadId } = z
+        .object({ threadId: z.string().min(1).max(64) })
+        .parse(await request.json());
+      askLater(daemon, threadId);
+      return Response.json({ ok: true });
     }
     // A new thread for one Work test: its checkout moves, links and recoveries stay its own.
     if (path === "/review/work" && request.method === "POST") {

@@ -64,6 +64,8 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The strip over the capsule: the `@` and `/` list opens above it, never over it.
+    @State private var stripHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     /// A pasted file's words going back into the message as text.
@@ -378,9 +380,11 @@ struct ThreadView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if hasStrip {
                 strip
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
                     // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            } else if let pill = screen.pill {
+            } else if let pill = screen.pill, suggester.trigger == nil {
+                // The `@` and `/` list takes the pills' place over the transcript while it's open.
                 ComposerLivePills(pill: pill, open: openPill)
                     .transition(.opacity)
             }
@@ -389,7 +393,7 @@ struct ThreadView: View {
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
-            ComposerFloaters(behind: behind && shownPage == .chat) { jumps += 1 }
+            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
         }
         // Only a strip, the pills or the fork strip arriving or leaving animates, with the
@@ -398,6 +402,7 @@ struct ThreadView: View {
         .animation(.default, value: request?.id)
         .animation(.default, value: hasStrip)
         .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: suggester.trigger == nil)
         .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
@@ -489,6 +494,7 @@ struct ThreadView: View {
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
+                         listAbove: hasStrip ? stripHeight : 0,
                          run: runComposerAction, focusRequest: composerFocus) {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }

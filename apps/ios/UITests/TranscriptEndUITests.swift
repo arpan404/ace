@@ -135,6 +135,22 @@ import XCTest
         assertEndInView(app, "after the keyboard came and went")
     }
 
+    /// Following the end, the newest line stays just above the composer as the keyboard opens and
+    /// as it closes: the transcript's inset and the composer move together.
+    func testTheNewestLineStaysJustAboveTheComposerAsTheKeyboardOpensAndCloses() {
+        let app = open("ios-stream")
+        let transcript = app.scrollViews["transcript"]
+        waitForReady(transcript)
+        assertEndInView(app, "before the keyboard")
+        app.textViews["composer.input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        assertEndInView(app, "with the keyboard up")
+        screenshot("end-keyboard-up")
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        assertEndInView(app, "after the keyboard went")
+    }
+
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
     /// the newest lines stay drawn just above the composer, never scrolled off into empty space.
     func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() async throws {
