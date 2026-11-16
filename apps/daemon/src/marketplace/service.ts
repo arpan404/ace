@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
-import { recipeEntries, type ArchiveFile, type MarketKeySet } from "@ace/marketplace";
+import type { MarketKeySet } from "@ace/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
 import { GitCatalogs } from "./git.ts";
@@ -16,8 +16,8 @@ import {
   type SuitPort,
 } from "./install.ts";
 import { readWithdrawn, refreshSource } from "./listings.ts";
-import { newer, prepareEntry, Refused } from "./prepare.ts";
-import { buildReview, reviewPage, type PreparedEntry, type PreparedReview } from "./review.ts";
+import { newer, prepareWithBrings, Refused } from "./prepare.ts";
+import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { MarketStore, type StoredSource } from "./store.ts";
 
 /*
@@ -411,32 +411,14 @@ export class MarketplaceService {
         return plugins.prepareFiles(input);
       },
     };
-    const withPrevious = async (entry: PreparedEntry): Promise<PreparedEntry> => {
-      const current = this.#store.install(entry.type, entry.name);
-      if (!current || current.hash === entry.hash || entry.type === "spade-bot") return entry;
-      const files: ArchiveFile[] = await this.#store
-        .pinned(current.hash, current.type)
-        .catch(() => []);
-      return { ...entry, previous: { version: current.version, files } };
-    };
-    const entry = await withPrevious(await prepareEntry(ports, source, type, name, version));
-    const brings: PreparedEntry[] = [];
-    if (entry.checked.inspection?.type === "spade-bot")
-      for (const brought of recipeEntries(entry.checked.inspection.recipe)) {
-        brings.push(
-          await withPrevious(
-            await prepareEntry(ports, source, brought.type, brought.name, undefined).catch(
-              (thrown: unknown) => {
-                if (thrown instanceof Refused)
-                  throw new Refused(`${brought.type}/${brought.name}: ${thrown.message}`, {
-                    problems: thrown.problems,
-                  });
-                throw thrown;
-              },
-            ),
-          ),
-        );
-      }
+    const { entry, brings } = await prepareWithBrings(
+      ports,
+      this.#store,
+      source,
+      type,
+      name,
+      version,
+    );
     const review: PreparedReview = {
       ...entry,
       id: this.#options

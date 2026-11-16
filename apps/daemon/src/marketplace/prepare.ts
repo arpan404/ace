@@ -16,6 +16,7 @@ import {
   verifyManifest,
   verifyReviewMark,
   VersionBody,
+  recipeEntries,
   type ArchiveFile,
   type MarketKeySet,
 } from "@ace/marketplace";
@@ -23,7 +24,7 @@ import { checkFiles } from "@ace/marketplace/checks";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
 import type { PreparedEntry } from "./review.ts";
-import type { StoredSource } from "./store.ts";
+import type { MarketStore, StoredSource } from "./store.ts";
 
 /*
  * Fetching one version for review (ADR 0168 §6, §8). Everything the device decides, it decides
@@ -236,4 +237,44 @@ async function fromGit(
     commit: read.commit,
     origin: { repository: source.address, ref: "HEAD" },
   };
+}
+
+/**
+ * An entry with what an update would replace and, for a recipe, every skill and plugin it brings
+ * from the same source, each prepared and checked as itself.
+ */
+export async function prepareWithBrings(
+  ports: PreparePorts,
+  store: MarketStore,
+  source: StoredSource,
+  type: string,
+  name: string,
+  version: string | undefined,
+): Promise<{ entry: PreparedEntry; brings: PreparedEntry[] }> {
+  const withPrevious = async (entry: PreparedEntry): Promise<PreparedEntry> => {
+    const current = store.install(entry.type, entry.name);
+    if (!current || current.hash === entry.hash || entry.type === "spade-bot") return entry;
+    const files: ArchiveFile[] = await store.pinned(current.hash, current.type).catch(() => []);
+    return { ...entry, previous: { version: current.version, files } };
+  };
+  const entry = await withPrevious(await prepareEntry(ports, source, type, name, version));
+  const brings: PreparedEntry[] = [];
+  if (entry.checked.inspection?.type === "spade-bot")
+    for (const brought of recipeEntries(entry.checked.inspection.recipe)) {
+      const prepared = await prepareEntry(
+        ports,
+        source,
+        brought.type,
+        brought.name,
+        undefined,
+      ).catch((thrown: unknown) => {
+        if (thrown instanceof Refused)
+          throw new Refused(`${brought.type}/${brought.name}: ${thrown.message}`, {
+            problems: thrown.problems,
+          });
+        throw thrown;
+      });
+      brings.push(await withPrevious(prepared));
+    }
+  return { entry, brings };
 }
