@@ -37,13 +37,13 @@ secrets. Nothing reads what a script does.
   folding download counts, trending, scan steps that didn't fit a request, pruning.
 - **All data is in D1**; **all bytes are in R2**, under prefixes that say what they are:
 
-  | Prefix                     | Holds                                                             | Deleted?                    |
-  | -------------------------- | ----------------------------------------------------------------- | --------------------------- |
-  | `objects/<hash>`           | A submitted version's archive (ADR 0168), served only once listed | Never once a version listed |
-  | `drafts/<id>`              | A draft's archive                                                 | With the draft              |
-  | `avatars/<sha256>`         | A publisher's picture, validated and stripped (decision 3)        | When no profile names it    |
-  | `previews/<sha256>`        | An entry's listing pictures                                       | When no listing names it    |
-  | `reports/<kind>/<id>.json` | A scan report (decision 8), for a draft or a version              | A draft's, with the draft   |
+  | Prefix                 | Holds                                                             | Deleted?                    |
+  | ---------------------- | ----------------------------------------------------------------- | --------------------------- |
+  | `objects/<hash>`       | A submitted version's archive (ADR 0168), served only once listed | Never once a version listed |
+  | `drafts/<id>/<hash>`   | A draft's archive, one key per revision                           | With the draft or revision  |
+  | `avatars/<sha256>`     | A publisher's picture, validated and stripped (decision 3)        | When no profile names it    |
+  | `previews/<sha256>`    | An entry's listing pictures                                       | When no listing names it    |
+  | `reports/<kind>/…json` | A scan report (decision 8), per draft revision or version         | A draft's, with the draft   |
 
 - No KV, Durable Objects, Queues or outside service. Rate limits use the Workers rate-limit
   bindings (in memory, ADR 0168 §10).
@@ -131,7 +131,7 @@ All under `/v1/me/…`, all needing the grant, all checking ownership. Published
 deleted or changed: withdrawal is the only removal of a published version, as in 0168.
 
 - **Drafts.** `POST /v1/me/drafts` takes `{type, name, version}` and the archive; the Worker reads
-  it, runs the format checks and the scan (decision 8) and stores it at `drafts/<id>`. A draft can
+  it, runs the format checks and the scan (decision 8) and stores it at `drafts/<id>/<hash>`, so a row always names the bytes it scanned. A draft can
   be replaced, given a changelog, deleted, and published. At most 20 per publisher; one untouched
   for 30 days is deleted by the cron.
 - **Publishing a draft** (`POST /v1/me/drafts/{id}/publish`) makes the version: a block refuses it
