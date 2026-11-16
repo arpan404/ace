@@ -20,8 +20,19 @@ import UIKit
     private(set) var landings = 0
     /// Reads where the keyboard is drawn; `KeyboardEdgeReader` gives it its view.
     @ObservationIgnored let edges = KeyboardEdgeTracker()
-    @ObservationIgnored private var link: CADisplayLink?
+    /// Calls the ride once a frame while a move runs.
+    @ObservationIgnored private let clock: any KeyboardFrameClock
     @ObservationIgnored private var move: Move?
+
+    /// `clock` defaults to the display; tests pass their own.
+    init(clock: (any KeyboardFrameClock)? = nil) {
+        self.clock = clock ?? DisplayLinkClock()
+    }
+
+    // A ride let go of mid-move stops its frames too, not only at the next tick.
+    isolated deinit {
+        clock.stop()
+    }
 
     private struct Move {
         let from: CGFloat
@@ -51,27 +62,30 @@ import UIKit
         }
         // A move under way goes on from where it's drawn.
         move = Move(from: lift, start: start, duration: duration, foot: foot)
-        guard link == nil else { return }
-        let link = CADisplayLink(target: RideTicker(ride: self), selector: #selector(RideTicker.tick(_:)))
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        // The clock holds the ride weakly: a ride that's gone ends its frames.
+        clock.start { [weak self] frame in
+            guard let self else { return false }
+            self.tick(frame)
+            return self.running
+        }
+    }
+
+    /// Ends a move where it's going: the thread left the screen or the app the foreground.
+    func finish() {
+        guard running else { return }
+        land()
     }
 
     private func land() {
-        link?.invalidate()
-        link = nil
+        clock.stop()
         move = nil
         lift = target
         landings += 1
     }
 
-    fileprivate func tick(_ link: CADisplayLink) {
+    private func tick(_ frame: KeyboardFrame) {
         guard let move else { return }
-        // Where the keyboard is drawn when what's set now reaches the screen: a lift set in this
-        // tick shows a frame after the frame it's computed for, measured on the simulator as the
-        // composer trailing the keyboard by exactly one frame.
-        let frame = link.targetTimestamp - link.timestamp
-        if let reading = edges.reading(at: link.targetTimestamp + frame, notified: move.start) {
+        if let reading = edges.reading(at: frame.shown, notified: move.start) {
             let measured = max(0, move.foot - reading.y)
             if reading.moving {
                 self.move?.edgeMoved = true
@@ -79,7 +93,7 @@ import UIKit
                 lift = measured
                 return
             }
-            let over = link.timestamp - move.start > move.duration + 0.1
+            let over = frame.now - move.start > move.duration + 0.1
             if move.edgeMoved || over, abs(measured - target) < 0.5 {
                 lift = measured
                 land()
@@ -89,7 +103,7 @@ import UIKit
         // No animation to read yet (UIKit adds the keyboard's a tick after the notification), or
         // none at all: the fitted curve, at the time the lift reaches the screen.
         PerfProbe.add("keyboard.source.curve", 1)
-        let elapsed = link.targetTimestamp + frame - move.start
+        let elapsed = frame.shown - move.start
         let distance = Double(target - move.from)
         // A rising lift is the keyboard opening.
         let delay = distance > 0 ? KeyboardCurve.openingDelay : KeyboardCurve.closingDelay
@@ -101,11 +115,61 @@ import UIKit
     }
 }
 
-/// The display link's target: a link holds its target strongly, so the ride isn't it.
-private final class RideTicker: NSObject {
-    weak var ride: KeyboardRide?
-    init(ride: KeyboardRide) { self.ride = ride }
-    @MainActor @objc func tick(_ link: CADisplayLink) { ride?.tick(link) }
+/// One display frame's times, on the `CACurrentMediaTime` clock.
+struct KeyboardFrame {
+    /// When this frame started.
+    let now: CFTimeInterval
+    /// When what's set now reaches the screen: a frame after the frame it's computed for,
+    /// measured on the simulator as the composer trailing the keyboard by exactly one frame.
+    let shown: CFTimeInterval
+}
+
+/// Calls `frame` once per display frame until it returns false or `stop` is called.
+@MainActor protocol KeyboardFrameClock: AnyObject {
+    func start(_ frame: @escaping @MainActor (KeyboardFrame) -> Bool)
+    func stop()
+}
+
+/// The display's frames, from a display link. The run loop holds the link and the link its
+/// target, so a frame handler that answers false invalidates the link from inside its own tick:
+/// once its ride is gone, nothing else is left to.
+@MainActor final class DisplayLinkClock: KeyboardFrameClock {
+    private var link: CADisplayLink?
+    private var ticker: FrameTicker?
+
+    func start(_ frame: @escaping @MainActor (KeyboardFrame) -> Bool) {
+        // One link per clock: a move under way keeps it and takes the new handler.
+        if link != nil, let ticker {
+            ticker.frame = frame
+            return
+        }
+        let ticker = FrameTicker(frame)
+        ticker.ended = { [weak self] in self?.link = nil; self?.ticker = nil }
+        let link = CADisplayLink(target: ticker, selector: #selector(FrameTicker.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        self.link = link
+        self.ticker = ticker
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+        ticker = nil
+    }
+}
+
+/// The display link's target, calling the clock's handler.
+private final class FrameTicker: NSObject {
+    var frame: @MainActor (KeyboardFrame) -> Bool
+    /// Tells the clock its link is gone.
+    var ended: (@MainActor () -> Void)?
+    init(_ frame: @escaping @MainActor (KeyboardFrame) -> Bool) { self.frame = frame }
+    @MainActor @objc func tick(_ link: CADisplayLink) {
+        let ahead = link.targetTimestamp - link.timestamp
+        guard !frame(KeyboardFrame(now: link.timestamp, shown: link.targetTimestamp + ahead)) else { return }
+        link.invalidate()
+        ended?()
+    }
 }
 
 /// Draws its content up by the ride's lift beyond `base`, the lift the content is already laid
