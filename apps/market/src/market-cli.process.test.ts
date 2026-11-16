@@ -171,10 +171,10 @@ it("official add and remove sign the official list with the ace publisher's id",
   );
   expect(list.publisher.name).toBe("ace");
   expect(list.accounts).toEqual(["acct_owner_one", "acct_owner_two"]);
-  const ace_ = await market.db
+  const acePublisher = await market.db
     .prepare("SELECT id FROM publishers WHERE name = 'ace'")
     .first<{ id: string }>();
-  expect(ace_?.id).toBe(list.publisher.id);
+  expect(acePublisher?.id).toBe(list.publisher.id);
 
   await ace("official", "remove", "acct_owner_one", "--key", keyFile);
   const rows = await market.db.prepare("SELECT account, publisher FROM official_accounts").all();
