@@ -4,6 +4,7 @@
 //! title and last update for the list. Keys are never stored here (ADR 0119).
 
 mod agents;
+mod digests;
 mod endpoints;
 mod helpers;
 mod notes;
@@ -17,6 +18,7 @@ mod teams;
 mod workers;
 
 pub use agents::{Agent, NewAgent};
+pub use digests::{DIGESTS, NewDigest, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use helpers::StoredHelper;
 pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};

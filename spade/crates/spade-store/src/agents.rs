@@ -243,6 +243,11 @@ impl Store {
             "DELETE FROM settings WHERE key = ?1",
             params![crate::oversight::agent_key(id)],
         )?;
+        // Its digest settings (ADR 0165); its digests go with the row.
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![crate::digests::digests_key(id)],
+        )?;
         // Its model roles (ADR 0162).
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",

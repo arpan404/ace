@@ -164,6 +164,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::spend::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0165: digests, beside each bot's conversation.
+        sql: crate::digests::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.
