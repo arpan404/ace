@@ -8,6 +8,18 @@ extension XCUIApplication {
         XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
         threadMenuItem("thread.agents").tap()
     }
+    /// The agent tree, from the live pill's part that opens it ("Waiting on 3", "2 subagents",
+    /// "1 command"): while it shows, the pill is where live subagents and commands are.
+    @MainActor func openAgentsFromPill() {
+        let part = buttons.matching(NSPredicate(format: "identifier IN %@", ["pill.status", "pill.subagents", "pill.commands"])).firstMatch
+        XCTAssertTrue(part.waitForExistence(timeout: 15))
+        part.tap()
+        XCTAssertTrue(descendants(matching: .any)["agents.page"].waitForExistence(timeout: 10))
+    }
+    /// A row of the Agents sheet, by the agent's name.
+    @MainActor func agentsRow(_ name: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS %@", name)).firstMatch
+    }
     /// The thread's title, which opens its menu: model, effort and access, then the thread's actions.
     @MainActor @discardableResult func threadTitle(timeout: TimeInterval = 15) -> XCUIElement {
         let title = buttons["thread.title"]

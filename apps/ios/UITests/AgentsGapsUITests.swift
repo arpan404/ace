@@ -11,7 +11,7 @@ import XCTest
         let app = launch()
         open("ios-subagents", in: app)
         app.openAgents()
-        let auditor = agentRow("Auditor", in: app)
+        let auditor = app.agentsRow("Auditor")
         XCTAssertTrue(auditor.waitForExistence(timeout: 25))
         screenshot("agents-sheet-subagents")
         auditor.tap()
@@ -44,7 +44,7 @@ import XCTest
         let app = launch()
         open("ios-subagents", in: app)
         app.openAgents()
-        let migrator = agentRow("Migrator", in: app)
+        let migrator = app.agentsRow("Migrator")
         XCTAssertTrue(migrator.waitForExistence(timeout: 25))
         migrator.tap()
         // Its own turn ended, but the subagent under it asks the person: never done.
@@ -93,7 +93,7 @@ import XCTest
         screenshot("logs-errors-only")
         app.buttons["Done"].tap()
         app.openAgents()
-        let auditor = agentRow("Auditor", in: app)
+        let auditor = app.agentsRow("Auditor")
         XCTAssertTrue(auditor.waitForExistence(timeout: 25))
         auditor.tap()
         XCTAssertTrue(app.buttons["subagent.log"].waitForExistence(timeout: 15))
@@ -134,9 +134,6 @@ import XCTest
         screenshot("elsewhere-opened")
     }
 
-    private func agentRow(_ name: String, in app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS %@", name)).firstMatch
-    }
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         for _ in 0..<40 {
             if element.exists && element.isHittable { return true }

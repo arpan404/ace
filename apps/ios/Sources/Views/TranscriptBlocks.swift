@@ -68,8 +68,14 @@ struct BlockView: View {
     @ViewBuilder private var content: some View {
         let row = block.row
         switch row.kind {
-        case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
-        case "subagents": if let agents = row.agents { SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open) }
+        case "work":
+            WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
+                .environment(\.pillNames, row.background?.contains(where: \.running) == true ? pillNames : .nothing)
+        case "subagents":
+            if let agents = row.agents {
+                SubagentGroupView(agents: agents, thread: thread, blockId: block.id, open: open)
+                    .environment(\.pillNames, agents.leavesToPill ? pillNames : .nothing)
+            }
         // The live state is the pill over the composer; only a compaction also says so here.
         case "live": if let live = row.live { LiveCompactingRow(live: live) }
         case "end": if let ending = row.ending { EndingLine(ending: ending, row: row, thread: thread) }
@@ -102,6 +108,13 @@ struct BlockView: View {
                 }
             }
         }
+    }
+    /// What the composer's pill names while it shows (`ThreadFoot`). Read only by a block that
+    /// holds a live fact, so no other block follows the thread's foot; nothing in a feed with no
+    /// model, a subagent's lane, where no pill is drawn.
+    private var pillNames: PillRow.Covers {
+        guard let model = links.steps?.model else { return .nothing }
+        return ThreadFoot(thread: thread, transfers: model.transfers).named
     }
     /// Where an answer reads an image it names (`native.image`): only a picture the thread itself
     /// captured before that answer resolves.

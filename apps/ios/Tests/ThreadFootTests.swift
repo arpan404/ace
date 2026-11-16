@@ -1,0 +1,68 @@
+import Testing
+@testable import Ace
+
+/// The live facts show once: on the pill while it is on screen and names them, else in the
+/// transcript. A live tree or command never leaves view.
+@Suite struct ThreadFootTests {
+    private func pill(subagents: Bool = true, commands: Bool = true) -> PillRow {
+        PillRow(status: PillRow.Status(label: "Waiting on 2", lead: "", since: nil, code: "", live: false, tone: "working", opens: "agents"),
+                segments: [PillRow.Segment(kind: "commands", label: "1 command", opens: "agents", live: false)],
+                covers: PillRow.Covers(subagents: subagents, commands: commands))
+    }
+
+    @Test func aLiveTreeTheShownPillNamesLeavesTheTranscriptToThePill() {
+        let named = ThreadFoot(pill: pill()).named
+        #expect(!named.transcriptShows(.subagents, live: true))
+        #expect(!named.transcriptShows(.commands, live: true))
+    }
+
+    @Test func aSettledRowAlwaysShowsAsTheRecord() {
+        let named = ThreadFoot(pill: pill()).named
+        #expect(named.transcriptShows(.subagents, live: false))
+        #expect(named.transcriptShows(.commands, live: false))
+    }
+
+    @Test func aLiveFactThePillDoesNotNameStaysInTheTranscript() {
+        let named = ThreadFoot(pill: pill(subagents: true, commands: false)).named
+        #expect(!named.transcriptShows(.subagents, live: true))
+        #expect(named.transcriptShows(.commands, live: true))
+    }
+
+    @Test(arguments: [
+        ThreadFoot(requests: true), ThreadFoot(hold: true), ThreadFoot(notSent: true),
+        ThreadFoot(leftRunning: true), ThreadFoot(transfer: true), ThreadFoot(work: true),
+    ])
+    func anyStripTakesThePillsPlaceAndBringsTheLiveRowsBack(_ strip: ThreadFoot) {
+        var foot = strip
+        foot.pill = pill()
+        #expect(foot.shownPill == nil)
+        #expect(foot.named.transcriptShows(.subagents, live: true))
+        #expect(foot.named.transcriptShows(.commands, live: true))
+    }
+
+    @Test func withNoPillOrAnOlderBridgesPillTheTranscriptKeepsEveryLiveRow() {
+        #expect(ThreadFoot().named.transcriptShows(.subagents, live: true))
+        let older = PillRow(status: nil, segments: [PillRow.Segment(kind: "subagents", label: "2 subagents", opens: "agents", live: false)])
+        #expect(ThreadFoot(pill: older).named.transcriptShows(.subagents, live: true))
+    }
+
+    private func group(live: Bool?, machines: [String]) -> BlockRow.Agents {
+        BlockRow.Agents(status: "", entries: machines.enumerated().map { index, machine in
+            BlockRow.Agents.Entry(id: "a\(index)", agentId: "a\(index)", threadId: "", title: "Child \(index)", state: "working",
+                                  label: "Running", token: "working", provider: "codex", model: "", result: "", machine: machine)
+        }, live: live)
+    }
+
+    @Test func aLiveGroupOnThisMachineIsLeftToThePill() {
+        #expect(group(live: true, machines: ["", ""]).leavesToPill)
+    }
+
+    @Test func aSettledGroupOrOneFromAnOlderBridgeKeepsItsRow() {
+        #expect(!group(live: false, machines: [""]).leavesToPill)
+        #expect(!group(live: nil, machines: [""]).leavesToPill)
+    }
+
+    @Test func aLiveGroupWithAChildOnAnotherMachineKeepsItsRowWhichOpensItThere() {
+        #expect(!group(live: true, machines: ["", "build-box"]).leavesToPill)
+    }
+}
