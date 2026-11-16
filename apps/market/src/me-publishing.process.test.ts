@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sampleSkill } from "@ace/marketplace/testing";
-import { asSigner, publish, startMarket, type Market } from "./testing/harness.ts";
+import { asSigner, manifestFor, publish, startMarket, type Market } from "./testing/harness.ts";
 import {
   asAccount,
   createDraft,
@@ -18,9 +18,10 @@ import {
  */
 
 let market: Market;
+let flow: { id: string; handle: string };
 beforeAll(async () => {
   market = await startMarket();
-  await establishedPublisher(market, "acct_flow", "flow-maker");
+  flow = await establishedPublisher(market, "acct_flow", "flow-maker");
 });
 afterAll(() => market.close());
 
@@ -126,6 +127,54 @@ describe("drafts", () => {
     expect(body.scan.findings.length).toBeGreaterThan(0);
     expect((await asAccount(market, "acct_flow", "GET", `/v1/me/drafts/${id}`)).status).toBe(200);
     expect(await pending()).not.toContain("spade-skill/piped-skill@1.0.0");
+  });
+});
+
+describe("nothing is listed before its scan completes", () => {
+  const upload = {
+    type: "spade-skill" as const,
+    name: "unscanned-skill",
+    files: sampleSkill("unscanned-skill"),
+  };
+  const listed = async () =>
+    (await jsonOf<{ entries: { name: string }[] }>(await market.fetch("/v1/index"))).entries.some(
+      (entry) => entry.name === upload.name,
+    );
+  const signVersion = () =>
+    market.fetch(`/v1/signer/versions/spade-skill/${upload.name}/1.0.0`, {
+      method: "PUT",
+      headers: { ...asSigner, "content-type": "application/json" },
+      body: JSON.stringify({
+        manifest: manifestFor(upload, { publisher: { id: flow.id, name: flow.handle } }),
+      }),
+    });
+
+  it("a draft whose scan is still reading isn't published, and the signer has nothing to sign", async () => {
+    const draft = await jsonOf<{ id: string }>(await createDraft(market, "acct_flow", upload));
+    // The scan is part way and can't take another step in this request.
+    await market.db.batch([
+      market.db.prepare("UPDATE drafts SET scan_state = 'scanning' WHERE id = ?1").bind(draft.id),
+      market.db.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(draft.id),
+    ]);
+    const refused = await asAccount(
+      market,
+      "acct_flow",
+      "POST",
+      `/v1/me/drafts/${draft.id}/publish`,
+    );
+    expect(refused.status).toBe(409);
+    expect(await pending()).not.toContain(`spade-skill/${upload.name}@1.0.0`);
+    expect((await signVersion()).status).not.toBe(200);
+    expect(await listed()).toBe(false);
+  });
+
+  it("a completed scan's version waits for the signer, and is listed only once signed", async () => {
+    const published = await draftAndPublish(market, "acct_flow", { ...upload, version: "1.0.0" });
+    expect(published.status).toBe(201);
+    expect(await pending()).toContain(`spade-skill/${upload.name}@1.0.0`);
+    expect(await listed()).toBe(false);
+    expect((await signVersion()).status).toBe(200);
+    expect(await listed()).toBe(true);
   });
 });
 
