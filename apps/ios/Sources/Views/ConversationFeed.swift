@@ -531,8 +531,7 @@ struct ConversationFeed: View {
     /// it (`FloatingBar`). The rows following the end move by the same lift as one drawn offset on
     /// the keyboard's own curve (`KeyboardRide`, #2170); an animated scroll can't, as it runs on the
     /// scroll view's own curve and starts frames late. The room changes at once, the scroll jumps
-    /// once while the offset holds the rows still, and the only part of the feed the offset ever
-    /// brings into view is the empty room under the last row.
+    /// once when the offset is handed over, in a frame that moves nothing.
     private func keyboardWillMove(_ note: Notification, proxy: ScrollViewProxy) {
         let start = CACurrentMediaTime()
         guard let move = KeyboardMove(note) else { return }
@@ -550,20 +549,15 @@ struct ConversationFeed: View {
         railPlace?.keyboard(up: lift > 0)
         guard follows else { return }
         settle.cancel()
-        let landed = { handShiftToScroll(proxy: proxy); keyboardSettled(proxy: proxy) }
         if reduceMotion {
             proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
-        } else if growth > 0 {
-            // Opening: the rows rise into the new room below the end, then the scroll takes over.
-            ride.ride(from: 0, to: -growth, start: start, duration: move.duration, done: landed)
-        } else {
-            // Closing: the scroll is at the new end at once and the rows are drawn where they
-            // were, then come down with the composer over the room that is leaving.
-            withTransaction(instant) {
-                ride.hold(at: growth)
-                proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
-            }
-            ride.ride(from: growth, to: 0, start: start, duration: move.duration, done: landed)
+            return
+        }
+        // Opening, the rows rise into the new room below the end; closing, they come down over
+        // the room that is leaving. Then the scroll takes the offset over in one still frame.
+        ride.ride(from: 0, to: -growth, start: start, duration: move.duration) {
+            handShiftToScroll(proxy: proxy)
+            keyboardSettled(proxy: proxy)
         }
     }
     /// The rows drawn off where the scroll puts them go back to it, in one frame that moves nothing.
