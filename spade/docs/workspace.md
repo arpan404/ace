@@ -126,6 +126,7 @@ updated). Origins:
 | `ace`    | the library's `skl_…` | A copy of a skill in ace's library; `source` is its scope; read only                    |
 | `spade`  | `sks_` + 20 hex       | Written in Spade while ace was away, from a bot's saved proposal                        |
 | `plugin` | `plg_` + 20 hex       | A plugin's skill or command ([plugins.md](plugins.md)); offered only to bots allowed it |
+| `market` | `skm_` + 20 hex       | Installed from ace's marketplace (ADR 0168); `source` is its entry name; read only      |
 
 A folder is always replaced whole: written as `.stage-<id>-<random>`, the old one moved to
 `.old-<id>-<random>`, the new one renamed into place, the old one removed. On start, a
@@ -142,8 +143,20 @@ the socket ends or Spade connects to another daemon, and every ten minutes. A sk
 no longer lists is dropped, unless the listing was stale. Plugin-scope entries are skipped (their
 files are the plugin's). With ace away the last copies are used, and nothing says so.
 
+**Copying market skills.** The person installs a `spade-skill` entry in ace's marketplace; the
+daemon pins it. While Spade is connected, a second background task sends `marketplace.request
+{operation: {op: "spadeSkills"}}` for the installed skills and their pinned hashes, and for each
+new or changed hash `{op: "spadeSkillFiles", name}` for the file list (`SKILL.md` among them),
+then `{op: "spadeSkillFiles", name, path}` for each file (base64 in `content`). A file whose
+bytes don't match its listed hash, or past ADR 0103's limits, fails that copy and the old one
+stays; otherwise the copy is replaced whole. A skill the daemon no longer lists is dropped. It
+runs on start, on each `marketplace.changed` the daemon pushes, when the socket ends or Spade
+connects to another daemon, right after a bot is made from a recipe, and every ten minutes. With
+ace away, or a daemon whose marketplace can't answer, the last copies stay and nothing says so.
+Market skills serve every bot and are never edited in Spade.
+
 **Several skills with one name** are offered once: ace's personal copy, then ace's other copies,
-then a `spade` skill, then a plugin's.
+then a `spade` skill, then a market skill, then a plugin's.
 
 **Saving goes to ace when ace is there.** A new skill (a saved proposal) is created in ace's
 library while connected, then mirrored at once; with ace away (always on Cloud) it is written to

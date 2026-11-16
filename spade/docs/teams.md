@@ -23,24 +23,24 @@ reached.
   `GET /v1/conversations/{id}/live` like any conversation. Posting to it there answers `409`.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
-answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
+  answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
 - `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "agent": {"id", "name",
-"machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
-([agents.md](agents.md)).
+  "machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
+  ([agents.md](agents.md)).
 - `seen_seq`, `unseen`: the group's seen cursor and whether a member answered since the person
   last saw it while nothing in the group runs or waits; marked with
   `PUT /v1/conversations/{conversation}/seen` (see Seen in [agents.md](agents.md)).
 
-| Method and path              | Body                                          | Answer                                   |
-| ---------------------------- | --------------------------------------------- | ---------------------------------------- |
-| `PUT /groups/{id}/pin`       | `{"pinned": bool}`                              | `200 {"group"}`; `404` (see Pins in agents.md) |
-| `GET /groups`                |                                               | `{"groups":[Group]}`, by `last_activity` |
-| `POST /groups`               | `{name, members: [{agent, machine?}], lead?}` | `201 {"group"}`                          |
-| `PATCH /groups/{id}`         | any of `name`, `members`, `lead`              | `200 {"group"}`                          |
-| `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped         |
-| `POST /groups/{id}/messages` | `{text}`                                      | `202 {"run"}`                            |
-| `POST /groups/{id}/stop`     |                                               | `204`                                    |
-| `GET /groups/{id}/files`     |                                               | `{"files":[{agent, path, at}]}`          |
+| Method and path              | Body                                          | Answer                                         |
+| ---------------------------- | --------------------------------------------- | ---------------------------------------------- |
+| `PUT /groups/{id}/pin`       | `{"pinned": bool}`                            | `200 {"group"}`; `404` (see Pins in agents.md) |
+| `GET /groups`                |                                               | `{"groups":[Group]}`, by `last_activity`       |
+| `POST /groups`               | `{name, members: [{agent, machine?}], lead?}` | `201 {"group"}`                                |
+| `PATCH /groups/{id}`         | any of `name`, `members`, `lead`              | `200 {"group"}`                                |
+| `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped               |
+| `POST /groups/{id}/messages` | `{text}`                                      | `202 {"run"}`                                  |
+| `POST /groups/{id}/stop`     |                                               | `204`                                          |
+| `GET /groups/{id}/files`     |                                               | `{"files":[{agent, path, at}]}`                |
 
 - `GET /groups/{id}/files` is the group's Library: every file its members on this machine made
   answering it, newest first, once per member and path. A member's reply counts when a message
@@ -139,7 +139,7 @@ other machines (op `spade`, below) and stamps them:
 - `x-ace-inbox-time`: milliseconds since the epoch;
 - `x-ace-inbox-proof`: lowercase hex HMAC-SHA256, keyed with the daemon's local token
   (`<ace home>/daemon-token`), of `ace-spade-inbox/1\n<time>\n<from-host>\n<from-name as
-sent>\n<hex SHA-256 of the body>`.
+  sent>\n<hex SHA-256 of the body>`.
 
 Spade reads the daemon's token from ace's home on each request and refuses (`403`) anything
 unsigned, signed with another key, or signed more than 5 minutes from its clock; Spade's own
@@ -167,7 +167,7 @@ The daemon passes these bodies through without reading them, except `op` for the
 
 - **Spade to its daemon** (the socket Spade already uses for `skills.request`):
   - `spade.machines {requestId}` → `spade.machines.result {requestId, machines: [{hostId, name,
-status: "online"|"offline"}]}`: the linked machines this daemon can call.
+    status: "online"|"offline"}]}`: the linked machines this daemon can call.
   - `spade.remote {requestId, machine: <host id>, request: <JSON object>}` →
     `spade.remote.result {requestId, result}` with `result` `{kind: "response", status, body}`
     (`body` is Spade's JSON answer there) or `{kind: "error", code, message}`, `code` one of
@@ -194,6 +194,53 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
 template's, the model to the fast model for `fast` (else the default), and its routines are
 created with the bot, in `time_zone` (an IANA zone in the body; the machine's when absent).
 Unknown template: `404`.
+
+## Bots from marketplace recipes
+
+A recipe is a bot file at `version: 2` that asks rather than grants (ADR 0168 §5). The daemon
+fetches and reviews it; when the person presses Install it posts it to `POST /v1/agents`:
+
+```json
+{
+  "recipe": {
+    "format": "spade-bot",
+    "version": 2,
+    "name": "Inbox",
+    "blurb": "…",
+    "task": "…",
+    "face": { "kind": "character", "...": "..." },
+    "model": "fast",
+    "routines": [{ "name": "Morning sort", "instruction": "…", "schedule": "weekdays at 8:00" }],
+    "tools": ["web_search"],
+    "notes": ["…"]
+  },
+  "from_recipe": { "source": "market", "name": "inbox", "version": "1.2.0" },
+  "grants": {
+    "connectors": ["<catalogue id>", "https://…"],
+    "plugins": ["mail-tools"],
+    "skills": []
+  },
+  "start_routines": false
+}
+```
+
+It makes one top-level bot as a template does: name, task and face from the recipe (an unknown
+face value is repaired), the person's own fast model for `fast` and their default for `capable`
+(never a model id from the file), and routines from their schedules, paused unless
+`start_routines`. `tools`, when present, narrows the bot's built-in tools as a worker's grant
+does (ADR 0161): it never adds one. `notes` become the bot's own notes.
+
+Nothing in the recipe is a grant; only `grants` is. A granted catalogue id or https address this
+machine has connected is allowed for the bot; the others are named in `left_out` ("Connect after
+install"). Granted plugins are allowed as `PUT /v1/agents/{id}/plugins` allows them, after a
+fresh read of ace's plugins. Skills need no grant: market skills land in the skill store and
+serve every bot ([workspace.md](workspace.md)).
+
+Answer: `201 {"agent", "left_out"}`; the agent carries `from_recipe` (and `tools` when narrowed)
+from then on, for its profile. A recipe with anything named or shaped like a secret, a schedule
+Spade can't read, a model other than `fast` or `capable`, another version, or a grant Spade can't
+apply is `400` with the reason in `error` and `detail`, and no bot is made: one already made is
+removed again. A newer recipe never changes the bot.
 
 ## Duplicate, export, import
 
