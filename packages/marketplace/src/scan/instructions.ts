@@ -1,3 +1,4 @@
+import type { MarketScanFinding } from "@ace/protocol/marketplace";
 import type { ScanInput } from "./index.ts";
 import type { ScriptLanguage } from "./script-view.ts";
 import { scanText } from "./decode.ts";
@@ -28,7 +29,7 @@ const MAX_SNIPPETS = 256;
 const MAX_ENTRY_CHARS = 512 * 1024;
 
 /** The files an agent reads as instructions. */
-const instructionFile =
+export const instructionFile =
   /(?:^|\/)(?:SKILL|AGENTS|CLAUDE|README|instructions?|prompt)\.md$|\.(?:md|mdc|markdown|txt|prompt)$/i;
 
 const FENCE_LANGUAGE: ReadonlyMap<string, ScriptLanguage> = new Map<string, ScriptLanguage>(
@@ -212,4 +213,13 @@ export function instructionScripts(
       scripts.push({ path: source.path, language, text: lines.join("\n") });
   }
   return scripts;
+}
+
+/**
+ * The block findings for instruction content a cap dropped without reading it whole (fail closed,
+ * ADR 0173 §8). Filled in with the real truncation detection; empty here.
+ */
+export function instructionTruncations(input: ScanInput): MarketScanFinding[] {
+  void input;
+  return [];
 }

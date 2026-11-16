@@ -21,6 +21,8 @@ import { flowEntryRules, flowRules } from "./rules-flow.ts";
 import { scriptRules } from "./rules-scripts.ts";
 import type { EntryRule, ScanFacts } from "./rule.ts";
 import { scanText } from "./decode.ts";
+import { truncated } from "./fail-closed.ts";
+import { instructionFile, instructionTruncations } from "./instructions.ts";
 import {
   commandViews,
   fileScriptView,
@@ -159,18 +161,25 @@ function scanFile(
 
   const tooLong = file.content.byteLength > MAX_FILE_BYTES;
   const text = tooLong ? source.slice(0, MAX_FILE_BYTES) : source;
-  if (tooLong)
+  if (tooLong) {
+    // Executable or instructional content the scanner couldn't read whole is blocked (fail
+    // closed, ADR 0173 §8): a buried `curl … | sh` past the cap can't slip through. A plain data
+    // file isn't executable, so truncating its scan isn't a gap.
+    const scripty = isScriptLike(file.path, source, script) || instructionFile.test(file.path);
     state.findings.push(
-      mkFinding(
-        "scripts",
-        "too-long",
-        "warn",
-        `${file.path} is too long to read fully`,
-        file.path,
-        undefined,
-        true,
-      ),
+      scripty
+        ? truncated("scripts", `${file.path} is too long to read whole`, file.path)
+        : mkFinding(
+            "scripts",
+            "too-long",
+            "warn",
+            `${file.path} is too long to read fully`,
+            file.path,
+            undefined,
+            true,
+          ),
     );
+  }
 
   for (const problem of secretValueProblems(text, file.path))
     state.findings.push(
@@ -270,6 +279,8 @@ export function finishScan(state: ScanState, input: ScanInput): MarketScanReport
   findings.push(...filesCheck(input.type, input.files));
   if (input.type === "suit") findings.push(...sceneCheck(input.files));
   findings.push(...hiddenEntryFindings(input));
+  // An instruction cap that dropped executable text surfaces as a block (fail closed, §8).
+  findings.push(...instructionTruncations(input));
 
   // The recipe rules (prompt injection in SKILL.md, connectors) filter by type themselves, so
   // they run on skills and plugins as well as recipes; the plugin rules run on plugins.

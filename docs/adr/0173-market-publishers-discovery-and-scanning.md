@@ -236,6 +236,26 @@ level (`note`, `warn`, `block`), a path and line when it has one, and one plain 
 publisher and the person read ("scripts/setup.sh line 4 downloads a script and runs it"). A
 `note` is shown and never holds, except for new publishers (decision 9).
 
+**The scanner fails closed.** Chasing spellings loses; the scanner's standing rule is that
+anything **executable or instructional it can't fully resolve is held for a maintainer, never
+passed**. Concretely, in executable or instructional content (a script, a plugin command, a
+scene, an instruction file, a recipe's text):
+
+- **Unresolved means held.** Code or a command the scanner can't resolve to something it
+  understands — a file it can't parse, a shell word it can't read, an unknown program that takes a
+  command, a reflective or dynamic read of a sensitive module, execution intent in prose it can't
+  tie to a known-safe command — produces a `warn`, which holds the version. A rule proves a thing
+  is safe, not that it is dangerous.
+- **Truncation means blocked or resumed, never silent.** No cap in the scanner may drop executable
+  or instructional content without surfacing it. A cap either resumes across steps (as the
+  file budget does) or produces a `scan-truncated` **block**: the entry can't be listed until it is
+  read whole. This joins the invariant that a scan which didn't read every file blocks.
+
+A data file that is neither executable nor instructional is exempt: not reading all of a large
+image or data blob isn't a gap in what could run. The fail-closed rules are tested, and the
+adversarial corpus carries a sample for each (an unparsable executable file, a truncating
+instruction file, an unknown wrapper, a reflective module read).
+
 | Check       | What it reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `files`     | Native binaries by their bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a plugin, compiled AppleScript, archives inside the archive (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg), executable bits where the type has none, and files a type doesn't take. A Suit holds only `suit.json`, `suit.css`, its scene JS, ornaments, `market.json` and images, fonts and videos under `assets/`; nothing executable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
