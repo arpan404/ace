@@ -76,8 +76,17 @@ describe("the files check", () => {
   });
 
   it("warns on an executable bit where the type has none", () => {
-    const findings = filesCheck("spade-skill", folder({ "notes.txt*": "hello" }));
+    const findings = filesCheck("suit", folder({ "suit.css*": "body {}" }));
     expect(findings.some((f) => f.rule === "executable-bit" && f.level === "warn")).toBe(true);
+  });
+
+  it("lets a skill's script and a recipe's bundled skill carry an executable bit", () => {
+    expect(
+      filesCheck("spade-skill", folder({ "scripts/run.sh*": "#!/bin/sh\necho hi\n" })),
+    ).toEqual([]);
+    expect(
+      filesCheck("spade-bot", folder({ "skills/tidy/run.sh*": "#!/bin/sh\necho hi\n" })),
+    ).toEqual([]);
   });
 });
 

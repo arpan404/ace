@@ -65,12 +65,16 @@ function isCompiledAppleScript(bytes: Uint8Array): boolean {
   return false;
 }
 
-/** Types whose files never carry an executable bit (everything but a plugin's own binaries). */
-const NO_EXECUTABLE_BIT: ReadonlySet<MarketEntryType> = new Set<MarketEntryType>([
-  "suit",
-  "spade-skill",
-  "spade-bot",
-]);
+/**
+ * Whether a file of `type` may carry an executable bit: a skill's scripts and a plugin's files
+ * may (ADR 0168 §8 flags them on the review; the scripts check reads what they do), so may a
+ * recipe's bundled skills; a Suit's files and a recipe's own never do.
+ */
+const mayBeExecutable = (type: MarketEntryType, path: string): boolean =>
+  type === "spade-skill" ||
+  type === "spade-plugin" ||
+  type === "ace-plugin" ||
+  (type === "spade-bot" && path.startsWith("skills/"));
 
 /** A Suit holds only these kinds; anything else is a finding. */
 const SUIT_ALLOWED =
@@ -130,7 +134,7 @@ export function filesCheck(
         ),
       );
     }
-    if (file.executable && NO_EXECUTABLE_BIT.has(type) && !native) {
+    if (file.executable && !mayBeExecutable(type, file.path) && !native) {
       findings.push(
         findingOf(
           file.path,
