@@ -1,15 +1,15 @@
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { extname, join } from "node:path";
+import { extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { SuitVideoFile } from "./library.ts";
 import { byteRange } from "./range.ts";
+import { openInsideSuit } from "./reader.ts";
 
 /*
  * A Suit's video, streamed from disk (ADR 0169): never read whole, served by byte range so the
  * page can seek and the browser fetches only what it plays. The caller has checked the URL's
- * grant and the version; this opens the file without following a link and serves it only while
+ * grant and the version; this opens the file with no link anywhere on its path (`openInsideSuit`)
+ * and serves it only while
  * it is the file that version was hashed with (same size and modification time).
  */
 
@@ -27,7 +27,7 @@ export async function serveSuitVideo(
 ): Promise<void> {
   let handle;
   try {
-    handle = await open(join(video.folder, video.path), constants.O_RDONLY | constants.O_NOFOLLOW);
+    handle = await openInsideSuit(video.folder, video.path);
   } catch {
     response.statusCode = 404;
     response.end();

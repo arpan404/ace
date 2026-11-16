@@ -1,4 +1,14 @@
-import { mkdir, mkdtemp, rm, symlink, truncate, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  stat,
+  symlink,
+  truncate,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,6 +18,7 @@ import type { SuitResponse } from "@ace/protocol/suits";
 import { suitsHttp } from "./http.ts";
 import { SuitLibrary } from "./library.ts";
 import { byteRange } from "./range.ts";
+import { openInsideSuit } from "./reader.ts";
 import { nodeSuitSchedule, nodeSuitWatch } from "./watch.ts";
 
 let home: string;
@@ -149,6 +160,30 @@ test("a video that is a link to a file outside the Suit is refused and never ser
   expect(summary?.problems.length).toBeGreaterThan(0);
   const response = await library.read("clip");
   if (response.op === "read") expect(response.suit.assets["assets/clip.mp4"]).toBeUndefined();
+});
+
+test("a folder swapped for a link after the checks can't lead the daemon outside the Suit", async () => {
+  await clip();
+  const folder = join(root, "clip");
+  const inside = join(folder, "assets", "clip.mp4");
+  // An outside file staged to look exactly like the checked one: same size, same time.
+  const outside = join(home, "elsewhere");
+  await mkdir(outside);
+  await writeFile(join(outside, "clip.mp4"), reversed);
+  const { mtime } = await stat(inside);
+  await utimes(join(outside, "clip.mp4"), mtime, mtime);
+  await (await openInsideSuit(folder, "assets/clip.mp4")).close();
+
+  await rename(join(folder, "assets"), join(home, "moved-assets"));
+  await symlink(outside, join(folder, "assets"));
+  await expect(openInsideSuit(folder, "assets/clip.mp4")).rejects.toThrow(/link/);
+});
+
+test("a Suit folder that is itself a link is never opened into", async () => {
+  await clip();
+  await rename(join(root, "clip"), join(home, "real-clip"));
+  await symlink(join(home, "real-clip"), join(root, "clip"));
+  await expect(openInsideSuit(join(root, "clip"), "assets/clip.mp4")).rejects.toThrow();
 });
 
 test.each([

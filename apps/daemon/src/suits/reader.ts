@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { lstat, open, readdir } from "node:fs/promises";
+import { lstat, open, readdir, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import {
   inspectSuit,
@@ -63,9 +63,42 @@ export const isMissing = (error: unknown) =>
   "code" in error &&
   (error.code === "ENOENT" || error.code === "ENOTDIR");
 
-/** One file inside `folder`, opened without following a link and read up to `limit` bytes. */
-export async function readSuitFile(folder: string, path: string, limit: number): Promise<Buffer> {
+/**
+ * A file inside `folder`, opened read-only so that no part of `path` passes through a link.
+ * `O_NOFOLLOW` guards only the last name, so once the file is open every folder on the way to it
+ * is checked to be a real folder, not a link, and the name must still be the file that was
+ * opened (same device and inode). A folder swapped for a link to somewhere else, before or during
+ * the open, is refused. Throws when the file can't be opened that way.
+ */
+export async function openInsideSuit(folder: string, path: string): Promise<FileHandle> {
+  const parts = path.split("/");
+  if (parts.some((part) => part === "" || part === "." || part === ".."))
+    throw new Error(`${path} is not a path inside the Suit`);
   const handle = await open(join(folder, path), constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const opened = await handle.stat();
+    const top = await lstat(folder);
+    if (!top.isDirectory()) throw new Error("the Suit's folder is not a folder");
+    let at = folder;
+    for (const [index, part] of parts.entries()) {
+      at = join(at, part);
+      const seen = await lstat(at);
+      const last = index === parts.length - 1;
+      if (seen.isSymbolicLink() || (!last && !seen.isDirectory()))
+        throw new Error(`${path} passes through a link`);
+      if (last && (seen.ino !== opened.ino || seen.dev !== opened.dev))
+        throw new Error(`${path} changed while it was opened`);
+    }
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+/** One file inside `folder`, opened by `openInsideSuit` and read up to `limit` bytes. */
+export async function readSuitFile(folder: string, path: string, limit: number): Promise<Buffer> {
+  const handle = await openInsideSuit(folder, path);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > limit) throw new Error(`${path} is not a readable file`);
