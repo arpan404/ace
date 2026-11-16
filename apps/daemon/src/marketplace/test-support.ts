@@ -165,7 +165,7 @@ export async function fakeSpade() {
   const token = "spade-test-token";
   const server = createServer(async (request, response) => {
     if (request.headers.authorization !== `Bearer ${token}`)
-      return send(response, 401, { detail: "no" });
+      return send(response, 401, { error: "no" });
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(chunk as Buffer);
     const body: unknown = chunks.length
@@ -173,7 +173,7 @@ export async function fakeSpade() {
       : undefined;
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (request.method === "POST" && url.pathname === "/v1/agents") {
-      if (failCreate) return send(response, 500, { detail: "The bot couldn't be made" });
+      if (failCreate) return send(response, 500, { error: "The bot couldn't be made" });
       made.push(body as Record<string, unknown>);
       return send(response, 201, { agent: { id: `bot_${made.length}` } });
     }
@@ -186,7 +186,7 @@ export async function fakeSpade() {
         cli: false,
       });
     }
-    return send(response, 404, { detail: "not found" });
+    return send(response, 404, { error: "not found" });
   });
   const port = await listen(server);
   let running = true;

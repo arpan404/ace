@@ -17,6 +17,19 @@ const BotPlugins = z.object({
   plugins: z.array(z.object({ name: z.string().max(64), allowed: z.boolean() })).max(1024),
 });
 
+/** Spade's error bodies say why under `error`. */
+const Problem = z.object({
+  error: z.string().max(300).optional(),
+  detail: z.string().max(300).optional(),
+});
+const safeJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
+
 const maxBytes = 1024 * 1024;
 
 async function call(
@@ -39,7 +52,8 @@ async function call(
   if (answer.kind !== "response") throw new Error("Spade's answer was too large");
   const text = answer.body.toString("utf8");
   if (answer.status < 200 || answer.status >= 300) {
-    const detail = /"detail"\s*:\s*"([^"]{1,300})"/.exec(text)?.[1];
+    const problem = Problem.safeParse(text ? safeJson(text) : undefined);
+    const detail = problem.success ? (problem.data.error ?? problem.data.detail) : undefined;
     throw new Error(detail ? `Spade refused: ${detail}` : `Spade answered ${answer.status}`);
   }
   return text ? JSON.parse(text) : undefined;
