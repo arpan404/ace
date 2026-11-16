@@ -1,6 +1,6 @@
 import { useThreadMeta } from "@ace/client-react";
 import { checkoutMoveReasons } from "@ace/ui-core";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { useBranches } from "@/lib/branches.ts";
 import { useCheckoutState } from "../lib/use-git.ts";

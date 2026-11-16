@@ -17,7 +17,8 @@
     "codec": {
       "enum": [
         "jpeg",
-        "h264"
+        "h264",
+        "hevc"
       ],
       "type": "string"
     },

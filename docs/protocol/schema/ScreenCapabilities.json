@@ -29,11 +29,12 @@
       "items": {
         "enum": [
           "jpeg",
-          "h264"
+          "h264",
+          "hevc"
         ],
         "type": "string"
       },
-      "maxItems": 2,
+      "maxItems": 3,
       "minItems": 1,
       "type": "array"
     },

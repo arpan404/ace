@@ -12,11 +12,13 @@ import {
 import { submitCommand } from "./commands.ts";
 import { PhonePush, phoneAddress, sameAddress } from "./notification-address.ts";
 import {
+  alertActions,
   alertAnswer,
   alertRequest,
   confirmedState,
   type AlertRequest,
 } from "./notification-request.ts";
+import { phoneAnswer } from "./summarized-requests.ts";
 import { sendPayload } from "./thread-controls.ts";
 import {
   PhoneNotificationPrefs,
@@ -448,8 +450,9 @@ export class NotificationBridge {
   }
   /**
    * A needs-you alert says what is asked ("Claude Code wants to run a command") and offers a
-   * short question's options, read from the thread's confirmed state. Past `requestMs`, or once
-   * the request is gone, it posts as the daemon sent it.
+   * short question's options, read from the thread's confirmed state; Approve goes from one too
+   * large to review on the phone (ADR 0157). Past `requestMs`, or once the request is gone, it
+   * posts as the daemon sent it.
    */
   async #withRequest(notification: Notification): Promise<Delivered> {
     const delivered = this.#delivered(notification);
@@ -458,8 +461,10 @@ export class NotificationBridge {
     const lease = this.#client.thread(notification.threadId);
     try {
       if (!(await confirmedState(lease.store, this.#schedule, this.requestMs))) return delivered;
-      const request = alertRequest(lease.store.interaction(interactionId), lease.store);
-      return request ? { ...delivered, request } : delivered;
+      const interaction = lease.store.interaction(interactionId);
+      const request = alertRequest(interaction, lease.store);
+      if (!request) return delivered;
+      return { ...delivered, actions: alertActions(delivered.actions, interaction), request };
     } catch {
       return delivered;
     } finally {
@@ -494,11 +499,14 @@ export class NotificationBridge {
         interaction?.state === "pending" && interaction.request.kind === "approval"
           ? interaction.request.options.find((candidate) => candidate.id === action.optionId)
           : undefined;
-      if (!option) return this.#outcome(action.requestId, "stale");
+      if (!interaction || !option) return this.#outcome(action.requestId, "stale");
+      // An Approve posted before the request was read: a summarized request takes only Deny.
+      const resolution = phoneAnswer(interaction, { kind: "approval", optionId: option.id });
+      if (!resolution) return this.#outcome(action.requestId, "refused");
       await this.#submit(action.requestId, {
         type: "interaction.resolve",
         interactionId: action.interactionId,
-        resolution: { kind: "approval", optionId: option.id },
+        resolution,
       });
     } finally {
       lease.release();

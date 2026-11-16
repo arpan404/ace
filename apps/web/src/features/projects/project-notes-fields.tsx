@@ -1,5 +1,5 @@
 import { maxProjectNoteLength, maxProjectNotes, type ProjectNoteEdit } from "@ace/protocol";
-import { PlusIcon, XIcon } from "@phosphor-icons/react";
+import { PlusIcon, XIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";

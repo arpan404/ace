@@ -58,7 +58,7 @@ test("a restored thread that was done never shows as done before the daemon conf
   });
   await before.open(`/t/${threadId}`);
   await within(await screen.findByRole("feed", { name: "Transcript" })).findByText("Go.");
-  const earlier = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const earlier = within(await screen.findByRole("navigation", { name: "Projects" }));
   await waitFor(() =>
     expect(
       earlier
@@ -81,7 +81,7 @@ test("a restored thread that was done never shows as done before the daemon conf
     client: (shared) => gatedClient(shared, saved, gate),
   });
   await app.open(`/t/${threadId}`);
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   const link = await list.findByRole("link", { name: new RegExp(`^${title}`) });
   const row = () => link.closest("[data-attention]");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
@@ -101,7 +101,7 @@ test("a restored thread that was done never shows as done before the daemon conf
   });
   await waitFor(() => expect(row()?.getAttribute("data-attention")).toBe("active"));
   expect(link.querySelector('[data-icon="working"]')).toBeTruthy();
-  expect(link.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
+  expect(link.querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph]")).toBeNull();
   expect(link.getAttribute("aria-label")).toContain("Working");
   await within(feed).findByText(/^Working/);
   expect(within(feed).queryByText("Syncing…")).toBeNull();

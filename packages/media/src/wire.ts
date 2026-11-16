@@ -14,7 +14,8 @@ const wellFormedJson = z.unknown().refine(wellFormed);
 const u32 = z.number().int().min(0).max(0xffffffff);
 const sequence = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const Admission = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("pairing"), generation: sequence }),
+  /** The paired credential's generation: an opaque string (a hash), compared for equality only. */
+  z.strictObject({ kind: z.literal("pairing"), generation: id }),
   z.strictObject({ kind: z.literal("account"), account: id }),
 ]);
 const Origin = z.discriminatedUnion("kind", [
@@ -34,6 +35,16 @@ const Origin = z.discriminatedUnion("kind", [
   }),
 ]);
 const Owner = z.strictObject({ session: id, device: id, admission: Admission });
+/**
+ * Who a viewer's pictures are for, in the client's own ids (D1): what ace-media writes into each
+ * stream piece's header and reads back from the client's acks.
+ */
+const ViewerTarget = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("browser"), threadId: id, tabId: id.optional() }),
+  z.strictObject({ kind: z.literal("screen"), sessionId: id }),
+  z.strictObject({ kind: z.literal("device"), deviceId: id }),
+]);
+export type ViewerTarget = z.infer<typeof ViewerTarget>;
 const Settings = z.strictObject({
   recordings: z.enum(["auto", "legacy"]),
   stills: z.enum(["auto", "legacy"]),
@@ -199,6 +210,7 @@ export const ToMedia = z.discriminatedUnion("type", [
     owner: Owner,
     issued: sequence,
     source: id,
+    target: ViewerTarget,
     codecs: z.array(text),
     viewport: Viewport,
     local: z.boolean(),
@@ -272,6 +284,20 @@ export const ToMedia = z.discriminatedUnion("type", [
     maxPixels: u32,
     quality: u32,
     deadlineMs: u32,
+  }),
+  /**
+   * A poster for a subscribe reply (ADR 0149): the source's picture fitted to the box at
+   * 10–20 KB, answered like `still.take` with `still.done` (the JPEG) or `still.failed`.
+   */
+  z.strictObject({
+    type: z.literal("still.poster"),
+    request: id,
+    source: id,
+    width: u32,
+    height: u32,
+    deadlineMs: u32,
+    /** The epochs decided clear: a poster comes only from a picture whose every epoch is in one. */
+    clear: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
 ]);
 export type ToMedia = z.infer<typeof ToMedia>;

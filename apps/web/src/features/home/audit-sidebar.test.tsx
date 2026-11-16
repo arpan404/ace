@@ -24,7 +24,7 @@ function app(options: Parameters<typeof harness>[0] = {}) {
   for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
   return made;
 }
-const nav = () => screen.getByRole("navigation", { name: "Threads" });
+const nav = () => screen.getByRole("navigation", { name: "Projects" });
 const row = (name: RegExp) => within(nav()).getByRole("link", { name });
 function narrow() {
   globalThis.matchMedia = (query) => ({
@@ -97,7 +97,7 @@ test("a remembered project filter is applied before the first sidebar request", 
       received.push(Object.values(message.view.threads).map((thread) => thread.workspaceId));
   });
   await made.open("/new?project=relay");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   stop();
   expect(received.length).toBeGreaterThan(0);
   expect(received.flat().every((project) => project === "relay")).toBe(true);
@@ -191,7 +191,7 @@ test("a task keeps project and provider context visible without duplicating Done
     provider: "codex",
   });
   await made.open("/new");
-  const bare = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const bare = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: /^Bare thread/ },
   );
@@ -211,10 +211,9 @@ test("a task keeps project and provider context visible without duplicating Done
 
 test("composition Enter leaves rename open and Escape preserves the existing multi-selection", async () => {
   await app().open("/new");
-  const first = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
-    "link",
-    { name: /^Invoice PDF/ },
-  );
+  const first = await within(
+    await screen.findByRole("navigation", { name: "Projects" }),
+  ).findByRole("link", { name: /^Invoice PDF/ });
   fireEvent.click(first, { metaKey: true });
   const title = await rename(row(/^Invoice PDF/));
   await userEvent.clear(title);
@@ -238,7 +237,7 @@ test("a rename in progress survives its thread settling: what was typed is kept 
     provider: "codex",
   });
   await made.open("/new");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole("link", {
     name: /^Rename across/,
   });
   const title = await rename(row(/^Rename across/));
@@ -268,7 +267,7 @@ test("Shift-click selects a range in the narrow sheet without closing it", async
   ] as const)
     createIdleTask(made.daemon, { id, workspaceId: "notes", title, provider: "codex" });
   await made.open("/t/thread-dedupe");
-  await userEvent.click(await screen.findByRole("button", { name: "Back to threads" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Back to projects" }));
   const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
   const rows = within(sheet);
   // The notes project holds just these two, so the range from one to the other is both.
@@ -289,7 +288,7 @@ test("streaming execution changes do not reread every row's read cursor", async 
   });
   const read = vi.spyOn(made.client, "threadReadState");
   await made.open("/new");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(0));
   const before = read.mock.calls.length;
   act(() => made.daemon.apply("read-storm", [facts.turn("root")]));

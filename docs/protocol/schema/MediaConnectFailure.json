@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaConnectFailure.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "ok": {
+      "const": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok",
+    "code",
+    "message"
+  ],
+  "type": "object"
+}

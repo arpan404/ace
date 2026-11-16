@@ -65,12 +65,29 @@ const stores = (): ConnectionStores & { local: ReturnType<typeof memoryKeyValue>
 const noConnectScreen = () =>
   expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
 
-test("a fresh window opens the app, not the connect screen, and Profile offers Sign in", async () => {
+test("a fresh window asks for a machine, not the connect screen, with Sign in to ace among the ways", async () => {
   const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
   openWindow({ daemon, stores: stores() });
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Connect to a machine" }),
+  ).toBeTruthy();
   noConnectScreen();
-  await userEvent.click(screen.getByRole("link", { name: "Profile" }));
+  const ways = screen.getByRole("region", { name: "Ways to connect" });
+  for (const way of [/^Sign in to ace/, /^Pair with a code/, /^Connect by address/])
+    expect(within(ways).getByRole("button", { name: way })).toBeTruthy();
+});
+
+test("signed in with no machine, the connect page lists the machines on the ace account", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  openWindow({ daemon, stores: stores(), signedIn: true });
+  const yours = await screen.findByRole("region", { name: "Your machines" });
+  expect(await within(yours).findByText("Studio")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Sign in to ace/ })).toBeNull();
+});
+
+test("with no machine, Profile still offers Sign in", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  openWindow({ daemon, stores: stores(), at: "/settings/profile" });
   const signIn = await screen.findByRole("button", { name: "Sign in" });
   expect(signIn.hasAttribute("disabled")).toBe(false);
   // This computer's numbers need a machine.
@@ -91,6 +108,16 @@ test("signed in with no machine, Fleet lists the machines on the ace account", a
   expect(screen.getByText("Travel laptop")).toBeTruthy();
 });
 
+test("with no machine, Settings lists Profile and Fleet in its sidebar", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  openWindow({ daemon, stores: stores(), at: "/settings/remote" });
+  const nav = await screen.findByRole("navigation", { name: "Settings pages" });
+  const links = within(nav)
+    .getAllByRole("link")
+    .map((link) => link.textContent);
+  expect(links).toEqual(["Profile", "Fleet"]);
+});
+
 test("pairing from inside the app makes it this window's machine, and a reload keeps it", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000, token: "a".repeat(64) });
   vi.stubGlobal("fetch", (input: string, init?: RequestInit) => daemon.access.fetch(input, init));
@@ -103,8 +130,7 @@ test("pairing from inside the app makes it this window's machine, and a reload k
   const window = stores();
   const first = openWindow({ daemon, stores: window });
 
-  await userEvent.click(await screen.findByRole("link", { name: "Add a machine" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Pair a machine" }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Pair with a code/ }));
   const dialog = await screen.findByRole("dialog");
   await userEvent.type(within(dialog).getByLabelText("Pairing link or code"), pairing.url);
   await userEvent.type(within(dialog).getByRole("textbox", { name: "This device's name" }), "Lab");
@@ -115,7 +141,7 @@ test("pairing from inside the app makes it this window's machine, and a reload k
   first.unmount();
   openWindow({ daemon, stores: window });
   expect(await screen.findByText(`Working on ${daemon.hostId}`)).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Connect to a machine")).toBeNull();
 });
 
 test("connecting by address that fails can go back to the app with no machine", async () => {
@@ -128,7 +154,7 @@ test("connecting by address that fails can go back to the app with no machine", 
   await userEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   await userEvent.click(screen.getByRole("button", { name: "Not now" }));
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Connect to a machine")).toBeTruthy();
 });
 
 test("a stored machine still opens straight into its app", async () => {
@@ -137,14 +163,14 @@ test("a stored machine still opens straight into its app", async () => {
   saveTarget(window, { url, token: daemon.token }, true);
   openWindow({ daemon, stores: window });
   expect(await screen.findByText(`Working on ${daemon.hostId}`)).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Connect to a machine")).toBeNull();
   noConnectScreen();
 });
 
 test("a desktop with no daemon of its own opens the app with no machine", async () => {
   const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
   openWindow({ daemon, stores: stores(), desktop: true });
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Connect to a machine")).toBeTruthy();
   noConnectScreen();
 });
 
@@ -162,5 +188,5 @@ test("a stored machine that refuses this window says so on the connect screen, n
   openWindow({ daemon, stores: window, token: "c".repeat(64) });
   expect((await screen.findByRole("alert")).textContent).toContain("didn't accept");
   expect(screen.getByRole("heading", { name: "Connect to ace" })).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Connect to a machine")).toBeNull();
 });

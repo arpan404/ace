@@ -1,6 +1,6 @@
 import { useSidebarStore } from "@ace/client-react";
 import { folderName, projectProblem } from "@ace/ui-core";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { newThreadOn } from "@/lib/machine-routes.ts";
@@ -30,12 +30,23 @@ export function newThreadIn(projectId: string, machine?: Machine) {
 }
 
 /**
+ * Where a project just added opens: New thread in it (`newThreadIn`), unless it was added from
+ * first-run setup on this window's own machine, which goes on to setup's Done step.
+ */
+export function landingIn(pathname: string, projectId: string, machine?: Machine) {
+  if (pathname === "/setup" && (!machine || machine.primary))
+    return { to: "/setup" as const, search: { step: "done" as const, project: projectId } };
+  return newThreadIn(projectId, machine);
+}
+
+/**
  * After a project is added, created or cloned: open it. A folder inside a repository offers the
  * repository's root instead, in a toast, which is added only if chosen. A project on
  * another machine opens New thread on that machine (ADR 0102).
  */
 export function useLandInProject(): (result: Added, verb?: string, options?: LandOptions) => void {
   const navigate = useNavigate();
+  const router = useRouter();
   const toast = useToast();
   const commands = useProjectCommands();
   const organizer = useOrganizer();
@@ -59,7 +70,7 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
         if (options.mode === "open" && hasThreads(id)) {
           organizer.setProject(id);
           void navigate({ to: "/", replace });
-        } else void navigate({ ...newThreadIn(id), replace });
+        } else void navigate({ ...landingIn(router.state.location.pathname, id), replace });
         const root = added.suggestedRoot;
         // Opening it is the confirmation; a toast only carries something to act on or know.
         if (!root && !added.gitUnavailable) return;
@@ -92,6 +103,6 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
       };
       land(result, verb, options.replace);
     },
-    [navigate, toast, commands, organizer, sidebar],
+    [navigate, router, toast, commands, organizer, sidebar],
   );
 }

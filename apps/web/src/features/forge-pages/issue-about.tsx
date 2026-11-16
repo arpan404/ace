@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import type { ForgeIssueDetail, ForgeIssueWrite } from "@ace/protocol";
 import { useRepoPrOptions } from "@/features/forge/index.ts";
+import { part } from "@/lib/suit-part.ts";
 import { ChoicePicker, type Choice } from "./new-pr-pickers.tsx";
 import type { IssueWrites } from "./issue-writes.ts";
 
@@ -117,7 +118,11 @@ export function IssueAbout(props: {
       : (milestones.find((choice) => choice.value === milestone)?.label ?? null);
   const threads = issue.relatedThreads.filter((thread) => !thread.archived);
   return (
-    <section aria-labelledby="issue-about" className="mt-6">
+    <section
+      {...part("page-section", undefined, "about")}
+      aria-labelledby="issue-about"
+      className="mt-6"
+    >
       <h3 id="issue-about" className="mb-1 text-ui font-medium text-muted-foreground">
         About
       </h3>

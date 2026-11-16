@@ -1,4 +1,4 @@
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import { IconButton } from "./icon-button.tsx";

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A Phosphor icon from `Icons.xcassets` (DESIGN.md "Icons": Phosphor only, regular weight;
-/// bold only at 12pt). It takes `currentColor`: set the row's tier with `foregroundStyle`.
+/// One of ace's own icons from `Icons.xcassets` (ADR 0156: the `@ace/icons` set the web draws;
+/// regular weight, bold only at 12pt). It takes `currentColor`: set the row's tier with `foregroundStyle`.
 /// `size` is the point size at the default text size and grows with Dynamic Type beside
 /// `relativeTo`. Decorative: the control or row it sits in carries the words.
 ///
@@ -30,11 +30,25 @@ struct AceIcon: View {
     }
 }
 
+extension AceIcon.Name {
+    /// The icon's image in `Icons.xcassets`.
+    func asset(_ weight: AceIcon.Weight = .regular) -> String {
+        weight == .bold ? "icon-\(rawValue)-bold" : "icon-\(rawValue)"
+    }
+}
+
 extension Image {
     /// The icon at its 20pt intrinsic size, for places that take an `Image` and size it
     /// themselves: menus, swipe actions, `Label` icons.
     init(ace name: AceIcon.Name, weight: AceIcon.Weight = .regular) {
-        self.init(weight == .bold ? "ph-\(name.rawValue)-bold" : "ph-\(name.rawValue)")
+        self.init(name.asset(weight))
+    }
+}
+
+extension UIImage {
+    /// The icon for UIKit menus and buttons, at its 20pt intrinsic size.
+    convenience init?(ace name: AceIcon.Name, weight: AceIcon.Weight = .regular) {
+        self.init(named: name.asset(weight))
     }
 }
 

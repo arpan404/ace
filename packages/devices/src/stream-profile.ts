@@ -5,25 +5,31 @@ const bucket = (value: number, limit: number) =>
   Math.min(limit, Math.max(64, Math.ceil(value / 64) * 64));
 export type DeviceConnection = "local" | "remote" | "relay";
 
-/** A live view is H.264 at this rate on every connection, whatever the pressure. */
+/** A live view asks for H.264 at this rate; a thin link steps it down (ADR 0149). */
 export const deviceFrameRate = 60;
-/** Below this, 60 fps of a phone screen turns to mush; pressure stops lowering here. */
-const minimumBitrate = 1_000_000;
+/**
+ * Pressure stops lowering the bit rate here: the floor the daemon follows a 3G link down to
+ * (`linkFloor` in `@ace/browser`'s link rate). There is no higher floor: the link decides.
+ */
+const minimumBitrate = 150_000;
 
 /**
  * Per connection: the largest picture (a phone screen at its device pixel ratio fits the remote
- * and relay boxes) and the bit rate a 60 fps stream gets before any pressure.
+ * box) and the bit rate a 60 fps stream asks for before any pressure. These are ceilings: the
+ * daemon holds each view to what its link carries (`LinkFollow`), with fewer frames and then a
+ * smaller picture on a thin link, so a relay view asks for what a remote one does.
  */
 const budgets: Record<DeviceConnection, { width: number; height: number; bitrate: number }> = {
   local: { width: 3840, height: 3840, bitrate: 12_000_000 },
   remote: { width: 1440, height: 2880, bitrate: 8_000_000 },
-  relay: { width: 1080, height: 2160, bitrate: 5_000_000 },
+  relay: { width: 1440, height: 2880, bitrate: 8_000_000 },
 };
 
 /**
  * The stream a live view asks for. Panel dimensions are physical pixels; the native capture keeps
  * its aspect ratio inside them. Pressure (0–3, the view falling behind) lowers the bit rate, and
- * only at its worst shrinks the picture of a remote or relay view. The frame rate never drops.
+ * only at its worst shrinks the picture of a remote or relay view. The link, followed by the
+ * daemon, lowers the frame rate and then the size from there.
  */
 export function deviceStreamProfile(
   panel: { width: number; height: number },
@@ -47,12 +53,13 @@ const screenBudgets: Record<DeviceConnection, { width: number; height: number; b
   {
     local: { width: 3840, height: 3840, bitrate: 16_000_000 },
     remote: { width: 2560, height: 2560, bitrate: 10_000_000 },
-    relay: { width: 1920, height: 1920, bitrate: 6_000_000 },
+    relay: { width: 2560, height: 2560, bitrate: 10_000_000 },
   };
 
 /**
  * The stream a computer-use live view asks for: H.264 at 60 fps sized to its panel (physical
- * pixels), with pressure lowering the bit rate first, as for a device.
+ * pixels), with pressure lowering the bit rate first, as for a device, and the followed link
+ * the frame rate and then the size.
  */
 export function screenStreamProfile(
   panel: { width: number; height: number },

@@ -1,6 +1,6 @@
 import { can } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
-import { ArrowSquareOutIcon, ArrowsClockwiseIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ArrowsClockwiseIcon, DotsThreeIcon } from "@ace/icons";
 import type { ForgeCheck, ForgeCheckRun } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
@@ -11,6 +11,7 @@ import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { prBox } from "./pr-box.tsx";
 import { PrCheckLog } from "./pr-check-log.tsx";
@@ -24,7 +25,12 @@ import { checkState } from "./pr-checks-list.tsx";
 /** The right pane's box: a head, then its body padded below. */
 export function CheckDetailBox(props: { head: ReactNode; children: ReactNode }) {
   return (
-    <section id="pr-check-detail" aria-label="Check" className={cn(prBox, "min-w-0 scroll-mt-12")}>
+    <section
+      id="pr-check-detail"
+      {...part("card", undefined, "check")}
+      aria-label="Check"
+      className={cn(prBox, "min-w-0 scroll-mt-12")}
+    >
       {props.head}
       <div className="space-y-3.5 px-4 pt-3.5 pb-4">{props.children}</div>
     </section>

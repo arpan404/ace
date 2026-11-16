@@ -57,8 +57,10 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
   const added: {
     producer: IngestProducer;
     encodes: unknown[];
+    codecs: string[][];
     pictures: string[];
     keys: number[];
+    reconnects: number;
     closed: boolean;
   }[] = [];
   const media: BrowserMedia = {
@@ -66,15 +68,19 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
       const record = {
         producer,
         encodes: [],
+        codecs: [],
         pictures: [],
         keys: [],
+        reconnects: 0,
         closed: false,
       } as (typeof added)[number];
       added.push(record);
       return {
         streaming: () => state.routed,
         encodes: (encodes) => void record.encodes.push(encodes),
+        codecs: (codecs) => void record.codecs.push([...codecs]),
         key: (encode) => void record.keys.push(encode),
+        reconnect: () => void record.reconnects++,
         picture: (base64) => {
           record.pictures.push(base64);
           return true;
@@ -163,6 +169,22 @@ const daemonChunk = (encode: string, key: boolean, mark: number): EncodedChunk =
 const marks = (chunks: EncodedChunk[]) => chunks.map((chunk) => chunk.bytes[0]);
 
 describe("live video routed through ace-media", () => {
+  it.each(["tab", "tab-pictures"] as const)(
+    "a %s capture tells ace-media the codecs its encoder runs",
+    async (kind) => {
+      const { media, added } = fakeMedia({ routed: true, codecs: ["hvc1.1.6.L153.B0"] });
+      const { host } = fakeHost(kind, true);
+      const handle = await mediaVideoHost(host, media, () => ({})).open(
+        page,
+        640,
+        400,
+        events().sink,
+      );
+      handle.codecs?.(["hvc1.1.6.L153.B0", "avc1.42E033"]);
+      expect(added.map((record) => record.codecs)).toEqual([[["hvc1.1.6.L153.B0", "avc1.42E033"]]]);
+    },
+  );
+
   it("a tab's own encoder is pointed at the ingest with its token, and egress units reach the capture as its chunks", async () => {
     const { media, added } = fakeMedia({ routed: true });
     const { host, captures } = fakeHost("tab", true);
@@ -174,11 +196,12 @@ describe("live video routed through ace-media", () => {
       { url: "ws://127.0.0.1:9/ingest", token: Buffer.alloc(32, 7).toString("base64"), epoch: 3 },
     ]);
     handle.encodes([spec("avc1/640"), spec("avc1/320")]);
-    expect(captures[0]?.encodes[0]?.map((s) => s.id)).toEqual([1, 2]);
+    // The daemon's own encodes take ids above ace-media's, which start at 1 (D1).
+    expect(captures[0]?.encodes[0]?.map((s) => s.id)).toEqual([2 ** 20, 2 ** 20 + 1]);
     // The producer moved: its last word on the daemon's path lets ace-media's units through.
     captures[0]?.events.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(2, true, 9)));
-    producer?.consumers.deliver(unit("m1", frame(2, false, 10)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, true, 9)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20 + 1, false, 10)));
     producer?.consumers.deliver(unit("m1", frame(77, false, 11)));
     expect(e.chunks).toEqual([
       expect.objectContaining({
@@ -207,14 +230,14 @@ describe("live video routed through ace-media", () => {
     daemon?.chunk(daemonChunk("avc1/640", true, 1));
     await producer?.point(address("m1"));
     daemon?.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(1, true, 2)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 2)));
     // Back to the daemon: the encoder's fresh keyframe overtakes ace-media's last deltas.
     await producer?.point(undefined);
     expect(captures[0]?.targets.at(-1)).toBeUndefined();
     daemon?.moved?.("daemon");
     daemon?.chunk(daemonChunk("avc1/640", true, 5));
-    producer?.consumers.deliver(unit("m1", frame(1, false, 3)));
-    producer?.consumers.deliver(unit("m1", frame(1, false, 4)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 3)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 4)));
     expect(marks(e.chunks)).toEqual([1, 2, 3, 4]);
     producer?.pathEnded?.("m1", false);
     daemon?.chunk(daemonChunk("avc1/640", false, 6));
@@ -231,12 +254,12 @@ describe("live video routed through ace-media", () => {
     const daemon = captures[0]?.events;
     await producer?.point(address("m1"));
     daemon?.moved?.("ingest");
-    producer?.consumers.deliver(unit("m1", frame(1, true, 1)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
     await producer?.point(undefined);
     daemon?.chunk(daemonChunk("avc1/640", false, 2));
     daemon?.chunk(daemonChunk("avc1/640", true, 3));
     producer?.pathEnded?.("m1", true);
-    producer?.consumers.deliver(unit("m1", frame(1, false, 9)));
+    producer?.consumers.deliver(unit("m1", frame(2 ** 20, false, 9)));
     expect(marks(e.chunks)).toEqual([1, 3]);
   });
 
@@ -254,11 +277,11 @@ describe("live video routed through ace-media", () => {
     handle.pictures?.push("aGVsbG8=");
     handle.keyframe("avc1/640");
     expect(added[0]?.encodes).toEqual([
-      [{ id: 1, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
+      [{ id: 2 ** 20, codec: "avc1.42E033", width: 640, height: 400, fps: 60, bitrate: 4_000_000 }],
     ]);
     expect(added[0]?.pictures).toEqual(["aGVsbG8="]);
-    expect(added[0]?.keys).toEqual([1]);
-    added[0]?.producer.consumers.deliver(unit("m1", frame(1, true, 1)));
+    expect(added[0]?.keys).toEqual([2 ** 20]);
+    added[0]?.producer.consumers.deliver(unit("m1", frame(2 ** 20, true, 1)));
     expect(e.chunks.map((c) => c.encode)).toEqual(["avc1/640"]);
   });
 
@@ -314,4 +337,133 @@ describe("live video routed through ace-media", () => {
     };
     expect(mediaVideoHost(plain, media, () => ({}))).toBe(plain);
   });
+});
+
+it("ace-media's plan becomes the capture's, under ace-media's own ids", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const wants: (VideoEncode[] | undefined)[] = [];
+  const e = events();
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, {
+    ...e.sink,
+    want: (encodes) => void wants.push(encodes),
+  });
+  const producer = added[0]?.producer;
+  await producer?.point(address("m1"));
+  producer?.want?.([
+    { id: 1, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+  ]);
+  const wanted = wants[0]?.[0];
+  expect(wanted).toMatchObject({ codec: "avc1.42E033", width: 320, height: 200, fps: 15 });
+  if (!wanted) return;
+  // When the capture runs it beside the daemon's own, it is stamped with ace-media's id 1.
+  handle.encodes([spec("avc1/640"), wanted]);
+  const ids = captures[0]?.encodes[0]?.map((s) => s.id);
+  expect(ids?.[1]).toBe(1);
+  expect(ids?.[0]).not.toBe(1);
+});
+
+it("an encode id is never given to another encode while the capture lives", async () => {
+  const { media } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, events().sink);
+  // A capture replanned thousands of times, faster than its queued units can drain.
+  for (let n = 0; n < 5_000; n++) handle.encodes([spec(`avc1/${n}`), spec(`vp8/${n}`)]);
+  const plans = captures[0]?.encodes ?? [];
+  const byId = new Map<number, string>();
+  for (const plan of plans)
+    for (const encode of plan) {
+      const id = encode.id ?? -1;
+      // A late unit of an encode can never be taken for a later one's.
+      expect(byId.get(id) ?? encode.key).toBe(encode.key);
+      byId.set(id, encode.key);
+    }
+  expect(byId.size).toBe(10_000);
+});
+
+it("an id ace-media gives outside its range [1, 2^20) never takes over a daemon encode's", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host } = fakeHost("tab", true);
+  const wants: (VideoEncode[] | undefined)[] = [];
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, {
+    ...events().sink,
+    want: (encodes) => void wants.push(encodes),
+  });
+  handle.encodes([spec("avc1/640")]);
+  const producer = added[0]?.producer;
+  await producer?.point(address("m1"));
+  const encode = { codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 };
+  producer?.want?.([
+    { id: 2 ** 20, ...encode },
+    { id: 0, ...encode },
+    { id: 2 ** 20 - 1, ...encode },
+  ]);
+  // Only the id in ace-media's range is planned.
+  expect(wants[0]?.map((w) => w.key)).toEqual([`media/${2 ** 20 - 1}/avc1.42E033/320x200`]);
+});
+
+it("a new path stops ace-media's encodes of the old one before the capture moves to it", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const log: string[] = [];
+  const open = host.open;
+  host.open = async (...args) => {
+    const handle = await open(...args);
+    const encodes = handle.encodes;
+    const ingest = handle.ingest;
+    handle.encodes = (specs) => {
+      log.push(`encodes ${specs.map((s) => s.key).join(",")}`);
+      encodes(specs);
+    };
+    if (ingest) handle.ingest = (target) => (log.push("ingest"), ingest(target));
+    return handle;
+  };
+  const wants: (VideoEncode[] | undefined)[] = [];
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, {
+    ...events().sink,
+    want: (encodes) => void wants.push(encodes),
+  });
+  const producer = added[0]?.producer;
+  await producer?.point(address("m1"));
+  producer?.want?.([
+    { id: 1, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+  ]);
+  const planned = wants[0]?.[0];
+  if (!planned) throw new Error("no plan");
+  handle.encodes([spec("avc1/640"), planned]);
+  log.length = 0;
+  // ace-media reopened the source: its old plan's encode stops, then the capture moves.
+  await producer?.point(address("m2"));
+  expect(log).toEqual(["encodes avc1/640", "ingest"]);
+  // The live video plans its delivered views itself until the new path's plan comes.
+  expect(wants.at(-1)).toBeUndefined();
+  expect(captures[0]?.targets).toHaveLength(2);
+});
+
+it("out of daemon ids, the source reopens, and waiting encodes run once the old path has ended", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const e = events();
+  const first = 2 ** 20;
+  const handle = await mediaVideoHost(host, media, () => ({}), {
+    daemonIds: { first, end: first + 2 },
+  }).open(page, 640, 400, e.sink);
+  const producer = added[0]?.producer;
+  await producer?.point(address("m1"));
+  handle.encodes([spec("a"), spec("b")]);
+  handle.encodes([spec("a"), spec("c")]);
+  // `c` has no id yet: it waits, and the source is opened again.
+  expect(captures[0]?.encodes.at(-1)?.map((s) => s.key)).toEqual(["a"]);
+  expect(added[0]?.reconnects).toBe(1);
+  await producer?.point(address("m2"));
+  // The old path's late unit of `b` keeps its label.
+  captures[0]?.events.moved?.("ingest");
+  producer?.consumers.deliver(unit("m1", frame(first + 1, true, 1)));
+  expect(e.chunks.map((c) => c.encode)).toEqual(["b"]);
+  // Its end marker: ids start over past `a`, and `c` runs.
+  producer?.pathEnded?.("m1", false);
+  expect(captures[0]?.encodes.at(-1)).toEqual([
+    expect.objectContaining({ key: "a", id: first }),
+    expect.objectContaining({ key: "c", id: first + 1 }),
+  ]);
 });

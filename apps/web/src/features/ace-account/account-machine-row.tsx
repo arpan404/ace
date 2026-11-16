@@ -83,6 +83,7 @@ export function AccountMachineRow(props: {
   return (
     <HairlineRow
       data-row="account-machine"
+      state={line.tone === "warn" ? "waiting" : undefined}
       tile={
         <RowTile>
           <MachineMark primary={false} decorative size={15} />

@@ -12,7 +12,7 @@ afterEach(() => {
   setKeybindingOverrides({});
 });
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const tab = (name: "Inbox" | "Snoozed" | "Settled") =>
   within(threads()).getByRole("tab", { name: new RegExp(`^${name}`) });
 const thumb = () => threads().querySelector("[data-selected-index]");
@@ -29,7 +29,7 @@ async function openHome() {
     provider: "codex",
   });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole("link", {
     name: /^Tidy the README/,
   });
   return app;
@@ -91,12 +91,12 @@ test("the global shortcut selects Snoozed with focus in the composer, staying on
 test("the global shortcut switches to the Threads place first when elsewhere", async () => {
   await harness().open("/automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
-  expect(screen.queryByRole("navigation", { name: "Threads" })).toBeNull();
+  expect(screen.queryByRole("navigation", { name: "Projects" })).toBeNull();
 
   await userEvent.keyboard("{Alt>}{Shift>}2{/Shift}{/Alt}");
 
   await waitFor(() => expect(tab("Snoozed").getAttribute("aria-selected")).toBe("true"));
-  expect(await screen.findByRole("navigation", { name: "Threads" })).toBeTruthy();
+  expect(await screen.findByRole("navigation", { name: "Projects" })).toBeTruthy();
 });
 
 test("Next threads tab cycles through all three", async () => {

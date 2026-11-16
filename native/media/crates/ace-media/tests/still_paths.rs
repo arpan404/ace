@@ -7,7 +7,7 @@
 #[path = "../bench/screen.rs"]
 mod screen;
 
-use ace_media::engine::stills::{Made, StillInput, StillJob, StillUnit};
+use ace_media::engine::stills::{Made, Make, StillInput, StillJob, StillUnit};
 use ace_media::stills::cpu::CpuStills;
 use ace_media::stills::poster::{POSTER_MAX_BYTES, POSTER_MIN_BYTES, poster};
 use ace_media::stills::vt::{VtOptions, VtStills};
@@ -86,7 +86,7 @@ fn job(input: StillInput, target: Size) -> StillJob {
         stream: 1,
         input,
         target,
-        quality: 80,
+        make: Make::Still { quality: 80 },
         deadline_us: u64::MAX,
     }
 }

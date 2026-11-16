@@ -35,6 +35,7 @@ const Read = z.object({
   offset: z.number().int().nonnegative(),
   limit: z.number().int().positive(),
 });
+const WholeRequest = z.object({ threadId: z.string(), interactionId: z.string() });
 const Page = z.object({
   threadId: z.string(),
   before: z.number().optional(),
@@ -86,6 +87,7 @@ const schemas = {
   itemsPage: z.tuple([Page, Options]),
   loadOlder: z.tuple([z.string(), z.number().int().positive(), Options]),
   outputRead: z.tuple([Read, Options]),
+  readInteraction: z.tuple([WholeRequest, Options]),
   networkOnline: z.tuple([z.boolean()]),
   reconnectNow: z.tuple([]),
   request: z.tuple([ServiceInput, Options]),
@@ -191,6 +193,10 @@ export async function callArgs(
     case "outputRead": {
       const [read, parsed] = decode(schemas.outputRead, args);
       return client.outputRead(read, options(parsed, signal));
+    }
+    case "readInteraction": {
+      const [input, parsed] = decode(schemas.readInteraction, args);
+      return client.readInteraction(input, options(parsed, signal));
     }
     case "request":
       return requestArgs(client, args, signal);

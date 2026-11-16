@@ -15,6 +15,7 @@ import {
   hostFolders,
   refusedDelegation,
   seedInterruptedTurn,
+  seedRestartedTurn,
   seedTurnEndings,
   seedLeftRunning,
   seedSettledHeld,
@@ -190,6 +191,8 @@ export function bootFake(): {
     new ScenarioPlayer(daemon, refusedDelegation(), { agoMs: 0 }).runUntilBlocked();
   // `?fakeWorld=interrupted-turn`: an OpenCode turn a restart interrupted, held for Resume.
   if (world === "interrupted-turn") seedInterruptedTurn(daemon);
+  // `?fakeWorld=restarted-turn`: a turn ace restarted three times and a limit held, read as one.
+  if (world === "restarted-turn") seedRestartedTurn(daemon);
   // `?fakeWorld=turn-endings`: a turn a usage limit paused, and one the person stopped.
   if (world === "turn-endings") seedTurnEndings(daemon);
   // `?fakeWorld=left-running`: a done thread whose turn left a dev server running.

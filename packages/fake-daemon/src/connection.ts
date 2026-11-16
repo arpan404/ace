@@ -9,6 +9,7 @@ import {
   type CommandResult,
   type DeliveryEvent,
   type HostId,
+  type Interaction,
   type ItemsPage,
   type ServerMessage,
   type ThreadListView,
@@ -17,6 +18,7 @@ import {
 } from "@ace/protocol";
 import type { FakeWireSession } from "./services-wire.ts";
 import { CommandFlights } from "./command-status.ts";
+import { requestPage, summarizedOutgoing } from "./summarized-requests.ts";
 
 /** What a connection needs from the host. FakeDaemon implements it. */
 /** The daemon's default replay bound: further behind than this, a subscriber gets a snapshot. */
@@ -43,12 +45,16 @@ export interface Host {
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
-  /** One thread's agents, runs, interactions or background tasks, newest last, one page. */
+  /** One thread's agents, runs, interactions or background tasks: one page before `before`. */
   entities?(
     threadId: string,
     collection: import("@ace/protocol").EntityCollection,
+    before: number,
     limit: number,
+    maxBytes?: number,
   ): import("@ace/protocol").EntitiesPage | undefined;
+  /** A thread's interaction, whole as stored, for `interaction.read`. */
+  interactionOf?(threadId: string, interactionId: string): Interaction | undefined;
   /** Full shell output for `output.read`; a host without a stream store answers not_found. */
   output?(
     streamId: string,
@@ -253,7 +259,13 @@ export class Connection {
         this.subscriptions.delete(message.subscriptionId);
         return;
       case "entities.page": {
-        const page = this.host.entities?.(message.threadId, message.collection, message.limit);
+        const page = this.host.entities?.(
+          message.threadId,
+          message.collection,
+          message.before,
+          message.limit,
+          message.maxBytes,
+        );
         if (page) this.send({ type: "entities.page", requestId: message.requestId, page });
         else this.error("not_found", { requestId: message.requestId });
         return;
@@ -305,6 +317,22 @@ export class Connection {
           return { commandId, state: known.state };
         });
         this.send({ type: "command.status", requestId: message.requestId, commands });
+        return;
+      }
+      case "interaction.read": {
+        const interaction = this.host.interactionOf?.(message.threadId, message.interactionId);
+        if (!interaction) this.error("interaction_not_found", { requestId: message.requestId });
+        // A summary mirrored from elsewhere has no whole copy here.
+        else if (interaction.truncated)
+          this.error("request_not_whole_here", { requestId: message.requestId });
+        else
+          this.send({
+            type: "interaction.data",
+            requestId: message.requestId,
+            threadId: message.threadId,
+            interactionId: message.interactionId,
+            ...requestPage(interaction, message.offset),
+          });
         return;
       }
       case "output.read": {
@@ -485,6 +513,7 @@ export class Connection {
   }
   private send(message: ServerMessage): void {
     if (this.closed) return;
+    message = summarizedOutgoing(message);
     if (this.rawOnDemand && message.type === "events")
       message = {
         ...message,

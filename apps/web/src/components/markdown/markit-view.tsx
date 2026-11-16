@@ -20,6 +20,7 @@ import {
 import { renderMermaid } from "./mermaid-render.ts";
 import { blockRhythm } from "./rhythm.ts";
 import { StreamPace } from "./stream-pace.ts";
+import { nameMarkitParts } from "./markit-parts.ts";
 
 export interface MarkitCallbacks {
   onLink: (url: string) => void;
@@ -152,6 +153,7 @@ export function MarkitView(props: {
       // cut short when it left: this view finishes them, without drawing the markdown again.
       current.renderer.refreshImages();
       latest.current.callbacks.drawn?.(current.element, true);
+      nameMarkitParts(current.element);
     } else if (drawnRef.current) {
       // Another view took it in the meantime: draw again, from the text.
       drawnRef.current = false;
@@ -210,6 +212,7 @@ export function MarkitView(props: {
               flushSync(() => setDrawn(true));
             }
             latest.current.callbacks.drawn?.(current.element, done);
+            nameMarkitParts(current.element);
             if (import.meta.env.MODE !== "perf") return;
             perfSamples()?.push({
               stream: latest.current.stream,

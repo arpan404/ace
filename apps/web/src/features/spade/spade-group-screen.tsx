@@ -56,7 +56,7 @@ export function SpadeGroupScreen(props: {
   );
   if (!group || !machine)
     return (
-      <Screen title="Spade" namedByPanel>
+      <Screen page="spade" title="Spade" namedByPanel>
         <div className={`${readingColumn} pt-6`}>
           {!line.ready ? (
             <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />
@@ -115,6 +115,7 @@ function GroupScreen(props: {
   const members = shownMembers(machines, group, props.bots);
   return (
     <Screen
+      page="spade"
       title={group.name}
       subtitle={members.map((member) => member.name).join(", ")}
       mark={<GroupFaces members={members} size={20} />}
@@ -250,7 +251,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
     </div>
   );
   return (
-    <Screen title="">
+    <Screen page="spade" title="">
       <div className="relative flex h-full min-h-0">
         <div
           className={cn("min-w-0 flex-1", shown && covering && "invisible")}

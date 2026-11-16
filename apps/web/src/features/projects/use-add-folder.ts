@@ -1,9 +1,9 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
-import { newThreadIn, useLandInProject } from "./land.ts";
+import { landingIn, useLandInProject } from "./land.ts";
 import { projectFailure, useProjectCommandsOn } from "./project-commands.ts";
 import { useAllowFolder } from "./use-allow-folder.ts";
 import { useRecentFolders } from "./use-folders.ts";
@@ -30,6 +30,7 @@ export function useAddFolder(machine: Machine, close: () => void, initial?: AddP
   const commandsOn = useProjectCommandsOn();
   const land = useLandInProject();
   const navigate = useNavigate();
+  const router = useRouter();
   const toast = useToast();
   const allowFolder = useAllowFolder();
   const directory = useProjectDirectory();
@@ -52,7 +53,7 @@ export function useAddFolder(machine: Machine, close: () => void, initial?: AddP
       toast.add({
         title: `${known.name} is already a project${machine.primary ? "" : ` on ${machine.name}`}`,
       });
-      void navigate(newThreadIn(known.id, machine));
+      void navigate(landingIn(router.state.location.pathname, known.id, machine));
       return;
     }
     pending.current = true;

@@ -16,7 +16,10 @@ export function PersonAvatar(props: {
 }) {
   const image = useAvatar(props.url);
   return (
-    <MessageAvatar className={cn("self-center", props.className ?? "size-5 min-w-5")}>
+    <MessageAvatar
+      data-part="avatar"
+      className={cn("self-center", props.className ?? "size-5 min-w-5")}
+    >
       {image ? (
         <img src={image} alt={props.name} className="size-full object-cover" />
       ) : (

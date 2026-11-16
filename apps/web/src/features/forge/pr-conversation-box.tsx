@@ -57,7 +57,7 @@ export function PrConversationBox() {
   };
   return (
     <div ref={box} className="pt-2">
-      <TimelineBox author={viewer ?? ""} avatarUrl={avatar} className="pb-6">
+      <TimelineBox variant="composer" author={viewer ?? ""} avatarUrl={avatar} className="pb-6">
         <MarkdownEditor
           label="Comment"
           placeholder="Leave a comment"

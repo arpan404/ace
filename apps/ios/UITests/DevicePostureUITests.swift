@@ -11,7 +11,7 @@ import XCTest
     func testPickingAPostureFoldsTheDevice() async throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         app.openBrowseDestination("library.devices")
         let duo = app.buttons.matching(identifier: "devices.row").matching(NSPredicate(format: "label CONTAINS %@", "iPhone Duo")).firstMatch
         XCTAssertTrue(duo.waitForExistence(timeout: 20))

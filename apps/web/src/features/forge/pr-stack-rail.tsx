@@ -11,12 +11,13 @@ import {
   UserCircleMinusIcon,
   WarningCircleIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ForgeStackLayer } from "@ace/protocol";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import {
   checkStateLabel,
   layerChecksSignal,
@@ -124,7 +125,7 @@ export function StackRail(props: {
       return next;
     });
   return (
-    <ol aria-label="Stack layers" className="space-y-px">
+    <ol {...part("list", undefined, "stack")} aria-label="Stack layers" className="space-y-px">
       {props.layers.map((layer) => {
         const selected = layer.number === props.current;
         const open = expanded.has(layer.number);
@@ -132,7 +133,7 @@ export function StackRail(props: {
         const review = reviewSignal(layer.reviewDecision);
         const state = stateGlyph(layer);
         return (
-          <li key={layer.number}>
+          <li key={layer.number} {...part("list-row", selected && "selected")}>
             <div
               className={cn(
                 "flex h-8 items-center gap-1 rounded-md pr-1 text-ui hover:bg-accent",

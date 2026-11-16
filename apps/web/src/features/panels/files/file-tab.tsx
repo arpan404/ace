@@ -1,5 +1,5 @@
 import { mentionInComposer } from "@/lib/composer-insert.ts";
-import { GitDiffIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import { GitDiffIcon, PencilSimpleIcon } from "@ace/icons";
 import { useClient, useConnectionState, useThreadMeta } from "@ace/client-react";
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";

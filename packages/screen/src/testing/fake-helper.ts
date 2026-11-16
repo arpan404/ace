@@ -256,7 +256,8 @@ function processRequest(request: ScreenHelperRequest) {
     };
   if (request.op === "hello" && process.env.BAD_CAPABILITIES === "1") data = { version: 99 };
   if (request.op === "stream.configure") {
-    codec = request.settings.codec;
+    // No hardware HEVC here: HEVC runs as H.264, as on such a Mac.
+    codec = request.settings.codec === "hevc" ? "h264" : request.settings.codec;
     data = { codec };
     // As the real helper does (markInitial), a capturing stream starts over with a fresh picture.
     if (capturing) frame();

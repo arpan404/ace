@@ -14,7 +14,7 @@ import { cn } from "@/lib/cn.ts";
  */
 export function NewThreadSkeleton() {
   return (
-    <Screen title="New thread">
+    <Screen page="new-thread" title="New thread">
       <LoadingRegion
         label="New thread"
         className="flex h-full min-h-0 flex-col pt-6 pb-[max(1rem,env(safe-area-inset-bottom))]"

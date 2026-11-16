@@ -1,7 +1,7 @@
 import type { ChangeTap, ClientCore, ThreadSource } from "@ace/client";
 import { TurnStepsCache, type TurnStepsEntry, type TurnStepsStore } from "@ace/client/turn-steps";
 import type { Item, ThreadId } from "@ace/protocol";
-import { rootRunOf } from "@ace/ui-core";
+import { momentOf, rootRunOf } from "@ace/ui-core";
 import { scheduler } from "./host.ts";
 import { backgroundRows } from "./background-rows.ts";
 import { itemRow, preview } from "./presentation.ts";
@@ -219,7 +219,10 @@ export class StepsFollower {
     const owner = this.#store.thread?.rootAgentId;
     const steps = (entry?.steps ?? []).filter(
       (step) =>
-        (owner === undefined || step.item.agentId === owner) && !slot.answers.has(step.item.id),
+        (owner === undefined || step.item.agentId === owner) &&
+        !slot.answers.has(step.item.id) &&
+        // A restart's notice is its turn's moment row, never a step of the opened log.
+        !momentOf(step.item),
     );
     // The daemon's copy of the turn times its thoughts; the live store may not hold them.
     const took = turnThoughtMs(

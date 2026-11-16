@@ -11,7 +11,7 @@ configure({ asyncUtilTimeout: 10000 });
 
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const offline = /^Offline/;
 /** The one connection notice; an activity card in the transcript can also say "Offline". */
 const outsideFeed = { ignore: "[role=feed] *, script, style" };
@@ -21,7 +21,7 @@ async function openHome() {
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   // A screen without a thread composer: the header owns the connection notice there.
   await app.open("/new");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 

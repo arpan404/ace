@@ -1,6 +1,6 @@
 import { useLocation } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { CaretDownIcon, DevicesIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, DevicesIcon } from "@ace/icons";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import {
   Menu,
@@ -10,6 +10,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { allMachines, useSettingsMachine } from "./machine-scope.tsx";
@@ -46,59 +47,85 @@ export function SettingsBody(props: {
   children?: ReactNode;
 }) {
   const pathname = useLocation({ select: (location) => location.pathname });
-  const group = settingsPageOf(pathname)?.group;
+  const settingsPage = settingsPageOf(pathname);
+  const group = settingsPage?.group;
   const { machine } = useSettingsMachine();
   return (
     // The sidebar already says Settings and the page names itself below: the header keeps only
     // its controls, with the view's name for assistive tech.
-    <Screen title="Settings" namedByPanel actions={props.actions}>
-      <div className="h-full overflow-auto">
-        {/* Inside the scroller, so a wide view measures the room it gives, scrollbar left out. */}
-        <div className={cn(props.wide && "@container")}>
-          <div
-            className={cn(
-              "mx-auto w-full max-w-(--settings-column) px-5 pt-8 pb-20 sm:px-7",
-              !props.wide && "@container",
-            )}
-          >
-            {props.back && <div className="mb-1 text-ui">{props.back}</div>}
-            {/* The title row is a band of its own: the first group starts a clear step below it. */}
+    <Screen
+      title="Settings"
+      namedByPanel
+      actions={props.actions}
+      page="settings"
+      pageVariant={settingsVariant(settingsPage?.to, props.page)}
+    >
+      <div className="h-full">
+        <div data-part="scrollbar" className="h-full overflow-auto">
+          {/* Inside the scroller, so a wide view measures the room it gives, scrollbar left out. */}
+          <div className={cn(props.wide && "@container")}>
             <div
               className={cn(
-                "flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2",
-                props.tabs ? "mb-3" : "mb-7",
+                "mx-auto w-full max-w-(--settings-column) px-5 pt-8 pb-20 sm:px-7",
+                !props.wide && "@container",
               )}
             >
-              {props.icon}
-              <div className="min-w-0">
-                <h2 className="text-xl leading-[26px] font-semibold tracking-[-0.015em]">
-                  {props.page}
-                </h2>
-                <PageScope group={group} />
-                {props.lede && (
-                  <div className="mt-0.5 text-ui text-muted-foreground">{props.lede}</div>
+              {props.back && <div className="mb-1 text-ui">{props.back}</div>}
+              {/* The title row is a band of its own: the first group starts a clear step below it. */}
+              <div
+                {...part("page-header")}
+                className={cn(
+                  "flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2",
+                  props.tabs ? "mb-3" : "mb-7",
+                )}
+              >
+                {props.icon}
+                <div className="min-w-0">
+                  <h2
+                    {...part("page-title")}
+                    className="text-xl leading-[26px] font-semibold tracking-[-0.015em]"
+                  >
+                    {props.page}
+                  </h2>
+                  <PageScope group={group} />
+                  {props.lede && (
+                    <div className="mt-0.5 text-ui text-muted-foreground">{props.lede}</div>
+                  )}
+                </div>
+                {(props.trailing || props.titleActions) && (
+                  <div {...part("page-toolbar")} className="ml-auto flex items-center gap-2">
+                    {props.trailing}
+                    {props.titleActions}
+                  </div>
                 )}
               </div>
-              {(props.trailing || props.titleActions) && (
-                <div className="ml-auto flex items-center gap-2">
-                  {props.trailing}
-                  {props.titleActions}
-                </div>
-              )}
-            </div>
-            {props.tabs && <div className="mb-6">{props.tabs}</div>}
-            <div
-              // A new page or machine starts its content over, with one short rise.
-              key={`${pathname}:${machine?.primary ? "primary" : (machine?.id ?? "")}`}
-              className={cn("fx-rise-in", props.wide && wideContent)}
-            >
-              {props.children}
+              {props.tabs && <div className="mb-6">{props.tabs}</div>}
+              <div
+                {...part("page-body")}
+                // A new page or machine starts its content over, with one short rise.
+                key={`${pathname}:${machine?.primary ? "primary" : (machine?.id ?? "")}`}
+                className={cn("fx-rise-in", props.wide && wideContent)}
+              >
+                {props.children}
+              </div>
             </div>
           </div>
         </div>
       </div>
     </Screen>
   );
+}
+
+/**
+ * The settings page a Suit sees in `data-variant`: the path's last word (`agents`,
+ * `source-control`), or the title's for a page outside the list (no machine's Settings).
+ */
+function settingsVariant(path: string | undefined, title: string): string {
+  if (path) return path.slice("/settings/".length);
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 /**

@@ -34,6 +34,34 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "tooLarge": {
+          "items": {
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "bytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "active",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
         }
       },
       "required": [
@@ -77,6 +105,34 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "tooLarge": {
+          "items": {
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "bytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "active",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
         }
       },
       "required": [
@@ -120,6 +176,34 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "tooLarge": {
+          "items": {
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "bytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "active",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
         }
       },
       "required": [
@@ -163,6 +247,34 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "tooLarge": {
+          "items": {
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "bytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "active",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          "maxItems": 200,
+          "type": "array"
         }
       },
       "required": [

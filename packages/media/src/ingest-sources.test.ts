@@ -347,6 +347,31 @@ describe("IngestSources", () => {
     expect(l.ended.at(-1)).toEqual(["s2", false]);
   });
 
+  it("what a producer encodes reaches ace-media after its open, now and on every open after a restart", () => {
+    const w = world();
+    const l = producer("screen");
+    const source = w.sources.add(l.p);
+    source.codecs(["avc1.42E033"]);
+    source.codecs(["avc1.42E033", "hvc1.1.6.L153.B0"]);
+    w.sources.exited();
+    source.codecs(["avc1.42E033"]);
+    w.sources.replay();
+    const told = w.sent.flatMap(({ message }) =>
+      message.type === "source.codecs" || message.type === "source.open"
+        ? [
+            `${message.type} ${message.source}${"codecs" in message ? ` ${message.codecs.join(",")}` : ""}`,
+          ]
+        : [],
+    );
+    expect(told).toEqual([
+      "source.open s1",
+      "source.codecs s1 avc1.42E033",
+      "source.codecs s1 avc1.42E033,hvc1.1.6.L153.B0",
+      "source.open s2",
+      "source.codecs s2 avc1.42E033",
+    ]);
+  });
+
   it("asks the producer for a keyframe when ace-media does, and closing ends everything", () => {
     const w = world();
     const l = producer();
@@ -358,4 +383,25 @@ describe("IngestSources", () => {
     expect(w.closed()).toEqual(["s1"]);
     expect(w.state.needs).toBe(0);
   });
+});
+
+it("ace-media's plan reaches the producer streaming to it, and no other", () => {
+  const w = world();
+  const wants: unknown[] = [];
+  const l = producer();
+  w.sources.add({ ...l.p, want: (encodes) => void wants.push(encodes) });
+  const encodes = [
+    { id: 1, codec: "avc1.42E033", width: 320, height: 200, fps: 15, bitrate: 150_000 },
+  ];
+  // Not streaming to ace-media yet: the plan waits for it.
+  w.sources.message({ type: "source.want", source: "s1", encodes });
+  expect(wants).toEqual([]);
+  // Pointed there: the plan ace-media made meanwhile follows the address, unasked again.
+  w.status("s1", "starting");
+  expect(wants).toEqual([encodes]);
+  w.sources.message({ type: "source.want", source: "s1", encodes });
+  expect(wants).toEqual([encodes, encodes]);
+  // A plan for another source's id is not this producer's.
+  w.sources.message({ type: "source.want", source: "other", encodes });
+  expect(wants).toHaveLength(2);
 });

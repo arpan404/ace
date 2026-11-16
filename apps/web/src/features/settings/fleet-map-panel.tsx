@@ -5,6 +5,7 @@ import { nodeStateWords, type FleetMap, type MapNode, type MapTone } from "@ace/
 import type { FleetMapData } from "./data/use-fleet-map.ts";
 import { MapFixes } from "./fleet-map-fixes.tsx";
 import type { AccountOpenings } from "./fleet-map-openings.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * Beside or under the Fleet map: the selected node in words (how it's reached, when it was last
@@ -66,6 +67,7 @@ export function MapPanel(props: { node: MapNode; data: FleetMapData; openings: A
         <Link
           to="/settings/remote/$machine"
           params={{ machine: page }}
+          {...part("link")}
           className="mt-4 inline-block rounded-xs text-xs text-muted-foreground focus-ring hover:text-foreground"
         >
           Open {node.role === "own" ? "this computer's" : `${node.name}'s`} page
@@ -100,6 +102,7 @@ export function MapList(props: {
           <button
             type="button"
             aria-pressed={props.selected === node.id}
+            {...part("list-row", props.selected === node.id && "selected", "machine")}
             onClick={() => props.onSelect(node.id)}
             className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-2.5 text-left focus-ring hover:bg-hover aria-pressed:bg-hover"
           >

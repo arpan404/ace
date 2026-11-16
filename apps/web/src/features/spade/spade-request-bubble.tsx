@@ -82,6 +82,7 @@ export function SpadeRequestBubble(props: {
   if (!open) return <Answered item={item} card={card} label={`${named}. ${answered(item)}`} />;
   return (
     <RaisedCard
+      asks="request"
       role="group"
       aria-label={named}
       // Focusable while open, so Enter and Escape answer it from the keyboard.

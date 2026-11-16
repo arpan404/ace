@@ -113,13 +113,20 @@ settle, and the caller must notice so the parent never reads done while it runs.
     alone at once, and stays alone until it has answered alone and for 10 s doubling to an hour each
     time it is implicated, so a child that only fails beside others can't keep taking calls down.
     Whether a child is asked alone is saved with it and outlives a restart. Whether a machine is
-    down has one source of evidence, used on both sides: when any call to it last got through (a
-    status read, a refusal, a description, any other call). A child's failed read counts as the
-    machine's only when nothing was heard from the machine within two polls before that read; any
-    call sent once the machine was down that gets through ends the machine's episode and the waits
-    it caused (a reply to a call sent before the outage proves nothing of now), and never the wait of
-    a child whose own read failed while the machine was heard from. Only that child answering ends
-    its own wait. The calls of a turn run at once, each on its own deadline,
+    down has one source of evidence, used on both sides: the send time of the latest call to it
+    that got through (a status read, a refusal, a description, any other call). Each read is
+    stamped as it goes out with whether the machine was down then (known down, or not heard from
+    within two polls) and with the count of outages established so far. A failed read is the
+    machine's if the machine was down at any point while it was in flight: down when it was sent,
+    or an outage established before its failure arrived. Such a failure adds nothing to the
+    child's own failure count; while the machine is down the child waits the machine's wait, paced
+    by the machine's failures in that outage, and once the machine is back it is simply due. Any
+    call sent once the machine was down that gets through ends the outage and every wait it caused
+    (a reply to a call sent before the outage proves nothing of now). Only a read sent while the
+    machine was up, with no outage beginning before it failed, is the child's own failure; only its
+    own failures back it off, to the 30 s cap, and only it answering ends that wait. So once its
+    machine is back, a child whose reads an outage took down is read within `ceil(n / 16) + 2`
+    polls of the recovery, or of the last such failure arriving if later, with no exceptions. The calls of a turn run at once, each on its own deadline,
     and each answer is applied as it arrives; a child with a call on its way is skipped, so a slow
     call never holds up the next poll or another machine. A pairing linked, linked again or removed
     in Settings plans again a poll later. While any child is tracked a poll is always set: pairings

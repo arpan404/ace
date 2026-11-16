@@ -186,7 +186,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         // iPadOS keeps a window's size across launches: start each test from a full one.
         let screen = XCUIApplication(bundleIdentifier: "com.apple.springboard").frame
         if UIDevice.current.userInterfaceIdiom == .pad, app.windows.firstMatch.frame.width < screen.width - 1 {

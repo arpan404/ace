@@ -1,4 +1,4 @@
-import { ChatTextIcon } from "@phosphor-icons/react";
+import { ChatTextIcon } from "@ace/icons";
 import { useClient } from "@ace/client-react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";

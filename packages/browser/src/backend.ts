@@ -51,6 +51,12 @@ export interface CaptureEvents {
    * the first thing after the move back.
    */
   moved?(to: "ingest" | "daemon"): void;
+  /**
+   * ace-media's plan for the views it delivers (`source.want`, D1): the capture runs these too,
+   * in place of any the daemon would plan for those views. Replaces the previous plan.
+   */
+  /** Undefined: ace-media has no plan (yet) on the path the capture streams to now. */
+  want?(encodes: VideoEncode[] | undefined): void;
   /** What the capture runs on in ace-media changed (`VideoCaptureHandle.acceleration`). */
   accelerated?(): void;
 }
@@ -81,6 +87,11 @@ export interface VideoCaptureHandle {
   ingest?(target: VideoIngestTarget | undefined): void;
   /** What ace-media runs the capture on, while it carries it (ADR 0148). */
   acceleration?(): MediaAcceleration | undefined;
+  /**
+   * The codecs the encoder runs now, best first: present where ace-media plans the capture's
+   * views (`source.codecs`), so it never asks for one the encoder can't make.
+   */
+  codecs?(codecs: readonly string[]): void;
   close(): void;
 }
 /** An engine's video encoder (ADR 0088): what a live capture needs to stream a tab as video. */

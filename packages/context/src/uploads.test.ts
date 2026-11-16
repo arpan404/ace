@@ -147,6 +147,35 @@ describe("resumable uploads", () => {
     ).rejects.toMatchObject({ code: "not_found" });
     expect(await f.begin(Buffer.from("abcd"))).toBeTruthy();
   });
+  test("finished uploads never count toward the in-progress upload limit", async () => {
+    const f = await fixture({ uploads: 2 });
+    for (const text of ["one", "two", "three"]) {
+      const bytes = Buffer.from(text),
+        id = await f.begin(bytes);
+      await f.chunk(id, bytes);
+      expect(attachment(await f.commit(id)).sha256).toBe(hash(bytes));
+    }
+    await f.begin(Buffer.from("four"));
+    await f.begin(Buffer.from("five"));
+    await expect(f.begin(Buffer.from("six"))).rejects.toMatchObject({
+      code: "quota",
+      message: expect.stringContaining("Too many uploads are in progress"),
+    });
+  });
+  test("cancelling a committed upload forgets the upload but keeps the attachment", async () => {
+    const f = await fixture();
+    const bytes = Buffer.from("kept"),
+      id = await f.begin(bytes);
+    await f.chunk(id, bytes);
+    const kept = attachment(await f.commit(id));
+    expect(await f.store.handle("device", { op: "upload.cancel", uploadId: id })).toEqual({
+      kind: "ok",
+    });
+    await expect(f.commit(id)).rejects.toMatchObject({ code: "not_found" });
+    await f.store.collect();
+    const blob = await f.store.attachment("device", thread, kept.sha256);
+    expect(await readFile(blob.path)).toEqual(bytes);
+  });
   test("collection removes only blobs with no remaining thread references", async () => {
     const f = await fixture();
     const bytes = Buffer.from("shared"),

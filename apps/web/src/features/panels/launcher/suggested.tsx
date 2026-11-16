@@ -1,4 +1,4 @@
-import { GlobeSimpleIcon } from "@phosphor-icons/react";
+import { GlobeSimpleIcon } from "@ace/icons";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -42,10 +42,17 @@ export function Suggested(props: {
       </h2>
       <ul
         aria-label="Suggested"
+        data-part="list"
+        data-variant="suggested"
         className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-1"
       >
         {props.sites.map((site) => (
-          <li key={site.port === undefined ? site.url : `port:${site.port}`} className="min-w-0">
+          <li
+            key={site.port === undefined ? site.url : `port:${site.port}`}
+            data-part="card"
+            data-variant={site.port === undefined ? "site" : "port"}
+            className="min-w-0"
+          >
             <button
               type="button"
               title={site.url}

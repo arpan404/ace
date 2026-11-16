@@ -11,7 +11,7 @@ final class BrowserPageToolsUITests: XCTestCase {
 
     @MainActor private func openBrowser(_ app: XCUIApplication) {
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         let row = app.buttons["thread.ios-browser"]
         app.bringToMiddle(row)
         row.tap()

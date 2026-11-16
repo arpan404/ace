@@ -131,6 +131,7 @@ it.runIf(!!binary)(
     let flipBoundary = 0;
     source = new ScreenMediaSource({
       sessionId: "backlog",
+      platform: "macos",
       media: {
         add: (producer) =>
           runtime.sources.add({

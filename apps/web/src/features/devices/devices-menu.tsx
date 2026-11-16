@@ -10,7 +10,7 @@ import {
   GearSixIcon,
   StopIcon,
   TranslateIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";

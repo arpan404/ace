@@ -1,7 +1,7 @@
 import "@/styles/model-control.css";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
-import { CaretDownIcon, ClockIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, ClockIcon } from "@ace/icons";
 import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -79,6 +79,8 @@ export function ModelControl(props: {
         <PopoverTrigger
           disabled={view.disabled}
           aria-label={view.ariaLabel}
+          data-part="model-picker"
+          data-state={view.disabled ? "disabled" : showing ? "open" : undefined}
           aria-description={switching?.description}
           onPointerEnter={warm}
           onFocus={warm}

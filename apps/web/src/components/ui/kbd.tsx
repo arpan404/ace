@@ -54,6 +54,7 @@ function Kbd({
     return (
       <kbd
         data-slot="kbd"
+        data-part="kbd"
         className={cn(
           "inline-flex items-center gap-1 font-sans text-2xs text-muted-foreground pointer-coarse:hidden",
           "in-data-[slot=tooltip-content]:text-current",
@@ -74,7 +75,7 @@ function Kbd({
       </kbd>
     );
   return (
-    <kbd data-slot="kbd" className={chip} {...props}>
+    <kbd data-slot="kbd" data-part="kbd" className={chip} {...props}>
       {shown ? parts[0] : children}
     </kbd>
   );

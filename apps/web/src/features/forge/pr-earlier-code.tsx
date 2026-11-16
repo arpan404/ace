@@ -2,6 +2,7 @@ import { useState } from "react";
 import { threadCode, type ThreadCodeRow } from "@ace/ui-core";
 import type { ForgePrStatus } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 /** One line to draw; `key` is unique among the rows. */
@@ -38,6 +39,11 @@ function CodeLines(props: { rows: readonly CodeRow[]; className?: string | undef
       {props.rows.map((row) => (
         <div
           key={row.key}
+          {...part(
+            "diff-line",
+            undefined,
+            row.kind === "+" ? "add" : row.kind === "-" ? "del" : "context",
+          )}
           className={cn(
             "flex min-w-max gap-3 pr-3",
             row.kind === "+" && "bg-diff-add",
@@ -105,6 +111,7 @@ export function PrThreadHunk(props: { thread: ReviewThread; className?: string |
   const start = thread.startLine ?? thread.originalStartLine ?? null;
   return (
     <figure
+      {...part("diff-file", undefined, "hunk")}
       aria-label={threadCodeLabel(thread)}
       className={cn("min-w-0 overflow-hidden rounded-md border border-border", props.className)}
     >

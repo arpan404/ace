@@ -1,4 +1,4 @@
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import type { DragEvent, KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import {
@@ -82,6 +82,9 @@ export function TabItem(props: {
       <ContextMenuTrigger
         render={
           <div
+            data-part="panel-tab"
+            data-state={props.active ? "selected" : undefined}
+            data-variant={tab.kind}
             data-tab-key={tab.key}
             data-close-room={closable}
             draggable
@@ -131,6 +134,8 @@ export function TabItem(props: {
                 id={tabDomId(tab.key, "tab")}
                 aria-controls={tabDomId(tab.key, "panel")}
                 aria-selected={props.active}
+                data-part="tab"
+                data-state={props.active ? "selected" : undefined}
                 aria-label={iconOnly ? title : undefined}
                 tabIndex={props.focusable ? 0 : -1}
                 onClick={() => actions.activate(tab.key)}

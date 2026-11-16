@@ -11,6 +11,7 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
   "generation.autoDraftCommits": "Drafted from your changes.",
   "automations.enabled": "Scheduled automations run on this machine.",
   "app.background": "After you close its windows.",
+  "appearance.backdropMotion": "How much the look's scene moves.",
   "appearance.translucency": "Menus and the composer.",
   "appearance.reduceMotion": "System follows your device.",
   "storage.backupWorktrees": "Pushes everything not in .gitignore, .env included.",

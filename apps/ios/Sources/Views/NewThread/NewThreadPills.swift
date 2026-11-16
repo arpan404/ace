@@ -64,10 +64,11 @@ struct NewThreadPills: View {
     /// Asks the machine for the project's branches again, after a failed read.
     let retryBranches: () -> Void
     @State private var choosingAccess = false
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            ChipFlow(spacing: AceDesign.Space.related) {
+            ChipFlow(spacing: AceDesign.Space.related, scale: displayScale) {
                 Button(action: chooseProject) { NewThreadPill(primary: true) { Text(model.project) } }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Project").accessibilityValue(model.project)

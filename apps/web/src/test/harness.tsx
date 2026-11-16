@@ -1,4 +1,5 @@
 import { createTimeSource, TimeContext } from "@/lib/time.ts";
+import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
 import { documentVisibility } from "@/lib/page-visibility.ts";
 import { type ClientApi } from "@ace/client";
 import { ClientHost, RemoteClient } from "@ace/client-worker";
@@ -111,6 +112,10 @@ export function harness(
     worktreeSchedule?: (callback: () => void, delay: number) => () => void;
     /** The app's query cache, for a test that seeds what an earlier session kept. */
     queryClient?: QueryClient;
+    /** The daemon's Suit library (ADR 0150), faked at the transport. */
+    suits?: SuitTransport;
+    /** `?suit=off` this session. */
+    suitsOff?: boolean;
   } = {},
 ) {
   const time = createTimeSource(options.uiClock ?? (() => Date.now()));
@@ -185,6 +190,7 @@ export function harness(
               root: document.documentElement,
               matchMedia: options.matchMedia,
               softwareRendering: options.softwareRendering,
+              suitsOff: options.suitsOff,
             }}
           >
             <DaemonConnectionContext.Provider value={connection}>
@@ -195,6 +201,7 @@ export function harness(
                 windowStorage={options.windowStorage}
                 history={options.history ?? createMemoryHistory({ initialEntries: [path] })}
                 machines={machines}
+                suits={options.suits}
               />
             </DaemonConnectionContext.Provider>
           </AppFrame>

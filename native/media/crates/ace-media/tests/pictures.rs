@@ -10,7 +10,6 @@ use media_wire::control::{FromMedia, Status};
 use media_wire::frame::Egress;
 use serde_json::json;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::time::Duration;
 use support::*;
 
@@ -64,7 +63,7 @@ fn picture(step: u32) -> Vec<u8> {
     }
 }
 
-fn read_egress(lane: &mut UnixStream) -> Egress {
+fn read_egress(lane: &mut support::SealedLane) -> Egress {
     let mut head = [0u8; 24];
     if let Err(e) = lane.read_exact(&mut head) {
         panic!("egress lane: {e}");

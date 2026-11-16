@@ -1,4 +1,5 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
+import { RegionScene } from "@/features/suits/index.ts";
 import { Activity, createElement, Suspense, useRef } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
@@ -18,6 +19,7 @@ import { useBottomFocus } from "./bottom-focus.ts";
 import { BottomTabs } from "./bottom-tabs.tsx";
 import { clampToBounds, type Bounds } from "./bounds.ts";
 import { TabContent } from "./tab-content.tsx";
+import { panelReveal } from "./panel-reveal.ts";
 
 /**
  * The bottom panel under the main column: the thread's terminals as tabs, the showing one's own
@@ -54,12 +56,15 @@ function Panel(props: { scope: string; definition: WorkspaceDefinition; bounds: 
         ref={section}
         aria-label={label}
         data-bottom-panel
+        data-part="right-panel"
+        data-variant="bottom"
         onFocus={focus.onFocus}
         onBlur={focus.onBlur}
         style={{ height: size }}
-        className="fx-panel-in relative flex min-h-0 shrink-0 flex-col border-t bg-panel"
+        className={`fx-panel-in relative isolate flex min-h-0 shrink-0 flex-col border-t bg-panel ${panelReveal}`}
         data-edge="bottom"
       >
+        <RegionScene region="right-panel" />
         <ResizeHandle
           label={`Resize ${label.toLowerCase()}`}
           edge="top"
@@ -71,6 +76,7 @@ function Panel(props: { scope: string; definition: WorkspaceDefinition; bounds: 
           onReset={() => actions.setBottomHeight(defaultBottomSize, true)}
         />
         <div
+          data-part="panel-header"
           className={cn(
             "flex h-(--row-height) shrink-0 items-center gap-1 pr-1.5 pl-2",
             toolbarEdge,
@@ -82,7 +88,11 @@ function Panel(props: { scope: string; definition: WorkspaceDefinition; bounds: 
             definition={definition}
             actions={actions}
           />
-          <div className="flex shrink-0 items-center justify-end gap-0.5">
+          <div
+            data-part="panel-toolbar"
+            data-variant={shown ? `${shown.kind}-actions` : undefined}
+            className="flex shrink-0 items-center justify-end gap-0.5"
+          >
             {shown && shownKind && (
               <Suspense fallback={null}>
                 {createElement(shownKind.actions(), { scope, tab: shown })}

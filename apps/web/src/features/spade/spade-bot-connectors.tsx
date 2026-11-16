@@ -1,5 +1,5 @@
 import type { SpadeConnector, SpadeConnectorAccess } from "@ace/ui-core/spade-chat";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -7,6 +7,7 @@ import { SettingAction } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { part } from "@/lib/suit-part.ts";
 import {
   connectorsKey,
   setAccess,
@@ -80,6 +81,7 @@ export function ProfileApps(props: { bot: RosterBot }) {
         <div
           key={connector.id}
           data-setting-slot=""
+          {...part("list-row", undefined, "connector")}
           className="flex min-h-(--setting-row-height) items-center gap-3 py-2"
         >
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">

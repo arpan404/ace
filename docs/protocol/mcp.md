@@ -311,7 +311,7 @@ Example:
 
 ## agent_message
 
-Send follow-up work to a child (any machine), a thread you started or, with full access, any of the person's threads; it keeps its permissions. steer joins the running turn at the next tool boundary (Cursor restarts the turn), queue waits for it to end, restart interrupts its tree and replaces queued input. arrival says which applied.
+Message a thread. Your children (any machine) and threads you started take any delivery: steer joins the running turn at the next tool boundary, queue waits for it to end, restart interrupts its tree and replaces queued input. Any other thread you can read gets a steer only, labelled as yours so it can answer you; another agent's finished child passes it to its top-level thread. A steer never stops running work. The receiver keeps its permissions. arrival says when it lands; threadId which thread got it.
 
 Required capability: agents. Timeout: 630000 ms.
 
@@ -321,10 +321,10 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| threadId | yes | string | {"minLength":1,"description":"A child's or owned thread's id; with full access, any thread."} |
+| threadId | yes | string | {"minLength":1,"description":"Any thread you can read: from threads_find or a message."} |
 | requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."} |
 | text | yes | string | {"minLength":1,"maxLength":262144,"description":"Standing on its own."} |
-| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer."} |
+| delivery | no | ["queue","steer","restart"] | {"description":"Default: steer. queue and restart: your own threads only."} |
 
 Example:
 
@@ -345,7 +345,7 @@ Example:
 | ok | yes | boolean |  |
 | code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
 | hint | no | string | {"maxLength":512} |
-| data | no | object | {"properties":{"arrival":{"type":"string","enum":["starting","steering","restarting","queued","held","delivered"]}},"required":["arrival"],"additionalProperties":{}} |
+| data | no | object | {"properties":{"arrival":{"type":"string","enum":["starting","steering","restarting","queued","held","delivered"]},"threadId":{"type":"string"}},"required":["arrival"],"additionalProperties":{}} |
 
 Example:
 

@@ -4,6 +4,7 @@ import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
 import { patchedEntry, runOrganize, type OrganizePatch, type Timers } from "@ace/ui-core";
 import { useMemo, useSyncExternalStore } from "react";
 import { runCommand } from "@/lib/daemon-command.ts";
+import { isListAction, type ListAction } from "@/lib/list-actions.ts";
 import { pendingActionsOf, type PendingActions } from "@/lib/pending-actions.ts";
 
 /**
@@ -52,7 +53,7 @@ export class OrganizeOverlay {
   async run(
     threadId: string,
     patch: OrganizePatch,
-    payload: CommandPayload,
+    payload: CommandPayload | ListAction,
     label: string,
     at: number,
   ): Promise<void> {
@@ -63,7 +64,14 @@ export class OrganizeOverlay {
         lease.store,
         this.timers,
         { key: this.pending.nextKey(), threadId, patch, at, label, waiting: true },
-        () => runCommand(this.client, payload),
+        // An archive or delete is sent through `sendListAction`, which checks the list as it goes
+        // (loaded on first use: the sidebar paints without it).
+        () =>
+          isListAction(payload)
+            ? import("@/lib/live-actions.ts").then(({ sendListAction }) =>
+                sendListAction(this.client, payload, (sent) => runCommand(this.client, sent)),
+              )
+            : runCommand(this.client, payload),
       );
     } finally {
       lease.release();

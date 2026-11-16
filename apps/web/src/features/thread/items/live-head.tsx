@@ -7,12 +7,13 @@ import {
   workingSubagentsText,
   type TurnActivity,
 } from "@ace/ui-core";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
-import { PauseCircleIcon } from "@phosphor-icons/react";
+import { PauseCircleIcon } from "@ace/icons";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";
@@ -39,6 +40,8 @@ export function LiveHead(props: { threadId: string }) {
       ? { ...turn, label: askingLabel(descendant.kind) }
       : turn;
   const plans = useShownPlans(props.threadId);
+  // A lost connection is the header's to say: no live line here. A copy catching up or read
+  // from disk shows its live line, which then says "Syncing…" (`useTurnActivity`), not a turn.
   const live = useLiveConnection();
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
@@ -79,6 +82,8 @@ export function ActivityLine(props: {
   const activity = props.activity.waitingOnSubagents
     ? { ...props.activity, label: waitingOnSubagentsLabel(subagents) }
     : props.activity;
+  // A Suit may say its own word for plain "Working"; any other line is ace's (`suitLabel`).
+  const working = useSuitLabel("working-word", activity.label);
   if (activity.tone === "paused")
     return (
       <SystemRow
@@ -89,13 +94,17 @@ export function ActivityLine(props: {
     );
   const label = activity.code
     ? `${activity.label} ${activity.code}`
-    : activity.tone === "needs-you" && activity.asker
-      ? `${activity.label} · ${activity.asker}`
-      : activity.label;
+    : activity.tone === "working"
+      ? working
+      : activity.tone === "needs-you" && activity.asker
+        ? `${activity.label} · ${activity.asker}`
+        : activity.label;
   return (
     <p
       role="status"
       aria-label={label}
+      data-part="working-line"
+      data-state={activity.tone === "working" ? "working" : "waiting"}
       className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
@@ -103,10 +112,10 @@ export function ActivityLine(props: {
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="shrink-0">
             {activity.elapsedFrom === undefined ? (
-              activity.label
+              working
             ) : (
               <>
-                {`${timedWords(activity.label)} `}
+                {`${timedWords(working)} `}
                 <ElapsedTime from={activity.elapsedFrom} />
               </>
             )}

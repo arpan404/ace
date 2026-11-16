@@ -4,6 +4,7 @@ import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
 import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { suitsOffForSession } from "./theme/suits/suits-off.ts";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import {
@@ -22,6 +23,7 @@ import { loadKeptQueries, useKeptQueries } from "./boot/kept-queries.ts";
 import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
   desktopConnection,
+  desktopExpected,
   desktopDaemon,
   hasDesktopBridge,
   setDesktopWindowBackground,
@@ -69,6 +71,7 @@ const environment = {
   }),
   windowBackground: (value: { mode: string; light: string; dark: string }) =>
     setDesktopWindowBackground(value),
+  suitsOff: suitsOffForSession(location.search, session),
 };
 // Windows desktop app: the OS light/dark mode comes from the app (`desktop-color-scheme.ts`),
 // asked before the first render so a reload after a Windows switch starts in the right scheme.
@@ -288,6 +291,10 @@ async function content(): Promise<ReactNode> {
       );
     return gate();
   }
+  // A daemon this window has had before opens the app at once, on what the window kept for
+  // it, while it starts; the gate adopts the desktop's hand-off when it answers.
+  const expected = await desktopExpected(loadTarget(stores, "").url || undefined);
+  if (expected) return gate({ handed: expected, desktop: true });
   const desktop = await desktopConnection();
   if (desktop.kind === "target") return gate({ handed: desktop.target, desktop: true });
   // A computer that runs no daemon connects to one elsewhere, by address.

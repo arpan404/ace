@@ -113,3 +113,9 @@ restart, and repeating it automatically could loop without a restart in between.
   `ACE_MAINTENANCE=1` holds the continuation until the gate reopens) and
   `apps/daemon/src/agent-control/recovery.process.test.ts` (child resumes without its parent
   seeing it settle, dead children free slots after a provider exit and after a restart).
+
+## Amendment 2026-11-15: how a continued turn reads
+
+The notice and the continuation input read as one quiet "Restarted, continued" row inside the
+turn they continue, never as a second turn. Restarts back to back merge into one row. See
+[ADR 0053](0053-queue-and-recovery.md), amendment of the same date.

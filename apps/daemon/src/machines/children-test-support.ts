@@ -40,7 +40,7 @@ export const message = (requestId: string): MachineMessage => ({
  * (how it answers a message sent again). Timers queue up and run only when the test fires them;
  * `failNextWrite` makes the next storage transaction fail, as a store busy past its timeout, and
  * `failSql` the next statement whose SQL contains it. `holdNextStatus` keeps the next status
- * reply (read now) from arriving until the test releases it.
+ * reply or failure (decided now) from arriving until the test releases it.
  */
 export function machine(
   home = mkdtempSync(join(tmpdir(), "ace-machine-reconcile-")),
@@ -168,9 +168,9 @@ export function machine(
     ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
     status: async (_machine, _parent, ids) => {
       asked.push([...ids]);
-      if (reads.error) throw reads.error;
-      const refusal = reads.decide?.(ids);
-      if (refusal) throw refusal;
+      // What the machine answers is decided as the read goes out; a held reply, or failure,
+      // arrives only when released.
+      const failure = reads.error ?? reads.decide?.(ids);
       const read = ids.flatMap((id) => {
         const view = views.get(id);
         return view ? [view] : [];
@@ -178,6 +178,7 @@ export function machine(
       const held = holds.next;
       holds.next = undefined;
       if (held) await held;
+      if (failure) throw failure;
       reads.answered?.(_machine);
       return read;
     },

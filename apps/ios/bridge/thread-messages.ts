@@ -1,6 +1,7 @@
 import type { ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import {
+  answerWritingLabel,
   bubbleContent,
   bubbleSegments,
   describeProviderError,
@@ -15,6 +16,7 @@ import {
   sentFold,
   mayBeSystemInput,
   messageOrigin,
+  momentLine,
   personFold,
   promptText,
   referenceSegments,
@@ -23,9 +25,11 @@ import {
   thoughtMs,
   type BubbleFold,
   type EventView,
+  type MomentKind,
   withHardBreaks,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { threadEventRow } from "./event-threads.ts";
 
 /*
  * What the phone's message rows show beyond an item's text, from the same `@ace/ui-core`
@@ -258,9 +262,36 @@ function flatten(view: EventView, item: Item | undefined) {
           bubble: textBubble(view.text, sentFold, storedLonger(item)),
         },
       };
+    case "task":
+    case "merged":
+      return { ...row, ...threadEventRow(view) };
     default:
       return row;
   }
+}
+
+/**
+ * A turn's moment (a restart, a limit's wait, delegated work coming back) as one event row, as
+ * the web's `MomentRow` reads it (`turn-moments.ts`); null when none of its items is loaded.
+ */
+export function momentRow(
+  store: ThreadSource,
+  moment: MomentKind,
+  itemIds: readonly string[],
+  since: number | undefined,
+) {
+  const items = itemIds.flatMap((id) => store.item(id) ?? []);
+  const line = momentLine(moment, items, since);
+  if (!line) return null;
+  return flatten(
+    {
+      kind: "event",
+      line: { icon: line.icon, text: line.text },
+      at: line.from,
+      received: line.received,
+    },
+    items[0],
+  );
 }
 
 /** Whether a block's item is drawn as an event: everything but the person's own bubble. */
@@ -284,10 +315,19 @@ export function eventFollows(store: ThreadSource, kind: string, itemId: string):
   return isEvent(kind, item) && eventFollowsOrder(item);
 }
 
-/** A one-item block's message fields: an answer's streaming, or an event's row. */
+/**
+ * A one-item block's message fields: an answer's streaming, with the word a screen reader hears
+ * on its row while it arrives, or an event's row. The word says the answer is arriving now, so
+ * only a copy the daemon has confirmed and is current with says it: catching up after a
+ * reconnect, or painted from the last launch, the turn may have ended meanwhile.
+ */
 export function messageBlock(store: ThreadSource, kind: string, itemId: string | undefined) {
   if (itemId === undefined) return {};
-  if (kind === "message") return { streaming: streamingOf(store, store.item(itemId)) };
+  if (kind === "message") {
+    const streaming = streamingOf(store, store.item(itemId));
+    const current = !store.syncing && store.unconfirmed !== true;
+    return streaming && current ? { streaming, writing: answerWritingLabel } : { streaming };
+  }
   return { event: eventRow(store, kind, itemId) };
 }
 

@@ -1,4 +1,4 @@
-import { LaptopIcon, XIcon } from "@phosphor-icons/react";
+import { LaptopIcon, XIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

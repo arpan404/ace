@@ -1,4 +1,4 @@
-import { ProhibitIcon, WarningIcon, XCircleIcon, XIcon } from "@phosphor-icons/react";
+import { ProhibitIcon, WarningIcon, XCircleIcon, XIcon } from "@ace/icons";
 import { useCallback, useEffect, useState } from "react";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -177,13 +177,20 @@ export function ConsoleDrawer(props: {
 function ConsoleList(props: { entries: readonly BrowserLogEntry[] }) {
   const keys = entryKeys(props.entries);
   return (
-    <ul aria-label="Console messages" className="divide-y divide-border-soft">
+    <ul
+      aria-label="Console messages"
+      data-part="list"
+      data-variant="console"
+      className="divide-y divide-border-soft"
+    >
       {props.entries.map((entry, index) => {
         const bucket = consoleLevel(entry.type);
         return (
           <li
             key={keys[index]}
             data-level={bucket}
+            data-part="list-row"
+            data-variant={bucket}
             className={cn(
               "flex items-start gap-1.5 px-3 py-1 break-all whitespace-pre-wrap",
               bucket === "error" ? "text-destructive" : "text-foreground",

@@ -1,4 +1,4 @@
-import { ChatCircleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon } from "@ace/icons";
 import { ProjectImage } from "./project-image.tsx";
 import { projectMark, type ProjectBadge, type ProjectLook } from "@ace/ui-core";
 import type { CSSProperties } from "react";

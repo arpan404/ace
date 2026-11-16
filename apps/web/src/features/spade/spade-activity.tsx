@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 import { readActivity } from "./spade-oversight-api.ts";
 import { personZone } from "./spade-routines-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -61,6 +62,7 @@ export function SpadeActivity(props: { bot: RosterBot }) {
           <ol
             aria-label="Activity"
             data-setting-slot=""
+            {...part("list")}
             className="flex flex-col divide-y divide-border-soft"
           >
             {entries.map((entry) => (
@@ -90,11 +92,21 @@ const tones = {
   quiet: "text-subtle-foreground",
 } as const;
 
+/** An entry's outcome as its row's `data-state`. */
+const outcomeState: Record<string, SuitPartState> = {
+  running: "working",
+  ok: "done",
+  error: "failed",
+};
+
 function Row(props: { entry: SpadeActivityEntry; now: number; zone: string }) {
   const row = spadeActivityRow(props.entry);
   const when = spadeWhen(props.entry.at, props.now, props.zone);
   return (
-    <li className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-2.5">
+    <li
+      {...part("list-row", outcomeState[props.entry.outcome ?? ""], props.entry.kind)}
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-2.5"
+    >
       <span className="text-ui text-foreground">{row.sentence}</span>
       <span
         className={cn(

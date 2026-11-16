@@ -44,7 +44,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
             + (probe ? ["--perf-probe"] : [])
-        app.launch()
+        app.launchWithArguments()
         guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("a compact phone window") }
         return app
     }

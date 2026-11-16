@@ -5,7 +5,7 @@ import {
   PlayIcon,
   WarningCircleIcon,
   WifiSlashIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import {
   addressHost,
   describeBrowserFailure,

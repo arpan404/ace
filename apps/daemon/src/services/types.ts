@@ -34,6 +34,8 @@ export interface Services {
   ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
+  /** Delivery by ace-media (D1), while `media.delivery` asks for it and ace-media runs. */
+  mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
   sourceControl?: import("../source-control.ts").SourceControl;
   rediscoverProviders?: () => Promise<void>;
   refreshModelInstances?: (provider: import("@ace/protocol").ProviderKind) => Promise<void>;
@@ -130,6 +132,11 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** The Suit library (ADR 0150). */
+  suits?: import("../suits/library.ts").SuitLibrary;
+  /** Which devices hear an agent's Suit preview, keep or revert (ADR 0150). */
+  suitLooks?: import("../suits/looks.ts").SuitLooks;
+  suitChecks?: import("../suits/live-checks.ts").SuitLiveChecks;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(
     provider: Provider,

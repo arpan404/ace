@@ -5,7 +5,7 @@ import {
   CopyIcon,
   DotsThreeIcon,
   SquareIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";

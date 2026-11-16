@@ -299,6 +299,27 @@ least 5 fps (400k) or 15 fps (1.6M), and a median coded width of at least 640 px
 1152 px (1.6M). They never fail while the load average is above twice the core count.
 `ACE_VIDEO_LINK_REPORT_ONLY=1` turns off every gate.
 
+`node packages/browser/bench/3g-gate.ts --deadline <ISO time> --out <path>` runs the M2b merge
+bar unattended, for a quiet night on a shared Mac:
+
+- **What it runs:** the default 25 Mbit/s profile, `3g-1600` and `3g-400`, one at a time.
+- **Clean windows only:** before each run it waits for the 1-minute load average to fall below
+  `--max-load` (24 by default). During the run it samples the load every 3 s; a run whose load
+  goes over is discarded and retried.
+- **Deadline:** it gives up at `--deadline`.
+- **Output:** after every run it writes `<path>.json` and `<path>.md`. Each holds the clean-run
+  table (max load, fps median/p10, Mbit/s, width, glass-to-glass p50/p95, and whether the bar
+  was met) plus the discarded runs.
+- **Exit code:** 0 only if every profile got a clean run that meets its bar.
+
+The bars (`bench/3g-gate-report.ts`):
+
+| Profile   | Bar                                             |
+| --------- | ----------------------------------------------- |
+| 25 Mbit/s | about 60 fps (median ≥ 58, p10 ≥ 55)            |
+| `3g-1600` | ≥ 15 fps at ≥ 1152 px, glass-to-glass p50 ≤ 1 s |
+| `3g-400`  | glass-to-glass p50 ≤ 1.5 s                      |
+
 `browser_measure` observes the current tab or dispatches an optional
 `interaction` using the existing click/type/press/scroll/drag command shape. The
 recording window defaults to 2 seconds, is capped at 10 seconds, and `repeat` is

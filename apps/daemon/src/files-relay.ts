@@ -1,3 +1,4 @@
+import { mediaAdmission } from "./services/media-connect.ts";
 import {
   connectHostToRelay,
   type HostChannel,
@@ -12,10 +13,15 @@ import type { KeyPair } from "@ace/secure-channel";
 import { allows, type Devices } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { MachineAccount } from "./account-access/machine-account.ts";
-import { accountDeviceActor, relayHello } from "./relay-hello.ts";
+import { mainActor, relayHello } from "./relay-hello.ts";
+import { hostId as hostIdOf } from "@ace/secure-channel";
+import { NkAdmission, type NkClock } from "./relay-nk/admission.ts";
+import { nkHost, type EarlyMain } from "./relay-nk/host.ts";
 import type { RelayedMain } from "./relay-socket.ts";
 import { AccessError } from "./remote-auth.ts";
 import type { ClientMessage, PairResult } from "@ace/protocol";
+import type { MediaRelayStreams } from "./media-relay/streams.ts";
+import { mediaHelloAdmission, type MediaTicketClaim } from "./media-relay/admit.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
 export async function startFilesRelay(
@@ -39,8 +45,28 @@ export async function startFilesRelay(
     relayMain?: ((entry: RelayedMain) => void) | undefined;
     /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
+    /**
+     * Relay media streams (ADR 0147 §5.2): registers with the `media` feature and hands each
+     * `purpose=media` ticket to ace-media, admitting its hello with `claim`.
+     */
+    media?: { streams: MediaRelayStreams; claim: MediaTicketClaim } | undefined;
+    /**
+     * Time for the NK admission limits (ADR 0155): the daemon's clock and timers. Without it,
+     * the system's.
+     */
+    nkClock?: NkClock | undefined;
   },
 ) {
+  const media = options.media;
+  const admitMedia = media
+    ? mediaHelloAdmission({
+        auth: options.auth,
+        devices: options.devices,
+        account: options.account,
+        hostId: options.hostId,
+        claim: media.claim,
+      })
+    : undefined;
   const clients = new Map<HostChannel, string>();
   // Main channels close on revocation in the main-socket handler, with its close code.
   const mains = new Set<HostChannel>();
@@ -58,6 +84,75 @@ export async function startFilesRelay(
   const stopReplaced = options.auth.onCredentialReplaced((id) => {
     for (const [channel, device] of clients) if (device === id) channel.close();
   });
+  // Tickets handed on this relay are bound to its key; a welcome on it announces NK.
+  const relayEpoch = hostIdOf(options.keys.publicKey);
+  const admission = new NkAdmission(
+    options.nkClock ?? {
+      now: () => options.auth.now(),
+      schedule(ms, run) {
+        const timer = setTimeout(run, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+  );
+  /** An admitted NK main channel: served as a main socket that waits for its confirmation. */
+  const serveEarly = async (entry: EarlyMain) => {
+    const { channel, early } = entry;
+    if (!options.relayMain || clients.size + mains.size >= 64) {
+      entry.session.close();
+      channel.close();
+      return;
+    }
+    // Credit fragments go only to a client that asked; its first one follows the NK answer.
+    if (early.flowControl?.includes("credit")) channel.flowControl?.();
+    mains.add(channel);
+    if (entry.stillAdmitted) accountClients.set(channel, entry.stillAdmitted);
+    // The main-socket handler reads it as a hello; its credential was checked already.
+    const hello = {
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: early.deviceId,
+      ...(early.ticket !== undefined ? { ticket: early.ticket } : { grant: early.grant }),
+      ...(early.trims ? { trims: early.trims } : {}),
+      ...(early.framing ? { framing: early.framing } : {}),
+      ...(early.compression ? { compression: early.compression } : {}),
+      ...(early.flowControl ? { flowControl: early.flowControl } : {}),
+    };
+    try {
+      options.relayMain({
+        channel,
+        hello: JSON.stringify(hello),
+        actor: entry.actor,
+        stillAdmitted: entry.stillAdmitted,
+        account: entry.account,
+        grantExpiresAt: entry.grantExpiresAt,
+        deflate: early.compression?.includes("deflate-raw") === true,
+        relayEpoch,
+        early: {
+          subscribes: early.subscribes ?? [],
+          session: entry.session,
+          confirmed: entry.confirmed,
+          readable: Promise.withResolvers<boolean>(),
+          continuations: [],
+        },
+      });
+      await channel.closed;
+    } finally {
+      entry.session.close();
+      mains.delete(channel);
+      accountClients.delete(channel);
+    }
+  };
+  const nk = options.relayMain
+    ? nkHost({
+        admission,
+        epoch: relayEpoch,
+        auth: options.auth,
+        devices: options.devices,
+        account: options.account,
+        serve: serveEarly,
+      })
+    : undefined;
   const deadline = setTimeout(() => controller.abort(), 15_000);
   try {
     const connection = await connectHostToRelay({
@@ -68,6 +163,15 @@ export async function startFilesRelay(
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
       ...(options.http ? { http: options.http } : {}),
+      ...(nk ? { nk } : {}),
+      ...(media && admitMedia
+        ? {
+            media: {
+              offer: (_ticket: string, url: string, reject: () => void) =>
+                media.streams.offer(url, admitMedia, reject),
+            },
+          }
+        : {}),
       async onClientChannel(channel) {
         const hello = await channel.receive();
         if (hello.type === "pair.redeem") {
@@ -108,12 +212,22 @@ export async function startFilesRelay(
               account: admitted.account,
               grantExpiresAt: admitted.grantExpiresAt,
               deflate: hello.compression?.includes("deflate-raw") === true,
+              relayEpoch,
             });
             await channel.closed;
           } finally {
             mains.delete(channel);
             accountClients.delete(channel);
           }
+          return;
+        }
+        // A media hello comes only on a `purpose=media` stream, which ace-media holds; on any
+        // other it is refused before anything is served.
+        if (hello.channel === "media") {
+          await channel
+            .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
+            .catch(() => {});
+          channel.close();
           return;
         }
         channel.authorize();
@@ -132,6 +246,7 @@ export async function startFilesRelay(
             kind: hello.channel ?? "files",
             device: device.id,
             sessionId: randomUUID(),
+            admission: mediaAdmission(admitted.account, device.generation),
             authorize: (scope) => {
               // An account device holds admin, for as long as it stays admitted.
               if (admitted.stillAdmitted) return admitted.stillAdmitted();
@@ -189,23 +304,6 @@ export async function startFilesRelay(
   } finally {
     clearTimeout(deadline);
   }
-}
-
-/**
- * Who a relayed main channel speaks for: a paired device with its stored scopes (never the
- * desktop app's local-only credential), or an account device holding admin while it stays
- * admitted (ADR 0111).
- */
-function mainActor(
-  admitted: { id: RelayedMain["actor"]["id"]; generation?: string | undefined },
-  stillAdmitted: (() => boolean) | undefined,
-  options: { auth: RemoteAuth; devices: Devices },
-): RelayedMain["actor"] | undefined {
-  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
-  const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
-  if (!device) return undefined;
-  if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;
-  return { ...device, scopes: [...device.scopes], revocable: true };
 }
 
 /**

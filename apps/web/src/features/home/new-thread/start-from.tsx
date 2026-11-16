@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon } from "@ace/icons";
 import type { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
 import { useOpenIssues, useOpenPullRequests, useOpenWork } from "@/features/forge/index.ts";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";

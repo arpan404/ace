@@ -1,5 +1,5 @@
 import { useSidebarLoaded } from "@ace/client-react";
-import { ChatsIcon } from "@phosphor-icons/react";
+import { ChatsIcon } from "@ace/icons";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -42,7 +42,7 @@ export function HomeEmptyScreen() {
   const settled = onboarding.data !== undefined || onboarding.isError;
   if (!settled || !loaded)
     return (
-      <Screen title="Home">
+      <Screen page="thread" title="Home">
         <LoadingRegion
           label="Home"
           className="flex h-full flex-col items-center justify-center gap-2 px-5 py-6"
@@ -56,7 +56,7 @@ export function HomeEmptyScreen() {
   // add one for work in a folder.
   const noProjects = loaded && directory.loaded && directory.projects.length === 0;
   return (
-    <Screen title="Home">
+    <Screen page="thread" title="Home">
       <EmptyState
         icon={ChatsIcon}
         heading

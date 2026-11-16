@@ -106,7 +106,7 @@ struct PlanReviewCard: View {
         }
         .modifier(RequestCardFrame(submission: submission))
         .sheet(isPresented: $reviewing) {
-            PlanReviewSheet(plan: plan, submission: submission, canAct: canAct) { decision in
+            PlanReviewSheet(plan: plan, summarized: interaction.summarized ?? "", submission: submission, canAct: canAct) { decision in
                 reviewing = false
                 answer(decision)
             }
@@ -124,10 +124,13 @@ struct PlanReviewCard: View {
             Button("Review") { reviewing = true }
                 .buttonStyle(StripTextButtonStyle())
                 .accessibilityIdentifier("plan.review")
-            Button("Approve") { answer(["kind": "plan", "decision": "approve"]) }
-                .buttonStyle(StripTextButtonStyle(prominent: true))
-                .disabled(submission != nil || !canAct)
-                .accessibilityIdentifier("plan.approve")
+            // A plan too large to review here is approved on a computer.
+            if !interaction.tooLargeToApprove {
+                Button("Approve") { answer(["kind": "plan", "decision": "approve"]) }
+                    .buttonStyle(StripTextButtonStyle(prominent: true))
+                    .disabled(submission != nil || !canAct)
+                    .accessibilityIdentifier("plan.approve")
+            }
         }
         .fixedSize()
     }
@@ -138,6 +141,8 @@ struct PlanReviewCard: View {
 /// what should change before it sends.
 struct PlanReviewSheet: View {
     let plan: PlanRequest?
+    /// Why it can only be sent back here (ADR 0157); "" when the plan came whole.
+    var summarized = ""
     let submission: ApprovalSubmission?
     let canAct: Bool
     let answer: ([String: Any]) -> Void
@@ -158,7 +163,10 @@ struct PlanReviewSheet: View {
                         Label(todo.text, ace: todo.status == "completed" ? .checkCircle : todo.status == "in_progress" ? .circleHalf : .circle)
                             .aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
-                    if plan?.truncated == true {
+                    if !summarized.isEmpty {
+                        Text(summarized).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    } else if plan?.truncated == true {
                         Text("The full plan is on your machine").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
@@ -198,7 +206,7 @@ struct PlanReviewSheet: View {
                     CardButton(title: "Send feedback", primary: true, enabled: !words.isEmpty) {
                         answer(["kind": "plan", "decision": "reject", "feedback": words])
                     }.accessibilityIdentifier("plan.send")
-                } else {
+                } else if summarized.isEmpty {
                     CardButton(title: "Approve plan", primary: true) { answer(["kind": "plan", "decision": "approve"]) }
                         .accessibilityIdentifier("plan.approveFull")
                 }
@@ -227,7 +235,10 @@ struct FormRequestCard: View {
             if let form, form.message != form.title, !form.message.isEmpty {
                 Text(form.message).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
             }
-            if form?.unsupported == true {
+            if interaction.tooLargeToApprove {
+                Text(interaction.summarized ?? "")
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
+            } else if form?.unsupported == true {
                 Text(form?.mode == "url" ? "This request has no safe consent page. Decline or cancel it." : "This form can't be filled in here. Decline or cancel it.")
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.StatusText.failed)
             }

@@ -1,5 +1,6 @@
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { toolchainInstallers, toolchainNames } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
@@ -37,11 +38,11 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
           </Button>
         </p>
       ) : (
-        <ul className="divide-y">
+        <ul {...part("list", undefined, "tools")} className="divide-y">
           {tools.data
             ?.filter((tool) => !devices || tool.id !== "git")
             .map((tool) => (
-              <li key={tool.id}>
+              <li key={tool.id} {...part("list-row", tool.available ? "done" : "disabled", "tool")}>
                 <div className="flex h-8 items-center justify-between gap-2 text-sm">
                   <span>{toolchainNames[tool.id]}</span>
                   <StatusLabel

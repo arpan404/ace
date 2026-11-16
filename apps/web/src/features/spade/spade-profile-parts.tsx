@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from "react";
 import { SettingCard } from "@/components/setting-row.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /* The profile's parts: a section's small heading over its rows on one rounded surface. */
 
@@ -14,7 +15,11 @@ export function ProfileSection(props: {
 }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="mt-5 flex flex-col first:mt-0">
+    <section
+      aria-labelledby={id}
+      {...part("page-section", undefined, "profile")}
+      className="mt-5 flex flex-col first:mt-0"
+    >
       <div className="mx-1 mb-1.5 flex min-h-6 items-center gap-2">
         <h3 id={id} className="text-ui font-medium text-muted-foreground">
           {props.label}

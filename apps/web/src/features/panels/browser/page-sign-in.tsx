@@ -1,5 +1,5 @@
 import { addressHost } from "@ace/ui-core";
-import { LockSimpleIcon } from "@phosphor-icons/react";
+import { LockSimpleIcon } from "@ace/icons";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";

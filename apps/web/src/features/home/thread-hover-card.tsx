@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { currentAttention, modelLabel, providerDisplayName, type ThreadCard } from "@ace/ui-core";
-import { GitBranchIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { GitBranchIcon, TreeStructureIcon } from "@ace/icons";
 import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";

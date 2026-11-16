@@ -9,7 +9,7 @@ import {
   MagnifyingGlassIcon,
   ScrollIcon,
   DotsThreeIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuTrigger, MenuContent, MenuItem } from "@/components/ui/menu.tsx";
@@ -150,7 +150,11 @@ function ThreadLogView(props: TabViewProps & { agentId: string | undefined }) {
   const text = () => formatLog(shown, formatTime);
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-1 pr-2 pl-1.5 shadow-[inset_0_-1px_0_var(--border)]">
+      <div
+        data-part="panel-toolbar"
+        data-variant="logs"
+        className="flex h-9 shrink-0 items-center gap-1 pr-2 pl-1.5 shadow-[inset_0_-1px_0_var(--border)]"
+      >
         <ScopeMenu threadId={threadId} tab={tab} agents={agents} />
         <label className="relative ml-1 flex h-7 w-48 min-w-24 shrink items-center">
           <MagnifyingGlassIcon
@@ -286,7 +290,13 @@ function FollowedLines(props: { lines: readonly LogLine[]; label: string }) {
         }}
         className="h-full overflow-auto px-3 pt-2 pb-3 font-mono text-sm leading-5"
       >
-        <div role="list" aria-label={props.label} className="text-muted-foreground">
+        <div
+          role="list"
+          aria-label={props.label}
+          data-part="list"
+          data-variant="logs"
+          className="text-muted-foreground"
+        >
           <LongRows
             items={lines}
             virtualAbove={virtualAbove}
@@ -313,7 +323,12 @@ function FollowedLines(props: { lines: readonly LogLine[]; label: string }) {
 function LogRow(props: { line: LogLine }) {
   const { line } = props;
   return (
-    <div role="listitem" className="grid min-h-5 grid-cols-[auto_8ch_minmax(0,1fr)] gap-x-3">
+    <div
+      role="listitem"
+      data-part="list-row"
+      data-variant={line.level}
+      className="grid min-h-5 grid-cols-[auto_8ch_minmax(0,1fr)] gap-x-3"
+    >
       <span className="text-subtle-foreground tabular-nums">{formatTime(line.at)}</span>
       {/* Warnings and errors share the failed colour (the design's Logs); amber stays
           reserved for "needs you". */}

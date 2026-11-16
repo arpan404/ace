@@ -46,9 +46,10 @@ import {
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { sentText } from "@ace/ui-core";
+import { requestIdentity, sentText } from "@ace/ui-core";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useThreadStop } from "./use-thread-stop.ts";
+import { useActiveRootRun } from "./stop-state.ts";
 import { useNavigate } from "@tanstack/react-router";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useGoalCommand } from "./goal-command.ts";
@@ -122,6 +123,7 @@ export function ThreadComposer({
   const [pickerRequest, requestPicker] = useState(0);
   const [tuneRequest, requestTune] = useState(0);
   const activityState = useThreadLiveState(props.thread.id);
+  const rootRun = useActiveRootRun(props.thread.id);
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
   const box = useRef<HTMLDivElement>(null);
   // Effort and speed picked for the next message: this thread's, for the selection they were
@@ -194,8 +196,17 @@ export function ThreadComposer({
       if (changed) draft.files.release();
       return changed;
     }
-    // Plain words, while the agent waits on its question, answer it.
-    if (await question.reply(draft)) return true;
+    // Plain words, while the agent waits on its question, answer it; never a question the
+    // daemon hasn't confirmed is still open.
+    const replied = await question.reply(draft);
+    if (replied === "answered") return true;
+    if (replied === "held") {
+      toast.add({
+        title: "Reply not sent",
+        description: "It's back in the composer. Send it once the question is confirmed.",
+      });
+      return false;
+    }
     // Never send options picked for another selection; the controls are re-checking them.
     const commandId = crypto.randomUUID();
     // While the agent works the delivery is said outright, so this window knows at once
@@ -220,6 +231,10 @@ export function ThreadComposer({
     });
     const { sendMessage } = await loadSender();
     const ok = await sendMessage({
+      // Every message says what its sender saw: the run it was typed against, or none (`null`).
+      // A steer, asked for or the daemon's default, goes in only while that still holds;
+      // otherwise the daemon queues it rather than joining a run its sender didn't see.
+      runId: rootRun ?? null,
       client,
       storage,
       clock: uploadClock(time.read),
@@ -312,6 +327,24 @@ export function ThreadComposer({
   useComposerActions(props.thread.id, canStop ? stop : undefined, {
     chooseModel: () => requestPicker((count) => count + 1),
     tuneEffort: () => requestTune((count) => count + 1),
+    // The palette's Approve and Deny: the card's own sender, which checks the copy as it sends.
+    approve: (interactionId, optionId) =>
+      void import("../interactions/answer-sender.ts").then(({ sendAnswer }) => {
+        const request = client.peekThread?.(props.thread.id)?.interaction(interactionId);
+        sendAnswer(
+          client,
+          (payload) => client.enqueue(payload),
+          {
+            threadId: props.thread.id,
+            interactionId,
+            identity: request ? requestIdentity(request) : undefined,
+            questions: [],
+            // A summarized request is allowed on its card, once read whole.
+            unread: request?.truncated ? request.request : undefined,
+          },
+          { kind: "approval", optionId },
+        );
+      }),
   });
 
   // What the thread's provider and model read, for the files attached to the next message.

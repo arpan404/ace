@@ -8,7 +8,7 @@ import XCTest
     func testPermissionAfterFirstThreadThenLiveAlertDeepLinkAndCatchUp() async throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         app.revealRow("thread.ios-approval")
         // Asked once the first thread arrives, not at launch.
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

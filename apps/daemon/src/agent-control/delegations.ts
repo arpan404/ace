@@ -43,6 +43,7 @@ import { noticeText, type DeliveryNotice } from "./message-notices.ts";
 import { LimitNotices } from "./limit-notices.ts";
 import { ChildSync } from "./child-sync.ts";
 import { MessageSenders } from "./message-senders.ts";
+import { messageRoute } from "./peer-messages.ts";
 import { readAgentCatalog, readModelRoster } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
 import { AcpIdentity as importAcpIdentitySchema } from "@ace/protocol";
@@ -243,6 +244,22 @@ export class DelegationService {
       (!write || target === caller.threadId || this.journal.isDescendant(target, caller.threadId))
     );
   }
+  /** Where an agent's message to `target` goes, and whether it is sent as owner or as a peer. */
+  messageRoute(caller: McpAttribution, target: ThreadId) {
+    return messageRoute(
+      {
+        thread: (id) => this.deps.store.getThread(id),
+        edge: (id) => this.journal.get(id),
+        owns: (from, id) =>
+          this.journal.isDescendant(id, from.threadId) || this.ownsConversationTree(from, id),
+        reads: (from, id) => this.authorize(from, id, false),
+        hasMessaged: (sender, receiver) => this.senders.hasMessaged(sender, receiver),
+        delegated: (ancestor, id) => this.journal.isDescendant(id, ancestor),
+      },
+      caller,
+      target,
+    );
+  }
   /**
    * A top-level thread with full access may act on the person's threads as the person would.
    * A delegated child works on its task and never gains that reach, whatever its access.
@@ -332,8 +349,11 @@ export class DelegationService {
     text: string,
     delivery: "queue" | "steer",
   ) {
+    const route = this.messageRoute(caller, threadId);
     if (
-      !this.authorize(caller, threadId, true) ||
+      route.kind === "refused" ||
+      route.threadId !== threadId ||
+      (route.kind === "peer" && delivery !== "steer") ||
       this.closed ||
       this.deps.admitsWork?.() === false
     )
@@ -362,8 +382,8 @@ export class DelegationService {
     } finally {
       this.requesting = undefined;
     }
-    // A new message supersedes what the parent was told about an earlier one.
-    const edge = result.ok ? this.journal.get(threadId) : undefined;
+    // A new message from its owner supersedes what the parent was told about an earlier one.
+    const edge = result.ok && route.kind === "owner" ? this.journal.get(threadId) : undefined;
     if (edge?.messageNotice) {
       delete edge.messageNotice;
       this.journal.save(edge);
@@ -1343,8 +1363,14 @@ export class DelegationService {
             this.journal.holdWake(next.parent_id);
             return;
           }
-          // A stopped parent is not woken. Its results wait, undropped, for its next input.
-          if (this.journal.stopped(next.parent_id) || this.journal.fenced(next.parent_id)) {
+          // A stopped or settled parent is not woken. Its results wait, undropped, for its next
+          // input. Settling stops the children, and their "cancelled" results would otherwise
+          // start a new turn that takes the thread straight back out of Settled.
+          if (
+            parent.settledAt !== undefined ||
+            this.journal.stopped(next.parent_id) ||
+            this.journal.fenced(next.parent_id)
+          ) {
             this.journal.holdWake(next.parent_id);
             return;
           }

@@ -5,12 +5,7 @@ import type {
   SpadeRestAction,
   SpadeRestLine,
 } from "@ace/ui-core/spade-chat";
-import {
-  CaretRightIcon,
-  CheckCircleIcon,
-  CircleDashedIcon,
-  CircleIcon,
-} from "@phosphor-icons/react";
+import { CaretRightIcon, CheckCircleIcon, CircleDashedIcon, CircleIcon } from "@ace/icons";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";

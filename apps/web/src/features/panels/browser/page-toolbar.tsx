@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, ArrowLeftIcon, ArrowRightIcon, XIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { TooltipSide } from "@/components/ui/tooltip.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -86,6 +86,8 @@ export function PageToolbar(props: {
   return (
     <TooltipSide value="top">
       <div
+        data-part="panel-toolbar"
+        data-variant="browser"
         style={columns}
         className="@container relative grid h-11 shrink-0 items-center gap-2 border-b px-2"
       >

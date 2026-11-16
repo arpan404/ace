@@ -31,6 +31,9 @@ export const nodeOnlySuites = [
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",
+  // The NK vectors are checked against a derivation on OpenSSL's ChaCha20-Poly1305, which Bun's
+  // node:crypto doesn't have. The channel's own NK runs on both in noise-nk.test.ts.
+  "packages/secure-channel/src/noise-nk-vectors.test.ts",
   // Their test preloads patch node:fs/promises inside the history worker. Bun's named imports of
   // builtins don't see such patches, and Bun lets nothing replace a builtin module.
   "packages/history-import/src/audit-scan.process.test.ts",

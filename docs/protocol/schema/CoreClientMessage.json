@@ -10,7 +10,8 @@
             "devices",
             "browser",
             "screen",
-            "provider_auth"
+            "provider_auth",
+            "media"
           ],
           "type": "string"
         },
@@ -54,6 +55,9 @@
         },
         "machineCode": {
           "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "mediaTicket": {
+          "$ref": "https://ace.local/protocol/v1/MediaTicket.json"
         },
         "nextTicket": {
           "const": true,
@@ -207,6 +211,37 @@
     },
     {
       "properties": {
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "interaction.read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "interactionId",
+        "offset"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "before": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
@@ -251,6 +286,11 @@
         "limit": {
           "exclusiveMinimum": 0,
           "maximum": 200,
+          "type": "integer"
+        },
+        "maxBytes": {
+          "maximum": 131072,
+          "minimum": 16384,
           "type": "integer"
         },
         "requestId": {

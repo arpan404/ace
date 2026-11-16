@@ -5,7 +5,7 @@ import {
   PauseIcon,
   PlayIcon,
   ProhibitIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useState } from "react";
 import { SearchField } from "@/components/search-field.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

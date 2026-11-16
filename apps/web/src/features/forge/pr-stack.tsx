@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { ForgePrDetail, ForgeStackMovedLayer, ForgeStackOperation } from "@ace/protocol";
 import { stackPublishUpdates } from "@ace/forge/stack-publish";

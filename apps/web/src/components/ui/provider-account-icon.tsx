@@ -3,6 +3,7 @@ import type { AccountView } from "@ace/ui-core";
 import { accountBadge, isPlainCliLogin, providerAccount, providerNames } from "@ace/ui-core";
 import { useAccountViews } from "@/lib/account-views.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { ProviderIcon, type ProviderIconProps } from "./provider-icons.tsx";
 import { Tip } from "./tooltip.tsx";
 import { accountBadgeGlyphs } from "./account-badge-icons.ts";
@@ -120,6 +121,7 @@ export function AccountBadge(props: {
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
       tabIndex={props.focusable ? 0 : undefined}
       data-account-badge=""
+      {...part("avatar", undefined, "account")}
       style={
         props.colorPreview
           ? {

@@ -1,4 +1,4 @@
-import { BrowserIcon, BrowsersIcon, StopIcon } from "@phosphor-icons/react";
+import { BrowserIcon, BrowsersIcon, StopIcon } from "@ace/icons";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -103,9 +103,14 @@ function DetectedServers(props: {
   if (props.servers.length === 0) return null;
   return (
     <div className="flex w-72 max-w-full flex-col gap-1.5">
-      <ul aria-label="Detected dev servers" className="flex flex-col gap-1">
+      <ul
+        aria-label="Detected dev servers"
+        data-part="list"
+        data-variant="dev-servers"
+        className="flex flex-col gap-1"
+      >
         {props.servers.map((server) => (
-          <li key={server.port}>
+          <li key={server.port} data-part="list-row" data-variant="dev-server">
             <button
               type="button"
               onClick={() => {

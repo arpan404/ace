@@ -37,7 +37,7 @@ function ForkRoute() {
       />
     );
   return (
-    <OnMachine machine={machine} title="Fork">
+    <OnMachine machine={machine} title="Fork" page="new-thread">
       <ForkDraftView
         key={`${machine ?? ""}:${threadId}:${run ?? item}`}
         threadId={threadId}

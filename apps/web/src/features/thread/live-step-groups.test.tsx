@@ -6,7 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
-test("a collapsed live group names its unfinished parallel step; the thought before it keeps its row", async () => {
+test("a running command stands apart from the one that ran, then folds into it; the thought before keeps its row", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "parallel",
@@ -42,9 +42,11 @@ test("a collapsed live group names its unfinished parallel step; the thought bef
   ]);
   await app.open("/t/parallel");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
-  const group = await within(feed).findByRole("button", {
-    name: /Running.*bun run slow.*2.*steps/,
-  });
+  // The command that ran keeps its own row in view; the one in flight is a row of its own.
+  const ran = await within(feed).findByRole("button", { name: /^Ran.*bun run quick/ });
+  const running = within(feed).getByRole("button", { name: /^Running.*bun run slow/ });
+  expect(ran.compareDocumentPosition(running) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(feed).queryByText(/steps$/)).toBeNull();
   // The thought was in view before the steps arrived: they start their own group below it. It
   // stays one folded row until the reader opens it.
   const thought = within(feed).getByRole("button", { name: /^Thought for/ });
@@ -54,9 +56,6 @@ test("a collapsed live group names its unfinished parallel step; the thought bef
     await within(feed).findByText("The slow build can run alongside the quick check."),
   ).toBeTruthy();
   await userEvent.click(thought);
-  await userEvent.click(group);
-  expect(await within(feed).findByRole("button", { name: /bun run quick/ })).toBeTruthy();
-  await userEvent.click(group);
   act(() =>
     app.daemon.apply("parallel", [
       facts.tool("root", "slow", {
@@ -65,17 +64,43 @@ test("a collapsed live group names its unfinished parallel step; the thought bef
         status: "awaiting_approval",
         detail: { kind: "shell", command: "bun run slow" },
       }),
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "allow-slow",
+        item: "slow",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Run bun run slow?",
+          options: [{ id: "allow", kind: "allow_once", label: "Allow once" }],
+        },
+      },
     ]),
   );
-  expect(
-    await within(feed).findByRole("button", { name: "Waiting for your approval" }),
-  ).toBeTruthy();
-  act(() => app.daemon.apply("parallel", [facts.toolDone("root", "slow")]));
+  // The step waiting on approval steps aside for its request; the turn says what it waits on
+  // once, and the command that ran keeps its row.
+  expect(await within(feed).findAllByText("Waiting for your approval")).toHaveLength(1);
+  expect(within(feed).queryByRole("button", { name: /^Running/ })).toBeNull();
+  expect(within(feed).getByRole("button", { name: /^Ran.*bun run quick/ })).toBeTruthy();
+  act(() =>
+    app.daemon.apply("parallel", [
+      {
+        type: "interaction.closed",
+        interaction: "allow-slow",
+        state: "resolved",
+        resolution: { kind: "approval", optionId: "allow" },
+      },
+      facts.toolDone("root", "slow"),
+    ]),
+  );
   expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /^Running/ })).toBeNull();
 });
 
-test("a step the reader opened stays open when the next step joins it into a group", async () => {
-  const app = harness();
+test("a step the reader opened stays open while the next one runs and when it joins them into a group", async () => {
+  // The daemon's clock starts near 1 s, the reader's 12 s later.
+  const app = harness({ uiClock: () => 13_000 });
   app.daemon.createThread({
     id: "joined",
     workspaceId: "ace",
@@ -111,10 +136,18 @@ test("a step the reader opened stays open when the next step joins it into a gro
       }),
     ]),
   );
-  // The two steps now read as one group, opened to the step the reader had expanded.
-  const group = await within(feed).findByRole("button", {
-    name: /Running.*bun run test.*2.*steps/,
-  });
+  // The step in flight is a row of its own, with how long it has run; the opened step stays as
+  // it was.
+  const running = await within(feed).findByRole("button", { name: /^Running.*bun run test/ });
+  expect(running.textContent).toMatch(/12s$/);
+  expect(
+    within(feed)
+      .getByRole("button", { name: /bun run build/ })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
+  act(() => app.daemon.apply("joined", [facts.toolDone("root", "test")]));
+  // Once it ends the two read as one group, opened to the step the reader had expanded.
+  const group = await within(feed).findByRole("button", { name: "Ran 2 commands" });
   expect(group.getAttribute("aria-expanded")).toBe("true");
   expect(
     within(feed)
@@ -132,7 +165,7 @@ const reasoning = (item: string, complete: boolean) => ({
 const shell = (item: string, command: string) =>
   facts.tool("root", item, { kind: "shell", title: command, detail: { kind: "shell", command } });
 
-test("a thought with no words between calls leaves the step's row in place and titles the group", async () => {
+test("a thought with no words between calls leaves the step's row in place and stands apart from the group", async () => {
   const app = harness();
   app.daemon.createThread({ id: "thinks", workspaceId: "ace", title: "Thinks", provider: "codex" });
   app.daemon.apply("thinks", [
@@ -149,6 +182,7 @@ test("a thought with no words between calls leaves the step's row in place and t
   // The same row, not a group of one step and a thought that is drawn and taken away again.
   expect(within(feed).getByRole("button", { name: /bun run lint/ })).toBe(step);
   expect(within(feed).queryByRole("button", { name: /Thinking/ })).toBeNull();
+  expect(await within(feed).findByText("Thinking…")).toBeTruthy();
 
   act(() =>
     app.daemon.apply("thinks", [
@@ -158,8 +192,10 @@ test("a thought with no words between calls leaves the step's row in place and t
       reasoning("second", false),
     ]),
   );
-  // Thinking titles the group; the thought is no step of it.
-  expect(await within(feed).findByRole("button", { name: /Thinking.*2 steps/ })).toBeTruthy();
+  // The group keeps what ran; the thought in flight is its own row after it.
+  expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
+  expect(await within(feed).findByText("Thinking…")).toBeTruthy();
+  expect(within(feed).queryByRole("button", { name: /Thinking/ })).toBeNull();
   act(() => app.daemon.apply("thinks", [reasoning("second", true)]));
   expect(await within(feed).findByRole("button", { name: "Ran 2 commands" })).toBeTruthy();
 });

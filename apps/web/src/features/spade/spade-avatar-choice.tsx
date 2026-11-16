@@ -12,7 +12,7 @@ import {
   type BotFaceValue,
 } from "@ace/ui-core/bot-face";
 import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { BotFace } from "@/components/bot-face.tsx";
 import { Button } from "@/components/ui/button.tsx";

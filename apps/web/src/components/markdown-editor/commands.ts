@@ -8,7 +8,7 @@ import {
   TextBIcon,
   TextHIcon,
   TextItalicIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { parseChord } from "@/lib/keymap.ts";
 import { toggleBlock } from "./blocks.ts";

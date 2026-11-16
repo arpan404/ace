@@ -1,5 +1,5 @@
 import { desktopBrowserViews, type BrowserAccelerator } from "@/boot/desktop-browser.ts";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@ace/icons";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import {
   displayAddress,
@@ -54,6 +54,7 @@ import { RecordingIndicator } from "./recording-indicator.tsx";
 import { useCursorStyle } from "./use-cursor-style.ts";
 import { usePageCursor } from "./use-page-state.ts";
 import { ConnectionMark } from "./connection-mark.tsx";
+import { DegradedLine } from "@/lib/video/degraded.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
 import { useBrowserTabs } from "./use-browser-tabs.ts";
 import { usePageTools } from "./use-page-tools.ts";
@@ -323,6 +324,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
     <div
       ref={root}
       data-browser-tab=""
+      data-part="browser-panel"
       className="relative flex h-full min-h-0 flex-col"
       onKeyDownCapture={onKeyDown}
       {...drop.handlers}
@@ -448,6 +450,9 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         progress={page.loading ? `Loading ${displayAddress(shownUrl ?? "")}` : undefined}
       />
       {tools.toolbar && <DeviceToolbar tools={tools} />}
+      {live && !live.closed && (
+        <DegradedLine acceleration={live.acceleration} className="truncate px-3 py-1" />
+      )}
       {live && !live.closed && <PageDialog view={live} browser={browser} />}
       {live && !live.closed && <PageSignIn view={live} browser={browser} />}
       {live && !live.closed && <PageFileChooser view={live} browser={browser} />}

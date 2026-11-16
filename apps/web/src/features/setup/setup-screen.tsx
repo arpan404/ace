@@ -1,228 +1,119 @@
 import { useClient } from "@ace/client-react";
-import {
-  FolderOpenIcon,
-  TerminalIcon,
-  ArrowClockwiseIcon,
-  ArrowRightIcon,
-} from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { useEffect } from "react";
+import { FirstRunFrame } from "@/components/first-run-frame.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { ProgressBar } from "@/components/ui/progress-bar.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { dismissOnboarding, refreshProviders, useOnboarding } from "@/lib/provider-readiness.ts";
-import { useProviderAccountModels } from "@/features/accounts/index.ts";
-import { Screen } from "@/features/shell/index.ts";
-import { useProjectDialogs } from "@/features/projects/index.ts";
+import { dismissOnboarding } from "@/lib/provider-readiness.ts";
+import { newThreadIn } from "@/features/projects/index.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
-import { ProviderRow } from "./provider-card.tsx";
-
-const steps = [
-  {
-    heading: "Connect your agents",
-    lede: "Use the agents and accounts already on this computer. Connect one to begin.",
-    icon: TerminalIcon,
-  },
-  {
-    heading: "Choose your first project",
-    lede: "Pick a folder your agents can work in, or start with a chat that needs none.",
-    icon: FolderOpenIcon,
-  },
-] as const;
+import { AgentsStep } from "./agents-step.tsx";
+import { DoneStep } from "./done-step.tsx";
+import { ProjectStep } from "./project-step.tsx";
+import { setupSteps, type SetupStep } from "./steps.ts";
+import { useAgentCards } from "./use-agent-cards.ts";
+import { WelcomeStep } from "./welcome-step.tsx";
 
 /**
- * First-run setup (`/setup`), two steps: the providers found on the daemon's computer, each
- * ready or with the one step that readies it (progress moves as sign-ins finish anywhere), then
- * the first project, whose folder browser opens straight from here. The tools a computer has
- * live in Settings → Computer use. Done or skipped, it stays dismissed for this device.
+ * First-run setup (`/setup`), four steps: Welcome (what ace found on this computer), Agents
+ * (each ready, or with the one step that readies it; rows move as sign-ins finish anywhere),
+ * Project (a source opens Add project on it, and adding comes back to Done) and Done (the
+ * project and the ready agents, then the first thread). The step lives in the URL, so the
+ * browser's Back works. Done, skipped or left for a chat, it stays dismissed for this device.
  */
-export function SetupScreen() {
+export function SetupScreen(props: {
+  step: SetupStep;
+  project?: string | undefined;
+  onStep(step: SetupStep, project?: string): void;
+}) {
   const client = useClient();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const onboarding = useOnboarding();
-  const projects = useProjectDialogs();
-  const { model } = useProviderAccountModels();
-  const [checking, setChecking] = useState(false);
-  const [step, setStep] = useState<0 | 1>(0);
+  const agents = useAgentCards();
+  // Done needs its project; without one it is still the project step.
+  const step = props.step === "done" && !props.project ? "project" : props.step;
+  const project = step === "done" ? props.project : undefined;
+  const index = setupSteps.indexOf(step);
+  const back = index > 0 ? setupSteps[index - 1] : undefined;
+  const dismiss = () => void dismissOnboarding(client, queryClient, true);
   const leave = () => {
-    void dismissOnboarding(client, queryClient, true);
+    dismiss();
     void navigate({ to: "/" });
   };
   const chat = () => {
-    void dismissOnboarding(client, queryClient, true);
+    dismiss();
     void navigate({ to: "/new", search: { project: chatChoice } });
   };
-  const checkAgain = async () => {
-    setChecking(true);
-    try {
-      await client.request({ type: "providers.request", operation: "refresh" });
-    } catch {
-      // Offline: the reconnect reads providers again anyway.
-    }
-    refreshProviders(queryClient);
-    setChecking(false);
-  };
-  const data = onboarding.data;
-  // Each provider as Settings says it, with the catalog deciding whether a CLI that doesn't
-  // report its sign-in works: ready when it lists models.
-  const cards = (data?.providers ?? [])
-    .filter((row) => row.provider !== "acp")
-    .flatMap((row) => {
-      const view = model(row.provider).view;
-      return view ? [{ row, view }] : [];
-    });
-  const installed = cards.filter((card) => card.view.state !== "not_installed");
-  const missing = cards.filter((card) => card.view.state === "not_installed");
-  const ready = installed.filter((card) => card.view.ready).length;
-  // Only a card that needs action is highlighted: the daemon's suggestion when it does, else
-  // the first that does; none once something is ready (Continue is the next step then).
-  const actionable = installed.filter((card) => card.view.primary);
-  const next = ready
-    ? undefined
-    : (actionable.find((card) => card.row.provider === data?.next.provider) ?? actionable[0])?.row
-        .provider;
-  const current = steps[step];
+  // Reaching Done is finishing setup: a reload or another window goes Home from here on.
+  const done = project !== undefined;
+  useEffect(() => {
+    if (done) void dismissOnboarding(client, queryClient, true);
+  }, [done, client, queryClient]);
+  const ready = agents.ready.length;
+  const copy = {
+    welcome: {
+      title: "Welcome to ace",
+      lede: "Run the coding agents you already use side by side, and step in only when one needs you.",
+    },
+    agents: {
+      title: "Connect your agents",
+      lede: ready
+        ? `${ready} ready. Sign in to more now or later in Settings.`
+        : "Sign in to one to start.",
+    },
+    project: { title: "Add your first project", lede: "A folder your agents work in." },
+    done: { title: "You're set up", lede: undefined },
+  }[step];
   return (
-    <Screen title="Set up">
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-10 sm:px-10">
-          <div
-            key={step}
-            className="fx-view-in mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center gap-7"
-          >
-            <div className="grid size-12 shrink-0 place-items-center">
-              <current.icon aria-hidden size={36} />
-            </div>
-            <div className="flex flex-col items-center gap-3 text-center">
-              <h2 className="text-2xl font-semibold tracking-title">{current.heading}</h2>
-              <p className="max-w-[44ch] text-base leading-normal text-muted-foreground">
-                {current.lede}
-              </p>
-            </div>
-            {step === 1 && (
-              <Button variant="ghost" onClick={chat}>
-                Start a chat
-              </Button>
-            )}
-            {step === 0 && (
-              <div className="flex w-full flex-col gap-4">
-                {onboarding.isError ? (
-                  <p role="alert" className="text-ui text-muted-foreground">
-                    This computer can't list its agents yet. Check Settings → Providers.
-                  </p>
-                ) : !data ? (
-                  <ListSkeleton label="providers" shape="row" rows={4} />
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <Progress ready={ready} total={installed.length} />
-                      <IconButton
-                        size="sm"
-                        icon={ArrowClockwiseIcon}
-                        label={checking ? "Checking…" : "Check again"}
-                        disabled={checking}
-                        onClick={() => void checkAgain()}
-                      />
-                    </div>
-                    {installed.length > 0 && (
-                      <ul aria-label="Providers on this computer" className="divide-y">
-                        {installed.map(({ row, view }) => (
-                          <ProviderRow
-                            key={row.provider}
-                            row={row}
-                            view={view}
-                            next={next === row.provider}
-                          />
-                        ))}
-                      </ul>
-                    )}
-                    {missing.length > 0 && (
-                      <section aria-label="Not installed" className="flex flex-col gap-2">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          {installed.length ? "More agents" : "Install an agent"}
-                        </h3>
-                        <ul className="divide-y">
-                          {missing.map(({ row, view }) => (
-                            <ProviderRow key={row.provider} row={row} view={view} />
-                          ))}
-                        </ul>
-                      </section>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        {/* Skip stays in one place on every step; Back sits beside the step's own action. */}
-        <div className="shrink-0 px-6 py-5 sm:px-10">
-          <div className="mx-auto grid w-full max-w-xl grid-cols-[1fr_auto_1fr] items-center gap-4">
-            <div>
-              <Button variant="secondary" onClick={leave}>
-                Skip for now
-              </Button>
-            </div>
-            <ol
-              aria-label={`Step ${step + 1} of ${steps.length}`}
-              className="flex items-center gap-2"
-            >
-              {steps.map((each, index) => (
-                <li
-                  key={each.heading}
-                  aria-current={index === step ? "step" : undefined}
-                  className={
-                    index === step
-                      ? "h-1.5 w-5 rounded-full bg-foreground"
-                      : "size-1.5 rounded-full bg-muted-foreground/30"
-                  }
-                >
-                  <span className="sr-only">{each.heading}</span>
-                </li>
-              ))}
-            </ol>
-            <div className="flex justify-end gap-2">
-              {step === 1 && (
-                <Button variant="ghost" onClick={() => setStep(0)}>
-                  Back
-                </Button>
-              )}
-              <Button
-                variant="primary"
-                disabled={step === 0 && !ready}
-                onClick={() => {
-                  if (step === 0) return setStep(1);
-                  leave();
-                  projects.open({ kind: "add", tab: "sources" });
-                }}
-                onPointerEnter={step === 1 ? projects.preload : undefined}
-              >
-                {step === 0 ? "Continue" : "Add a project"}
-                <ArrowRightIcon aria-hidden size={14} />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Screen>
-  );
-}
-
-/** Provider progress updates independently of the current onboarding page. */
-function Progress(props: { ready: number; total: number }) {
-  const total = Math.max(props.total, 1);
-  const text = `${props.ready} of ${props.total} ready`;
-  return (
-    <div className="flex flex-1 items-center gap-3">
-      <ProgressBar
-        label="Providers ready"
-        value={Math.round((props.ready / total) * 100)}
-        valueText={text}
-        className="flex-1"
-      />
-      <span className="text-sm text-muted-foreground tabular-nums">{text}</span>
-    </div>
+    <FirstRunFrame
+      page="setup"
+      variant={step}
+      corner={
+        <span role="status" aria-label={`Step ${index + 1} of ${setupSteps.length}`}>
+          {index + 1} of {setupSteps.length}
+        </span>
+      }
+      title={copy.title}
+      lede={copy.lede}
+      aside={
+        !done && (
+          // Its words line up with the column's edge, like everything above it.
+          <Button variant="ghost" className="-ml-3" onClick={leave}>
+            Skip for now
+          </Button>
+        )
+      }
+      actions={
+        <>
+          {back && (
+            <Button variant="ghost" onClick={() => props.onStep(back)}>
+              Back
+            </Button>
+          )}
+          {step === "welcome" && (
+            <Button variant="primary" onClick={() => props.onStep("agents")}>
+              Get started
+            </Button>
+          )}
+          {step === "agents" && (
+            <Button variant="primary" disabled={!ready} onClick={() => props.onStep("project")}>
+              Continue
+            </Button>
+          )}
+          {project && (
+            <Button variant="primary" onClick={() => void navigate(newThreadIn(project))}>
+              Start a thread
+            </Button>
+          )}
+        </>
+      }
+    >
+      {step === "welcome" && <WelcomeStep agents={agents} />}
+      {step === "agents" && <AgentsStep agents={agents} />}
+      {step === "project" && (
+        <ProjectStep onPicked={(id) => props.onStep("done", id)} onChat={chat} />
+      )}
+      {project && <DoneStep projectId={project} agents={agents} />}
+    </FirstRunFrame>
   );
 }

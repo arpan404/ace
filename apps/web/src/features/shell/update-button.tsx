@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon, CheckIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CheckIcon, DownloadSimpleIcon } from "@ace/icons";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { openRelease, useDesktopUpdate, type UpdateStatus } from "@/boot/desktop-updates.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";

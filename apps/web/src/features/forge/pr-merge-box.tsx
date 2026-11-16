@@ -6,7 +6,7 @@ import {
   HourglassMediumIcon,
   XIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import {
   can,
   formatAgo,
@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { useReviewOutcomes } from "./pr-reviewers-query.ts";
@@ -56,6 +57,14 @@ const glyphs: Record<GateTone, Icon> = {
 };
 
 /** A section's mark: a solid disc in the state's colour with its glyph on it. */
+/** A gate's tone as a Suit `data-state`; `needs-you` is waiting on the person. */
+const gateState = (tone: GateTone) =>
+  tone === "needs-you"
+    ? "waiting"
+    : tone === "done" || tone === "failed" || tone === "working"
+      ? tone
+      : undefined;
+
 function Mark(props: { tone: GateTone; glyph?: Icon | undefined }) {
   const Glyph = props.glyph ?? glyphs[props.tone];
   return (
@@ -86,7 +95,10 @@ function Section(props: {
 }) {
   const { gate, onSelect } = props;
   return (
-    <div className="flex gap-3 px-4 py-3.5">
+    <div
+      {...part("list-row", gateState(props.tone), props.tone)}
+      className="flex gap-3 px-4 py-3.5"
+    >
       <Mark tone={props.tone} glyph={props.glyph} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-start gap-3">
@@ -174,7 +186,12 @@ export function PrMergeBox(props: {
     const branch =
       branchDeleted === undefined ? "" : branchDeleted ? " · branch deleted" : " · branch kept";
     return (
-      <section id="pr-merge" aria-label="Merge status" className={cn(prBox, "scroll-mt-16")}>
+      <section
+        id="pr-merge"
+        {...part("merge-box", merged ? "done" : "closed", state)}
+        aria-label="Merge status"
+        className={cn(prBox, "scroll-mt-16")}
+      >
         <Section
           tone={merged ? "waiting" : "failed"}
           glyph={merged ? GitMergeIcon : XIcon}
@@ -227,7 +244,12 @@ export function PrMergeBox(props: {
   const conflicted = conflicts?.tone === "failed";
   const blocked = actions.primary.kind === "blocked";
   return (
-    <section id="pr-merge" aria-label="Merge status" className={cn(prBox, "scroll-mt-16")}>
+    <section
+      id="pr-merge"
+      {...part("merge-box", blocked && "waiting", state)}
+      aria-label="Merge status"
+      className={cn(prBox, "scroll-mt-16")}
+    >
       <nav aria-label="Merge gates" className="divide-y divide-border-soft">
         {reviews && (
           <Section

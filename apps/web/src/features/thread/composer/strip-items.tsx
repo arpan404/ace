@@ -18,7 +18,7 @@ import {
   WarningIcon,
   WifiSlashIcon,
   XCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

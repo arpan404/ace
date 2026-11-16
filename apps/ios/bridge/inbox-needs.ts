@@ -5,6 +5,7 @@ import {
   ThreadId,
   type Agent,
   type CommandPayload,
+  type EntitiesPage,
   type Interaction,
   type Item,
   type ThreadListEntry,
@@ -15,24 +16,58 @@ import { dispatchCommand } from "./commands.ts";
 import { interactionRow } from "./interaction-rows.ts";
 import { preview } from "./presentation.ts";
 import { answerResolution } from "./thread-controls.ts";
+import { phoneAnswer } from "./summarized-requests.ts";
 import { RequestAnswer, requestResolution } from "./thread-requests.ts";
 
 /*
  * What each inbox row waits on the person for, read without opening the thread: for every
  * thread the daemon lists as needing the person, its pending requests as the thread's request
  * strip words them (`interactionRow`), within ADR 0074's preview bounds. Only threads the daemon
- * marks `needs_you` are read, one bounded page at a time; a row's requests change only when the
+ * marks `needs_you` are read, one bounded page at a time, until every request it counts is found
+ * or no older page is left (never a fixed number of pages: large answered requests in front of
+ * a pending one must not hide it; daemons since 2026-11 send pending requests first). A request
+ * too large for the daemon to send is counted and shown as one to open on a computer.
+ *
+ * Guarantee: every request pending both when a read starts and when it ends is shown, within
+ * `readsMost` pages. One opened during a read changes the thread's count, and that change reads
+ * again. The total is the daemon's count, never the number read. It counts the thread's whole
+ * tree, so it can hold requests waiting in delegated threads that this row can't show: a read
+ * that found everything says how many (`elsewhere`), and one that stopped at the cap before
+ * finding them all says so (`more`, with `loaded`). A row's requests change only when the
  * daemon's read says so, never on this phone's guess. Answers re-read the request first and go
  * through the durable command path (ADR 0012), as notification actions do.
  */
 
 /** Rows and the needs-you run show this many requests per thread; the count says the rest. */
 export const shownPerThread = 8;
-/** Interaction pages read per thread before giving up on finding every pending request. */
-const pageBudget = 4;
 const pageSize = 50;
+/** Pages of 64 KiB (the daemon's default is 128): every pending request is on the first anyway. */
+const pageBytes = 64 * 1024;
 /** Newest first: everything before the end of time. */
 const newest = Number.MAX_SAFE_INTEGER;
+/**
+ * A bound on one read's pages, whatever a daemon answers: 200 pages (at 64 KiB, 12.5 MiB). A
+ * read that stops here before finding every request the daemon counts says so (`more`).
+ */
+const readsMost = 200;
+
+/** A request the daemon named but could not send, too large for any reply. */
+type TooLargeRequest = NonNullable<EntitiesPage["tooLarge"]>[number];
+/** What a thread waits on: requests read, then any too large to send. */
+type Waiting = Interaction | TooLargeRequest;
+
+/** A request too large to send, as a row: counted as waiting, opened on a larger screen. */
+const tooLargeRow = (request: TooLargeRequest) => ({
+  id: request.id,
+  kind: "too_large",
+  state: "pending",
+  title: "A request too large to show here",
+  description: "Open it on your computer to see and answer it.",
+  command: "",
+  options: [],
+  truncated: true,
+  unanswerable: true,
+});
 /** The agent's last words, as one muted paragraph in the run. */
 const wordsLimit = 600;
 const itemsRead = 24;
@@ -106,7 +141,9 @@ export function needsResolution(
       const option = interaction.request.options.find(
         (candidate) => candidate.id === answer.optionId,
       );
-      return option ? { kind: "approval", optionId: option.id } : undefined;
+      return option
+        ? phoneAnswer(interaction, { kind: "approval", optionId: option.id })
+        : undefined;
     }
     case "question":
       return answerResolution(interaction, answer.answers, answer.dismissed);
@@ -134,25 +171,53 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   /** Threads whose requests the phone holds, so one that stops waiting is cleared once. */
   const held = new Set<string>();
 
-  const interactions = async (threadId: string) => {
-    const found: Interaction[] = [];
+  /**
+   * The thread's pending requests, and whether the read stopped before finding all the daemon
+   * counts while older pages were left (`more`): at `readsMost`, or at a cursor already read.
+   */
+  const interactions = async (
+    threadId: string,
+  ): Promise<{ requests: Waiting[]; more: boolean }> => {
+    // By id, the latest copy kept: one answered between two pages comes again in its new
+    // state, and a daemon that read a cursor as a fresh start sends some again.
+    const found = new Map<string, Interaction | TooLargeRequest>();
+    const pending = () =>
+      [...found.values()].filter((entry) =>
+        "active" in entry ? entry.active : entry.state === "pending",
+      );
+    const sent = new Set<number>();
     let before = newest;
-    for (let page = 0; page < pageBudget; page++) {
+    let more = true;
+    for (let page = 0; page < readsMost; page++) {
+      sent.add(before);
       const reply = await owner.request({
         type: "entities.page",
         threadId,
         collection: "interactions",
         before,
         limit: pageSize,
+        maxBytes: pageBytes,
       });
       const { page: result } = reply;
       if (result.collection !== "interactions") break;
-      found.push(...result.entries);
+      for (const entry of result.entries) found.set(entry.id, entry);
+      for (const entry of result.tooLarge ?? []) found.set(entry.id, entry);
       const want = needsSignature(store.thread(threadId)) ? waitingCount(threadId) : 0;
-      if (pendingOf(found).length >= want || result.entitiesBefore === null) break;
+      if (pending().length >= want || result.entitiesBefore === null) {
+        // Every one counted, or nothing older: all there is to read was read.
+        more = false;
+        break;
+      }
+      // A cursor already read would read the same pages again.
+      if (sent.has(result.entitiesBefore)) break;
       before = result.entitiesBefore;
     }
-    return pendingOf(found);
+    const all = pending();
+    const requests = [
+      ...pendingOf(all.filter((entry): entry is Interaction => !("active" in entry))),
+      ...all.filter((entry): entry is TooLargeRequest => "active" in entry),
+    ];
+    return { requests, more: more && requests.length < waitingCount(threadId) };
   };
   const waitingCount = (threadId: string) => {
     const status = store.thread(threadId)?.status;
@@ -165,6 +230,7 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       collection: "agents",
       before: newest,
       limit: pageSize,
+      maxBytes: pageBytes,
     });
     const byId = new Map<string, Agent>();
     if (reply.page.collection === "agents")
@@ -172,7 +238,11 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     return byId;
   };
 
-  const put = (threadId: string, requests: readonly Interaction[], byId: Map<string, Agent>) => {
+  const put = (
+    threadId: string,
+    { requests, more }: { requests: readonly Waiting[]; more: boolean },
+    byId: Map<string, Agent>,
+  ) => {
     const entry = store.thread(threadId);
     const reader = {
       item: () => undefined,
@@ -183,17 +253,25 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
     pump.put(`needs:${threadId}`, () => ({
       type: "inbox.needs",
       id: threadId,
-      total: requests.length,
+      // What the daemon counts as waiting in the thread's tree, never fewer than were read.
+      total: Math.max(waitingCount(threadId), requests.length),
+      // How many were read, and whether the read stopped before finding them all.
+      loaded: requests.length,
+      more,
+      // After a read that found all this thread holds: what waits in its delegated threads.
+      elsewhere: more ? 0 : Math.max(0, waitingCount(threadId) - requests.length),
       requests: requests
         .slice(0, shownPerThread)
         .map((interaction) =>
-          interactionRow(
-            interaction,
-            reader,
-            interaction.request.kind === "approval"
-              ? (interaction.request.target?.command ?? "")
-              : "",
-          ),
+          "active" in interaction
+            ? tooLargeRow(interaction)
+            : interactionRow(
+                interaction,
+                reader,
+                interaction.request.kind === "approval"
+                  ? (interaction.request.target?.command ?? "")
+                  : "",
+              ),
         ),
     }));
   };
@@ -204,6 +282,9 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
       type: "inbox.needs",
       id: threadId,
       total: 0,
+      loaded: 0,
+      more: false,
+      elsewhere: 0,
       requests: [],
     }));
   };
@@ -255,9 +336,13 @@ export function followNeeds(owner: Owner, pump: PatchSink): NeedsFollow {
   const answer = async (action: Extract<NeedsAction, { type: "needs.answer" }>) => {
     let resolution: Resolution | undefined;
     try {
-      const pending = await interactions(action.threadId);
+      const { requests: pending } = await interactions(action.threadId);
       resolution = needsResolution(
-        pending.find((interaction) => interaction.id === action.interactionId),
+        // A request too large to send is never answered here: it has nothing to answer with.
+        pending.find(
+          (interaction): interaction is Interaction =>
+            !("active" in interaction) && interaction.id === action.interactionId,
+        ),
         action.answer,
       );
     } catch {

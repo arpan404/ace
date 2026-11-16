@@ -104,7 +104,8 @@ private struct LogStepContent: View {
 }
 
 /// Consecutive steps as one row: its icon and sentence ("Ran 3 commands · 1 failed"), or while
-/// the turn works the step in flight ("Running `bun run slow` · 2 steps"). It opens in place to
+/// the agent thinks after it, "Thinking… · 2 steps". A step in flight is never in a group: it is a
+/// row of its own after it (`groupSteps`). It opens in place to
 /// its steps on a rail, and stays open while it holds a step the reader opened. A long group lays
 /// out its first rows in the frame it opens and the rest just after, so the tap answers at once.
 private struct LogGroupView: View {
