@@ -33,12 +33,12 @@ struct DeviceCatalogSheet: View {
                 }
                 if devices.view?.groups.isEmpty == true {
                     Text(query.isEmpty && platform == "all" ? "Every device is running." : "No devices match.")
-                        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                        .aceFont(AceDesign.TextRole.rowTitle)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
                 if let problem = devices.problem {
-                    Text(problem.text).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    Text(problem.text).aceFont(AceDesign.TextRole.rowTitle)
                         .foregroundStyle(AceDesign.Ink.muted).listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
             }

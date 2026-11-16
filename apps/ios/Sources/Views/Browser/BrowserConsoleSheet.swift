@@ -123,7 +123,7 @@ struct BrowserShotSheet: View {
                     ScrollView { Image(uiImage: image).resizable().scaledToFit().padding(AceDesign.Space.margin) }
                 } else {
                     EmptyState(icon: .camera, title: "Screenshot saved to this thread") {
-                        Text(shot.path).aceMonospace(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
+                        Text(shot.path).aceMonospace(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
                     }
                 }
             }

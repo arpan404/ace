@@ -19,7 +19,7 @@ struct SkillSourceRow: View {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 QuietRowText(title: "Source", detail: check.map { "\(source) · \($0.status)" } ?? source)
                 if let problem {
-                    Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(problem).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceTheme.StatusText.failed)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("skill.update.problem")
@@ -83,7 +83,7 @@ struct SkillUpdateReviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     if let review {
-                        Text(review.summary).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        Text(review.summary).aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, AceDesign.Space.margin)
@@ -100,7 +100,7 @@ struct SkillUpdateReviewView: View {
                             .padding(.horizontal, AceDesign.Space.margin)
                             .accessibilityIdentifier("skill.update.apply")
                         Text("Update replaces the skill's files with exactly the version shown here.")
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, AceDesign.Space.margin)
@@ -125,16 +125,16 @@ struct SkillUpdateReviewView: View {
         QuietSection("Files") {
             ForEach(review.files, id: \.path) { file in
                 QuietSectionRow {
-                    Text(verbatim: file.path).aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                    Text(verbatim: file.path).aceMonospace(AceDesign.TextRole.code)
                         .foregroundStyle(AceDesign.Ink.primary)
                         .lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let runnable = file.runnable {
-                        Text(runnable).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        Text(runnable).aceFont(AceDesign.TextRole.meta)
                             .fontWeight(AceDesign.Typeface.strong)
                             .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                     }
-                    Text(file.change).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(file.change).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)
@@ -149,7 +149,7 @@ struct SkillUpdateReviewView: View {
                 QuietHeading("SKILL.md")
                 Spacer(minLength: AceDesign.Space.related)
                 Text(verbatim: "+\(review.diff.additions) −\(review.diff.deletions)")
-                    .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                    .aceMonospace(AceDesign.TextRole.code)
                     .foregroundStyle(AceDesign.Ink.subtle)
                     .accessibilityLabel("\(review.diff.additions) lines added, \(review.diff.deletions) removed")
             }

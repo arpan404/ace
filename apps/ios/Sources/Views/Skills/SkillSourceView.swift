@@ -24,7 +24,7 @@ struct SkillSourceView: View {
             VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                 QuietSection {
                     QuietSectionRow {
-                        Text(component.description).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        Text(component.description).aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .fixedSize(horizontal: false, vertical: true)
                     }

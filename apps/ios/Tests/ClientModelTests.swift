@@ -40,6 +40,30 @@ import Foundation
         model.receive(try frame([second, ["type": "reading.settled", "threadId": "a", "epoch": -1]]))
         #expect(reading.order == ["first", "second"])
     }
+    @Test func aSubagentGroupOpenedOnTheThreadStaysOpenInAPageOfItsHistory() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("a")
+        let live = try #require(model.thread)
+        live.toggleGroup("agents-1")
+        // Reading back through the thread draws its rows from a separate page of history.
+        TranscriptReading().jump(toTurn: 1, model: model, live: live)
+        let page = try #require(model.reading)
+        #expect(page !== live)
+        #expect(page.isGroupOpen("agents-1"), "the group the person opened is still open")
+        page.toggleGroup("agents-1")
+        #expect(!live.isGroupOpen("agents-1"), "closing it on the page closes it on the thread")
+    }
+    @Test func aSubagentGroupStaysOpenOnTheWayBackFromAChildThread() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("parent")
+        model.receive(try frame([["type": "thread.ready", "threadId": "parent", "epoch": 1, "count": 0]]))
+        model.thread?.toggleGroup("agents-1")
+        model.open("child")
+        model.back()
+        model.open("parent")
+        #expect(model.thread?.isGroupOpen("agents-1") == true)
+        #expect(model.thread?.isGroupOpen("agents-2") == false, "only the group opened")
+    }
     @Test func aDeltaUpdatesOnlyItsVisibleRowAndKeepsHistory() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")

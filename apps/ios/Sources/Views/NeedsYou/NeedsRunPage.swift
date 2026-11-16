@@ -29,7 +29,7 @@ struct NeedsRunPage: View {
                     VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                         origin
                         Text(NeedWords.sentence(request))
-                            .aceFont(AceDesign.TextRole.header, relativeTo: .headline)
+                            .aceFont(AceDesign.TextRole.header)
                             .foregroundStyle(AceTheme.Colours.foreground)
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("run.sentence")
@@ -102,7 +102,7 @@ struct NeedsRunPage: View {
             let why = [request.reason ?? "", request.description].first { !$0.isEmpty } ?? ""
             if !why.isEmpty {
                 Text(why)
-                    .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.segment)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .lineLimit(4)
             }
@@ -115,7 +115,7 @@ struct NeedsRunPage: View {
             VStack(alignment: .leading, spacing: AceDesign.Space.related) {
                 if !plan.summary.isEmpty {
                     Text(plan.summary)
-                        .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                        .aceFont(AceDesign.TextRole.segment)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .lineLimit(4)
                 }
@@ -125,7 +125,7 @@ struct NeedsRunPage: View {
                             .foregroundStyle(AceTheme.Colours.subtleForeground)
                         Text(todo.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
                     }
-                    .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.segment)
                 }
                 if plan.todos.count > Self.planSteps {
                     Text("\(plan.todos.count - Self.planSteps) more steps")
@@ -145,7 +145,7 @@ struct NeedsRunPage: View {
         HStack(spacing: AceDesign.Space.related) {
             if let progress = actions.progress {
                 Text(progress)
-                    .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.action)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             } else {
@@ -173,7 +173,7 @@ struct NeedsRunPage: View {
                     .aceFont(InboxRowType.line, relativeTo: .footnote)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
                 Text(said)
-                    .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.segment)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .lineLimit(6)
             }
@@ -212,12 +212,12 @@ struct NeedsRunPage: View {
         return VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if let progress = actions.progress {
                 Text(progress)
-                    .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.action)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             } else if !model.canOperate {
                 Text("View only")
-                    .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.action)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                     .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             } else {

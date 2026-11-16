@@ -89,7 +89,7 @@ struct ForgePullEditSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     if let problem {
-                        Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        Text(problem).aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.StatusText.failed)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, AceDesign.Space.margin)
@@ -155,7 +155,7 @@ struct ForgePullEditSheet: View {
     @ViewBuilder private func field<Content: View>(_ heading: String, _ key: String, @ViewBuilder content: () -> Content) -> some View {
         if editable.contains(key) {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text(heading).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
+                Text(heading).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
                     .accessibilityAddTraits(.isHeader)
                 content()
                 Hairline()

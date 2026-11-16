@@ -18,6 +18,8 @@ struct CapsuleSegments<Value: Hashable>: View {
     let select: (Value) -> Void
     @Environment(\.colorScheme) private var scheme
     @Namespace private var thumb
+    /// The control's height, grown with its words' text style so large text never clips.
+    @ScaledMetric(relativeTo: .subheadline) private var height = AceDesign.Size.segment
 
     var body: some View {
         HStack(spacing: AceDesign.Size.segmentInset - 1) {
@@ -26,7 +28,7 @@ struct CapsuleSegments<Value: Hashable>: View {
         // Only the thumb slides; what the control switches changes at once.
         .animation(.default, value: selection)
         .padding(AceDesign.Size.segmentInset)
-        .frame(height: AceDesign.Size.segment)
+        .frame(height: height)
         .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
         .opacity(disabled ? AceTheme.Opacity.disabled(scheme) : 1)
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: selection)
@@ -42,7 +44,7 @@ struct CapsuleSegments<Value: Hashable>: View {
                 Text(choice.title)
                 if let short = choice.short { Text(short) }
             }
-            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.segment)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
             .lineLimit(1)
@@ -55,7 +57,7 @@ struct CapsuleSegments<Value: Hashable>: View {
                         .matchedGeometryEffect(id: "chosen", in: thumb)
                 }
             }
-            .tapBand(drawn: AceDesign.Size.segment)
+            .tapBand(drawn: height)
         }
         .buttonStyle(.plain)
         .disabled(disabled)

@@ -32,7 +32,7 @@ struct PluginReviewView: View {
                     if let problem {
                         QuietProblem(message: problem, id: "plugins.review.problem")
                         Text("Close and retry from Skills. Pending reviews remain available there.")
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, AceDesign.Space.margin)
@@ -44,7 +44,7 @@ struct PluginReviewView: View {
                             .padding(.horizontal, AceDesign.Space.margin)
                             .accessibilityIdentifier("plugins.accept")
                         Text("Only accept code and endpoints you trust. Installation uses the exact commit and hash shown above.")
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, AceDesign.Space.margin)
@@ -68,10 +68,10 @@ struct PluginReviewView: View {
     private func detail(_ label: String, _ value: String, mono: Bool = false) -> some View {
         QuietSectionRow {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text(label).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(label).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.primary)
                 Text(verbatim: value)
-                    .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                    .aceMonospace(AceDesign.TextRole.code)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .textSelection(.enabled)
             }
@@ -92,7 +92,7 @@ struct PluginReviewView: View {
                         if index > 0 { Hairline().padding(.leading, AceDesign.Space.margin) }
                         QuietSectionRow {
                             Text(pluginReviewText(entry))
-                                .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                                .aceMonospace(AceDesign.TextRole.code)
                                 .foregroundStyle(AceDesign.Ink.muted)
                                 .textSelection(.enabled)
                         }

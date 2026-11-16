@@ -461,14 +461,12 @@ extension XCUIApplication {
         back.tap()
         XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 10))
     }
-    /// Back from Changes to the transcript: a phone shows Changes as a page beside Chat; a sheet
-    /// closes with its X.
+    /// Back from Changes to the transcript: a phone shows Changes as a page beside Chat, Chat
+    /// back from ⋯; a sheet closes with its X.
     func closeChanges() {
         let close = buttons["changes.close"]
         if close.exists { close.tap(); return }
-        let chat = buttons["thread.page.chat"]
-        XCTAssertTrue(chat.waitForExistence(timeout: 10), "Changes is neither a sheet nor a page")
-        chat.tap()
+        showThreadPage("chat")
     }
     /// Waits until the counter `key` (opens, bridge or frame windows) moves on.
     func waitForCount(_ key: String, from start: String?? = nil, timeout: TimeInterval = 20) -> Bool {

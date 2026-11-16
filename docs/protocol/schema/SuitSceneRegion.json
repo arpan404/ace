@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitSceneRegion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "app",
+    "celebration",
+    "sidebar",
+    "header",
+    "composer",
+    "right-panel",
+    "page"
+  ],
+  "type": "string"
+}

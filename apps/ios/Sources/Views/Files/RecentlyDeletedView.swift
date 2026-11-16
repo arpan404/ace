@@ -22,9 +22,9 @@ struct RecentlyDeletedView: View {
             ForEach(entries) { entry in
                 QuietSectionRow {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(FileActions.name(entry.path)).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
+                        Text(FileActions.name(entry.path)).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
                         Text("\(entry.path) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.size), countStyle: .file))")
-                            .aceMonospace(AceDesign.TextRole.meta, relativeTo: .caption)
+                            .aceMonospace(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
                     }
                     Spacer(minLength: AceTheme.Spacing.sm)

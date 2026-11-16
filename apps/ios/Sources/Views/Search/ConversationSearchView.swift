@@ -132,13 +132,13 @@ private struct SearchHitLabel: View {
     var body: some View {
         QuietSectionRow {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                Text(inThread ? hit.inThreadLead : hit.threadTitle).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(inThread ? hit.inThreadLead : hit.threadTitle).aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
-                Text(hit.excerpt).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(hit.excerpt).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(3)
                 if !inThread {
                     Text("\(hit.provider.capitalized) · \(hit.kind.replacingOccurrences(of: "_", with: " "))")
-                        .aceFont(AceDesign.TextRole.caption, relativeTo: .caption2)
+                        .aceFont(AceDesign.TextRole.caption)
                         .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
                 }
             }

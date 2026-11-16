@@ -34,7 +34,7 @@ struct SkillOpenOnComputer: View {
             }
         } label: {
             HStack(spacing: AceDesign.Space.related) {
-                Text("Open on computer").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                Text("Open on computer").aceFont(AceDesign.TextRole.action)
                     .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 AceIcon(.caretUpDown, size: AceDesign.Size.chevron, weight: .bold, relativeTo: .caption)

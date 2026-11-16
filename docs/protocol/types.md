@@ -27885,6 +27885,309 @@ Example:
 "limit_resume"
 ```
 
+## SceneGlassRect
+
+[JSON Schema](schema/SceneGlassRect.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| x | yes | number |  |
+| y | yes | number |  |
+| width | yes | number | {"minimum":0} |
+| height | yes | number | {"minimum":0} |
+| radius | yes | number | {"minimum":0} |
+| blur | yes | number | {"minimum":0,"maximum":64} |
+| saturate | no | number | {"minimum":0,"maximum":4} |
+
+Example:
+
+```json
+{
+  "blur": 8,
+  "height": 1,
+  "radius": 2,
+  "width": 6,
+  "x": 9,
+  "y": 3
+}
+```
+
+## SceneHostMessage
+
+[JSON Schema](schema/SceneHostMessage.json), input validation.
+
+### init
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"init"` |  |
+| scheme | yes | ["light","dark"] |  |
+| width | yes | number |  |
+| height | yes | number |  |
+| pixelRatio | yes | number |  |
+| reduceMotion | yes | boolean |  |
+| region | no | [SuitSceneRegion.json](schema/SuitSceneRegion.json) |  |
+
+Example:
+
+```json
+{
+  "height": 6,
+  "pixelRatio": 7,
+  "reduceMotion": true,
+  "region": "right-panel",
+  "scheme": "light",
+  "type": "init",
+  "width": 9
+}
+```
+
+### resize
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"resize"` |  |
+| width | yes | number |  |
+| height | yes | number |  |
+| pixelRatio | yes | number |  |
+
+Example:
+
+```json
+{
+  "height": 7,
+  "pixelRatio": 1,
+  "type": "resize",
+  "width": 2
+}
+```
+
+### scheme
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"scheme"` |  |
+| scheme | yes | ["light","dark"] |  |
+
+Example:
+
+```json
+{
+  "scheme": "dark",
+  "type": "scheme"
+}
+```
+
+### motion
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"motion"` |  |
+| reduceMotion | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "reduceMotion": false,
+  "type": "motion"
+}
+```
+
+### tick
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"tick"` |  |
+| time | yes | number |  |
+
+Example:
+
+```json
+{
+  "time": 6,
+  "type": "tick"
+}
+```
+
+### pause
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"pause"` |  |
+
+Example:
+
+```json
+{
+  "type": "pause"
+}
+```
+
+### resume
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"resume"` |  |
+
+Example:
+
+```json
+{
+  "type": "resume"
+}
+```
+
+### signal
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"signal"` |  |
+| signal | yes | [SceneSignal.json](schema/SceneSignal.json) |  |
+
+Example:
+
+```json
+{
+  "signal": "pr-merged",
+  "type": "signal"
+}
+```
+
+### sample
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"sample"` |  |
+| id | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| columns | yes | integer | {"minimum":1,"maximum":32} |
+| rows | yes | integer | {"minimum":1,"maximum":32} |
+
+Example:
+
+```json
+{
+  "columns": 3,
+  "id": 8,
+  "rows": 6,
+  "type": "sample"
+}
+```
+
+### glass
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"glass"` |  |
+| rects | yes | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/SceneGlassRect.json"}} |
+
+Example:
+
+```json
+{
+  "rects": [],
+  "type": "glass"
+}
+```
+
+## SceneMessage
+
+[JSON Schema](schema/SceneMessage.json), input validation.
+
+### ready
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"ready"` |  |
+
+Example:
+
+```json
+{
+  "type": "ready"
+}
+```
+
+### drawn
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"drawn"` |  |
+| time | yes | number |  |
+
+Example:
+
+```json
+{
+  "time": 3,
+  "type": "drawn"
+}
+```
+
+### error
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"error"` |  |
+| message | yes | string | {"maxLength":500} |
+
+Example:
+
+```json
+{
+  "message": "example",
+  "type": "error"
+}
+```
+
+### finished
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"finished"` |  |
+
+Example:
+
+```json
+{
+  "type": "finished"
+}
+```
+
+### sample
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"sample"` |  |
+| id | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| columns | yes | integer | {"minimum":1,"maximum":32} |
+| rows | yes | integer | {"minimum":1,"maximum":32} |
+| pixels | yes | array | {"maxItems":4096,"items":{"type":"integer","minimum":0,"maximum":255}} |
+
+Example:
+
+```json
+{
+  "columns": 4,
+  "id": 3,
+  "pixels": [],
+  "rows": 9,
+  "type": "sample"
+}
+```
+
+## SceneSignal
+
+[JSON Schema](schema/SceneSignal.json), input validation.
+
+Type: ["working","waiting","done","failed","pr-merged"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"done"
+```
+
 ## ScreenAck
 
 [JSON Schema](schema/ScreenAck.json), input validation.
@@ -35343,6 +35646,1064 @@ Example:
   "kind": "thread",
   "threadId": "example"
 }
+```
+
+## SuitActive
+
+[JSON Schema](schema/SuitActive.json), input validation.
+
+### preview
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"preview"` |  |
+| suitId | yes | [SuitId.json](schema/SuitId.json) |  |
+
+Example:
+
+```json
+{
+  "kind": "preview",
+  "suitId": "leh2w9iks-9-w8oh5lvvcl8-ni7f6-18y9j7qydo"
+}
+```
+
+### none
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"none"` |  |
+
+Example:
+
+```json
+{
+  "kind": "none"
+}
+```
+
+### keep
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"keep"` |  |
+| suitId | yes | [SuitId.json](schema/SuitId.json) |  |
+| keepId | yes | [SuitKeepId.json](schema/SuitKeepId.json) |  |
+
+Example:
+
+```json
+{
+  "keepId": "example",
+  "kind": "keep",
+  "suitId": "5di6-u7xj0ydu2-eu7n-u-rkodzo14i-idf8slm293"
+}
+```
+
+### restore
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"restore"` |  |
+| keepId | yes | [SuitKeepId.json](schema/SuitKeepId.json) |  |
+
+Example:
+
+```json
+{
+  "keepId": "example",
+  "kind": "restore"
+}
+```
+
+## SuitAssetPath
+
+[JSON Schema](schema/SuitAssetPath.json), input validation.
+
+Semantic rule: No `..` path segment: the path stays inside assets/.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"assets/YGlg71TxT2H"
+```
+
+## SuitBase
+
+[JSON Schema](schema/SuitBase.json), input validation.
+
+Type: ["ace","paper","midnight","grove","harbor","dusk"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dusk"
+```
+
+## SuitCheckId
+
+[JSON Schema](schema/SuitCheckId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## SuitClientMessage
+
+[JSON Schema](schema/SuitClientMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitRequest"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":80} |
+| request | yes | [SuitRequest.json](schema/SuitRequest.json) |  |
+
+Example:
+
+```json
+{
+  "request": {
+    "id": "5gbn9drm-dada33vrc7-oulzuqoyfnm-ylpn39d1",
+    "op": "read"
+  },
+  "requestId": "example",
+  "type": "suitRequest"
+}
+```
+
+## SuitDetail
+
+[JSON Schema](schema/SuitDetail.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| summary | yes | [SuitSummary.json](schema/SuitSummary.json) |  |
+| manifest | yes | [SuitManifest.json](schema/SuitManifest.json) |  |
+| sceneUrl | yes | string,null |  |
+| sceneUrls | no | object | {"default":{},"propertyNames":{"$ref":"https://ace.local/protocol/v1/SuitSceneRegion.json"},"additionalProperties":{"type":"string"}} |
+| assets | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"string"}} |
+| css | no | string,null | {"default":null} |
+| ornaments | no | object | {"default":{},"propertyNames":{"$ref":"https://ace.local/protocol/v1/SuitOrnamentSlot.json"},"additionalProperties":{"type":"string"}} |
+
+Example:
+
+```json
+{
+  "assets": {},
+  "css": "example",
+  "manifest": {
+    "dark": {
+      "accent": "#1b30B4",
+      "border": "#Ed265a",
+      "faint": "#bddEB0",
+      "glass": {
+        "blur": 9,
+        "saturate": 109
+      },
+      "hover": "#5526b5",
+      "syntax": {
+        "com": "#e5a2aC",
+        "fn": "#9CB1ca",
+        "str": "#15EDec",
+        "type": "#1dB1eB"
+      },
+      "text": "#1ADeB0"
+    },
+    "format": 1,
+    "id": "m8prs-m55-g-pk7tg-c59xzpjq1x-x5-etqvn-txad60r8",
+    "name": "example",
+    "scene": true,
+    "scenes": {},
+    "version": "example"
+  },
+  "ornaments": {},
+  "sceneUrl": "example",
+  "sceneUrls": {},
+  "summary": {
+    "contentHash": "example",
+    "description": "example",
+    "id": "pf-r-968gfqga6-15dwakq",
+    "name": "example",
+    "problems": [],
+    "scene": false,
+    "schemes": []
+  }
+}
+```
+
+## SuitFont
+
+[JSON Schema](schema/SuitFont.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| asset | yes | [SuitAssetPath.json](schema/SuitAssetPath.json) |  |
+| family | yes | string | {"minLength":1,"maxLength":80} |
+
+Example:
+
+```json
+{
+  "asset": "assets/7kUi",
+  "family": "example"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| system | yes | string | {"minLength":1,"maxLength":200} |
+
+Example:
+
+```json
+{
+  "system": "example"
+}
+```
+
+## SuitId
+
+[JSON Schema](schema/SuitId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"ykfigppr7-nebisa47nv-howxipsri7k-03yp"
+```
+
+## SuitKeepId
+
+[JSON Schema](schema/SuitKeepId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## SuitLabelKey
+
+[JSON Schema](schema/SuitLabelKey.json), input validation.
+
+Type: ["composer-placeholder","empty-transcript","empty-sidebar","working-word","send"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"empty-transcript"
+```
+
+## SuitLabels
+
+[JSON Schema](schema/SuitLabels.json), input validation.
+
+Type: object. See JSON Schema for constraints.
+
+Example:
+
+```json
+{}
+```
+
+## SuitLayout
+
+[JSON Schema](schema/SuitLayout.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| sidebar | no | ["left","right"] | {"default":"left"} |
+| rail | no | ["shown","hidden","merged"] | {"default":"shown"} |
+| sidebarWidth | no | integer | {"minimum":200,"maximum":480} |
+| transcriptWidth | no | integer | {"minimum":560,"maximum":1400} |
+| composer | no | ["docked","floating"] | {"default":"docked"} |
+| header | no | ["bar","minimal","hidden"] | {"default":"bar"} |
+| messages | no | ["bubbles","flat","cards"] | {"default":"bubbles"} |
+| toolRows | no | ["compact","detailed","terminal"] | {"default":"compact"} |
+
+Example:
+
+```json
+{
+  "header": "minimal",
+  "rail": "hidden",
+  "sidebarWidth": 201
+}
+```
+
+## SuitLiveCheck
+
+[JSON Schema](schema/SuitLiveCheck.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| checkId | yes | [SuitCheckId.json](schema/SuitCheckId.json) |  |
+| suitId | yes | [SuitId.json](schema/SuitId.json) |  |
+
+Example:
+
+```json
+{
+  "checkId": "example",
+  "suitId": "m1ae-u9h-w62r-588rsj0"
+}
+```
+
+## SuitLiveReport
+
+[JSON Schema](schema/SuitLiveReport.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| checkId | yes | [SuitCheckId.json](schema/SuitCheckId.json) |  |
+| suitId | yes | [SuitId.json](schema/SuitId.json) |  |
+| client | yes | ["desktop","web"] |  |
+| scheme | yes | ["light","dark"] |  |
+| widths | yes | array | {"maxItems":8,"items":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}} |
+| problems | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/SuitProblem.json"}} |
+| unchecked | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":80}} |
+| screenshot | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/SuitScreenshot.json"},{"type":"null"}]} |
+| screenshotNote | no | string | {"maxLength":300} |
+
+Example:
+
+```json
+{
+  "checkId": "example",
+  "client": "web",
+  "problems": [],
+  "scheme": "dark",
+  "screenshot": null,
+  "suitId": "u-4atbkt7",
+  "unchecked": [],
+  "widths": []
+}
+```
+
+## SuitManifest
+
+[JSON Schema](schema/SuitManifest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| format | yes | `1` |  |
+| id | yes | [SuitId.json](schema/SuitId.json) |  |
+| name | yes | string | {"minLength":1,"maxLength":60} |
+| description | no | string | {"default":"","maxLength":280} |
+| version | no | string | {"default":"1","maxLength":40} |
+| base | no | [SuitBase.json](schema/SuitBase.json) | {"default":"ace"} |
+| light | no | [SuitPalette.json](schema/SuitPalette.json) |  |
+| dark | no | [SuitPalette.json](schema/SuitPalette.json) |  |
+| fonts | no | object | {"properties":{"ui":{"$ref":"https://ace.local/protocol/v1/SuitFont.json"},"prose":{"$ref":"https://ace.local/protocol/v1/SuitFont.json"},"mono":{"$ref":"https://ace.local/protocol/v1/SuitFont.json"}}} |
+| shape | no | object | {"properties":{"radius":{"default":1,"type":"number","minimum":0,"maximum":2},"border":{"default":1,"type":"number","minimum":0.5,"maximum":2},"density":{"type":"string","enum":["compact","comfortable","spacious"]}}} |
+| motion | no | object | {"properties":{"speed":{"default":1,"type":"number","minimum":0.5,"maximum":2}}} |
+| scene | no | boolean | {"default":false} |
+| thumbnail | no | object | {"properties":{"light":{"$ref":"https://ace.local/protocol/v1/SuitAssetPath.json"},"dark":{"$ref":"https://ace.local/protocol/v1/SuitAssetPath.json"}}} |
+| layout | no | [SuitLayout.json](schema/SuitLayout.json) |  |
+| ornaments | no | array | {"maxItems":16,"items":{"$ref":"https://ace.local/protocol/v1/SuitOrnament.json"}} |
+| labels | no | [SuitLabels.json](schema/SuitLabels.json) |  |
+| video | no | [SuitVideo.json](schema/SuitVideo.json) |  |
+| scenes | no | [SuitScenes.json](schema/SuitScenes.json) |  |
+| terminal | no | [SuitTerminal.json](schema/SuitTerminal.json) |  |
+| reveal | no | object | {"propertyNames":{"$ref":"https://ace.local/protocol/v1/SuitRegion.json"},"additionalProperties":{"type":"number","minimum":0,"maximum":1}} |
+| regions | no | object | {"propertyNames":{"$ref":"https://ace.local/protocol/v1/SuitRegion.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/SuitRegionStyle.json"}} |
+
+Example:
+
+```json
+{
+  "format": 1,
+  "id": "eunklk99-1s9b60-tucfsz-1acb-304",
+  "labels": {},
+  "name": "example",
+  "ornaments": [],
+  "regions": {},
+  "thumbnail": {
+    "dark": "assets/1OaoT8"
+  }
+}
+```
+
+## SuitOrnament
+
+[JSON Schema](schema/SuitOrnament.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| slot | yes | [SuitOrnamentSlot.json](schema/SuitOrnamentSlot.json) |  |
+| asset | yes | string | {"pattern":"^assets\\/[A-Za-z0-9._/-]+\\.(svg\|html)$","x-ace-constraint":"No `..` path segment: the path stays inside assets/."} |
+
+Example:
+
+```json
+{
+  "asset": "assets/qZH6YkqhV9_.html",
+  "slot": "corner-top-right"
+}
+```
+
+## SuitOrnamentSlot
+
+[JSON Schema](schema/SuitOrnamentSlot.json), input validation.
+
+Type: ["sidebar-header","sidebar-footer","transcript-top","empty-state","composer-top","corner-top-left","corner-top-right","corner-bottom-left","corner-bottom-right"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"sidebar-header"
+```
+
+## SuitPage
+
+[JSON Schema](schema/SuitPage.json), input validation.
+
+Type: ["thread","new-thread","chats","chat","pulls","pull","issues","issue","inbox","review","automations","automation","skills","skill","usage","spade","history","settings","sign-in","setup","connect"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"issue"
+```
+
+## SuitPalette
+
+[JSON Schema](schema/SuitPalette.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| canvas | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| sidebar | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| surface | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| raised | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| hover | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| active | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| border | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| borderStrong | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| faint | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| subtle | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| muted | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| text | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| code | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| accent | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| accentHover | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| accentFg | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| accentText | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| diffAdd | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| diffAddFg | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| diffDel | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| diffDelFg | no | string | {"pattern":"^#[0-9a-fA-F]{6}$"} |
+| syntax | no | object | {"properties":{"kw":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"fn":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"str":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"num":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"type":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"com":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"},"punc":{"type":"string","pattern":"^#[0-9a-fA-F]{6}$"}},"additionalProperties":{}} |
+| glass | no | union | {"anyOf":[{"type":"object","properties":{"blur":{"type":"number","minimum":0,"maximum":64},"saturate":{"type":"number","minimum":100,"maximum":300}},"required":["blur","saturate"]},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "accentFg": "#f6ceb3",
+  "active": "#333214",
+  "canvas": "#4CA14b",
+  "diffAddFg": "#77c1FC",
+  "diffDelFg": "#D84D24",
+  "raised": "#9BafFD",
+  "surface": "#Bf9e3C"
+}
+```
+
+## SuitPart
+
+[JSON Schema](schema/SuitPart.json), input validation.
+
+Type: ["app","rail","rail-item","sidebar","sidebar-header","sidebar-footer","sidebar-tabs","thread-list","thread-row","thread-title","thread-meta","project-header","header","header-title","main","transcript","right-panel","panel-header","message-user","message-agent","message-meta","turn-divider","tool-row","tool-output","code-block","inline-code","diff","link","attachment","working-line","approval-strip","question-card","status-icon","composer","composer-input","composer-toolbar","composer-send","model-picker","button","icon-button","input","select","checkbox","switch","slider","tabs","tab","badge","kbd","menu","menu-item","popover","dialog","tooltip","toast","command-palette","settings-nav","settings-section","settings-row","nav-item","terminal","file-tree","browser-panel","empty-state","scrollbar","divider","page","page-header","page-title","page-toolbar","page-body","page-section","list","list-row","list-group","card","table","table-row","stat","filter-bar","search-field","avatar","label-chip","progress","chart","panel-body","terminal-tab","panel-toolbar","panel-tab","pr-header","pr-row","issue-row","review-comment","review-thread","check-row","commit-row","diff-file","diff-line","timeline-item","branch-chip","merge-box","spade-message","chat-row","segmented","segment","segmented-thumb","switch-thumb","slider-thumb","tool-group-header","tool-icon","composer-strip","queue-strip","queue-item"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"tool-row"
+```
+
+## SuitProblem
+
+[JSON Schema](schema/SuitProblem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| scheme | yes | union | {"anyOf":[{"type":"string","enum":["light","dark"]},{"type":"null"}]} |
+| check | yes | string |  |
+| field | yes | string,null |  |
+| line | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| message | yes | string |  |
+
+Example:
+
+```json
+{
+  "check": "example",
+  "field": "example",
+  "line": 3,
+  "message": "example",
+  "scheme": null
+}
+```
+
+## SuitRegion
+
+[JSON Schema](schema/SuitRegion.json), input validation.
+
+Type: ["app","rail","sidebar","header","transcript","composer","right-panel","page"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"right-panel"
+```
+
+## SuitRegionStyle
+
+[JSON Schema](schema/SuitRegionStyle.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| background | no | string | {"minLength":1,"maxLength":2000,"pattern":"^[^{};]*$"} |
+| border | no | string | {"minLength":1,"maxLength":2000,"pattern":"^[^{};]*$"} |
+| shadow | no | string | {"minLength":1,"maxLength":2000,"pattern":"^[^{};]*$"} |
+| backdropFilter | no | string | {"minLength":1,"maxLength":2000,"pattern":"^[^{};]*$"} |
+
+Example:
+
+```json
+{
+  "backdropFilter": "VQd_/"
+}
+```
+
+## SuitReportMessage
+
+[JSON Schema](schema/SuitReportMessage.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitReport"` |  |
+| report | yes | [SuitLiveReport.json](schema/SuitLiveReport.json) |  |
+
+Example:
+
+```json
+{
+  "report": {
+    "checkId": "example",
+    "client": "web",
+    "problems": [],
+    "scheme": "dark",
+    "screenshot": {
+      "data": "example",
+      "height": 10,
+      "mimeType": "image/jpeg",
+      "width": 8
+    },
+    "screenshotNote": "example",
+    "suitId": "v9772-61-qab-v304bovafl-v6rzpoi93fe-ty3y",
+    "unchecked": [],
+    "widths": []
+  },
+  "type": "suitReport"
+}
+```
+
+## SuitRequest
+
+[JSON Schema](schema/SuitRequest.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"list"` |  |
+
+Example:
+
+```json
+{
+  "op": "list"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"read"` |  |
+| id | yes | [SuitId.json](schema/SuitId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "n-6cgxuerii-e-39tsh4o9",
+  "op": "read"
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"validate"` |  |
+| id | yes | [SuitId.json](schema/SuitId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "8nfq2",
+  "op": "validate"
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"remove"` |  |
+| id | yes | [SuitId.json](schema/SuitId.json) |  |
+
+Example:
+
+```json
+{
+  "id": "adxmmlp6zd",
+  "op": "remove"
+}
+```
+
+## SuitResponse
+
+[JSON Schema](schema/SuitResponse.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"list"` |  |
+| suits | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/SuitSummary.json"}} |
+
+Example:
+
+```json
+{
+  "op": "list",
+  "suits": []
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"read"` |  |
+| suit | yes | [SuitDetail.json](schema/SuitDetail.json) |  |
+
+Example:
+
+```json
+{
+  "op": "read",
+  "suit": {
+    "assets": {},
+    "manifest": {
+      "fonts": {
+        "mono": {
+          "system": "example"
+        },
+        "prose": {
+          "asset": "assets/jr2-76iaq",
+          "family": "example"
+        }
+      },
+      "format": 1,
+      "id": "ln64cq-u-0i8nvyfv5n-8yauma7oq-rc",
+      "labels": {},
+      "light": {
+        "accent": "#e4DBb9",
+        "accentHover": "#0cedC4",
+        "active": "#Ed5FF4",
+        "borderStrong": "#DCe8AA",
+        "canvas": "#dB1688",
+        "diffAddFg": "#9830cD",
+        "glass": {
+          "blur": 1,
+          "saturate": 108
+        },
+        "hover": "#acf3Ea",
+        "raised": "#871918"
+      },
+      "motion": {},
+      "name": "example",
+      "ornaments": [],
+      "regions": {},
+      "reveal": {},
+      "scene": false,
+      "terminal": {
+        "cursorBlink": false,
+        "cursorStyle": "block",
+        "dark": {
+          "background": "#d6D4b4Ad",
+          "cursor": "#6EF9E5"
+        },
+        "reveal": 1
+      },
+      "thumbnail": {},
+      "version": "example",
+      "video": {
+        "audio": {
+          "muted": false
+        },
+        "poster": "assets/wJW",
+        "sources": [
+          "assets/wGTaUlgIS.MP4"
+        ]
+      }
+    },
+    "sceneUrl": "example",
+    "summary": {
+      "contentHash": "example",
+      "description": "example",
+      "id": "qrpcqgvh-7uc",
+      "name": "example",
+      "problems": [],
+      "scene": true,
+      "schemes": []
+    }
+  }
+}
+```
+
+### Variant 3
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"validate"` |  |
+| summary | yes | [SuitSummary.json](schema/SuitSummary.json) |  |
+
+Example:
+
+```json
+{
+  "op": "validate",
+  "summary": {
+    "contentHash": "example",
+    "description": "example",
+    "id": "ya6ark76el-rov-pcbh-ek3-zluixz7edk3-xz8fi-kpvi6",
+    "name": "example",
+    "problems": [],
+    "scene": false,
+    "schemes": []
+  }
+}
+```
+
+### Variant 4
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"remove"` |  |
+| removed | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "op": "remove",
+  "removed": true
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| op | yes | `"error"` |  |
+| code | yes | ["not_found","invalid","forbidden","unavailable","failed"] |  |
+| message | yes | string | {"maxLength":2000} |
+| summary | no | [SuitSummary.json](schema/SuitSummary.json) |  |
+
+Example:
+
+```json
+{
+  "code": "unavailable",
+  "message": "example",
+  "op": "error"
+}
+```
+
+## SuitSceneRegion
+
+[JSON Schema](schema/SuitSceneRegion.json), input validation.
+
+Type: ["app","celebration","sidebar","header","composer","right-panel","page"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"celebration"
+```
+
+## SuitScenes
+
+[JSON Schema](schema/SuitScenes.json), input validation.
+
+Type: object. See JSON Schema for constraints.
+
+Example:
+
+```json
+{}
+```
+
+## SuitsChanged
+
+[JSON Schema](schema/SuitsChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| suits | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/SuitSummary.json"}} |
+
+Example:
+
+```json
+{
+  "suits": []
+}
+```
+
+## SuitScreenshot
+
+[JSON Schema](schema/SuitScreenshot.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| mimeType | yes | ["image/png","image/jpeg"] |  |
+| data | yes | string | {"minLength":1,"maxLength":900000} |
+| width | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| height | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "data": "example",
+  "height": 1,
+  "mimeType": "image/jpeg",
+  "width": 8
+}
+```
+
+## SuitServerMessage
+
+[JSON Schema](schema/SuitServerMessage.json), input validation.
+
+### suitResult
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitResult"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":80} |
+| response | yes | [SuitResponse.json](schema/SuitResponse.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "response": {
+    "op": "list",
+    "suits": []
+  },
+  "type": "suitResult"
+}
+```
+
+### suitsChanged
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitsChanged"` |  |
+| suits | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/SuitSummary.json"}} |
+
+Example:
+
+```json
+{
+  "suits": [],
+  "type": "suitsChanged"
+}
+```
+
+### suitActive
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitActive"` |  |
+| active | yes | [SuitActive.json](schema/SuitActive.json) |  |
+
+Example:
+
+```json
+{
+  "active": {
+    "keepId": "example",
+    "kind": "restore"
+  },
+  "type": "suitActive"
+}
+```
+
+### suitCheck
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"suitCheck"` |  |
+| check | yes | [SuitLiveCheck.json](schema/SuitLiveCheck.json) |  |
+
+Example:
+
+```json
+{
+  "check": {
+    "checkId": "example",
+    "suitId": "ieto3sh-l3qf-94azmql"
+  },
+  "type": "suitCheck"
+}
+```
+
+## SuitSummary
+
+[JSON Schema](schema/SuitSummary.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | [SuitId.json](schema/SuitId.json) |  |
+| name | yes | string |  |
+| description | yes | string |  |
+| schemes | yes | array | {"items":{"type":"string","enum":["light","dark"]}} |
+| scene | yes | boolean |  |
+| contentHash | yes | string |  |
+| problems | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/SuitProblem.json"}} |
+
+Example:
+
+```json
+{
+  "contentHash": "example",
+  "description": "example",
+  "id": "j6-t-dwgzveri-ybn-3rd",
+  "name": "example",
+  "problems": [],
+  "scene": false,
+  "schemes": []
+}
+```
+
+## SuitTerminal
+
+[JSON Schema](schema/SuitTerminal.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| light | no | [SuitTerminalColours.json](schema/SuitTerminalColours.json) |  |
+| dark | no | [SuitTerminalColours.json](schema/SuitTerminalColours.json) |  |
+| fontFamily | no | string | {"minLength":1,"maxLength":200} |
+| fontSize | no | number | {"minimum":9,"maximum":24} |
+| lineHeight | no | number | {"minimum":1,"maximum":2} |
+| letterSpacing | no | number | {"minimum":-1,"maximum":4} |
+| cursorStyle | no | ["block","bar","underline"] |  |
+| cursorBlink | no | boolean |  |
+| reveal | no | number | {"minimum":0,"maximum":1} |
+
+Example:
+
+```json
+{
+  "dark": {
+    "ansi": {},
+    "foreground": "#5332782e"
+  },
+  "letterSpacing": 0
+}
+```
+
+## SuitTerminalColours
+
+[JSON Schema](schema/SuitTerminalColours.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| background | no | string | {"pattern":"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"} |
+| foreground | no | string | {"pattern":"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"} |
+| cursor | no | string | {"pattern":"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"} |
+| cursorAccent | no | string | {"pattern":"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"} |
+| selection | no | string | {"pattern":"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"} |
+| ansi | no | object | {"propertyNames":{"type":"string","enum":["black","red","green","yellow","blue","magenta","cyan","white","brightBlack","brightRed","brightGreen","brightYellow","brightBlue","brightMagenta","brightCyan","brightWhite"]},"additionalProperties":{"type":"string","pattern":"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"}} |
+
+Example:
+
+```json
+{
+  "ansi": {},
+  "cursor": "#b8dCE9DB",
+  "foreground": "#9F0ffFE6"
+}
+```
+
+## SuitVideo
+
+[JSON Schema](schema/SuitVideo.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| sources | yes | array | {"minItems":1,"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/SuitVideoPath.json"}} |
+| poster | no | [SuitAssetPath.json](schema/SuitAssetPath.json) |  |
+| fit | no | ["cover","contain"] | {"default":"cover"} |
+| audio | no | object | {"default":{"muted":false,"volume":0.6},"properties":{"muted":{"default":false,"type":"boolean"},"volume":{"default":0.6,"type":"number","minimum":0,"maximum":1}}} |
+| palette | no | object | {"default":{"accent":true,"tint":0.12},"properties":{"accent":{"default":true,"type":"boolean"},"tint":{"default":0.12,"type":"number","minimum":0,"maximum":0.25}}} |
+
+Example:
+
+```json
+{
+  "sources": [
+    "assets/Yej0qKzuAU.Mp4"
+  ]
+}
+```
+
+## SuitVideoPath
+
+[JSON Schema](schema/SuitVideoPath.json), input validation.
+
+Semantic rule: No `..` path segment: the path stays inside assets/.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"assets/I9.WeBM"
 ```
 
 ## SwitchSelection

@@ -57,7 +57,7 @@ import XCTest
         row.tap()
     }
     private func title(_ text: String, in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: "thread.title").matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
+        app.threadTitle(named: text)
     }
     private func screenshot(_ name: String) {
         let shot = XCUIScreen.main.screenshot()

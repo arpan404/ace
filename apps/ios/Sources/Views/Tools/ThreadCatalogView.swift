@@ -50,7 +50,7 @@ struct ThreadCatalogView: View {
                 NavigationLink { CatalogInvokeView(model: model, threadId: threadId, entry: entry) } label: {
                     QuietSectionRow {
                         QuietRowText(title: entry.title ?? entry.name, detail: entry.description)
-                        Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+                        Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                         RowCaret()
                     }
                 }

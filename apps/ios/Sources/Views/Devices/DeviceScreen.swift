@@ -167,7 +167,7 @@ struct DeviceScreen: View {
                 idleButton("Boot") { boot() }
             }
         }
-        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+        .aceFont(AceDesign.TextRole.rowTitle)
         .foregroundStyle(AceDesign.Ink.muted)
         .padding(AceDesign.Space.margin)
         // Words over the device's dark screen take the dark scheme's ink.
@@ -240,7 +240,7 @@ struct DeviceScreen: View {
             // What went wrong with the last request, in the device's words, until the next one.
             if let problem = devices.problem, problem.permission == nil || info?.live == true {
                 Text(problem.text)
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
@@ -248,7 +248,7 @@ struct DeviceScreen: View {
             }
             if let degraded = info?.degraded, !degraded.isEmpty, info?.live == true {
                 Text(degraded)
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
@@ -258,7 +258,7 @@ struct DeviceScreen: View {
                 // Who controls it: one sentence and its one word, as a request strip reads.
                 HStack(spacing: AceDesign.Space.row) {
                     Text(info.control.sentence)
-                        .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        .aceFont(AceDesign.TextRole.action)
                         .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if model.canOperate, let title = controlTitle(info.control.action) {

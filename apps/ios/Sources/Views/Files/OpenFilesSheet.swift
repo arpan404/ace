@@ -96,7 +96,7 @@ struct OpenFilesSheet: View {
         let name = (path as NSString).lastPathComponent
         let folder = (path as NSString).deletingLastPathComponent
         return VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Text(name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            Text(name).aceMonospace(AceDesign.TextRole.rowTitle).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             if !folder.isEmpty {
                 Text(folder).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)

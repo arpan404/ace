@@ -222,6 +222,21 @@ function subagents(
     status: preview(subagentStatusLine(states), 256),
     /** "2 subagents" while any works or waits, "2 subagents ran" once all have ended. */
     title: subagentGroupTitle(states),
+    /**
+     * Any child still works, waits or asks: the pill over the composer says it while it shows,
+     * and the transcript keeps the group as the record once every child has ended.
+     */
+    live: states.some((state) => !subagentTerminal(state)),
+    /**
+     * Every child still at work is one the thread's live tree counts, the tree the pill and the
+     * Agents sheet read. False when the group knows a live child the tree doesn't (a delegated
+     * child the list shows working while the parent's copy is stale): only this row shows it.
+     */
+    counted: entries.every(
+      (entry) =>
+        subagentTerminal(entry.state) ||
+        (entry.agentId !== undefined && turnTreeOf(store).countsAgent(entry.agentId)),
+    ),
     /** One child still at work shows as its own row; otherwise the group folds. */
     single: entries.length === 1 && !subagentTerminal(states[0] ?? "done"),
     /** The group reads as its worst child: needs you, failed, working, done. */

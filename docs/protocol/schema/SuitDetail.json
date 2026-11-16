@@ -1,0 +1,61 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitDetail.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "assets": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "css": {
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "manifest": {
+      "$ref": "https://ace.local/protocol/v1/SuitManifest.json"
+    },
+    "ornaments": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/SuitOrnamentSlot.json"
+      },
+      "type": "object"
+    },
+    "sceneUrl": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sceneUrls": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {},
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/SuitSceneRegion.json"
+      },
+      "type": "object"
+    },
+    "summary": {
+      "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+    }
+  },
+  "required": [
+    "summary",
+    "manifest",
+    "sceneUrl",
+    "assets"
+  ],
+  "type": "object"
+}

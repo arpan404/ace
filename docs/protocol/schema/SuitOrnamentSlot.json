@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitOrnamentSlot.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "sidebar-header",
+    "sidebar-footer",
+    "transcript-top",
+    "empty-state",
+    "composer-top",
+    "corner-top-left",
+    "corner-top-right",
+    "corner-bottom-left",
+    "corner-bottom-right"
+  ],
+  "type": "string"
+}

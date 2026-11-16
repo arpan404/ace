@@ -47,7 +47,7 @@ struct SkillPageView: View {
                         QuietSection {
                             Button(role: .destructive) { deleting = true } label: {
                                 QuietSectionRow {
-                                    Text("Delete skill").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                    Text("Delete skill").aceFont(AceDesign.TextRole.action)
                                         .foregroundStyle(AceTheme.StatusText.failed)
                                 }
                             }
@@ -95,11 +95,11 @@ struct SkillPageView: View {
 
     private func header(_ page: SkillPage) -> some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(page.title).aceFont(AceDesign.TextRole.header, relativeTo: .headline)
+            Text(page.title).aceFont(AceDesign.TextRole.header)
                 .foregroundStyle(AceDesign.Ink.primary)
                 .accessibilityAddTraits(.isHeader)
             if !page.description.isEmpty {
-                Text(page.description).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(page.description).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -121,7 +121,7 @@ struct SkillPageView: View {
             }
             if let notice {
                 QuietSectionRow {
-                    Text(notice).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(notice).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .fixedSize(horizontal: false, vertical: true)
                         .transition(.opacity)
@@ -153,7 +153,7 @@ struct SkillPageView: View {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 QuietRowText(title: "Saved in", detail: page.savedIn)
                 if let path = page.path {
-                    Text(verbatim: path).aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                    Text(verbatim: path).aceMonospace(AceDesign.TextRole.code)
                         .foregroundStyle(AceDesign.Ink.subtle).textSelection(.enabled)
                 }
             }

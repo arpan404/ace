@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The thread's Changes page, as a phone shows it beside Chat: the same screen the iPad's side
-/// panel holds, without a close of its own (Chat's bar button and a swipe leave it). It clears
+/// panel holds, without a close of its own (Chat in ⋯ and a swipe leave it). It clears
 /// the composer at the bottom, which stays on both pages.
 struct ThreadPageBody: View {
     @Bindable var model: ClientModel

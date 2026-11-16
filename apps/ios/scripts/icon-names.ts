@@ -258,3 +258,32 @@ export const drawnAs: Record<string, { glyph: string; turn?: number }> = {
   "tree-view": { glyph: "tree-structure" },
   "virtual-reality": { glyph: "goggles" },
 };
+
+/**
+ * The tab bar's glyphs, also written at the bar's own glyph size as `tab-<name>` (outline) and
+ * `tab-<name>-fill` (the chosen tab), so every tab draws one size and the chosen one fills.
+ */
+export const tabIcons = [
+  "folder-simple",
+  "chats",
+  "git-pull-request",
+  "magnifying-glass",
+  "note-pencil",
+];
+/** The system tab bar's glyph box, as Spade's tab mark (`SpadeMark.tabImage`) is drawn. */
+export const tabIconSize = 26;
+
+/**
+ * The navigation bar's button glyphs, written at a bar symbol's size as `bar-<name>` (and
+ * `bar-<name>-bold`): a bar button draws its image at the image's own size, and the 20pt asset
+ * draws the drawing a few points smaller than the system's bar symbols.
+ */
+export const barIcons: { name: string; weight: "regular" | "bold" }[] = [
+  { name: "funnel-simple", weight: "regular" },
+  { name: "note-pencil", weight: "regular" },
+  { name: "dots-three", weight: "bold" },
+  { name: "chat-circle", weight: "regular" },
+  { name: "plus-minus", weight: "regular" },
+];
+/** The box a bar glyph is drawn in: the drawing comes to about 20pt, a bar symbol's size. */
+export const barIconSize = 28;

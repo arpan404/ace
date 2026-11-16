@@ -818,6 +818,12 @@
       "$ref": "https://ace.local/protocol/v1/PluginClientMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SuitClientMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SuitReportMessage.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthRequest.json"
     },
     {

@@ -107,10 +107,10 @@ struct ForgeNewPullSheet: View {
 
     private func doneView(_ number: Int, _ notice: ForgeNewPrCreated.Notice) -> some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            Text(notice.title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceDesign.Ink.primary)
+            Text(notice.title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                 .accessibilityIdentifier("forge.newpr.done")
             if let detail = notice.detail {
-                Text(detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(detail).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(notice.warning ? AceTheme.StatusText.needsYou : AceDesign.Ink.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("forge.newpr.warning")

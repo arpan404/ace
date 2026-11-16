@@ -1,6 +1,7 @@
 import type { ChangeTap, ThreadSource } from "@ace/client";
 import type { CommandPayload, GoalChange, ProviderGoal, ThreadId } from "@ace/protocol";
 import {
+  type TurnActivity,
   backgroundCommand,
   goalResumable,
   goalTitle,
@@ -9,7 +10,7 @@ import {
   readStoppedTurn,
   readTurnActivity,
 } from "@ace/ui-core";
-import { leftRunningStripLine, livePill } from "@ace/ui-core/mobile";
+import { type LivePill, leftRunningStripLine, livePill } from "@ace/ui-core/mobile";
 import { preview } from "./presentation.ts";
 
 /*
@@ -52,6 +53,26 @@ export function goalPayload(
   const next: GoalChange = { status: change === "pause" ? "paused" : "active" };
   const allowed = change === "pause" ? row.canPause : row.canResume;
   return allowed ? { type: "thread.goal.set", threadId, change: next } : undefined;
+}
+
+/**
+ * Which live facts the pill names, so the transcript leaves their rows to it while it shows:
+ * subagents when it counts them or the root only waits on them ("Waiting on 2"), commands when
+ * it counts them or the root only waits on them. A pill that names neither covers nothing, and
+ * the transcript keeps its live rows.
+ */
+export function pillCovers(pill: LivePill | undefined, activity: TurnActivity | undefined) {
+  const kinds = new Set(pill?.segments.map((segment) => segment.kind));
+  // The status is the wait only when it opens the tree and isn't a request elsewhere.
+  const status = pill?.status;
+  const waiting =
+    status?.opens === "agents" && status.tone !== "needs-you"
+      ? activity?.waitingOn?.kind
+      : undefined;
+  return {
+    subagents: kinds.has("subagents") || waiting === "subagents",
+    commands: kinds.has("commands") || waiting === "background",
+  };
 }
 
 export class PillFollower {
@@ -160,6 +181,7 @@ export class PillFollower {
                 opens: segment.opens,
                 live: segment.live,
               })),
+              covers: pillCovers(pill, reading.activity),
             }
           : null,
         goal: goalRow(thread?.goal, this.editable),

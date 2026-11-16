@@ -18,10 +18,10 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
                 if let open { DisclosureCaret(open: open) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            meta().aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+            meta().aceFont(AceDesign.TextRole.time)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
         }
-        .aceFont(AceDesign.TextRole.step, relativeTo: .footnote).fontWeight(AceDesign.Typeface.regular)
+        .aceFont(AceDesign.TextRole.step).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .lineLimit(1)
         // Drawn at the step's own line, as the approved feed sets them; taps land over 44.

@@ -12,8 +12,8 @@ await import("./home-sidebar.tsx");
 afterEach(() => localStorage.clear());
 
 /*
- * The Threads panel lists the daemon's tabs (ADR 0107): the tab comes from each entry's place,
- * unpinned Inbox threads rank under this list's own sort, and a thread that moves tabs moves on
+ * The Threads panel lists the daemon's tabs as given (ADR 0107): the order and tab come from
+ * each entry's place, not from a rule this window runs, and a thread that moves tabs moves on
  * its own while the other rows stay as they are.
  */
 
@@ -39,21 +39,19 @@ async function openHome() {
   return app;
 }
 
-test("a daemon that placed by creation is re-ranked under this list's sort by activity", async () => {
+test("the Inbox shows the daemon's order even where this window's own rule would differ", async () => {
   const app = await openHome();
-  // The daemon places by creation; this list's sort setting says live activity. A daemon may
-  // place under a sort this list doesn't use (another machine's, say): its unpinned Inbox
-  // threads rank under the list's own sort here.
+  // The daemon places by creation; this window's sort setting says live activity.
   const place = app.daemon.placeInput.bind(app.daemon);
   app.daemon.placeInput = () => {
     const input = place();
     return input && { ...input, sortBy: "created" };
   };
-  // By creation the newer Second would lead; by activity the working First does.
+  // Working would lift First to the top by activity; by creation the newer Second leads.
   app.daemon.apply("first", works);
   await app.open("/");
   await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
-  await waitFor(() => expect(titles()).toEqual(["First", "Second"]));
+  await waitFor(() => expect(titles()).toEqual(["Second", "First"]));
 });
 
 test("settling a thread moves it to Settled on its own; the row that stays is the same row", async () => {

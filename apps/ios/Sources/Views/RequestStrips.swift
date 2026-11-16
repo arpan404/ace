@@ -1,10 +1,11 @@
 import SwiftUI
 
 /// The thread's open requests as one strip above the composer: the one showing, "1 of 3" with
-/// ‹ › and a swipe between them, never a stack of cards. An approval answers with its own verbs
-/// (Deny · Always · Allow, Allow filled); a plan says it is ready, with Review and Approve; a
-/// question, a form or browser help opens in a sheet. Details, a plan or a question's options
-/// open in a native sheet; the strip stays a line or two. Answering one brings the next up.
+/// ‹ › and a swipe between them, never a stack of cards. An approval answers with its own verbs as
+/// buttons (Deny, Always allow, Allow once, the last prominent); a plan says it is ready, with
+/// Review and Approve; a question, a form or browser help opens in a sheet. Tapping the request's
+/// words opens it in full in a native sheet (an approval's details and every option, a plan, a
+/// question's options); the strip stays a line or two. Answering one brings the next up.
 struct RequestStrip: View {
     let requests: [ApprovalRow]
     let model: ClientModel
@@ -22,8 +23,8 @@ struct RequestStrip: View {
                           withAnimation { index = min(max(0, shown + step), requests.count - 1) }
                       },
                       actions: actions(for: request),
-                      openPayload: request.kind == "approval" ? nil : { sheet = RequestSheetItem(id: request.id) },
-                      identifier: "request.\(request.kind)")
+                      openDetails: { sheet = RequestSheetItem(id: request.id) },
+                      identifier: "request.\(request.kind)", sentenceIdentifier: "request.details")
                 .id(request.id)
                 .transition(.opacity)
                 .sensoryFeedback(AceDesign.Haptic.approve, trigger: model.approvalSubmissions[request.id]?.requestId)
@@ -58,9 +59,8 @@ struct RequestStrip: View {
                                    identifier: "approval.\(option.kind)") { model.approve(request, option: option) }
                     }
             }
-            // The reason and any other option are the sheet's.
-            let more = !(request.reason ?? "").isEmpty || !(request.description.isEmpty) || !request.remaining.isEmpty
-            return (more ? [DockAction(id: "details", label: "Details", identifier: "approval.details", aside: true, run: review)] : []) + words
+            // The reason and any other option are the sheet's, opened from the request's words.
+            return words
         case "plan_review":
             // A plan too large to review here is approved on a computer.
             if request.tooLargeToApprove { return [DockAction(id: "review", label: "Review", primary: true, identifier: "plan.review", run: review)] }
@@ -144,7 +144,7 @@ struct LeftRunningStrip: View {
 }
 
 /// The message a failed send left at the head of the queue: "Not sent · why" with its opening
-/// words, then Try again (filled), Edit and Remove; Remove asks first.
+/// words, then Remove, Edit and Try again (prominent) as buttons; Remove asks first.
 struct NotSentStrip: View {
     let message: QueueRow.NotSent
     let canAct: Bool

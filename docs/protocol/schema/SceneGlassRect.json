@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/SceneGlassRect.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "blur": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "number"
+    },
+    "height": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "radius": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "saturate": {
+      "maximum": 4,
+      "minimum": 0,
+      "type": "number"
+    },
+    "width": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "x": {
+      "type": "number"
+    },
+    "y": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "width",
+    "height",
+    "radius",
+    "blur"
+  ],
+  "type": "object"
+}

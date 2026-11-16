@@ -11,11 +11,63 @@ interface FakeCanvas {
   getContext(kind: string): unknown;
 }
 
+/** Pixels as a 2D context hands them out: `width × height` RGBA bytes, all clear. */
+const blankPixels = (width: number, height: number) => ({
+  width,
+  height,
+  data: new Uint8ClampedArray(width * height * 4),
+});
+
+/** The 2D calls whose answers scenes read back; every other call answers with a gradient. */
+const contextAnswers: Record<PropertyKey, unknown> = {
+  createImageData: (width: number | { width: number; height: number }, height?: number) =>
+    typeof width === "number"
+      ? blankPixels(width, height ?? 0)
+      : blankPixels(width.width, width.height),
+  getImageData: (_x: number, _y: number, width: number, height: number) =>
+    blankPixels(width, height),
+  createPattern: () => ({ setTransform() {} }),
+};
+
 /** A 2D context that takes every call and draws nothing. */
 const silentContext: unknown = new Proxy(
   {},
-  { get: () => () => ({ addColorStop() {} }), set: () => true },
+  {
+    get: (_target, key) => contextAnswers[key] ?? (() => ({ addColorStop() {} })),
+    set: () => true,
+  },
 );
+
+/** The browser's Path2D, which the sandbox page has and Bun doesn't: it collects a shape. */
+class SilentPath2D {
+  addPath() {}
+  moveTo() {}
+  lineTo() {}
+  arc() {}
+  arcTo() {}
+  ellipse() {}
+  rect() {}
+  roundRect() {}
+  bezierCurveTo() {}
+  quadraticCurveTo() {}
+  closePath() {}
+}
+
+/** The browser's DOMMatrix, as far as scenes build one to set a pattern's transform. */
+class SilentDOMMatrix {
+  scale() {
+    return new SilentDOMMatrix();
+  }
+  translate() {
+    return new SilentDOMMatrix();
+  }
+  rotate() {
+    return new SilentDOMMatrix();
+  }
+  multiply() {
+    return new SilentDOMMatrix();
+  }
+}
 
 /**
  * The sandbox page's globals, as far as the runtime reaches for them. `context` is every
@@ -286,7 +338,6 @@ test("a canvas the runtime can't read (tainted by an image) answers no sample an
   expect(page.replies).toEqual([{ type: "ready" }, { type: "drawn", time: 0 }]);
 });
 
-/** An offscreen canvas for scenes that paint layers once and blit them. */
 /** Every scene file a shipped Suit carries: `<suit>` for scene.js, `<suit>/<file>` for the rest. */
 const shippedRoot = new URL("../../plugins/builtin-suits/", import.meta.url);
 const shippedScenes = readdirSync(shippedRoot, { withFileTypes: true })
@@ -298,6 +349,7 @@ const shippedScenes = readdirSync(shippedRoot, { withFileTypes: true })
   )
   .toSorted();
 
+/** An offscreen canvas for scenes that paint layers once and blit them. */
 const offscreenDocument = {
   createElement: () => ({ width: 0, height: 0, getContext: () => silentContext }),
 };
@@ -315,10 +367,12 @@ if (shippedScenes.length > 0) {
         "utf8",
       );
       const page = sandbox();
-      new Function("ace", "document", "OffscreenCanvas", source)(
+      new Function("ace", "document", "OffscreenCanvas", "Path2D", "DOMMatrix", source)(
         page.ace,
         offscreenDocument,
         undefined,
+        SilentPath2D,
+        SilentDOMMatrix,
       );
       page.send(init);
       page.send({ type: "tick", time: 0 });
