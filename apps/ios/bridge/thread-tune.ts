@@ -203,11 +203,15 @@ export class TuneFollower {
         effort: effort.current ?? "",
         effortDefault: !effort.reported,
         effortReason: preview(effort.reason ?? "", 256),
+        /** The model's own default level, which the sheet marks; empty when it has none. */
+        effortPreset: tuning.preset ?? "",
         speeds:
           speed.tiers.length > 1
             ? speed.tiers.map((tier) => ({ speed: tier.speed, label: speedLabel(tier.speed) }))
             : [],
         speed: speed.speed,
+        /** The speed the model runs at unless asked otherwise. */
+        speedPreset: this.#shown()?.defaultSpeed ?? "standard",
         speedReason: preview(speed.reason ?? "", 256),
         pending:
           this.#pending !== undefined &&
