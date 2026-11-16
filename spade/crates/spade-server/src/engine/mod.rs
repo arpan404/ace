@@ -12,6 +12,7 @@ mod compact;
 mod computer;
 mod continuation;
 mod control;
+mod digests;
 mod endpoints;
 mod goals;
 mod group_run;
@@ -49,6 +50,7 @@ pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
+pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -192,6 +194,8 @@ pub struct Engine {
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
+    /// Digests' timer and the notice stream (ADR 0165, `digests`).
+    digests: digests::Shared,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
     /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
     /// the `test-hooks` feature.
@@ -290,6 +294,7 @@ impl Engine {
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             workers: workers::Shared::default(),
+            digests: digests::Shared::default(),
             #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
             #[cfg(feature = "test-hooks")]
@@ -335,6 +340,8 @@ impl Engine {
         }
         // Workers owed a report or a start since the last run get it (ADR 0161).
         self.start_workers();
+        // Digests on each bot's schedule (ADR 0165).
+        self.start_digests();
     }
 
     /// The setup that reads keys, which can block for a long time (a keychain prompt for a
@@ -889,6 +896,8 @@ impl Engine {
             // The tree follows, and the worker is checked for a report (ADR 0161).
             let written: Vec<Event> = events.iter().map(|e| e.event.clone()).collect();
             self.workers_stored(id, &written);
+            // Events that reach the person go out as notices, with their level (ADR 0165).
+            self.notice_stored(id, events);
         }
         Ok(stored)
     }

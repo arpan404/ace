@@ -122,10 +122,12 @@ pub struct Input<'a> {
     pub spend: BTreeMap<String, u64>,
 }
 
-/// A bot's own digest over `(from_ms, to_ms]`.
+/// A bot's own digest over `[from_ms, to_ms)`; where things stand is as of `to_ms`.
 pub fn task(input: &Input<'_>) -> Digest {
     let at = |i: usize| input.at_ms.get(i).copied().unwrap_or(0);
-    let in_window = |i: usize| at(i) > input.from_ms && at(i) <= input.to_ms;
+    // `[from, to)`: an event stored as a digest is made, in the same millisecond, falls in the
+    // next window, never in neither.
+    let in_window = |i: usize| at(i) >= input.from_ms && at(i) < input.to_ms;
     let upto: Vec<&Event> = input
         .events
         .iter()

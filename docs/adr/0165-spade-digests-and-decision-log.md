@@ -83,7 +83,8 @@ No source measured what makes a digest work; the format and cadence below are pr
    digest shows them under the worker.
 
 4. **Digests, per task and per tree.** A digest is built from events with no model call. It is
-   a pure fold in `spade_core::digest` over a window `(from, to]`, using the whole history for
+   a pure fold in `spade_core::digest` over a window `[from, to)` (an event stored in the
+   millisecond a digest is made falls in the next one), using the whole history for
    where things stand. It has:
    - **progress**: the goal's title and state, items total, closed by the bot (claimed) and
      verified (ADR 0159 decision 5), and how many closed and how many were verified in the

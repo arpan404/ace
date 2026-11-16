@@ -34,6 +34,7 @@ pub const NEVER: &[&str] = &[
     "task_status",
     crate::goal::TASK_GOAL,
     crate::goal::TASK_PLAN,
+    crate::decision::DECISION_LOG,
     "bot_message",
     "group_ask",
 ];

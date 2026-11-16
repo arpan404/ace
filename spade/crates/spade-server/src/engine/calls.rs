@@ -136,6 +136,16 @@ pub(super) async fn handle_calls(
                     Err(error) => return Handled::Failed(error.to_string()),
                 }
             }
+            // The decision log (ADR 0165) is answered from the events.
+            Status::New if name == spade_core::decision::DECISION_LOG => {
+                match engine.decision_call(id, reply, &pending.call.id, &arguments) {
+                    Ok(Some(output)) => {
+                        finish_tool(engine, id, reply, &pending.call, &name, output).await;
+                    }
+                    Ok(None) => return Handled::Stopped,
+                    Err(error) => return Handled::Failed(error.to_string()),
+                }
+            }
             Status::Asked => waiting = true,
             Status::Answered => {
                 let said = question::call_result(events, &pending.call.id)

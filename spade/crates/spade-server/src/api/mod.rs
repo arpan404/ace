@@ -6,6 +6,7 @@ mod body;
 mod brains;
 mod computer;
 mod connectors;
+mod digests;
 mod endpoints;
 mod files;
 mod goals;
@@ -161,6 +162,7 @@ pub fn router(state: AppState) -> Router {
         .merge(media::routes())
         .merge(teams::routes())
         .merge(wakes::routes())
+        .merge(digests::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
@@ -248,8 +250,16 @@ pub(super) fn problem(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
+/// A stored event as served, with its escalation level when it reaches the person (ADR 0165):
+/// derived here, never stored.
 fn stored(event: &StoredEvent) -> Value {
-    json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() })
+    let mut served = json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() });
+    if let spade_core::Event::Known(known) = &event.event
+        && let Some(level) = spade_core::escalation::level(known)
+    {
+        served["level"] = json!(level);
+    }
+    served
 }
 
 pub(super) fn send_problem(error: &SendError) -> Response {

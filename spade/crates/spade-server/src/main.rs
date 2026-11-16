@@ -17,8 +17,9 @@ use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch,
-    TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch, WebSearch,
+    AceLink, AceTarget, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
+    SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch,
+    WebSearch,
 };
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -226,6 +227,7 @@ async fn run() -> Result<(), Failure> {
         Arc::new(TaskStatus),
         Arc::new(TaskGoal),
         Arc::new(TaskPlan),
+        Arc::new(DecisionLog),
     ];
     let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Deep research (ADR 0135), reading through the same backends and fetcher.
