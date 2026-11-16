@@ -30,9 +30,11 @@ const serviceShape = z.object({
   exit_code: z.number().int().nullish().catch(undefined),
 });
 
+const servicesShape = z.object({ services: z.array(z.unknown()) });
+
 /** `{"services": [...]}`, oldest started first; undefined when the body has no list. */
 export function parseSpadeServices(body: string): SpadeService[] | undefined {
-  const parsed = z.object({ services: z.array(z.unknown()) }).safeParse(spadeJson(body));
+  const parsed = servicesShape.safeParse(spadeJson(body));
   if (!parsed.success) return undefined;
   return parsed.data.services.flatMap((raw) => {
     const service = serviceShape.safeParse(raw);

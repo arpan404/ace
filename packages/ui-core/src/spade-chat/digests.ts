@@ -11,17 +11,14 @@ import { spadeMoney } from "./oversight.ts";
 
 const words = z.string().catch("").default("");
 const count = z.number().int().nonnegative().catch(0).default(0);
+const rawList = z.array(z.unknown()).catch([]).default([]);
 const list = <T extends z.ZodType>(item: T) =>
-  z
-    .array(z.unknown())
-    .catch([])
-    .default([])
-    .transform((rows) =>
-      rows.flatMap((row) => {
-        const parsed = item.safeParse(row);
-        return parsed.success ? [parsed.data as z.output<T>] : [];
-      }),
-    );
+  rawList.transform((rows) =>
+    rows.flatMap((row) => {
+      const parsed = item.safeParse(row);
+      return parsed.success ? [parsed.data as z.output<T>] : [];
+    }),
+  );
 
 const progress = z.object({
   title: words,
@@ -45,25 +42,31 @@ interface DigestBody {
   subtree_spend_micros: number;
 }
 
-const body: z.ZodType<DigestBody> = z.lazy(() =>
-  z.object({
-    agent: words,
-    name: words,
-    quiet: z.boolean().catch(false).default(false),
-    progress: progress.optional().catch(undefined),
-    changed: list(z.object({ text: z.string() })),
-    more_changed: count,
-    decisions: list(z.object({ choice: z.string() })),
-    spend: z
-      .object({ total_micros: count })
-      .catch({ total_micros: 0 })
-      .default({ total_micros: 0 }),
-    next: list(z.string()),
-    waiting: list(z.object({ what: z.string() })),
-    workers: list(body),
-    subtree_spend_micros: count,
-  }),
-);
+const changedItem = z.object({ text: z.string() });
+const decisionItem = z.object({ choice: z.string() });
+const spendShape = z.object({ total_micros: count });
+const waitingItem = z.object({ what: z.string() });
+const changedList = list(changedItem);
+const decisionList = list(decisionItem);
+const nextList = list(z.string());
+const waitingList = list(waitingItem);
+// A worker's digest is a digest: the list reads `body` once it has been built.
+const workerList = z.lazy(() => list(body));
+
+const body: z.ZodType<DigestBody> = z.object({
+  agent: words,
+  name: words,
+  quiet: z.boolean().catch(false).default(false),
+  progress: progress.optional().catch(undefined),
+  changed: changedList,
+  more_changed: count,
+  decisions: decisionList,
+  spend: spendShape.catch({ total_micros: 0 }).default({ total_micros: 0 }),
+  next: nextList,
+  waiting: waitingList,
+  workers: workerList,
+  subtree_spend_micros: count,
+});
 
 const row = z.object({
   id: z.string(),
@@ -85,9 +88,11 @@ export interface SpadeDigest {
   body: DigestBody | undefined;
 }
 
+const digestsShape = z.object({ digests: z.array(z.unknown()) });
+
 /** `GET /v1/digests`, oldest first; undefined when the body isn't a list of them. */
 export function parseSpadeDigests(text: string): SpadeDigest[] | undefined {
-  const parsed = z.object({ digests: z.array(z.unknown()) }).safeParse(spadeJson(text));
+  const parsed = digestsShape.safeParse(spadeJson(text));
   if (!parsed.success) return undefined;
   return parsed.data.digests
     .flatMap((raw) => {
