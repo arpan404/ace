@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
  * `?fakeWorld=spade`, the capability chat pieces on Github watcher (after its transcript): a goal
- * set and checked, a worker made and reporting, a step the review refused folded into its reply,
+ * set and checked (both open Work), a worker made and reporting, a step the review refused folded into its reply,
  * a digest, and the bot asleep until staging settles, all in the minutes after its transcript. Linux repro, its worker, waits out an
  * outage; Release notes asks again for a step the review refused. `rewind` as the transcript's.
  */
@@ -23,6 +23,42 @@ export function seedFakeCapabilities(
     id: "release",
     name: "Release notes",
     task: "Keep the release notes for the relay work.",
+  });
+
+  // Its goal and plan as Work shows them: what the goal and check lines below open.
+  here.work.setTask("github", {
+    goal: {
+      id: "g1",
+      title: "Get #2081 merged",
+      text: "get the relay PR green on linux and merged this week",
+      criteria: [
+        { id: "1", text: "CI passes on Linux and macOS for #2081" },
+        { id: "2", text: "#2081 has an approving review" },
+      ],
+      by: "bot",
+    },
+    items: [
+      {
+        id: "1",
+        text: "Reproduce the Linux failure",
+        status: "done",
+        verified: true,
+        split: false,
+      },
+      { id: "2", text: "Get both CI runs green", status: "working", verified: false, split: false },
+      { id: "3", text: "Ask for a review", status: "open", verified: false, split: false },
+    ],
+    verdict: {
+      claim: "t1",
+      finding: "not_yet",
+      criteria: [
+        { id: "1", met: false, why: "Linux CI still fails." },
+        { id: "2", met: false, why: "No review yet." },
+      ],
+      rejected: [],
+      missing: ["Linux CI still fails"],
+    },
+    progress: { state: "not_yet" },
   });
 
   rewind(4);

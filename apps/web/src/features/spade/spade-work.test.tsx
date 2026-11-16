@@ -169,6 +169,37 @@ test("Stop on a worker stops it at once, with no confirm", async () => {
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+test("the goal's and the check's quiet lines in the chat open Work", async () => {
+  await spadeApp("/spade", (api) => {
+    const watcher = seed(api);
+    api.store(watcher.conversation, {
+      type: "goal_set",
+      goal: "g1",
+      title: "Get #2081 merged",
+      text: "get the relay PR green on linux",
+      criteria: [],
+      by: "bot",
+    });
+    api.store(watcher.conversation, {
+      type: "task_verified",
+      goal: "g1",
+      claim: "k1",
+      verdict: "not_yet",
+      missing: ["Linux CI still fails"],
+    });
+  });
+  await userEvent.click(await botRow("Watcher"));
+  await userEvent.click(await screen.findByRole("button", { name: "Goal set · Get #2081 merged" }));
+  const work = within(await screen.findByRole("tabpanel"));
+  expect(await work.findByText("Linux run 18240117 timed out.")).toBeTruthy();
+  expect(within(tabs()).getByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+  await userEvent.click(within(tabs()).getByRole("tab", { name: "Details" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "Checked · not yet: Linux CI still fails" }),
+  );
+  expect(await within(tabs()).findByRole("tab", { name: "Work", selected: true })).toBeTruthy();
+});
+
 test("Change quotes the decision into the next message", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     const watcher = seed(api);

@@ -260,6 +260,7 @@ export function Conversation(props: {
                   search: botSearch(worker),
                 });
             }}
+            onOpenWork={() => go({ profile: "work" })}
             onRetry={(text) =>
               conversation
                 .send({ text, images: [] })

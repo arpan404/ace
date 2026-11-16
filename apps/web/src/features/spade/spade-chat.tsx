@@ -93,6 +93,8 @@ export function SpadeChat(props: {
   onWake?(wake: string, action: SpadeRestAction): Promise<boolean>;
   /** Open another bot's conversation: a worker's quiet line opens it. */
   onOpenBot?(id: string): void;
+  /** Open its profile's Work tab: a goal's and a check's quiet lines open it. */
+  onOpenWork?(): void;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
@@ -149,6 +151,7 @@ export function SpadeChat(props: {
     onRetry: props.onRetry,
     onHelperSteps: props.onHelperSteps,
     onOpenBot: props.onOpenBot,
+    onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
   };
   return (
@@ -223,6 +226,7 @@ interface Handlers {
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
+  onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
   face(id: string): SpadeAvatar;
 }
@@ -512,20 +516,23 @@ function Single(props: {
         </div>
       );
     case "quiet": {
-      const open = props.handlers.onOpenBot;
+      const { onOpenBot, onOpenWork } = props.handlers;
       const quiet = item.quiet;
-      // A bot worker's line opens its chat; the rest are notes where they happened.
+      // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
+      // is a note where it happened.
       const worker =
         (quiet.kind === "worker-started" || quiet.kind === "worker-reported") && !quiet.ace
           ? quiet.worker
           : undefined;
+      const onOpen =
+        quiet.kind === "goal" || quiet.kind === "checked"
+          ? onOpenWork
+          : worker && onOpenBot
+            ? () => onOpenBot(worker)
+            : undefined;
       return (
         <div className={cn("flex", space)}>
-          <QuietLine
-            line={spadeQuietLine(quiet)}
-            face={props.handlers.face}
-            onOpen={worker && open ? () => open(worker) : undefined}
-          />
+          <QuietLine line={spadeQuietLine(quiet)} face={props.handlers.face} onOpen={onOpen} />
         </div>
       );
     }
