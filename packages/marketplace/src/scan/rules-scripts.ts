@@ -1,5 +1,5 @@
 import type { ScriptRule } from "./rule.ts";
-import type { ScriptView } from "./script-view.ts";
+import { scriptOperand, type ScriptView } from "./script-view.ts";
 
 /*
  * The `scripts` check's rules (ADR 0173 §8): what a skill script, a plugin's hook or server
@@ -93,6 +93,30 @@ const fetchThenRun: readonly RegExp[] = [
   /\bdo\s+shell\s+script\s+"[^"\n]{0,200}\b(?:curl|wget)\b[^"\n]{0,200}\|\s*(?:ba|z)?sh\b/i,
 ];
 
+/** `./x` and `x` name the same file. */
+const pathKey = (word: string): string => word.replace(/^(?:\.\/)+/, "");
+
+/**
+ * Whether `command` runs a file in `files`: as its program (`./x`), as the script a shell or
+ * interpreter runs past its options (`sh -eu x`, `source x`, `. x`, `python3 -u x`), as a shell's
+ * input (`sh < x`), or by making it executable (`chmod +x x`).
+ */
+function runsFile(command: Command, files: ReadonlySet<string>): boolean {
+  if (files.size === 0) return false;
+  const name = program(command);
+  const words = command.words;
+  if (files.has(pathKey(words[0] ?? ""))) return true;
+  if (shells.has(name)) {
+    const operand = scriptOperand(words) ?? words[1];
+    if (operand !== undefined && files.has(pathKey(operand))) return true;
+    if (command.readsFrom.some((path) => files.has(pathKey(path)))) return true;
+  }
+  return name === "chmod" && words.slice(1).some((word) => files.has(pathKey(word)));
+}
+
+/** Shells that read a process substitution as their script: `bash -e <(…)`, `source <(…)`. */
+const shellReadsSubstitution = String.raw`(?:^|[\s;&|(])(?:(?:ba|z|da|k)?sh|source|\.)(?:\s+[-+]\S+){0,8}\s+<\(\s*(?:sudo\s+)?`;
+
 const downloadExec: ScriptRule = {
   kind: "script",
   id: "download-exec",
@@ -104,36 +128,29 @@ const downloadExec: ScriptRule = {
     const fetched = new Set<string>();
     for (const command of view.commands) {
       const name = program(command);
-      // A fetch piped into a shell or interpreter: `curl … | sh`.
+      // A fetch piped into a shell or interpreter: `curl … | sh`, `curl … | xargs sh`.
       if (fetchers.has(name) && shells.has(pipedProgram(command)))
         hits.push(at(command.line, message));
+      // Running what was fetched: `sh -eu x.sh`, `source x.sh`, `./x.sh`, `chmod +x x.sh`.
+      if (runsFile(command, fetched)) hits.push(at(command.line, message));
       if (fetchers.has(name)) {
         // What it saves to, so running that file later counts too.
         const words = command.words;
         for (const [index, word] of words.entries())
           if ((word === "-o" || word === "--output" || word === "-O") && words[index + 1])
-            fetched.add(words[index + 1] ?? "");
-        for (const target of command.writesTo) fetched.add(target);
+            fetched.add(pathKey(words[index + 1] ?? ""));
+        for (const target of command.writesTo) fetched.add(pathKey(target));
       }
-      // A shell reading a fetch as a file: `bash <(curl …)` arrives as a fetch piped in.
-      // Running what was fetched: `sh x.sh`, `./x.sh`, `chmod +x x.sh`.
-      const first = command.words[0] ?? "";
-      const argument = command.words[1] ?? "";
-      if (
-        fetched.has(first) ||
-        (shells.has(name) && fetched.has(argument)) ||
-        (name === "chmod" && command.words.some((word) => fetched.has(word)))
-      )
-        hits.push(at(command.line, message));
     }
     if (!isShell(view)) hits.push(...matching(view, fetchThenRun, message));
-    // `sh -c "$(curl …)"`, `eval "$(wget …)"` read as text too, in case the reader nests them.
+    // `sh -c "$(curl …)"`, `eval "$(wget …)"` and `bash <(curl …)` read as text too: the reader
+    // can't read a process substitution and may nest the others past its depth.
     hits.push(
       ...matching(
         view,
         [
           /\b(?:eval|source|(?:ba|z|da|k)?sh\s+-c)\s+["']?\$\(\s*(?:curl|wget)\b/i,
-          /\b(?:ba|z|da|k)?sh\s+<\(\s*(?:curl|wget)\b/i,
+          new RegExp(`${shellReadsSubstitution}(?:curl|wget|fetch|aria2c|iwr|irm)\\b`, "i"),
         ],
         message,
       ),
@@ -179,14 +196,23 @@ const decodeExec: ScriptRule = {
   find(view) {
     const message = `${view.path} decodes hidden code and runs it`;
     const hits: Hit[] = [];
-    for (const command of view.commands)
+    const decoded = new Set<string>();
+    for (const command of view.commands) {
       if (decoders(command) && shells.has(pipedProgram(command)))
         hits.push(at(command.line, message));
+      // Running what was decoded to a file: `base64 -d > x; sh -e x`.
+      if (runsFile(command, decoded)) hits.push(at(command.line, message));
+      if (decoders(command)) for (const target of command.writesTo) decoded.add(pathKey(target));
+    }
     hits.push(
       ...matching(
         view,
         [
           ...decodeThenRun,
+          new RegExp(
+            `${shellReadsSubstitution}(?:[^)|\\n]{0,400}\\|\\s*)?(?:(?:g?base64)\\s+(?:-d|--decode|-D)|xxd\\s+-r)\\b`,
+            "i",
+          ),
           /\beval\b[^\n]{0,400}\bbase64\s+(?:-d|--decode|-D)\b/i,
           /\$\(\s*(?:echo|printf)\b[^\n)]{0,4000}\|\s*base64\s+(?:-d|--decode|-D)\s*\)\s*$/i,
         ],

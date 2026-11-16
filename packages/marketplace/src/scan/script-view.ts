@@ -4,6 +4,7 @@ import type { ScanInput } from "./index.ts";
 import { readShell, type Simple } from "./shell.ts";
 import { normaliseText } from "./text.ts";
 import { scanText } from "./decode.ts";
+import { instructionScripts } from "./instructions.ts";
 
 /*
  * One script the scanner reads (ADR 0173 §8), the unit the `scripts`, `plugin` and `recipe` rules
@@ -289,6 +290,17 @@ function interpretedScript(
   return undefined;
 }
 
+/**
+ * The file a shell or interpreter command (wrappers already off) runs as its script: `sh -eu x`,
+ * `source x`, `. x`, `python3 -u x`, `node --require r x` all name `x`. Undefined when the
+ * program is no interpreter we know, or it runs inline code or a module (`-c`, `-e`, `-m`) or
+ * nothing at all.
+ */
+export function scriptOperand(words: readonly string[]): string | undefined {
+  const script = interpretedScript(words);
+  return script === undefined ? undefined : words[script.index];
+}
+
 /** A stdio server's command and arguments as one shell line, each word quoted as it is. */
 const quotedLine = (words: readonly string[]) =>
   words.map((word) => `'${word.replaceAll("'", "'\\''")}'`).join(" ");
@@ -330,13 +342,35 @@ export function namedScripts(input: ScanInput): ReadonlyMap<string, NamedScript>
   return named;
 }
 
-/** Hook commands and stdio server command lines of a plugin, each as a shell view (non-file). */
+/**
+ * The views read once per entry, beside its files: a plugin's hook commands and stdio server
+ * command lines, each as a shell view, and the commands its instructions give an agent.
+ */
 export function commandViews(input: ScanInput): ScriptView[] {
-  if (input.type !== "spade-plugin") return [];
-  return pluginCommandViews(input.inspection);
+  const plugin = input.type === "spade-plugin" ? pluginCommandViews(input.inspection) : [];
+  return [...plugin, ...instructionViews(input)];
 }
 
-/** Every script the scanner reads for `input`: skill scripts, plugin commands, recipe skills. */
+/**
+ * The code an entry's instructions tell an agent to run (`instructions.ts`): fenced and indented
+ * blocks, inline commands and command lines of a skill's SKILL.md, a plugin's markdown and
+ * description, and a recipe's task, blurb, notes and routines. Never exempt: a SKILL.md that
+ * says to pipe a download into a shell is read like a script that does. Each view keeps its
+ * source's path and line numbers; a fenced block is read in its tag's language, and everything
+ * else as a `text` view (the shell reader and every language's token patterns).
+ */
+export function instructionViews(input: ScanInput): ScriptView[] {
+  const readWhole = (path: string, source: string) =>
+    fileScriptView(input.type, path, source) !== undefined;
+  return instructionScripts(input, readWhole).map((script) =>
+    viewOf(script.path, script.text, script.language),
+  );
+}
+
+/**
+ * Every script the scanner reads for `input`: skill scripts, plugin commands, recipe skills, and
+ * the commands its instructions give an agent.
+ */
 export function viewsOf(input: ScanInput): ScriptView[] {
   const views: ScriptView[] = [];
   const seen = new Set<string>();
@@ -352,7 +386,8 @@ export function viewsOf(input: ScanInput): ScriptView[] {
     const view = fileScriptView(input.type, file.path, source, named.get(file.path));
     if (view) add(view);
   }
-  for (const view of commandViews(input)) add(view);
+  // Instruction views share their file's path, so they are kept beside its view, not deduped.
+  views.push(...commandViews(input));
   return views;
 }
 
