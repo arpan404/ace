@@ -442,12 +442,13 @@ function replyBubbles(
  * A reply's steps as one folded line, when the auto-review refused any: the refusals are what
  * the person should be able to find, so only then do its steps show. Undefined otherwise.
  */
+const steps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
+
 function refusedSteps(entry: SpadeReplyEntry): Extract<SpadeBubble, { kind: "steps" }> | undefined {
   const calls = entry.parts.filter((part) => part.kind === "call");
   const refused = calls.filter((call) => call.state === "refused").length;
   if (!refused) return undefined;
   const ran = calls.length - refused;
-  const steps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
   return {
     kind: "steps",
     key: `${entry.key}:steps`,

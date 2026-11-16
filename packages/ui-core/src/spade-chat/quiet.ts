@@ -64,12 +64,13 @@ const reportPose = (state: SpadeWorkerState) =>
         ? ("blocked" as const)
         : ("idle" as const);
 
+const line = (lead: SpadeQuietLead, words: SpadeQuietWords[]): SpadeQuietLine => ({
+  lead,
+  words,
+  label: words.map((part) => part.text).join(""),
+});
+
 export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
-  const line = (lead: SpadeQuietLead, words: SpadeQuietWords[]): SpadeQuietLine => ({
-    lead,
-    words,
-    label: words.map((part) => part.text).join(""),
-  });
   switch (quiet.kind) {
     case "goal":
       return line({ kind: "mark", mark: "open", label: "Goal" }, [

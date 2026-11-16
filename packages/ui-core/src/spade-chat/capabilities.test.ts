@@ -98,6 +98,22 @@ describe("quiet lines", () => {
     ]);
   });
 
+  test("a reply a quiet line split doesn't repeat its last words when it finishes", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "I'll start with Linux." });
+    c.stored({
+      type: "goal_set",
+      goal: "g1",
+      title: "Get #2081 merged",
+      text: "",
+      criteria: [],
+      by: "bot",
+    });
+    c.stored({ type: "reply_finished", reply: "r1", text: "I'll start with Linux." });
+    expect(lines(c)).toEqual(["bot: I'll start with Linux.", "Goal set · Get #2081 merged"]);
+  });
+
   test("a worker made and its report read in the maker's chat, by name, with its face", () => {
     const c = conversation();
     c.stored({

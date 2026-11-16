@@ -970,6 +970,19 @@ function closeReply(
   return true;
 }
 
+/** The last words reply `reply` said, in its part at `index` or the parts above it. */
+function lastWords(state: SpadeConversationState, index: number, reply: string) {
+  for (let at = index; at >= 0; at--) {
+    const entry = state.entries[at];
+    if (entry?.kind !== "reply") continue;
+    // Another reply above: this one's parts all sit below it.
+    if (entry.reply !== reply) return undefined;
+    const text = entry.parts.findLast((part) => part.kind === "text");
+    if (text) return text;
+  }
+  return undefined;
+}
+
 /**
  * End the open reply. A finished reply's text repeats its last step's, already shown; any other
  * end carries the open step's words, which no step stored.
@@ -979,7 +992,8 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
   if (!open) return;
   const entry = state.entries[open.index];
   if (entry?.kind === "reply") {
-    const last = entry.parts.findLast((part) => part.kind === "text");
+    // A steered reply's last words may sit in an earlier part of it, above what steered it.
+    const last = lastWords(state, open.index, entry.reply);
     const words = end.kind === "finished" ? (last?.text === text ? "" : text) : text || entry.live;
     const parts: SpadeReplyPart[] = words.trim()
       ? [...entry.parts, { kind: "text", key: `${entry.key}:end`, text: words }]
