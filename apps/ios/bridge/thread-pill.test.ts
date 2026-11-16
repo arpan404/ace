@@ -208,3 +208,61 @@ test("while the turn still works, nothing is said to be left running", async () 
   await until(() => pill()?.status ?? undefined, "the pill");
   expect(leftRunning()).toBeNull();
 });
+
+const covers = () =>
+  (
+    latest("thread.pill")?.pill as
+      | { covers?: { subagents: boolean; commands: boolean } }
+      | null
+      | undefined
+  )?.covers;
+
+test("the pill says which live facts it names, so the transcript can leave them to it", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "tree", workspaceId: "ace", title: "Tree", provider: "codex" });
+  fake.apply("tree", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Review it."),
+    facts.tool("root", "spawn", {
+      kind: "agent.spawn",
+      title: "Review PID reuse",
+      detail: { kind: "agent.spawn", description: "Review PID reuse", childAgent: "reviewer" },
+    }),
+    facts.subagent("codex", "reviewer", "Reviewer", "spawn"),
+    facts.turn("reviewer", "spawn"),
+    facts.endTurn("root"),
+  ]);
+  open(connect(fake), "tree");
+  // "Waiting on 1" names the subagent; no command runs.
+  expect(await until(() => covers(), "what the pill names")).toEqual({
+    subagents: true,
+    commands: false,
+  });
+});
+
+test("a command running beside the work is named by the pill", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "relay", workspaceId: "ace", title: "Relay", provider: "claude" });
+  fake.apply("relay", relay(false));
+  open(connect(fake), "relay");
+  expect(
+    await until(() => (covers()?.commands ? covers() : undefined), "the command on the pill"),
+  ).toEqual({
+    subagents: false,
+    commands: true,
+  });
+});
+
+test("a pill that only says the turn works names no subagent or command", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "run", workspaceId: "ace", title: "Run", provider: "codex" });
+  fake.apply("run", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Go"),
+  ]);
+  open(connect(fake), "run");
+  await until(() => pill()?.status ?? undefined, "the pill");
+  expect(covers()).toEqual({ subagents: false, commands: false });
+});

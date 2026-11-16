@@ -222,6 +222,11 @@ function subagents(
     status: preview(subagentStatusLine(states), 256),
     /** "2 subagents" while any works or waits, "2 subagents ran" once all have ended. */
     title: subagentGroupTitle(states),
+    /**
+     * Any child still works, waits or asks: the pill over the composer says it while it shows,
+     * and the transcript keeps the group as the record once every child has ended.
+     */
+    live: states.some((state) => !subagentTerminal(state)),
     /** One child still at work shows as its own row; otherwise the group folds. */
     single: entries.length === 1 && !subagentTerminal(states[0] ?? "done"),
     /** The group reads as its worst child: needs you, failed, working, done. */

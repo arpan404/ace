@@ -67,6 +67,43 @@ test("a group of subagents leads with each provider once and rows say what each 
   expect(group.entries.find((entry) => entry.title === "Tester")?.label).toBe("Done");
 });
 
+const liveGroup = () =>
+  rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+    | { live?: boolean; entries: unknown[] }
+    | undefined;
+
+test("a group stays live while any subagent works, and settles only once every one has ended", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "live", workspaceId: "ace", title: "Live", provider: "codex" });
+  fake.apply("live", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Split it up."),
+    spawn("s1", "Explore"),
+    spawn("s2", "Test"),
+    facts.subagent("codex", "explorer", "Explorer", "s1"),
+    facts.subagent("codex", "tester", "Tester", "s2"),
+    facts.turn("explorer", "spawn"),
+    facts.turn("tester", "spawn"),
+    facts.endTurn("tester"),
+  ]);
+  open(connect(fake), "live");
+  // One done, one still working: the group is live.
+  expect(
+    await until(
+      () => (liveGroup()?.entries.length === 2 ? liveGroup() : undefined),
+      "a group of two",
+    ),
+  ).toMatchObject({ live: true });
+  fake.apply("live", [facts.endTurn("explorer")]);
+  expect(
+    await until(
+      () => (liveGroup()?.live === false ? liveGroup() : undefined),
+      "the group settling",
+    ),
+  ).toMatchObject({ live: false });
+});
+
 const indent = {
   id: "indent",
   text: "Tabs or spaces?",
