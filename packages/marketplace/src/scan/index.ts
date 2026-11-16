@@ -354,6 +354,33 @@ const verdictOf = (list: readonly MarketScanFinding[]) =>
       ? "warn"
       : "pass";
 
+/** What each check says when it found nothing to hold or refuse. */
+const passSentences: Record<MarketScanCheckId, string> = {
+  files: "No programs or archives inside.",
+  scripts: "Its scripts do nothing ace refuses.",
+  scene: "Its scene stays inside its sandbox.",
+  plugin: "Its commands and servers match what it declares.",
+  recipe: "Its instructions keep to its task.",
+  secrets: "No keys or passwords inside.",
+  hidden: "No hidden characters or look-alike names.",
+  "known-bad": "Nothing on ace's blocklist.",
+};
+
+/** A check in one sentence: what it passed, or its first finding and how many more. */
+function checkSentence(
+  id: MarketScanCheckId,
+  verdict: "pass" | "warn" | "block",
+  own: readonly MarketScanFinding[],
+): string {
+  const weighty = own.filter((finding) => finding.level !== "note");
+  const first = weighty[0];
+  if (verdict === "pass" || !first) return passSentences[id];
+  const rest = weighty.length - 1;
+  const lead = first.message.replace(/[.\s]+$/, "");
+  const sentence = rest > 0 ? `${lead}, and ${rest} more.` : `${lead}.`;
+  return sentence.length > 500 ? `${sentence.slice(0, 497)}...` : sentence;
+}
+
 /** A report from findings: each check's verdict from its own, the whole from all. */
 export function report(
   findings: readonly MarketScanFinding[],
@@ -371,10 +398,7 @@ export function report(
       return {
         id,
         verdict,
-        sentence:
-          verdict === "pass"
-            ? "Nothing found."
-            : `${own.length} finding${own.length === 1 ? "" : "s"}.`,
+        sentence: checkSentence(id, verdict, own),
         findings: own.length,
       };
     }),

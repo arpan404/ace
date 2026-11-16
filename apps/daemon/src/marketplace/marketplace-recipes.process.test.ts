@@ -204,7 +204,13 @@ describe("plugins from the market", () => {
     publish({
       type: "suit",
       name: "harbour-dusk",
-      files: [...sampleSuit(), ...folder({ "scene.js": `fetch("file://${marker}")` })],
+      // A scene that passes ace's scan (one that fetched would be refused on the device).
+      files: [
+        ...sampleSuit(),
+        ...folder({
+          "scene.js": `export function init() { localStorage.setItem("ran", "${marker}"); }`,
+        }),
+      ],
     });
     await harness.ask({ op: "refresh" }, "sources");
     for (const [type, name] of [
