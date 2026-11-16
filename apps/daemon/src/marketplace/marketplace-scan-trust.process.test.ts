@@ -78,19 +78,19 @@ describe("the device's scan", () => {
   });
 });
 
-describe("the signed blocklist", () => {
-  const installSkill = async () => {
-    const files = sampleSkill("triage-mail", { "notes.md": "Sort by sender.\n" });
-    market.publish(signedVersion({ type: "spade-skill", name: "triage-mail", files }), files);
-    await harness.ask({ op: "refresh" }, "sources");
-    const { review } = await harness.ask(
-      { op: "prepare", source: "market", type: "spade-skill", name: "triage-mail" },
-      "review",
-    );
-    await harness.ask({ op: "install", id: review.id, hash: review.hash, choices: none }, "done");
-    return files;
-  };
+const installSkill = async () => {
+  const files = sampleSkill("triage-mail", { "notes.md": "Sort by sender.\n" });
+  market.publish(signedVersion({ type: "spade-skill", name: "triage-mail", files }), files);
+  await harness.ask({ op: "refresh" }, "sources");
+  const { review } = await harness.ask(
+    { op: "prepare", source: "market", type: "spade-skill", name: "triage-mail" },
+    "review",
+  );
+  await harness.ask({ op: "install", id: review.id, hash: review.hash, choices: none }, "done");
+  return files;
+};
 
+describe("the signed blocklist", () => {
   it("turns off an installed entry whose file hash it names, keeps it, and stops offering it", async () => {
     const files = await installSkill();
     const notes = files.find((file) => file.path === "notes.md")!;
@@ -126,63 +126,64 @@ describe("the signed blocklist", () => {
   });
 });
 
-describe("marks from the signed lists only", () => {
-  const publishClaimed = async () => {
-    const files = sampleSkill();
-    market.publish(
-      signedVersion({
-        type: "spade-skill",
-        name: "triage-mail",
-        files,
-        reviewed: true,
-        byAce: true,
-      }),
+const publishClaimed = async () => {
+  const files = sampleSkill();
+  market.publish(
+    signedVersion({
+      type: "spade-skill",
+      name: "triage-mail",
       files,
-    );
-    market.claim("spade-skill", "triage-mail", { byAce: true, verified: true });
-  };
-  const officialAce = (key: MarketSigningKey) =>
-    signOfficialList(
-      {
-        format: "ace-market-official",
-        issued,
-        publisher: { id: "pub_ace", name: "ace" },
-        accounts: ["user_ace"],
-        key: key.id,
-      },
-      key,
-    );
-  const verifiedList = (ids: string[], key: MarketSigningKey) =>
-    signVerifiedList(
-      {
-        format: "ace-market-verified",
-        issued,
-        publishers: ids.map((id) => ({
-          id,
-          handle: "tester",
-          proofs: [{ kind: "account" as const }],
-          at: issued,
-        })),
-        key: key.id,
-      },
-      key,
-    );
-  const shown = async () => {
-    const search = await harness.ask(
-      { op: "search", query: "triage", offset: 0, limit: 10 },
-      "search",
-    );
-    const read = await harness.ask(
-      { op: "read", source: "market", type: "spade-skill", name: "triage-mail" },
-      "read",
-    );
-    const { review } = await harness.ask(
-      { op: "prepare", source: "market", type: "spade-skill", name: "triage-mail" },
-      "review",
-    );
-    return { row: search.entries[0], page: read.entry.summary, review };
-  };
+      reviewed: true,
+      byAce: true,
+    }),
+    files,
+  );
+  market.claim("spade-skill", "triage-mail", { byAce: true, verified: true });
+};
 
+const officialAce = (key: MarketSigningKey) =>
+  signOfficialList(
+    {
+      format: "ace-market-official",
+      issued,
+      publisher: { id: "pub_ace", name: "ace" },
+      accounts: ["user_ace"],
+      key: key.id,
+    },
+    key,
+  );
+const verifiedList = (ids: string[], key: MarketSigningKey) =>
+  signVerifiedList(
+    {
+      format: "ace-market-verified",
+      issued,
+      publishers: ids.map((id) => ({
+        id,
+        handle: "tester",
+        proofs: [{ kind: "account" as const }],
+        at: issued,
+      })),
+      key: key.id,
+    },
+    key,
+  );
+const shown = async () => {
+  const search = await harness.ask(
+    { op: "search", query: "triage", offset: 0, limit: 10 },
+    "search",
+  );
+  const read = await harness.ask(
+    { op: "read", source: "market", type: "spade-skill", name: "triage-mail" },
+    "read",
+  );
+  const { review } = await harness.ask(
+    { op: "prepare", source: "market", type: "spade-skill", name: "triage-mail" },
+    "review",
+  );
+  return { row: search.entries[0], page: read.entry.summary, review };
+};
+
+describe("marks from the signed lists only", () => {
   it("never shows By ace or Verified for a publisher the signed lists don't name", async () => {
     await publishClaimed();
     lists["official"] = officialAce(harness.key);
