@@ -19,13 +19,26 @@ function circlePath(cx: number, cy: number, r: number): string {
   return `M${round(cx - r)} ${round(cy)}${ring} ${round(cx + r)} ${round(cy)}${ring} ${round(cx - r)} ${round(cy)}Z`;
 }
 
+/** A one-segment line's two ends, written as `M x y L x y`, `M x y l dx dy`, `h dx` or `v dy`. */
+function lineEnds(d: string): [number, number, number, number] {
+  const match = new RegExp(
+    `^M\\s*${number}[ ,]+${number}\\s*([LlHhVv]?)\\s*${number}(?:[ ,]+${number})?$`,
+  ).exec(d.trim());
+  if (!match) throw new Error(`A cut stroke must be one straight line, not "${d}".`);
+  const [x1, y1] = [Number(match[1]), Number(match[2])];
+  const command = match[3] ?? "";
+  const [a, b] = [Number(match[4]), match[5] === undefined ? undefined : Number(match[5])];
+  if (command === "h") return [x1, y1, x1 + a, y1];
+  if (command === "H") return [x1, y1, a, y1];
+  if (command === "v") return [x1, y1, x1, y1 + a];
+  if (command === "V") return [x1, y1, x1, a];
+  if (b === undefined) throw new Error(`A cut stroke must be one straight line, not "${d}".`);
+  return command === "l" ? [x1, y1, x1 + a, y1 + b] : [x1, y1, a, b];
+}
+
 /** The area a straight round-capped stroke covers: a rectangle along it with a half circle at each end. */
 function bandPath(d: string, width: number): string {
-  const match = new RegExp(`^M\\s*${number}[ ,]+${number}[ ,L]+${number}[ ,]+${number}$`).exec(
-    d.trim(),
-  );
-  if (!match) throw new Error(`A cut stroke must be one straight line, not "${d}".`);
-  const [x1, y1, x2, y2] = match.slice(1).map(Number) as [number, number, number, number];
+  const [x1, y1, x2, y2] = lineEnds(d);
   const r = width / 2;
   const length = Math.hypot(x2 - x1, y2 - y1);
   const nx = (-(y2 - y1) / length) * r;
@@ -48,7 +61,7 @@ function cutPath(cut: string): string {
     return circlePath(cx, cy, r);
   }
   const stroke = new RegExp(
-    `^<path d="([^"]+)" stroke="black" stroke-width="${number}" stroke-linecap="round"></path>$`,
+    `^<path d="([^"]+)"(?: fill="none")? stroke="black" stroke-width="${number}" stroke-linecap="round"(?: stroke-linejoin="round")?></path>$`,
   ).exec(cut);
   if (stroke?.[1]) return bandPath(stroke[1], Number(stroke[2]));
   throw new Error(`An icon's mask holds a cut the iPhone can't clip: ${cut}`);
@@ -82,11 +95,14 @@ export function turnedSvg(markup: string, degrees: number): string {
   return `${markup.slice(0, open)}<g transform="rotate(${degrees} 12 12)">${markup.slice(open, close)}</g></svg>`;
 }
 
+/** The weights the iPhone draws: outline, bold, and filled for a chosen tab. */
+export type AssetWeight = "regular" | "bold" | "fill";
+
 /**
  * The asset SVG for `icon` in `weight`, drawn in black (a template image takes only its shape)
- * at the 20pt a menu or swipe action draws an image it can't size itself.
+ * at `size`: by default the 20pt a menu or swipe action draws an image it can't size itself.
  */
-export function assetSvg(icon: Icon, weight: "regular" | "bold", turn = 0): string {
-  const markup = renderToStaticMarkup(createElement(icon, { size: 20, weight, color: "#000000" }));
+export function assetSvg(icon: Icon, weight: AssetWeight, turn = 0, size = 20): string {
+  const markup = renderToStaticMarkup(createElement(icon, { size, weight, color: "#000000" }));
   return `${turnedSvg(clippedSvg(markup), turn)}\n`;
 }

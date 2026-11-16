@@ -47,7 +47,7 @@ struct ReviewReadyLine: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Text("Review").foregroundStyle(AceDesign.Ink.primary)
                     }
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .frame(minHeight: AceDesign.Size.tap)
                     .contentShape(Rectangle())
                 }
@@ -174,13 +174,13 @@ struct ReviewReadySheet: View {
     private var heading: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             Text("Ready to review")
-                .aceFont(AceDesign.TextRole.header, relativeTo: .title3)
+                .aceFont(AceDesign.TextRole.header)
                 .foregroundStyle(AceDesign.Ink.primary)
                 .accessibilityAddTraits(.isHeader)
             if let ready {
-                ReviewCounts(ready: ready).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                ReviewCounts(ready: ready).aceFont(AceDesign.TextRole.meta)
                 if !ready.branch.isEmpty {
-                    Text(ready.branch).aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption)
+                    Text(ready.branch).aceMonospace(AceDesign.TextRole.branch)
                         .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1).truncationMode(.middle)
                 }
             }
@@ -211,7 +211,7 @@ struct ReviewReadySheet: View {
                     else { withAnimation { allFiles = true } }
                 }
                 .buttonStyle(.plain)
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceDesign.Ink.subtle)
                 .frame(minHeight: AceDesign.Size.tap)
                 .listRowSeparator(.hidden)
@@ -238,7 +238,7 @@ struct ReviewReadySheet: View {
     private var actions: some View {
         VStack(spacing: AceDesign.Space.related) {
             if let line = statusLine {
-                Text(line.0).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(line.0).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(line.1).lineLimit(2).multilineTextAlignment(.center)
                     .accessibilityIdentifier("review.outcome")
             }
@@ -265,7 +265,7 @@ struct ReviewReadySheet: View {
                 }
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)
-                .aceFont(AceDesign.TextRole.action, relativeTo: .body)
+                .aceFont(AceDesign.TextRole.action)
             }
         }
         .padding(.horizontal, AceDesign.Space.margin)
@@ -334,7 +334,7 @@ struct ReviewFileRow: View {
                 DiffCounts(additions: file.additions, deletions: file.deletions)
             }
         }
-        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        .aceFont(AceDesign.TextRole.meta)
         .frame(minHeight: AceDesign.Size.rowLine)
         .opacity(viewed ? AceDesign.Ink.settledOpacity : 1)
         .contentShape(Rectangle())

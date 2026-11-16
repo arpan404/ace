@@ -76,7 +76,7 @@ struct GitMessageSheet: View {
                             }
                         }
                         if let opensOn {
-                            Text(opensOn).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            Text(opensOn).aceFont(AceDesign.TextRole.meta)
                                 .foregroundStyle(AceDesign.Ink.muted)
                                 .padding(.horizontal, AceDesign.Space.margin)
                                 .accessibilityIdentifier("changes.opensOn")

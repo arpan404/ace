@@ -10,13 +10,12 @@ import SwiftUI
 struct SubagentGroupView: View {
     let agents: BlockRow.Agents
     let thread: ThreadModel
-    /// The block this group is, so its open state outlives the row's view.
+    /// The block this group is: its open state is the thread's (`ThreadModel.isGroupOpen`), so it
+    /// outlives the row's view, a page of history and a trip to a child.
     let blockId: String
     let open: (BlockRow.Agents.Entry) -> Void
-    private var expanded: Bool { thread.screen.openGroups.contains(blockId) }
-    private func toggle() {
-        if expanded { thread.screen.openGroups.remove(blockId) } else { thread.screen.openGroups.insert(blockId) }
-    }
+    private var expanded: Bool { thread.isGroupOpen(blockId) }
+    private func toggle() { thread.toggleGroup(blockId) }
 
     @Environment(\.pillNames) private var pillNames
 

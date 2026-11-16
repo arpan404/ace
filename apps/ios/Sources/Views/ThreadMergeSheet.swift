@@ -19,17 +19,17 @@ struct MergeSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     Text("Send a summary to \(parentTitle). Its agent reads it on the next turn. This fork stays available.")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .padding(.horizontal, AceDesign.Space.margin)
                     if let waits = screen.mergeDraft?.waits, !waits.isEmpty {
                         Text(waits)
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceDesign.Ink.muted)
                             .padding(.horizontal, AceDesign.Space.margin)
                     }
                     if let problem {
-                        Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        Text(problem).aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("merge.problem")
                             .padding(.horizontal, AceDesign.Space.margin)
                     }
@@ -38,7 +38,7 @@ struct MergeSheet: View {
                     VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                         InsetHeader("Summary").padding(.horizontal, AceDesign.Space.margin)
                         TextEditor(text: $summary)
-                            .aceFont(AceDesign.TextRole.message, relativeTo: .body)
+                            .aceFont(AceDesign.TextRole.message)
                             .foregroundStyle(AceDesign.Ink.primary)
                             .scrollContentBackground(.hidden)
                             .frame(minHeight: AceDesign.Size.tap * 5)

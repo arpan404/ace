@@ -25,23 +25,13 @@ enum HomeTabs {
         }
     }
 
-    /// The tab bar's SF Symbol, matched to the web rail's glyph (Folders for Threads,
-    /// ChatsCircle for Chats).
-    static func symbol(_ tab: InboxTab) -> String {
-        switch tab {
-        case .threads: "folder"
-        case .chats: "bubble.left.and.bubble.right"
-        case .spade: "suit.spade"
-        case .review: "arrow.triangle.pull"
-        case .search: "magnifyingglass"
-        case .compose: "square.and.pencil"
-        }
-    }
+    /// Spade's tab glyph, until Spade launches with its own mark in the bar.
+    static let spadeSymbol = "suit.spade"
 
-    /// The tab bar's glyph in its outline form, as the web rail draws it. Handed over as a fixed
-    /// image: given the symbol's name, the system bar draws every tab's filled variant.
-    static func tabImage(_ tab: InboxTab) -> Image {
-        Image(uiImage: UIImage(systemName: symbol(tab)) ?? UIImage())
+    /// The tab bar's glyph: ace's own icon (the one the iPad sidebar draws) at the bar's glyph
+    /// size, filled while its tab is chosen, as the system's tabs fill theirs.
+    static func tabImage(_ tab: InboxTab, chosen: Bool) -> String {
+        "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
     }
 
     /// The iPad sidebar's glyph, the web rail's own.

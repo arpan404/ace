@@ -11,7 +11,7 @@ struct QuietProblem: View {
     var retryLabel = "Retry"
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(message).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+            Text(message).aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier(id)
@@ -32,7 +32,7 @@ struct QuietHeading: View {
     let title: String
     init(_ title: String) { self.title = title }
     var body: some View {
-        Text(title).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        Text(title).aceFont(AceDesign.TextRole.meta)
             .foregroundStyle(AceDesign.Ink.subtle)
             .accessibilityAddTraits(.isHeader)
     }

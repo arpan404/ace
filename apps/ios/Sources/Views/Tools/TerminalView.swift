@@ -70,7 +70,7 @@ struct TerminalView: View {
             }
             if output.exited && selected != nil {
                 HStack {
-                    Text("Process exited").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                    Text("Process exited").aceFont(AceDesign.TextRole.action)
                         .foregroundStyle(AceDesign.Ink.muted)
                     Spacer()
                     Button("New terminal") { Task { await create() } }

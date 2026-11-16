@@ -97,10 +97,11 @@ private struct LivePillLabel: View {
                 SegmentWords(segment: segment)
             }
         }
-        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        .aceFont(AceDesign.TextRole.meta)
         .lineLimit(1)
         .padding(.horizontal, AceDesign.Space.chip)
-        .frame(height: AceDesign.Size.chip)
+        // At least a chip tall, and taller where large text needs it, so its words never clip.
+        .frame(minHeight: AceDesign.Size.chip)
         .aceGlass(in: AceDesign.Shape.control)
         .contentShape(AceDesign.Shape.control)
     }
@@ -155,7 +156,7 @@ private struct StatusWords: View {
             } else if !status.code.isEmpty {
                 HStack(spacing: AceDesign.Space.tight) {
                     Text(status.label)
-                    Text(status.code).aceMonospace(AceDesign.TextRole.code, relativeTo: .footnote)
+                    Text(status.code).aceMonospace(AceDesign.TextRole.code)
                         .truncationMode(.middle)
                         .frame(maxWidth: AceDesign.Size.tap * 4, alignment: .leading)
                 }

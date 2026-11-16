@@ -183,8 +183,9 @@ extension XCUIApplication {
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.
     /// The drag runs down the element's own column: beside an iPad's open thread the list is not
-    /// in the middle of the window.
-    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 30) {
+    /// in the middle of the window. Twenty drags each way reach the fixture's last inbox rows at
+    /// body-size rows.
+    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 40) {
         for attempt in 0..<attempts {
             // A row the lazy list hasn't loaded has no frame to read yet; its list is the one
             // under the Threads list's own Inbox control.

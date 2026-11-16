@@ -58,7 +58,7 @@ struct SkillsLibraryView: View {
                 QuietSection {
                     // Always in place, so the rows below never move when the projects arrive.
                     QuietSectionRow {
-                        Text("Project").aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                        Text("Project").aceFont(AceDesign.TextRole.rowTitle)
                             .foregroundStyle(AceDesign.Ink.primary)
                         Spacer(minLength: AceDesign.Space.related)
                         Picker("Project", selection: $projectId) {
@@ -71,7 +71,7 @@ struct SkillsLibraryView: View {
                     if model.canOperate {
                         Button { creating = true } label: {
                             QuietSectionRow {
-                                Text("New skill").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                Text("New skill").aceFont(AceDesign.TextRole.action)
                                     .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
                             }
                         }

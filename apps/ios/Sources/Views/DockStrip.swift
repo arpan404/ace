@@ -96,7 +96,7 @@ struct DockStrip: View {
 
     private var sentenceText: some View {
         Text(line.sentence)
-            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .aceFont(AceDesign.TextRole.segment).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(2)
             .monospacedDigit()
@@ -110,7 +110,7 @@ struct DockStrip: View {
             if let open = openDetails ?? openPayload { open() } else { withAnimation { expanded.toggle() } }
         } label: {
             Text(line.payload)
-                .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                .aceMonospace(AceDesign.TextRole.code)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(expanded ? nil : 1)
                 .truncationMode(.middle)

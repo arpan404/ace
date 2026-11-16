@@ -7,13 +7,13 @@ struct WorkHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             Text(work.project.isEmpty ? "Checkout" : work.project)
-                .aceFont(AceDesign.TextRole.header, relativeTo: .headline)
+                .aceFont(AceDesign.TextRole.header)
                 .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
             Text([work.machine.isEmpty ? "This machine" : work.machine, place].filter { !$0.isEmpty }.joined(separator: " · "))
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             if !work.path.isEmpty {
-                Text(verbatim: work.path).aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                Text(verbatim: work.path).aceMonospace(AceDesign.TextRole.code)
                     .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1).truncationMode(.middle)
                     .textSelection(.enabled)
             }
@@ -49,7 +49,7 @@ struct WorkPlaceRow: View {
         QuietSectionRow {
             QuietRowText(title: label, detail: current ? nil : reason)
             if current {
-                Text("Current").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.subtle)
+                Text("Current").aceFont(AceDesign.TextRole.action).foregroundStyle(AceDesign.Ink.subtle)
             } else if canMove, reason == nil {
                 Button("Move here", action: move)
                     .buttonStyle(.textAction(.prominent))
@@ -73,10 +73,10 @@ struct WorkPullLine: View {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 (Text("#\(pr.number) ").monospacedDigit().foregroundStyle(AceDesign.Ink.muted)
                  + Text(pr.title.isEmpty ? "Pull request" : pr.title).foregroundStyle(AceDesign.Ink.primary))
-                    .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    .aceFont(AceDesign.TextRole.rowTitle)
                     .lineLimit(1)
                 Text([pr.summary, pr.repo].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,16 +118,16 @@ struct WorkStatus<Actions: View>: View {
     @ViewBuilder var actions: () -> Actions
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(label).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+            Text(label).aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(failed ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
             if !detail.isEmpty {
-                Text(detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(detail).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).fixedSize(horizontal: false, vertical: true)
             }
             if !output.isEmpty {
                 ScrollView {
                     Text(verbatim: output.joined(separator: "\n"))
-                        .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                        .aceMonospace(AceDesign.TextRole.code)
                         .foregroundStyle(AceDesign.Ink.subtle)
                         .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                 }
@@ -148,8 +148,8 @@ struct WorkSkeleton: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.group) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text("ace-next").aceFont(AceDesign.TextRole.header, relativeTo: .headline)
-                Text("This machine · Local checkout").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text("ace-next").aceFont(AceDesign.TextRole.header)
+                Text("This machine · Local checkout").aceFont(AceDesign.TextRole.meta)
             }
             .padding(.horizontal, AceDesign.Space.margin)
             ForEach(["Branch", "Checkout", "Pull requests"], id: \.self) { title in

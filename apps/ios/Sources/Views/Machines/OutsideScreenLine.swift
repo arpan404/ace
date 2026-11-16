@@ -16,7 +16,7 @@ struct OutsideScreenLine: View {
         HStack(spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(named ? "\(use.line) · \(machine)" : use.line)
-                    .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                    .aceFont(AceDesign.TextRole.segment)
                     .foregroundStyle(AceTheme.Colours.foreground)
                 if let problem {
                     Text(problem).font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.Status.failed)
