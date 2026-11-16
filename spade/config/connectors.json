@@ -76,7 +76,8 @@
       "url": "https://mcp.intercom.com/mcp",
       "sign_in": ["oauth", "token"],
       "notes": "US workspaces. EU workspaces add the server by URL: https://mcp.eu.intercom.com/mcp",
-      "source": "https://developers.intercom.com/docs/guides/mcp"
+      "source": "https://developers.intercom.com/docs/guides/mcp",
+      "every_tool": "send_as_person"
     },
     {
       "id": "linear",

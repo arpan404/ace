@@ -188,6 +188,35 @@ mod tests {
     }
 
     #[test]
+    fn an_app_wide_declaration_sends_every_tool_to_the_person_even_read_only_ones() {
+        use spade_core::effect::{Effect, Mcp, mcp};
+        // One per category the catalogue holds: payments and a support inbox that writes in the
+        // person's name. (Mail, chat, identity and secret stores are not in the catalogue yet.)
+        let table = [
+            ("stripe", Effect::Pay),
+            ("paypal", Effect::Pay),
+            ("square", Effect::Pay),
+            ("intercom", Effect::SendAsPerson),
+        ];
+        let entries = spade_connect::catalogue::shipped();
+        for (id, want) in table {
+            let entry = entries.iter().find(|e| e.id == id);
+            let declared = entry
+                .and_then(|e| e.every_tool.as_ref())
+                .and_then(Effect::declared);
+            assert_eq!(declared, Some(want), "{id}");
+            for read_only in [false, true] {
+                let effect = mcp(Mcp {
+                    read_only,
+                    annotated: true,
+                    declared,
+                });
+                assert_eq!(effect, Some(want), "{id} read_only={read_only}");
+            }
+        }
+    }
+
+    #[test]
     fn a_call_cut_off_after_sending_never_reads_as_not_run() {
         let unknown = output(CallError::MaybeRan("connection reset".into()));
         assert!(unknown.uncertain && unknown.content.starts_with("Unknown outcome"));
