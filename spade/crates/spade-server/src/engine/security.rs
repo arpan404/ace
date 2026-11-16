@@ -44,22 +44,54 @@ impl Engine {
         spade_core::grant::allowed(&grants, &Action::Tool { tool, arguments })
     }
 
-    /// Whether a file tool's write in the workspace is held by the bot's boundaries, so it runs
-    /// without a review: the sandbox contains the bot's runs and a checkpoint (taken now when one
-    /// is due) can undo the write (ADR 0167 decision 8).
-    pub(super) async fn contained_write(&self, conversation: &str, tool: &str) -> bool {
-        if !matches!(tool, "workspace_write" | "workspace_edit") {
+    /// The bot whose workspace `conversation` works in: its own, or a helper's bot's.
+    fn workspace_owner(&self, conversation: &str) -> Option<String> {
+        self.agent_of(conversation).or_else(|| {
+            self.helper_of(conversation)
+                .and_then(|helper| self.agent_of(&helper.parent))
+        })
+    }
+
+    /// Whether a call is held by the bot's boundaries, so it runs without a review: a shell
+    /// command the sandbox contains (`shell_contained`) or a file tool's write in the workspace,
+    /// once the workspace isn't reserved and a checkpoint (taken now when one is due) can undo
+    /// it (ADR 0167 decision 8). When the checkpoint can't be taken, the call is reviewed.
+    pub(super) async fn contained_call(
+        &self,
+        conversation: &str,
+        tool: &str,
+        shell_contained: bool,
+    ) -> bool {
+        if !shell_contained && !matches!(tool, "workspace_write" | "workspace_edit") {
             return false;
         }
-        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
+        let (Some(security), Some(agent)) = (self.security(), self.workspace_owner(conversation))
+        else {
             return false;
         };
         if !security.contains() {
             return false;
         }
-        if let Some(work) = security.checkpoint_due(&agent) {
-            let _ = tokio::task::spawn_blocking(work).await;
+        let work = security.before_unreviewed(&agent);
+        match tokio::task::spawn_blocking(work).await {
+            Ok(Ok(())) => true,
+            Ok(Err(why)) => {
+                tracing::warn!(%why, %agent, "unreviewed work goes to the review instead");
+                false
+            }
+            Err(_) => false,
         }
-        true
+    }
+
+    /// Waits while `conversation`'s bot's workspace is reserved for maintenance, before a turn
+    /// does anything (ADR 0167 decision 8).
+    pub(super) async fn maintenance_wait(&self, conversation: &str) {
+        let (Some(security), Some(agent)) = (self.security(), self.workspace_owner(conversation))
+        else {
+            return;
+        };
+        while security.reserved(&agent) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
     }
 }

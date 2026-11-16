@@ -77,7 +77,12 @@ pub trait Confine: Send + Sync {
 
     /// Blocking work to do before a run of `kind` with home `home` starts (a checkpoint of the
     /// workspace, ADR 0167 decision 8); `None` when there is none.
-    fn before(&self, _home: &Path, _kind: &Kind) -> Option<Box<dyn FnOnce() + Send>> {
+    /// Its error means the run must not start.
+    fn before(
+        &self,
+        _home: &Path,
+        _kind: &Kind,
+    ) -> Option<Box<dyn FnOnce() -> Result<(), String> + Send>> {
         None
     }
 }
@@ -278,7 +283,13 @@ impl Shell {
         let confined = match &self.confine {
             Some(confine) => {
                 if let Some(work) = confine.before(home, &job.kind) {
-                    let _ = tokio::task::spawn_blocking(work).await;
+                    match tokio::task::spawn_blocking(work).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(why)) => return Err(format!("The command didn't run: {why}.")),
+                        Err(_) => {
+                            return Err("The command didn't run: its checkpoint failed.".to_owned());
+                        }
+                    }
                 }
                 confine.confine(home, &job.kind)?
             }

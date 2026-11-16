@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -41,19 +41,25 @@ pub fn to_drop(all: &[Checkpoint], now: i64, keep: usize, longest: i64) -> Vec<S
 
 pub struct Checkpoints {
     root: PathBuf,
-    /// When each bot's last automatic checkpoint was taken.
+    /// When each bot's last checkpoint was taken (successfully).
     last: Mutex<HashMap<String, i64>>,
+    /// One checkpoint operation per bot at a time: a list never meets a copy in progress.
+    locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 fn io(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+/// A copy being made: never listed, published by a rename once whole.
+const STAGE: &str = ".stage-";
+
 impl Checkpoints {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
             last: Mutex::new(HashMap::new()),
+            locks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -61,20 +67,32 @@ impl Checkpoints {
         self.root.join(bot)
     }
 
-    /// Whether an automatic checkpoint is due for `bot` at `now`; if so, it counts as taken.
-    pub fn due(&self, bot: &str, now: i64) -> bool {
-        let mut last = self.last.lock().unwrap_or_else(|p| p.into_inner());
-        match last.get(bot) {
-            Some(at) if now - at < EVERY => false,
-            _ => {
-                last.insert(bot.to_owned(), now);
-                true
-            }
-        }
+    /// Holds `bot`'s checkpoint operations for the guard's life.
+    fn hold(&self, bot: &str) -> Arc<Mutex<()>> {
+        self.locks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(bot.to_owned())
+            .or_default()
+            .clone()
     }
 
-    /// The bot's checkpoints, newest first. Unfinished copies are removed on the way.
+    /// Whether an automatic checkpoint is due for `bot` at `now`. Only a checkpoint that was
+    /// taken counts: a failed one leaves the next due.
+    pub fn due(&self, bot: &str, now: i64) -> bool {
+        let last = self.last.lock().unwrap_or_else(|p| p.into_inner());
+        !last.get(bot).is_some_and(|at| now - at < EVERY)
+    }
+
+    /// The bot's checkpoints, newest first. Copies left unfinished (a crash mid-copy) are
+    /// removed on the way; none can be in progress, since operations on a bot are held.
     pub fn list(&self, bot: &str) -> Vec<Checkpoint> {
+        let lock = self.hold(bot);
+        let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.list_held(bot)
+    }
+
+    fn list_held(&self, bot: &str) -> Vec<Checkpoint> {
         let folder = self.folder(bot);
         let Ok(entries) = std::fs::read_dir(&folder) else {
             return Vec::new();
@@ -101,7 +119,7 @@ impl Checkpoints {
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
-            if !found.iter().any(|c| c.id == name) {
+            if name.starts_with(STAGE) || !found.iter().any(|c| c.id == name) {
                 let _ = std::fs::remove_dir_all(&copy);
             }
         }
@@ -109,7 +127,8 @@ impl Checkpoints {
         found
     }
 
-    /// Copies `workspace` as checkpoint `id`, then drops what the bounds no longer keep.
+    /// Copies `workspace` as checkpoint `id`, then drops what the bounds no longer keep. The
+    /// copy is made under a staging name and published by a rename, its record after it.
     pub fn take(
         &self,
         bot: &str,
@@ -118,20 +137,40 @@ impl Checkpoints {
         at: i64,
         reason: &str,
     ) -> Result<Checkpoint, String> {
+        let lock = self.hold(bot);
+        let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
         let folder = self.folder(bot);
         std::fs::create_dir_all(&folder).map_err(io)?;
-        let copy = folder.join(id);
-        clone_tree(workspace, &copy)?;
+        let stage = folder.join(format!("{STAGE}{id}"));
+        let _ = std::fs::remove_dir_all(&stage);
+        if let Err(error) = clone_tree(workspace, &stage) {
+            let _ = std::fs::remove_dir_all(&stage);
+            return Err(error);
+        }
         // Its own temporary files aren't part of the work.
-        let _ = std::fs::remove_dir_all(copy.join(spade_sandbox::policy::TEMP));
+        let _ = std::fs::remove_dir_all(stage.join(spade_sandbox::policy::TEMP));
         let checkpoint = Checkpoint {
             id: id.to_owned(),
             at,
             reason: reason.to_owned(),
         };
-        let record = serde_json::to_string(&checkpoint).map_err(io)?;
-        std::fs::write(folder.join(format!("{id}.json")), record).map_err(io)?;
-        let all = self.list(bot);
+        let published = (|| {
+            std::fs::rename(&stage, folder.join(id)).map_err(io)?;
+            let record = serde_json::to_string(&checkpoint).map_err(io)?;
+            let staged_record = folder.join(format!("{STAGE}{id}.json.tmp"));
+            std::fs::write(&staged_record, record).map_err(io)?;
+            std::fs::rename(&staged_record, folder.join(format!("{id}.json"))).map_err(io)
+        })();
+        if let Err(error) = published {
+            let _ = std::fs::remove_dir_all(&stage);
+            let _ = std::fs::remove_dir_all(folder.join(id));
+            return Err(error);
+        }
+        self.last
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(bot.to_owned(), at);
+        let all = self.list_held(bot);
         for gone in to_drop(&all, at, KEEP, LONGEST) {
             self.remove(bot, &gone);
         }
@@ -147,7 +186,9 @@ impl Checkpoints {
     /// Puts checkpoint `id` in place of `workspace`. The workspace as it was is moved aside
     /// first and put back if the copy fails.
     pub fn restore(&self, bot: &str, id: &str, workspace: &Path) -> Result<(), String> {
-        if !self.list(bot).iter().any(|c| c.id == id) {
+        let lock = self.hold(bot);
+        let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
+        if !self.list_held(bot).iter().any(|c| c.id == id) {
             return Err(format!("there is no checkpoint {id}"));
         }
         let copy = self.folder(bot).join(id);
@@ -175,7 +216,13 @@ impl Checkpoints {
 
     /// Forgets a deleted bot's checkpoints.
     pub fn forget(&self, bot: &str) {
+        let lock = self.hold(bot);
+        let _held = lock.lock().unwrap_or_else(|p| p.into_inner());
         let _ = std::fs::remove_dir_all(self.folder(bot));
+        self.last
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(bot);
     }
 }
 
@@ -235,8 +282,12 @@ mod tests {
 
     #[test]
     fn an_automatic_checkpoint_comes_at_most_once_a_minute_per_bot() {
-        let checkpoints = Checkpoints::new(PathBuf::from("/nowhere"));
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let workspace = dir.path().join("workspace/b1");
+        std::fs::create_dir_all(&workspace).unwrap_or_default();
+        let checkpoints = Checkpoints::new(dir.path().join("checkpoints"));
         assert!(checkpoints.due("b1", 0));
+        assert!(checkpoints.take("b1", &workspace, "cp1", 0, "auto").is_ok());
         assert!(!checkpoints.due("b1", EVERY - 1));
         assert!(checkpoints.due("b2", 10));
         assert!(checkpoints.due("b1", EVERY));
@@ -272,5 +323,61 @@ mod tests {
         );
         assert!(!workspace.join("junk.txt").exists());
         assert!(checkpoints.restore("b1", "nope", &workspace).is_err());
+    }
+
+    #[test]
+    fn listing_while_a_checkpoint_is_copied_never_removes_it() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let workspace = dir.path().join("workspace/b1");
+        for n in 0..1500 {
+            let folder = workspace.join(format!("d{}", n % 30));
+            std::fs::create_dir_all(&folder).unwrap_or_default();
+            std::fs::write(folder.join(format!("f{n}.txt")), "x").unwrap_or_default();
+        }
+        let checkpoints = std::sync::Arc::new(Checkpoints::new(dir.path().join("checkpoints")));
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let lister = {
+            let (checkpoints, done) = (checkpoints.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = checkpoints.list("b1");
+                }
+            })
+        };
+        let taken = checkpoints.take("b1", &workspace, "cp1", 10, "auto");
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        let _ = lister.join();
+        assert!(taken.is_ok(), "{taken:?}");
+        let copied = walk_count(&dir.path().join("checkpoints/b1/cp1"));
+        assert_eq!(copied, 1500);
+        assert_eq!(checkpoints.list("b1").len(), 1);
+    }
+
+    #[test]
+    fn a_failed_checkpoint_leaves_the_next_one_due() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let checkpoints = Checkpoints::new(dir.path().join("checkpoints"));
+        assert!(checkpoints.due("b1", 0));
+        let missing = dir.path().join("workspace/none");
+        assert!(checkpoints.take("b1", &missing, "cp1", 0, "auto").is_err());
+        assert!(checkpoints.due("b1", 1), "a failure doesn't count as taken");
+        let workspace = dir.path().join("workspace/b1");
+        std::fs::create_dir_all(&workspace).unwrap_or_default();
+        assert!(checkpoints.take("b1", &workspace, "cp2", 2, "auto").is_ok());
+        assert!(!checkpoints.due("b1", 3));
+    }
+
+    fn walk_count(path: &Path) -> usize {
+        std::fs::read_dir(path)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| {
+                        let p = e.path();
+                        if p.is_dir() { walk_count(&p) } else { 1 }
+                    })
+                    .sum()
+            })
+            .unwrap_or(0)
     }
 }

@@ -273,17 +273,27 @@ async fn restore(
         return unavailable();
     };
     off_thread(move || {
-        // Never under a bot that is changing its files.
-        match state.engine.agent_view(&id) {
-            Ok(Some(view)) if view.state == crate::engine::State::Working => {
-                return problem(
-                    StatusCode::CONFLICT,
-                    "the bot is working; stop it before restoring a checkpoint",
-                );
-            }
-            Ok(Some(_)) => {}
+        // Reserved first, so no turn, command or file write starts while it is checked and
+        // restored; then never under a bot that is changing its files.
+        let Some(_reserved) = security.reserve(&id) else {
+            return problem(StatusCode::CONFLICT, crate::security::RESERVED);
+        };
+        let view = match state.engine.agent_view(&id) {
+            Ok(Some(view)) => view,
             Ok(None) => return failed(SecurityError::NotFound),
             Err(error) => return failed(SecurityError::Store(error.to_string())),
+        };
+        if view.state == crate::engine::State::Working {
+            return problem(
+                StatusCode::CONFLICT,
+                "the bot is working; stop it before restoring a checkpoint",
+            );
+        }
+        if state.engine.services_running(&view.agent.conversation) > 0 {
+            return problem(
+                StatusCode::CONFLICT,
+                "the bot's services are running; stop them before restoring a checkpoint",
+            );
         }
         match security.restore_checkpoint(&id, &checkpoint) {
             Ok(saved) => Json(json!({"restored": checkpoint, "saved": saved})).into_response(),

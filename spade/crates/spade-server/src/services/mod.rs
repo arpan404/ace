@@ -192,6 +192,14 @@ impl Services {
         }
     }
 
+    /// How many services of `conversation` run now.
+    pub fn running_of(&self, conversation: &str) -> usize {
+        lock(&self.running)
+            .values()
+            .filter(|r| r.conversation == conversation)
+            .count()
+    }
+
     pub fn is_running(&self, service: &str) -> bool {
         lock(&self.running).contains_key(service)
     }

@@ -37,13 +37,18 @@ impl Confine for Late {
             .is_some_and(|security| Confine::contains(security.as_ref(), home))
     }
 
-    fn before(&self, home: &Path, kind: &Kind) -> Option<Box<dyn FnOnce() + Send>> {
+    fn before(
+        &self,
+        home: &Path,
+        kind: &Kind,
+    ) -> Option<Box<dyn FnOnce() -> std::result::Result<(), String> + Send>> {
         self.0.get()?.before(home, kind)
     }
 }
 
 struct World {
     spade: Spade,
+    security: Arc<Security>,
     _dir: tempfile::TempDir,
     home: PathBuf,
     conversation: String,
@@ -123,13 +128,14 @@ async fn world_in(
     })
     .await;
     let _ = late.0.set(security.clone());
-    spade.engine.set_security(security);
+    spade.engine.set_security(security.clone());
     let agent = spade.new_agent("Builder", "").await?;
     let field = |name: &str| agent[name].as_str().unwrap_or_default().to_owned();
     Ok(World {
         bot: field("id"),
         conversation: field("conversation"),
         spade,
+        security,
         _dir: dir,
         home,
     })
@@ -666,5 +672,97 @@ async fn a_folder_granted_through_a_link_is_kept_as_the_folder_it_names() -> Res
         )
         .await?;
     assert_eq!(status, 400);
+    Ok(())
+}
+
+fn workspace_of(w: &World) -> PathBuf {
+    w.home
+        .parent()
+        .map(|root| root.join("data/workspace").join(&w.bot))
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn when_no_checkpoint_can_be_taken_contained_work_is_reviewed_instead() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            shell("c1", "echo hi > a.txt".to_owned()),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    std::fs::create_dir_all(workspace_of(&w))?;
+    // Checkpoints can't be written: their folder is a file.
+    let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
+    std::fs::write(data.join("checkpoints"), "not a folder")?;
+    w.spade.say(&w.conversation, "Write it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), vec!["c1"]);
+    assert!(!workspace_of(&w).join("a.txt").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn when_no_checkpoint_can_be_taken_a_file_write_is_reviewed_instead() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            Script::reply("").call(
+                "c1",
+                "workspace_write",
+                json!({"path": "notes.md", "content": "x"}),
+            ),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    std::fs::create_dir_all(workspace_of(&w))?;
+    let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
+    std::fs::write(data.join("checkpoints"), "not a folder")?;
+    w.spade.say(&w.conversation, "Note it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), vec!["c1"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_turn_waits_while_the_workspace_is_reserved_for_a_restore() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            shell("c1", "echo hi > a.txt".to_owned()),
+            Script::reply("Done."),
+        ]
+    })
+    .await?;
+    std::fs::create_dir_all(workspace_of(&w))?;
+    let reserved = w.security.reserve(&w.bot);
+    assert!(reserved.is_some());
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/agents/{}/checkpoints/any/restore", w.bot),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 409, "a second maintenance waits its turn");
+    w.spade.say(&w.conversation, "Write it").await?;
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let events = w.spade.events(&w.conversation).await?;
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "tool_started" || e["type"] == "tool_finished"),
+        "{:?}",
+        types(&events)
+    );
+    assert!(!workspace_of(&w).join("a.txt").exists());
+    drop(reserved);
+    w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(workspace_of(&w).join("a.txt").exists());
     Ok(())
 }

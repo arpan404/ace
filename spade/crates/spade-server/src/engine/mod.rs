@@ -1039,8 +1039,11 @@ impl Engine {
         let pause_rx = self.turn_pause(id, &live);
         let engine = self.clone();
         let id = id.to_owned();
-        let worker =
-            tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
+        let worker = tokio::spawn(async move {
+            // Never while the bot's workspace is being restored (ADR 0167).
+            engine.maintenance_wait(&id).await;
+            turn::run(engine, id, reply, stop_rx, pause_rx).await
+        });
         *live.worker.lock().unwrap_or_else(|p| p.into_inner()) = Some(worker.abort_handle());
     }
 }

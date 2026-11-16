@@ -54,6 +54,13 @@ pub enum SecurityError {
     Store(String),
 }
 
+fn reserved(maintenance: &Mutex<std::collections::HashSet<String>>, bot: &str) -> bool {
+    maintenance
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(bot)
+}
+
 /// Which of a bot's two network policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Network {
@@ -78,7 +85,28 @@ pub struct Security {
     /// One change to a bot's settings at a time.
     changing: Mutex<()>,
     checkpoints: Arc<checkpoints::Checkpoints>,
+    /// Bots whose workspace is reserved for maintenance (a restore): no turn starts, no command
+    /// runs and no file tool writes until it is released.
+    maintenance: Arc<Mutex<std::collections::HashSet<String>>>,
 }
+
+/// A bot's workspace held for maintenance; released when dropped.
+pub struct Reservation {
+    maintenance: Arc<Mutex<std::collections::HashSet<String>>>,
+    bot: String,
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        self.maintenance
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.bot);
+    }
+}
+
+/// Why work that waits for a reservation doesn't run now.
+pub const RESERVED: &str = "the bot's workspace is being restored from a checkpoint";
 
 impl Security {
     /// The service, with the egress proxy listening when this machine has a sandbox.
@@ -126,6 +154,7 @@ impl Security {
             checkpoints: Arc::new(checkpoints::Checkpoints::new(
                 setup.spade_data.join("checkpoints"),
             )),
+            maintenance: Arc::default(),
         })
     }
 
@@ -374,24 +403,42 @@ impl Security {
         Ok(workspace)
     }
 
-    /// A checkpoint of the bot's workspace to take before work nobody reviews, when one is due
-    /// (at most once a minute): blocking work for the caller to run before that work starts.
-    pub fn checkpoint_due(&self, bot: &str) -> Option<Box<dyn FnOnce() + Send>> {
+    /// Reserves `bot`'s workspace for maintenance; `None` when it already is.
+    pub fn reserve(&self, bot: &str) -> Option<Reservation> {
+        let mut held = self.maintenance.lock().unwrap_or_else(|p| p.into_inner());
+        held.insert(bot.to_owned()).then(|| Reservation {
+            maintenance: self.maintenance.clone(),
+            bot: bot.to_owned(),
+        })
+    }
+
+    /// Whether `bot`'s workspace is reserved for maintenance now.
+    pub fn reserved(&self, bot: &str) -> bool {
+        reserved(&self.maintenance, bot)
+    }
+
+    /// What must happen before work nobody reviews (a contained command or file write): the
+    /// workspace not reserved, and a checkpoint of it when one is due (at most once a minute).
+    /// Blocking work for the caller to run first; its error means the work must not run
+    /// unreviewed.
+    pub fn before_unreviewed(&self, bot: &str) -> Box<dyn FnOnce() -> Result<(), String> + Send> {
         let workspace = self.workspaces.join(bot);
-        let now = self.clock.now_ms();
-        if !workspace.is_dir() || !self.checkpoints.due(bot, now) {
-            return None;
-        }
-        let (checkpoints, id, bot) = (
-            self.checkpoints.clone(),
-            self.ids.next("cp"),
-            bot.to_owned(),
-        );
-        Some(Box::new(move || {
-            if let Err(error) = checkpoints.take(&bot, &workspace, &id, now, "auto") {
-                tracing::warn!(%error, %bot, "a checkpoint before unreviewed work was not taken");
+        let (checkpoints, maintenance) = (self.checkpoints.clone(), self.maintenance.clone());
+        let (id, now, bot) = (self.ids.next("cp"), self.clock.now_ms(), bot.to_owned());
+        Box::new(move || {
+            if reserved(&maintenance, &bot) {
+                return Err(RESERVED.to_owned());
             }
-        }))
+            if !workspace.is_dir() || !checkpoints.due(&bot, now) {
+                return Ok(());
+            }
+            checkpoints
+                .take(&bot, &workspace, &id, now, "auto")
+                .map(|_| ())
+                .map_err(|error| {
+                    format!("a checkpoint of the workspace couldn't be taken: {error}")
+                })
+        })
     }
 
     /// The bot's checkpoints, newest first.
