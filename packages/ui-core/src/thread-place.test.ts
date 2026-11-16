@@ -184,17 +184,17 @@ test("pinned, snoozed and settled threads from machines on another sort keep the
     entry("set-mine", { state: "done" }, now - day, settledAt(now - day)),
   ].map((each) => withPlace(each, manual));
   const theirs = [
-    entry("pin-theirs", { state: "done" }, now, { ...seen(now), pinned: true, pinOrder: 3 }),
-    entry("snz-theirs", { state: "done" }, now, { ...seen(now), snoozedUntil: sooner }),
-    entry("set-theirs", { state: "done" }, now, settledAt(now)),
+    entry("theirs-pin", { state: "done" }, now, { ...seen(now), pinned: true, pinOrder: 3 }),
+    entry("theirs-snz", { state: "done" }, now, { ...seen(now), snoozedUntil: sooner }),
+    entry("theirs-set", { state: "done" }, now, settledAt(now)),
   ].map((each) => withPlace(each, activity));
   const built = threadTabs(
     [...mine, ...theirs],
     placeReader({ fallback: manual, placedElsewhere: fromElsewhere }),
   );
-  expect(built.pinned).toEqual(["pin-theirs", "pin-mine"]);
-  expect(built.snoozed).toEqual(["snz-theirs", "snz-mine"]);
-  expect(built.settled).toEqual(["set-theirs", "set-mine"]);
+  expect(built.pinned).toEqual(["theirs-pin", "pin-mine"]);
+  expect(built.snoozed).toEqual(["theirs-snz", "snz-mine"]);
+  expect(built.settled).toEqual(["theirs-set", "set-mine"]);
 });
 
 test("an unconfirmed copy keeps its tabs but folds the Inbox's live bands into one list by activity", () => {
