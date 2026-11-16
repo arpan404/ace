@@ -1,10 +1,11 @@
 import {
   entryState as computeState,
   sameState,
+  type EntryManagement,
   type EntryState,
   type StoredVersion,
 } from "../rules.ts";
-import { entryState, type EntryTable } from "./rows.ts";
+import { entryManagement, entryState, type EntryTable } from "./rows.ts";
 import { versionsOf } from "./read.ts";
 
 /*
@@ -28,6 +29,8 @@ export interface EntrySnapshot {
   row: EntryTable;
   generation: number;
   versions: StoredVersion[];
+  /** The publisher's settings on the entry and its publisher's standing. */
+  manage: EntryManagement;
 }
 
 /** The entry's row and its versions, with the generation they were read at. */
@@ -37,11 +40,22 @@ export async function readEntrySnapshot(
   name: string,
 ): Promise<EntrySnapshot | undefined> {
   const row = await db
-    .prepare("SELECT * FROM entries WHERE type = ?1 AND name = ?2")
+    .prepare(
+      `SELECT e.*, p.state AS publisher_state, p.verified AS publisher_verified
+        FROM entries e JOIN publishers p ON p.id = e.publisher
+        WHERE e.type = ?1 AND e.name = ?2`,
+    )
     .bind(type, name)
-    .first<EntryTable & { generation: number }>();
+    .first<
+      EntryTable & { generation: number; publisher_state: string; publisher_verified: number }
+    >();
   if (!row) return undefined;
-  return { row, generation: row.generation, versions: await versionsOf(db, type, name) };
+  return {
+    row,
+    generation: row.generation,
+    versions: await versionsOf(db, type, name),
+    manage: entryManagement(row, { state: row.publisher_state, verified: row.publisher_verified }),
+  };
 }
 
 export const computeEntry = computeState;
@@ -64,6 +78,8 @@ export async function writeEntry(
     .prepare(
       `UPDATE entries SET title = ?3, line = ?4, description = ?5, categories = ?6,
         keywords = ?7, latest = ?8, reviewed = ?9, by_ace = ?10, listed = ?11,
+        verified = ?13, deprecated = ?14,
+        first_listed = CASE WHEN ?11 = 1 THEN COALESCE(first_listed, ?15) ELSE first_listed END,
         updated = ${stampValue} WHERE type = ?1 AND name = ?2 AND generation = ?12`,
     )
     .bind(
@@ -79,6 +95,9 @@ export async function writeEntry(
       after.byAce ? 1 : 0,
       after.listed ? 1 : 0,
       generation,
+      after.verified ? 1 : 0,
+      after.deprecated ?? null,
+      now,
     );
   // Read before the update in the same batch, so it sees whether the entry was listed.
   const removal = after.listed
@@ -110,7 +129,7 @@ export async function refreshEntry(
     const snapshot = await readEntrySnapshot(db, type, name);
     if (!snapshot) return;
     const before = entryState(snapshot.row);
-    const after = computeState(name, snapshot.versions);
+    const after = computeState(name, snapshot.versions, snapshot.manage);
     if (sameState(before, after)) {
       // Right as read; but only if nothing moved since, else look again.
       const still = await readEntrySnapshot(db, type, name);
@@ -120,4 +139,41 @@ export async function refreshEntry(
     if (await writeEntry(db, type, name, after, snapshot.generation, now)) return;
   }
   throw new Error(`${type}/${name} kept changing while its row was brought in step`);
+}
+
+/** Every entry of a publisher brought in step: after its state, mark or handle changed. */
+export async function refreshPublisherEntries(
+  db: D1Database,
+  publisher: string,
+  now: number,
+): Promise<void> {
+  const { results } = await db
+    .prepare("SELECT type, name FROM entries WHERE publisher = ?1")
+    .bind(publisher)
+    .all<{ type: string; name: string }>();
+  for (const row of results) {
+    await db.batch([bumpGeneration(db, row.type, row.name)]);
+    await refreshEntry(db, row.type, row.name, now);
+  }
+}
+
+/**
+ * Gives a publisher's listed entries a new stamp without changing their words, so `since`
+ * readers see what the row doesn't hold: a new handle or a new owner.
+ */
+export async function touchEntries(
+  db: D1Database,
+  entries: readonly { type: string; name: string }[],
+  now: number,
+): Promise<void> {
+  if (entries.length === 0) return;
+  await db.batch([
+    takeStamp(db, now),
+    db
+      .prepare(
+        `UPDATE entries SET updated = ${stampValue}, generation = generation + 1
+          WHERE listed = 1 AND (type || '/' || name) IN (SELECT value FROM json_each(?1))`,
+      )
+      .bind(JSON.stringify(entries.map((entry) => `${entry.type}/${entry.name}`))),
+  ]);
 }

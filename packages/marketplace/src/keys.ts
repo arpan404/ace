@@ -1,4 +1,4 @@
-import type { MarketKeySet } from "./signing.ts";
+import type { MarketKeySet } from "@ace/protocol/marketplace";
 
 /**
  * The market keys this build trusts (ADR 0168 §6), at most two so one can rotate. Only the

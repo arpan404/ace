@@ -1,6 +1,8 @@
-import { z } from "zod";
-import { ContainedPath } from "@ace/protocol";
-import { MarketEntryName, MarketHash, MarketVersion } from "@ace/protocol/marketplace";
+import {
+  MarketCatalogFile,
+  MarketCatalogItem,
+  MarketCatalogPlugin,
+} from "@ace/protocol/marketplace";
 import { entryKey, FeedError, type FeedEntry } from "./feed.ts";
 
 /*
@@ -8,46 +10,6 @@ import { entryKey, FeedError, type FeedEntry } from "./feed.ts";
  * typed `entries` beside its `plugins`. A catalog with only `plugins` reads as before, each a
  * `spade-plugin`. Git catalogs carry no signatures, review marks, categories or featured list.
  */
-
-const Source = z.union([ContainedPath, z.literal("."), z.literal("./")]);
-const display = {
-  title: z.string().trim().min(1).max(120).optional().catch(undefined),
-  description: z.string().max(8192).optional().catch(undefined),
-  version: MarketVersion.optional().catch(undefined),
-  keywords: z
-    .array(z.unknown())
-    .optional()
-    .catch(undefined)
-    .transform((items) =>
-      (items ?? [])
-        .flatMap((item) =>
-          typeof item === "string" && item.length > 0 && item.length <= 40 ? [item] : [],
-        )
-        .slice(0, 16),
-    ),
-};
-const CatalogItem = z.object({
-  type: z
-    .string()
-    .min(1)
-    .max(40)
-    .regex(/^[a-z][a-z0-9-]*$/),
-  name: MarketEntryName,
-  source: Source,
-  hash: MarketHash.optional(),
-  ...display,
-});
-const CatalogPlugin = z.object({
-  name: MarketEntryName,
-  source: Source,
-  hash: MarketHash.optional(),
-  ...display,
-});
-const CatalogFile = z.object({
-  name: z.string().max(64).optional().catch(undefined),
-  plugins: z.array(z.unknown()).max(256).default([]),
-  entries: z.array(z.unknown()).max(1024).default([]),
-});
 
 export interface CatalogEntry {
   type: string;
@@ -72,7 +34,7 @@ const folder = (source: string) =>
 
 /** The catalog's entries; an entry without a usable type, name and folder is left out with a note. */
 export function parseCatalog(input: unknown): ParsedCatalog {
-  const file = CatalogFile.safeParse(input);
+  const file = MarketCatalogFile.safeParse(input);
   if (!file.success) throw new FeedError("marketplace.json isn't a catalog this build reads");
   const entries: CatalogEntry[] = [];
   const problems: string[] = [];
@@ -84,7 +46,7 @@ export function parseCatalog(input: unknown): ParsedCatalog {
     entries.push(entry);
   };
   for (const raw of file.data.plugins) {
-    const plugin = CatalogPlugin.safeParse(raw);
+    const plugin = MarketCatalogPlugin.safeParse(raw);
     if (!plugin.success) {
       problems.push("A plugin without a usable name and folder was left out");
       continue;
@@ -99,7 +61,7 @@ export function parseCatalog(input: unknown): ParsedCatalog {
     });
   }
   for (const raw of file.data.entries) {
-    const item = CatalogItem.safeParse(raw);
+    const item = MarketCatalogItem.safeParse(raw);
     if (!item.success) {
       problems.push("An entry without a usable type, name and folder was left out");
       continue;

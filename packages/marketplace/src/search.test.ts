@@ -14,6 +14,8 @@ const item = (name: string, extra: Partial<Searchable> = {}): Searchable => ({
   ...extra,
 });
 const names = (items: Searchable[]) => items.map((entry) => entry.name);
+const popular = (tier: Searchable["tier"], downloads: number, name: string) =>
+  item(name, { tier, downloads, reviewed: true });
 
 describe("marketplace search", () => {
   it("ranks a name match above a title match above a line match", () => {
@@ -75,5 +77,41 @@ describe("marketplace search", () => {
       item("c", { downloads: 50 }),
     ];
     expect(names(search(items, { query: "" }))).toEqual(["b", "c", "a"]);
+  });
+
+  describe("publisher tiers (ADR 0173 §15)", () => {
+    it("rank official above verified above the rest among equals", () => {
+      const items = [
+        popular(undefined, 500, "c-other"),
+        popular("verified", 500, "b-verified"),
+        popular("official", 500, "a-official"),
+      ];
+      expect(names(search(items, { query: "" }))).toEqual(["a-official", "b-verified", "c-other"]);
+      const matched = [
+        item("mail-other", { line: "mail" }),
+        item("mail-verified", { line: "mail", tier: "verified" }),
+        item("mail-official", { line: "mail", tier: "official" }),
+      ];
+      expect(names(search(matched, { query: "mail" }))).toEqual([
+        "mail-official",
+        "mail-verified",
+        "mail-other",
+      ]);
+    });
+
+    it("never lift an official entry with very few downloads over a much more popular one", () => {
+      const items = [popular("official", 40, "small-official"), popular(undefined, 4000, "big")];
+      expect(names(search(items, { query: "" }))).toEqual(["big", "small-official"]);
+      const verified = [popular("verified", 300, "small-verified"), popular(undefined, 900, "big")];
+      expect(names(search(verified, { query: "" }))).toEqual(["big", "small-verified"]);
+    });
+
+    it("never lift a verified entry that matches worse over one that matches better", () => {
+      const items = [
+        item("weekly-digest", { tier: "official", line: "calendar" }),
+        item("calendar"),
+      ];
+      expect(names(search(items, { query: "calendar" }))).toEqual(["calendar", "weekly-digest"]);
+    });
   });
 });

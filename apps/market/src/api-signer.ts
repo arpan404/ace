@@ -1,19 +1,22 @@
 import {
-  CategoriesUpload,
-  FeaturedUpload,
-  MarketKeySet,
   SignatureError,
-  SignedReviewUpload,
-  SignedVersionUpload,
-  SignedWithdrawnUpload,
   verifyManifest,
   verifyReviewMark,
   verifyWithdrawn,
 } from "@ace/marketplace";
+import {
+  CategoriesUpload,
+  FeaturedUpload,
+  MarketKeySet,
+  SignedReviewUpload,
+  SignedVersionUpload,
+  SignedWithdrawnUpload,
+} from "@ace/protocol/marketplace";
 import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
 import type { Route, VersionKey } from "./routes.ts";
 import { withdrawnList } from "./store/read.ts";
+import { signedList, signedText, type ListStored } from "./store/lists.ts";
 import {
   hashIsStored,
   listVersion,
@@ -33,14 +36,14 @@ import {
  * Worker checks against the market's public keys before anything is listed.
  */
 
-async function signerAllowed(request: Request, context: Context): Promise<boolean> {
+export async function signerAllowed(request: Request, context: Context): Promise<boolean> {
   const expected = context.env.MARKET_SIGNER_TOKEN;
   const given = bearer(request);
   if (!expected || !given) return false;
   return sameSecret(given, expected);
 }
 
-function marketKeys(context: Context): MarketKeySet | undefined {
+export function marketKeys(context: Context): MarketKeySet | undefined {
   try {
     return MarketKeySet.safeParse(JSON.parse(context.env.MARKET_PUBLIC_KEYS ?? "")).data;
   } catch {
@@ -48,9 +51,17 @@ function marketKeys(context: Context): MarketKeySet | undefined {
   }
 }
 
-const malformed = () => failure(400, "invalid", "That upload isn't in the signer's form.");
-const noKeys = () => failure(503, "unavailable", "The market has no public keys configured.");
-const signatureRefused = (error: unknown) => {
+export const malformed = () => failure(400, "invalid", "That upload isn't in the signer's form.");
+export const noKeys = () =>
+  failure(503, "unavailable", "The market has no public keys configured.");
+/** The answer to a signed list's upload, by what became of it. */
+export const listAnswer = (outcome: ListStored, issued: number) =>
+  outcome === "stored"
+    ? json({ status: "stored", issued })
+    : outcome === "changed"
+      ? failure(409, "conflict", "The list changed since this edit read it; run the command again.")
+      : failure(409, "conflict", "Another list issued at or after this one is already stored.");
+export const signatureRefused = (error: unknown) => {
   if (error instanceof SignatureError) return refused([{ message: error.message }]);
   throw error;
 };
@@ -66,12 +77,23 @@ export async function signerRoute(
   const db = context.env.MARKET;
   switch (route.kind) {
     case "signer-pending": {
-      const [versions, withdrawals, list] = await Promise.all([
+      // Only versions waiting for the signer: held and blocked ones wait for a maintainer.
+      const [versions, withdrawals, list, blocklist, verified, official] = await Promise.all([
         pendingVersions(db),
         pendingWithdrawals(db),
         withdrawnList(db),
+        signedList(db, "blocklist"),
+        signedList(db, "verified"),
+        signedList(db, "official"),
       ]);
-      return json({ versions, withdrawals, ...(list ? { withdrawn: list.signed } : {}) });
+      return json({
+        versions,
+        withdrawals,
+        ...(list ? { withdrawn: list.signed } : {}),
+        ...(blocklist ? { blocklist: blocklist.signed } : {}),
+        ...(verified ? { verified: verified.signed } : {}),
+        ...(official ? { official: official.signed } : {}),
+      });
     }
     case "signer-object": {
       if (!(await hashIsStored(db, route.hash))) return notFound();
@@ -129,6 +151,9 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
   }
   const stored = await versionForSigning(context.env.MARKET, key);
   if (!stored) return notFound();
+  // A held or blocked version waits for a maintainer, whatever the signer says.
+  if (stored.state !== "pending" && stored.state !== "listed")
+    return failure(409, "conflict", `That version is ${stored.state}; a maintainer decides it.`);
   const matches =
     manifest.type === key.type &&
     manifest.name === key.name &&
@@ -139,7 +164,24 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
     manifest.size === stored.size;
   if (!matches)
     return refused([{ message: "The manifest names another version, publisher or files" }]);
-  await listVersion(context.env.MARKET, key, JSON.stringify(upload.data.manifest), context.now);
+  if (
+    !(await listVersion(
+      context.env.MARKET,
+      key,
+      {
+        manifest: JSON.stringify(upload.data.manifest),
+        hash: stored.hash,
+        size: stored.size,
+        publisher: stored.publisher.id,
+      },
+      context.now,
+    ))
+  )
+    return failure(
+      409,
+      "conflict",
+      "That version was held, blocked or submitted again; a maintainer decides it.",
+    );
   return json({ status: "listed", ...key, hash: stored.hash });
 }
 
@@ -182,12 +224,11 @@ async function withdrawn(request: Request, context: Context) {
     context.env.MARKET,
     {
       issued: list.issued,
-      signed: JSON.stringify(upload.data.withdrawn),
+      signed: signedText(upload.data.withdrawn),
       withdrawn: list.withdrawn,
+      basedOn: upload.data.basedOn,
     },
     context.now,
   );
-  return stored
-    ? json({ status: "stored", issued: list.issued })
-    : failure(409, "conflict", "Another list issued at or after this one is already stored.");
+  return listAnswer(stored, list.issued);
 }

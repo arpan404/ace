@@ -41,16 +41,20 @@ export async function startMarket() {
       },
     ],
   });
-  await harness.listen();
+  const { url } = await harness.listen();
   const worker = harness.getWorker();
   await worker.applyD1Migrations("MARKET");
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
     worker.fetch(`https://market.acehq.dev${path}`, init);
-  const env = (await worker.getEnv()) as { MARKET: D1Database };
+  const env = (await worker.getEnv()) as { MARKET: D1Database; OBJECTS: R2Bucket };
   return {
     fetch,
+    /** Where the Worker listens, for tools that reach it over HTTP (the `ace market` CLI). */
+    url,
     /** The market's D1, for tests of the store's own rules. */
     db: env.MARKET,
+    /** The market's R2, for tests that leave bytes as a request cut off part way would. */
+    objects: env.OBJECTS,
     /** Runs the Worker's scheduled work, as its cron does. */
     scheduled: () => worker.scheduled({ cron: "*/15 * * * *", scheduledTime: new Date() }),
     close: () => harness.close(),
@@ -62,7 +66,18 @@ const lifetime = (iat = Date.now()) => ({ iat, exp: iat + GRANT_LIFETIME_MS });
 
 /** A market publishing grant for `account`, as the account backend mints it. */
 export const marketGrant = (account: string) =>
-  signMarketGrant({ kind: "machine", account, subject: "host-a", ...lifetime() }, grantKey);
+  signMarketGrant(
+    {
+      kind: "machine",
+      account,
+      subject: "host-a",
+      iss: "cloud.acehq.dev",
+      emailVerified: true,
+      authAt: Date.now(),
+      ...lifetime(),
+    },
+    grantKey,
+  );
 export const relayGrant = (account: string, kind: "machine" | "device" = "machine") =>
   signGrant({ kind, account, subject: "host-a", ...lifetime() }, grantKey);
 export const cloudGrant = (account: string) =>
@@ -138,6 +153,18 @@ export async function pendingPublisher(market: Market, type: string, name: strin
     ?.publisher;
 }
 
+/**
+ * A maintainer releases a held version (ADR 0173 §9), as a new publisher's first version is held.
+ * A version that isn't held is left alone.
+ */
+export async function approveHeld(market: Market, type: string, name: string, version = "1.0.0") {
+  const response = await put(market, `/v1/signer/holds/${type}/${name}/${version}`, {
+    decision: "approve",
+  });
+  await response.body?.cancel();
+  return response.status;
+}
+
 /** Publishes, then signs, as publisher and signer together; optionally with a review mark. */
 export async function publishSigned(
   market: Market,
@@ -146,9 +173,15 @@ export async function publishSigned(
   const published = await publish(market, upload);
   if (published.status !== 201 && published.status !== 200)
     throw new Error(`publish failed: ${published.status} ${await published.text()}`);
-  const publisher = await pendingPublisher(market, upload.type, upload.name);
   const version = upload.version ?? "1.0.0";
   const path = `${upload.type}/${upload.name}/${version}`;
+  // A new publisher's first version is held (ADR 0173 §9): a maintainer releases it first.
+  const accepted = (await published.json()) as { held?: boolean };
+  if (accepted.held) {
+    const released = await put(market, `/v1/signer/holds/${path}`, { decision: "approve" });
+    if (released.status !== 200) throw new Error(`release failed: ${released.status}`);
+  }
+  const publisher = await pendingPublisher(market, upload.type, upload.name);
   const signed = await put(market, `/v1/signer/versions/${path}`, {
     manifest: manifestFor(upload, publisher ? { publisher } : {}),
   });

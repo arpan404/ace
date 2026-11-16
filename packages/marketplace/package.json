@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./checks": "./src/checks/index.ts",
+    "./scan": "./src/scan/index.ts",
+    "./profile": "./src/profile.ts",
+    "./image": "./src/image.ts",
     "./signer": "./src/signer.ts",
     "./testing": "./src/testing.ts"
   },
@@ -18,6 +21,7 @@
     "@ace/plugins": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/suits": "workspace:*",
+    "@babel/parser": "8.0.6",
     "@noble/curves": "2.0.1",
     "@noble/hashes": "2.0.1",
     "yaml": "^2.8.1",

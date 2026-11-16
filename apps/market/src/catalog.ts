@@ -1,10 +1,12 @@
-import { search, type FeedEntry, type IndexBody } from "@ace/marketplace";
-import { MarketCategoryId, MarketEntryType } from "@ace/protocol/marketplace";
+import { search, type FeedEntry } from "@ace/marketplace";
+import { type MarketIndexBody as IndexBody } from "@ace/protocol/marketplace";
+import { MarketCategoryId, MarketEntryType, MarketPublisherName } from "@ace/protocol/marketplace";
 import { publicVersions, summary, visibleFeatured, type EntryRow } from "./rules.ts";
+import { entryManagement, entryRow } from "./store/rows.ts";
 import {
   currentStamp,
   featured,
-  findEntry,
+  findEntryJoined,
   listedEntries,
   removedSince,
   versionsOf,
@@ -31,14 +33,23 @@ export interface SearchInput {
   query: string;
   type?: string | undefined;
   category?: string | undefined;
+  /** Only this publisher's entries, by handle (ADR 0173 §6). */
+  publisher?: string | undefined;
+  offset?: number | undefined;
 }
 
-/** Reads a search from a URL's `q`, `type` and `category`, dropping values that name nothing. */
+/**
+ * Reads a search from a URL's `q`, `type`, `category`, `publisher` and `offset`, dropping values
+ * that name nothing.
+ */
 export function searchInput(params: URLSearchParams): SearchInput {
+  const offset = /^\d{1,5}$/.test(params.get("offset") ?? "") ? Number(params.get("offset")) : 0;
   return {
     query: (params.get("q") ?? "").slice(0, 200),
     type: MarketEntryType.safeParse(params.get("type")).data,
     category: MarketCategoryId.safeParse(params.get("category")).data,
+    publisher: MarketPublisherName.safeParse(params.get("publisher")).data,
+    ...(offset > 0 ? { offset } : {}),
   };
 }
 
@@ -48,13 +59,19 @@ export async function searchEntries(
   db: D1Database,
   input: SearchInput,
 ): Promise<{ entries: FeedEntry[]; total: number }> {
-  const entries = (await listedEntries(db)).map(summary);
+  // Only the index's entries: never an unlisted or archived one.
+  const entries = (await listedEntries(db))
+    .filter((row) => !input.publisher || row.publisher.name === input.publisher)
+    .map(summary);
   const found = search(
     entries.map((entry) => Object.assign({}, entry, { source: "market" })),
     input,
   );
+  const offset = input.offset ?? 0;
   return {
-    entries: found.slice(0, searchLimit).map(({ source: _source, ...entry }) => entry),
+    entries: found
+      .slice(offset, offset + searchLimit)
+      .map(({ source: _source, ...entry }) => entry),
     total: found.length,
   };
 }
@@ -69,13 +86,29 @@ export async function featuredEntries(db: D1Database): Promise<EntryRow[]> {
   });
 }
 
-/** An entry's page, if it has a signed version. */
+/**
+ * An entry's page, if it has a signed version: with its listing edit's links and pictures, and
+ * whether it is unlisted. An unlisted entry's page still answers, so a direct link installs it.
+ */
 export async function entryPage(db: D1Database, type: string, name: string) {
-  const [row, versions] = await Promise.all([
-    findEntry(db, type, name),
+  const [joined, versions] = await Promise.all([
+    findEntryJoined(db, type, name),
     versionsOf(db, type, name),
   ]);
   const visible = publicVersions(versions);
-  if (!row || visible.length === 0) return undefined;
-  return { row, entry: summary(row), description: row.description, versions: visible };
+  if (!joined || visible.length === 0) return undefined;
+  const row = entryRow(joined);
+  const manage = entryManagement(joined, {
+    state: joined.publisher_state,
+    verified: joined.publisher_verified,
+  });
+  return {
+    row,
+    entry: summary(row),
+    description: row.description,
+    versions: visible,
+    links: manage.listing?.links ?? [],
+    previews: manage.listing?.previews ?? [],
+    unlisted: manage.visibility === "unlisted",
+  };
 }

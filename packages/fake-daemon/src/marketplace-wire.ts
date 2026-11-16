@@ -12,6 +12,7 @@ import type {
   MarketSource,
 } from "@ace/protocol/marketplace";
 import { search } from "@ace/marketplace";
+import { FakeMarketPublishing, type MarketPublishSeed } from "./marketplace-publish.ts";
 
 /*
  * The marketplace (ADR 0168) as the fake daemon answers it: seeded listings searched on the
@@ -45,6 +46,8 @@ export interface MarketplaceSeed {
   readAt?: number;
   /** A `prepare` for these `type/name` keys is refused with this message. */
   refuse?: Record<string, string>;
+  /** Publishing, Discover and publisher pages (ADR 0173). */
+  publishing?: MarketPublishSeed;
 }
 
 const hash = (seed: string) =>
@@ -139,8 +142,12 @@ export class FakeMarketplaceWire {
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
+  /** Publishing, Discover, publisher pages and the reports sent. */
+  readonly publishing: FakeMarketPublishing;
+
   constructor(now: () => number = () => 1_700_000_000_000) {
     this.#now = now;
+    this.publishing = new FakeMarketPublishing(now);
   }
 
   seed(seed: MarketplaceSeed): void {
@@ -155,6 +162,7 @@ export class FakeMarketplaceWire {
     if (seed.sources) this.#sources = seed.sources;
     this.#refuse = seed.refuse ?? this.#refuse;
     this.#readAt = seed.readAt;
+    if (seed.publishing) this.publishing.seed(seed.publishing);
   }
 
   /** Hears `marketplace.changed` after installs and removals. */
@@ -402,6 +410,16 @@ export class FakeMarketplaceWire {
         };
       case "spadeSkillFiles":
         return { op: "spadeSkillFiles", files: [] };
+      case "discover":
+        return this.publishing.discover(
+          this.#summaries().filter((summary) => summary.source === "market"),
+        );
+      case "publisher":
+        return this.publishing.publisher(operation.handle);
+      case "publish":
+        return this.publishing.publish(operation.request);
+      case "report":
+        return this.publishing.report(operation);
     }
   }
 }

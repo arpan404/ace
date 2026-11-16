@@ -5,8 +5,8 @@ import {
   hashFiles,
   recipeNeeds,
   type ArchiveFile,
-  type Recipe,
 } from "@ace/marketplace";
+import { type Recipe } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import type { BotInspection } from "@ace/marketplace/checks";
 import { Transaction } from "./journal.ts";

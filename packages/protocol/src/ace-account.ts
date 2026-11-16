@@ -31,6 +31,8 @@ export const AceAccount = z.object({
     .max(320)
     .regex(/^[^\s@]+@[^\s@]+$/),
   name: z.string().max(256),
+  /** WorkOS verified the email; the market mints publishing grants only then (ADR 0173 §2). */
+  emailVerified: z.boolean().optional(),
   /**
    * The account has a profile picture, served to its own sessions by `GET
    * /v1/account/picture`. The picture's own address never leaves the backend.

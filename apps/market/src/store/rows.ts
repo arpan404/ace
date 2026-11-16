@@ -1,5 +1,12 @@
 import type { Listing } from "@ace/marketplace";
-import type { EntryRow, EntryState, StoredVersion } from "../rules.ts";
+import type { MarketListingEdit, MarketScanReport } from "@ace/protocol/marketplace";
+import type {
+  EntryManagement,
+  EntryRow,
+  EntryState,
+  StoredVersion,
+  VersionState,
+} from "../rules.ts";
 
 /*
  * Rows this Worker wrote, read back without validating again (ADR 0125): the casts from D1's
@@ -20,12 +27,29 @@ export interface EntryTable {
   by_ace: number;
   updated: number;
   listed: number;
+  visibility: string;
+  archived: number;
+  latest_pick: string | null;
+  listing: string | null;
+  pending_listing: string | null;
+  first_listed: number | null;
+  verified: number;
+  deprecated: string | null;
 }
 
 export interface EntryJoined extends EntryTable {
   publisher_id: string;
   publisher_name: string;
+  publisher_state: string;
+  publisher_verified: number;
   downloads: number;
+}
+
+/** A listing edit waiting for a maintainer, as stored in `entries.pending_listing`. */
+export interface PendingListing {
+  listing: MarketListingEdit;
+  scan: MarketScanReport;
+  at: number;
 }
 
 export interface VersionTable {
@@ -43,6 +67,13 @@ export interface VersionTable {
   by_ace: number;
   withdrawn: string | null;
   downloads: number;
+  state: string;
+  verdict: string | null;
+  block_reason: string | null;
+  approved: number;
+  changelog: string;
+  deprecated: string | null;
+  scanned: number | null;
 }
 
 const list = (text: string) => JSON.parse(text) as string[];
@@ -58,8 +89,28 @@ export function entryState(row: EntryTable): EntryState {
     keywords: list(row.keywords),
     reviewed: row.reviewed === 1,
     byAce: row.by_ace === 1,
+    verified: row.verified === 1,
+    deprecated: row.deprecated ?? undefined,
   };
 }
+
+/** What the publisher set on the entry, with its publisher's standing. */
+export function entryManagement(
+  row: EntryTable,
+  publisher: { state: string; verified: number },
+): EntryManagement {
+  return {
+    visibility: row.visibility === "unlisted" ? "unlisted" : "listed",
+    archived: row.archived === 1,
+    latestPick: row.latest_pick ?? undefined,
+    listing: row.listing ? (JSON.parse(row.listing) as MarketListingEdit) : undefined,
+    publisherActive: publisher.state === "active",
+    publisherVerified: publisher.verified === 1,
+  };
+}
+
+export const pendingListingOf = (row: EntryTable): PendingListing | undefined =>
+  row.pending_listing ? (JSON.parse(row.pending_listing) as PendingListing) : undefined;
 
 export function entryRow(row: EntryJoined): EntryRow {
   return {
@@ -84,6 +135,10 @@ export function storedVersion(row: VersionTable): StoredVersion {
     reviewed: row.reviewed === 1,
     byAce: row.by_ace === 1,
     downloads: row.downloads,
+    state: row.state as VersionState,
+    blockReason: row.block_reason ?? undefined,
+    deprecated: row.deprecated ?? undefined,
+    changelog: row.changelog,
   };
 }
 

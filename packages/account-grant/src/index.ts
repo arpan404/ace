@@ -42,18 +42,31 @@ export const CloudGrantClaims = GrantClaims.extend({
 });
 export type CloudGrantClaims = z.infer<typeof CloudGrantClaims>;
 /**
- * A publisher's grant for ace's marketplace (ADR 0168 §7), from a machine or a device. The relay
- * and ace cloud refuse it, and the market refuses theirs: each parser is strict about its own.
+ * A publisher's grant for ace's marketplace (ADR 0168 §7, ADR 0173 §2), from a machine or a
+ * device. The relay and ace cloud refuse it, and the market refuses theirs: each parser is strict
+ * about its own. `iss` names the backend that minted it, `emailVerified` what WorkOS said of the
+ * account's email, and `authAt` when the session behind it signed in, for actions that need a
+ * recent sign-in.
  */
 export const MarketGrantClaims = GrantClaims.extend({
   aud: z.literal("market.acehq.dev"),
   purpose: z.literal("market-publish"),
+  iss: z
+    .string()
+    .min(1)
+    .max(253)
+    .regex(/^[a-z0-9.-]+(?::\d{1,5})?$/),
+  emailVerified: z.boolean(),
+  authAt: z.number().int().nonnegative(),
 });
 export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
+/** The market grant's issuer, `cloud.acehq.dev`, unless a deployment configures its own. */
+export const MARKET_GRANT_ISSUER = "cloud.acehq.dev";
 const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims, MarketGrantClaims]);
 
 export function signMarketGrant(
-  claims: Omit<GrantClaims, "v" | "kid">,
+  claims: Omit<GrantClaims, "v" | "kid"> &
+    Pick<MarketGrantClaims, "iss" | "emailVerified" | "authAt">,
   key: GrantSigningKey,
 ): string {
   const full = MarketGrantClaims.parse({
@@ -143,13 +156,20 @@ export function verifyCloudGrant(token: string, keys: GrantKeySet, now: number):
   return verifySigned(token, keys, now, "machine", CloudGrantClaims);
 }
 
-/** Verify a market publishing grant, from a machine or a device. Relay and cloud grants fail. */
+/**
+ * Verify a market publishing grant, from a machine or a device: its signature, audience,
+ * purpose, lifetime and issuer. Relay and cloud grants fail. The caller checks `emailVerified`
+ * and `authAt`, which it answers in its own words.
+ */
 export function verifyMarketGrant(
   token: string,
   keys: GrantKeySet,
   now: number,
+  issuer: string = MARKET_GRANT_ISSUER,
 ): MarketGrantClaims {
-  return verifySigned(token, keys, now, undefined, MarketGrantClaims);
+  const claims = verifySigned(token, keys, now, undefined, MarketGrantClaims);
+  if (claims.iss !== issuer) throw new GrantError("Wrong grant issuer");
+  return claims;
 }
 
 function verifySigned<Claims extends GrantClaims>(

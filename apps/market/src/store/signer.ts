@@ -1,11 +1,12 @@
 import type { MarketCategory, MarketPublisher, MarketEntryType } from "@ace/protocol/marketplace";
+import { withdrawalReason } from "@ace/marketplace";
 import {
-  withdrawalReason,
   type PendingVersion,
   type PendingWithdrawal,
   type Withdrawal,
-} from "@ace/marketplace";
+} from "@ace/protocol/marketplace";
 import { bumpGeneration, refreshEntry } from "./entries.ts";
+import { listOutcome, upsertSigned, type ListStored } from "./lists.ts";
 
 /* The signer's side of D1: what waits for it, and what it signed. */
 
@@ -18,27 +19,32 @@ interface PendingRow {
   published: number;
   publisher_id: string;
   publisher_name: string;
+  approved: number;
 }
 
 export async function pendingVersions(db: D1Database): Promise<PendingVersion[]> {
   const { results } = await db
     .prepare(
-      `SELECT v.type, v.name, v.version, v.hash, v.size, v.published,
+      `SELECT v.type, v.name, v.version, v.hash, v.size, v.published, v.approved,
           p.id AS publisher_id, p.name AS publisher_name
         FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
         JOIN publishers p ON p.id = e.publisher
-        WHERE v.listed = 0 ORDER BY v.published LIMIT 500`,
+        WHERE v.state = 'pending' AND v.listed = 0 ORDER BY v.published LIMIT 500`,
     )
     .all<PendingRow>();
-  return results.map((row) => ({
-    type: row.type,
-    name: row.name,
-    version: row.version,
-    hash: row.hash,
-    size: row.size,
-    published: row.published,
-    publisher: { id: row.publisher_id, name: row.publisher_name },
-  }));
+  return results.map((row) => {
+    const pending: PendingVersion = {
+      type: row.type,
+      name: row.name,
+      version: row.version,
+      hash: row.hash,
+      size: row.size,
+      published: row.published,
+      publisher: { id: row.publisher_id, name: row.publisher_name },
+    };
+    if (row.approved === 1) pending.approved = true;
+    return pending;
+  });
 }
 
 export async function pendingWithdrawals(db: D1Database): Promise<PendingWithdrawal[]> {
@@ -54,20 +60,27 @@ export async function pendingWithdrawals(db: D1Database): Promise<PendingWithdra
 export async function versionForSigning(
   db: D1Database,
   key: { type: string; name: string; version: string },
-): Promise<{ hash: string; size: number; publisher: MarketPublisher } | undefined> {
+): Promise<{ hash: string; size: number; state: string; publisher: MarketPublisher } | undefined> {
   const row = await db
     .prepare(
-      `SELECT v.hash, v.size, p.id AS publisher_id, p.name AS publisher_name
+      `SELECT v.hash, v.size, v.state, p.id AS publisher_id, p.name AS publisher_name
         FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
         JOIN publishers p ON p.id = e.publisher
         WHERE v.type = ?1 AND v.name = ?2 AND v.version = ?3`,
     )
     .bind(key.type, key.name, key.version)
-    .first<{ hash: string; size: number; publisher_id: string; publisher_name: string }>();
+    .first<{
+      hash: string;
+      size: number;
+      state: string;
+      publisher_id: string;
+      publisher_name: string;
+    }>();
   return row
     ? {
         hash: row.hash,
         size: row.size,
+        state: row.state,
         publisher: { id: row.publisher_id, name: row.publisher_name },
       }
     : undefined;
@@ -83,16 +96,51 @@ export async function hashIsStored(db: D1Database, hash: string): Promise<boolea
 
 type Key = { type: string; name: string; version: string };
 
-export async function listVersion(db: D1Database, key: Key, manifest: string, now: number) {
-  await db.batch([
+/**
+ * Lists a signed version. The first time it goes live its publisher's count of live versions
+ * moves (ADR 0173 §9) and its entry's first listing is set, in the same batch. Every statement
+ * re-checks that the version is still pending (or already listed, for a signature sent again),
+ * so a hold or block a maintainer made after the route read it stands, and that the version
+ * still names the bytes and publisher the manifest was checked against: a version blocked and
+ * submitted again with other bytes after the route read it never takes the old manifest. False
+ * when it no longer waits for the signer or names other bytes.
+ */
+export async function listVersion(
+  db: D1Database,
+  key: Key,
+  signed: { manifest: string; hash: string; size: number; publisher: string },
+  now: number,
+): Promise<boolean> {
+  const same = `hash = ?5 AND size = ?6
+    AND (SELECT publisher FROM entries WHERE type = ?1 AND name = ?2) = ?7`;
+  const unlisted = `EXISTS (SELECT 1 FROM versions WHERE type = ?1 AND name = ?2 AND version = ?3
+    AND listed = 0 AND state = 'pending' AND ${same})`;
+  const bound = [signed.manifest, signed.hash, signed.size, signed.publisher] as const;
+  const results = await db.batch([
     db
       .prepare(
-        "UPDATE versions SET listed = 1, manifest = ?4 WHERE type = ?1 AND name = ?2 AND version = ?3",
+        `UPDATE publishers SET live_versions = live_versions + 1
+          WHERE id = (SELECT publisher FROM entries WHERE type = ?1 AND name = ?2) AND ${unlisted}`,
       )
-      .bind(key.type, key.name, key.version, manifest),
+      .bind(key.type, key.name, key.version, ...bound),
+    db
+      .prepare(
+        `UPDATE entries SET first_listed = COALESCE(first_listed, ?8)
+          WHERE type = ?1 AND name = ?2 AND ${unlisted}`,
+      )
+      .bind(key.type, key.name, key.version, ...bound, now),
+    db
+      .prepare(
+        `UPDATE versions SET listed = 1, state = 'listed', manifest = ?4
+          WHERE type = ?1 AND name = ?2 AND version = ?3 AND state IN ('pending', 'listed')
+          AND ${same}`,
+      )
+      .bind(key.type, key.name, key.version, ...bound),
     bumpGeneration(db, key.type, key.name),
   ]);
+  if ((results[2]?.meta.changes ?? 0) === 0) return false;
   await refreshEntry(db, key.type, key.name, now);
+  return true;
 }
 
 export async function setReview(
@@ -125,14 +173,19 @@ export async function setReview(
  * marks change together or not at all. Each statement after the list's applies only while this
  * very list is the stored one, so an older upload racing a newer one changes nothing. Sending
  * the stored list again runs the marking and the entries' refresh again, which is how an upload
- * cut off part way carries on. Returns false when a different list issued at or after it is
- * already stored.
+ * cut off part way carries on. A new list is stored only while the one it was based on is still
+ * stored, so two maintainers' edits never undo each other.
  */
 export async function setWithdrawn(
   db: D1Database,
-  list: { issued: number; signed: string; withdrawn: readonly Withdrawal[] },
+  list: {
+    issued: number;
+    signed: string;
+    withdrawn: readonly Withdrawal[];
+    basedOn?: number | undefined;
+  },
   now: number,
-): Promise<boolean> {
+): Promise<ListStored> {
   const hashes = JSON.stringify([...new Set(list.withdrawn.map((entry) => entry.hash))]);
   const affected = async () =>
     (
@@ -151,13 +204,7 @@ export async function setWithdrawn(
   });
   const guard = "(SELECT issued = ?1 AND signed = ?2 FROM withdrawn WHERE id = 1)";
   await db.batch([
-    db
-      .prepare(
-        `INSERT INTO withdrawn (id, issued, signed) VALUES (1, ?1, ?2)
-          ON CONFLICT (id) DO UPDATE SET issued = excluded.issued, signed = excluded.signed
-          WHERE excluded.issued > withdrawn.issued`,
-      )
-      .bind(list.issued, list.signed),
+    upsertSigned(db, "withdrawn", list),
     db
       .prepare(
         `UPDATE entries SET generation = generation + 1 WHERE ${guard} AND EXISTS (
@@ -180,15 +227,13 @@ export async function setWithdrawn(
       )
       .bind(list.issued, list.signed, JSON.stringify(marks)),
   ]);
-  const stored = await db
-    .prepare("SELECT issued, signed FROM withdrawn WHERE id = 1")
-    .first<{ issued: number; signed: string }>();
-  if (stored?.issued !== list.issued || stored.signed !== list.signed) return false;
+  const outcome = await listOutcome(db, "withdrawn", list);
+  if (outcome !== "stored") return outcome;
   const entries = new Map(
     [...before, ...(await affected())].map((row) => [`${row.type}/${row.name}`, row]),
   );
   for (const row of entries.values()) await refreshEntry(db, row.type, row.name, now);
-  return true;
+  return outcome;
 }
 
 export async function setCategories(db: D1Database, list: readonly MarketCategory[]) {

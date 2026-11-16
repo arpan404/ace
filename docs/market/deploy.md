@@ -1,7 +1,8 @@
 # Deploying the market Worker
 
-`apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168): the catalog API, the
-publishing and signer routes, and the public web page. Deploying it is the owner's step; nothing
+`apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168, ADR 0173): the catalog API,
+Discover, publishers' profiles and publishing, the scan pipeline, the signer's routes, and the
+public web page. Deploying it is the owner's step; nothing
 in the repository deploys it or talks to a Cloudflare account.
 
 Run each command from `apps/market`.
@@ -40,7 +41,14 @@ Run each command from `apps/market`.
      ```
 
    Publishing grants are checked against ace cloud's `/v1/keys` (`ACE_ACCOUNT_KEYS_URL`, set in
-   `wrangler.jsonc`). Leave `ACE_GRANT_KEYS` unset in production.
+   `wrangler.jsonc`) and must name `cloud.acehq.dev` as their issuer (`ACE_GRANT_ISSUER` changes
+   it, for a staging backend). Leave `ACE_GRANT_KEYS` unset in production. ace cloud must be
+   deployed with its migration `0003_session_signed_in.sql` first: market grants carry the
+   session's sign-in time and a verified email (ADR 0173 §2), and an older backend's grants are
+   refused.
+
+   The rate-limit bindings (`READS`, `PUBLISHES`, `DOWNLOADS`, `REPORTS`) need nothing beyond
+   `wrangler.jsonc`; they count in memory and store no address.
 
 4. **Deploy.**
 
@@ -61,10 +69,20 @@ Run each command from `apps/market`.
      node scripts/seed.ts https://market.acehq.dev
    ```
 
-   The first publish takes the publisher name `ace` (`ACE_MARKET_PUBLISHER` to change it). The
-   signer token, when given, also uploads `seed/categories.json`. Every seeded version then
-   waits for the signer: run it, review ace's entries, mark them "By ace", and pick the
-   featured list.
+   Before the seed, put ace's own account on the official list, so it publishes as `ace`
+   (ADR 0173 §14):
+
+   ```sh
+   ACE_MARKET_SIGNER_TOKEN=<signer token> ace market official add <account id> --key <key file>
+   ```
+
+   The signer token, when given, also uploads `seed/categories.json`. Every version published as
+   `ace` is held for a maintainer: run `ace market review`, approve ace's entries, run
+   `ace market sign`, then mark them reviewed and pick the featured list and collections.
+
+6. **The cron** runs every quarter hour (`triggers.crons`): download totals, scan steps that
+   didn't fit a request, trending in batches, verification re-checks and pruning, each step
+   bounded. Nothing else needs scheduling.
 
 After changing `spade/config/templates.json`, rebuild the seed's recipes with
 `node scripts/build-seed.ts` and commit the result.

@@ -1,6 +1,8 @@
 # 0168: ace's marketplace
 
-Status: proposed. Date: 2026-11-15. Decided by: the owner (2026-11-15: one general marketplace
+Status: proposed, amended by [ADR 0173](0173-market-publishers-discovery-and-scanning.md)
+(publishers, discovery, publishing from the app, the scan pipeline and account-only writes).
+Date: 2026-11-15. Decided by: the owner (2026-11-15: one general marketplace
 for ace rather than one for Spade, holding Suits, Spade's skills, plugins and bots, and later
 ace's own plugins; then, the same day: the marketplace is hosted, at its own domain
 `market.acehq.dev`). Builds on [ADR 0014](0014-plugins.md) (plugins and git catalogs),
