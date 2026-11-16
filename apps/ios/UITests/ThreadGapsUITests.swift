@@ -25,6 +25,7 @@ import XCTest
         app.threadTitle(timeout: 25).tap()
         let model = app.titleMenuItem("thread.title.model", label: "Model, effort and speed")
         XCTAssertTrue(model.waitForExistence(timeout: 10))
+        screenshot("title-menu")
         model.tap()
         let high = app.buttons["tune.effort.high"]
         XCTAssertTrue(high.waitForExistence(timeout: 15))
