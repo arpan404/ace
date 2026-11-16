@@ -26,7 +26,8 @@ function adminSetting(key: string): boolean {
     key.startsWith("storage.") ||
     key.startsWith("browser.download") ||
     key.startsWith("host.") ||
-    key.startsWith("remote.")
+    key.startsWith("remote.") ||
+    key.startsWith("media.")
   );
 }
 
@@ -52,7 +53,11 @@ export function scopeRefusal(
       ...(requestId ? { requestId } : {}),
     };
   }
-  if (message.type === "settings.set" && adminSetting(message.key)) {
+  if (
+    (message.type === "settings.set" && adminSetting(message.key)) ||
+    (message.type === "settings.setMany" &&
+      message.entries.some((entry) => adminSetting(entry.key)))
+  ) {
     if (scopes?.includes("admin")) return undefined;
     return {
       type: "error",

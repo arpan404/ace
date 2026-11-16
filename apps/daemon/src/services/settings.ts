@@ -58,6 +58,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
+          (!key.startsWith("media.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
           ((key !== "computer.blockedApps" &&
             key !== "providers.codex.toolSource" &&
@@ -136,7 +137,9 @@ function allowedWrite(key: string, layer: string, authorize: SocketContext["auth
     key === "providers.codex.toolSource" ||
     key === "providers.claude.chrome" ||
     key.startsWith("host.") ||
-    key.startsWith("remote.");
+    key.startsWith("remote.") ||
+    // How this machine encodes and delivers screens and video (the Beta media pipeline).
+    key.startsWith("media.");
   if (!adminOnly) return authorize("operate");
   return (
     layer === "global" && authorize("admin") && (key !== "projects.roots" || authorize("projects"))

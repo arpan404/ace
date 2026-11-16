@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { SettingsService, fileIO, type Scheduler } from "@ace/settings";
+import type { JsonValue, SettingsKey } from "@ace/protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -106,35 +107,48 @@ test("a batch that includes a setting the daemon handles on its own is refused w
   expect((await f.settings.get("providers.coder.provider")).provenance).toBe("defaults");
 });
 
-test("an operate-only phone's batch with one admin-only setting is refused whole, nothing written", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-batch-"));
-  const settings = new SettingsService({
-    dataDir: home,
-    io: { ...fileIO, watch: async () => () => {} },
-    scheduler: { schedule: () => () => {} },
-  });
-  cleanups.push(async () => {
-    await settings.close();
-    await rm(home, { recursive: true, force: true });
-  });
-  const f = await remote({ settings });
-  const device = await f.pair(["read", "operate"]);
-  const phone = await f.connectTicket(device.device.id, (await f.ticket(device.token)).ticket);
-  await phone.next();
-  phone.send({
-    type: "settings.setMany",
-    requestId: "admin",
-    entries: [...role, { key: "storage.retentionDays", value: 30 }],
-    layer: { kind: "global" },
-  });
-  for (;;) {
-    const reply = await phone.next();
-    if ("requestId" in reply && reply.requestId === "admin") {
-      expect(reply).not.toMatchObject({ ok: true });
-      break;
+const adminOnlyBatches: { name: string; entries: { key: SettingsKey; value: JsonValue }[] }[] = [
+  { name: "storage retention", entries: [{ key: "storage.retentionDays", value: 30 }] },
+  {
+    name: "the new media pipeline",
+    entries: [
+      { key: "media.encode", value: "auto" },
+      { key: "media.delivery", value: "auto" },
+    ],
+  },
+];
+test.each(adminOnlyBatches)(
+  "an operate-only phone's batch with $name in it is refused whole, nothing written",
+  async ({ entries }) => {
+    const home = await mkdtemp(join(tmpdir(), "ace-batch-"));
+    const settings = new SettingsService({
+      dataDir: home,
+      io: { ...fileIO, watch: async () => () => {} },
+      scheduler: { schedule: () => () => {} },
+    });
+    cleanups.push(async () => {
+      await settings.close();
+      await rm(home, { recursive: true, force: true });
+    });
+    const f = await remote({ settings });
+    const device = await f.pair(["read", "operate"]);
+    const phone = await f.connectTicket(device.device.id, (await f.ticket(device.token)).ticket);
+    await phone.next();
+    phone.send({
+      type: "settings.setMany",
+      requestId: "admin",
+      entries: [...role, ...entries],
+      layer: { kind: "global" },
+    });
+    for (;;) {
+      const reply = await phone.next();
+      if ("requestId" in reply && reply.requestId === "admin") {
+        expect(reply).not.toMatchObject({ ok: true });
+        break;
+      }
     }
-  }
-  expect((await settings.get("providers.coder.model")).provenance).toBe("defaults");
-  expect((await settings.get("providers.coder.provider")).provenance).toBe("defaults");
-  expect((await settings.get("storage.retentionDays")).provenance).toBe("defaults");
-});
+    expect((await settings.get("providers.coder.model")).provenance).toBe("defaults");
+    expect((await settings.get("providers.coder.provider")).provenance).toBe("defaults");
+    for (const { key } of entries) expect((await settings.get(key)).provenance).toBe("defaults");
+  },
+);
