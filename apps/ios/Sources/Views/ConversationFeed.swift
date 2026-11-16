@@ -40,15 +40,12 @@ private final class TranscriptScrollIntent {
 /// accessibility client attached (VoiceOver, Voice Control, UI automation), a drag against that
 /// standing target re-places the lazy rows on every update and pins the main thread.
 struct ConversationFeed: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.aceDensityId) private var densityId
     let model: ClientModel
     let thread: ThreadModel
     let acceptedSend: Int
     let links: TranscriptLinks
-    /// The composer and its strip, floating over the feed's bottom edge.
-    var barHeight: CGFloat = 0
     /// The person reads away from the live end; the composer's floaters offer Scroll to end.
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
@@ -69,13 +66,11 @@ struct ConversationFeed: View {
     /// Previous resident block-to-items snapshot, for classifying missing
     /// blocks on streaming changes without a fresh service reply.
     @State private var lastBlockItems: [String: [String]] = [:]
-    /// How far the keyboard reaches above the feed's bottom edge.
-    @State private var keyboardLift: CGFloat = 0
+    /// The keyboard covers part of the feed: a tap on the rows only puts it away.
+    @State private var keyboardUp = false
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
-    /// keyboard's own animation carries the rows there.
+    /// system moves the inset and the rows with the keyboard, on its curve.
     @State private var keyboardMoving = false
-    /// The keyboard's last animation duration: the composer opens on the same spring as it.
-    @State private var keyboardDuration = 0.35
     @State private var feedBottom: CGFloat = 0
     @State private var feedFrame: CGRect = .zero
     private var shown: ThreadModel { reading.shown ?? thread }
@@ -171,11 +166,9 @@ struct ConversationFeed: View {
                 }
                 // A finished turn with changes: one quiet line to review them (`ReviewReadyLine`).
                 ReviewReadyLine(model: model)
-                // Room for the composer, its strip and the keyboard, and under the last row so it
-                // clears the strip tucked above the composer. The feed itself never changes size as
-                // they move: resizing a long lazy transcript re-estimates its height and throws the
-                // scroll offset, so only this row grows and shrinks.
-                Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
+                // A breath under the last row. The composer, its strip and the keyboard are the
+                // system's bottom bar and keyboard insets (`ThreadFoot`), never room in the rows.
+                Color.clear.frame(height: AceDesign.Space.group).accessibilityHidden(true)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
             }
@@ -197,6 +190,10 @@ struct ConversationFeed: View {
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
+        // Following the end, the bottom stays put as the keyboard, the composer or a strip changes
+        // the insets: the scroll moves in the same transaction as they do, on their curve. Reading
+        // elsewhere, the rows stay where they are and the foot covers them.
+        .defaultScrollAnchor(pinned ? .bottom : nil, for: .sizeChanges)
         .background(AceTheme.Colours.background)
         .overlay(alignment: .top) {
             if reading.loading, reading.operation == "older" || reading.operation == "newer" {
@@ -206,7 +203,7 @@ struct ConversationFeed: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        .modifier(TapPutsKeyboardAway(up: keyboardLift > 0))
+        .modifier(TapPutsKeyboardAway(up: keyboardUp))
         // ⇧⌥⌘↑ and ↓ on a hardware keyboard, as on the web: the turn before and after the one on
         // top. They repeat the thread menu's Turns list, never the only way.
         .background { TurnKeys { stepTurn($0, proxy: proxy) } }
@@ -379,16 +376,11 @@ struct ConversationFeed: View {
             .onChange(of: feedFrame.size) { _, _ in applyLayoutRevision() }
             .onChange(of: model.connection) { _, connection in connectionChanged(connection) }
     }
-    /// The keyboard and the composer: the room under the last row.
+    /// The keyboard: whether it is up, and while it moves.
     private func observeRoom<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-                keyboardWillMove(note, proxy: proxy)
-            }
-            .onChange(of: barHeight) { old, new in
-                // The composer opening as it takes the keyboard moves on the keyboard's spring.
-                let motion: Animation = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
-                roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
+                keyboardWillMove(note)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
                 keyboardMoving = false
@@ -518,11 +510,10 @@ struct ConversationFeed: View {
             reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
         }
     }
-    private func keyboardWillMove(_ note: Notification, proxy: ScrollViewProxy) {
+    private func keyboardWillMove(_ note: Notification) {
         guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
         // Intersection, not just vertical overlap: a floating keyboard
-        // beside the reading column reserves no space over it.
+        // beside the reading column covers nothing of it.
         let lift: CGFloat
         if feedFrame == .zero {
             lift = max(0, feedBottom - end.minY)
@@ -531,18 +522,11 @@ struct ConversationFeed: View {
                 feedMinX: Double(feedFrame.minX), feedMaxX: Double(feedFrame.maxX), feedBottom: Double(feedBottom),
                 keyboardMinX: Double(end.minX), keyboardMaxX: Double(end.maxX), keyboardMinY: Double(end.minY)))
         }
-        if duration > 0 { keyboardDuration = duration }
-        guard lift != keyboardLift else { return }
-        let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
-        let growth = lift - keyboardLift
+        let up = lift > 0
+        guard up != keyboardUp else { return }
         keyboardMoving = true
-        // The room is empty space: it changes at once, and only the scroll animates, so the
-        // two never drift apart on different curves.
-        var instant = Transaction()
-        instant.disablesAnimations = true
-        withTransaction(instant) { keyboardLift = lift }
-        railPlace?.keyboard(up: lift > 0)
-        roomChanged(by: growth, motion: motion, proxy: proxy)
+        keyboardUp = up
+        railPlace?.keyboard(up: up)
     }
     private func appeared(proxy: ScrollViewProxy) {
         model.readingWillMove = { captureTop() }
@@ -590,16 +574,6 @@ struct ConversationFeed: View {
         let shows = TranscriptEndButton.shows(.init(fromEnd: Double(intent.metrics.bottom), slack: Double(AceDesign.Space.group),
                                                     following: following, windowApart: reading.thread != nil && !reading.joined))
         if behind != shows { behind = shows }
-    }
-    /// The room at the end changed (the keyboard, the composer or its strip). Following the end,
-    /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and
-    /// are covered, unless the smaller room would park the view past the end.
-    private func roomChanged(by growth: CGFloat, motion: Animation?, proxy: ScrollViewProxy) {
-        guard !intent.active, growth != 0, pinned || intent.metrics.bottom + growth < 0 else { return }
-        // The room has its new height in this same update, so the end is where the scroll lands,
-        // starting in the same frame as the keyboard.
-        settle.cancel()
-        withAnimation(motion) { toEnd(proxy) }
     }
     private func toEnd(_ proxy: ScrollViewProxy) {
         // Before the rows land there is no end to reach: a settle started on the placeholder
@@ -783,10 +757,9 @@ struct ConversationFeed: View {
     /// with no focus landing writes nothing the feed observes.
     private func place(_ event: TranscriptFeedPlace.Event, proxy: ScrollViewProxy) {
         let metrics = intent.metrics
-        // The composer and keyboard float over the feed's bottom edge, inside its insets.
+        // The composer and the keyboard are in the bottom inset: nothing covers the feed besides.
         let geometry = TranscriptFocusLanding.Geometry(viewport: Double(metrics.viewport),
-            topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
-            covered: Double(barHeight + keyboardLift))
+            topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset), covered: 0)
         let facts = TranscriptFeedPlace.Facts(keeper: placeFacts(), geometry: geometry, rowShowing: rowShowing)
         var landing = reading.landing
         let actions = TranscriptFeedPlace.next(event, keeper: &anchor.keeper, landing: &landing, facts: facts, now: model.now())

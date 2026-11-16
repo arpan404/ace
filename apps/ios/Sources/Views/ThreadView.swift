@@ -124,7 +124,7 @@ struct ThreadView: View {
                                                 openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, behind: $behind, jumps: jumps, railPlace: railPlace)
+                         behind: $behind, jumps: jumps, railPlace: railPlace)
             .modifier(TurnRailOverlay(model: model, threadId: thread.id, behind: behind, place: railPlace, bottom: barHeight))
             .markdownShelf(threadId: thread.id)
     }
@@ -141,7 +141,7 @@ struct ThreadView: View {
                 } else {
                     ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
                                    changesScope: changesScope, scopeShown: { changesScope = nil },
-                                   barHeight: barHeight, openChat: { select(.chat) })
+                                   openChat: { select(.chat) })
                 }
             }
         }
@@ -162,7 +162,7 @@ struct ThreadView: View {
 
     private func content(pageWidth: CGFloat) -> some View {
         headed
-            .modifier(FloatingBar(height: $barHeight) { bottomBar })
+            .modifier(ThreadFoot(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -635,28 +635,33 @@ private struct GoalPresentation: Identifiable {
     var id: Int { epoch }
 }
 
-/// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
-/// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
-/// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
-/// words never show in the gap above the keyboard or behind the home indicator.
-private struct FloatingBar<Bar: View>: ViewModifier {
+/// The thread's foot as the system's bottom bar: on iOS 26 a `safeAreaBar`, so the transcript's
+/// insets, keyboard avoidance and the soft scroll edge under the composer's glass are the system's
+/// own, and the rows and the composer move together on the keyboard's curve. Before iOS 26 a
+/// bottom inset over the page colour, which runs on down behind the keyboard's translucent edge
+/// and the home indicator. The composer keeps the transcript's reading width.
+private struct ThreadFoot<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
-        ZStack(alignment: .bottom) {
-            content.ignoresSafeArea(.keyboard, edges: .bottom)
-            // The composer keeps the transcript's reading width; its floor spans the window.
-            bar()
-                .frame(maxWidth: ReadingColumn.maxWidth)
-                .frame(maxWidth: .infinity)
-                .background(alignment: .bottom) { BarFloor() }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        if #available(iOS 26, *) {
+            content.safeAreaBar(edge: .bottom, spacing: AceTheme.Spacing.none) { placed }
+        } else {
+            content.safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+                placed.background(alignment: .bottom) { BarFloor() }
+            }
         }
+    }
+    private var placed: some View {
+        bar()
+            .frame(maxWidth: ReadingColumn.maxWidth)
+            .frame(maxWidth: .infinity)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
     }
 }
 
-/// The page colour from the composer's lower edge on down, behind the keyboard's translucent
-/// edge and the home indicator. The composer itself stays glass over the transcript.
+/// Before iOS 26, the page colour from the composer's lower edge on down, behind the keyboard's
+/// translucent edge and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
     private let below = AceDesign.Size.tap * 8
     private let fade = AceDesign.Space.margin
