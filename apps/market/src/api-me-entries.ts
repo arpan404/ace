@@ -30,11 +30,12 @@ import {
   setLatestPick,
   setPendingListing,
   setVisibility,
+  type Owned,
 } from "./store/me-entries.ts";
 import { blockReason, putReport, scanContext } from "./store/me-scan.ts";
 import { addAppeal, offerTransfer, signals } from "./store/me-transfers.ts";
 import { pinsOf, publisherByHandle, publisherById } from "./store/profiles.ts";
-import { addWithdrawal, storedVersion } from "./store/publish.ts";
+import { addWithdrawal, ownerOf, storedVersion } from "./store/publish.ts";
 import { versionsOf } from "./store/read.ts";
 import { entryManagement } from "./store/rows.ts";
 
@@ -67,6 +68,8 @@ const invalid = (message: string) => failure(400, "invalid", message);
 const noEntry = () => failure(404, "not_found", "No such entry.");
 const noVersion = () => failure(404, "not_found", "No such version.");
 const done = () => json({ status: "done" });
+/** A write that re-checked the owner: done, or 403 when the entry moved on the way. */
+const settled = (changed: boolean) => (changed ? done() : notYours());
 const blocked = (scan: MarketScanReport) =>
   json({ error: "blocked", message: `The scan refused this: ${blockReason(scan)}`, scan }, 422);
 
@@ -82,17 +85,20 @@ export async function meEntryRoute(
   if (!row) return noEntry();
   const publisher = authed.publisher;
   if (!publisher || row.publisher !== publisher.id) return notYours();
-  const key = { type: route.type, name: route.name };
+  const key = { type: route.type, name: route.name, publisher: publisher.id };
   const now = context.now;
   switch (route.kind) {
     case "me-entry": {
       const own = await publisherById(db, publisher.id);
       return json(await ownEntry(db, context.env.OBJECTS, row, own ? pinsOf(own) : []));
     }
-    case "me-entry-delete":
-      return (await deleteNeverListed(db, context.env.OBJECTS, key, publisher.id))
+    case "me-entry-delete": {
+      const outcome = await deleteNeverListed(db, context.env.OBJECTS, key);
+      if (outcome === "not-yours") return notYours();
+      return outcome === "deleted"
         ? done()
         : failure(409, "conflict", "An entry that was ever listed can only be withdrawn.");
+    }
     case "me-listing": {
       const parsed = MarketListingEdit.safeParse(await readJson(request, 64 * 1024));
       if (!parsed.success) return invalid("That isn't a listing.");
@@ -128,20 +134,17 @@ export async function meEntryRoute(
         if (!live.some((version) => version.version === pick))
           return refused([{ message: `${pick} isn't a live version of this entry.` }]);
       }
-      await setLatestPick(db, key, pick, now);
-      return done();
+      return settled(await setLatestPick(db, key, pick, now));
     }
     case "me-visibility": {
       const parsed = MarketVisibilitySet.safeParse(await readJson(request, 4 * 1024));
       if (!parsed.success) return invalid("Visibility is listed or unlisted.");
-      await setVisibility(db, key, parsed.data.visibility, now);
-      return done();
+      return settled(await setVisibility(db, key, parsed.data.visibility, now));
     }
     case "me-archived": {
       const parsed = MarketArchivedSet.safeParse(await readJson(request, 4 * 1024));
       if (!parsed.success) return invalid("Say whether the entry is archived.");
-      await setArchived(db, key, parsed.data.archived, now);
-      return done();
+      return settled(await setArchived(db, key, parsed.data.archived, now));
     }
     case "me-entry-withdraw": {
       const parsed = MarketWithdrawRequest.safeParse(await readJson(request, 16 * 1024));
@@ -149,13 +152,16 @@ export async function meEntryRoute(
       const live = liveVersions(await versionsOf(db, key.type, key.name));
       if (live.length === 0) return refused([{ message: "This entry has no live version." }]);
       for (const version of live)
-        await addWithdrawal(db, {
-          ...key,
-          version: version.version,
-          hash: version.hash,
-          reason: parsed.data.reason,
-          at: now,
-        });
+        if (
+          !(await addWithdrawal(db, {
+            ...key,
+            version: version.version,
+            hash: version.hash,
+            reason: parsed.data.reason,
+            at: now,
+          }))
+        )
+          return notYours();
       return json({ status: "pending", versions: live.map((version) => version.version) }, 202);
     }
     case "me-transfer":
@@ -186,7 +192,7 @@ async function editListing(
   context: Context,
   publisher: AuthedPublisher,
   reviewed: boolean,
-  key: { type: string; name: string },
+  key: Owned,
   listing: MarketListingEdit,
 ): Promise<Response> {
   const problems = listing.links.flatMap((link) => {
@@ -207,11 +213,12 @@ async function editListing(
   );
   if (scan.verdict === "block") return blocked(scan);
   if (reviewed || scan.verdict === "warn") {
-    await setPendingListing(context.env.MARKET, key, { listing, scan, at: context.now });
+    if (!(await setPendingListing(context.env.MARKET, key, { listing, scan, at: context.now })))
+      return notYours();
     await putReport(context.env.OBJECTS, listingReportKey(key), scan);
     return json({ status: "pending", scan }, 202);
   }
-  await applyListing(context.env.MARKET, key, listing, context.now);
+  if (!(await applyListing(context.env.MARKET, key, listing, context.now))) return notYours();
   return json({ status: "done", scan });
 }
 
@@ -235,7 +242,10 @@ async function transfer(
     to: to.id,
     now: context.now,
   });
-  return offer ? json(offer, 201) : failure(409, "conflict", "The offer couldn't be made.");
+  if (offer) return json(offer, 201);
+  return (await ownerOf(db, key.type, key.name)) === publisher.id
+    ? failure(409, "conflict", "The offer couldn't be made.")
+    : notYours();
 }
 
 async function versionAction(
@@ -246,7 +256,12 @@ async function versionAction(
 ): Promise<Response | undefined> {
   if (!("version" in route)) return undefined;
   const db = context.env.MARKET;
-  const key = { type: route.type, name: route.name, version: route.version };
+  const key = {
+    type: route.type,
+    name: route.name,
+    version: route.version,
+    publisher: publisher.id,
+  };
   const stored = await storedVersion(db, key);
   if (!stored) return noVersion();
   switch (route.kind) {
@@ -262,29 +277,37 @@ async function versionAction(
         ),
       );
       if (scan.verdict === "block") return blocked(scan);
-      await setChangelog(db, key, parsed.data.text, context.now);
+      if (!(await setChangelog(db, key, parsed.data.text, context.now))) return notYours();
       return json({ status: "done", scan });
     }
     case "me-deprecate": {
       const parsed = MarketDeprecation.safeParse(await readJson(request, 4 * 1024));
       if (!parsed.success) return invalid("A deprecation needs a note of at most 500 characters.");
-      await setDeprecated(db, key, parsed.data.note, context.now);
-      return done();
+      return settled(await setDeprecated(db, key, parsed.data.note, context.now));
     }
     case "me-undeprecate":
-      await setDeprecated(db, key, null, context.now);
-      return done();
+      return settled(await setDeprecated(db, key, null, context.now));
     case "me-version-withdraw": {
       if (stored.state === "blocked") return noVersion();
       const parsed = MarketWithdrawRequest.safeParse(await readJson(request, 16 * 1024));
       if (!parsed.success) return invalid("Say why the version is withdrawn.");
-      await addWithdrawal(db, {
+      const added = await addWithdrawal(db, {
         ...key,
         hash: stored.hash,
         reason: parsed.data.reason,
         at: context.now,
       });
-      return json({ status: "pending", ...key, hash: stored.hash }, 202);
+      if (!added) return notYours();
+      return json(
+        {
+          status: "pending",
+          type: key.type,
+          name: key.name,
+          version: key.version,
+          hash: stored.hash,
+        },
+        202,
+      );
     }
     case "me-appeal": {
       if (stored.state !== "blocked" && stored.state !== "held")
@@ -301,14 +324,14 @@ async function versionAction(
       const added = await addAppeal(db, {
         id,
         ...key,
-        publisher: publisher.id,
         note: parsed.data.note,
         replacement,
         now: context.now,
       });
-      return added
-        ? json({ status: "done", id }, 201)
-        : failure(409, "conflict", "This version already has an open appeal.");
+      if (added) return json({ status: "done", id }, 201);
+      return (await ownerOf(db, key.type, key.name)) === publisher.id
+        ? failure(409, "conflict", "This version already has an open appeal.")
+        : notYours();
     }
     default:
       return undefined;

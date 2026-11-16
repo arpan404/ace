@@ -277,7 +277,8 @@ async function profileWrites(
             message: `${pin.type}/${pin.name} isn't one of your listed entries`,
           })),
         );
-      await setPins(db, publisher.id, pins);
+      if (!(await setPins(db, publisher.id, pins)))
+        return failure(403, "forbidden", "One of these entries isn't yours and listed any more.");
       return done();
     }
     default:

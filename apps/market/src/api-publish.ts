@@ -255,12 +255,14 @@ export async function withdraw(
   if (!stored || stored.state === "blocked") return failure(404, "not_found", "No such version.");
   const parsed = WithdrawRequest.safeParse(await readJson(request, 16 * 1024));
   if (!parsed.success) return failure(400, "invalid", "Say why the version is withdrawn.");
-  await addWithdrawal(db, {
+  const added = await addWithdrawal(db, {
     ...key,
+    publisher: owner,
     hash: stored.hash,
     reason: parsed.data.reason,
     at: context.now,
   });
+  if (!added) return notYours();
   return json({ status: "pending", ...key, hash: stored.hash }, 202);
 }
 

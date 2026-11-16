@@ -61,15 +61,19 @@ export async function transferById(db: D1Database, id: string) {
   );
 }
 
-/** Offers the entry; an earlier offer of it is replaced. */
+/**
+ * Offers the entry, only while `from` still owns it; an earlier offer of it is replaced. Nothing
+ * when the entry moved to someone else first.
+ */
 export async function offerTransfer(
   db: D1Database,
   input: { id: string; entry: MarketEntryRef; from: string; to: string; now: number },
 ): Promise<MarketTransfer | undefined> {
-  await db
+  const result = await db
     .prepare(
       `INSERT INTO transfers (id, type, name, from_publisher, to_publisher, at, expires)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+          WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?2 AND name = ?3 AND publisher = ?4)
         ON CONFLICT (type, name) DO UPDATE SET id = excluded.id,
           from_publisher = excluded.from_publisher, to_publisher = excluded.to_publisher,
           at = excluded.at, expires = excluded.expires`,
@@ -84,6 +88,7 @@ export async function offerTransfer(
       input.now + transferDays * 86_400_000,
     )
     .run();
+  if (result.meta.changes !== 1) return undefined;
   const row = await transferById(db, input.id);
   return row ? transferOf(row, input.from) : undefined;
 }
@@ -134,7 +139,10 @@ export async function deleteTransfer(db: D1Database, id: string): Promise<void> 
   await db.prepare("DELETE FROM transfers WHERE id = ?1").bind(id).run();
 }
 
-/** An appeal on a blocked or held version; one open appeal per version. */
+/**
+ * An appeal on a blocked or held version, while the entry is still `publisher`'s; one open
+ * appeal per version.
+ */
 export async function addAppeal(
   db: D1Database,
   input: {
@@ -151,8 +159,10 @@ export async function addAppeal(
   const result = await db
     .prepare(
       `INSERT INTO appeals (id, type, name, version, publisher, note, replacement, at)
-        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 WHERE NOT EXISTS (
-          SELECT 1 FROM appeals WHERE type = ?2 AND name = ?3 AND version = ?4 AND state = 'open')`,
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+          WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?2 AND name = ?3 AND publisher = ?5)
+          AND NOT EXISTS (SELECT 1 FROM appeals
+            WHERE type = ?2 AND name = ?3 AND version = ?4 AND state = 'open')`,
     )
     .bind(
       input.id,

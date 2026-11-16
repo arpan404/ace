@@ -204,15 +204,29 @@ export async function setAvatar(db: D1Database, id: string, sha256: string): Pro
   await db.prepare("UPDATE publishers SET avatar = ?2 WHERE id = ?1").bind(id, sha256).run();
 }
 
+/**
+ * Sets the publisher's pins in one statement that re-checks every pinned entry is still theirs
+ * and listed; false when one moved or left the index on the way.
+ */
 export async function setPins(
   db: D1Database,
   id: string,
   pins: readonly MarketEntryRef[],
-): Promise<void> {
-  await db
-    .prepare("UPDATE publishers SET pins = ?2 WHERE id = ?1")
-    .bind(id, JSON.stringify(pins))
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE publishers SET pins = ?2 WHERE id = ?1
+        AND (SELECT COUNT(*) FROM entries WHERE publisher = ?1 AND listed = 1
+          AND (type || '/' || name) IN (SELECT value FROM json_each(?3))) = ?4`,
+    )
+    .bind(
+      id,
+      JSON.stringify(pins),
+      JSON.stringify(pins.map((pin) => `${pin.type}/${pin.name}`)),
+      pins.length,
+    )
     .run();
+  return result.meta.changes === 1;
 }
 
 /** Takes an entry off a publisher's pins: when it moves to another publisher or is deleted. */

@@ -163,16 +163,38 @@ export async function storePending(
   return { owner, hash: stored?.hash };
 }
 
+/**
+ * A withdrawal waiting for the signer, recorded only while the entry is still `publisher`'s; false
+ * when it isn't (a transfer accepted while the request was on its way).
+ */
 export async function addWithdrawal(
   db: D1Database,
-  input: { type: string; name: string; version: string; hash: string; reason: string; at: number },
-): Promise<void> {
-  await db
+  input: {
+    publisher: string;
+    type: string;
+    name: string;
+    version: string;
+    hash: string;
+    reason: string;
+    at: number;
+  },
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `INSERT INTO pending_withdrawals (type, name, version, hash, reason, at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?7)
         ON CONFLICT (type, name, version) DO UPDATE SET reason = excluded.reason, at = excluded.at`,
     )
-    .bind(input.type, input.name, input.version, input.hash, input.reason, input.at)
+    .bind(
+      input.type,
+      input.name,
+      input.version,
+      input.hash,
+      input.reason,
+      input.at,
+      input.publisher,
+    )
     .run();
+  return result.meta.changes === 1;
 }
