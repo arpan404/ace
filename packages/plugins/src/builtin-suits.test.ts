@@ -1,5 +1,17 @@
 import { afterEach, expect, it } from "vitest";
-import { mkdtemp, readFile, readdir, rename, rm, mkdir, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  mkdir,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,6 +127,35 @@ it("a file the system drops into a shipped Suit doesn't stop its update", async 
   ]);
   expect(await contentOf(library, "tarn")).toBe("v2");
 });
+
+it("a file or link the person added to a shipped Suit, hidden or not, keeps it theirs", async () => {
+  const library = join(await home(), "suits");
+  await seedBuiltinSuits(library, await release({ tarn: "v1", mizzle: "v1" }));
+  await writeFile(join(library, "tarn", ".notes"), "mine");
+  await symlink("suit.json", join(library, "mizzle", "alias.json"));
+  const seeded = await seedBuiltinSuits(library, await release({ tarn: "v2", mizzle: "v2" }));
+  expect(seeded.updated).toEqual([]);
+  expect(await readFile(join(library, "tarn", ".notes"), "utf8")).toBe("mine");
+  expect(await readlink(join(library, "mizzle", "alias.json"))).toBe("suit.json");
+});
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "a first versioned start cut short still never brings back a Suit the person deleted",
+  async () => {
+    const library = join(await home(), "suits");
+    const old = await release({ aaa: "v1", tarn: "v1" });
+    await cp(join(old.root, "aaa"), join(library, "aaa"), { recursive: true });
+    await writeFile(join(library, ".shipped"), "aaa\ntarn\n");
+    // Reading the first Suit fails, so the run stops before it reaches the deleted one.
+    await chmod(join(library, "aaa", "suit.json"), 0o000);
+    const next = await release({ aaa: "v2", tarn: "v2" });
+    await expect(seedBuiltinSuits(library, next)).rejects.toThrow();
+    await chmod(join(library, "aaa", "suit.json"), 0o644);
+    await seedBuiltinSuits(library, next);
+    expect(await suitsIn(library)).toEqual(["aaa"]);
+    expect(await contentOf(library, "aaa")).toBe("v2");
+  },
+);
 
 it("a shipped Suit the person removed is never copied back, even in a new version", async () => {
   const library = join(await home(), "suits");

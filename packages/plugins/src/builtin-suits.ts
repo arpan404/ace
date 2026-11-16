@@ -63,7 +63,8 @@ export async function seedBuiltinSuits(
   await settleInterrupted(library);
   const versions = (await readBuiltinsLock(shipped.lock)).suits;
   const lock = await readInstalled(library);
-  const offeredBefore = lock ? new Set<string>() : await readLegacy(library);
+  // Read until a run finishes: a migration cut short keeps the deletions it hadn't recorded.
+  const offeredBefore = await readLegacy(library);
   const installed: InstalledLock = lock ?? { lockVersion: 1, items: {} };
   const present = new Set(await readdir(library));
   const suits = (await readdir(shipped.root, { withFileTypes: true }))
@@ -111,7 +112,7 @@ export async function seedBuiltinSuits(
   } finally {
     if (changed) await writeInstalled(library, installed);
   }
-  if (lock === undefined) await rm(join(library, legacyName), { force: true });
+  if (offeredBefore.size > 0) await rm(join(library, legacyName), { force: true });
   return result;
 }
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -40,24 +40,34 @@ export async function readBuiltinsLock(path: string): Promise<BuiltinsLock> {
 }
 
 /**
- * The hash of a folder's files: every regular file below it by `/`-separated relative path and
- * the SHA-256 of its bytes, sorted. Dot names (`.DS_Store`, ace's own staging) and links are
- * left out, so a Finder visit doesn't make a copy look edited, and a folder hashes the same
- * whether it came from the repo or from a release's packed archive.
+ * Files the OS leaves in folders a person only looked at. Nothing else is skipped: anything a
+ * person adds to a shipped copy, hidden or not, makes it theirs, so an update never deletes it.
+ */
+const osClutter = (name: string) =>
+  name === ".DS_Store" || name.startsWith("._") || name === "Thumbs.db" || name === "desktop.ini";
+
+/**
+ * The hash of a folder: every entry below it by `/`-separated relative path, sorted, with the
+ * SHA-256 of a file's bytes or a link's target. OS clutter (`osClutter`) is left out, so a
+ * Finder visit doesn't make a copy look edited, and a folder hashes the same whether it came
+ * from the repo or from a release's packed archive.
  */
 export async function folderHash(folder: string): Promise<string> {
   const lines: string[] = [];
   const walk = async (directory: string, prefix: string) => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (entry.name.startsWith(".")) continue;
+      if (osClutter(entry.name)) continue;
       const path = join(directory, entry.name);
-      if (entry.isDirectory()) await walk(path, `${prefix}${entry.name}/`);
+      const name = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) await walk(path, `${name}/`);
       else if (entry.isFile())
         lines.push(
-          `${prefix}${entry.name}\0${createHash("sha256")
+          `${name}\0${createHash("sha256")
             .update(await readFile(path))
             .digest("hex")}\n`,
         );
+      else if (entry.isSymbolicLink()) lines.push(`${name}\0link\0${await readlink(path)}\n`);
+      else lines.push(`${name}\0other\n`);
     }
   };
   await walk(folder, "");
