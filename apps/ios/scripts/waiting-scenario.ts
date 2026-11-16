@@ -3,16 +3,27 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
 /*
  * A thread whose main agent only waits, for the spike daemon: its turn has ended while two
  * subagents still work and a command it started runs in the background, so the composer's strip
- * reads "Waiting for 2 subagents · 1 command running" with its Stop. No provider process runs.
+ * reads "Waiting for 2 subagents · 1 command running" with its Stop. `ios-waiting-goal` is the same
+ * with a goal, for the pills' row overflowing at large text. No provider process runs.
  */
 
 type Details = (branch: string) => Record<string, unknown>;
 const minute = 60_000;
 
 export function waitingScenario(daemon: FakeDaemon, details: Details): void {
+  waitingThread(daemon, details, "ios-waiting");
+  // The same wait with a goal, so the pills' row (status, command, goal) is wide enough at large
+  // text that scrolling it along puts "Waiting on 2" past its edge.
+  waitingThread(daemon, details, "ios-waiting-goal");
+  daemon.updateThread("ios-waiting-goal", {
+    goal: { objective: "no event shows twice after a restart", status: "active", checks: 1 },
+  });
+}
+
+function waitingThread(daemon: FakeDaemon, details: Details, id: string): void {
   daemon.createThread(
     {
-      id: "ios-waiting",
+      id,
       workspaceId: "ace",
       title: "Dedupe thread events after reconnect",
       provider: "claude",
@@ -21,7 +32,7 @@ export function waitingScenario(daemon: FakeDaemon, details: Details): void {
     12 * minute,
   );
   daemon.apply(
-    "ios-waiting",
+    id,
     [
       facts.rootAgent("claude"),
       facts.turn("root"),
@@ -41,7 +52,7 @@ export function waitingScenario(daemon: FakeDaemon, details: Details): void {
     10 * minute,
   );
   daemon.apply(
-    "ios-waiting",
+    id,
     [
       facts.message(
         "root",

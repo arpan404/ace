@@ -172,11 +172,12 @@ import XCTest
     /// At accessibility text sizes the pills overflow their row. A part mostly scrolled past the
     /// edge doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
     func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
-        // The largest size, where `ios-waiting`'s "Waiting on 2" and "1 command" overflow the row.
-        // Opened at launch: the inbox's rows are too tall at this size to scroll to it quickly.
+        // The largest size, where `ios-waiting-goal`'s "Waiting on 2", "1 command" and "Pursuing
+        // goal" overflow the row. Opened at launch: the inbox's rows are too tall at this size to
+        // scroll to it quickly.
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
-                               "--spike-open", "ios-waiting", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+                               "--spike-open", "ios-waiting-goal", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launchWithArguments()
         dismissNotificationsPrompt()
         let status = app.descendants(matching: .any)["pill.status"]
@@ -189,8 +190,9 @@ import XCTest
         }
         let rollup = app.buttons["subagents.rollup"]
         let line = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'background.'")).firstMatch
-        // At rest "Waiting on 2" shows whole and says the subagents.
+        // At rest "Waiting on 2" shows whole and says the subagents; the goal is past the edge.
         XCTAssertEqual(shown(status), 1, accuracy: 0.01)
+        XCTAssertLessThan(shown(app.buttons["pill.goal"]), 0.5, "the row overflows")
         XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the shown status says the subagents")
         // Scrolled to the row's end: the command's part shows, the status is mostly past the edge.
         let row = app.descendants(matching: .any)["composer.live"]
