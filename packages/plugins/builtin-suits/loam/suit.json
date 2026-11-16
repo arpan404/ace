@@ -5,6 +5,10 @@
   "description": "A blocky voxel sandbox: neutral stone panels with bevelled edges, pixel type, and a little block world behind it by day and by torchlight.",
   "version": "3",
   "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
   "dark": {
     "canvas": "#121315",
     "sidebar": "#0E0F10",

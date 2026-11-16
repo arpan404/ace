@@ -59,7 +59,8 @@ export function contentSecurityPolicy(options: {
       "https://cdn.agentclientprotocol.com",
       ...(dev ? [dev] : []),
     ],
-    "font-src": ["'self'", "data:", ...(dev ? [dev] : [])],
+    // A Suit's bundled fonts (ADR 0150), served by the local daemon like its images.
+    "font-src": ["'self'", "data:", "http://127.0.0.1:*", ...(dev ? [dev] : [])],
     "connect-src": [
       "'self'",
       "blob:",

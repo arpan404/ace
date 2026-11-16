@@ -5,6 +5,10 @@
   "description": "Clean cyberpunk: blue-black glass-free panels, a faint grid, chamfered edges and one ionised cyan line.",
   "version": "1",
   "base": "midnight",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
   "dark": {
     "canvas": "#0C0F14",
     "sidebar": "#080A0E",
