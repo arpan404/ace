@@ -136,7 +136,9 @@ function allowedWrite(key: string, layer: string, authorize: SocketContext["auth
     key === "providers.codex.toolSource" ||
     key === "providers.claude.chrome" ||
     key.startsWith("host.") ||
-    key.startsWith("remote.");
+    key.startsWith("remote.") ||
+    // How this machine encodes and delivers screens and video (the Beta media pipeline).
+    key.startsWith("media.");
   if (!adminOnly) return authorize("operate");
   return (
     layer === "global" && authorize("admin") && (key !== "projects.roots" || authorize("projects"))
