@@ -25,13 +25,9 @@ function SettingsFrame(props: { children: ReactNode }) {
 }
 
 const root = createRootRoute({ component: NoMachineShell });
-/** Projects, as the app's Projects view frames it. */
+/** Projects with no machine: the whole window asks for one (`NoMachineShell` drops the sidebar). */
 function ThreadsPlace() {
-  return (
-    <ViewFrame label="Projects" place="threads">
-      <NoMachineThreads />
-    </ViewFrame>
-  );
+  return <NoMachineThreads />;
 }
 
 const threads = createRoute({ getParentRoute: () => root, path: "/", component: ThreadsPlace });

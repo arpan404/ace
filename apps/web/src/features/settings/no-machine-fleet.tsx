@@ -28,19 +28,7 @@ const none: readonly { id: string }[] = [];
  * the way the connection screen does, kept for a reload.
  */
 export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
-  const connection = useDaemonConnection();
-  const navigate = useNavigate();
-  const [adding, setAdding] = useState<"pair" | "address" | undefined>(
-    props.pairing ? "pair" : undefined,
-  );
-  const close = () => setAdding(undefined);
-  const connect = (target: DaemonTarget, remember: boolean) => {
-    close();
-    // The window opens on its machine's home, not on this page's address (`/pair` would ask
-    // the machine to create a pairing).
-    void navigate({ to: "/", replace: true });
-    connection.connect(target, remember);
-  };
+  const [adding, setAdding] = useState<MachineWay | undefined>(props.pairing ? "pair" : undefined);
   return (
     <>
       <RowGroup label="Machines" anchor="fleet.link">
@@ -76,44 +64,68 @@ export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
           }
         />
       </RowGroup>
-      <Dialog
-        open={adding !== undefined}
-        onOpenChange={(open) => {
-          if (!open) close();
-        }}
-      >
-        <DialogContent>
-          {adding === "pair" ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>Pair a machine</DialogTitle>
-                <DialogDescription>
-                  On the computer running ace, open Settings › Fleet › Pair a device, then paste its
-                  link or code here.
-                </DialogDescription>
-              </DialogHeader>
-              <PairingForm url={connection.url} connect={connect} cancel={close} />
-            </>
-          ) : (
-            <>
-              <DialogHeader>
-                <DialogTitle>Connect by address</DialogTitle>
-                <DialogDescription>
-                  The address of ace on that computer and its access token.
-                </DialogDescription>
-              </DialogHeader>
-              <DaemonForm
-                url={connection.url}
-                remembered={connection.remembered}
-                submitLabel="Connect"
-                onSubmit={connect}
-                secondary={{ label: "Cancel", run: close }}
-              />
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      <AddMachineDialog way={adding} close={() => setAdding(undefined)} />
     </>
+  );
+}
+
+/** The two ways to add a machine by hand. */
+export type MachineWay = "pair" | "address";
+
+/**
+ * Pairing with a code or connecting by address, in a dialog open while `way` is set. Either
+ * makes it this window's machine the way the connection screen does, kept for a reload, and
+ * the window opens on its home.
+ */
+export function AddMachineDialog(props: { way: MachineWay | undefined; close(): void }) {
+  const connection = useDaemonConnection();
+  const navigate = useNavigate();
+  const { close } = props;
+  const connect = (target: DaemonTarget, remember: boolean) => {
+    close();
+    // The window opens on its machine's home, not on this page's address (`/pair` would ask
+    // the machine to create a pairing).
+    void navigate({ to: "/", replace: true });
+    connection.connect(target, remember);
+  };
+  return (
+    <Dialog
+      open={props.way !== undefined}
+      onOpenChange={(open) => {
+        if (!open) close();
+      }}
+    >
+      <DialogContent>
+        {props.way === "pair" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Pair a machine</DialogTitle>
+              <DialogDescription>
+                On the computer running ace, open Settings › Fleet › Pair a device, then paste its
+                link or code here.
+              </DialogDescription>
+            </DialogHeader>
+            <PairingForm url={connection.url} connect={connect} cancel={close} />
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>Connect by address</DialogTitle>
+              <DialogDescription>
+                The address of ace on that computer and its access token.
+              </DialogDescription>
+            </DialogHeader>
+            <DaemonForm
+              url={connection.url}
+              remembered={connection.remembered}
+              submitLabel="Connect"
+              onSubmit={connect}
+              secondary={{ label: "Cancel", run: close }}
+            />
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -121,7 +133,7 @@ export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
  * The machines on the person's ace account, each opened through ace's relay as this window's
  * machine. Signed out, where to sign in; a build without ace accounts says nothing.
  */
-function AccountMachines() {
+export function AccountMachines() {
   const store = useAceAccountStore();
   const { session, restoring } = useAceAccount();
   const account = useAccountMachines(none);
