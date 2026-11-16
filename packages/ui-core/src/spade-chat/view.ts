@@ -1,4 +1,5 @@
 import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
+import type { SpadeDecision } from "./decisions.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 import { spadeHelperApprovalSentence } from "./helper-words.ts";
 
@@ -33,6 +34,8 @@ export interface SpadeView {
   forLater: readonly string[];
   /** How many questions those cards hold, for "2 questions for later". */
   questionsForLater: number;
+  /** Choices the bot made on the person's behalf (ADR 0165), oldest first. */
+  decisions: readonly SpadeDecision[];
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -73,6 +76,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     asking: state.question !== undefined,
     forLater: [...state.forLater],
     questionsForLater: questionsIn(state.entries, state.forLater),
+    decisions: state.decisions,
   };
 }
 

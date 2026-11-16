@@ -4,6 +4,7 @@ import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts"
 import type { SpadeFailureKind, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
 import { spadeCardQuestions, type SpadeQuestion, type SpadeQuestionStanding } from "./questions.ts";
+import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -236,6 +237,8 @@ export interface SpadeConversationState {
   stopping: Set<string>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
+  /** Choices the bot made on the person's behalf (ADR 0165), oldest first. */
+  decisions: readonly SpadeDecision[];
   /** Why the model review escalated each call, by call id, until its approval is answered. */
   reviews: Map<string, string>;
   /** Each cap reached, by scope and period, so one shows once. */
@@ -283,6 +286,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
+    decisions: [],
     reviews: new Map(),
     caps: new Set(),
     status: undefined,
@@ -341,6 +345,11 @@ function foldStored(state: SpadeConversationState, stored: SpadeStored): boolean
   state.loaded = true;
   const { event } = stored;
   if (event.type === "unknown") {
+    const decision = parseSpadeDecision(event.raw, stored.at);
+    if (decision) {
+      state.decisions = [...state.decisions, decision];
+      return true;
+    }
     state.unknown++;
     return firstLoad;
   }
