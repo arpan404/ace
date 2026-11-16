@@ -127,7 +127,7 @@ fn score(model: &Model, examples: &[Example], vectors: &[spade_classify::Feature
         .zip(vectors)
         .map(|(e, v)| Scored {
             logits: model.logits(&v.vector),
-            outside: v.reaches_outside || v.hides || !model.knows(&v.keys),
+            outside: v.reaches_outside || v.hides || v.dropped || !model.knows(&v.keys),
             label: e.label,
             rules_allow: rules_allow(e),
         })

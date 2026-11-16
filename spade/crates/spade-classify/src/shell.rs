@@ -53,6 +53,10 @@ pub(crate) struct Found {
     /// It hides what it runs: decoded or built text run as code, `eval`, a program from a
     /// variable, escapes, look-alike or invisible letters, or text the parser can't read.
     pub hides: bool,
+    /// Some structural input was past a feature bound (too long, too many commands or words), so
+    /// part of it was not examined: it is never settled, since what was dropped could be an
+    /// outside path or an unknown program.
+    pub dropped: bool,
 }
 
 /// Programs whose first word is a subcommand (`git push`, `npm publish`): for them the
@@ -169,6 +173,8 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
     let squeezed: String = folded.text.split_whitespace().collect();
     let mut found = Found {
         hides: folded.lookalike || folded.invisible || folded.odd_space || squeezed.contains("(){"),
+        // The text was longer than Spade reads: the rest, including any outside path, is unseen.
+        dropped: folded.cut,
         ..Found::default()
     };
     let lower = folded.text.to_ascii_lowercase();
@@ -211,6 +217,8 @@ pub(crate) fn features(command: &str, workspace: Option<&str>, bag: &mut Bag) ->
                     _ => "5+",
                 }],
             );
+            // More commands than Spade examines: what is past the window is unseen.
+            found.dropped |= commands.len() > MOST_COMMANDS;
             let mut previous: Option<String> = None;
             for simple in commands.iter().take(MOST_COMMANDS) {
                 let program = one(simple, previous.as_deref(), workspace, bag, &mut found);
@@ -313,6 +321,8 @@ fn one(
     if simple.dir.is_some() {
         bag.add("M", &["moved_folder"]);
     }
+    // More words than Spade examines for outside paths and unknown flags: part is unseen.
+    found.dropped |= simple.words.len() > MOST_WORDS;
     let rest = &simple.words[1..simple.words.len().min(MOST_WORDS)];
     let mut positional = rest.iter().filter(|w| !w.starts_with('-'));
     if let Some(sub) = positional.next().filter(|w| wordish(w)) {
@@ -353,7 +363,9 @@ fn one(
         } else if word.len() > 1 && word.starts_with('-') && word.parse::<f64>().is_err() {
             let cluster: String = word.chars().take(12).collect();
             bag.add("PF", &[p, &cluster]);
-            for c in word.chars().skip(1).take(8) {
+            // Every option character is a key, so an unknown flag anywhere in a cluster is
+            // caught by the known-parts check, not only the first few.
+            for c in word.chars().skip(1) {
                 bag.key("PF", &[p, &format!("-{c}")]);
             }
         } else {

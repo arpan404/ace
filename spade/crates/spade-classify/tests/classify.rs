@@ -252,3 +252,91 @@ fn classifying_a_call_takes_well_under_a_millisecond() {
     let median = times[times.len() / 2];
     assert!(median < Duration::from_millis(1), "median {median:?}");
 }
+
+#[test]
+fn multibyte_values_do_not_panic() {
+    // A value whose last bytes are multibyte must not be sliced on a byte boundary.
+    for command in ["cat '😀😀'", "echo €€€", "ls 日本語", "grep '① ② ③' café"]
+    {
+        let _ = screen(command);
+    }
+    let arguments = json!({ "note": "😀😀", "amount": "€€€", "to": "日本語" });
+    let _ = model().predict(&Subject::Tool {
+        name: "send",
+        arguments: &arguments,
+        hints: Mcp::default(),
+    });
+}
+
+/// A small deterministic generator of awkward unicode and long input, fed through both paths:
+/// nothing may panic on a slice. No model is called; this is pure feature extraction.
+#[test]
+fn random_unicode_and_long_input_never_panic() {
+    let alphabet: Vec<char> = "ab /.-_=:$~'\"`\\|&;<>()\u{200b}\u{00a0}😀€£¥日①αѕ\n\t"
+        .chars()
+        .collect();
+    let mut state: u64 = 0x1234_5678_9abc_def1;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    for _ in 0..1_500 {
+        let len = (next() % 300) as usize;
+        let mut text = String::new();
+        for _ in 0..len {
+            text.push(alphabet[(next() as usize) % alphabet.len()]);
+        }
+        let _ = features(&Subject::Shell {
+            command: &text,
+            workspace: Some(WORKSPACE),
+        });
+        let arguments = json!({ "command": text.clone(), "a": text.clone(), "n": 1 });
+        let _ = features(&Subject::Tool {
+            name: &text,
+            arguments: &arguments,
+            hints: Mcp::default(),
+        });
+    }
+    // Very long inputs on both paths.
+    let long = "😀/a ".repeat(20_000);
+    let _ = features(&Subject::Shell {
+        command: &long,
+        workspace: Some(WORKSPACE),
+    });
+    let big = json!({ "command": long.clone(), "body": long });
+    let _ = features(&Subject::Tool {
+        name: "x",
+        arguments: &big,
+        hints: Mcp::default(),
+    });
+}
+
+#[test]
+fn input_past_the_feature_bounds_is_never_settled() {
+    // An outside path past the per-command word window (64): the padding keeps the model
+    // confident it is low-risk, and the path would be unseen. A dropped input must abstain.
+    let many_words = format!(
+        "cat README.md{} /Users/person/private.txt",
+        " README.md".repeat(70)
+    );
+    assert_ne!(screen(&many_words), Screen::LowRisk);
+
+    // An outside path past the character limit (8,192): folding truncates the text before it.
+    let past_chars = format!("cat {} /Users/person/private.txt", "README.md ".repeat(900));
+    assert!(past_chars.len() > 8_192);
+    assert_ne!(screen(&past_chars), Screen::LowRisk);
+
+    // An outside read past the command window (32 commands).
+    let many_commands = format!(
+        "{} cat /Users/person/private.txt",
+        "cat README.md; ".repeat(40)
+    );
+    assert_ne!(screen(&many_commands), Screen::LowRisk);
+
+    // A plain short command is still allowed to settle, so the gate is on the dropped input,
+    // not on length: a long but complete line of known low-risk commands still settles.
+    assert_eq!(screen("cat README.md"), Screen::LowRisk);
+    assert_eq!(screen(&"cat README.md; ".repeat(10)), Screen::LowRisk);
+}

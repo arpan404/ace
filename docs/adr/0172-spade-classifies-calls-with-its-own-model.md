@@ -48,7 +48,12 @@ way every time, and leave the rest to the reviewer as today.
    `eval`, a program from a variable, an alias or a function defined in the command, escapes,
    look-alike or invisible letters, text the parser can't read); and one with a program,
    subcommand or flag never seen in a low-risk training command (`npm install` is known;
-   `npm install -g` isn't). These are checks in code, not learned.
+   `npm install -g` isn't); and one where any structural input was past a feature bound (the text
+   over the character limit, more commands or words than the window reads), since what was dropped
+   could be an outside path or an unknown program. These are checks in code, not learned, and the
+   outside-path and known-part checks run over the whole of what is read, independent of the
+   bounded feature hashing (every option character is a key, every word and command within the
+   window is scanned).
 4. **The crate.** `spade-classify` is pure Rust with no ML runtime:
    - **Features.** For shell, Spade's own shell parser (`spade_core::autonomy::shell::read`): each
      simple command's program, subcommands, flags, argument shapes (URLs and their hosts, paths
@@ -116,8 +121,8 @@ both models and each obfuscation):
 | adversarial, as wired                             | 0 of 5,139                      | 1.000              | 0.029           | 0.973           | 0.843        |
 
 The model measured before retraining (training templates only) also settles none of the fresh
-risky calls (0 of 1,920 clean, 0 of 5,139 adversarial), with low-risk recall 0.071 and raise
-precision 0.967 and recall 0.873 on the clean set.
+risky calls (0 of 1,920 clean, 0 of 5,139 adversarial), with low-risk recall 0.060 and raise
+precision 0.967 and recall 0.876 on the clean set.
 
 Low-risk recall on forms it never saw is low, by design: a program, subcommand or flag never seen
 in a low-risk training command abstains, and the reviewer decides as before. On the forms it was
@@ -131,7 +136,7 @@ model alone settles 2 of 3,015 in its test set, both a connector tool running `c
 calls are never settled as wired, so the count there is 0; it is the reason decision 2 keeps
 tool calls to raising.
 
-On this Mac one classification (features and inference) takes 2.5 µs at p50 and 63 µs at p99
+On this Mac one classification (features and inference) takes 2.7 µs at p50 and 62 µs at p99
 (`cargo bench -p spade-classify`).
 
 Building the data showed a gap in the shell classifier, fixed with this ADR: a command after a
@@ -139,7 +144,11 @@ shell keyword was not read (`{ git push; }`, `if git push; then …`, `while …
 `! git push`), nor the body of a function defined in the command, nor an alias defined in it
 (`alias q='xdotool'; q type …`). Keywords are now taken off before reading, so function bodies
 are read where they are written, and an alias is read through to its text. An alias whose text
-can't be read is unclear. `command`, `builtin`, `env` and `exec` were already unwrapped.
+can't be read is unclear. An empty alias and one whose value ends in a space no longer drop the
+words that follow (a later review found the credential reader could vanish), and `command`,
+`builtin`, `env` and `exec` were already unwrapped. A later review also found the classifier could
+settle a call whose outside path sat past a feature bound; those bounds now force an abstention and
+the eligibility checks read the whole of what is parsed.
 
 ## Options considered
 
@@ -173,8 +182,11 @@ can't be read is unclear. `command`, `builtin`, `env` and `exec` were already un
   files refused. Plus a bench for p50 and p99.
 - `classify-train`: the value halves never overlap, the fresh pool shares nothing with the
   earlier ones, the fixture reader and labels, base64.
-- `spade_core::autonomy::shell`: tables for aliases read through, function bodies read, and
-  commands after shell keywords.
+- `spade_core::autonomy::shell`: tables for aliases read through (including empty and
+  trailing-space aliases and mutual redefinitions), function bodies read, and commands after
+  shell keywords.
+- `spade-classify`: input past a feature bound is never settled, and random unicode and very long
+  input on both the shell and tool paths never panic on a slice.
 - Through the API (`spade-server/tests/classifier.rs`): a plain command with no sandbox runs
   without the reviewer and is logged without its arguments; a tool read as a send goes to the
   person; an abstention goes to the reviewer; turned off, the reviewer decides as before; a

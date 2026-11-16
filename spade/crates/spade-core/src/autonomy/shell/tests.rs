@@ -711,3 +711,42 @@ fn a_command_after_a_shell_keyword_is_read() {
         assert_eq!(said(command), None, "{command}");
     }
 }
+
+#[test]
+fn an_empty_or_trailing_space_alias_still_shows_what_runs() {
+    // An empty alias must not drop the words after it: the credential reader stays visible.
+    assert_eq!(
+        said("alias q=''; q security find-generic-password -w -s github"),
+        Some(Finding::Credentials)
+    );
+    assert_eq!(
+        said("alias e=; e cat ~/.ssh/id_rsa"),
+        Some(Finding::Credentials)
+    );
+    // An empty alias whose next word is itself an alias: the next word takes command position.
+    assert_eq!(
+        said("alias q=''; alias x='git push origin main'; q x"),
+        Some(Finding::Sensitive(Publish))
+    );
+    // A trailing space expands the next word too (bash), so the aliased reader is still seen.
+    assert_eq!(
+        said("alias run='sudo '; alias r='cat ~/.aws/credentials'; run r"),
+        Some(Finding::Credentials)
+    );
+    // A trailing space with a plain next word keeps the argument on the same command.
+    assert_eq!(said("alias c='cat '; c notes.md"), None);
+    // A chain of aliases resolves to what the last one runs.
+    assert_eq!(
+        said("alias a='b'; alias b='git'; a push origin main"),
+        Some(Finding::Sensitive(Publish))
+    );
+    // Aliases that redefine each other terminate (a shell stops at the loop) and never drop the
+    // words that follow: `git push` stays visible as arguments.
+    let read =
+        super::simple_commands("alias a='b'; alias b='a'; a git push origin").unwrap_or_default();
+    assert!(
+        read.iter()
+            .any(|words| words.contains(&"git".to_owned()) && words.contains(&"push".to_owned())),
+        "{read:?}"
+    );
+}

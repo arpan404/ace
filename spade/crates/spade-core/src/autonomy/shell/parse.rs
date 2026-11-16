@@ -365,7 +365,9 @@ fn through_aliases(
 }
 
 /// One command with the alias it starts with read through; `used` are the aliases already
-/// read on the way here, which a shell never expands again.
+/// read on the way here, which a shell never expands again. The remaining words are never
+/// dropped: when the alias is empty they take command position (so the next word is expanded,
+/// as a shell does), and a value ending in a space expands the next word too.
 fn expand(
     command: Simple,
     aliases: &[(String, String)],
@@ -385,17 +387,51 @@ fn expand(
     }
     let mut now: Vec<&str> = used.to_vec();
     now.push(name);
-    let mut inner = adopt(parse(text, depth + 1)?, &command);
-    let Some(last) = inner.last_mut() else {
-        return Ok(Vec::new());
+    // Whether a shell would alias-expand the next word too: an empty value (the next word takes
+    // command position) or one that ends in a blank.
+    let expand_next = text.trim().is_empty() || text.ends_with([' ', '\t', '\n']);
+    let rest: Vec<String> = command.words[1..].to_vec();
+    // The alias body, each command's own first word read through in turn.
+    let mut head = Vec::new();
+    for read in adopt(parse(text, depth + 1)?, &command) {
+        head.extend(expand(read, aliases, depth, &now)?);
+    }
+    // The words after the alias. With `expand_next`, the first of them is at command position, so
+    // it is read through as an alias too; otherwise they stay as written (arguments).
+    let tail = if rest.is_empty() {
+        Vec::new()
+    } else if expand_next {
+        expand(command.child(rest), aliases, depth, &now)?
+    } else {
+        vec![command.child(rest)]
     };
-    last.words.extend(command.words[1..].iter().cloned());
-    last.writes_to.extend(command.writes_to.iter().cloned());
-    last.reads_from.extend(command.reads_from.iter().cloned());
-    last.piped |= command.piped;
-    let mut out = Vec::new();
-    for read in inner {
-        out.extend(expand(read, aliases, depth, &now)?);
+    // Join the body and the tail: the first tail command's words continue the last body command
+    // (a program and its arguments are one command), the rest follow.
+    let mut out = head;
+    let mut tail = tail.into_iter();
+    if let Some(first_tail) = tail.next() {
+        match out.last_mut() {
+            Some(last) => {
+                last.words.extend(first_tail.words);
+                last.reads_from.extend(first_tail.reads_from);
+                last.writes_to.extend(first_tail.writes_to);
+                last.piped |= first_tail.piped;
+            }
+            None => out.push(first_tail),
+        }
+    }
+    out.extend(tail);
+    // The original call's own redirects and pipe belong to the last command that runs; when the
+    // whole alias and its words vanish, keep a command for them so a bare redirect is not lost.
+    let has_redirects =
+        !command.writes_to.is_empty() || !command.reads_from.is_empty() || command.piped;
+    if out.is_empty() && has_redirects {
+        out.push(command.child(Vec::new()));
+    }
+    if let Some(last) = out.last_mut() {
+        last.writes_to.extend(command.writes_to.iter().cloned());
+        last.reads_from.extend(command.reads_from.iter().cloned());
+        last.piped |= command.piped;
     }
     Ok(out)
 }

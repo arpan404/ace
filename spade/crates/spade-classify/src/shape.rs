@@ -165,11 +165,12 @@ fn money(word: &str) -> bool {
     let number = trimmed
         .trim_start_matches(['$', '€', '£', '¥'])
         .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == ' ');
-    let symbol = trimmed.starts_with(['$', '€', '£', '¥'])
-        || trimmed.len() > 4
-            && trimmed[trimmed.len() - 3..]
-                .chars()
-                .all(|c| c.is_ascii_uppercase());
+    // A trailing currency code (`100 USD`): the last three characters, taken char-safe.
+    let trailing_code = {
+        let tail: String = trimmed.chars().rev().take(3).collect();
+        tail.chars().count() == 3 && tail.chars().all(|c| c.is_ascii_uppercase())
+    };
+    let symbol = trimmed.starts_with(['$', '€', '£', '¥']) || trailing_code;
     symbol
         && !number.is_empty()
         && number

@@ -87,10 +87,12 @@ fn walk(
         Value::Object(map) => {
             if depth > DEEPEST {
                 bag.add("M", &["deep"]);
+                found.dropped = true;
                 return;
             }
             for (k, v) in map {
                 if *keys >= MOST_KEYS {
+                    found.dropped = true;
                     return;
                 }
                 *keys += 1;
@@ -116,6 +118,7 @@ fn walk(
                     },
                 ],
             );
+            found.dropped |= items.len() > 4;
             for item in items.iter().take(4) {
                 walk(item, key, depth + 1, keys, bag, found);
             }
@@ -123,6 +126,7 @@ fn walk(
         Value::String(s) => {
             let k = key.unwrap_or("");
             let folded = text::fold(s, 4096);
+            found.dropped |= folded.cut;
             let shape = shape::of(&folded.text, None, "KS", bag);
             bag.add("KS", &[k, shape]);
             bag.add("S", &[shape]);

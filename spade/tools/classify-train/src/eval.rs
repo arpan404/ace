@@ -26,6 +26,7 @@ impl Scored {
             reaches_outside: self.outside,
             hides: false,
             known: true,
+            dropped: false,
         }
     }
 }

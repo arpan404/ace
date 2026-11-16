@@ -85,6 +85,8 @@ pub struct Features {
     pub hides: bool,
     /// Full hashes of the programs, subcommands and flags the command is made of.
     pub keys: Vec<u64>,
+    /// Structural input was past a feature bound, so part of it was not examined: never settled.
+    pub dropped: bool,
 }
 
 pub fn features(subject: &Subject<'_>) -> Features {
@@ -103,6 +105,7 @@ pub fn features(subject: &Subject<'_>) -> Features {
         reaches_outside: found.outside,
         hides: found.hides,
         keys,
+        dropped: found.dropped,
     }
 }
 
@@ -115,6 +118,8 @@ pub struct Prediction {
     pub hides: bool,
     /// Every program, subcommand and flag in it appeared in a low-risk training command.
     pub known: bool,
+    /// Part of the input was past a feature bound and not examined.
+    pub dropped: bool,
 }
 
 impl Prediction {
@@ -122,7 +127,7 @@ impl Prediction {
     /// the bot's folders, hides nothing, and is made only of parts the model knows as low-risk
     /// (`npm install` is known; `npm install -g`, a flag never seen in a low-risk command, isn't).
     pub fn plain(&self) -> bool {
-        !self.reaches_outside && !self.hides && self.known
+        !self.reaches_outside && !self.hides && self.known && !self.dropped
     }
 
     /// The most likely effect and its probability.
@@ -190,6 +195,7 @@ impl Model {
             probabilities: self.probabilities(&features.vector),
             reaches_outside: features.reaches_outside,
             hides: features.hides,
+            dropped: features.dropped,
             known: self.knows(&features.keys),
         }
     }
