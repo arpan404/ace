@@ -1,14 +1,12 @@
-import type { CommandPayload, ExecutionOptions, Thread, ThreadId } from "@ace/protocol";
+import type { CommandPayload, Thread, ThreadId } from "@ace/protocol";
 import {
   choiceSelection,
   currentModelChoice,
-  speedOption,
   switchQuestion,
   switchUnsupportedNote,
   threadForkSwitchRoute,
   threadSwitchRoute,
   type ModelChoice,
-  type Speed,
   type SwitchQuestion,
   type SwitchRoute,
 } from "@ace/ui-core";
@@ -120,47 +118,9 @@ export function switchPlan(scene: ShapedScene, target: SwitchTarget): SwitchPlan
   return { kind: "switch", choice, ask };
 }
 
-/** The command that moves the thread to `choice` from its next turn, at `options`. */
-export function switchPayload(
-  threadId: ThreadId,
-  choice: ModelChoice,
-  options: ExecutionOptions = {},
-): CommandPayload {
-  const selection = choiceSelection(choice);
-  return {
-    type: "thread.switch",
-    threadId,
-    selection: Object.keys(options).length ? { ...selection, options } : selection,
-  };
-}
-
-/** The effort and speed picked for a model in the sheet, before it runs anything. */
-export interface SwitchTune {
-  effort?: string | undefined;
-  speed?: Speed | undefined;
-}
-
-/**
- * What `tune` asks of `choice`'s model as session options, or why it can't: an effort must be
- * one of its levels and a speed one of its tiers. A standard speed asks for nothing.
- */
-export function switchOptions(
-  choice: ModelChoice,
-  tune: SwitchTune,
-): { options: ExecutionOptions } | { refused: string } {
-  const options: ExecutionOptions = {};
-  if (tune.effort !== undefined) {
-    if (!choice.efforts.includes(tune.effort))
-      return { refused: `${choice.model} doesn't offer that effort. Pick another.` };
-    options["effort"] = tune.effort;
-  }
-  if (tune.speed !== undefined && tune.speed !== "standard") {
-    const tier = speedOption(choice.speeds, tune.speed);
-    if (tier === undefined)
-      return { refused: `${choice.model} doesn't offer that speed. Pick another.` };
-    options["serviceTier"] = tier;
-  }
-  return { options };
+/** The command that moves the thread to `choice` from its next turn. */
+export function switchPayload(threadId: ThreadId, choice: ModelChoice): CommandPayload {
+  return { type: "thread.switch", threadId, selection: choiceSelection(choice) };
 }
 
 /** Rows that don't simply switch: why they can't be picked, or which question they ask. */

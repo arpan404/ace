@@ -59,15 +59,13 @@ export const ThreadAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("models") }),
   /**
    * A model on one account (the picker row's `key` and `account`), with the row's question
-   * answered when it asks one, and the effort and speed picked for it in the same sheet.
+   * answered when it asks one.
    */
   z.object({
     type: z.literal("switchModel"),
     key: z.string().min(1).max(512),
     account: z.string().min(1).max(256),
     confirmed: z.boolean(),
-    effort: z.string().min(1).max(64).optional(),
-    speed: KnownSpeed.optional(),
     requestId,
   }),
   /** The thread's access from its next turn; null goes back to the default. */
