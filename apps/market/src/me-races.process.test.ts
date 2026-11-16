@@ -24,8 +24,8 @@ import {
 import { writeDraft } from "./store/drafts.ts";
 import { reserveUpload } from "./store/me-limits.ts";
 import { addAppeal, offerTransfer } from "./store/me-transfers.ts";
-import { changeHandle, setPins } from "./store/profiles.ts";
-import { addWithdrawal, storePending } from "./store/publish.ts";
+import { changeHandle, createProfile, setPins } from "./store/profiles.ts";
+import { addWithdrawal, claimPublisher, storePending } from "./store/publish.ts";
 import { dueRechecks, recordCheck } from "./store/verification.ts";
 
 /*
@@ -240,18 +240,14 @@ describe("two renames from the same handle", () => {
   it("the second one, read before the first landed, fails and leaves no handle unretired", async () => {
     const renamer = await establishedPublisher(market, "acct_race_renamer", "race-renamer");
     const before = { id: renamer.id, name: "race-renamer", skeleton: skeleton("race-renamer") };
-    const first = await changeHandle(
-      market.db,
-      before,
-      { handle: "race-first", skeleton: skeleton("race-first") },
-      1,
-    );
-    const second = await changeHandle(
-      market.db,
-      before,
-      { handle: "race-second", skeleton: skeleton("race-second") },
-      2,
-    );
+    const first = await changeHandle(market.db, before, {
+      handle: "race-first",
+      skeleton: skeleton("race-first"),
+    });
+    const second = await changeHandle(market.db, before, {
+      handle: "race-second",
+      skeleton: skeleton("race-second"),
+    });
     expect([first, second]).toEqual(["moved", "stale"]);
     const row = await market.db
       .prepare("SELECT name FROM publishers WHERE id = ?1")
@@ -533,5 +529,64 @@ describe("publishing a draft", () => {
     expect(stored.written).toBe(false);
     expect(await count("versions", "drf_guarded")).toBe(0);
     expect(await count("entries", "drf_guarded")).toBe(0);
+  });
+});
+
+describe("claims of one handle", () => {
+  const claim = (account: string, handle: string) =>
+    createProfile(market.db, {
+      id: `pub_${account}`,
+      account,
+      handle,
+      skeleton: skeleton(handle),
+      displayName: handle,
+      bio: "",
+      links: [],
+      now: 1,
+    });
+
+  it("two accounts claiming the same handle at once: one gets it", async () => {
+    const outcomes = await Promise.all([
+      claim("acct_race_claim_a", "race-claimed"),
+      claim("acct_race_claim_b", "race-claimed"),
+    ]);
+    expect(outcomes.toSorted()).toEqual([false, true]);
+  });
+
+  it("a handle another account gave up stays theirs, even to a claim that checked before", async () => {
+    const giver = await establishedPublisher(market, "acct_race_giver", "race-given");
+    // The claims below passed their handle check before this rename retired the handle.
+    expect(
+      await changeHandle(
+        market.db,
+        { id: giver.id, name: "race-given" },
+        { handle: "race-kept", skeleton: skeleton("race-kept") },
+      ),
+    ).toBe("moved");
+    expect(await claim("acct_race_late", "race-given")).toBe(false);
+    await expect(
+      claimPublisher(market.db, {
+        id: "pub_race_first_publish",
+        account: "acct_race_first_publish",
+        name: "race-given",
+        skeleton: skeleton("race-given"),
+        now: 1,
+      }),
+    ).rejects.toThrow(/UNIQUE/);
+    expect(
+      await changeHandle(
+        market.db,
+        { id: taker.id, name: taker.handle },
+        { handle: "race-given", skeleton: skeleton("race-given") },
+      ),
+    ).toBe("taken");
+    // The account that gave it up takes it back.
+    expect(
+      await changeHandle(
+        market.db,
+        { id: giver.id, name: "race-kept" },
+        { handle: "race-given", skeleton: skeleton("race-given") },
+      ),
+    ).toBe("moved");
   });
 });

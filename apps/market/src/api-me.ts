@@ -237,9 +237,8 @@ async function profileWrites(
       if (!row) return noProfile();
       const moved = await changeHandle(
         db,
-        { id: row.id, name: row.name, skeleton: row.skeleton ?? skeleton(row.name) },
+        { id: row.id, name: row.name },
         { handle, skeleton: skeleton(handle) },
-        context.now,
       );
       if (moved === "taken")
         return failure(409, "conflict", "That handle, or one that looks like it, is taken.");

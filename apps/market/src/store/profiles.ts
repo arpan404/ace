@@ -83,7 +83,8 @@ export function profileOf(row: PublisherTable): MarketProfile {
 
 /**
  * Whether a handle, or any handle with its skeleton, is someone else's: a publisher's now, or
- * one retired by another publisher. A publisher may take back its own retired handle.
+ * one retired by another publisher. A publisher may take back its own retired handle. This is
+ * the early answer for a request; the write itself is refused by `handle_reservations`.
  */
 export async function handleTaken(
   db: D1Database,
@@ -94,7 +95,7 @@ export async function handleTaken(
   const row = await db
     .prepare(
       `SELECT 1 AS found FROM publishers WHERE (name = ?1 OR skeleton = ?2) AND id != ?3
-        UNION ALL SELECT 1 FROM retired_handles WHERE skeleton = ?2 AND publisher != ?3
+        UNION ALL SELECT 1 FROM handle_reservations WHERE skeleton = ?2 AND publisher != ?3
         LIMIT 1`,
     )
     .bind(handle, skeleton, self ?? "")
@@ -126,7 +127,10 @@ export interface NewProfile {
 const isUniqueFailure = (error: unknown) =>
   error instanceof Error && /UNIQUE constraint failed/i.test(error.message);
 
-/** Makes the account's profile; false when its handle or skeleton was taken first. */
+/**
+ * Makes the account's profile; false when its handle or skeleton was taken first, or is one
+ * another account retired: the insert reserves the skeleton in the same statement.
+ */
 export async function createProfile(db: D1Database, input: NewProfile): Promise<boolean> {
   try {
     const result = await db
@@ -145,7 +149,8 @@ export async function createProfile(db: D1Database, input: NewProfile): Promise<
         JSON.stringify(input.links),
       )
       .run();
-    return result.meta.changes === 1;
+    // The count includes the reservation the insert wrote.
+    return result.meta.changes > 0;
   } catch (error) {
     if (isUniqueFailure(error)) return false;
     throw error;
@@ -176,37 +181,24 @@ export async function updateProfile(
 }
 
 /**
- * Moves a publisher from the handle it was read with to a new one, in one batch that re-checks
- * that handle: the old one is retired for the publisher, so nobody else can take it, and taking
- * back one of its own retired handles un-retires it. `stale` when another rename landed first,
- * `taken` when another publisher took the handle first.
+ * Moves a publisher from the handle it was read with to a new one, in one statement that
+ * re-checks that handle. The skeleton's reservation moves with it: the old one stays retired
+ * for the account, so nobody else can take it, and taking back one of its own retired handles
+ * un-retires it. `stale` when another rename landed first, `taken` when another account holds
+ * the skeleton, active or retired.
  */
 export async function changeHandle(
   db: D1Database,
-  publisher: { id: string; name: string; skeleton: string },
+  publisher: { id: string; name: string },
   next: { handle: string; skeleton: string },
-  now: number,
 ): Promise<"moved" | "stale" | "taken"> {
-  const current = "EXISTS (SELECT 1 FROM publishers WHERE id = ?3 AND name = ?2)";
   try {
-    const results = await db.batch([
-      db
-        .prepare(
-          `INSERT INTO retired_handles (skeleton, handle, publisher, at)
-            SELECT ?1, ?2, ?3, ?4 WHERE ${current}
-            ON CONFLICT (skeleton) DO NOTHING`,
-        )
-        .bind(publisher.skeleton, publisher.name, publisher.id, now),
-      db
-        .prepare(
-          `DELETE FROM retired_handles WHERE skeleton = ?1 AND publisher = ?3 AND ${current}`,
-        )
-        .bind(next.skeleton, publisher.name, publisher.id),
-      db
-        .prepare("UPDATE publishers SET name = ?4, skeleton = ?1 WHERE id = ?3 AND name = ?2")
-        .bind(next.skeleton, publisher.name, publisher.id, next.handle),
-    ]);
-    return (results[2]?.meta.changes ?? 0) === 1 ? "moved" : "stale";
+    const result = await db
+      .prepare("UPDATE publishers SET name = ?3, skeleton = ?4 WHERE id = ?1 AND name = ?2")
+      .bind(publisher.id, publisher.name, next.handle, next.skeleton)
+      .run();
+    // The count includes the reservations the rename moved.
+    return result.meta.changes > 0 ? "moved" : "stale";
   } catch (error) {
     if (isUniqueFailure(error)) return "taken";
     throw error;
