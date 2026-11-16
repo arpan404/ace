@@ -43,6 +43,18 @@ describe("the shell reader", () => {
     expect(view.commands[1]?.piped).toBe(true);
   });
 
+  it.each([
+    ["constructor --x", "constructor"],
+    ["toString -y", "toString"],
+    ["__proto__ -z", "__proto__"],
+    ["hasOwnProperty a", "hasOwnProperty"],
+  ])("reads %s as its own command, not a wrapper", (command, program) => {
+    const { commands, unreadable } = readShell(command);
+    expect(commands.map((c) => c.words[0])).toEqual([program]);
+    expect(commands[0]?.words.length).toBe(2);
+    expect(unreadable).toBe(false);
+  });
+
   it("reads a command inside $(…) as well as the outer one", () => {
     expect(programs("echo $(whoami)")).toEqual(["echo", "whoami"]);
   });

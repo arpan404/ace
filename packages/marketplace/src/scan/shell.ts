@@ -71,8 +71,12 @@ const INTERPRETERS = new Set([
   "nawk",
 ]);
 
+/** A lookup table keyed by command name: a Map, so inherited names (`constructor`) never match. */
+const mapOf = (table: Record<string, string[]>): ReadonlyMap<string, string[]> =>
+  new Map(Object.entries(table));
+
 /** Wrappers that run the command after them, with the flags of each that take a value. */
-const WRAPPERS: Record<string, string[]> = {
+const WRAPPERS: ReadonlyMap<string, string[]> = mapOf({
   env: ["-u", "-C", "--unset", "--chdir"],
   command: [],
   builtin: [],
@@ -106,20 +110,20 @@ const WRAPPERS: Record<string, string[]> = {
   ltrace: ["-o", "-e", "-p", "-s", "-u"],
   chrt: [],
   taskset: [],
-};
+});
 
 /**
  * Wrappers that run the command after them with other rights: kept as their own one-word command
  * (so a rule can see the elevation), and unwrapped, so what they run is read too. Flags that take
  * a value are listed so the command that follows is found.
  */
-const ELEVATE: Record<string, string[]> = {
+const ELEVATE: ReadonlyMap<string, string[]> = mapOf({
   sudo: ["-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group"],
   doas: ["-u", "-C"],
   pkexec: ["--user"],
   runuser: ["-u", "-g", "-G", "--user", "--group"],
   su: ["-s", "-g", "-G", "--shell", "--group"],
-};
+});
 
 function basename(word: string): string {
   const slash = word.lastIndexOf("/");
@@ -408,7 +412,7 @@ function unwrap(simple: Simple, depth: number, ctx: Ctx): Simple[] {
     }
     const program = basename(first);
 
-    const elevate = ELEVATE[program];
+    const elevate = ELEVATE.get(program);
     if (elevate) {
       out.push({
         words: [first],
@@ -441,7 +445,7 @@ function unwrap(simple: Simple, depth: number, ctx: Ctx): Simple[] {
       }
     }
 
-    const wrapper = WRAPPERS[program];
+    const wrapper = WRAPPERS.get(program);
     if (wrapper) {
       const replace =
         program === "xargs"
