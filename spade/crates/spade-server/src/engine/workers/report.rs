@@ -18,8 +18,8 @@ use super::super::Engine;
 use super::super::roster::State;
 
 impl Engine {
-    /// Checks worker `id`: starts it if it is queued and a slot is free, parks it if its budget
-    /// closed its reply, and reports it to its parent if it has settled.
+    /// Checks worker `id`: starts it if it is queued and a slot is free, and reports it to its
+    /// parent if it has settled.
     pub(super) fn check_worker(self: &Arc<Self>, id: &str) {
         let Some(link) = self.worker_link(id) else {
             return;
@@ -31,7 +31,6 @@ impl Engine {
             self.admit_queued(&link.parent_conversation);
             return;
         }
-        self.park_on_budget(id);
         let Ok(events) = self.load(id) else { return };
         let around = self.around(id, &events);
         let Some(settled) = tree::settled(&events, around) else {

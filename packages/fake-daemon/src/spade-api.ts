@@ -51,7 +51,7 @@ export interface FakeSpadeAgent {
   seen_seq?: number | null;
   /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */
   unseen?: boolean;
-  /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
+  /** Its spend (ADR 0135); left out, as an older Spade does, until set. */
   spending?: FakeSpadeSpending;
   review?: boolean | null;
   /** Spade's one level (ADR 0163); left out, as a Spade before access levels does. */

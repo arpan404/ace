@@ -64,7 +64,7 @@ export interface SpadeAgent {
   seenSeq: number | undefined;
   /** It finished and the person hasn't seen it since: never while it works or waits on them. */
   unseen: boolean;
-  /** Its spend and caps (ADR 0135); undefined from a Spade before them. */
+  /** Its spend (ADR 0135), information only; undefined from a Spade before it. */
   spending: SpadeSpending | undefined;
   /** Its own model review switch; undefined follows the default. */
   review: boolean | undefined;

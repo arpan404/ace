@@ -2,8 +2,8 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 
 /*
  * The oversight part of the fake Spade API (ADR 0135, spade/docs/oversight.md): the service's
- * oversight, each bot's caps and review switch, and its activity log, in Spade's JSON. Spend is
- * whatever the test sets; the fake never counts it.
+ * oversight, each bot's spend and review switch, and its activity log, in Spade's JSON. Spend is
+ * whatever the test sets; the fake never counts it. Spade has no spending limits (ADR 0166).
  */
 
 type Json = Record<string, unknown>;
@@ -17,19 +17,11 @@ const problem = (status: number, error: string) => reply({ error }, status);
 export interface FakeSpadeSpending {
   today_micros: number;
   month_micros: number;
-  daily_cap_micros: number | null;
-  monthly_cap_micros: number | null;
-  capped: "daily" | "monthly" | null;
-  resets_at: number | null;
 }
 
 export const noSpending = (): FakeSpadeSpending => ({
   today_micros: 0,
   month_micros: 0,
-  daily_cap_micros: null,
-  monthly_cap_micros: null,
-  capped: null,
-  resets_at: null,
 });
 
 /** What a bot carries for oversight: its spending and its own review switch. */
@@ -42,7 +34,6 @@ export interface FakeSpadeOverseen {
 export class FakeSpadeOversight {
   oversight = {
     time_zone: "UTC",
-    daily_cap_micros: 5_000_000 as number | null,
     today_micros: 0,
     month_micros: 0,
     review_default: false,
@@ -71,12 +62,6 @@ export class FakeSpadeOversight {
   agentRoute(method: string, agent: FakeSpadeOverseen, body: Json): FakeSpadeAnswer {
     const spending = (agent.spending ??= noSpending());
     if (method === "PUT") {
-      for (const key of ["daily_cap_micros", "monthly_cap_micros"] as const) {
-        if (!(key in body)) continue;
-        const value = body[key];
-        if (typeof value === "number" && value < 0) return problem(400, "A cap can't be negative.");
-        spending[key] = typeof value === "number" ? value : null;
-      }
       if ("review" in body) agent.review = typeof body.review === "boolean" ? body.review : null;
     } else if (method !== "GET") return problem(405, "Not allowed.");
     return reply({ spending, review: agent.review ?? null });

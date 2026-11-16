@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use spade_core::routing::{Budget, Defaults, Models, Overrides, Role, Routing};
+use spade_core::routing::{Defaults, Models, Overrides, Role, Routing};
 use spade_models::Endpoint;
 use spade_store::StoreError;
 
@@ -200,38 +200,6 @@ impl Engine {
         json!({
             "today": self.spend_by_role(conversation, periods.day_start),
             "month": self.spend_by_role(conversation, periods.month_start),
-        })
-    }
-
-    /// The `<budget>` note for the bot of `conversation` (ADR 0162): information only.
-    pub(crate) fn budget_note(&self, conversation: &str) -> String {
-        let Ok(Some(agent)) = self.store.agent_for_conversation(conversation) else {
-            return String::new();
-        };
-        let Ok((spent, settings, _)) = self.spending(&agent) else {
-            return String::new();
-        };
-        let periods = self.periods();
-        let today_by_role = self
-            .spend_by_role(&agent.conversation, periods.day_start)
-            .into_iter()
-            .filter(|(_, spent)| *spent > 0)
-            .filter_map(|(role, spent)| Role::parse(&role).map(|r| (r, spent)))
-            .collect();
-        let facts = self.facts(conversation);
-        let roles = facts
-            .routing()
-            .table()
-            .into_iter()
-            .map(|(role, choice)| (role, choice.model))
-            .collect();
-        spade_core::routing::note(&Budget {
-            today_micros: spent.today_micros,
-            month_micros: spent.month_micros,
-            daily_cap_micros: settings.daily_cap_micros,
-            monthly_cap_micros: settings.monthly_cap_micros,
-            today_by_role,
-            roles,
         })
     }
 

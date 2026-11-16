@@ -9,6 +9,7 @@ person keeps showing where it already does). Builds on [ADR 0154](0154-spade-que
 (worker trees), [ADR 0162](0162-spade-model-routing.md) (spend by role) and
 [ADR 0163](0163-spade-auto-review-only.md) (the person is asked only on a retried refusal or a
 review that can't decide).
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): `cap_reached` and cap or budget parks have no level; digests still show spend by role.
 
 ## Context
 

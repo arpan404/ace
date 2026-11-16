@@ -39,19 +39,15 @@ fn brief() -> Event {
 }
 
 #[test]
-fn a_worker_link_follows_its_budget_and_ends_when_detached() {
+fn a_worker_link_ignores_old_budgets_and_ends_when_detached() {
+    // Budgets an earlier build stored (ADR 0161, removed by ADR 0166) still read.
     let mut events = vec![e(link(Some(2_000_000)))];
-    let made = linked(&events).map(|l| (l.parent, l.budget_micros));
-    assert_eq!(made, Some(("a1".to_owned(), Some(2_000_000))));
-    events.push(e(
+    let made = linked(&events).map(|l| l.parent);
+    assert_eq!(made, Some("a1".to_owned()));
+    events.push(Event::from_json(
         json!({ "type": "worker_budget", "budget_micros": 5_000_000, "by": "Lead" }),
     ));
-    assert_eq!(
-        linked(&events).and_then(|l| l.budget_micros),
-        Some(5_000_000)
-    );
-    events.push(e(json!({ "type": "worker_budget", "by": "person" })));
-    assert_eq!(linked(&events).map(|l| l.budget_micros), Some(None));
+    assert_eq!(linked(&events).map(|l| l.parent), Some("a1".to_owned()));
     events.push(e(json!({ "type": "worker_detached", "by": "person" })));
     assert_eq!(linked(&events), None, "a kept worker has no parent");
     assert_eq!(
@@ -163,24 +159,37 @@ fn a_worker_waiting_on_the_person_reports_once_per_ask() {
 }
 
 #[test]
-fn a_worker_at_its_budget_reports_parked_and_failures_and_stops_say_so() {
+fn a_worker_an_old_budget_parked_reports_once_its_wake_is_cancelled_and_failures_say_so() {
     let mut parked = vec![
         e(link(Some(1))),
         brief(),
         started("r1"),
-        e(
+        Event::from_json(
             json!({ "type": "cap_reached", "scope": "budget", "cap_micros": 1, "period_start": 0, "resets_at": 0 }),
         ),
-        finished("r1", ""),
+        finished("r1", "Half the sources."),
+        e(json!({
+            "type": "wake_set", "wake": "w9", "purpose": { "kind": "wait" },
+            "condition": { "kind": "budget" }, "reason": "At its budget of $0.000001."
+        })),
     ];
-    assert!(closed_at_budget(&parked));
-    parked.push(e(json!({
-        "type": "wake_set", "wake": "w9", "purpose": { "kind": "wait" },
-        "condition": { "kind": "budget" }, "reason": "At its budget of $0.000001."
-    })));
-    assert_eq!(budget_waits(&parked), vec!["w9".to_owned()]);
-    let report = settled(&parked, Around::default()).map(|s| (s.state, s.epoch));
-    assert_eq!(report, Some((ReportState::Parked, "w9".to_owned())));
+    let open = crate::wake::open(&parked);
+    assert!(open.iter().all(crate::wake::for_spend) && open.len() == 1);
+    assert_eq!(
+        settled(&parked, Around::default()),
+        None,
+        "an open wake holds it"
+    );
+    parked.push(e(
+        json!({ "type": "wake_cancelled", "wake": "w9", "by": "spade" }),
+    ));
+    let report = settled(&parked, Around::default()).map(|s| s.state);
+    assert_eq!(report, Some(ReportState::Finished));
+    let old = e(
+        json!({ "type": "worker_reported", "worker": "a2", "kind": "bot",
+        "name": "Scout", "state": "parked", "epoch": "w9", "summary": "" }),
+    );
+    assert!(matches!(old, Event::Known(Known::WorkerReported(r)) if r.state == ReportState::Other));
 
     let failed = vec![
         e(link(None)),

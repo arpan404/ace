@@ -290,11 +290,7 @@ fn deleting_an_agent_deletes_its_conversation_and_events() -> Result<()> {
     assert!(store.agent("a1")?.is_none());
     assert!(store.conversation("c1")?.is_none());
     assert!(store.events("c1", 0)?.is_empty());
-    assert_eq!(
-        store.spent_since(0)?,
-        300,
-        "spending still counts toward the cap"
-    );
+    assert_eq!(store.spent_since(0)?, 300, "spending stays in the ledger");
     assert!(!store.delete_agent("a1")?);
     Ok(())
 }
@@ -487,7 +483,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 9,
+            crate::schema::current_version() as i64 - 10,
         )?;
     }
     let store = Store::open(&path)?;
@@ -578,5 +574,41 @@ fn each_bot_keeps_its_own_skill_use_and_loses_it_with_the_bot() -> Result<()> {
     );
     assert!(store.delete_agent("a1")?);
     assert!(store.skill_uses("a1")?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let (_dir, path) = temp();
+    {
+        let store = Store::open(&path)?;
+        store.set_setting(
+            "oversight:a1",
+            Some(r#"{"daily_cap_micros":1000000,"monthly_cap_micros":null,"review":true}"#),
+        )?;
+        store.set_setting("oversight:a2", Some(r#"{"daily_cap_micros":5}"#))?;
+        store.set_setting("oversight", Some(r#"{"review_default":true}"#))?;
+    }
+    rusqlite::Connection::open(&path)?.pragma_update(
+        None,
+        "user_version",
+        crate::schema::current_version() as i64 - 1,
+    )?;
+    let store = Store::open(&path)?;
+    let one: Option<serde_json::Value> = store
+        .setting("oversight:a1")?
+        .and_then(|raw| serde_json::from_str(&raw).ok());
+    assert_eq!(one, Some(serde_json::json!({ "review": true })));
+    assert_eq!(
+        store.setting("oversight:a2")?,
+        None,
+        "a row of caps alone goes"
+    );
+    assert_eq!(
+        store.setting("oversight")?.as_deref(),
+        Some(r#"{"review_default":true}"#),
+        "the service's settings are untouched"
+    );
     Ok(())
 }

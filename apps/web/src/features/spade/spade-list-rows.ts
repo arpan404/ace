@@ -1,5 +1,4 @@
 import {
-  spadeCappedLine,
   spadeForLaterWords,
   spadeGroupLine,
   spadeProblemStep,
@@ -73,8 +72,6 @@ export function spadeBotRow(bot: RosterBot): SpadeRow {
   const state = bot.unseen ? "unseen" : "rest";
   // Cards left for later wait on nothing: a quiet count, never the needs-you colour (ADR 0154).
   if (bot.questionsForLater > 0) return { state, line: spadeForLaterWords(bot.questionsForLater) };
-  // At a cap it makes no model call until the cap ends (ADR 0135).
-  if (bot.spending?.capped) return { state, line: spadeCappedLine(bot.spending.capped) };
   return { state, line: lastLine(bot) };
 }
 

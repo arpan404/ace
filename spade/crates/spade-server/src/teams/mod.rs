@@ -54,7 +54,7 @@ impl Outcome {
 pub struct Shared {
     /// How Spade reaches its daemon for other machines, once it knows where ace is.
     pub(crate) remote: Mutex<Option<Arc<dyn Remote>>>,
-    /// Held across reading a group's events and recording an ask, so budget checks and Stop
+    /// Held across reading a group's events and recording an ask, so the ask checks and Stop
     /// never interleave.
     pub(crate) group_lock: Mutex<()>,
     /// Each open ask's end, for whoever waits on it (`group_ask`).

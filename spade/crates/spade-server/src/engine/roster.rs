@@ -36,7 +36,7 @@ pub enum State {
     /// Needs the person: an approval is pending.
     Waiting,
     /// Sleeps or waits on a wake (ADR 0160): not idle, not done. A turn waiting out an outage
-    /// and a task parked on a cap or for its check read this way too.
+    /// and a task parked for its check read this way too.
     Sleeping,
 }
 

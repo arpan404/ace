@@ -280,7 +280,6 @@ impl Transcript {
             | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
-            | Known::CapReached { .. }
             | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }
             | Known::GroupAsked { .. }
@@ -303,7 +302,6 @@ impl Transcript {
             | Known::WorkerOf(_)
             | Known::WorkerStarted(_)
             | Known::WorkerReported(_)
-            | Known::WorkerBudget { .. }
             | Known::WorkerDetached { .. }
             | Known::DecisionMade(_)
             | Known::TaskParked { .. } => {}

@@ -307,9 +307,8 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
 }
 
 #[tokio::test]
-async fn a_slow_image_outlives_the_foreground_window_and_its_cost_counts_against_the_cap() -> Result
-{
-    // The image takes longer than a turn holds a call, and costs more than today's cap.
+async fn a_slow_image_outlives_the_foreground_window_and_its_cost_is_recorded() -> Result {
+    // The image takes longer than a turn holds a call.
     let media = FakeMedia::slow(PNG, "", std::time::Duration::from_millis(900)).await?;
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path().join("workspace"));
@@ -324,7 +323,6 @@ async fn a_slow_image_outlives_the_foreground_window_and_its_cost_counts_against
         Toolbox::new(media_tools::all(workspaces.clone(), bots.clone()))
             .with_source(media_tools::images(&bots)),
         Options {
-            cap_usd: 1.0,
             limits: spade_server::engine::Limits {
                 foreground: std::time::Duration::from_millis(300),
                 ..spade_server::engine::Limits::default()
@@ -351,9 +349,11 @@ async fn a_slow_image_outlives_the_foreground_window_and_its_cost_counts_against
         sha256(PNG)
     );
     spade.wait_for(&conversation, "job_finished").await?;
-    // $1.50 for the image is past the $1 cap: the next message is refused.
+    // $1.50 for the image is in the ledger; nothing stops on it (ADR 0166).
+    let spent = spade_store::Store::open(&spade.database())?.spent_by(&conversation, 0)?;
+    assert!(spent >= 1_500_000, "{spent}");
     let (status, body) = send(&spade, &conversation, json!({ "text": "Another" })).await?;
-    assert_eq!(status, 402, "{body}");
+    assert!((200..300).contains(&status), "{status} {body}");
     Ok(())
 }
 
@@ -439,10 +439,7 @@ async fn transcription_uses_the_model_the_person_picked_and_counts_what_it_costs
     let spade = Spade::start_with(
         vec![Script::reply("unused")],
         Vec::new(),
-        Options {
-            cap_usd: 1.0,
-            ..Options::default()
-        },
+        Options::default(),
     )
     .await?;
     let audio =
@@ -464,10 +461,12 @@ async fn transcription_uses_the_model_the_person_picked_and_counts_what_it_costs
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["text"], "lights off please");
     assert_eq!(media.seen()[0].path, "/audio/transcriptions");
-    // It cost $1.50, past the $1 cap: the next one is refused before it reaches the endpoint.
+    // Each costs $1.50, recorded in the ledger; nothing refuses the next (ADR 0166).
     let (status, _) = spade.post("/v1/transcriptions", audio).await?;
-    assert_eq!(status, 402);
-    assert_eq!(media.seen().len(), 1);
+    assert_eq!(status, 200);
+    assert_eq!(media.seen().len(), 2);
+    let spent = spade_store::Store::open(&spade.database())?.spent_since(0)?;
+    assert_eq!(spent, 3_000_000);
     Ok(())
 }
 

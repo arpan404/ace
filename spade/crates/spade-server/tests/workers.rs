@@ -352,97 +352,17 @@ async fn a_worker_is_never_granted_a_tool_its_maker_lacks() -> Result {
 }
 
 #[tokio::test]
-async fn a_subtree_at_its_budget_waits_and_carries_on_when_the_budget_is_raised() -> Result {
-    let noop = FakeTool::new("noop", Risk::Read, "nothing");
-    let mut scripts = warm_up();
-    scripts.extend([
-        // $0.00005: one model call (92 micros) passes it.
-        makes("Thrifty", json!({ "budget_usd": 0.00005 })),
-        approve(),
-        Script::reply("").call("n1", "noop", json!({})),
-        Script::reply("Thrifty waits for budget."),
-        // Raised: the worker carries on and finishes; the lead hears it.
-        Script::reply("Finished on the new budget."),
-        Script::reply("Thrifty finished."),
-    ]);
-    let spade = start(scripts, tools(vec![pause(300), noop])).await?;
-    let (lead_id, lead_chat) = lead(&spade).await?;
-    spade.say(&lead_chat, "Do it cheaply").await?;
-    let events = spade.wait_for(&lead_chat, "worker_reported").await?;
-    assert_eq!(
-        reports(&events)[0]["state"],
-        "parked",
-        "{:?}",
-        reports(&events)
-    );
-    let thrifty = named(&spade, "Thrifty").await?;
-    assert_eq!(thrifty["state"], "sleeping", "it waits, not failed");
-    let thrifty_chat = thrifty["conversation"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let worker_events = spade.events(&thrifty_chat).await?;
-    assert!(
-        worker_events
-            .iter()
-            .any(|e| e["type"] == "cap_reached" && e["scope"] == "budget"),
-        "{:?}",
-        types(&worker_events)
-    );
-    let shown = tree(&spade, &lead_id).await?;
-    let node = shown["children"][0].clone();
-    assert_eq!(node["budget_micros"], 50, "{node}");
-    assert!(node["parked"].is_string(), "{node}");
-    quiet(&spade, &lead_chat).await?;
-
-    let worker = thrifty["id"].as_str().unwrap_or_default();
-    let (status, body) = spade
-        .put(
-            &format!("/v1/agents/{worker}/budget"),
-            json!({ "budget_usd": 1.0 }),
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
-    spade
-        .wait_for_count(&lead_chat, "worker_reported", 2)
-        .await?;
-    let worker_events = quiet(&spade, &thrifty_chat).await?;
-    assert!(
-        worker_events
-            .iter()
-            .any(|e| e["type"] == "reply_finished" && e["text"] == "Finished on the new budget."),
-        "{:?}",
-        types(&worker_events)
-    );
-    let events = quiet(&spade, &lead_chat).await?;
-    assert_eq!(reports(&events)[1]["state"], "finished");
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_workers_spend_counts_toward_its_makers_daily_cap() -> Result {
+async fn a_workers_spend_shows_in_its_makers_tree_and_nothing_stops_it() -> Result {
     let noop = FakeTool::new("noop", Risk::Read, "nothing");
     let mut scripts = warm_up();
     scripts.extend([
         makes("Spender", json!({})),
         approve(),
         Script::reply("").call("n1", "noop", json!({})),
-        Script::reply("Never said by the worker"),
+        Script::reply("Said by the worker"),
     ]);
     let spade = start(scripts, tools(vec![pause(300), noop])).await?;
     let (lead_id, lead_chat) = lead(&spade).await?;
-    // The lead's own spend so far is under the cap; with its worker's it is over.
-    let lead_now = agent(&spade, |a| a["id"] == lead_id.as_str()).await?;
-    let spent = lead_now["spending"]["today_micros"]
-        .as_u64()
-        .unwrap_or_default();
-    let (status, _) = spade
-        .put(
-            &format!("/v1/agents/{lead_id}/oversight"),
-            json!({ "daily_cap_micros": spent + 150 }),
-        )
-        .await?;
-    assert_eq!(status, 200);
     spade.say(&lead_chat, "Spend through a worker").await?;
     until("the worker exists", || async {
         Ok(named(&spade, "Spender").await.is_ok())
@@ -453,21 +373,33 @@ async fn a_workers_spend_counts_toward_its_makers_daily_cap() -> Result {
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    let events = spade.wait_for(&spender_chat, "cap_reached").await?;
-    let cap = events
-        .iter()
-        .find(|e| e["type"] == "cap_reached")
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(
-        cap["scope"], "daily",
-        "the maker's cap, counting its worker: {cap}"
-    );
+    until("the worker answered", || async {
+        let events = spade.events(&spender_chat).await?;
+        Ok(events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Said by the worker"))
+    })
+    .await?;
+    let events = spade.events(&spender_chat).await?;
     assert!(
         events
             .iter()
-            .all(|e| e["text"] != "Never said by the worker"),
-        "no step past the cap"
+            .all(|e| e["type"] != "cap_reached" && e["type"] != "wake_set"),
+        "nothing capped or parked it: {events:?}"
+    );
+    let (status, body) = spade.get(&format!("/v1/agents/{lead_id}/tree")).await?;
+    assert_eq!(status, 200, "{body}");
+    let tree = &body["tree"];
+    let own = tree["cost_micros"].as_u64().unwrap_or_default();
+    let subtree = tree["subtree_cost_micros"].as_u64().unwrap_or_default();
+    let worker = tree["children"][0]["cost_micros"]
+        .as_u64()
+        .unwrap_or_default();
+    assert!(worker > 0, "{tree}");
+    assert_eq!(subtree, own + worker, "{tree}");
+    assert!(
+        tree.get("budget_micros").is_none() && tree.get("parked").is_none(),
+        "{tree}"
     );
     Ok(())
 }
@@ -823,10 +755,12 @@ async fn stop_on_the_maker_cancels_its_ace_children_through_ace() -> Result {
             .any(|(name, arguments)| name == "agent_cancel" && arguments["threadId"] == "t1"))
     })
     .await?;
-    assert_eq!(
-        ace_children(&spade, &lead_id).await?,
-        vec![(json!("t1"), json!("Fix-bug"), json!("stopped"))]
-    );
+    // It reads `stopping` until ace confirms the cancel.
+    until("the ace child reads stopped", || async {
+        Ok(ace_children(&spade, &lead_id).await?
+            == vec![(json!("t1"), json!("Fix-bug"), json!("stopped"))])
+    })
+    .await?;
     Ok(())
 }
 

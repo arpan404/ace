@@ -491,8 +491,6 @@ pub fn sentence(facts: &Facts<'_>) -> String {
             _ => "Finished a turn",
         }
         .to_owned(),
-        Kind::Cap if name == "monthly" => "Reached its monthly cap".to_owned(),
-        Kind::Cap => "Reached its daily cap".to_owned(),
     }
 }
 

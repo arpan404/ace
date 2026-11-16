@@ -285,15 +285,7 @@ test("the profile holds the bot's routines and spending in Details, its notes an
     api.notes.add({ text: "Home airport is OPO", agent: "scout", scope: "agent", source: "bot" });
     api.files.set("scout", { "fares.csv": "date,price\n" });
     const scout = api.agents.find((agent) => agent.id === "scout");
-    if (scout)
-      scout.spending = {
-        today_micros: 180_000,
-        month_micros: 1_240_000,
-        daily_cap_micros: 1_000_000,
-        monthly_cap_micros: null,
-        capped: null,
-        resets_at: null,
-      };
+    if (scout) scout.spending = { today_micros: 180_000, month_micros: 1_240_000 };
   });
   await openProfile("Scout");
   const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));

@@ -5,6 +5,7 @@ Status: accepted. Date: 2026-11-15. Decided by: the owner (Spade capability work
 (tasks that carry themselves on) and [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md) (no
 fixed limits). Amends [spade/docs/harness.md](../../spade/docs/harness.md) and
 [spade/docs/autonomy.md](../../spade/docs/autonomy.md).
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): nothing parks with reason `cap`; one an earlier build stored is cancelled on start and its task carries on.
 
 ## Context
 
@@ -59,7 +60,7 @@ looking at it.
    output, 256 KiB per service; untrusted output) and `service_stop` manage it. Starting one is
    gated exactly like `shell`: classed by its command, "always" covers that exact command. Events
    `service_started {service, name, command, cwd, keep}` and `service_ended {service, code,
-   cause}` record it. After a restart a service marked `keep` is started again; any other is
+cause}` record it. After a restart a service marked `keep` is started again; any other is
    recorded `lost`. Services are listed at `GET /v1/agents/{id}/services` and stopped when the
    bot is stopped or deleted. A running service does not make the bot read as working: it is the
    bot's tool, not work in progress.
@@ -69,7 +70,7 @@ looking at it.
    request) is reported and never parked.
    - A reply whose model call failed transiently (unreachable, `429`, `5xx`, a dropped stream)
      after the quick retries is not closed: its turn waits out the outage on `wake_set {purpose:
-     outage, attempt, error}`, which holds the reply open and adds nothing for the model, and
+outage, attempt, error}`, which holds the reply open and adds nothing for the model, and
      sends the step again when it fires (ADR 0158 decision 9). The person's message settles it,
      and their message goes with the step.
    - A background job whose tool reports a transient failure is parked (`retry` with the job
@@ -80,7 +81,7 @@ looking at it.
 7. **Check-ins on long jobs.** While a background job runs past 15 minutes, the bot gets a
    `<job_progress>` note with the job's latest output tail (from the bot's terminal for shell
    jobs), then at 30, 60, 120 minutes and every 2 hours after. Each is `job_progress {job, check,
-   minutes, tail}`, stored once per check under the record lock, and opens a reply so the bot can
+minutes, tail}`, stored once per check under the record lock, and opens a reply so the bot can
    keep waiting or act. The tail is untrusted data.
 8. **The person sees and controls it through the API** (the web UI is a later wave):
    `GET /v1/agents/{id}/wakes`, `POST /v1/agents/{id}/wakes/{wake}/wake`,

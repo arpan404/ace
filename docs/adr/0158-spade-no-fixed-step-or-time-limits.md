@@ -6,6 +6,7 @@ unwanted guardrails that make no sense for a true agentic system. Nowadays many 
 millions of steps."). Amends [spade/docs/harness.md](../../spade/docs/harness.md) (limits, tool
 and job timeouts), [ADR 0144](0144-spade-autonomous-bots.md) decision 6 (the task's step budget)
 and [ADR 0152](0152-spade-helpers.md) decision 7 (a helper's steps and spend).
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): no spending cap parks a task and the service cap is gone; only Stop ends work.
 
 ## Context
 
@@ -72,7 +73,7 @@ here). From the harness audit's wave 0.
 9. **Work waits instead of ending.** Every wait is a wake of [ADR 0160](0160-spade-wake-and-owned-services.md),
    so it is shown, kept across a restart and fired once by one mechanism:
    - A working task stopped by a spending cap is parked (`wake_set {purpose: {kind: park,
-     reason: cap}}`, due at the cap's reset, its `reason` what the person reads). The bot reads as
+reason: cap}}`, due at the cap's reset, its `reason` what the person reads). The bot reads as
      sleeping with the reason, and the task carries on when it fires: at the reset, when the
      person raises the cap, when Spade reopens with the cap lifted, or when the person wakes it. A
      message settles it; Stop cancels it. A check of done the cap stops parks the same way.
@@ -90,6 +91,7 @@ here). From the harness audit's wave 0.
 
    First built with events of its own (`task_parked`, `turn_parked`), folded into wakes when ADR
    0160 merged; both are still read (docs/harness.md, Events).
+
 10. **A bot never reads idle while its ace children work** (AGENTS.md priority 1). A background
     `delegate` or `wait` calls ace's `wait` again each time ace's ten-minute wait runs out, until
     the children are done, need the person, or are held at a usage limit. After a restart such a

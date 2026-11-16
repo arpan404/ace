@@ -8,16 +8,15 @@
 //!   ([`Engine::roll_up`]);
 //! - a worker that settles is reported once to its parent (`report`), and queued workers start
 //!   as slots free;
-//! - every model call is admitted against the budgets and caps on its path to the top
-//!   (`budget`);
+//! - what each subtree spent is shown, never bounded (`spend`, ADR 0166);
 //! - grants pass down as subsets (`create`, [`Engine::narrow_registry`]); there is one access level, so
 //!   none is narrowed.
 
-mod budget;
 mod coordinate;
 mod create;
 mod lifecycle;
 mod report;
+mod spend;
 mod view;
 
 pub use create::ConnectorGrants;

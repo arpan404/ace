@@ -25,7 +25,7 @@ mod jobs;
 mod knowledge;
 mod knowledge_api;
 mod ledger;
-pub(crate) use ledger::{Admission, Hint};
+pub(crate) use ledger::Admission;
 mod maintenance;
 mod media;
 mod memory;
@@ -78,7 +78,7 @@ pub use routing::{RolesChange, entry_role};
 pub(crate) use search::Native;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
-    CompactError, Frame, Limits, NO_SERVICE_CAP, SendError, Setup, Snapshot, Subscription,
+    CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
 };
 pub use workers::{ConnectorGrants, Workers};
 
@@ -89,7 +89,7 @@ use std::sync::{Arc, Mutex};
 use spade_core::event::Known;
 use spade_core::maintenance::Pause;
 use spade_core::turn::{job_stopped, needs_reply};
-use spade_core::{Event, Transcript, question, spending};
+use spade_core::{Event, Transcript, question};
 use spade_models::{Listed, Models};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
@@ -133,15 +133,10 @@ pub struct Engine {
     tools: Toolbox,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn Ids>,
-    daily_cap_micros: u64,
-    /// Model calls admitted and not yet paid for (ADR 0135, `ledger`).
-    in_flight: Mutex<ledger::InFlight>,
     /// Conversations with a closed goal whose episode is not stored yet (ADR 0164): found at
     /// start, or left by a store that failed. Swept when Spade opens for work and retried before
     /// each model step of theirs.
     episodes_owed: Mutex<std::collections::HashSet<String>>,
-    /// Woken each time an admitted call settles, for calls waiting on its estimate.
-    released: Notify,
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
@@ -274,10 +269,7 @@ impl Engine {
             tools,
             clock: setup.clock,
             ids: setup.ids,
-            daily_cap_micros: setup.daily_cap_micros,
-            in_flight: Mutex::default(),
             episodes_owed: Mutex::default(),
-            released: Notify::new(),
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
@@ -759,24 +751,10 @@ impl Engine {
         {
             return Err(CompactError::Busy);
         }
-        if !self
-            .within_cap()
-            .map_err(|e| CompactError::Failed(e.to_string()))?
-        {
-            return Err(CompactError::OverCap);
-        }
-        // A bot at its own cap compacts nothing either: the summary is a model call.
-        if let Some(why) = self.cap_refusal(id) {
-            return Err(CompactError::BotCapped(why));
-        }
         let model = compact::conversation_model(self, id).unwrap_or_else(|| self.reply_model(id));
         match compact::now(self, id, &model, focus).await {
             Ok(true) => Ok(()),
             Ok(false) => Err(CompactError::Nothing),
-            Err(error) if error == compact::AT_CAP => Err(CompactError::BotCapped(
-                self.cap_refusal(id)
-                    .unwrap_or_else(|| "today's spending cap is used up".to_owned()),
-            )),
             Err(error) => Err(CompactError::Failed(error)),
         }
     }
@@ -786,8 +764,7 @@ impl Engine {
     }
 
     /// What can be told of a new bot's first message before the bot exists: it says something,
-    /// isn't too long and carries no more images than a message may. The rest (caps) is checked
-    /// as it is sent.
+    /// isn't too long and carries no more images than a message may.
     pub fn check_first_message(&self, first: &Outgoing) -> Result<(), SendError> {
         if first.images.len() > crate::images::MOST_IMAGES {
             return Err(SendError::TooManyImages);
@@ -802,7 +779,7 @@ impl Engine {
         Ok(())
     }
 
-    fn check_message(&self, id: &str, text: &str, attached: usize) -> Result<(), SendError> {
+    fn check_message(&self, text: &str, attached: usize) -> Result<(), SendError> {
         let text = text.trim();
         if text.is_empty() && attached == 0 {
             return Err(SendError::Empty);
@@ -810,24 +787,7 @@ impl Engine {
         if text.chars().count() > self.limits.longest_message {
             return Err(SendError::TooLong);
         }
-        if !self.cap_free(id) && !self.within_cap()? {
-            return Err(SendError::OverCap);
-        }
         Ok(())
-    }
-
-    /// Whether `id`'s turns run on a subscription (ADR 0133), which Spade's cap never limits.
-    fn cap_free(&self, id: &str) -> bool {
-        spade_core::brain::CliModel::is(&self.reply_model(id))
-    }
-
-    fn within_cap(&self) -> Result<bool, StoreError> {
-        // The person's day, the same one the bots' caps and the app use (ADR 0135).
-        let since = self.periods().day_start;
-        Ok(spending::within_cap(
-            self.store.spent_since(since)?,
-            self.daily_cap_micros,
-        ))
     }
 
     fn reply_open(&self, id: &str) -> Result<bool, StoreError> {
@@ -934,7 +894,7 @@ impl Engine {
         cost: u64,
     ) {
         use spade_core::routing::Role;
-        // A helper's spend is its bot's (ADR 0152), so the bot's caps count it.
+        // A helper's spend is its bot's (ADR 0152), so the bot's spend shows it.
         let owner = self.helper_of(id).map(|h| h.parent);
         let role = role.unwrap_or(if owner.is_some() {
             Role::Helper

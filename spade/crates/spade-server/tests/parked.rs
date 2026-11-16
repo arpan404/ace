@@ -1,22 +1,20 @@
-//! Work that waits instead of ending (ADR 0158): a working task stopped by a spending cap is
-//! parked on a wake (ADR 0160) and carries on at the cap's reset or once the cap is raised,
-//! across a restart, and reads as sleeping with the reason meanwhile. Through the API with a real
-//! database, a scripted fake model and a manual clock. Each model call costs 92 micros, so a cap
-//! of 50 holds after one call.
+//! Spade has no spending limits (ADR 0166): nothing parks for spend, and a cap or budget park an
+//! earlier build stored is cancelled when Spade opens, so its task carries on. What each call
+//! cost is still recorded. Through the API with a real database, a scripted fake model (each
+//! call costs 92 micros) and a manual clock.
 
 mod support;
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use spade_server::tools::{TaskStatus, Tool};
 use spade_testkit::Script;
 use support::{ManualClock, Options, Result, Spade};
 
-/// 2026-11-09T05:30:00Z: 23:30 on the 8th in Chicago.
-const LATE_EVENING: i64 = 1_794_202_200_000;
-/// Chicago's next midnight.
-const MIDNIGHT: i64 = LATE_EVENING + 1_800_000;
+/// 2026-11-09T05:30:00Z.
+const EVENING: i64 = 1_794_202_200_000;
 
 fn tools() -> Vec<Arc<dyn Tool>> {
     vec![Arc::new(TaskStatus)]
@@ -29,34 +27,12 @@ fn at(clock: &Arc<ManualClock>) -> Options {
     }
 }
 
-/// A bot with a daily cap of 50 micros whose first reply marks its task working.
-async fn capped_bot(spade: &Spade) -> Result<(String, String)> {
-    spade
-        .put("/v1/oversight", json!({ "time_zone": "America/Chicago" }))
-        .await?;
-    let agent = spade.new_agent("Porter", "Port the modules").await?;
-    let id = agent["id"].as_str().unwrap_or_default().to_owned();
-    let chat = agent["conversation"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let (status, body) = spade
-        .put(
-            &format!("/v1/agents/{id}/oversight"),
-            json!({ "daily_cap_micros": 50 }),
-        )
-        .await?;
-    assert_eq!(status, 200, "{body}");
-    spade.say(&chat, "Port all of them").await?;
-    Ok((id, chat))
+fn title() -> Script {
+    Script::reply("").plain(r#"{"title":"Work"}"#)
 }
 
-fn working() -> Script {
-    Script::reply("").call(
-        "c1",
-        "task_status",
-        json!({ "status": "working", "note": "porting" }),
-    )
+fn count(events: &[Value], kind: &str) -> usize {
+    events.iter().filter(|e| e["type"] == kind).count()
 }
 
 async fn roster_entry(spade: &Spade, agent: &str) -> Result<Value> {
@@ -67,118 +43,184 @@ async fn roster_entry(spade: &Spade, agent: &str) -> Result<Value> {
         .ok_or_else(|| "the bot is not in the roster".into())
 }
 
-fn count(events: &[Value], kind: &str) -> usize {
-    events.iter().filter(|e| e["type"] == kind).count()
+async fn new_bot(spade: &Spade) -> Result<(String, String)> {
+    let agent = spade.new_agent("Porter", "Port the modules").await?;
+    let id = agent["id"].as_str().unwrap_or_default().to_owned();
+    let chat = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    Ok((id, chat))
 }
 
-/// The cap parks among `events`.
-fn cap_parks(events: &[Value]) -> Vec<&Value> {
-    events
-        .iter()
-        .filter(|e| {
-            e["type"] == "wake_set"
-                && e["purpose"]["kind"] == "park"
-                && e["purpose"]["reason"] == "cap"
-        })
-        .collect()
-}
-
-/// Waits until the task is parked on its cap.
-async fn parked(spade: &Spade, chat: &str) -> Result<Vec<Value>> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+/// Waits until `chat` has `n` events of `kind`.
+async fn wait_count(spade: &Spade, chat: &str, kind: &str, n: usize) -> Result<Vec<Value>> {
+    let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let events = spade.wait_for(chat, "wake_set").await?;
-        if !cap_parks(&events).is_empty() {
+        let events = spade.events(chat).await?;
+        if count(&events, kind) >= n {
             return Ok(events);
         }
-        if std::time::Instant::now() > deadline {
-            return Err("the task never parked on its cap".into());
+        if Instant::now() > deadline {
+            return Err(format!("never saw {n} {kind}: {events:?}").into());
         }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
-/// Moves the clock to `ms` and lets the wake timer look.
-async fn move_to(spade: &Spade, clock: &ManualClock, ms: i64) {
-    clock.set(ms);
-    spade.engine.kick_wakes();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-}
-
 #[tokio::test]
-async fn a_task_stopped_by_its_cap_waits_through_a_restart_and_carries_on_at_the_reset() -> Result {
-    let clock = ManualClock::at(LATE_EVENING);
-    let spade = Spade::start_with(vec![working()], tools(), at(&clock)).await?;
-    let (agent, chat) = capped_bot(&spade).await?;
-    let events = parked(&spade, &chat).await?;
-    let park = cap_parks(&events).first().map(|p| p["due_ms"].clone());
-    assert_eq!(park, Some(json!(MIDNIGHT)));
-    let shown = roster_entry(&spade, &agent).await?;
-    assert_eq!(shown["state"], "sleeping", "{shown}");
-    assert_eq!(shown["wake"]["purpose"], "park", "{shown}");
-    assert_eq!(shown["wake"]["parked"], "cap", "{shown}");
-    assert!(
-        shown["status"]
-            .as_str()
-            .is_some_and(|s| s.contains("daily cap") && s.contains("carries on")),
-        "{shown}"
-    );
-
-    // Spade restarts while the task waits: it still waits, said once.
-    spade
-        .engine
-        .pause_for_stop(std::time::Duration::from_secs(1))
-        .await;
-    let spade = spade
-        .restart_with(
-            tools(),
-            vec![Script::reply("Ported the next one.")],
-            at(&clock),
-        )
-        .await?;
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    let events = spade.events(&chat).await?;
-    assert_eq!(cap_parks(&events).len(), 1);
-    assert_eq!(count(&events, "task_continued"), 0, "not before midnight");
-    assert_eq!(roster_entry(&spade, &agent).await?["state"], "sleeping");
-
-    move_to(&spade, &clock, MIDNIGHT + 60_000).await;
-    let events = spade.wait_for(&chat, "task_continued").await?;
-    assert_eq!(count(&events, "task_continued"), 1);
-    let events = spade.wait_for_count(&chat, "reply_finished", 2).await?;
-    assert!(
-        events
-            .iter()
-            .any(|e| e["type"] == "reply_finished" && e["text"] == "Ported the next one."),
-        "the task carried on at the reset: {:?}",
-        events
-            .iter()
-            .map(|e| format!("{} {}", e["type"], e["text"]))
-            .collect::<Vec<_>>()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn raising_the_cap_carries_a_waiting_task_on_at_once() -> Result {
-    let clock = ManualClock::at(LATE_EVENING);
+async fn nothing_parks_for_spend_and_what_each_call_cost_is_still_recorded() -> Result {
+    let clock = ManualClock::at(EVENING);
     let spade = Spade::start_with(
-        vec![working(), Script::reply("Ported the next one.")],
+        vec![
+            Script::reply("").call(
+                "c1",
+                "task_status",
+                json!({ "status": "working", "note": "porting" }),
+            ),
+            Script::reply("Ported the first one."),
+            title(),
+            Script::reply("").call(
+                "c2",
+                "task_status",
+                json!({ "status": "done", "note": "all ported" }),
+            ),
+            Script::reply("Ported them all."),
+        ],
         tools(),
         at(&clock),
     )
     .await?;
-    let (agent, chat) = capped_bot(&spade).await?;
-    parked(&spade, &chat).await?;
+    let (agent, chat) = new_bot(&spade).await?;
+    // A cap of nothing an earlier build left in the bot's settings: ignored.
+    spade_store::Store::open(&spade.database())?.set_setting(
+        &format!("oversight:{agent}"),
+        Some(r#"{"daily_cap_micros":0,"monthly_cap_micros":0}"#),
+    )?;
+    // The person's old app may still send caps: they change nothing.
     let (status, body) = spade
         .put(
             &format!("/v1/agents/{agent}/oversight"),
-            json!({ "daily_cap_micros": 1_000_000 }),
+            json!({ "daily_cap_micros": 0, "review": false }),
         )
         .await?;
     assert_eq!(status, 200, "{body}");
-    let events = spade.wait_for(&chat, "task_continued").await?;
-    assert_eq!(count(&events, "task_continued"), 1);
-    spade.wait_for_count(&chat, "reply_finished", 2).await?;
+    spade.say(&chat, "Port all of them").await?;
+
+    let events = wait_count(&spade, &chat, "reply_finished", 2).await?;
+    assert_eq!(count(&events, "task_continued"), 1, "the task carried on");
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Ported them all."),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().all(|e| e["type"] != "wake_set"
+            && e["type"] != "cap_reached"
+            && e["type"] != "reply_failed"),
+        "nothing parked, capped or failed: {events:?}"
+    );
+    let shown = roster_entry(&spade, &agent).await?;
+    assert_ne!(shown["state"], "sleeping", "{shown}");
+
+    // Every model call is still paid for: the four steps and the title, 92 micros each.
+    let (status, body) = spade.get(&format!("/v1/agents/{agent}/oversight")).await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["spending"]["today_micros"], 5 * 92, "{body}");
+    assert_eq!(body["spending"]["month_micros"], 5 * 92, "{body}");
+    assert!(
+        body["spending"].get("daily_cap_micros").is_none()
+            && body["spending"].get("capped").is_none(),
+        "no caps are shown: {body}"
+    );
+    assert_eq!(body["review"], false, "{body}");
+    let (_, service) = spade.get("/v1/oversight").await?;
+    assert_eq!(service["oversight"]["today_micros"], 5 * 92, "{service}");
+    assert!(
+        service["oversight"].get("daily_cap_micros").is_none(),
+        "{service}"
+    );
     Ok(())
+}
+
+/// A bot whose task works and sleeps, stopped; its sleep is rewritten in storage as the park
+/// `wake` (`purpose`, `condition`) an earlier build set for spend. Spade opens again and the
+/// task must carry on.
+async fn an_old_spend_park_is_cancelled_on_start(purpose: Value, condition: Value) -> Result {
+    let clock = ManualClock::at(EVENING);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("")
+                .call(
+                    "c1",
+                    "task_status",
+                    json!({ "status": "working", "note": "porting" }),
+                )
+                .call(
+                    "c2",
+                    "sleep_until",
+                    json!({ "after": "10h", "reason": "the build settles" }),
+                ),
+            title(),
+        ],
+        tools(),
+        at(&clock),
+    )
+    .await?;
+    let (agent, chat) = new_bot(&spade).await?;
+    spade.say(&chat, "Port all of them").await?;
+    let events = wait_count(&spade, &chat, "wake_set", 1).await?;
+    assert_eq!(count(&events, "task_continued"), 0, "it sleeps");
+    spade.wait_for(&chat, "reply_finished").await?;
+    spade.engine.pause_for_stop(Duration::from_secs(1)).await;
+
+    // As an earlier build left it: the task parked at a cap, or a worker waiting for budget.
+    let rewritten = rusqlite::Connection::open(spade.database())?.execute(
+        "UPDATE events
+            SET body = json_set(body, '$.purpose', json(?1), '$.condition', json(?2),
+                                '$.reason', 'Porter is at its daily cap of $0.00 until midnight.')
+          WHERE conversation_id = ?3 AND json_extract(body, '$.type') = 'wake_set'",
+        rusqlite::params![purpose.to_string(), condition.to_string(), chat],
+    )?;
+    assert_eq!(rewritten, 1);
+
+    let spade = spade
+        .restart_with(tools(), vec![Script::reply("Carried on.")], at(&clock))
+        .await?;
+    let events = spade.wait_for(&chat, "task_continued").await?;
+    let cancelled: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "wake_cancelled")
+        .collect();
+    assert_eq!(cancelled.len(), 1, "{events:?}");
+    assert_eq!(cancelled[0]["by"], "spade");
+    let events = wait_count(&spade, &chat, "reply_finished", 2).await?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Carried on."),
+        "the task carried on: {events:?}"
+    );
+    assert_eq!(count(&events, "task_continued"), 1);
+    assert_eq!(count(&events, "wake_fired"), 0, "cancelled, never fired");
+    let (_, wakes) = spade.get(&format!("/v1/agents/{agent}/wakes")).await?;
+    assert_eq!(wakes["wakes"], json!([]), "{wakes}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_old_cap_park_found_open_on_start_is_cancelled_and_the_task_carries_on() -> Result {
+    an_old_spend_park_is_cancelled_on_start(
+        json!({ "kind": "park", "reason": "cap", "attempt": 0 }),
+        Value::Null,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn an_old_wait_for_budget_found_open_on_start_is_cancelled_and_the_task_carries_on() -> Result
+{
+    an_old_spend_park_is_cancelled_on_start(json!({ "kind": "wait" }), json!({ "kind": "budget" }))
+        .await
 }

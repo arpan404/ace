@@ -151,8 +151,6 @@ export type SpadeEntry =
       /** Workspace files it kept, for chips on the bot's next bubble. */
       files: readonly string[];
     }
-  /** The bot reached a spending cap (ADR 0135): one bubble of the bot's, once per period. */
-  | { kind: "cap"; key: string; scope: "daily" | "monthly"; capMicros: number }
   /**
    * A helper the bot started (ADR 0152): one line where it started, updated in place as it
    * works and ends. `result` is what it handed back, once it has.
@@ -250,8 +248,6 @@ export interface SpadeConversationState {
   unknown: number;
   /** Why the model review escalated each call, by call id, until its approval is answered. */
   reviews: Map<string, string>;
-  /** Each cap reached, by scope and period, so one shows once. */
-  caps: Set<string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
   status: string | undefined;
   /** Open wakes and the names their words use (ADR 0160, 0161). */
@@ -298,7 +294,6 @@ export function emptySpadeConversation(): SpadeConversationState {
     stopping: new Set(),
     unknown: 0,
     reviews: new Map(),
-    caps: new Set(),
     status: undefined,
     capabilities: emptySpadeCapabilities(),
   };
@@ -604,13 +599,6 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       }
       // Its result goes to Spade like a message: what Spade says about it reads below it.
       steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
-      return true;
-    }
-    case "cap_reached": {
-      const period = `${event.scope}:${JSON.stringify(event.period_start ?? stored.at)}`;
-      if (state.caps.has(period)) return false;
-      state.caps.add(period);
-      state.entries.push({ kind: "cap", key, scope: event.scope, capMicros: event.cap_micros });
       return true;
     }
     case "call_reviewed": {

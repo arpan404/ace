@@ -13,7 +13,7 @@ use crate::images::{ImageError, ImageStore};
 use crate::tools::{SkillLibrary, Toolbox};
 
 /// How a turn runs. Nothing here ends a bot's work: a turn takes as many steps and as long as
-/// it needs, and the person's controls are Stop and their own spending caps (ADR 0158).
+/// it needs, and the person's control is Stop (ADR 0158); no spend limits it (ADR 0166).
 #[derive(Debug, Clone)]
 pub struct Limits {
     /// Tool calls of one step that run at once (`SPADE_PARALLEL_TOOLS`); the rest wait their turn.
@@ -74,17 +74,12 @@ impl Default for Limits {
     }
 }
 
-/// The service cap when `SPADE_DAILY_CAP_USD` is unset: no cap.
-pub const NO_SERVICE_CAP: u64 = u64::MAX;
-
 pub struct Setup {
     pub store: Store,
     pub models: Models,
     pub tools: Toolbox,
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn Ids>,
-    /// The service's daily cap for every bot together; [`NO_SERVICE_CAP`] when none is set.
-    pub daily_cap_micros: u64,
     /// No longer read: days are the person's, in the time zone the app sends (ADR 0135).
     pub utc_offset_seconds: i32,
     pub limits: Limits,
@@ -223,11 +218,6 @@ pub enum SendError {
     Empty,
     #[error("the message is too long")]
     TooLong,
-    #[error("today's spending cap is used up")]
-    OverCap,
-    /// The bot is at one of its own caps (ADR 0135); the words say which and until when.
-    #[error("{0}")]
-    BotCapped(String),
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
     TooManyImages,
     #[error(
@@ -249,11 +239,6 @@ pub enum CompactError {
     Busy,
     #[error("there is nothing to compact yet")]
     Nothing,
-    #[error("today's spending cap is used up")]
-    OverCap,
-    /// The bot is at one of its own caps (ADR 0135).
-    #[error("{0}")]
-    BotCapped(String),
     #[error("{0}")]
     Failed(String),
 }

@@ -254,9 +254,6 @@ impl Tool for ImageGenerate {
                 .size
                 .as_deref()
                 .filter(|s| s.len() <= 16 && s.chars().all(|c| c.is_ascii_alphanumeric()));
-            if !engine.can_spend().unwrap_or(false) {
-                return ToolOutput::error("Today's spending cap is used up, so no image was made.");
-            }
             let made = match engine
                 .models()
                 .generate_image(&model, &args.prompt, size)

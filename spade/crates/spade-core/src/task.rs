@@ -210,7 +210,7 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
 }
 
 /// The last reply ended by finishing (not stopped, failed or cut off), or was ended by a spending
-/// cap before its next model call (the task waits for the cap, ADR 0158), and none is open.
+/// cap an earlier build had (retired by ADR 0166, so its task carries on), and none is open.
 pub(crate) fn ended_finished(events: &[Event]) -> bool {
     let last = events.iter().rev().find(|e| {
         matches!(

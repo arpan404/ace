@@ -140,7 +140,7 @@ impl Store {
     }
 
     /// The agent whose conversation is `conversation`. A helper's conversation (ADR 0152)
-    /// belongs to its bot: its tools, caps, connectors and settings are the bot's.
+    /// belongs to its bot: its tools, connectors and settings are the bot's.
     pub fn agent_for_conversation(&self, conversation: &str) -> Result<Option<Agent>> {
         self.agent_where(
             "a.conversation_id = COALESCE(
@@ -221,7 +221,7 @@ impl Store {
     }
 
     /// Deletes the agent, its conversation and the conversation's events. Spending stays in the
-    /// ledger, so today's cap still counts it. Returns whether the agent existed.
+    /// ledger, so the day's spend still shows it. Returns whether the agent existed.
     pub fn delete_agent(&self, id: &str) -> Result<bool> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
@@ -238,7 +238,7 @@ impl Store {
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
         // Its helpers' hidden conversations go with it (ADR 0152).
         crate::helpers::delete_of(&tx, &conversation)?;
-        // Its caps and review switch (ADR 0135); its spend stays in the ledger.
+        // Its review switch (ADR 0135); its spend stays in the ledger.
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",
             params![crate::oversight::agent_key(id)],

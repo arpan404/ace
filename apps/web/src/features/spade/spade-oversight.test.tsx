@@ -8,14 +8,7 @@ configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
-const spending = {
-  today_micros: 420_000,
-  month_micros: 3_100_000,
-  daily_cap_micros: 1_000_000,
-  monthly_cap_micros: null,
-  capped: null,
-  resets_at: null,
-};
+const spending = { today_micros: 420_000, month_micros: 3_100_000 };
 
 function seed(spade: FakeSpadeApi) {
   withEndpoint(spade);
@@ -121,59 +114,35 @@ test("Show older reads the page before the last entry shown", async () => {
   expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
 });
 
-test("the profile shows what a bot spent and saves each cap in micros as the person leaves it", async () => {
+test("the profile shows what a bot spent, with no spending limit to set", async () => {
   const { spade } = await spadeApp("/spade", seed);
   const section = await spendingOf();
   expect(section.getByText("$3.10")).toBeTruthy();
   expect(section.getByText("$0.42 today")).toBeTruthy();
-  const daily = section.getByRole("textbox", { name: "Daily cap" });
-  expect((daily as HTMLInputElement).value).toBe("1");
-  await userEvent.clear(daily);
-  await userEvent.type(daily, "2.50{Enter}");
-  await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([
-      { daily_cap_micros: 2_500_000 },
-    ]),
-  );
-  await userEvent.type(section.getByRole("textbox", { name: "Monthly cap" }), "40");
-  await userEvent.tab();
-  await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([
-      { daily_cap_micros: 2_500_000 },
-      { monthly_cap_micros: 40_000_000 },
-    ]),
-  );
-});
-
-test("clearing a cap sends no cap, and a cap that isn't dollars is never sent", async () => {
-  const { spade } = await spadeApp("/spade", seed);
-  const section = await spendingOf();
-  const daily = section.getByRole("textbox", { name: "Daily cap" });
-  await userEvent.clear(daily);
-  await userEvent.type(daily, "lots{Enter}");
-  expect(await section.findByText("Type an amount in dollars, or leave it empty.")).toBeTruthy();
+  // Spade has no spending limits (ADR 0166): nothing to type, raise or save.
+  expect(section.queryAllByRole("textbox")).toHaveLength(0);
+  expect(section.queryByText(/cap|limit|budget/i)).toBeNull();
   expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([]);
-  await userEvent.clear(daily);
-  await userEvent.type(daily, "{Enter}");
-  await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([{ daily_cap_micros: null }]),
-  );
 });
 
-test("a bot at its cap says so on its row, and its cap bubble shows once in the chat", async () => {
+test("a cap an older Spade sent or stored never shows, on the row or in the chat", async () => {
   await spadeApp("/spade", (api) => {
     const scout = seed(api);
-    scout.spending = { ...spending, capped: "daily", resets_at: at + 86_400_000 };
-    const cap = { type: "cap_reached", scope: "daily", cap_micros: 1_000_000, period_start: at };
-    api.store(scout.conversation, cap);
-    api.store(scout.conversation, cap);
+    const older = { ...spending, daily_cap_micros: 1_000_000, capped: "daily", resets_at: at };
+    scout.spending = older;
+    api.store(scout.conversation, {
+      type: "cap_reached",
+      scope: "daily",
+      cap_micros: 1_000_000,
+      period_start: at,
+    });
+    api.reply(scout, "Still on it.");
   });
-  expect((await botRow("Scout")).textContent).toContain("At its daily cap");
+  expect((await botRow("Scout")).textContent).not.toMatch(/cap/i);
   await userEvent.click(await botRow("Scout"));
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
-  await waitFor(() =>
-    expect(chat.getAllByText(/reached my daily spending cap of \$1\.00/)).toHaveLength(1),
-  );
+  expect(await chat.findByText("Still on it.")).toBeTruthy();
+  expect(chat.queryByText(/spending cap/i)).toBeNull();
 });
 
 test("a report's chip on the bot's bubble opens the report in its files", async () => {
@@ -198,10 +167,14 @@ test("a report's chip on the bot's bubble opens the report in its files", async 
   );
 });
 
-test("Settings › Spade tells Spade the person's zone and keeps the totals and the cap, not each bot's", async () => {
-  const { spade } = await spadeApp("/settings/spade", seed);
+test("Settings › Spade tells Spade the person's zone and keeps the totals, not each bot's, and no cap", async () => {
+  const { spade } = await spadeApp("/settings/spade", (api) => {
+    seed(api);
+    api.oversight.oversight.month_micros = 7_000_000;
+  });
   const group = within(await screen.findByRole("region", { name: "Spending, every bot together" }));
-  expect(await group.findByText("$5.00")).toBeTruthy();
+  expect(await group.findByText("$7.00")).toBeTruthy();
+  expect(group.queryByText(/cap/i)).toBeNull();
   // Scout's own spend is on its page.
   expect(group.queryByText("Scout")).toBeNull();
   await waitFor(() =>
@@ -236,40 +209,6 @@ test("Show older goes on from where Spade stopped reading, past a part with noth
       within(screen.getByRole("list", { name: "Activity" })).getAllByRole("listitem"),
     ).toHaveLength(2),
   );
-});
-
-test("a cap under a cent shows as typed, and renaming the bot never rewrites a cap", async () => {
-  const { spade } = await spadeApp("/spade", (api) => {
-    withEndpoint(api);
-    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
-    api.addAgent({
-      id: "scout",
-      name: "Scout",
-      spending: { ...spending, daily_cap_micros: 1_000 },
-    });
-  });
-  const section = await spendingOf();
-  expect((section.getByRole("textbox", { name: "Daily cap" }) as HTMLInputElement).value).toBe(
-    "0.001",
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Rename Scout" }));
-  const name = screen.getByRole("textbox", { name: "Name" });
-  await userEvent.clear(name);
-  await userEvent.type(name, "Scout Two{Enter}");
-  await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/scout")).toHaveLength(1));
-  expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([]);
-});
-
-test("a cap too large to store is never sent, rather than clearing the cap", async () => {
-  const { spade } = await spadeApp("/spade", seed);
-  const section = await spendingOf();
-  const daily = section.getByRole("textbox", { name: "Daily cap" });
-  await userEvent.clear(daily);
-  await userEvent.click(daily);
-  await userEvent.paste("9".repeat(400));
-  await userEvent.type(daily, "{Enter}");
-  expect(await section.findByText("Type an amount in dollars, or leave it empty.")).toBeTruthy();
-  expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([]);
 });
 
 test("a new time zone reaches Spade when the window comes back, and spend is read again", async () => {

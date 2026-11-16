@@ -720,7 +720,7 @@ describe("Try again on a failed reply", () => {
     expect(retryOf(c)).toBe("Plan my week");
   });
 
-  test("isn't offered once the conversation moved on, nor for a cap", () => {
+  test("isn't offered once the conversation moved on", () => {
     const moved = conversation();
     moved.stored({ type: "user_message", text: "Plan my week" });
     moved.stored({ type: "reply_started", reply: "r1" });
@@ -729,11 +729,14 @@ describe("Try again on a failed reply", () => {
     expect(spadeBubbles(moved.view()).some((b) => b.kind === "bot" && b.failure?.retry)).toBe(
       false,
     );
+  });
+
+  test("is offered for a reply an older Spade ended at a spending cap, which no longer holds", () => {
     const capped = conversation();
     capped.stored({ type: "user_message", text: "Plan my week" });
     capped.stored({ type: "reply_started", reply: "r1" });
     capped.stored(retryFailed("cap"));
-    expect(retryOf(capped)).toBeUndefined();
+    expect(retryOf(capped)).toBe("Plan my week");
   });
 
   test("isn't offered for a message with a picture, which sending the words again would lose", () => {

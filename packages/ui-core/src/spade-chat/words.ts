@@ -289,8 +289,6 @@ export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | 
       return endpoint
         ? `The model on ${endpoint} failed to answer.`
         : "The model failed to answer.";
-    case "cap":
-      return "It reached a spending limit.";
     case "other":
       return "Couldn't finish this reply.";
   }

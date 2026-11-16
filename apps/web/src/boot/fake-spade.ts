@@ -308,10 +308,6 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     spending: {
       today_micros: 180_000,
       month_micros: 1_240_000,
-      daily_cap_micros: 1_000_000,
-      monthly_cap_micros: null,
-      capped: null,
-      resets_at: null,
     },
     avatar: {
       kind: "character",

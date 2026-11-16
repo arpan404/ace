@@ -2,7 +2,7 @@
 
 Date: 2026-11-14. As built for [ADR 0152](../../docs/adr/0152-spade-helpers.md). Extends
 [harness.md](harness.md) (turns, background jobs), [autonomy.md](autonomy.md) (the gate),
-[oversight.md](oversight.md) (caps). The pure rules are `spade_core::helper`; the engine side is
+[oversight.md](oversight.md) (spend). The pure rules are `spade_core::helper`; the engine side is
 `engine/helpers.rs`, with hooks in `engine/turn.rs`, `engine/calls.rs`, `engine/jobs.rs` and
 `engine/control.rs`; storage is `spade_store::helpers`.
 
@@ -40,7 +40,7 @@ its prompt rebuilds to the same bytes after a restart even if a plugin's profile
   mid-run gets "unknown outcome" as in any turn. Only a helper Stop was pressed on is closed (as
   stopped) at start.
 - Anything that asks which bot a conversation belongs to (`agent_for_conversation`) gets the
-  helper's bot: its workspace, terminal, connectors, settings and caps are the bot's. Its shell
+  helper's bot: its workspace, terminal, connectors, settings and spend are the bot's. Its shell
   commands run in a terminal session of its own (its own folder and variables, beside the bot's
   commands rather than after them; [computer.md](computer.md), ADR 0158).
 - `GET /v1/conversations` leaves helpers out. Posting a message to one answers `409`. Its events
@@ -152,10 +152,9 @@ the bot had read the page itself.
 
 - A helper takes as many steps as its task needs; no step count or spend of its own ends it
   ([ADR 0158](../../docs/adr/0158-spade-no-fixed-step-or-time-limits.md)). Stop on the bot's reply
-  and the caps below do.
-- Every model call a helper makes is admitted and recorded under its bot's conversation, so it
-  counts toward the bot's daily and monthly caps and the service's cap. A bot at its cap ends its
-  helpers before their next step, saying which cap.
+  does.
+- Every model call a helper makes is recorded under its bot's conversation as the `helper` role,
+  so it shows in the bot's spend. Nothing stops on it ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md)).
 - `job_finished.cost_micros` is what the helper's steps cost; `reply_finished.cost_micros` of the
   turn that read a helper's result includes it.
 

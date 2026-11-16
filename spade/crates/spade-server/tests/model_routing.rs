@@ -347,7 +347,7 @@ async fn roles_follow_the_bots_choice_then_the_global_one_and_refuse_what_cannot
 }
 
 #[tokio::test]
-async fn a_step_spade_starts_on_its_own_tells_the_bot_what_it_spent_and_each_roles_model() -> Result
+async fn a_step_spade_starts_on_its_own_carries_no_budget_and_spend_is_still_kept_by_role() -> Result
 {
     let scripts = vec![
         Script::reply("").call("c1", "task_status", json!({ "status": "working" })),
@@ -377,10 +377,21 @@ async fn a_step_spade_starts_on_its_own_tells_the_bot_what_it_spent_and_each_rol
         .and_then(|e| e["nudge"].as_str())
         .unwrap_or_default()
         .to_owned();
-    assert!(nudge.contains("<budget>Spent today $"), "{nudge}");
-    assert!(nudge.contains("Today by role: main $"), "{nudge}");
-    assert!(nudge.contains("helper fake/cheap"), "{nudge}");
-    assert!(nudge.contains("information, not a limit"), "{nudge}");
+    assert!(!nudge.is_empty(), "{events:?}");
+    // No spending limits, so no budget note (ADR 0166).
+    assert!(!nudge.contains("<budget>"), "{nudge}");
+    assert!(!nudge.contains("Spent today"), "{nudge}");
+    // What each role spent is still recorded and shown.
+    spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let id = body["agent"]["id"].as_str().unwrap_or_default();
+    let (status, models) = spade.get(&format!("/v1/agents/{id}/models")).await?;
+    assert_eq!(status, 200, "{models}");
+    assert!(
+        models["spend"]["today"]["main"].as_u64().unwrap_or(0) > 0,
+        "{models}"
+    );
     Ok(())
 }
 

@@ -444,36 +444,6 @@ async fn a_turn_takes_as_many_steps_as_its_work_needs_and_finishes() -> Result {
 }
 
 #[tokio::test]
-async fn a_long_turn_that_reaches_todays_cap_starts_no_more_model_calls_and_says_so() -> Result {
-    let lookup = FakeTool::new("lookup", Risk::Read, "more");
-    let spade = Spade::start_with(
-        lookups(200),
-        tools(vec![lookup]),
-        support::Options {
-            // Less than one step costs.
-            cap_usd: 0.00005,
-            ..Default::default()
-        },
-    )
-    .await?;
-    let id = spade.ask("Look everything up").await?;
-    let events = spade.wait_for(&id, "reply_failed").await?;
-    let failed = events.iter().find(|e| e["type"] == "reply_failed");
-    assert_eq!(
-        failed.map(|e| (e["error"].clone(), e["kind"].clone())),
-        Some((json!("today's spending cap is used up"), json!("cap")))
-    );
-    let steps = events
-        .iter()
-        .filter(|e| e["type"] == "step_finished")
-        .count();
-    assert_eq!(steps, 1);
-    // No title either: nothing more is spent today.
-    assert_eq!(spade.fake.seen().len(), 1);
-    Ok(())
-}
-
-#[tokio::test]
 async fn a_long_turn_paused_for_an_update_resumes_from_its_events_and_finishes() -> Result {
     let lookup = || {
         tools(vec![

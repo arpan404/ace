@@ -82,7 +82,7 @@ mod tests {
         let later = store.spent_by_role("a", 200)?;
         assert_eq!(later.get("helper"), Some(&300));
         assert_eq!(later.get("main"), None);
-        // The caps still count every role.
+        // The bot's total still counts every role.
         assert_eq!(store.spent_by("a", 0)?, 1_550);
         Ok(())
     }

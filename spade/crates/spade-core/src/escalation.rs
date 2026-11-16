@@ -4,10 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::event::{CapScope, FailureKind, Known};
+use crate::event::{FailureKind, Known};
 use crate::goal::{Author, Finding};
 use crate::tree::ReportState;
-use crate::wake::{Condition, ParkReason, Purpose};
 
 /// From quiet to loud.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -19,7 +18,7 @@ pub enum Level {
     Ask,
     /// One thing waits on the person (a call, a question); other work can go on.
     Block,
-    /// The bot's work has stopped until the person, a reset or a budget acts.
+    /// The bot's work has stopped until the person acts.
     Stop,
 }
 
@@ -50,25 +49,15 @@ pub fn level(event: &Known) -> Option<Level> {
         }
         Known::QuestionAsked { later: true, .. } => Some(Level::Ask),
         Known::QuestionAsked { .. } | Known::ApprovalRequested { .. } => Some(Level::Block),
-        Known::TaskPaused { .. } | Known::CapReached { .. } | Known::ReplyFailed { .. } => {
-            Some(Level::Stop)
-        }
-        Known::WakeSet {
-            purpose, condition, ..
-        } => parks(purpose, condition.as_ref()).then_some(Level::Stop),
-        _ => None,
-    }
-}
-
-/// Whether a wake holds the task until a cap resets or its budget is raised.
-pub fn parks(purpose: &Purpose, condition: Option<&Condition>) -> bool {
-    match purpose {
-        Purpose::Park {
-            reason: ParkReason::Cap,
+        // A reply a cap ended (ADR 0166: retired) stopped nothing: its task carries on.
+        Known::ReplyFailed {
+            kind: FailureKind::Cap,
             ..
-        } => true,
-        Purpose::Wait => matches!(condition, Some(Condition::Budget)),
-        _ => false,
+        } => None,
+        Known::TaskPaused { .. } | Known::ReplyFailed { .. } => Some(Level::Stop),
+        // Nothing parks for spend (ADR 0166): a `cap_reached` an earlier build stored is read as
+        // raw data, and a cap or budget wake it set has no level.
+        _ => None,
     }
 }
 
@@ -108,19 +97,7 @@ pub fn sentence(event: &Known) -> Option<String> {
             None => format!("Wants your yes to use {name}."),
         },
         Known::TaskPaused { reason, steps } => reason.words(*steps),
-        Known::CapReached { scope, .. } => match scope {
-            CapScope::Daily => "Stopped at its daily spending cap.".to_owned(),
-            CapScope::Monthly => "Stopped at its monthly spending cap.".to_owned(),
-            CapScope::Budget => "Stopped at its budget.".to_owned(),
-        },
         Known::ReplyFailed { kind, .. } => failed(*kind).to_owned(),
-        Known::WakeSet {
-            reason, condition, ..
-        } => match condition {
-            Some(Condition::Budget) => "Waiting for more budget.".to_owned(),
-            _ if reason.is_empty() => "Waiting for its spending cap to reset.".to_owned(),
-            _ => format!("Waiting: {}", one_line(reason)),
-        },
         _ => return None,
     })
 }
@@ -131,8 +108,7 @@ fn failed(kind: FailureKind) -> &'static str {
         FailureKind::Key => "Its reply failed: the endpoint refused the key.",
         FailureKind::RateLimited => "Its reply failed: the endpoint is rate limiting.",
         FailureKind::Model => "Its reply failed: the model failed while answering.",
-        FailureKind::Cap => "Its reply stopped at a spending cap.",
-        FailureKind::Other => "Its reply failed.",
+        FailureKind::Cap | FailureKind::Other => "Its reply failed.",
     }
 }
 

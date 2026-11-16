@@ -258,34 +258,6 @@ fn a_rerun_is_its_jobs_second_attempt_and_never_has_a_third() {
 }
 
 #[test]
-fn the_budget_note_says_what_was_spent_what_is_left_and_each_roles_model() {
-    let budget = Budget {
-        today_micros: 1_200_000,
-        month_micros: 8_000_000,
-        daily_cap_micros: Some(5_000_000),
-        monthly_cap_micros: None,
-        today_by_role: vec![(Role::Main, 1_000_000), (Role::Helper, 200_000)],
-        roles: vec![
-            (Role::Main, "a/strong".into()),
-            (Role::Helper, "a/fast".into()),
-        ],
-    };
-    assert_eq!(
-        note(&budget),
-        "<budget>Spent today $1.20 of the $5.00 cap ($3.80 left); this month $8.00 (no cap). \
-         Today by role: main $1.00, helper $0.20. Models: main a/strong, helper a/fast. Pass a \
-         cheaper role as helper's model for sub-work; this is information, not a limit.</budget>"
-    );
-    // Past the cap nothing goes negative.
-    let over = Budget {
-        today_micros: 6_000_000,
-        daily_cap_micros: Some(5_000_000),
-        ..Budget::default()
-    };
-    assert!(note(&over).contains("($0.00 left)"));
-}
-
-#[test]
 fn overrides_round_trip_as_role_names() {
     let stored = Overrides {
         roles: [(Role::Verify, "b/stronger".to_owned())].into(),

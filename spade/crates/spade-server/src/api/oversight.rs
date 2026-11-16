@@ -1,5 +1,5 @@
 //! Oversight over HTTP (ADR 0135, spade/docs/oversight.md): the service's settings, each bot's
-//! caps and review switch, and each bot's activity log.
+//! review switch and spend (information only, ADR 0166), and each bot's activity log.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -74,25 +74,11 @@ async fn agent_view(State(state): State<AppState>, Path(id): Path<String>) -> Re
     }
 }
 
+/// The bot's review switch. Caps an older app still sends are ignored: Spade has none (ADR 0166).
 #[derive(Deserialize)]
 struct AgentChange {
     #[serde(default, deserialize_with = "present")]
-    daily_cap_micros: Option<Option<i64>>,
-    #[serde(default, deserialize_with = "present")]
-    monthly_cap_micros: Option<Option<i64>>,
-    #[serde(default, deserialize_with = "present")]
     review: Option<Option<bool>>,
-}
-
-/// A cap as stored: whole micros, never negative.
-fn cap(raw: Option<Option<i64>>) -> Result<Option<Option<u64>>, Box<Response>> {
-    match raw {
-        Some(Some(micros)) => u64::try_from(micros)
-            .map(|m| Some(Some(m)))
-            .map_err(|_| Box::new(problem(StatusCode::BAD_REQUEST, "a cap can't be negative"))),
-        Some(None) => Ok(Some(None)),
-        None => Ok(None),
-    }
 }
 
 async fn agent_change(
@@ -100,19 +86,12 @@ async fn agent_change(
     Path(id): Path<String>,
     Body(body): Body<AgentChange>,
 ) -> Response {
-    let change = match (cap(body.daily_cap_micros), cap(body.monthly_cap_micros)) {
-        (Ok(daily), Ok(monthly)) => OversightChange {
-            daily_cap_micros: daily,
-            monthly_cap_micros: monthly,
-            review: body.review,
-        },
-        (Err(problem), _) | (_, Err(problem)) => return *problem,
+    let change = OversightChange {
+        review: body.review,
     };
     if let Err(error) = state.engine.set_agent_oversight(&id, change) {
         return oversight_problem(&error);
     }
-    // A task waiting for a cap that no longer holds carries on now (ADR 0158).
-    state.engine.cap_changed(&id);
     agent_view(State(state), Path(id)).await
 }
 

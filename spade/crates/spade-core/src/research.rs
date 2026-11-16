@@ -16,13 +16,13 @@ pub enum Depth {
     Deep,
 }
 
-/// What one run may use.
+/// What one run may use: questions, pages and time. Never money (ADR 0166): its calls' cost is
+/// recorded like any other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {
     pub questions: usize,
     pub pages: usize,
     pub time_ms: u64,
-    pub spend_micros: u64,
 }
 
 impl Depth {
@@ -32,19 +32,16 @@ impl Depth {
                 questions: 3,
                 pages: 6,
                 time_ms: 2 * 60_000,
-                spend_micros: 100_000,
             },
             Self::Standard => Budget {
                 questions: 5,
                 pages: 15,
                 time_ms: 6 * 60_000,
-                spend_micros: 400_000,
             },
             Self::Deep => Budget {
                 questions: 8,
                 pages: 30,
                 time_ms: 15 * 60_000,
-                spend_micros: 1_500_000,
             },
         }
     }

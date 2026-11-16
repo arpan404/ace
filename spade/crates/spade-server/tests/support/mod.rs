@@ -166,7 +166,6 @@ pub struct Spade {
 }
 
 pub struct Options {
-    pub cap_usd: f64,
     pub limits: Limits,
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Finds ace from this folder's files, retrying quickly.
@@ -302,7 +301,6 @@ impl Gate {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            cap_usd: 5.0,
             limits: Limits::default(),
             skills: None,
             ace_home: None,
@@ -589,7 +587,6 @@ impl Spade {
                 .ids
                 .clone()
                 .unwrap_or_else(|| Arc::new(CountingIds::default())),
-            daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
             limits: Limits {
                 retry: options.model_retry.unwrap_or(spade_server::engine::Retry {

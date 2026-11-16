@@ -1,63 +1,22 @@
-//! Admission for model calls (ADR 0135): every model call (a turn's step, compaction, a title,
-//! a review, research) is admitted here before it starts. Admission counts the calls still in
-//! flight as spent at their estimated cost, so calls started at once cannot all pass a cap the
-//! ledger alone has not reached yet; the estimate is released when the call's real cost is
-//! recorded. A cap can still be passed, by at most the calls admitted before it was reached.
-//!
-//! Only real spend reaching a cap refuses a call. When it is the estimates of calls still
-//! running that would pass it, the call waits ([`Engine::admit_waiting`]) until one of them
-//! settles, then looks again: it may well fit once their real cost is known.
+//! What each model call costs (ADR 0135; ADR 0166): every model call (a turn's step,
+//! compaction, a title, a review, research) takes an [`Admission`] before it starts, and settling
+//! it records the call's real cost in the ledger under its conversation and role. It is never
+//! refused: Spade has no spending limits, so the cost is information only. The estimates here
+//! are what routing compares models by.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use spade_core::oversight::{self, Caps, Hit, Spent};
 use spade_core::spending;
 use spade_models::{Message, Prompt, Usage};
 
 use super::Engine;
 
-/// Calls admitted and not yet settled: their estimated cost, per conversation and in all.
-#[derive(Debug, Default)]
-pub(super) struct InFlight {
-    by_conversation: HashMap<String, u64>,
-    total: u64,
-}
-
-/// Why a model call may not start.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Refusal {
-    /// What was spent has reached the service's daily cap.
-    Service,
-    /// What the bot spent has reached its own cap.
-    Bot { name: String, hit: Hit },
-    /// Nothing is reached yet, but the estimates of calls still running would pass a cap:
-    /// wait for one to settle and look again. Never a reason to stop or to tell the person.
-    InFlight,
-}
-
-impl Refusal {
-    /// What was reached, in a few words: "the service's daily cap", "the bot's daily cap".
-    pub(crate) fn reached(&self) -> String {
-        match self {
-            Self::Service => "the service's daily cap".to_owned(),
-            Self::InFlight => "a cap, counting the calls still running".to_owned(),
-            Self::Bot { hit, .. } => match hit.scope {
-                spade_core::event::CapScope::Daily => "the bot's daily cap".to_owned(),
-                spade_core::event::CapScope::Monthly => "the bot's monthly cap".to_owned(),
-                spade_core::event::CapScope::Budget => "its budget".to_owned(),
-            },
-        }
-    }
-}
-
-/// An admitted call's reservation. [`Admission::settle`] records the real cost; dropping it
-/// unsettled (a call that never got an answer) just releases the estimate.
+/// A call about to start. [`Admission::settle`] records its real cost; dropping it unsettled (a
+/// call that never got an answer) records nothing.
 pub(crate) struct Admission {
     engine: Arc<Engine>,
     conversation: String,
     model: String,
-    reserved: u64,
     /// What the call is for (ADR 0162); `None` is the conversation's own turn or helper.
     role: Option<spade_core::routing::Role>,
 }
@@ -69,8 +28,7 @@ impl Admission {
         self
     }
 
-    /// Records what the call cost against its conversation, then releases the estimate. Returns
-    /// the cost.
+    /// Records what the call cost against its conversation. Returns the cost.
     pub(crate) fn settle(self, usage: &Usage) -> u64 {
         let cost = spending::cost_micros(self.engine.models.price(&self.model), usage);
         self.engine
@@ -94,26 +52,6 @@ impl Admission {
             Some(usage) => self.settle(&usage),
             None => 0,
         }
-    }
-}
-
-impl Drop for Admission {
-    fn drop(&mut self) {
-        let mut flight = self
-            .engine
-            .in_flight
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        flight.total = flight.total.saturating_sub(self.reserved);
-        if let Some(held) = flight.by_conversation.get_mut(&self.conversation) {
-            *held = held.saturating_sub(self.reserved);
-            if *held == 0 {
-                flight.by_conversation.remove(&self.conversation);
-            }
-        }
-        drop(flight);
-        // Calls waiting on this one's estimate look again.
-        self.engine.released.notify_waiters();
     }
 }
 
@@ -200,109 +138,17 @@ pub(crate) fn turn_hint(events: &[spade_core::Event]) -> Hint {
 }
 
 impl Engine {
-    /// Admits a model call for `conversation` on `model`, reserving its estimated cost, unless
-    /// the service's daily cap or the bot's own cap is reached counting every call in flight.
-    pub(crate) fn admit(
-        self: &Arc<Self>,
-        conversation: &str,
-        model: &str,
-        prompt: &Prompt,
-        hint: Hint,
-    ) -> Result<Admission, Refusal> {
-        // A helper's calls are its bot's (ADR 0152): held and paid for under the bot.
+    /// The admission for a model call of `conversation`'s on `model`. A helper's calls are its
+    /// bot's (ADR 0152): recorded under the bot, as the helper role.
+    pub(crate) fn admit(self: &Arc<Self>, conversation: &str, model: &str) -> Admission {
         let owner = self.helper_of(conversation).map(|h| h.parent);
-        let conversation = owner.as_deref().unwrap_or(conversation);
-        let reserved = estimate(self.models.price(model), prompt, hint);
-        // Held across the check and the reservation, so two calls cannot both see room.
-        let mut flight = self.in_flight.lock().unwrap_or_else(|p| p.into_inner());
-        let periods = self.periods();
-        let service = self
-            .store
-            .spent_since(periods.day_start)
-            .unwrap_or(u64::MAX);
-        if !spending::within_cap(service, self.daily_cap_micros) {
-            return Err(Refusal::Service);
-        }
-        if let Some((name, hit)) = self.bot_hit_with(conversation, 0) {
-            return Err(Refusal::Bot { name, hit });
-        }
-        let held = flight
-            .by_conversation
-            .get(conversation)
-            .copied()
-            .unwrap_or(0);
-        if !spending::within_cap(service.saturating_add(flight.total), self.daily_cap_micros)
-            || (held > 0 && self.bot_hit_with(conversation, held).is_some())
-        {
-            return Err(Refusal::InFlight);
-        }
-        flight.total += reserved;
-        *flight
-            .by_conversation
-            .entry(conversation.to_owned())
-            .or_default() += reserved;
-        Ok(Admission {
+        Admission {
             engine: self.clone(),
-            conversation: conversation.to_owned(),
+            conversation: owner.as_deref().unwrap_or(conversation).to_owned(),
             model: model.to_owned(),
-            reserved,
             // Paid under the bot, but spent as a helper (ADR 0162).
             role: owner.is_some().then_some(spade_core::routing::Role::Helper),
-        })
-    }
-
-    /// Like [`Engine::admit`], but waits while only calls still running stand in the way, so
-    /// it answers only with an admission or a cap really reached.
-    pub(crate) async fn admit_waiting(
-        self: &Arc<Self>,
-        conversation: &str,
-        model: &str,
-        prompt: &Prompt,
-        hint: Hint,
-    ) -> Result<Admission, Refusal> {
-        loop {
-            // Listening before looking, so a release between the two is not missed.
-            let released = self.released.notified();
-            tokio::pin!(released);
-            released.as_mut().enable();
-            match self.admit(conversation, model, prompt, hint) {
-                Err(Refusal::InFlight) => released.await,
-                answer => return answer,
-            }
         }
-    }
-
-    /// The cap the conversation's bot is at, counting `pending` micros as spent already.
-    pub(super) fn bot_hit_with(&self, conversation: &str, pending: u64) -> Option<(String, Hit)> {
-        self.own_hit_with(conversation, pending)
-            // A budget or a cap on its path to the top of its tree (ADR 0161).
-            .or_else(|| self.tree_cap(conversation, pending))
-    }
-
-    fn own_hit_with(&self, conversation: &str, pending: u64) -> Option<(String, Hit)> {
-        let agent = self.store.agent_for_conversation(conversation).ok()??;
-        let settings = self.agent_oversight(&agent.id).ok()?;
-        let caps = Caps {
-            daily_micros: settings.daily_cap_micros,
-            monthly_micros: settings.monthly_cap_micros,
-        };
-        if caps == Caps::default() {
-            return None;
-        }
-        let periods = self.periods();
-        let spent = Spent {
-            today_micros: self
-                .store
-                .spent_by(&agent.conversation, periods.day_start)
-                .ok()?
-                .saturating_add(pending),
-            month_micros: self
-                .store
-                .spent_by(&agent.conversation, periods.month_start)
-                .ok()?
-                .saturating_add(pending),
-        };
-        oversight::hit(caps, spent, periods).map(|hit| (agent.name, hit))
     }
 }
 

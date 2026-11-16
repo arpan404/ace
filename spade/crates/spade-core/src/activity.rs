@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::event::{CapScope, Event, Known, Verdict};
+use crate::event::{Event, Known, Verdict};
 use crate::redact;
 use crate::tools::{CALL_TOOL, TOOL_SEARCH, unwrap_call_tool};
 
@@ -23,7 +23,6 @@ pub enum Kind {
     Routine,
     Review,
     Spend,
-    Cap,
     /// The person changed the bot's access level (ADR 0144).
     Access,
     /// Spade carried the bot's task on by itself, or paused it (ADR 0144).
@@ -43,7 +42,6 @@ impl Kind {
             "routine" => Self::Routine,
             "review" => Self::Review,
             "spend" => Self::Spend,
-            "cap" => Self::Cap,
             "access" => Self::Access,
             "task" => Self::Task,
             "hook" => Self::Hook,
@@ -492,17 +490,6 @@ impl Log {
                     Kind::Task,
                     Fields::named("decision_made", &redact::one_line(&words)),
                 );
-            }
-            Known::CapReached {
-                scope, cap_micros, ..
-            } => {
-                let name = match scope {
-                    CapScope::Daily => "daily",
-                    CapScope::Monthly => "monthly",
-                    CapScope::Budget => "budget",
-                };
-                let words = format!("{} cap", crate::oversight::dollars(*cap_micros));
-                self.push(stored, Kind::Cap, Fields::named(name, &words));
             }
             Known::HookRan { hook, outcomes, .. } => {
                 for outcome in outcomes {

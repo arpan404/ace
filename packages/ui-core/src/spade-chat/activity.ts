@@ -19,7 +19,6 @@ export const spadeActivityKinds = [
   "task",
   "access",
   "spend",
-  "cap",
   "hook",
 ] as const;
 export type SpadeActivityKind = (typeof spadeActivityKinds)[number];
@@ -36,7 +35,6 @@ export const spadeActivityKindWords: Record<SpadeActivityKind, string> = {
   task: "Progress",
   access: "Access",
   spend: "Spending",
-  cap: "Caps",
   hook: "Plugins",
 };
 
@@ -217,8 +215,6 @@ function sentenceOf(entry: SpadeActivityEntry): {
       };
     case "spend":
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
-    case "cap":
-      return { sentence: name === "monthly" ? "Reached its monthly cap" : "Reached its daily cap" };
     case "hook":
       // Spade's summary is the whole sentence ("guard's PreToolUse hook refused a call: …").
       return { sentence: capitalised(entry.summary || "A plugin's hook ran"), detail: "" };
@@ -255,23 +251,20 @@ const failedOutcomes = new Set(["error", "failed", "interrupted"]);
 /**
  * One activity row in Spade's own words (`sentence`, `detail`): never a tool's name or its
  * arguments. An older Spade that sends no sentence gets the app's words for it. Beside it only
- * what stands out: a failure, a refusal, the reviewer asking, a cap reached. A step that went
+ * what stands out: a failure, a refusal, the reviewer asking. A step that went
  * fine says nothing more.
  */
 export function spadeActivityRow(entry: SpadeActivityEntry): SpadeActivityRow {
   const outcome = entry.outcome ?? "";
-  const exception: SpadeActivityException | undefined =
-    entry.kind === "cap"
-      ? { words: "Capped", tone: "failed" }
-      : failedOutcomes.has(outcome)
-        ? { words: "Failed", tone: "failed" }
-        : outcome === "declined" || reviewVerdicts[outcome] === "refused"
-          ? { words: outcome === "declined" ? "Declined" : "Refused", tone: "failed" }
-          : entry.kind === "review" && reviewVerdicts[outcome] === "asked you"
-            ? { words: "Asked you", tone: "needs" }
-            : outcome === "running"
-              ? { words: "Running", tone: "quiet" }
-              : undefined;
+  const exception: SpadeActivityException | undefined = failedOutcomes.has(outcome)
+    ? { words: "Failed", tone: "failed" }
+    : outcome === "declined" || reviewVerdicts[outcome] === "refused"
+      ? { words: outcome === "declined" ? "Declined" : "Refused", tone: "failed" }
+      : entry.kind === "review" && reviewVerdicts[outcome] === "asked you"
+        ? { words: "Asked you", tone: "needs" }
+        : outcome === "running"
+          ? { words: "Running", tone: "quiet" }
+          : undefined;
   if (entry.sentence !== undefined)
     return { sentence: entry.sentence, detail: entry.detail, exception };
   const words = sentenceOf(entry);

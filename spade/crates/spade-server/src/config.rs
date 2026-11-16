@@ -13,9 +13,6 @@ pub struct Config {
     pub listen: SocketAddr,
     /// `SPADE_DATA_DIR`: the database, token, lock, `server.json`, `models.json`, `search.json`.
     pub data_dir: PathBuf,
-    /// `SPADE_DAILY_CAP_USD`: a day's spending cap in dollars for every bot together. Unset by
-    /// default: the person's own caps per bot are the money boundary (ADR 0158).
-    pub daily_cap_usd: Option<f64>,
     /// `SPADE_PARALLEL_TOOLS`: tool calls of one step run at once; unset is the engine's default.
     pub parallel_tools: Option<usize>,
     /// `SPADE_HELPERS_AT_ONCE`: helpers of one bot run at once; unset is the engine's default.
@@ -34,7 +31,6 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
     InvalidListen(String),
-    InvalidCap(String),
     /// A setting that must be a whole number above zero: its name and value.
     InvalidCount(&'static str, String),
 }
@@ -45,10 +41,6 @@ impl fmt::Display for ConfigError {
             Self::InvalidListen(value) => write!(
                 f,
                 "SPADE_LISTEN must be an address like {DEFAULT_LISTEN}, got {value:?}"
-            ),
-            Self::InvalidCap(value) => write!(
-                f,
-                "SPADE_DAILY_CAP_USD must be a number of dollars, zero or more, got {value:?}"
             ),
             Self::InvalidCount(name, value) => {
                 write!(f, "{name} must be a whole number above zero, got {value:?}")
@@ -73,16 +65,7 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .unwrap_or_else(|| "data".to_owned()),
         );
-        let daily_cap_usd = match lookup("SPADE_DAILY_CAP_USD").filter(|v| !v.trim().is_empty()) {
-            None => None,
-            Some(cap) => Some(
-                cap.trim()
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite() && *v >= 0.0)
-                    .ok_or(ConfigError::InvalidCap(cap))?,
-            ),
-        };
+        // `SPADE_DAILY_CAP_USD` is no longer read: Spade has no spending limits (ADR 0166).
         let count = |name: &'static str| -> Result<Option<u64>, ConfigError> {
             match lookup(name).filter(|v| !v.trim().is_empty()) {
                 None => Ok(None),
@@ -101,7 +84,6 @@ impl Config {
         Ok(Self {
             listen,
             data_dir,
-            daily_cap_usd,
             parallel_tools,
             helpers_at_once,
             workers_at_once,
@@ -143,15 +125,11 @@ mod tests {
     }
 
     #[test]
-    fn data_lives_in_data_and_there_is_no_service_cap_unless_set() {
-        let config = Config::from_env(env(&[])).map(|c| (c.data_dir, c.daily_cap_usd));
-        assert_eq!(config, Ok((PathBuf::from("data"), None)));
-        let set = Config::from_env(env(&[
-            ("SPADE_DATA_DIR", "/var/spade"),
-            ("SPADE_DAILY_CAP_USD", "0.5"),
-        ]))
-        .map(|c| (c.data_dir, c.daily_cap_usd));
-        assert_eq!(set, Ok((PathBuf::from("/var/spade"), Some(0.5))));
+    fn data_lives_in_data_unless_set() {
+        let config = Config::from_env(env(&[])).map(|c| c.data_dir);
+        assert_eq!(config, Ok(PathBuf::from("data")));
+        let set = Config::from_env(env(&[("SPADE_DATA_DIR", "/var/spade")])).map(|c| c.data_dir);
+        assert_eq!(set, Ok(PathBuf::from("/var/spade")));
     }
 
     #[test]
@@ -175,9 +153,13 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_cap_that_is_not_a_positive_number() {
+    fn a_daily_cap_left_in_the_environment_is_ignored() {
         let config = Config::from_env(env(&[("SPADE_DAILY_CAP_USD", "-1")]));
-        assert_eq!(config, Err(ConfigError::InvalidCap("-1".to_owned())));
+        assert_eq!(
+            config.map(|c| c.data_dir),
+            Ok(PathBuf::from("data")),
+            "Spade has no spending limits, so an old cap neither applies nor fails start"
+        );
     }
 
     #[test]

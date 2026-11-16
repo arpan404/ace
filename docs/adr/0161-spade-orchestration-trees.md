@@ -10,6 +10,7 @@ agents) for multi-day, multi-agent work"). Builds on [ADR 0126](0126-spade-agent
 check of done) and [ADR 0160](0160-spade-wake-and-owned-services.md) (wakes). AGENTS.md
 priority 1 applies throughout: an agent never reads as done while any part of its tree works or
 waits on the person.
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 4 (subtree budgets, `worker_budget`, `budget_usd`, `PUT /v1/agents/{id}/budget`) and the `parked` state are removed; a tree's spend is shown, never bounded.
 
 ## Context
 
@@ -42,14 +43,14 @@ comes back up is checked against facts rather than taken at a worker's word.
    already ruled out.
 
 2. **`bot_create {name, task, brief?, model?, tools?, connectors?, plugins?,
-   budget_usd?}`** creates a bot and answers at once with its id. `task` becomes the worker's
+budget_usd?}`** creates a bot and answers at once with its id. `task` becomes the worker's
    standing task (the cached prompt top, ADR 0126); `brief` (else `task`) is its first message,
    which starts it. The model defaults to the orchestrator's; a named one is chosen by routing's rules (ADR 0162
    decision 3). A call that runs again (a restart)
    finds the bot it made, by the call's key. The orchestrator stores
    `worker_started {worker, kind: bot, conversation, name, call, budget_micros?}`; the worker's
    conversation begins with `worker_of {parent, parent_conversation, call, grants,
-   budget_micros?, brief}`. The tree is folded from these: each worker records its parent, so
+budget_micros?, brief}`. The tree is folded from these: each worker records its parent, so
    the tree is right even if Spade stopped between the two writes, and it is rebuilt from events
    at start.
 
@@ -126,7 +127,7 @@ comes back up is checked against facts rather than taken at a worker's word.
 
 8. **API.** `GET /v1/agents/{id}/tree` answers `{"tree": Node}`, where a node is
    `{kind, id, name, conversation?, state, own_state, status, needs_you, progress, cost_micros,
-   subtree_cost_micros, budget_micros, parked, queued, children}`. Helpers are nodes of kind
+subtree_cost_micros, budget_micros, parked, queued, children}`. Helpers are nodes of kind
    `helper` and ace children of kind `ace`. `PUT /v1/agents/{id}/budget {budget_usd | null}`.
    Every agent in the roster adds `parent {id, name} | null` and `workers` (its bot workers
    that are not settled).
@@ -148,7 +149,7 @@ comes back up is checked against facts rather than taken at a worker's word.
     first, as others settle. The person's caps and budgets bound the rest.
 
 11. **Deleting a bot with workers asks.** `DELETE /v1/agents/{id}` answers `409 {"error",
-    "workers": n}` while the bot has workers. `?workers=stop` stops its subtree and keeps the
+"workers": n}` while the bot has workers. `?workers=stop` stops its subtree and keeps the
     stopped workers as top-level bots. `?workers=keep` keeps them working as top-level bots; a queued one starts on its brief then.
     Either way each worker stores `worker_detached {by}`, its subtree budget ends, and its
     grants are no longer capped by a parent. Nothing the person made is deleted without being

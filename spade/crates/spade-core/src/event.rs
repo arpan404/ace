@@ -239,14 +239,8 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cost_micros: Option<u64>,
     },
-    /// The bot reached one of its spending caps (ADR 0135). Stored once per day or month.
-    CapReached {
-        scope: CapScope,
-        cap_micros: u64,
-        /// The start of the day or month the cap is for, so it is said once per period.
-        period_start: i64,
-        resets_at: i64,
-    },
+    // `cap_reached`, stored by builds with spending caps (ADR 0135, removed by ADR 0166), is no
+    // longer a known event: it is read as raw data and folds to nothing.
     /// The model review judged a call the gate would have run (ADR 0135).
     CallReviewed {
         reply: String,
@@ -554,19 +548,13 @@ pub enum Known {
         code: Option<i32>,
     },
     /// This bot was made as another bot's worker (ADR 0161): the first event of its conversation.
-    /// Its parent, its grants, its budget and the brief that starts it.
+    /// Its parent, its grants and the brief that starts it.
     WorkerOf(crate::tree::Link),
     /// This bot started a worker (ADR 0161): a bot it made, or an ace child of its `delegate`.
     WorkerStarted(crate::tree::Started),
     /// A worker of this bot settled (ADR 0161). The model reads it like a job's result.
     WorkerReported(crate::tree::Report),
-    /// This worker's subtree budget was set or changed; `None` takes it away.
-    WorkerBudget {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        budget_micros: Option<u64>,
-        /// Who set it: its parent's or an ancestor's name, or `person`.
-        by: String,
-    },
+    // `worker_budget` (ADR 0161, removed by ADR 0166) is read as raw data, like `cap_reached`.
     /// This worker no longer has a parent: its parent was deleted and the person kept it.
     WorkerDetached {
         by: String,
@@ -580,7 +568,6 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
-/// Which of a bot's caps (ADR 0135).
 /// Why a reply failed, in the few kinds a person can act on (`reply_failed`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -593,7 +580,9 @@ pub enum FailureKind {
     RateLimited,
     /// The model or the endpoint failed while answering, or refused the request.
     Model,
-    /// A spending cap stopped it: the day's, or one of the bot's own caps.
+    /// Retired (ADR 0166): a spending cap ended the reply before its next call, as builds with
+    /// caps stored it. Still read: such a reply counts as finished, so its task carries on, and
+    /// it reaches no one.
     Cap,
     /// Anything else, and any kind a later build adds.
     #[default]
@@ -631,15 +620,6 @@ impl FailureKind {
             Self::Unreachable | Self::Key | Self::RateLimited | Self::Model
         )
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CapScope {
-    Daily,
-    Monthly,
-    /// A worker's subtree budget (ADR 0161): it doesn't reset.
-    Budget,
 }
 
 /// What the model review decided about a call.
