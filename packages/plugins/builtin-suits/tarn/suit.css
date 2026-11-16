@@ -86,14 +86,14 @@
 
 [data-part="thread-row"]:hover,
 [data-part="chat-row"]:hover,
-[data-part="nav-item"]:hover,
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"]:hover,
 [data-part="rail-item"]:hover {
   background: var(--suit-wash-1);
 }
 /* The open row is a raised plate: its own fill, a hairline and the smallest shadow. */
 [data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
 [data-part="chat-row"][data-state="active"],
-[data-part="nav-item"][data-state="active"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"][data-state="active"],
 [data-part="rail-item"][data-state="active"] {
   background: var(--suit-plate);
   box-shadow:
