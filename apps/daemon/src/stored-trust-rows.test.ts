@@ -131,15 +131,32 @@ function readAsStored(store: Store, seq: number): boolean {
 }
 
 /** A thread's items and a revision read back; an error a validating read raises is its result. */
-function snapshot(store: Store, thread: ThreadId) {
+function outcome(read: () => unknown): string {
   try {
-    return JSON.stringify({
-      items: store.snapshotThread(thread).items,
-      completion: store.historicalItemCompletion(thread, "m9" as ItemId),
-    });
+    return JSON.stringify(read());
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
+}
+/**
+ * Each kind's read on its own, so one kind's failure never hides the other: the thread's items
+ * carry the streamed chunks, the completion reads m9's history revision.
+ */
+function snapshot(store: Store, thread: ThreadId) {
+  return {
+    chunks: outcome(() => store.snapshotThread(thread).items),
+    revision: outcome(() => store.historicalItemCompletion(thread, "m9" as ItemId)),
+  };
+}
+/** Every kind reads as a validating build reads it, and none as it is stored. */
+function expectValidated(
+  confirmed: ReturnType<typeof snapshot>,
+  validating: ReturnType<typeof snapshot>,
+  asStored: ReturnType<typeof snapshot>,
+) {
+  expect(confirmed).toEqual(validating);
+  expect(confirmed.chunks).not.toBe(asStored.chunks);
+  expect(confirmed.revision).not.toBe(asStored.revision);
 }
 /** Rewrite rows of both kinds the way validation reads differently from storage. */
 function corruptRevisionAndChunk(store: Store) {
@@ -180,8 +197,7 @@ it("an older home opens without indexing its history by sequence, and nothing is
 
   // A build that trusts no older row reads every one through validation.
   const validating = await open("build C");
-  expect(confirmed).toBe(snapshot(validating, thread));
-  expect(confirmed).not.toBe(asStored);
+  expectValidated(confirmed, snapshot(validating, thread), asStored);
 });
 
 it("rows written on a home that has the map are checked by the next build", async () => {
@@ -195,8 +211,7 @@ it("rows written on a home that has the map are checked by the next build", asyn
   finish();
   expect(readAsStored(next, newest)).toBe(true);
   const confirmed = snapshot(next, thread);
-  expect(confirmed).toBe(snapshot(await open("build C"), thread));
-  expect(confirmed).not.toBe(asStored);
+  expectValidated(confirmed, snapshot(await open("build C"), thread), asStored);
 });
 
 it("an item from before raw revisions were recorded reports its creation as its raw version", async () => {
