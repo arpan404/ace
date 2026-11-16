@@ -43,6 +43,8 @@ import XCTest
         screenshot("thread-child")
         app.navigationBars.buttons.firstMatch.tap()
         let tests = app.buttons["subagent.Write orphan-cleanup tests"]
+        // Back from the child the transcript may sit where this row isn't loaded: look for it.
+        findInTranscript(tests, in: app)
         XCTAssertTrue(tests.waitForExistence(timeout: 25))
         clearOfComposer(tests, in: app)
         tests.tap()
@@ -423,6 +425,14 @@ import XCTest
         for _ in 0..<4 where input.exists && row.frame.maxY > input.frame.minY - 120 {
             app.scrollViews["transcript"].swipeUp(velocity: .slow)
         }
+    }
+    /// Scrolls the transcript until `element` is loaded: toward its end first, then back up it,
+    /// since the lazy transcript loads only the rows near what shows.
+    private func findInTranscript(_ element: XCUIElement, in app: XCUIApplication) {
+        let transcript = app.scrollViews["transcript"]
+        guard transcript.waitForExistence(timeout: 10), !element.waitForExistence(timeout: 3) else { return }
+        for _ in 0..<3 where !element.exists { transcript.swipeUp(velocity: .slow) }
+        for _ in 0..<8 where !element.exists { transcript.swipeDown(velocity: .slow) }
     }
     private func swipeToTop(_ app: XCUIApplication) {
         let transcript = app.scrollViews["transcript"]
