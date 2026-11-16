@@ -5,6 +5,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { flushSync } from "react-dom";
@@ -23,7 +24,7 @@ import {
   type SystemPreferences,
 } from "./appearance.ts";
 import { themesStylesheet, themeStylesheet } from "./css.ts";
-import type { SuitDetail } from "@ace/protocol/suits";
+import type { SuitDetail, SuitId } from "@ace/protocol/suits";
 import { suitDensity, suitPalette, suitSchemes, suitSheets } from "./suits/suit-css.ts";
 import { browserFontLoader, useSuitFontsReady } from "./suits/suit-fonts.ts";
 import { useAppliedSuit, type SuitReport } from "./suits/use-applied-suit.ts";
@@ -33,6 +34,9 @@ import { startLiquidGlass } from "./liquid-glass.ts";
 import { themes } from "@ace/themes";
 import { glassVariables } from "./translucency.ts";
 import { withViewTransition } from "@/lib/motion.ts";
+
+/** The longest a cross-fade to a Suit waits for it to show before it fades anyway. */
+const suitSwapWaitMs = 500;
 
 export interface Environment {
   storage?: KeyValueStorage | undefined;
@@ -179,6 +183,19 @@ export function ThemeProvider(props: { environment: Environment; children: React
     glassEngine,
   ]);
 
+  // A Suit being switched on is read and its fonts loaded after the switch: the cross-fade's new
+  // picture waits until it shows (`update`), here, once its sheet and tokens are on the page.
+  const shownSuit = useRef<SuitId | null>(null);
+  const suitSwap = useRef<{ id: SuitId; done: () => void } | undefined>(undefined);
+  useLayoutEffect(() => {
+    shownSuit.current = suit?.summary.id ?? null;
+    const waiting = suitSwap.current;
+    if (waiting && waiting.id === shownSuit.current) {
+      suitSwap.current = undefined;
+      waiting.done();
+    }
+  }, [suit]);
+
   // The glass at the chosen translucency, over the stylesheet's default. A slider drag changes
   // only the glass variables: no stylesheet rebuild, and the liquid filters below stay put.
   const { theme, scheme, translucency } = resolved;
@@ -215,8 +232,19 @@ export function ThemeProvider(props: { environment: Environment; children: React
           saveAppearance(storage, merged);
           return merged;
         });
-      // A new palette cross-fades the window; the other settings apply directly.
-      if (
+      // A new palette cross-fades the window; the other settings apply directly. A Suit switching
+      // on lands a moment later (its read and fonts): the fade waits for it, briefly at most.
+      const wanted = next.suit;
+      if (wanted && wanted !== shownSuit.current)
+        withViewTransition(
+          () =>
+            new Promise<void>((resolve) => {
+              suitSwap.current = { id: wanted, done: resolve };
+              flushSync(apply);
+              window.setTimeout(resolve, suitSwapWaitMs);
+            }),
+        );
+      else if (
         next.theme !== undefined ||
         next.mode !== undefined ||
         next.accent !== undefined ||

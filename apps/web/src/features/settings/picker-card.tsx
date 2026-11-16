@@ -2,12 +2,24 @@ import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 
+/** A layer over the preview's box that fades in for one state. */
+const layer =
+  "pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-(--motion-base) ease-(--ease-out) motion-reduce:transition-none";
+/** A ring 2px outside the preview's edge, settling in from just inside it. */
+const ring = cn(
+  layer,
+  "-inset-1 rounded-[calc(var(--radius-lg)+4px)] border-2 scale-[0.97] transition-[opacity,scale] ease-spring",
+);
+
 /**
  * One choice in the mode or look picker: a radio that is its preview, its name beneath. No card
- * around it: the preview is the thing chosen. Hovering lifts the preview a hair; the chosen one
- * takes the accent ring a 2px gap outside its edge, and its name turns to full ink. The name is
- * the accessible label, so the preview stays decoration. A disabled choice is dimmed and skipped
- * by the arrow keys; `after` (what it needs fixed) sits under it, outside the radio.
+ * around it: the preview is the thing chosen. Each state has its own layer, so one never wipes
+ * out another: hovering lifts the preview and fades a soft shadow in under it; the chosen one
+ * draws the accent ring a 2px gap outside its edge, which fades and settles in when picked and
+ * stays through hover; keyboard focus draws its own ring the same way. Only transform and
+ * opacity move. The name is the accessible label, so the preview stays decoration. A disabled
+ * choice is dimmed and skipped by the arrow keys; `after` (what it needs fixed) sits under it,
+ * outside the radio.
  */
 export function PickerCard(props: {
   label: string;
@@ -44,19 +56,39 @@ export function PickerCard(props: {
     >
       <span
         {...part("card", state, "preview")}
-        className={
-          "block rounded-lg shadow-(--depth-raise) transition-[translate,box-shadow] duration-(--motion-base) motion-safe:group-enabled:group-hover:-translate-y-px " +
-          "group-enabled:group-hover:shadow-[0_6px_16px_-8px_rgb(0_0_0/0.35)] " +
-          "group-aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)] " +
-          "group-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)]"
-        }
+        className={cn(
+          "relative isolate block rounded-lg shadow-(--depth-raise)",
+          "transition-transform duration-(--motion-base) ease-spring motion-reduce:transition-none",
+          "motion-safe:group-enabled:group-hover:-translate-y-0.5 motion-safe:group-enabled:group-active:translate-y-0",
+        )}
       >
+        <span
+          aria-hidden
+          className={cn(
+            layer,
+            "-z-10 shadow-[0_10px_24px_-12px_rgb(0_0_0/0.55)] group-enabled:group-hover:opacity-100",
+          )}
+        />
         {props.preview}
+        <span
+          aria-hidden
+          className={cn(
+            ring,
+            "border-ring group-aria-checked:scale-100 group-aria-checked:opacity-100",
+          )}
+        />
+        <span
+          aria-hidden
+          className={cn(
+            ring,
+            "border-[var(--focus,var(--ring))] group-focus-visible:scale-100 group-focus-visible:opacity-100",
+          )}
+        />
       </span>
       <span aria-hidden className="flex min-w-0 flex-wrap items-center gap-1.5">
         <span
           style={props.labelStyle}
-          className="min-w-0 truncate text-sm text-muted-foreground transition-colors duration-(--motion-fast) group-enabled:group-hover:text-foreground group-aria-checked:font-medium group-aria-checked:text-foreground"
+          className="min-w-0 truncate text-sm text-muted-foreground transition-colors duration-(--motion-fast) group-enabled:group-hover:text-foreground group-aria-checked:text-foreground"
         >
           {props.label}
         </span>
