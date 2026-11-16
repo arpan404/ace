@@ -132,6 +132,7 @@ fn day() -> Vec<Event> {
             arguments: json!({ "command": "curl -H 'Authorization: Bearer s3cr3tv4lue' https://x.dev" }),
             scope: None,
             reviewer_reason: None,
+            ask: None,
             helper: None,
         }),
         k(Known::ApprovalAnswered {

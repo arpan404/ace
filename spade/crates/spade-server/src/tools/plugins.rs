@@ -104,17 +104,23 @@ impl Tool for PluginCall {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify(
-            &self.tool.name,
-            self.def.risk,
-            spade_core::autonomy::Source::App(spade_core::autonomy::AppHints {
-                description: &self.tool.description,
-                annotated: self.tool.annotated,
-                open_world: self.tool.open_world,
-            }),
-            arguments,
-        )
+    /// A server the sandbox holds is the OS's to decide (ADR 0171).
+    fn classed(&self, _key: &str, _arguments: &Value) -> spade_core::autonomy::Classed {
+        if self.server.contained() {
+            spade_core::autonomy::Classed::sandboxed()
+        } else {
+            spade_core::autonomy::Classed::default()
+        }
+    }
+
+    /// Its annotations, unless its entry declares what it does.
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+        spade_core::effect::mcp(spade_core::effect::Mcp {
+            read_only: self.def.risk == Risk::Read,
+            annotated: self.tool.annotated,
+            declared: self.server.declared(&self.tool.name),
+            writes: None,
+        })
     }
 
     fn run(&self, _key: &str, arguments: Value) -> ToolFuture {

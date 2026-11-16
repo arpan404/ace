@@ -519,6 +519,7 @@ impl Engine {
             arguments,
             scope,
             reviewer_reason,
+            ask,
             ..
         }) = asked
         else {
@@ -531,6 +532,7 @@ impl Engine {
             arguments: arguments.clone(),
             scope: scope.clone(),
             reviewer_reason: reviewer_reason.clone(),
+            ask: *ask,
             helper: Some(HelperAsk {
                 // The bot's job, whose end clears the wait, even for a rerun.
                 job: routing::base_job(&helper.job).to_owned(),

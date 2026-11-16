@@ -82,8 +82,17 @@ impl Tool for ServiceStart {
         )
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical).class
+    /// A service runs in the bot's sandbox where it holds files and network, which decides what
+    /// it can do (ADR 0171); elsewhere its command is classed for the review.
+    fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        let contained = services_engine(&self.0)
+            .and_then(|engine| engine.security().map(|security| security.contains()))
+            .unwrap_or(false);
+        if contained {
+            spade_core::autonomy::Classed::sandboxed()
+        } else {
+            spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical)
+        }
     }
 
     /// "Always" allows this exact command in this folder, nothing like it.

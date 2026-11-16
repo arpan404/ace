@@ -131,6 +131,11 @@ impl Terminals {
         self.shell.contains(home)
     }
 
+    /// Whether the bot with home `home` runs its commands outside the sandbox (ADR 0171).
+    pub fn outside(&self, home: &Path) -> bool {
+        self.shell.outside(home)
+    }
+
     /// Who hears that a terminal started, ended or ran something.
     pub fn on_change(&self, changed: Changed) {
         *lock(&self.changed) = Some(changed);
@@ -661,18 +666,20 @@ impl Terminal {
     /// supervisor owns it: if this call is dropped, the command and everything it started are
     /// ended, and the next command starts only once that is done.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
-        self.run_in_state(MAIN, command, timeout, None).await
+        self.run_in_state(MAIN, command, timeout, None, false).await
     }
 
     /// [`Terminal::run`] in `session`, only while that session is in the state `expected` names
     /// (a [`Terminal::state_digest`]): checked under the session's command lock, right before it
     /// runs, so no command in between can change what it would run. Otherwise it is not run.
+    /// `outside`: the gate decided it runs with no sandbox (ADR 0171).
     pub async fn run_in_state(
         self: &Arc<Self>,
         session: &str,
         command: &str,
         timeout: Duration,
         expected: Option<&str>,
+        outside: bool,
     ) -> Result<Ran, String> {
         let lane = lock(&self.commands)
             .entry(session.to_owned())
@@ -704,7 +711,7 @@ impl Terminal {
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&session, &command, timeout, cleanup.clone()) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), outside) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -770,6 +777,7 @@ impl Terminal {
         command: &str,
         timeout: Duration,
         cleanup: Cleanup,
+        outside: bool,
     ) -> Result<Ran, String> {
         let carried = self.carried_in(session);
         let dir = carried
@@ -821,6 +829,7 @@ impl Terminal {
                     kind: crate::workspace::shell::Kind::Terminal {
                         scratch: self.scratch.clone(),
                     },
+                    outside,
                 },
             )
             .await;

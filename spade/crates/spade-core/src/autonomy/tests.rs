@@ -3,14 +3,6 @@ use serde_json::json;
 use super::*;
 use crate::event::{Event, Known};
 
-fn app(description: &str) -> Source<'_> {
-    Source::App(AppHints {
-        description,
-        annotated: true,
-        open_world: Some(true),
-    })
-}
-
 #[test]
 fn levels_spade_no_longer_has_read_as_the_auto_review() {
     for word in ["ask", "full_access", "auto_review", "everything"] {
@@ -27,231 +19,9 @@ fn levels_spade_no_longer_has_read_as_the_auto_review() {
 }
 
 #[test]
-fn calls_are_classed_by_their_tool_and_what_it_says_about_itself() {
-    let cases: &[(&str, Risk, Source<'_>, Class)] = &[
-        ("workspace_write", Risk::Write, Source::Spade, Class::Inside),
-        ("bot_message", Risk::Write, Source::Spade, Class::Outward),
-        // A tool of Spade's it doesn't know could do anything.
-        (
-            "teleport",
-            Risk::Write,
-            Source::Spade,
-            Class::Sensitive(Sensitive::Unknown),
-        ),
-        ("whatever", Risk::Read, Source::Spade, Class::Inside),
-        (
-            "gmail_send_email",
-            Risk::Write,
-            app("Gmail: Sends an email"),
-            Class::Sensitive(Sensitive::MessageAsPerson),
-        ),
-        (
-            "sendMessage",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::MessageAsPerson),
-        ),
-        (
-            "create_checkout",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::Payment),
-        ),
-        // A post or a comment from the person's account is sent in their name.
-        (
-            "create_post",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::MessageAsPerson),
-        ),
-        (
-            "add_issue_comment",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::MessageAsPerson),
-        ),
-        (
-            "slack_post_message",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::MessageAsPerson),
-        ),
-        (
-            "book_flight",
-            Risk::Write,
-            app("Creates a booking and charges the saved card"),
-            Class::Sensitive(Sensitive::Payment),
-        ),
-        // What's done with something sent, other than sending it, is no send.
-        (
-            "delete_comment",
-            Risk::Destructive,
-            app(""),
-            Class::Sensitive(Sensitive::DeleteOutside),
-        ),
-        (
-            "archive_email",
-            Risk::Write,
-            app("Archives an email"),
-            Class::Outward,
-        ),
-        (
-            "create_draft",
-            Risk::Write,
-            app("Creates a draft email"),
-            Class::Outward,
-        ),
-        (
-            "publish_page",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::Publish),
-        ),
-        (
-            "rotate_api_key",
-            Risk::Write,
-            app(""),
-            Class::Sensitive(Sensitive::Credentials),
-        ),
-        (
-            "archive_thing",
-            Risk::Destructive,
-            app(""),
-            Class::Sensitive(Sensitive::DeleteOutside),
-        ),
-        (
-            "create_event",
-            Risk::Write,
-            app("Calendar: Creates an event"),
-            Class::Outward,
-        ),
-        // The description's verbs count, its nouns don't.
-        (
-            "label_thread",
-            Risk::Write,
-            app("Adds a label to an email thread"),
-            Class::Outward,
-        ),
-        (
-            "create_event",
-            Risk::Write,
-            Source::App(AppHints::default()),
-            Class::Sensitive(Sensitive::Unknown),
-        ),
-        ("thread_start", Risk::Write, Source::Ace, Class::Outward),
-        // ace's own tools act on ace: messaging an agent or moving a thread is neither a send
-        // nor a payment.
-        ("agent_message", Risk::Write, Source::Ace, Class::Outward),
-        ("transfer", Risk::Write, Source::Ace, Class::Outward),
-        (
-            "thread_merge",
-            Risk::Write,
-            Source::Ace,
-            Class::Sensitive(Sensitive::Publish),
-        ),
-        (
-            "thread_control",
-            Risk::Destructive,
-            Source::Ace,
-            Class::Sensitive(Sensitive::DeleteOutside),
-        ),
-    ];
-    for (name, risk, source, expected) in cases {
-        assert_eq!(
-            classify(name, *risk, *source, &json!({})),
-            *expected,
-            "{name}"
-        );
-    }
-}
-
-#[test]
-fn an_app_tool_that_claims_to_read_but_says_it_acts_is_not_taken_at_its_word() {
-    for (name, description) in [("share_doc", "Shares a document"), ("invite_member", "")] {
-        assert_eq!(
-            classify(name, Risk::Read, app(description), &json!({})),
-            Class::Sensitive(Sensitive::Mislabelled),
-            "{name}"
-        );
-    }
-    // One that says it pays or sends is classed as that, so the person decides it.
-    for (name, description, kind) in [
-        ("send_email", "Reads mail", Sensitive::MessageAsPerson),
-        (
-            "messages",
-            "Sends a message to a channel",
-            Sensitive::MessageAsPerson,
-        ),
-        ("transfer_funds", "", Sensitive::Payment),
-    ] {
-        assert_eq!(
-            classify(name, Risk::Read, app(description), &json!({})),
-            Class::Sensitive(kind),
-            "{name}"
-        );
-    }
-    assert_eq!(
-        classify(
-            "list_messages",
-            Risk::Read,
-            app("Lists messages"),
-            &json!({})
-        ),
-        Class::Inside
-    );
-}
-
-#[test]
-fn a_purchase_ace_s_browser_or_screen_is_told_to_complete_is_a_payment() {
-    let act = |name: &str, arguments: Value| classify(name, Risk::Write, Source::Ace, &arguments);
-    let payment = Class::Sensitive(Sensitive::Payment);
-    assert_eq!(
-        act(
-            "browser_act",
-            json!({ "action": "click", "text": "Place order" })
-        ),
-        payment
-    );
-    assert_eq!(
-        act("screen_act", json!({ "steps": [{ "click": "Buy now" }] })),
-        payment
-    );
-    assert_eq!(
-        act(
-            "browser_act",
-            json!({ "action": "click", "text": "Proceed to checkout" })
-        ),
-        payment
-    );
-    // Typing words about buying, or pressing anything else, is no purchase.
-    assert_eq!(
-        act(
-            "browser_act",
-            json!({ "action": "type", "text": "best laptops to buy" })
-        ),
-        Class::Outward
-    );
-    assert_eq!(
-        act("browser_act", json!({ "action": "click", "ref": "e12" })),
-        Class::Outward
-    );
-    // Only a tool that drives a page or an app is read this way.
-    assert_eq!(
-        act("thread_start", json!({ "task": "Place order 7" })),
-        Class::Outward
-    );
-}
-
-#[test]
 fn a_shell_command_is_classed_by_what_it_runs() {
-    let shell = |command: &str| {
-        classify(
-            SHELL,
-            Risk::Write,
-            Source::Spade,
-            &json!({ "command": command }),
-        )
-    };
+    let shell =
+        |command: &str| classify_shell(&json!({ "command": command }), &shell::Lexical).class;
     assert_eq!(shell("cargo test"), Class::Inside);
     assert_eq!(shell("git push"), Class::Sensitive(Sensitive::Publish));
     assert_eq!(
@@ -259,7 +29,7 @@ fn a_shell_command_is_classed_by_what_it_runs() {
         Class::Sensitive(Sensitive::MessageAsPerson)
     );
     assert_eq!(
-        classify(SHELL, Risk::Write, Source::Spade, &json!({})),
+        classify_shell(&json!({}), &shell::Lexical).class,
         Class::Sensitive(Sensitive::Unclear)
     );
 }
@@ -273,7 +43,6 @@ fn gate(rule: Decision, class: Class) -> Call {
         credentials: false,
         standing: false,
         fits: true,
-        contained: false,
         granted: false,
     }
 }
@@ -301,14 +70,6 @@ fn what_the_rule_gate_would_hold_goes_to_the_reviewer_with_what_singles_it_out()
             Call {
                 tainted: true,
                 ..gate(Asks, Class::Sensitive(Sensitive::Payment))
-            },
-            Route::Ask(SPENDS.to_owned()),
-        ),
-        // One that claims to read is put to the person all the same.
-        (
-            Call {
-                risk: Risk::Read,
-                ..gate(Runs, Class::Sensitive(Sensitive::Payment))
             },
             Route::Ask(SPENDS.to_owned()),
         ),
@@ -378,14 +139,6 @@ fn what_the_rule_gate_would_hold_goes_to_the_reviewer_with_what_singles_it_out()
                 ..gate(Asks, Class::Inside)
             },
             reviewed(None),
-        ),
-        // An app tool that claims to read but says it acts is reviewed, though reads run.
-        (
-            Call {
-                risk: Risk::Read,
-                ..gate(Runs, Class::Sensitive(Sensitive::Mislabelled))
-            },
-            reviewed(Some(Sensitive::Mislabelled.reason())),
         ),
         // The person's "always" for a write still holds, for a send or a payment too.
         (gate(Runs, message), Route::Run),
@@ -565,115 +318,6 @@ fn the_reviewer_reads_untrusted_text_only_as_quoted_data() {
 }
 
 #[test]
-fn tools_that_hand_back_secrets_are_told_from_those_that_change_access() {
-    for (name, description, risk) in [
-        ("get_api_token", "Returns the token", Risk::Read),
-        ("secrets", "Reads a secret from the vault", Risk::Write),
-        (
-            "vault_lookup",
-            "Looks up the password for a site",
-            Risk::Read,
-        ),
-        ("fetchCredentials", "", Risk::Write),
-        ("keys", "Shows the API key for a project", Risk::Write),
-        ("export_key", "Exports the private key", Risk::Write),
-        // A guard rail errs to safety: a read that names tokens is refused.
-        ("list_tokens_usage", "Lists usage", Risk::Read),
-    ] {
-        assert!(reads_credentials(name, description, risk), "{name}");
-    }
-    for (name, description, risk) in [
-        (
-            "rotate_api_key",
-            "Rotates the key and returns the new one",
-            Risk::Write,
-        ),
-        ("set_password", "Sets a new password", Risk::Write),
-        ("revoke_token", "", Risk::Destructive),
-        ("list_messages", "Lists messages", Risk::Read),
-        ("get_key_metrics", "Returns the key metrics", Risk::Read),
-    ] {
-        assert!(!reads_credentials(name, description, risk), "{name}");
-    }
-}
-
-#[test]
-fn payments_sending_as_the_person_and_access_changes_are_never_granted() {
-    for tool in [
-        "stripe_create_payment",
-        "send_email",
-        "gmail_sendMessage",
-        "rotate_api_key",
-    ] {
-        assert!(never_granted(tool).is_some(), "{tool}");
-    }
-    for tool in [
-        "shell",
-        "github_create_pull_request",
-        "workspace_write",
-        "linear_create_issue",
-    ] {
-        assert!(never_granted(tool).is_none(), "{tool}");
-    }
-}
-
-#[test]
-fn a_command_the_sandbox_holds_runs_unreviewed_and_what_could_leave_through_it_is_reviewed() {
-    let shell = |class| Call {
-        contained: true,
-        ..gate(Decision::Ask, class)
-    };
-    for class in [
-        Class::Inside,
-        Class::Sensitive(Sensitive::Network),
-        Class::Sensitive(Sensitive::WriteOutside),
-        Class::Sensitive(Sensitive::DeleteOutside),
-        Class::Sensitive(Sensitive::Automation),
-        Class::Sensitive(Sensitive::Unclear),
-        Class::Sensitive(Sensitive::UnseenScript),
-    ] {
-        assert_eq!(route(shell(class)), Route::Run, "{class:?}");
-        let tainted = Call {
-            tainted: true,
-            ..shell(class)
-        };
-        assert_eq!(route(tainted), Route::Run, "{class:?} under taint");
-    }
-    for kind in [
-        Sensitive::Publish,
-        Sensitive::RemoteChange,
-        Sensitive::Admin,
-    ] {
-        assert_eq!(
-            route(shell(Class::Sensitive(kind))),
-            reviewed(Some(kind.reason())),
-            "{kind:?}"
-        );
-    }
-    // A payment or a send as the person from the sandbox is the person's, taint or not.
-    for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
-        let line = kind.persons().map(str::to_owned).unwrap_or_default();
-        assert_eq!(
-            route(shell(Class::Sensitive(kind))),
-            Route::Ask(line.clone())
-        );
-        let tainted = Call {
-            tainted: true,
-            ..shell(Class::Sensitive(kind))
-        };
-        assert_eq!(route(tainted), Route::Ask(line), "{kind:?} under taint");
-    }
-    // A credential read is refused, sandbox or not.
-    let reads = Call {
-        credentials: true,
-        ..shell(Class::Inside)
-    };
-    assert_eq!(route(reads), Route::Refuse(CREDENTIALS_REFUSED.to_owned()));
-    // Without the sandbox, the same command is reviewed as before.
-    assert_eq!(route(gate(Decision::Ask, Class::Inside)), reviewed(None));
-}
-
-#[test]
 fn a_granted_call_runs_unreviewed_until_untrusted_content_is_in_view() {
     let granted = |class| Call {
         granted: true,
@@ -709,7 +353,6 @@ fn a_granted_call_runs_unreviewed_until_untrusted_content_is_in_view() {
     for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
         let always = Call {
             granted: true,
-            contained: true,
             ..gate(Decision::Run, Class::Sensitive(kind))
         };
         assert_eq!(route(always), Route::Run, "{kind:?}");

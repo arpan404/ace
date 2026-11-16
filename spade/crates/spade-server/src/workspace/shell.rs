@@ -49,6 +49,8 @@ pub struct Job<'a> {
     pub stdin: Option<Vec<u8>>,
     /// Whose run it is, for the sandbox: a bot's command, or a plugin's.
     pub kind: Kind,
+    /// Run with no sandbox: the gate decided this one call runs outside it (ADR 0171).
+    pub outside: bool,
 }
 
 /// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
@@ -74,6 +76,12 @@ pub trait Confine: Send + Sync {
 
     /// Whether a bot command with home `home` runs contained (files and network) on this machine.
     fn contains(&self, home: &Path) -> bool;
+
+    /// Whether the bot whose workspace is `home` runs its commands outside the sandbox (its own
+    /// setting, else the machine's; ADR 0171).
+    fn outside(&self, _home: &Path) -> bool {
+        false
+    }
 
     /// Blocking work to do before a run of `kind` with home `home` starts (a checkpoint of the
     /// workspace, ADR 0167 decision 8); `None` when there is none.
@@ -212,6 +220,13 @@ impl Shell {
             .is_some_and(|confine| confine.contains(home))
     }
 
+    /// Whether the bot with home `home` runs its commands outside the sandbox.
+    pub fn outside(&self, home: &Path) -> bool {
+        self.confine
+            .as_ref()
+            .is_some_and(|confine| confine.outside(home))
+    }
+
     /// Makes every end of a command's processes wait `delay` first: for tests of what happens
     /// while an end is still going on. Only with the `test-hooks` feature.
     #[cfg(feature = "test-hooks")]
@@ -264,6 +279,7 @@ impl Shell {
             cleanup: None,
             stdin: None,
             kind: Kind::Command,
+            outside: false,
         })
         .await
     }
@@ -281,6 +297,8 @@ impl Shell {
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
         let confined = match &self.confine {
+            // Outside the sandbox: no checkpoint, no proxy, the person's machine as it is.
+            Some(_) if job.outside => None,
             Some(confine) => {
                 if let Some(work) = confine.before(home, &job.kind) {
                     match tokio::task::spawn_blocking(work).await {

@@ -507,6 +507,7 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
                 helper: None,
             }),
         ];
@@ -528,6 +529,7 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
                 helper: None,
             }),
             Event::Known(Known::StopRequested {
@@ -559,6 +561,7 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
                 helper: None,
             }),
             Event::Known(Known::ApprovalAnswered {
@@ -866,6 +869,7 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
                 helper: Some(crate::event::HelperAsk {
                     job: "j1".into(),
                     conversation: "h1".into(),

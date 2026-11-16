@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use spade_core::effect::Effect;
 use spade_core::tools::Risk;
 use spade_server::engine::Limits;
 use spade_server::tools::{TaskStatus, Tool};
@@ -242,7 +243,9 @@ async fn the_bot_trying_a_refused_step_again_asks_the_person_who_can_allow_it() 
 
 #[tokio::test]
 async fn a_payment_never_runs_on_the_reviewers_approval_and_reaches_the_person() -> Result {
-    let pay = FakeTool::new("pay_invoice", Risk::Write, "Paid").app("Billing: Pays an invoice");
+    let pay = FakeTool::new("pay_invoice", Risk::Write, "Paid")
+        .app("Billing: Pays an invoice")
+        .declares(Effect::Pay);
     let paid = calls_of(&pay);
     let spade = reviewed_by_fake(
         vec![
@@ -276,7 +279,9 @@ async fn a_payment_never_runs_on_the_reviewers_approval_and_reaches_the_person()
 
 #[tokio::test]
 async fn sending_email_as_the_person_reaches_them_and_their_always_allow_still_holds() -> Result {
-    let send = FakeTool::new("send_email", Risk::Write, "Sent").app("Mail: Sends an email");
+    let send = FakeTool::new("send_email", Risk::Write, "Sent")
+        .app("Mail: Sends an email")
+        .declares(Effect::SendAsPerson);
     let sent = calls_of(&send);
     let spade = reviewed_by_fake(
         vec![
@@ -348,8 +353,9 @@ async fn an_applescript_that_sends_an_imessage_reaches_the_person_without_a_revi
 
 #[tokio::test]
 async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> Result {
-    let publish =
-        FakeTool::new("publish_page", Risk::Write, "Published").app("Site: Publishes a page");
+    let publish = FakeTool::new("publish_page", Risk::Write, "Published")
+        .app("Site: Publishes a page")
+        .declares(Effect::Publish);
     let published = calls_of(&publish);
     let spade = reviewed_by_fake(
         vec![
@@ -798,27 +804,25 @@ async fn stop_calls_off_a_step_waiting_out_its_backoff() -> Result {
 }
 
 #[tokio::test]
-async fn an_app_tool_that_claims_to_read_but_shares_is_reviewed_and_a_refusal_holds() -> Result {
-    let tool = FakeTool::new("share_doc", Risk::Read, "shared").app("Reads the document");
+async fn an_app_tool_marked_read_only_that_declares_a_send_reaches_the_person() -> Result {
+    let tool = FakeTool::new("share_doc", Risk::Read, "shared")
+        .app("Reads the document")
+        .declares(Effect::SendAsPerson);
     let ran_calls = calls_of(&tool);
     let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "share_doc", json!({ "with": "all" })),
-            Script::reply("").plain(
-                r#"{"verdict":"refuse","reason":"Nobody asked to share it with everyone."}"#,
-            ),
-            Script::reply("I won't share it."),
-            Script::reply("").plain(TITLE),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
     let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Check the inbox").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert_eq!(count(&events, "approval_requested"), 0);
-    let review = spade.fake.seen()[1].body.to_string();
-    assert!(review.contains("Its app says it only reads"), "{review}");
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
     assert_eq!(ran(&ran_calls), 0);
     Ok(())
 }
@@ -1096,7 +1100,9 @@ async fn stop_pressed_as_a_reply_ends_calls_off_the_step_that_would_follow() -> 
 
 #[tokio::test]
 async fn a_tool_that_hands_back_a_token_is_refused() -> Result {
-    let token = FakeTool::new("get_api_token", Risk::Read, "sk-123").app("Returns the API token");
+    let token = FakeTool::new("get_api_token", Risk::Read, "sk-123")
+        .app("Returns the API token")
+        .declares(Effect::Credential);
     let read = calls_of(&token);
     let spade = Spade::start(
         vec![

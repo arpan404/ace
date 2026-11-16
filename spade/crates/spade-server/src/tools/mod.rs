@@ -12,6 +12,7 @@ mod goal;
 mod helper;
 mod knowledge;
 mod memory;
+pub mod outward;
 mod plugins;
 mod services;
 mod skill_tools;
@@ -165,21 +166,18 @@ pub trait Tool: Send + Sync {
     fn always_scope_in(&self, _key: &str, arguments: &Value) -> Option<String> {
         self.always_scope(arguments)
     }
-    /// [`Tool::class`] for the call with `key`, with the files it runs that the reviewer must read
-    /// (the shell's scripts). Most tools need only their arguments.
-    fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
-        self.class(arguments).into()
+    /// Where the call with `key` runs (ADR 0171) and, for a command with no sandbox, what the
+    /// shell classifier reads in it and the files the reviewer must be shown. Most tools run on
+    /// the host and are decided by their effect alone.
+    fn classed(&self, _key: &str, _arguments: &Value) -> spade_core::autonomy::Classed {
+        spade_core::autonomy::Classed::default()
     }
-    /// What a call of this tool can reach, for the auto-review (ADR 0144). Spade's own tools are
-    /// classed by name; ace's and the person's apps' tools say more about themselves.
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
+    /// What a call of this tool does, declared once (ADR 0171): Spade's own tools from the table
+    /// in `spade_core::effect`; ace's, connectors' and plugins' tools say it about themselves.
+    /// `None`: it declares nothing, and its first call asks the person.
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
         let def = self.def();
-        spade_core::autonomy::classify(
-            &def.spec.name,
-            def.risk,
-            spade_core::autonomy::Source::Spade,
-            arguments,
-        )
+        spade_core::effect::builtin(&def.spec.name, def.risk)
     }
 }
 

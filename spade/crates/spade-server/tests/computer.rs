@@ -425,7 +425,9 @@ async fn a_helpers_commands_run_beside_the_bots_each_session_with_its_own_folder
     assert!(terminal.bot_running());
     // A helper's session runs meanwhile, from the workspace, not the bot's folder.
     let started = std::time::Instant::now();
-    let helper = terminal.run_in_state("c_helper", "pwd", long, None).await?;
+    let helper = terminal
+        .run_in_state("c_helper", "pwd", long, None, false)
+        .await?;
     assert!(
         started.elapsed() < Duration::from_millis(700),
         "it waited for the bot's build: {:?}",

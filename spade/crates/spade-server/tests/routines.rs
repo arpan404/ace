@@ -495,7 +495,7 @@ async fn a_webhook_runs_only_with_its_own_secret() -> Result {
 }
 
 #[tokio::test]
-async fn a_bot_creates_its_own_routine_once_the_person_approves() -> Result {
+async fn a_bot_creates_its_own_routine_in_a_clean_turn_without_asking() -> Result {
     let clock = ManualClock::at(at("2026-11-12T10:00:00Z"));
     let scripts = vec![
         reply("").call(
@@ -511,17 +511,15 @@ async fn a_bot_creates_its_own_routine_once_the_person_approves() -> Result {
     spade
         .say(&conversation, "Brief me every weekday morning.")
         .await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    let (_, before) = spade.get(&format!("/v1/agents/{agent}/routines")).await?;
-    assert_eq!(before["routines"], json!([]));
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/call_1"),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 202);
-    spade.wait_for(&conversation, "reply_finished").await?;
+    // A routine changes only the bot's own things (ADR 0171): in a turn that read nothing
+    // untrusted it is saved without a question or a review.
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["type"] == "approval_requested" || e["type"] == "call_reviewed"),
+        "{events:?}"
+    );
     let (_, after) = spade.get(&format!("/v1/agents/{agent}/routines")).await?;
     let saved = &after["routines"][0];
     assert_eq!(saved["words"], "Weekdays at 9:00");

@@ -108,6 +108,7 @@ impl Terminal {
         _command: &str,
         _timeout: Duration,
         _expected: Option<&str>,
+        _outside: bool,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

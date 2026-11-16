@@ -297,6 +297,13 @@ async fn run() -> Result<(), Failure> {
     let services =
         spade_server::services::Services::new(workspaces.clone(), shell.clone(), bots.clone());
     core.extend(spade_server::tools::service_tools(&services));
+    // Pushes, comments and messages with the person's sign-ins, outside the sandbox (ADR 0171).
+    core.extend(spade_server::tools::outward::outward_tools(
+        workspaces.clone(),
+        bots.clone(),
+        Arc::new(spade_server::tools::outward::SystemHost),
+        home.dir.join("outward"),
+    ));
     core.extend(spade_server::media::tools::all(
         workspaces.clone(),
         bots.clone(),

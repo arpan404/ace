@@ -133,6 +133,7 @@ impl Services {
                             cleanup: None,
                             stdin: None,
                             kind: crate::workspace::shell::Kind::Command,
+                            outside: false,
                         },
                     )
                     .await;

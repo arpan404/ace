@@ -21,6 +21,7 @@ impl Confine for Security {
             return Ok(None);
         }
         let settings = self.bot(&bot);
+        let held = self.effective(&bot);
         let folders: Vec<(PathBuf, bool)> = self
             .effective_grants(&bot)
             .into_iter()
@@ -31,11 +32,9 @@ impl Confine for Security {
             .collect();
         let toolchain_dirs: Vec<PathBuf> = settings.toolchains.iter().map(PathBuf::from).collect();
         let (network, also_read, scratch) = match kind {
-            Kind::Command => (settings.network.clone(), Vec::new(), Vec::new()),
-            Kind::Terminal { scratch } => {
-                (settings.network.clone(), Vec::new(), vec![scratch.clone()])
-            }
-            Kind::Plugin { root } => (settings.plugin_network(), vec![root.clone()], Vec::new()),
+            Kind::Command => (held.network, Vec::new(), Vec::new()),
+            Kind::Terminal { scratch } => (held.network, Vec::new(), vec![scratch.clone()]),
+            Kind::Plugin { root } => (held.plugin_network, vec![root.clone()], Vec::new()),
         };
         let run = self.ids.next("run");
         let ticket = match (&self.proxy, network.mode) {
@@ -83,6 +82,11 @@ impl Confine for Security {
 
     fn contains(&self, home: &Path) -> bool {
         self.bot_of(home).is_some() && Security::contains(self)
+    }
+
+    fn outside(&self, home: &Path) -> bool {
+        self.bot_of(home)
+            .is_some_and(|bot| Security::outside(self, &bot))
     }
 
     /// Before a run nobody reviews (a bot's command where the sandbox holds it): the workspace

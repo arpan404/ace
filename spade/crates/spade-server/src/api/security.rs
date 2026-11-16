@@ -18,14 +18,24 @@ use spade_sandbox::egress::NetworkPolicy;
 
 use super::body::Body;
 use super::{AppState, off_thread, problem};
-use crate::security::{Network, Security, SecurityError};
+use crate::security::{Commands, Network, Security, SecurityError};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/security", get(machine))
+        .route("/security/commands", put(machine_commands))
+        .route("/security/network", put(machine_network))
+        .route("/security/plugin-network", put(machine_plugin_network))
         .route("/agents/{id}/security", get(agent))
-        .route("/agents/{id}/security/network", put(network))
-        .route("/agents/{id}/security/plugin-network", put(plugin_network))
+        .route("/agents/{id}/security/commands", put(commands))
+        .route(
+            "/agents/{id}/security/network",
+            put(network).delete(inherit_network),
+        )
+        .route(
+            "/agents/{id}/security/plugin-network",
+            put(plugin_network).delete(inherit_plugin_network),
+        )
         .route("/agents/{id}/security/toolchains", put(toolchains))
         .route("/agents/{id}/security/egress", get(egress))
         .route("/agents/{id}/grants", get(grants).post(grant))
@@ -81,10 +91,17 @@ fn view(security: &Security, id: &str) -> Value {
             _ => None,
         })
         .collect();
+    let held = security.effective(id);
     json!({
         "contained": security.contains(),
-        "network": settings.network,
-        "plugin_network": settings.plugin_network(),
+        "commands": held.commands,
+        "network": held.network,
+        "plugin_network": held.plugin_network,
+        "own": {
+            "commands": settings.commands.is_some(),
+            "network": settings.network.is_some(),
+            "plugin_network": settings.plugin_network.is_some(),
+        },
         "toolchains": settings.toolchains,
         "grants": settings.grants,
         "effective_grants": effective,
@@ -96,17 +113,105 @@ async fn machine(State(state): State<AppState>) -> Response {
     let Some(security) = security(&state) else {
         return unavailable();
     };
-    off_thread(move || {
-        let mut view = security.status_view();
-        if let Some(object) = view.as_object_mut() {
-            object.insert(
-                "toolchains_found".to_owned(),
-                json!(security.toolchain_candidates()),
-            );
-        }
-        Json(view).into_response()
+    off_thread(move || Json(machine_view(&security)).into_response()).await
+}
+
+/// The machine's view, as `GET /security` answers it.
+fn machine_view(security: &Security) -> Value {
+    let mut view = security.status_view();
+    if let Some(object) = view.as_object_mut() {
+        object.insert(
+            "toolchains_found".to_owned(),
+            json!(security.toolchain_candidates()),
+        );
+    }
+    view
+}
+
+#[derive(Deserialize)]
+struct MachineCommands {
+    commands: Commands,
+}
+
+async fn machine_commands(
+    State(state): State<AppState>,
+    Body(body): Body<MachineCommands>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(
+        move || match security.change_machine(|machine| machine.commands = body.commands) {
+            Ok(_) => Json(machine_view(&security)).into_response(),
+            Err(error) => failed(error),
+        },
+    )
+    .await
+}
+
+async fn set_machine_network(state: AppState, which: Network, body: NetworkPolicy) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || match security.set_machine_network(which, body) {
+        Ok(_) => Json(machine_view(&security)).into_response(),
+        Err(error) => failed(error),
     })
     .await
+}
+
+async fn machine_network(
+    State(state): State<AppState>,
+    Body(body): Body<NetworkPolicy>,
+) -> Response {
+    set_machine_network(state, Network::Commands, body).await
+}
+
+async fn machine_plugin_network(
+    State(state): State<AppState>,
+    Body(body): Body<NetworkPolicy>,
+) -> Response {
+    set_machine_network(state, Network::Plugins, body).await
+}
+
+#[derive(Deserialize)]
+struct BotCommands {
+    /// `null` follows the machine.
+    commands: Option<Commands>,
+}
+
+async fn commands(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<BotCommands>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || match security.set_commands(&id, body.commands) {
+        Ok(_) => Json(view(&security, &id)).into_response(),
+        Err(error) => failed(error),
+    })
+    .await
+}
+
+async fn inherit(state: AppState, id: String, which: Network) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || match security.inherit_network(&id, which) {
+        Ok(_) => Json(view(&security, &id)).into_response(),
+        Err(error) => failed(error),
+    })
+    .await
+}
+
+async fn inherit_network(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    inherit(state, id, Network::Commands).await
+}
+
+async fn inherit_plugin_network(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    inherit(state, id, Network::Plugins).await
 }
 
 async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Response {

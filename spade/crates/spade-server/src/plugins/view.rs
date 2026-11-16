@@ -31,6 +31,8 @@ pub struct LocalServer {
     pub command: String,
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
+    /// What its tools declare they do, by tool name (ADR 0171), as its entry says.
+    pub effects: BTreeMap<String, serde_json::Value>,
 }
 
 /// A remote MCP server: offered like a connector the person adds by URL.
@@ -173,6 +175,7 @@ and hooks itself."
                 command,
                 args,
                 env,
+                effects,
                 ..
             } => out.local.push(LocalServer {
                 plugin: name.clone(),
@@ -180,6 +183,7 @@ and hooks itself."
                 command: command.clone(),
                 args: args.clone(),
                 env: env.clone(),
+                effects: effects.clone(),
             }),
             KnownExecution::Remote {
                 name: server,

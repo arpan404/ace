@@ -35,15 +35,6 @@ impl Tool for Peak {
         }
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify(
-            "lookup",
-            Risk::Read,
-            spade_core::autonomy::Source::Spade,
-            arguments,
-        )
-    }
-
     fn run(&self, _key: &str, _arguments: Value) -> ToolFuture {
         let (running, most) = (self.running.clone(), self.most.clone());
         Box::pin(async move {

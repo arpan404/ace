@@ -65,6 +65,8 @@ pub fn spade_shipping(url: &str, apps: Vec<spade_connect::App>) -> Result<Spade>
         source: "https://example.com/docs".into(),
         via: None,
         local: true,
+        effects: Default::default(),
+        writes: None,
     });
     spade_with_apps(Duration::from_secs(600), None, apps, catalogue, None)
 }
@@ -82,6 +84,8 @@ pub fn spade_with_cloud(url: &str, cloud: &str, signed_in: bool) -> Result<Spade
         source: "https://example.com/docs".into(),
         via: Some(spade_connect::Via::Cloud),
         local: true,
+        effects: Default::default(),
+        writes: None,
     });
     let cloud = spade_connect::Cloud {
         url: cloud.to_owned(),

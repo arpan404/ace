@@ -75,6 +75,14 @@ impl Commands {
             Self::Terminal(terminals) => terminals.contains(home),
         }
     }
+
+    /// Whether the bot with home `home` runs its commands outside the sandbox (ADR 0171).
+    fn outside(&self, home: &std::path::Path) -> bool {
+        match self {
+            Self::OneShot(shell) => shell.outside(home),
+            Self::Terminal(terminals) => terminals.outside(home),
+        }
+    }
 }
 
 impl From<Shell> for Commands {
@@ -424,6 +432,14 @@ struct ShellArgs {
     timeout_s: Option<u64>,
 }
 
+/// Whether a `shell` call asks to run outside the sandbox (ADR 0171).
+fn asks_outside(arguments: &Value) -> bool {
+    arguments.get(OUTSIDE_SANDBOX).and_then(Value::as_bool) == Some(true)
+}
+
+/// The argument a bot sets to ask to run one command outside the sandbox.
+const OUTSIDE_SANDBOX: &str = "outside_sandbox";
+
 impl Tool for ShellTool {
     fn def(&self) -> ToolDef {
         shown_def(
@@ -435,12 +451,18 @@ impl Tool for ShellTool {
              at once with its job id and the output arrives later as a <job_result>. Where \
              Spade's sandbox holds commands, they run without a review: they can write only in \
              your folder and folders the person granted, can't read the person's files or \
-             sign-ins, and reach the network only through hosts your network policy allows \
-             (a refused host answers 403 from Spade's proxy). Elsewhere each command is \
-             reviewed. To read files, use workspace_read and workspace_search instead.",
+             sign-ins, can't drive other apps, and reach the network only through hosts your \
+             network policy allows (a refused host answers 403 from Spade's proxy). When the \
+             sandbox stops a command the step truly needs, call it again with \
+             outside_sandbox: true and the person decides. Elsewhere each command is reviewed. \
+             To push, comment or send a message, use git_push, pr_comment, issue_comment or \
+             send_message: commands never hold the person's sign-ins. To read files, use \
+             workspace_read and workspace_search instead.",
             json!({ "type": "object",
                     "properties": { "command": { "type": "string" },
-                                    "timeout_s": { "type": "integer", "minimum": 1 } },
+                                    "timeout_s": { "type": "integer", "minimum": 1 },
+                                    "outside_sandbox": { "type": "boolean",
+                                        "description": "Ask the person to run this one command outside the sandbox." } },
                     "required": ["command"] }),
             Risk::Write,
             // A command can bring in anything: its output is untrusted, and so is every file it
@@ -449,21 +471,28 @@ impl Tool for ShellTool {
         )
     }
 
-    /// Classed by what the command runs, from the folder it would start in: where the bot's
-    /// terminal is now, else its workspace. The scripts it runs are read so the reviewer sees
-    /// them (ADR 0144); with no workspace to read, none can be shown.
+    /// Where the command runs (ADR 0171): in the bot's sandbox, where nothing classifies it;
+    /// asking to run outside it this once; or outside it (the bot's setting, or a machine with
+    /// no sandbox), classed by what it runs from the folder it would start in (where the bot's
+    /// terminal is now, else its workspace), with the scripts it runs read for the reviewer.
     fn classed(&self, key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        use spade_core::autonomy::{Classed, classify_shell, shell::Lexical};
         let workspace = self
             .place
             .workspace(key)
             .ok()
             .and_then(|workspace| workspace.path().ok());
         let Some(workspace) = workspace else {
-            return spade_core::autonomy::classify_shell(
-                arguments,
-                &spade_core::autonomy::shell::Lexical,
-            );
+            return classify_shell(arguments, &Lexical);
         };
+        // Its home is the workspace whatever folder it starts in, so the bot's sandbox holds it.
+        if self.shell.contains(&workspace) && !self.shell.outside(&workspace) {
+            return if asks_outside(arguments) {
+                Classed::asks_outside()
+            } else {
+                Classed::sandboxed()
+            };
+        }
         let start = match &self.shell {
             Commands::Terminal(terminals) => self
                 .place
@@ -475,16 +504,10 @@ impl Tool for ShellTool {
             Commands::OneShot(_) => None,
         }
         .unwrap_or_else(|| workspace.clone());
-        let mut classed = match super::place::FsPlace::new(start, &workspace) {
-            Some(place) => spade_core::autonomy::classify_shell(arguments, &place),
-            None => spade_core::autonomy::classify_shell(
-                arguments,
-                &spade_core::autonomy::shell::Lexical,
-            ),
-        };
-        // Its home is the workspace whatever folder it starts in, so the bot's sandbox holds it.
-        classed.contained = self.shell.contains(&workspace);
-        classed
+        match super::place::FsPlace::new(start, &workspace) {
+            Some(place) => classify_shell(arguments, &place),
+            None => classify_shell(arguments, &Lexical),
+        }
     }
 
     /// "Always" allows this exact command, nothing like it.
@@ -537,10 +560,30 @@ impl Tool for ShellTool {
                 .timeout_s
                 .map_or(SHELL_TIMEOUT, Duration::from_secs)
                 .max(Duration::from_secs(1));
+            // Outside the sandbox only when the gate decided so for this call (ADR 0171).
+            let outside = place
+                .bots
+                .get()
+                .is_some_and(|engine| engine.runs_outside(&key));
+            let sandboxed = !outside && shell.contains(&dir);
             let ran = match &shell {
-                Commands::OneShot(shell) => shell.run(&dir, &args.command, timeout).await,
+                Commands::OneShot(shell) => {
+                    shell
+                        .run_job(crate::workspace::shell::Job {
+                            dir: &dir,
+                            script: &args.command,
+                            timeout,
+                            env: &[],
+                            tee: None,
+                            cleanup: None,
+                            stdin: None,
+                            kind: crate::workspace::shell::Kind::Command,
+                            outside,
+                        })
+                        .await
+                }
                 Commands::Terminal(terminals) => {
-                    in_terminal(&place, &key, terminals, &args.command, timeout).await
+                    in_terminal(&place, &key, terminals, &args.command, timeout, outside).await
                 }
             };
             // Whatever the command did to the folder, the app looks again.
@@ -548,10 +591,18 @@ impl Tool for ShellTool {
             let failed = ran
                 .as_ref()
                 .map_or(true, |ran| ran.timed_out || ran.code != Some(0));
-            let text = match &ran {
+            let mut text = match &ran {
                 Ok(ran) => describe(ran, timeout),
                 Err(error) => error.clone(),
             };
+            // What the sandbox stopped, said so the bot can ask to run it outside.
+            if failed
+                && sandboxed
+                && let Some(kind) = spade_core::effect::blocked(&text)
+            {
+                text.push('\n');
+                text.push_str(spade_core::effect::blocked_hint(kind));
+            }
             // Nothing a command makes is trusted, so nothing needs marking here.
             let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
                 .await
@@ -576,6 +627,7 @@ async fn in_terminal(
     terminals: &crate::computer::Terminals,
     command: &str,
     timeout: Duration,
+    outside: bool,
 ) -> Result<Ran, String> {
     let bot = place
         .bots
@@ -604,7 +656,7 @@ async fn in_terminal(
     let session = place.bots.session_for_key(key);
     terminals
         .of(&bot)?
-        .run_in_state(&session, command, timeout, expected.as_deref())
+        .run_in_state(&session, command, timeout, expected.as_deref(), outside)
         .await
 }
 

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use spade_core::effect::{self, Effect, Granted};
 use spade_core::grant::Action;
 
 use super::Engine;
@@ -34,14 +35,68 @@ impl Engine {
             .collect()
     }
 
-    /// Whether one of the effective grants of the bot that owns `conversation` covers calling
-    /// `tool` with `arguments`.
-    pub(super) fn granted(&self, conversation: &str, tool: &str, arguments: &Value) -> bool {
+    /// Which of the effective grants of the bot that owns `conversation` covers the call: a
+    /// push or a comment by a grant of its own kind, any other tool by a `tool` grant, and never
+    /// a tool that pays, sends, changes access or reads secrets (ADR 0171).
+    pub(super) fn granted(
+        &self,
+        conversation: &str,
+        tool: &str,
+        arguments: &Value,
+        declared: Option<Effect>,
+    ) -> Granted {
         let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
-            return false;
+            return Granted::No;
         };
         let grants = security.effective_grants(&agent);
-        spade_core::grant::allowed(&grants, &Action::Tool { tool, arguments })
+        let text = |name: &str| arguments.get(name).and_then(Value::as_str).unwrap_or("");
+        let typed = match tool {
+            effect::GIT_PUSH => Some(Action::GitPush {
+                repo: text("repo"),
+                branch: text("branch"),
+            }),
+            effect::PR_COMMENT => Some(Action::PrComment {
+                repo: text("repo"),
+                own: false,
+            }),
+            _ => None,
+        };
+        if let Some(action) = typed {
+            let covered = !text("repo").is_empty() && spade_core::grant::allowed(&grants, &action);
+            return if covered { Granted::Typed } else { Granted::No };
+        }
+        if effect::never_granted(declared).is_some() {
+            return Granted::No;
+        }
+        if spade_core::grant::allowed(&grants, &Action::Tool { tool, arguments }) {
+            Granted::Tool
+        } else {
+            Granted::No
+        }
+    }
+
+    /// Marks the call `key` to run outside the sandbox: the gate decided so.
+    pub(super) fn mark_outside(&self, key: &str) {
+        self.outside_calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key.to_owned());
+    }
+
+    /// Whether the call `key` runs outside the sandbox, taken (each call runs once). A call the
+    /// gate didn't mark runs sandboxed, whatever changed since.
+    pub(crate) fn runs_outside(&self, key: &str) -> bool {
+        self.outside_calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key)
+    }
+
+    /// What one of `conversation`'s tools declares it does, for a grant being made.
+    pub(crate) fn tool_effect(&self, conversation: &str, tool: &str) -> Option<Effect> {
+        self.tools
+            .get_for(conversation, tool)
+            .and_then(|found| found.effect(&Value::Null))
     }
 
     /// The bot whose workspace `conversation` works in: its own, or a helper's bot's.

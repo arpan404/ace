@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub mod gated;
+#[cfg(target_os = "macos")]
+pub mod sandbox;
 
 use keyring_core::mock;
 use serde_json::{Value, json};
@@ -37,9 +39,11 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
-    /// Classed as a tool of one of the person's apps (ADR 0144); `true` when it annotates
+    /// Poses as a tool of one of the person's apps (ADR 0131); `true` when it annotates
     /// itself.
     pub app: Option<bool>,
+    /// What it declares it does (ADR 0171), over what its name or annotations would say.
+    pub declared: Option<spade_core::effect::Effect>,
 }
 
 impl FakeTool {
@@ -61,7 +65,14 @@ impl FakeTool {
             delay: Duration::ZERO,
             calls: Arc::default(),
             app: None,
+            declared: None,
         }
+    }
+
+    /// Declares what it does, as a catalogue entry or manifest would.
+    pub fn declares(mut self, effect: spade_core::effect::Effect) -> Self {
+        self.declared = Some(effect);
+        self
     }
 
     /// Poses as a tool of one of the person's apps, as a connector offers it (ADR 0131).
@@ -114,17 +125,32 @@ impl Tool for FakeTool {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        use spade_core::autonomy::{AppHints, Source, classify};
-        let source = match self.app {
-            Some(annotated) => Source::App(AppHints {
-                description: &self.def.spec.description,
+    /// A fake `shell` is a command with no sandbox, as on a machine without one: classed by
+    /// what it runs, for the review.
+    fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        if self.def.spec.name == spade_core::autonomy::SHELL {
+            spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical)
+        } else {
+            spade_core::autonomy::Classed::default()
+        }
+    }
+
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+        use spade_core::effect::{Mcp, builtin, mcp};
+        match self.app {
+            Some(annotated) => mcp(Mcp {
+                read_only: self.def.risk == Risk::Read,
                 annotated,
-                open_world: annotated.then_some(true),
+                declared: self.declared,
+                writes: None,
             }),
-            None => Source::Spade,
-        };
-        classify(&self.def.spec.name, self.def.risk, source, arguments)
+            // A fake of Spade's own that isn't in its table acts outside the box, so it is
+            // reviewed; tests of undeclared tools use `unannotated_app`.
+            None => self
+                .declared
+                .or_else(|| builtin(&self.def.spec.name, self.def.risk))
+                .or(Some(spade_core::effect::Effect::Network)),
+        }
     }
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {

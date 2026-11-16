@@ -38,6 +38,11 @@ pub struct Server {
     problem: Mutex<Option<String>>,
     /// Its sandbox's proxy access, held as long as the server may run (ADR 0167).
     _hold: Option<Box<dyn std::any::Any + Send + Sync>>,
+    /// It runs in a sandbox that holds files and network here, so its calls are the OS's to
+    /// decide (ADR 0171).
+    contained: bool,
+    /// What its tools declare they do, by tool name, from its execution entry.
+    effects: std::collections::BTreeMap<String, spade_core::effect::Effect>,
 }
 
 /// A local server as a bot's settings show it.
@@ -51,6 +56,16 @@ pub struct ServerState {
 }
 
 impl Server {
+    /// Whether its calls run in a sandbox that holds files and network here.
+    pub fn contained(&self) -> bool {
+        self.contained
+    }
+
+    /// What `tool` declares it does, when its entry says.
+    pub fn declared(&self, tool: &str) -> Option<spade_core::effect::Effect> {
+        self.effects.get(tool).copied()
+    }
+
     pub fn tools(&self) -> Vec<McpTool> {
         lock(&self.tools).clone().unwrap_or_default()
     }
@@ -166,6 +181,7 @@ impl Servers {
             command.program = String::new();
         }
         let label = format!("{}/{}", server.plugin, server.name);
+        let contained = hold.is_some() && shell.contains(dir);
         let made = Arc::new(Server {
             plugin: server.plugin.clone(),
             name: server.name.clone(),
@@ -174,6 +190,14 @@ impl Servers {
             tools: Mutex::new(None),
             problem: Mutex::new(problem),
             _hold: hold,
+            contained,
+            effects: server
+                .effects
+                .iter()
+                .filter_map(|(tool, said)| {
+                    spade_core::effect::Effect::declared(said).map(|e| (tool.clone(), e))
+                })
+                .collect(),
         });
         if let Some(old) = map.insert(key, made.clone()) {
             old.client.close();

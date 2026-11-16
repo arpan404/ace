@@ -18,7 +18,7 @@ use spade_sandbox::Runner;
 use spade_sandbox::egress::{EgressLog, Entry, NetworkPolicy, Proxy, SystemResolver};
 use spade_store::Store;
 
-pub use settings::BotSecurity;
+pub use settings::{BotSecurity, Commands, Effective, MachineSecurity};
 
 use crate::clock::{Clock, Ids};
 use crate::tools::EngineHandle;
@@ -52,6 +52,26 @@ pub enum SecurityError {
     Invalid(String),
     #[error("the settings could not be saved: {0}")]
     Store(String),
+}
+
+/// A network policy with each addition's form checked and every dropped name a default.
+fn checked(mut policy: NetworkPolicy) -> Result<NetworkPolicy, SecurityError> {
+    policy.allow = policy
+        .allow
+        .iter()
+        .map(|entry| NetworkPolicy::check_entry(entry).map_err(SecurityError::Invalid))
+        .collect::<Result<_, _>>()?;
+    policy.allow.dedup();
+    if let Some(unknown) = policy
+        .dropped
+        .iter()
+        .find(|d| !spade_sandbox::egress::DEFAULTS.contains(&d.as_str()))
+    {
+        return Err(SecurityError::Invalid(format!(
+            "{unknown} is not one of the defaults"
+        )));
+    }
+    Ok(policy)
 }
 
 fn reserved(maintenance: &Mutex<std::collections::HashSet<String>>, bot: &str) -> bool {
@@ -173,6 +193,7 @@ impl Security {
             },
             "contained": self.contains(),
             "defaults": spade_sandbox::egress::DEFAULTS,
+            "bots": self.machine(),
         })
     }
 
@@ -208,6 +229,79 @@ impl Security {
         )
     }
 
+    /// The machine's defaults, which bots without their own inherit (ADR 0171).
+    pub fn machine(&self) -> MachineSecurity {
+        settings::read(
+            self.store
+                .setting(settings::MACHINE)
+                .ok()
+                .flatten()
+                .as_deref(),
+        )
+    }
+
+    /// What holds for a bot: its own settings over the machine's.
+    pub fn effective(&self, bot: &str) -> Effective {
+        settings::effective(&self.bot(bot), &self.machine())
+    }
+
+    /// Whether the bot runs its commands outside the sandbox.
+    pub fn outside(&self, bot: &str) -> bool {
+        self.effective(bot).commands == Commands::Outside
+    }
+
+    /// Changes the machine's defaults.
+    pub fn change_machine(
+        &self,
+        apply: impl FnOnce(&mut MachineSecurity),
+    ) -> Result<MachineSecurity, SecurityError> {
+        let _held = self.changing.lock().unwrap_or_else(|p| p.into_inner());
+        let mut current = self.machine();
+        apply(&mut current);
+        let text = serde_json::to_string(&current)
+            .map_err(|error| SecurityError::Store(error.to_string()))?;
+        self.store
+            .set_setting(settings::MACHINE, Some(&text))
+            .map_err(|error| SecurityError::Store(error.to_string()))?;
+        Ok(current)
+    }
+
+    /// Sets where the bot's commands run; `None` follows the machine.
+    pub fn set_commands(
+        &self,
+        bot: &str,
+        commands: Option<Commands>,
+    ) -> Result<BotSecurity, SecurityError> {
+        self.change(bot, |current| {
+            current.commands = commands;
+            Ok(())
+        })
+    }
+
+    /// Sets one of the machine's network policies, checking each addition's form.
+    pub fn set_machine_network(
+        &self,
+        which: Network,
+        policy: NetworkPolicy,
+    ) -> Result<MachineSecurity, SecurityError> {
+        let policy = checked(policy)?;
+        self.change_machine(|machine| match which {
+            Network::Commands => machine.network = policy,
+            Network::Plugins => machine.plugin_network = policy,
+        })
+    }
+
+    /// Takes away a bot's own network policy, so it follows the machine's.
+    pub fn inherit_network(&self, bot: &str, which: Network) -> Result<BotSecurity, SecurityError> {
+        self.change(bot, |current| {
+            match which {
+                Network::Commands => current.network = None,
+                Network::Plugins => current.plugin_network = None,
+            }
+            Ok(())
+        })
+    }
+
     fn change(
         &self,
         bot: &str,
@@ -230,26 +324,12 @@ impl Security {
         &self,
         bot: &str,
         which: Network,
-        mut policy: NetworkPolicy,
+        policy: NetworkPolicy,
     ) -> Result<BotSecurity, SecurityError> {
-        policy.allow = policy
-            .allow
-            .iter()
-            .map(|entry| NetworkPolicy::check_entry(entry).map_err(SecurityError::Invalid))
-            .collect::<Result<_, _>>()?;
-        policy.allow.dedup();
-        if let Some(unknown) = policy
-            .dropped
-            .iter()
-            .find(|d| !spade_sandbox::egress::DEFAULTS.contains(&d.as_str()))
-        {
-            return Err(SecurityError::Invalid(format!(
-                "{unknown} is not one of the defaults"
-            )));
-        }
+        let policy = checked(policy)?;
         self.change(bot, |current| {
             match which {
-                Network::Commands => current.network = policy,
+                Network::Commands => current.network = Some(policy),
                 Network::Plugins => current.plugin_network = Some(policy),
             }
             Ok(())
@@ -315,8 +395,17 @@ impl Security {
     /// Grants `scope` to `bot`, refused when it can never be granted or exceeds what the bot's
     /// parent has.
     pub fn add_grant(&self, bot: &str, scope: Scope, by: &str) -> Result<Grant, SecurityError> {
-        grant::check(&scope, &spade_core::autonomy::never_granted)
-            .map_err(SecurityError::Invalid)?;
+        // Refused by what the tool declares it does (ADR 0171), never by its name.
+        let engine = self.bots.get();
+        let conversation = engine
+            .as_ref()
+            .and_then(|engine| engine.agent_view(bot).ok().flatten())
+            .map(|view| view.agent.conversation);
+        let never = |tool: &str| {
+            let (engine, conversation) = (engine.as_ref()?, conversation.as_deref()?);
+            spade_core::effect::never_granted(engine.tool_effect(conversation, tool))
+        };
+        grant::check(&scope, &never).map_err(SecurityError::Invalid)?;
         // A folder is kept as the folder it names, never as a link to it.
         let scope = match scope {
             Scope::Folder { path, write } => Scope::Folder {

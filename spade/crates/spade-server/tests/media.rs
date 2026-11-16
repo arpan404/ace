@@ -267,15 +267,8 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
     assert!(media.seen().is_empty());
 
     media_endpoint(spade, &media).await?;
+    // Making an image changes only the bot's own things (ADR 0171): no question, no review.
     spade.say(&conversation, "Try again").await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c2"),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert!(status < 300);
     let events = spade
         .wait_for_count(&conversation, "reply_finished", 3)
         .await?;
@@ -336,13 +329,6 @@ async fn a_slow_image_outlives_the_foreground_window_and_its_cost_is_recorded() 
     media_endpoint(&spade, &media).await?;
     let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Draw a kite").await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c1"),
-            json!({ "allowed": true }),
-        )
-        .await?;
     let events = spade.wait_for(&conversation, "shared").await?;
     assert_eq!(
         of_type(&events, "shared")[0]["images"][0]["sha256"],

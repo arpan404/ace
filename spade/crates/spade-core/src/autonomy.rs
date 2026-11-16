@@ -1,8 +1,9 @@
-//! The auto-review (ADR 0144, amended by ADR 0163; spade/docs/autonomy.md): every call the rule
-//! gate would hold goes to a reviewer model, which approves or refuses it. A refusal goes back to
-//! the bot; the person is asked only when the bot tries a refused step again or the reviewer
-//! can't decide. Credentials are refused outright. Pure: the engine brings the facts and runs the
-//! model.
+//! The auto-review (ADR 0144, amended by ADR 0163 and ADR 0171; spade/docs/autonomy.md): where a
+//! call goes is decided by its effect ([`crate::effect`]); what goes to review is approved or
+//! refused here by a reviewer model. A refusal goes back to the bot; the person is asked only when
+//! the bot tries a refused step again or the reviewer can't decide. Commands that run with no
+//! sandbox keep ADR 0163's route ([`route`]) with the shell classifier's reading. Credentials are
+//! refused outright. Pure: the engine brings the facts and runs the model.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -73,8 +74,6 @@ pub enum Sensitive {
     Unclear,
     /// A routine set up or changed after reading untrusted content.
     TaintedRoutine,
-    /// An app's tool that says it only reads, but whose name says it acts.
-    Mislabelled,
     /// A command runs a script Spade can't show the reviewer: outside the folder, unreadable or
     /// too long. The reviewer can't judge it, so the person decides.
     UnseenScript,
@@ -108,189 +107,83 @@ impl Sensitive {
             Self::Unclear => "Spade can't tell everything this command does.",
             Self::TaintedRoutine => "It sets up standing work after reading untrusted content.",
             Self::UnseenScript => "It runs a script Spade can't show the reviewer, so you decide.",
-            Self::Mislabelled => "Its app says it only reads, but its name says it acts.",
         }
     }
 }
 
-/// What a call can reach.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the shell classifier reads in a command that runs with no sandbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Class {
-    /// Only the bot's own folder, notes, plan, routines and skills.
+    /// Nothing that reaches outside the bot's folder.
+    #[default]
     Inside,
     /// Something outside the bot (an app, another bot, an ace thread), on the reviewer's word.
     Outward,
     Sensitive(Sensitive),
 }
 
-/// Where a tool comes from, with what it says about itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Source<'a> {
-    /// One of Spade's own tools.
-    Spade,
-    /// One of ace's tools (threads, browser, screen, automations).
-    Ace,
-    /// A tool of one of the person's apps (ADR 0131), with its MCP annotations.
-    App(AppHints<'a>),
-}
-
-/// What an app's tool said about itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct AppHints<'a> {
-    pub description: &'a str,
-    /// The server sent any annotation at all (`readOnlyHint`, `destructiveHint`,
-    /// `openWorldHint`).
-    pub annotated: bool,
-    /// `openWorldHint`.
-    pub open_world: Option<bool>,
-}
-
-/// Spade's own tools that change only the bot's own things.
-const INSIDE: &[&str] = &[
-    "workspace_write",
-    "workspace_edit",
-    "memory_save",
-    "memory_update",
-    "memory_forget",
-    "todo",
-    crate::task::TASK_STATUS,
-    "skill_propose",
-    "skill_feedback",
-    "routine_save",
-    "routine_delete",
-    "image_generate",
-    "share_file",
-];
-
-/// Spade's own tools that reach another bot.
-const OUTWARD: &[&str] = &["bot_message", "group_ask"];
-
-/// What a call can reach, from the tool's name, risk, source and arguments. An app's word for
-/// itself (its annotations) is a hint from a server Spade doesn't control: a tool whose name or
-/// description says it acts is classed by that even when it claims to only read, and one that
-/// says it pays or sends as the person is classed as that.
-pub fn classify(name: &str, risk: Risk, source: Source<'_>, arguments: &Value) -> Class {
-    if let Source::App(hints) = source
-        && risk == Risk::Read
-        && acts(name, hints.description)
-    {
-        let kind = words_say(name, hints.description)
-            .filter(|kind| kind.persons().is_some())
-            .unwrap_or(Sensitive::Mislabelled);
-        return Class::Sensitive(kind);
-    }
-    if risk == Risk::Read {
-        return Class::Inside;
-    }
-    match source {
-        // With no file system to look at, a script it runs can't be shown.
-        Source::Spade if name == SHELL => classify_shell(arguments, &shell::Lexical).class,
-        Source::Spade if INSIDE.contains(&name) => Class::Inside,
-        Source::Spade if OUTWARD.contains(&name) => Class::Outward,
-        Source::Spade => Class::Sensitive(Sensitive::Unknown),
-        // ace's tools act on ace: `agent_message` messages one of the person's agents and
-        // `transfer` moves a thread, so their names never make a payment or a send. What ace's
-        // browser or screen is told to press can.
-        Source::Ace if drives(name) && buys(arguments) => Class::Sensitive(Sensitive::Payment),
-        Source::Ace => match words_say(name, "").filter(|kind| kind.persons().is_none()) {
-            Some(sensitive) => Class::Sensitive(sensitive),
-            None if risk == Risk::Destructive => Class::Sensitive(Sensitive::DeleteOutside),
-            None => Class::Outward,
-        },
-        Source::App(hints) => match words_say(name, hints.description) {
-            Some(sensitive) => Class::Sensitive(sensitive),
-            None if risk == Risk::Destructive => Class::Sensitive(Sensitive::DeleteOutside),
-            // A tool that says nothing about itself could do anything.
-            None if !hints.annotated => Class::Sensitive(Sensitive::Unknown),
-            None => Class::Outward,
-        },
-    }
-}
-
 /// The shell tool.
 pub const SHELL: &str = "shell";
 
-/// Whether an ace tool drives a page or an app the way a person would (`browser_act`,
-/// `screen_act`, a simulator's).
-fn drives(name: &str) -> bool {
-    ["browser_", "screen_", "sim_"]
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
+/// Where a call runs (ADR 0171): what decides it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Runs {
+    /// Spade, ace or an app runs it: its declared effect decides.
+    #[default]
+    Host,
+    /// In the bot's sandbox, which holds files and network here: the OS decides, and nothing
+    /// classifies it.
+    Sandbox,
+    /// A command the bot asks to run outside the sandbox this once, on a machine with one.
+    AsksOutside,
+    /// A command with no sandbox (the bot runs outside it, or the machine has none): classed by
+    /// the shell classifier, for the review.
+    Outside,
 }
 
-/// What a button or a step that completes a purchase says. Matched in what a driving call is
-/// told to press or type; a click on an element by its id alone says nothing, and the reviewer
-/// judges it.
-const PURCHASE: &[&str] = &[
-    "place order",
-    "place your order",
-    "buy now",
-    "pay now",
-    "checkout",
-    "check out",
-    "complete purchase",
-    "confirm purchase",
-    "complete payment",
-    "confirm payment",
-    "submit payment",
-    "make payment",
-    "book now",
-    "confirm booking",
-    "complete booking",
-    "confirm and pay",
-    "subscribe now",
-    "start subscription",
-    "send money",
-];
-
-/// Whether a driving call's text says it completes a purchase.
-fn buys(arguments: &Value) -> bool {
-    fn texts<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
-        match value {
-            Value::String(text) => out.push(text),
-            Value::Array(list) => list.iter().for_each(|v| texts(v, out)),
-            Value::Object(map) => map.values().for_each(|v| texts(v, out)),
-            _ => {}
-        }
-    }
-    let mut found = Vec::new();
-    texts(arguments, &mut found);
-    found.iter().any(|text| {
-        let said = words(text).join(" ");
-        PURCHASE.iter().any(|phrase| {
-            said == *phrase
-                || said.starts_with(&format!("{phrase} "))
-                || said.ends_with(&format!(" {phrase}"))
-                || said.contains(&format!(" {phrase} "))
-        })
-    })
-}
-
-/// What a call can reach, what the reviewer must read besides its arguments, and whether what it
-/// runs reaches credentials.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Where a call runs and, for a command outside the sandbox, what the classifier read in it and
+/// the files the reviewer must be shown.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Classed {
+    pub runs: Runs,
+    /// The shell classifier's reading; only for [`Runs::Outside`].
     pub class: Class,
     /// Files it runs, shown to the reviewer; the call is bound to them as they are now.
     pub shown: Vec<shell::Shown>,
     /// What it runs (a script, a package script) reads sign-ins or credentials.
     pub credentials: bool,
-    /// It will run in the bot's OS sandbox, which holds files and network here (ADR 0167).
-    pub contained: bool,
+}
+
+impl Classed {
+    /// A call in the bot's sandbox: nothing classed.
+    pub fn sandboxed() -> Self {
+        Self {
+            runs: Runs::Sandbox,
+            ..Self::default()
+        }
+    }
+
+    /// A command the bot asks to run outside the sandbox: nothing classed until it is allowed.
+    pub fn asks_outside() -> Self {
+        Self {
+            runs: Runs::AsksOutside,
+            ..Self::default()
+        }
+    }
 }
 
 impl From<Class> for Classed {
     fn from(class: Class) -> Self {
         Self {
+            runs: Runs::Outside,
             class,
-            shown: Vec::new(),
-            credentials: false,
-            contained: false,
+            ..Self::default()
         }
     }
 }
 
-/// A `shell` call, classed by what its command runs from `place` (the folder it starts in).
+/// A `shell` call that runs with no sandbox, classed by what its command runs from `place` (the
+/// folder it starts in).
 pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
     let Some(command) = arguments.get("command").and_then(Value::as_str) else {
         return Class::Sensitive(Sensitive::Unclear).into();
@@ -304,222 +197,16 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         None => (Class::Inside, false),
     };
     Classed {
+        runs: Runs::Outside,
         class,
         shown: assessed.shown,
         credentials,
-        contained: false,
     }
 }
 
 /// Spade's tools that set up standing work: in a turn that read untrusted content they always go
 /// to the person, since what they set up runs later with no one watching.
 pub const STANDING: &[&str] = &["routine_save", "routine_delete"];
-
-/// Verbs that act, in an app tool's name or the first word of its description.
-const ACTIONS: &[&str] = &[
-    "send", "sends", "reply", "forward", "post", "posts", "publish", "tweet", "share", "comment",
-    "upload", "pay", "pays", "purchase", "buy", "charge", "refund", "transfer", "invite", "delete",
-    "deletes", "remove", "removes", "trash", "destroy", "create", "creates", "update", "updates",
-    "write", "writes", "edit", "edits", "set", "sets", "grant", "revoke", "merge", "deploy",
-];
-
-/// Whether an app tool's name, or the first word of its description, says it acts.
-fn acts(name: &str, description: &str) -> bool {
-    let first = words(description).into_iter().next();
-    words(name)
-        .iter()
-        .chain(first.as_ref())
-        .any(|w| ACTIONS.contains(&w.as_str()))
-}
-
-/// Why a tool can never be granted (ADR 0167 decision 5), from its name: a payment, sending as
-/// the person, or changing sign-ins, keys or access always goes to the person.
-pub fn never_granted(tool: &str) -> Option<&'static str> {
-    match words_say(tool, "") {
-        Some(kind @ (Sensitive::Payment | Sensitive::MessageAsPerson | Sensitive::Credentials)) => {
-            Some(kind.reason())
-        }
-        _ => None,
-    }
-}
-
-/// The sensitive kind a tool's name (split into words) names, else its description's first
-/// sentence; the most serious first.
-fn words_say(name: &str, description: &str) -> Option<Sensitive> {
-    let named = sensitive_in(&words(name));
-    if named.is_some() {
-        return named;
-    }
-    let first = description.split(['.', '\n']).next().unwrap_or("");
-    // A description says more than a name; only its verbs count, so "Lists emails" is no send.
-    let said = words(first);
-    let verbs: Vec<&str> = said.iter().take(3).map(String::as_str).collect();
-    sensitive_in(&verbs.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>())
-}
-
-fn words(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut word = String::new();
-    let mut last_lower = false;
-    for c in text.chars() {
-        // camelCase splits too: `sendEmail` is `send email`.
-        if c.is_ascii_uppercase() && last_lower {
-            out.push(std::mem::take(&mut word));
-        }
-        if c.is_alphanumeric() {
-            word.push(c.to_ascii_lowercase());
-            last_lower = c.is_lowercase();
-        } else {
-            if !word.is_empty() {
-                out.push(std::mem::take(&mut word));
-            }
-            last_lower = false;
-        }
-    }
-    if !word.is_empty() {
-        out.push(word);
-    }
-    out
-}
-
-const PAYMENT: &[&str] = &[
-    "pay",
-    "pays",
-    "payment",
-    "payments",
-    "purchase",
-    "purchases",
-    "buy",
-    "buys",
-    "checkout",
-    "charge",
-    "charges",
-    "refund",
-    "invoice",
-    "donate",
-    "subscribe",
-    "order",
-    "transfer",
-    "booking",
-    "bookings",
-    "reserve",
-    "reservation",
-    "withdraw",
-    "payout",
-    "payouts",
-    "remit",
-];
-const CREDENTIALS: &[&str] = &[
-    "credential",
-    "credentials",
-    "password",
-    "passwords",
-    "token",
-    "tokens",
-    "secret",
-    "secrets",
-    "key",
-    "keys",
-    "apikey",
-    "permission",
-    "permissions",
-    "role",
-    "roles",
-    "invite",
-    "collaborator",
-    "collaborators",
-    "member",
-    "members",
-    "access",
-    "oauth",
-    "sharing",
-];
-/// Verbs that send in the person's name: a message, a post or a comment from their account.
-const SENDS: &[&str] = &[
-    "send", "sends", "reply", "replies", "forward", "forwards", "respond", "responds", "dm", "sms",
-    "tweet", "retweet", "toot",
-];
-/// What the person sends: named with no other verb (`email_user`, `post_comment`,
-/// `create_post`), the tool sends it.
-const SENT: &[&str] = &[
-    "email", "emails", "mail", "message", "messages", "post", "posts", "comment", "comments",
-];
-/// Verbs that do something else with what was sent (`delete_comment`, `archive_email`,
-/// `create_draft`): not a send.
-const OTHER_THAN_SENDING: &[&str] = &[
-    "delete",
-    "deletes",
-    "remove",
-    "removes",
-    "trash",
-    "destroy",
-    "purge",
-    "archive",
-    "archives",
-    "label",
-    "labels",
-    "mark",
-    "marks",
-    "move",
-    "moves",
-    "draft",
-    "drafts",
-    "get",
-    "gets",
-    "list",
-    "lists",
-    "read",
-    "reads",
-    "search",
-    "searches",
-    "find",
-    "finds",
-    "star",
-    "flag",
-    "mute",
-    "snooze",
-    "edit",
-    "edits",
-    "update",
-    "updates",
-    "hide",
-    "unsubscribe",
-    "count",
-    "summarize",
-];
-const PUBLISH: &[&str] = &[
-    "publish",
-    "share",
-    "announce",
-    "broadcast",
-    "release",
-    "deploy",
-    "merge",
-    "upload",
-];
-const DELETE: &[&str] = &[
-    "delete", "deletes", "remove", "removes", "trash", "destroy", "purge", "erase", "wipe", "drop",
-];
-
-fn sensitive_in(words: &[String]) -> Option<Sensitive> {
-    let has = |list: &[&str]| words.iter().any(|w| list.contains(&w.as_str()));
-    let sends = has(SENDS) || (has(SENT) && !has(OTHER_THAN_SENDING));
-    if has(PAYMENT) {
-        return Some(Sensitive::Payment);
-    }
-    if has(CREDENTIALS) {
-        return Some(Sensitive::Credentials);
-    }
-    if sends {
-        return Some(Sensitive::MessageAsPerson);
-    }
-    [
-        (PUBLISH, Sensitive::Publish),
-        (DELETE, Sensitive::DeleteOutside),
-    ]
-    .into_iter()
-    .find_map(|(list, kind)| has(list).then_some(kind))
-}
 
 /// Whether a call's arguments reach sign-ins or credentials: a path where they live, read by any
 /// program, or a command that reads secrets ([`secrets`]). Checked on every level and for every
@@ -528,117 +215,11 @@ pub fn reaches_credentials(arguments: &Value) -> bool {
     secrets::reaches(arguments)
 }
 
-/// Things that are secrets, in a tool's name or its description's first sentence.
-const SECRET_NOUNS: &[&str] = &[
-    "token",
-    "tokens",
-    "secret",
-    "secrets",
-    "password",
-    "passwords",
-    "passphrase",
-    "credential",
-    "credentials",
-    "apikey",
-    "apikeys",
-    "keychain",
-];
-/// Verbs that hand a secret back.
-const READ_VERBS: &[&str] = &[
-    "get",
-    "gets",
-    "read",
-    "reads",
-    "fetch",
-    "fetches",
-    "show",
-    "shows",
-    "reveal",
-    "reveals",
-    "export",
-    "exports",
-    "retrieve",
-    "retrieves",
-    "view",
-    "views",
-    "copy",
-    "copies",
-    "print",
-    "prints",
-    "dump",
-    "dumps",
-    "lookup",
-    "find",
-    "finds",
-    "return",
-    "returns",
-    "list",
-    "lists",
-    "decrypt",
-    "decrypts",
-    "load",
-    "loads",
-];
-/// Verbs that change sign-ins or access instead: those go to the person.
-const CHANGE_VERBS: &[&str] = &[
-    "set",
-    "sets",
-    "update",
-    "updates",
-    "rotate",
-    "rotates",
-    "create",
-    "creates",
-    "revoke",
-    "revokes",
-    "delete",
-    "deletes",
-    "reset",
-    "resets",
-    "change",
-    "changes",
-    "grant",
-    "grants",
-    "add",
-    "adds",
-    "remove",
-    "removes",
-    "generate",
-    "generates",
-    "regenerate",
-    "invalidate",
-    "store",
-    "stores",
-    "save",
-    "saves",
-    "issue",
-    "issues",
-];
-
-/// Whether a tool, by what it says about itself, hands back sign-ins, keys or secrets: it names
-/// one (`token`, `secret`, `password`, `credential`, `api key`…) and reads (a read verb, or it
-/// is read-only), and no verb says it changes them. Refused on every level, like a command that
-/// reads them ([`reaches_credentials`]); one that changes them asks the person instead.
-pub fn reads_credentials(name: &str, description: &str, risk: Risk) -> bool {
-    let first = description.split(['.', '\n']).next().unwrap_or("");
-    let said: Vec<String> = words(name).into_iter().chain(words(first)).collect();
-    let has = |list: &[&str]| said.iter().any(|w| list.contains(&w.as_str()));
-    let api_key = said
-        .windows(2)
-        .any(|pair| pair[0] == "api" && matches!(pair[1].as_str(), "key" | "keys"));
-    let private_key = said
-        .windows(2)
-        .any(|pair| pair[0] == "private" && matches!(pair[1].as_str(), "key" | "keys"));
-    (has(SECRET_NOUNS) || api_key || private_key)
-        && (risk == Risk::Read || has(READ_VERBS))
-        && !has(CHANGE_VERBS)
-}
-
 /// What the result of a call refused for reaching credentials says.
 pub const CREDENTIALS_REFUSED: &str =
     "Spade never lets a bot read sign-in tokens, keys or provider credentials.";
 
-/// Where a call goes.
+/// Where a command with no sandbox goes (ADR 0163's route, kept for that path by ADR 0171).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
     Run,
@@ -650,7 +231,7 @@ pub enum Route {
     Refuse(String),
 }
 
-/// What the gate knows about one call.
+/// What the gate knows about one command with no sandbox.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Call {
     /// What the rule gate (ADR 0130) decided.
@@ -666,31 +247,8 @@ pub struct Call {
     pub standing: bool,
     /// Its arguments fit the reviewer's prompt whole.
     pub fits: bool,
-    /// It runs in the bot's OS sandbox, which holds files and network on this machine
-    /// (ADR 0167).
-    pub contained: bool,
     /// A grant of the bot's covers it (ADR 0167 decision 5).
     pub granted: bool,
-}
-
-/// What the OS sandbox holds whatever the command does (ADR 0167 decision 8): nothing found, or
-/// a finding whose effect it stops (the network but through the proxy's policy, writes and
-/// deletes outside the folder and granted ones, other apps, code the classifier can't read).
-/// What could travel through an allowed path (publishing, a server change, mail, payments) and
-/// admin rights are still reviewed.
-fn sandbox_holds(class: Class) -> bool {
-    matches!(
-        class,
-        Class::Inside
-            | Class::Sensitive(
-                Sensitive::Network
-                    | Sensitive::WriteOutside
-                    | Sensitive::DeleteOutside
-                    | Sensitive::Automation
-                    | Sensitive::Unclear
-                    | Sensitive::UnseenScript
-            )
-    )
 }
 
 /// Kinds no grant covers: they always go to the person (ADR 0167 decision 5).
@@ -706,11 +264,6 @@ pub fn route(call: Call) -> Route {
     if call.credentials {
         return Route::Refuse(CREDENTIALS_REFUSED.to_owned());
     }
-    // A command the OS sandbox holds has no effect outside it to judge, untrusted content in
-    // view or not (ADR 0167 decision 8).
-    if call.contained && !call.standing && sandbox_holds(call.class) {
-        return Route::Run;
-    }
     // What a grant covers runs unreviewed while nothing untrusted is in view; under taint it is
     // reviewed, told of the grant (per-value provenance comes later, ADR 0167 decision 6).
     let granted = call.granted && !call.standing && !never_covered(call.class);
@@ -725,12 +278,9 @@ pub fn route(call: Call) -> Route {
         _ if call.standing && call.tainted => Some(Sensitive::TaintedRoutine.reason()),
         _ => None,
     };
-    // The rule gate runs it (a read, or what the person allowed always), unless what it is
-    // needs a look anyway: an app's tool that claims to read but says it acts, or standing work
-    // set up after untrusted content.
-    let looked_at = (call.risk == Risk::Read && matches!(call.class, Class::Sensitive(_)))
-        || (call.standing && call.tainted);
-    if call.rule == Decision::Run && !looked_at {
+    // The rule gate runs it (what the person allowed always), unless it is standing work set up
+    // after untrusted content.
+    if call.rule == Decision::Run && !(call.standing && call.tainted) {
         return Route::Run;
     }
     // Spending money and sending as the person are the person's alone: no reviewer approves

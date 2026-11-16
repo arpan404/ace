@@ -222,7 +222,9 @@ async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_th
 
 #[tokio::test]
 async fn a_workers_payment_reaches_the_person_and_no_reviewer_approves_it() -> Result {
-    let pay = FakeTool::new("pay_invoice", Risk::Write, "paid").app("Billing: Pays an invoice");
+    let pay = FakeTool::new("pay_invoice", Risk::Write, "paid")
+        .app("Billing: Pays an invoice")
+        .declares(spade_core::effect::Effect::Pay);
     let paid = pay.calls();
     let mut scripts = warm_up();
     scripts.extend([

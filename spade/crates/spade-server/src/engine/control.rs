@@ -154,6 +154,17 @@ impl Engine {
         Ok(true)
     }
 
+    /// Sets the bot of `conversation` to run its commands outside the sandbox.
+    fn run_commands_outside(&self, conversation: &str) {
+        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
+            return;
+        };
+        if let Err(error) = security.set_commands(&agent, Some(crate::security::Commands::Outside))
+        {
+            tracing::warn!(%error, %agent, "the bot's commands setting could not be changed");
+        }
+    }
+
     /// Answers an approval the open turn is waiting on.
     pub fn answer(
         &self,
@@ -169,6 +180,13 @@ impl Engine {
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         let events = self.load(id)?;
         let transcript = Transcript::fold(events.iter());
+        let awaited = transcript.awaiting.iter().any(|c| c == call_id)
+            || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
+        // "Always for this bot" on a request to run outside the sandbox: the bot's commands run
+        // outside it from now on (ADR 0171).
+        if awaited && allowed && always && asks_outside(&events, call_id) {
+            self.run_commands_outside(id);
+        }
         if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
             // A helper's call (ADR 0152): the answer reaches the helper.
             self.answer_for_helper(id, &events, call_id, allowed, always)?;
@@ -195,4 +213,13 @@ impl Engine {
         self.live(id).wake.notify_one();
         Ok(())
     }
+}
+
+/// Whether the request `call_id` asked to run a command outside the sandbox.
+fn asks_outside(events: &[Event], call_id: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(event, Event::Known(Known::ApprovalRequested {
+            call_id: c, ask: Some(spade_core::effect::Ask::OutsideSandbox), ..
+        }) if c == call_id)
+    })
 }

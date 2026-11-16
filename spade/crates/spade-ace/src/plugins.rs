@@ -103,6 +103,9 @@ pub enum KnownExecution {
         env: BTreeMap<String, String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
+        /// What its tools do, by tool name (ADR 0171): an effect word or a list of them.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        effects: BTreeMap<String, Value>,
     },
     Remote {
         name: String,

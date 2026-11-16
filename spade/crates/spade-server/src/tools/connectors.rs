@@ -93,17 +93,23 @@ impl Tool for ConnectorCall {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify(
-            &self.tool.tool.name,
-            self.def.risk,
-            spade_core::autonomy::Source::App(spade_core::autonomy::AppHints {
-                description: &self.tool.tool.description,
-                annotated: self.tool.tool.annotated,
-                open_world: self.tool.tool.open_world,
-            }),
-            arguments,
-        )
+    /// Its annotations, unless its catalogue entry declares what it does (ADR 0171).
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+        let entry = self
+            .tool
+            .catalogue
+            .as_deref()
+            .and_then(|id| self.hub.catalogue().iter().find(|entry| entry.id == id));
+        spade_core::effect::mcp(spade_core::effect::Mcp {
+            read_only: self.def.risk == Risk::Read,
+            annotated: self.tool.tool.annotated,
+            declared: entry
+                .and_then(|entry| entry.effects.get(&self.tool.tool.name))
+                .and_then(spade_core::effect::Effect::declared),
+            writes: entry
+                .and_then(|entry| entry.writes.as_deref())
+                .and_then(spade_core::effect::Effect::parse),
+        })
     }
 
     fn run(&self, _key: &str, arguments: Value) -> ToolFuture {

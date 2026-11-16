@@ -193,6 +193,9 @@ pub struct Engine {
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
+    /// The calls about to run outside the sandbox, by call key: the gate decided so (ADR 0171),
+    /// and the shell runs only these unconfined.
+    outside_calls: Mutex<std::collections::HashSet<String>>,
     /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
     continuations: Mutex<HashMap<String, String>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
@@ -302,6 +305,7 @@ impl Engine {
             computers: std::sync::OnceLock::new(),
             plugins: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
+            outside_calls: Mutex::default(),
             continuations: Mutex::default(),
             helpers: helpers::Shared::default(),
             wakes: wakes::Shared::default(),

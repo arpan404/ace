@@ -355,6 +355,7 @@ mod tests {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
+            ask: None,
             helper: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
@@ -364,6 +365,7 @@ mod tests {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
+            ask: None,
             helper: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {

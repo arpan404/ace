@@ -154,6 +154,15 @@ pub enum Known {
         /// reviewer's reason, or the rule that always asks. Absent when the rule gate asked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reviewer_reason: Option<String>,
+        /// Why the person is asked when it isn't the usual request (ADR 0171): a tool that
+        /// declares no effect, or a command the bot asks to run outside the sandbox. Absent for
+        /// older events and the usual request; a word this build doesn't know reads as absent.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::effect::lenient_ask"
+        )]
+        ask: Option<crate::effect::Ask>,
         /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
         /// conversation, the person answers it there, and the answer reaches the helper.
         #[serde(default, skip_serializing_if = "Option::is_none")]

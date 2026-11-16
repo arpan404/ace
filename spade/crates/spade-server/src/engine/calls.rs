@@ -7,8 +7,9 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
-use spade_core::autonomy::{self, Class, Route, Sensitive};
+use spade_core::autonomy::{self, Class, Runs, Sensitive};
 use spade_core::context;
+use spade_core::effect::{self, Place, Route};
 use spade_core::event::Verdict;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
@@ -196,43 +197,67 @@ pub(super) async fn handle_calls(
                         _ => untrusted,
                     };
                     let rule = gate::decide(def.risk, always, tainted);
-                    // What the rule gate would hold goes to the reviewer (ADR 0144, 0163).
-                    // What the call reaches, and the files it runs that the reviewer must read.
+                    // Where the call runs and, for a command with no sandbox, what it runs and
+                    // the files the reviewer must read (ADR 0171).
                     let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
                     else {
                         return Handled::Stopped;
                     };
-                    // A contained command, or a write in the workspace, the boundaries hold:
-                    // checkpointed, not reviewed; reviewed when the checkpoint can't be taken.
-                    let contained = engine.contained_call(id, &name, classed.contained).await;
-                    let route = autonomy::route(autonomy::Call {
+                    // What it does, as the tool declares it once.
+                    let declared = engine
+                        .tools
+                        .get_for(id, &name)
+                        .and_then(|tool| tool.effect(&arguments));
+                    // A sandboxed command, or a file write in the workspace: checkpointed first;
+                    // when the checkpoint can't be taken, reviewed instead.
+                    let held = engine
+                        .contained_call(id, &name, classed.runs == Runs::Sandbox)
+                        .await;
+                    let place = match classed.runs {
+                        Runs::Host => Place::Host,
+                        Runs::Sandbox if held => Place::Sandbox,
+                        Runs::Sandbox => Place::Unsandboxed(Class::Inside),
+                        Runs::AsksOutside => Place::AsksOutside,
+                        Runs::Outside => Place::Unsandboxed(classed.class),
+                    };
+                    let remembered = match (declared, &helper, &bot_events) {
+                        (Some(_), ..) => None,
+                        (None, Some(_), Some(owned)) => effect::remembered(events, &name)
+                            .or_else(|| effect::remembered(owned, &name)),
+                        (None, ..) => effect::remembered(events, &name),
+                    };
+                    let route = effect::route(effect::Call {
+                        tool: &name,
                         rule,
                         risk: def.risk,
-                        class: classed.class,
+                        always,
+                        effect: declared,
+                        remembered,
+                        place,
                         // Anything untrusted the prompt shows, from any turn since compaction.
                         tainted: !in_view.is_empty(),
-                        // Its arguments reach a credential place, or the tool itself says it
-                        // hands back secrets: refused on every level.
-                        credentials: classed.credentials
-                            || autonomy::reaches_credentials(&arguments)
-                            || autonomy::reads_credentials(
-                                &def.spec.name,
-                                &def.spec.description,
-                                def.risk,
-                            ),
+                        // The sandbox's deny-list holds a sandboxed call; anything else that
+                        // names a credential place, or a script it runs that reads one, is
+                        // refused on every level.
+                        credentials: place != Place::Sandbox
+                            && (classed.credentials || autonomy::reaches_credentials(&arguments)),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments, &classed.shown),
-                        // The bot's OS sandbox holds it (ADR 0167): a shell command, or a file
-                        // tool's write in the workspace with a checkpoint to undo it.
-                        contained,
-                        granted: engine.granted(id, &name, &arguments),
+                        granted: engine.granted(id, &name, &arguments, declared),
+                        checkpointed: held && classed.runs == Runs::Host,
                     });
+                    // A command the gate sends outside the sandbox runs there, and only it.
+                    let outside = classed.runs == Runs::Outside;
+                    let mut ask = None;
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;
                     let mut decision = match route {
                         Route::Run => Decision::Run,
-                        // The reviewer can't read it whole: the person decides.
-                        Route::Ask(reason) => {
+                        // The person decides, with the line the request shows.
+                        Route::Ask {
+                            line: reason,
+                            ask: why,
+                        } => {
                             match rule_verdict(
                                 engine,
                                 id,
@@ -248,6 +273,7 @@ pub(super) async fn handle_calls(
                                 Err(error) => return Handled::Failed(error.to_string()),
                             }
                             reviewer_reason = Some(reason);
+                            ask = why;
                             Decision::Ask
                         }
                         Route::Refuse(reason) => {
@@ -310,7 +336,12 @@ pub(super) async fn handle_calls(
                     };
                     // The model review (ADR 0135) may turn a run into a question, never the
                     // other way round; a call the auto-review approved was reviewed already.
-                    if rule_ran && review::reviewed(def.risk, decision) && engine.review_on(id) {
+                    // A sandboxed call is the OS's to decide: no review of any kind (ADR 0171).
+                    if rule_ran
+                        && place != Place::Sandbox
+                        && review::reviewed(def.risk, decision)
+                        && engine.review_on(id)
+                    {
                         let def = def.clone();
                         match super::review::call(
                             engine,
@@ -337,6 +368,9 @@ pub(super) async fn handle_calls(
                             if let Some(scope) = &scope {
                                 engine.allow_scope(&key, scope);
                             }
+                            if outside {
+                                engine.mark_outside(&key);
+                            }
                             runnable.push((pending.call, name, arguments));
                         }
                         Decision::Ask => {
@@ -348,6 +382,7 @@ pub(super) async fn handle_calls(
                                 arguments,
                                 scope,
                                 reviewer_reason,
+                                ask,
                                 helper: None,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
@@ -367,8 +402,21 @@ pub(super) async fn handle_calls(
             Status::Allowed => {
                 // What the person allowed, as it was asked: checked again where it runs, so a
                 // terminal that changed since (or was reset by a restart) is never run in.
+                let key = format!("{id}.{}", pending.call.id);
                 if let Some(scope) = asked_scope(events, &pending.call.id) {
-                    engine.allow_scope(&format!("{id}.{}", pending.call.id), &scope);
+                    engine.allow_scope(&key, &scope);
+                }
+                // The person allowed it outside the sandbox: asked so, or asked while the bot's
+                // commands ran outside it and still do.
+                let runs_outside = asked_outside(events, &pending.call.id) || {
+                    let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await
+                    else {
+                        return Handled::Stopped;
+                    };
+                    now.runs == Runs::Outside
+                };
+                if runs_outside {
+                    engine.mark_outside(&key);
                 }
                 runnable.push((pending.call, name, arguments));
             }
@@ -477,6 +525,15 @@ fn asked_scope(events: &[Event], call_id: &str) -> Option<String> {
             call_id: c, scope, ..
         }) if c == call_id => scope.clone(),
         _ => None,
+    })
+}
+
+/// Whether the call `call_id` was asked about as a command to run outside the sandbox.
+fn asked_outside(events: &[Event], call_id: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(event, Event::Known(Known::ApprovalRequested {
+            call_id: c, ask: Some(effect::Ask::OutsideSandbox), ..
+        }) if c == call_id)
     })
 }
 

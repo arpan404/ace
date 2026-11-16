@@ -230,13 +230,13 @@ impl Tool for AceCall {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify(
+    /// ace's own risk, and a purchase button a driving call is told to press (ADR 0171).
+    fn effect(&self, arguments: &Value) -> Option<spade_core::effect::Effect> {
+        Some(spade_core::effect::ace(
             &self.def.spec.name,
             self.def.risk,
-            spade_core::autonomy::Source::Ace,
             arguments,
-        )
+        ))
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {

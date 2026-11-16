@@ -302,6 +302,8 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
                 source: "https://example.com/docs".into(),
                 via: None,
                 local: true,
+                effects: Default::default(),
+                writes: None,
             }],
             apps: vec![spade_connect::App {
                 connector: "fake".into(),
@@ -370,6 +372,8 @@ async fn spade_with_cloud(
                 source: "https://example.com/docs".into(),
                 via: Some(spade_connect::Via::Cloud),
                 local: true,
+                effects: Default::default(),
+                writes: None,
             }],
             cloud: Some(spade_connect::Cloud {
                 url: cloud.url(),
