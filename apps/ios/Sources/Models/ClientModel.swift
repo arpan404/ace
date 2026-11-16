@@ -11,6 +11,9 @@ import QuartzCore
 @MainActor @Observable final class ThreadModel {
     let id: String
     var epoch = 0
+    /// Which visit of the person's this is (`ClientModel.visit`): unlike `epoch`, a reconnect that
+    /// reopens the thread on screen keeps it.
+    var visit = 0
     var metadata: ThreadRow?
     /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
     /// the title, but not its word on status until the current snapshot arrives.
@@ -165,6 +168,10 @@ import QuartzCore
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
     let reads = ReadMirror()
     @ObservationIgnored private var generation = 0
+    /// Counts the person's moves to a thread: opening another one, or coming back after leaving.
+    /// Never reset, so a reconnect reopening the thread on screen keeps its visit (`generation`
+    /// starts again at a reconnect).
+    @ObservationIgnored private var visits = 0
     /// Confirmation fence: the newest activity generation the bridge has reported, on any
     /// connection or inbox row. Older confirmed rows read as unconfirmed until their snapshot
     /// returns, even when PatchPump delivers the connection and row frames separately.
@@ -750,6 +757,7 @@ import QuartzCore
         if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
+        if thread?.id != id { visits += 1 }
         // The thread already on screen, visited again (a new route, a snapshot retry), keeps
         // what was typed in its sheets; another thread starts them empty.
         if thread?.id == id { sheets.forgetFollowed() } else { sheets.reset() }
@@ -764,6 +772,7 @@ import QuartzCore
         opened.refreshRevision = nil
         opened.refreshBefore = nil
         opened.epoch = generation
+        opened.visit = visits
         opened.metadataCurrent = false
         if kept != nil { opened.screen.revisit() }
         let warm = kept != nil && !opened.requiresSnapshot

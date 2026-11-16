@@ -80,12 +80,13 @@ extension ClientModel {
             return dispatched
         }
     }
-    /// A move confirmed in the model sheet, sent as the sheet closes to the thread it was confirmed
-    /// on and nowhere else: dropped when another thread, or a later visit, is open by then.
+    /// A move confirmed in the model sheet, sent as the sheet closes to the visit of the thread it
+    /// was confirmed on and nowhere else, under that visit's generation now (a reconnect gives the
+    /// same visit a new one). False when the person has moved on, or the move wasn't taken.
     func send(_ move: HeldModelMove) async -> Bool {
-        guard thread?.id == move.threadId, thread?.epoch == move.epoch else { return false }
+        guard let thread, thread.id == move.threadId, thread.visit == move.visit else { return false }
         return await switchModel(key: move.key, account: move.account, confirmed: true,
-                                 effort: move.effort, speed: move.speed, epoch: move.epoch)
+                                 effort: move.effort, speed: move.speed, epoch: thread.epoch)
     }
     /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
     func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {
@@ -172,10 +173,11 @@ extension ClientModel {
 }
 
 /// A model move the person confirmed in a thread's model sheet, held until the sheet closes, with
-/// the thread and visit (`epoch`) it was confirmed on and the effort and speed picked for it since.
+/// the thread and visit (`ThreadModel.visit`) it was confirmed on and the effort and speed picked
+/// for it since.
 struct HeldModelMove: Equatable {
     let threadId: String
-    let epoch: Int
+    let visit: Int
     let key: String
     let account: String
     var effort: String?

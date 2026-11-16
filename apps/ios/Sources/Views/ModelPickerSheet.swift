@@ -135,14 +135,17 @@ struct ModelPickerSheet: View {
     private func hold(_ target: NewThreadPickerRows.Chosen) {
         guard let thread = model.thread else { picked = nil; return }
         picked = target
-        held = HeldModelMove(threadId: thread.id, epoch: thread.epoch, key: target.key, account: target.account)
+        held = HeldModelMove(threadId: thread.id, visit: thread.visit, key: target.key, account: target.account)
     }
-    /// The sheet is closing: the held move goes to its own thread, or nowhere if that has gone.
+    /// The sheet is closing: the held move goes to its own thread's visit. When it can't (the
+    /// person moved on, or the machine didn't take it), they're told rather than left guessing.
     private func sendHeld() {
         guard var move = held else { return }
         held = nil
         move.effort = heldEffort
         move.speed = heldSpeed
-        Task { _ = await model.send(move) }
+        Task { [model] in
+            if await !model.send(move), model.error == nil { model.error = "Couldn't switch model. Choose it again." }
+        }
     }
 }

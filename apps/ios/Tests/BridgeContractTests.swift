@@ -263,7 +263,8 @@ import SQLite3
         model.requestModels()
         try await until("the first thread's models") { first.screen.modelsState == "ready" && first.screen.modelList.current != nil }
         let target = try switchTarget(first.screen.modelList)
-        let move = HeldModelMove(threadId: first.id, epoch: first.epoch, key: target.key, account: target.account,
+        let firstEpoch = first.epoch
+        let move = HeldModelMove(threadId: first.id, visit: first.visit, key: target.key, account: target.account,
                                  effort: target.efforts.last?.id)
         model.open("ios-stream")
         try await until { model.thread?.id == "ios-stream" && model.thread?.loaded == true }
@@ -273,10 +274,35 @@ import SQLite3
         let before = second.screen.modelList.current
         #expect(await model.send(move) == false)
         let stamped = await model.switchModel(key: move.key, account: move.account, confirmed: true,
-                                              effort: move.effort, epoch: move.epoch)
+                                              effort: move.effort, epoch: firstEpoch)
         #expect(stamped == false)
         try await Task.sleep(for: .milliseconds(500))
         #expect(second.screen.modelList.current == before)
+    }
+    /// A move confirmed on a thread, then a reconnect to the same machine while the sheet is still
+    /// open: the reconnect reopens the thread under a new generation, and the move still lands there.
+    @Test func aMoveHeldAcrossAReconnectStillMovesItsThread() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-plan")
+        try await until { model.thread?.id == "ios-plan" && model.thread?.loaded == true }
+        let thread = try #require(model.thread)
+        model.requestModels()
+        try await until("the thread's models") { thread.screen.modelsState == "ready" && thread.screen.modelList.current != nil }
+        let next = try switchTarget(thread.screen.modelList)
+        let move = HeldModelMove(threadId: thread.id, visit: thread.visit, key: next.key, account: next.account)
+        let confirmedEpoch = thread.epoch
+        await model.connect(target: try target(), directory: root)
+        try await until("the reconnect") { model.connection == "ready" && model.thread?.loaded == true }
+        let reopened = try #require(model.thread)
+        #expect(reopened.id == thread.id)
+        #expect(reopened.epoch != confirmedEpoch)
+        #expect(await model.send(move))
+        model.requestModels()
+        try await until("the thread on the held move's model") { reopened.screen.modelList.current?.key == next.key }
     }
     /// Another model on the thread's account that switches at once and has levels to pick.
     private func switchTarget(_ list: ThreadModels) throws -> ComposeAgent.Model {
