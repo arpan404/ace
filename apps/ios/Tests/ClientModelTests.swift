@@ -53,9 +53,10 @@ import Foundation
         page.toggleGroup("agents-1")
         #expect(!live.isGroupOpen("agents-1"), "closing it on the page closes it on the thread")
     }
-    @Test func aSubagentGroupStaysOpenOnTheWayBackFromAChildThread() {
+    @Test func aSubagentGroupStaysOpenOnTheWayBackFromAChildThread() throws {
         let model = ClientModel(now: { 0 })
         model.open("parent")
+        model.receive(try frame([["type": "thread.ready", "threadId": "parent", "epoch": 1, "count": 0]]))
         model.thread?.toggleGroup("agents-1")
         model.open("child")
         model.back()
