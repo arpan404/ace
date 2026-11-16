@@ -3,6 +3,7 @@ import { MarketDiscoverBody } from "@ace/protocol/marketplace";
 import { sampleSkill } from "@ace/marketplace/testing";
 import { put, startMarket, type Market } from "./testing/harness.ts";
 import { download, everyRow, publishLive } from "./testing/discover-harness.ts";
+import { signals } from "./store/me-transfers.ts";
 
 /*
  * Discover (ADR 0173 §6) through the Worker: anonymous download counting into hourly and daily
@@ -191,4 +192,120 @@ it("measures movement against last week's whole ranking, its leader included aft
   const row = (name: string) => body.trending.find((item) => names([item.entry])[0] === name);
   expect(row("faded-leader")).toBeUndefined();
   expect(row("steady-second")).toMatchObject({ rank: 1, movement: { kind: "up", by: 1 } });
+});
+
+/** A copy of `from`'s entry and its versions under `name`, listed later, for `publisher`. */
+async function copyEntry(from: string, name: string, publisher: string) {
+  const columns = async (table: string) =>
+    (
+      await market.db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all<{
+        name: string;
+      }>()
+    ).results.map((row) => row.name);
+  const copy = (list: string[]) =>
+    list.map((column) =>
+      column === "name"
+        ? "?2"
+        : column === "publisher"
+          ? "?3"
+          : column === "published"
+            ? "published + 1"
+            : column,
+    );
+  const entry = await columns("entries");
+  const version = await columns("versions");
+  await market.db.batch([
+    market.db
+      .prepare(
+        `INSERT INTO entries (${entry.join(", ")}) SELECT ${copy(entry).join(", ")}
+          FROM entries WHERE type = 'spade-skill' AND name = ?1`,
+      )
+      .bind(from, name, publisher),
+    market.db
+      .prepare(
+        `INSERT INTO versions (${version.join(", ")}) SELECT ${copy(version).join(", ")}
+          FROM versions WHERE type = 'spade-skill' AND name = ?1`,
+      )
+      .bind(from, name),
+  ]);
+}
+
+it("ranks bytes once: versions of one entry with the same bytes, or a copy in another entry, add nothing", async () => {
+  const files = sampleSkill("same-bytes");
+  const first = await publishLive(market, {
+    type: "spade-skill",
+    name: "same-bytes",
+    files,
+    account: "acct_same",
+    publisher: "same-folk",
+    reviewed: true,
+  });
+  const again = await publishLive(market, {
+    type: "spade-skill",
+    name: "same-bytes",
+    version: "1.1.0",
+    files,
+    account: "acct_same",
+    publisher: "same-folk",
+    reviewed: true,
+  });
+  expect(again.hash).toBe(first.hash);
+  const copier = await publishLive(market, {
+    type: "spade-skill",
+    name: "copier-own",
+    files: sampleSkill("copier-own"),
+    account: "acct_copier",
+    publisher: "copy-folk",
+    reviewed: true,
+  });
+  expect(copier.hash).not.toBe(first.hash);
+  const copierId = (
+    await market.db
+      .prepare("SELECT id FROM publishers WHERE name = 'copy-folk'")
+      .first<{ id: string }>()
+  )?.id;
+  await copyEntry("same-bytes", "copied-bytes", copierId ?? "");
+
+  for (let caller = 1; caller <= 6; caller++)
+    await download(market, first.hash, `192.0.2.${100 + caller}`);
+  const totals = async () =>
+    (
+      await market.db
+        .prepare(
+          `SELECT v.name, v.version, v.downloads, d.count AS daily FROM versions v
+            LEFT JOIN downloads_daily d ON d.type = v.type AND d.name = v.name
+              AND d.version = v.version
+            WHERE v.name IN ('same-bytes', 'copied-bytes') ORDER BY v.name, v.version`,
+        )
+        .all()
+    ).results;
+  // Every version keeps its own count of the fetches of its bytes, for its publisher's signals.
+  await expect.poll(totals).toEqual([
+    { name: "copied-bytes", version: "1.0.0", downloads: 6, daily: 6 },
+    { name: "copied-bytes", version: "1.1.0", downloads: 6, daily: 6 },
+    { name: "same-bytes", version: "1.0.0", downloads: 6, daily: 6 },
+    { name: "same-bytes", version: "1.1.0", downloads: 6, daily: 6 },
+  ]);
+  const signalsOf = await signals(
+    market.db,
+    { type: "spade-skill", name: "same-bytes" },
+    "1.1.0",
+    ["1.0.0", "1.1.0"],
+    Date.now(),
+  );
+  expect(
+    signalsOf.versions.map((row) => [row.version, row.downloads.reduce((a, b) => a + b, 0)]),
+  ).toEqual([
+    ["1.0.0", 6],
+    ["1.1.0", 6],
+  ]);
+
+  await market.scheduled();
+  const body = await discover();
+  const trending = (name: string) => body.trending.find((row) => names([row.entry])[0] === name);
+  expect(trending("same-bytes")?.week).toBe(6);
+  expect(trending("copied-bytes")).toBeUndefined();
+  const publisher = (handle: string) => body.publishers.find((row) => row.handle === handle);
+  expect(publisher("same-folk")?.downloads).toBe(6);
+  expect(publisher("copy-folk")?.downloads ?? 0).toBe(0);
 });

@@ -4,16 +4,30 @@ import { stampValue, takeStamp } from "./entries.ts";
  * Download totals (ADR 0168 §3, §10; ADR 0173 §6). A download only counts: its version's total
  * (`downloads`), its entry's hour (`downloads_hourly`, kept 15 days, for trending) and its
  * version's day (`downloads_daily`, kept 400 days, for top publishers and signals). Nothing
- * names who fetched. The index shows totals as last folded (`counted`): the scheduled
- * aggregation folds every new count in one batch with one stamp, so `since` readers get new
- * totals without a stamp per download.
+ * names who fetched. A fetch is of bytes, which several versions and entries may share: every
+ * version with them counts it in its own totals, but ranking credits one entry once, the
+ * bytes' first listing (`rankedOwnerSql`), so copies and re-published versions add nothing.
+ * The index shows totals as last folded (`counted`): the scheduled aggregation folds every new
+ * count in one batch with one stamp, so `since` readers get new totals without a stamp per
+ * download.
  */
 
 export const hourlyKeptHours = 15 * 24;
 export const dailyKeptDays = 400;
 const pruneBatch = 1_000;
 
-/** One more download for every signed version with these bytes, in one batch. */
+/**
+ * The signed version whose entry ranking credits for the bytes at parameter `hash`: the first
+ * listed with them.
+ */
+export const rankedOwnerSql = (hash: string) =>
+  `(SELECT rowid FROM versions WHERE hash = ${hash} AND listed = 1
+    ORDER BY published, rowid LIMIT 1)`;
+
+/**
+ * One more download for every signed version with these bytes, in one batch, and one more in
+ * the hour of the entry ranking credits for them.
+ */
 export async function countDownload(db: D1Database, hash: string, now: number): Promise<void> {
   const hour = Math.floor(now / 3_600_000);
   const day = Math.floor(now / 86_400_000);
@@ -24,7 +38,7 @@ export async function countDownload(db: D1Database, hash: string, now: number): 
     db
       .prepare(
         `INSERT INTO downloads_hourly (type, name, hour, count)
-          SELECT DISTINCT type, name, ?2, 1 FROM versions WHERE hash = ?1 AND listed = 1
+          SELECT type, name, ?2, 1 FROM versions WHERE rowid = ${rankedOwnerSql("?1")}
           ON CONFLICT (type, name, hour) DO UPDATE SET count = count + 1`,
       )
       .bind(hash, hour),

@@ -7,7 +7,7 @@ import {
   type HourCount,
 } from "@ace/marketplace";
 import type { Env } from "./env.ts";
-import { pruneDownloads } from "./store/downloads.ts";
+import { pruneDownloads, rankedOwnerSql } from "./store/downloads.ts";
 import { officialPublisher } from "./store/lists.ts";
 
 /*
@@ -161,10 +161,16 @@ export async function rankTopPublishers(db: D1Database, now: number) {
       )
       .all<{ id: string; name: string; verified: number; type: string; entry: string }>(),
     db
+      // One count per bytes a day, however many versions carry them (they all counted the
+      // same fetches), credited to the entry that listed the bytes first.
       .prepare(
-        `SELECT d.type, d.name, d.day, SUM(d.count) AS count FROM downloads_daily d
-          JOIN entries e ON e.type = d.type AND e.name = d.name AND e.listed = 1
-          WHERE d.day > ?1 GROUP BY d.type, d.name, d.day`,
+        `SELECT o.type, o.name, b.day, SUM(b.count) AS count FROM (
+            SELECT v.hash, d.day, MAX(d.count) AS count FROM downloads_daily d
+              JOIN versions v ON v.type = d.type AND v.name = d.name AND v.version = d.version
+              WHERE d.day > ?1 GROUP BY v.hash, d.day) b
+          JOIN versions o ON o.rowid = ${rankedOwnerSql("b.hash")}
+          JOIN entries e ON e.type = o.type AND e.name = o.name AND e.listed = 1
+          GROUP BY o.type, o.name, b.day`,
       )
       .bind(today - 30)
       .all<{ type: string; name: string; day: number; count: number }>(),

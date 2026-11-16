@@ -532,23 +532,23 @@ describe("publishing a draft", () => {
   });
 });
 
-describe("claims of one handle", () => {
-  const claim = (account: string, handle: string) =>
-    createProfile(market.db, {
-      id: `pub_${account}`,
-      account,
-      handle,
-      skeleton: skeleton(handle),
-      displayName: handle,
-      bio: "",
-      links: [],
-      now: 1,
-    });
+const claimHandle = (account: string, handle: string) =>
+  createProfile(market.db, {
+    id: `pub_${account}`,
+    account,
+    handle,
+    skeleton: skeleton(handle),
+    displayName: handle,
+    bio: "",
+    links: [],
+    now: 1,
+  });
 
+describe("claims of one handle", () => {
   it("two accounts claiming the same handle at once: one gets it", async () => {
     const outcomes = await Promise.all([
-      claim("acct_race_claim_a", "race-claimed"),
-      claim("acct_race_claim_b", "race-claimed"),
+      claimHandle("acct_race_claim_a", "race-claimed"),
+      claimHandle("acct_race_claim_b", "race-claimed"),
     ]);
     expect(outcomes.toSorted()).toEqual([false, true]);
   });
@@ -563,7 +563,7 @@ describe("claims of one handle", () => {
         { handle: "race-kept", skeleton: skeleton("race-kept") },
       ),
     ).toBe("moved");
-    expect(await claim("acct_race_late", "race-given")).toBe(false);
+    expect(await claimHandle("acct_race_late", "race-given")).toBe(false);
     await expect(
       claimPublisher(market.db, {
         id: "pub_race_first_publish",
