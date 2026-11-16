@@ -41,13 +41,17 @@ export function FirstRunFrame(props: {
           <div className="text-sm text-muted-foreground tabular-nums">{props.corner}</div>
         </div>
         <div key={props.variant} className="fx-view-in flex flex-col">
-          <h1 {...part("page-title")} className="text-2xl font-semibold tracking-title">
-            {props.title}
-          </h1>
-          {props.lede && (
-            <p className="mt-2 text-base leading-normal text-muted-foreground">{props.lede}</p>
-          )}
-          <div className="mt-8">{props.children}</div>
+          <div {...part("page-header")}>
+            <h1 {...part("page-title")} className="text-2xl font-semibold tracking-title">
+              {props.title}
+            </h1>
+            {props.lede && (
+              <p className="mt-2 text-base leading-normal text-muted-foreground">{props.lede}</p>
+            )}
+          </div>
+          <div {...part("page-body")} className="mt-8">
+            {props.children}
+          </div>
         </div>
         {(props.aside || props.actions) && (
           <div {...part("page-toolbar")} className="mt-10 flex items-center justify-between gap-3">

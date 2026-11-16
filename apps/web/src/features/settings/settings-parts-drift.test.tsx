@@ -157,11 +157,11 @@ test("a picked theme and the chosen mode carry the checked state", async () => {
 });
 
 test("first-run setup names its page, provider rows, progress and steps", async () => {
-  await harness({ onboarding: "pending" }).open("/setup");
+  await harness({ onboarding: "pending" }).open("/setup?step=agents");
   await screen.findByRole("heading", { name: "Connect your agents" });
   await waitFor(() =>
     expect(
-      missingIn("setup", "providers", [
+      missingIn("setup", "agents", [
         ...frame,
         "page-toolbar",
         "list:providers",

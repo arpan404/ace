@@ -66,7 +66,7 @@ test.each(providers)(
   "%s installs and signs in without leaving Setup",
   async (provider, name, method) => {
     const app = missing(provider, method);
-    await app.open("/setup");
+    await app.open("/setup?step=agents");
     const item = () => screen.getByRole("listitem", { name });
     await userEvent.click(
       await within(await screen.findByRole("listitem", { name })).findByRole("button", {
@@ -173,7 +173,7 @@ test("a missing prerequisite opens its official download and retry continues wit
 test("a download-only distribution explains the platform limit and opens the official site", async () => {
   const app = missing("antigravity", "registry");
   app.daemon.services.providerInstalls.scenarios.antigravity = "download_only";
-  await app.open("/setup");
+  await app.open("/setup?step=agents");
   const row = await screen.findByRole("listitem", { name: "Antigravity" });
   await userEvent.click(await within(row).findByRole("button", { name: "Install" }));
   expect(
