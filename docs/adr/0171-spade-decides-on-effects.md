@@ -60,6 +60,7 @@ fit in a table.
    Spade has no payment provider, so it is the effect a connector declares (the shipped catalogue
    marks PayPal, Square and Stripe writes as payments) and the one argument rule below. Nothing
    here adds a provider.
+
 3. **Every tool declares its effect once:** `read`, `write_local`, `network`, `publish`,
    `send_as_person`, `pay`, `change_access` or `credential`.
    - Spade's built-in tools come from one table in `spade_core::effect`.
@@ -90,6 +91,7 @@ fit in a table.
    `judge.rs` stays as it is (one retry, plain sentences). `write_local` runs; where no sandbox
    holds the workspace, a file write is still reviewed as before. `change_access` goes to the
    person, like a payment. `credential` is refused before anything else.
+
 5. **The person can run commands outside the sandbox.**
    - Each bot has a setting, `commands`: `sandboxed` (the default) or `outside`. The machine has
      one too, in Settings › Spade › Security, and a bot without its own inherits it. The machine

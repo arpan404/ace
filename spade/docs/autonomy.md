@@ -54,21 +54,21 @@ Every tool declares its effect once:
 
 In order, first match wins:
 
-| Facts                                                                           | Goes to                                                         |
-| ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`              |
-| a command outside the sandbox, or on a machine with none                         | the classifier and ADR 0163's route (below)                    |
-| it declares nothing, in the sandbox                                              | runs                                                            |
-| it declares nothing                                                              | the person once (`ask: undeclared`); their answer is kept      |
-| `pay`, `change_access`                                                           | the person, unless allowed always                              |
-| `send_as_person`                                                                 | the person, unless allowed always or a typed grant covers it   |
-| in a sandbox that holds files and network                                        | runs                                                            |
-| a command asking to run outside (`outside_sandbox: true`)                        | the person (`ask: outside_sandbox`)                             |
-| a routine set up under untrusted content                                         | the reviewer, with that concern                                 |
-| `read`                                                                           | runs                                                            |
-| `write_local`                                                                    | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
-| `network`                                                                        | runs on a grant or Always allow; otherwise the reviewer        |
-| `publish`                                                                        | the reviewer, unless allowed always                             |
+| Facts                                                                             | Goes to                                                                               |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
+| a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
+| it declares nothing, in the sandbox                                               | runs                                                                                  |
+| it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept                             |
+| `pay`, `change_access`                                                            | the person, unless allowed always                                                     |
+| `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
+| in a sandbox that holds files and network                                         | runs                                                                                  |
+| a command asking to run outside (`outside_sandbox: true`)                         | the person (`ask: outside_sandbox`)                                                   |
+| a routine set up under untrusted content                                          | the reviewer, with that concern                                                       |
+| `read`                                                                            | runs                                                                                  |
+| `write_local`                                                                     | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
+| `network`                                                                         | runs on a grant or Always allow; otherwise the reviewer                               |
+| `publish`                                                                         | the reviewer, unless allowed always                                                   |
 
 A remembered allow for an undeclared tool still asks the person while untrusted content is in
 view. A covered push or comment under untrusted content is reviewed with the grant named.
@@ -90,7 +90,7 @@ runs outside it (`tools/outward/`), a fixed program with arguments, never a shel
   hooks off (`core.hooksPath=/dev/null`, `--no-verify`), never forced. A repository with an
   alternates file is refused. A `git_push` grant matches `repo` and `branch`.
 - `pr_comment {repo, number, body}` and `issue_comment {repo, number, body}`: `gh … comment
-  --repo --body-file -` in Spade's folder, the body on stdin. A `pr_comment` grant covers the
+--repo --body-file -` in Spade's folder, the body on stdin. A `pr_comment` grant covers the
   first (`own_only` grants cover nothing yet).
 - `send_message {app: messages | mail, to, body, subject?}`: macOS only; Spade's own AppleScript
   file, with who and what as its arguments.
@@ -366,7 +366,7 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
   15, 30, 60 and 120 minutes, then every two hours; `tail` is a shell job's terminal output.
 - `service_start {name, command, cwd?, keep?}` (gated like `shell`), `service_status`,
   `service_logs {name, lines?, after?}`, `service_stop`, all deferred. Events `service_started
-  {service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
+{service, name, command, cwd, keep, restarts?}` and `service_ended {service, cause, code?}`
   (`exited`, `stopped`, `lost`, `failed`). Stop and deleting the bot stop its services; after a
   restart `keep` ones start again and the rest are `lost`. A running service does not make the
   bot read as working.
@@ -374,12 +374,12 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 ## API
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
-  attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
+attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
   `parked` the park's reason (`check`). `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
   when not open); `DELETE /v1/agents/{id}/wakes/{wake}` cancels it (`204`, `409`).
 - `GET /v1/agents/{id}/services`: `{services: [{id, name, command, cwd, keep, state, exit_code,
-  restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
-  next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
+restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],
+next}`; `DELETE /v1/agents/{id}/services/{name}` stops it (`204`, `409`).
 - Every agent shows `wake` (the soonest open wake, as above, or `null`) and `services` (how many
   run).
 - `POST /v1/agents` and `PATCH /v1/agents/{id}` accept `access` only as `auto_review`, which
