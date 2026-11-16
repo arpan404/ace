@@ -170,6 +170,12 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     now: context.now,
     log: (level, message) => log.log(level, message),
   });
+  // Both settings as last heard, kept here so every decision uses the newest of each: an answer
+  // read before a change is never applied after it.
+  let enabled = false;
+  let heardBeta = false;
+  let heardEnabled = false;
+  const apply = (why: "started" | "changed") => void toggle.set(shown && enabled, why);
   // Turning Spade off in Beta stops its service and retires its grant, as `spade.enabled` off
   // does, but leaves that setting and Spade's data as they are: turning it on again puts back
   // what the setting says, and a grant the person revoked stays revoked (`started` reconciles
@@ -184,24 +190,37 @@ export async function startSpade(context: ServiceContext): Promise<void> {
         ? "Spade is turned on in Settings › Beta"
         : "Spade is turned off in Settings › Beta: its service stops; its data is kept",
     );
-    void settings.get("spade.enabled").then(
-      (entry) => toggle.set(visible && entry.value === true, visible ? "started" : "changed"),
-      (error: unknown) => log.log("warn", `Reading spade.enabled failed: ${String(error)}`),
-    );
+    apply(visible ? "started" : "changed");
   };
   const stop = await settings.subscribe(
     { keys: [betaKeys.spade, "spade.enabled"], scope: {} },
     (notification) => {
       if (notification.type !== "changed") return;
-      const beta = notification.entries.find((each) => each.key === betaKeys.spade);
-      if (beta) showSpade(beta.value === true);
       const entry = notification.entries.find((each) => each.key === "spade.enabled");
-      if (entry && !beta) void toggle.set(shown && entry.value === true, "changed");
+      if (entry) {
+        heardEnabled = true;
+        enabled = entry.value === true;
+      }
+      const beta = notification.entries.find((each) => each.key === betaKeys.spade);
+      if (beta) heardBeta = true;
+      if (beta && (beta.value === true) !== shown) showSpade(beta.value === true);
+      else if (entry) apply("changed");
     },
   );
   context.resources.own(stop, "spade setting");
+  // Read again once subscribed, so a change between the first read and the subscription isn't
+  // lost; a value the subscription already reported is newer and wins.
+  const [betaNow, enabledNow] = await Promise.all([
+    settings.get(betaKeys.spade),
+    settings.get("spade.enabled"),
+  ]);
+  if (!heardEnabled) enabled = enabledNow.value === true;
+  if (!heardBeta && (betaNow.value === true) !== shown) {
+    shown = betaNow.value === true;
+    link.setHidden(!shown);
+  }
   // Not awaited: registering a service can be slow, and the daemon's start doesn't wait on Spade.
-  void toggle.set(shown && (await settings.get("spade.enabled")).value === true, "started");
+  apply("started");
   // A home from before Settings › Beta may still show Spade through `features.json`: folded into
   // `beta.spade` once, off the start path (ADR 0170), and followed through the subscription.
   void foldLegacySpadeFlag(settings, config.dataDir).then(
