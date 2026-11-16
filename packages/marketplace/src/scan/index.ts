@@ -10,7 +10,6 @@ import {
 import type { ArchiveFile } from "../archive.ts";
 import type { Inspection } from "../checks/index.ts";
 import { contentHash, hashFiles } from "../hash.ts";
-import { text as decodeText } from "../listing.ts";
 import { secretFileProblem, secretValueProblems } from "../secrets.ts";
 import { filesCheck } from "./checks-files.ts";
 import { hiddenEntryFindings, hiddenFileFindings } from "./checks-hidden.ts";
@@ -20,7 +19,16 @@ import { pluginRules } from "./rules-plugin.ts";
 import { recipeRules } from "./rules-recipe.ts";
 import { scriptRules } from "./rules-scripts.ts";
 import type { EntryRule, ScanFacts } from "./rule.ts";
-import { commandViews, fileScriptView, hostsIn, type ScriptView } from "./script-view.ts";
+import { scanText } from "./decode.ts";
+import {
+  commandViews,
+  fileScriptView,
+  hostsIn,
+  isScriptLike,
+  namedScripts,
+  type NamedScript,
+  type ScriptView,
+} from "./script-view.ts";
 import { hasBidi, hasInvisible, mixedScriptWord } from "./text.ts";
 import { linkProblem, readsAsAce, skeleton } from "../profile.ts";
 import type { MarketLink } from "@ace/protocol/marketplace";
@@ -122,13 +130,31 @@ const mkFinding = (
 });
 
 /** The one-file-at-a-time work: secrets, hidden characters, hosts, and the script rules. */
-function scanFile(input: ScanInput, file: ArchiveFile, state: ScanState): number {
+function scanFile(
+  input: ScanInput,
+  file: ArchiveFile,
+  state: ScanState,
+  script: NamedScript | undefined,
+): number {
   const named = secretFileProblem(file.path);
   if (named)
     state.findings.push(mkFinding("secrets", "secret-file", "block", named.message, file.path));
 
-  const source = decodeText(file.content);
-  if (source === undefined) return 0; // Binary: the `files` check reads its first bytes instead.
+  const decoded = scanText(file.content);
+  if (decoded === undefined) return 0; // Binary: the `files` check reads its first bytes instead.
+  const source = decoded.text;
+  if (decoded.encoding !== "utf-8" && isScriptLike(file.path, source, script))
+    state.findings.push(
+      mkFinding(
+        "scripts",
+        "not-utf8",
+        "warn",
+        `${file.path} is a script that isn't UTF-8 text`,
+        file.path,
+        undefined,
+        true,
+      ),
+    );
 
   const tooLong = file.content.byteLength > MAX_FILE_BYTES;
   const text = tooLong ? source.slice(0, MAX_FILE_BYTES) : source;
@@ -150,12 +176,15 @@ function scanFile(input: ScanInput, file: ArchiveFile, state: ScanState): number
       mkFinding("secrets", "secret-value", "block", problem.message, file.path, problem.line),
     );
 
-  state.findings.push(...hiddenFileFindings(file.path, text));
+  // A single-byte reading holds no code point past U+00FF, so no bidi or zero-width character:
+  // what reads as one (U+00AD) is only a byte.
+  if (decoded.encoding !== "single-byte")
+    state.findings.push(...hiddenFileFindings(file.path, text));
 
   const hosts = (state.facts["hosts"] ??= []);
   for (const host of hostsIn(text)) if (!hosts.includes(host)) hosts.push(host);
 
-  const view = fileScriptView(input.type, file.path, text);
+  const view = fileScriptView(input.type, file.path, text, script);
   if (view) runScriptRules(view, state);
   return text.length;
 }
@@ -193,12 +222,13 @@ export function scanStep(
     findings: [...state.findings],
     facts: structuredClone(state.facts),
   };
+  const named = namedScripts(input);
   let readFiles = 0;
   let readBytes = 0;
   while (next.cursor < files.length && readFiles < budget.files && readBytes < budget.textBytes) {
     const file = files[next.cursor];
     if (file) {
-      readBytes += scanFile(input, file, next);
+      readBytes += scanFile(input, file, next, named.get(file.path));
       readFiles++;
     }
     next.cursor++;

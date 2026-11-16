@@ -1,9 +1,9 @@
 import type { MarketEntryType } from "@ace/protocol/marketplace";
-import { text as decodeText } from "../listing.ts";
 import type { Inspection } from "../checks/index.ts";
 import type { ScanInput } from "./index.ts";
 import { readShell, type Simple } from "./shell.ts";
 import { normaliseText } from "./text.ts";
+import { scanText } from "./decode.ts";
 
 /*
  * One script the scanner reads (ADR 0173 §8), the unit the `scripts`, `plugin` and `recipe` rules
@@ -47,27 +47,29 @@ export interface ScriptView {
   unreadable: boolean;
 }
 
-const BY_EXTENSION: Record<string, ScriptLanguage> = {
-  sh: "shell",
-  bash: "shell",
-  zsh: "shell",
-  ksh: "shell",
-  command: "shell",
-  py: "python",
-  pyw: "python",
-  js: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  ts: "javascript",
-  jsx: "javascript",
-  tsx: "javascript",
-  rb: "ruby",
-  pl: "perl",
-  pm: "perl",
-  ps1: "powershell",
-  psm1: "powershell",
-  applescript: "applescript",
-};
+const BY_EXTENSION: ReadonlyMap<string, ScriptLanguage> = new Map<string, ScriptLanguage>(
+  Object.entries({
+    sh: "shell",
+    bash: "shell",
+    zsh: "shell",
+    ksh: "shell",
+    command: "shell",
+    py: "python",
+    pyw: "python",
+    js: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
+    ts: "javascript",
+    jsx: "javascript",
+    tsx: "javascript",
+    rb: "ruby",
+    pl: "perl",
+    pm: "perl",
+    ps1: "powershell",
+    psm1: "powershell",
+    applescript: "applescript",
+  } satisfies Record<string, ScriptLanguage>),
+);
 
 const SHEBANG: { pattern: RegExp; language: ScriptLanguage }[] = [
   { pattern: /\b(?:ba|z|k|da)?sh\b/, language: "shell" },
@@ -83,7 +85,7 @@ const SHEBANG: { pattern: RegExp; language: ScriptLanguage }[] = [
 export function languageOf(path: string, firstLine: string): ScriptLanguage {
   const dot = path.lastIndexOf(".");
   const ext = dot < 0 ? "" : path.slice(dot + 1).toLowerCase();
-  const byExt = BY_EXTENSION[ext];
+  const byExt = BY_EXTENSION.get(ext);
   if (byExt) return byExt;
   if (firstLine.startsWith("#!")) {
     for (const { pattern, language } of SHEBANG) if (pattern.test(firstLine)) return language;
@@ -91,16 +93,20 @@ export function languageOf(path: string, firstLine: string): ScriptLanguage {
   return "text";
 }
 
-/** Reads `source` as a view at `path`, with the given language (or detected from its shebang). */
+/**
+ * Reads `source` as a view at `path`, with the given language (or detected from its shebang). A
+ * `text` view, a file in no language the scanner knows, is read by the shell reader too, since
+ * it may be run as one; its `unreadable` stays false, as prose is full of lone quotes.
+ */
 export function viewOf(path: string, source: string, language?: ScriptLanguage): ScriptView {
   const normal = normaliseText(source);
   const lines = normal.split("\n");
   const chosen = language ?? languageOf(path, lines[0] ?? "");
   let commands: ViewCommand[] = [];
   let unreadable = false;
-  if (chosen === "shell") {
+  if (chosen === "shell" || chosen === "text") {
     const read = readShell(normal);
-    unreadable = read.unreadable;
+    unreadable = chosen === "shell" && read.unreadable;
     commands = withPipeTargets(read.commands);
   }
   return { path, language: chosen, text: normal, lines, commands, unreadable };
@@ -145,16 +151,84 @@ function isScriptLocation(type: MarketEntryType, path: string): boolean {
   }
 }
 
-/** The script view for one file of `type`, or undefined when the file is not a script here. */
+/**
+ * The script view for one file of `type`, or undefined when the file is not a place scripts live.
+ * Every text file there gets a view; one a plugin command names (`named`) is a script whatever
+ * its name, read in the language that command runs it with, else its own, else as shell.
+ */
 export function fileScriptView(
   type: MarketEntryType,
   path: string,
   source: string,
+  named?: NamedScript,
 ): ScriptView | undefined {
   if (!isScriptLocation(type, path)) return undefined;
-  const language = languageOf(path, source.split("\n", 1)[0] ?? "");
-  if (language === "text") return undefined;
+  const detected = languageOf(path, source.split("\n", 1)[0] ?? "");
+  const language = named
+    ? (named.language ?? (detected === "text" ? "shell" : detected))
+    : detected;
   return viewOf(path, source, language);
+}
+
+/** Whether a file reads as a script by its name or shebang, or because a plugin command names it. */
+export function isScriptLike(path: string, source: string, named?: NamedScript): boolean {
+  return named !== undefined || languageOf(path, source.split("\n", 1)[0] ?? "") !== "text";
+}
+
+/** A file a plugin hook or server command runs, with the language its interpreter gives. */
+export interface NamedScript {
+  language?: ScriptLanguage;
+}
+
+const INTERPRETER_LANGUAGE: ReadonlyMap<string, ScriptLanguage> = new Map<string, ScriptLanguage>([
+  ["sh", "shell"],
+  ["bash", "shell"],
+  ["zsh", "shell"],
+  ["dash", "shell"],
+  ["ksh", "shell"],
+  ["source", "shell"],
+  [".", "shell"],
+  ["python", "python"],
+  ["python2", "python"],
+  ["python3", "python"],
+  ["node", "javascript"],
+  ["bun", "javascript"],
+  ["deno", "javascript"],
+  ["ruby", "ruby"],
+  ["perl", "perl"],
+  ["pwsh", "powershell"],
+  ["powershell", "powershell"],
+  ["osascript", "applescript"],
+]);
+
+/** `${PLUGIN_ROOT}/`, `$ROOT/` and `./` in front of a path, any number of them. */
+const pathPrefix = /^(?:(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\.)\/)+/;
+
+/**
+ * The entry's files a plugin hook or stdio server command names, by path. A command word names a
+ * file when, with its root variable or `./` taken off, it is that file's path.
+ */
+export function namedScripts(input: ScanInput): ReadonlyMap<string, NamedScript> {
+  const named = new Map<string, NamedScript>();
+  if (input.type !== "spade-plugin" || input.inspection?.type !== "spade-plugin") return named;
+  const paths = new Set(input.files.map((file) => file.path));
+  for (const execution of input.inspection.executions) {
+    const commands =
+      execution.kind === "hook"
+        ? readShell(execution.command).commands.map((command) => command.words)
+        : execution.kind === "stdio"
+          ? [[execution.command, ...execution.args]]
+          : [];
+    for (const words of commands)
+      for (const [index, word] of words.entries()) {
+        const path = word.replace(pathPrefix, "");
+        if (!paths.has(path) || named.has(path)) continue;
+        const before = index > 0 ? programName(words[index - 1]) : undefined;
+        const language = before === undefined ? undefined : INTERPRETER_LANGUAGE.get(before);
+        named.set(path, language ? { language } : {});
+      }
+  }
+  return named;
 }
 
 /** Hook commands and stdio server command lines of a plugin, each as a shell view (non-file). */
@@ -172,10 +246,11 @@ export function viewsOf(input: ScanInput): ScriptView[] {
     seen.add(view.path);
     views.push(view);
   };
+  const named = namedScripts(input);
   for (const file of input.files) {
-    const source = decodeText(file.content);
+    const source = scanText(file.content)?.text;
     if (source === undefined) continue;
-    const view = fileScriptView(input.type, file.path, source);
+    const view = fileScriptView(input.type, file.path, source, named.get(file.path));
     if (view) add(view);
   }
   for (const view of commandViews(input)) add(view);
