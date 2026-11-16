@@ -45,6 +45,9 @@ ace clean --compact [--abandon COMPACTION_ID]
 ace config get [retention-days|log-cap]|config set retention-days DAYS|config set log-cap SIZE
 ace spade on|off
 ace features [show|hide spade]
+ace marketplace check PATH --type TYPE [--name NAME]
+ace market keygen KEY_FILE [--id ID]|market sign --key KEY_FILE [--url URL]
+ace market review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed]|market feature TYPE/NAME ...
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree, --any or --all (default) for several IDs; --timeout DURATION. Run: --stream jsonl.
@@ -132,6 +135,10 @@ export async function main(input: string[]): Promise<void> {
       return await (await import("./cloud.ts")).cloudCommand(args, config.dataDir);
     if (command === "spade")
       return await (await import("./spade.ts")).spadeCommand(args, config.dataDir);
+    // Maintainer tools for ace's marketplace (ADR 0168); they never touch ace's home.
+    if (command === "market") return await (await import("./market.ts")).marketCommand(args);
+    if (command === "marketplace")
+      return await (await import("./market.ts")).marketplaceCommand(args);
     if (command === "features")
       return await (await import("./features.ts")).featuresCommand(args, config.dataDir);
     if (command === "stop")
