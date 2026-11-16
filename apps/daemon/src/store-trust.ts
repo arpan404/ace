@@ -22,7 +22,12 @@ export interface StoredTrustOptions {
    */
   storedTrustReader?: boolean;
   /** Ticks of the idle pass that confirms older rows (`stored-trust-pass.ts`), for tests. */
-  trustPass?: { scheduler: TrustPassScheduler; rejectedLimit?: number; batchesPerSave?: number };
+  trustPass?: {
+    scheduler: TrustPassScheduler;
+    rejectedLimit?: number;
+    batchesPerSave?: number;
+    rowsPerBackfill?: number;
+  };
 }
 
 /**
@@ -65,6 +70,7 @@ export function startStoreTrustPass(input: StoreTrustPassInput): { close(): void
     scheduler: options.trustPass?.scheduler ?? scheduleTrustPass,
     rejectedLimit: options.trustPass?.rejectedLimit,
     batchesPerSave: options.trustPass?.batchesPerSave,
+    rowsPerBackfill: options.trustPass?.rowsPerBackfill,
     db,
     writes: trustTableWrites({ db, accounted: input.accounted }),
     shape: input.shape,

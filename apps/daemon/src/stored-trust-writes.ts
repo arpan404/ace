@@ -29,10 +29,10 @@ export interface TrustTableWrites {
    */
   stampThreadRows(limit: number): number;
   /**
-   * Map the next batch of older revision and chunk rows by sequence (`stored-trust-rows.ts`),
+   * Map the next `limit` older revision and chunk rows by sequence (`stored-trust-rows.ts`),
    * which only lets the pass find them. False when the map is complete.
    */
-  indexRows(): boolean;
+  indexRows(limit: number): boolean;
 }
 
 export interface TrustTableWritesOptions {
@@ -73,7 +73,7 @@ export function trustTableWrites(options: TrustTableWritesOptions): TrustTableWr
     saveProgress: (shape, opened, from, rejected) =>
       neutral(() => recordStoredTrust(db, shape, opened, from, rejected)),
     stampThreadRows: (limit) => neutral(() => confirmThreadRows(db, limit)),
-    indexRows: () =>
-      storedTrustRowsComplete(db) ? false : neutral(() => indexStoredTrustRows(db)),
+    indexRows: (limit) =>
+      storedTrustRowsComplete(db) ? false : neutral(() => indexStoredTrustRows(db, limit)),
   };
 }

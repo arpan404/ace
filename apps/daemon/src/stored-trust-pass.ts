@@ -4,6 +4,7 @@ import { storedWriteGeneration, type OpenedTrust } from "./stored-shape.ts";
 import { isStoreRetry } from "./store-busy.ts";
 import { verifyStoredBatch } from "./stored-trust-batch.ts";
 import type { TrustTableWrites } from "./stored-trust-writes.ts";
+import { rowsPerBackfill } from "./stored-trust-rows.ts";
 
 /**
  * The idle pass that lets rows an older build wrote regain the trusted read path (ADR 0125).
@@ -69,6 +70,8 @@ export interface StoredTrustPassOptions {
   report: (error: unknown) => void;
   rejectedLimit?: number | undefined;
   batchesPerSave?: number | undefined;
+  /** Older revision and chunk rows mapped per batch (`stored-trust-rows.ts`). */
+  rowsPerBackfill?: number | undefined;
 }
 
 /**
@@ -81,6 +84,7 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
   const { db, trust } = options;
   const limit = options.rejectedLimit ?? rejectedLimit;
   const saveEvery = options.batchesPerSave ?? batchesPerSave;
+  const backfill = options.rowsPerBackfill ?? rowsPerBackfill;
   let head = options.headSeq();
   let threadsDone = false;
   let rowsMapped = false;
@@ -122,7 +126,7 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
       threadsDone = true;
     }
     if (!rowsMapped) {
-      if (options.writes.indexRows()) return true;
+      if (options.writes.indexRows(backfill)) return true;
       rowsMapped = true;
     }
     const done = verifyStoredBatch(db, trust);
