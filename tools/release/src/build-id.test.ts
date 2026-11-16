@@ -71,7 +71,7 @@ const assemble = (server: string) => {
     async () => writeFileSync(join(root, "ace.mjs"), 'import "./chunk-AAAA.mjs";'),
     async () => {
       mkdirSync(join(root, "spade"));
-      writeFileSync(join(root, "spade/spade-server"), server);
+      writeFileSync(join(root, "spade/spade"), server);
     },
   ]).then((id) => ({ root, id }));
 };

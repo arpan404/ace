@@ -10,7 +10,7 @@ test("launchd keeps Spade alive from the current binary with exactly Spade's env
   const parsed = plist.parse(plan.content) as Record<string, unknown>;
   expect(parsed).toEqual({
     Label: "dev.ace.next.spade",
-    ProgramArguments: ["/Users/someone/.ace/releases/spade/current/spade-server"],
+    ProgramArguments: ["/Users/someone/.ace/releases/spade/current/spade"],
     RunAtLoad: true,
     KeepAlive: true,
     ThrottleInterval: 15,
@@ -28,16 +28,14 @@ test("launchd keeps Spade alive from the current binary with exactly Spade's env
 test("a home with XML characters stays one plist string", () => {
   const plan = spadeServicePlan("/Users/someone/a&b<c>", "darwin", account);
   const parsed = plist.parse(plan.content) as { ProgramArguments: string[] };
-  expect(parsed.ProgramArguments).toEqual([
-    "/Users/someone/a&b<c>/releases/spade/current/spade-server",
-  ]);
+  expect(parsed.ProgramArguments).toEqual(["/Users/someone/a&b<c>/releases/spade/current/spade"]);
 });
 
 test("systemd restarts Spade on failure after a second, but not a second instance's exit 3", () => {
   const plan = spadeServicePlan("/home/someone/.ace", "linux", { userHome: "/home/someone" });
   expect(plan.file).toBe("/home/someone/.config/systemd/user/ace-next-spade.service");
   const lines = plan.content.split("\n");
-  expect(lines).toContain('ExecStart="/home/someone/.ace/releases/spade/current/spade-server"');
+  expect(lines).toContain('ExecStart="/home/someone/.ace/releases/spade/current/spade"');
   expect(lines).toContain(
     'Environment="SPADE_DATA_DIR=/home/someone/.ace/spade" "SPADE_ACE_HOME=/home/someone/.ace" "SPADE_LISTEN=127.0.0.1:0" "RUST_LOG=info"',
   );
@@ -79,7 +77,7 @@ const assigned = (line: string) => [...line.matchAll(/set "([^="]+)=/g)].map((m)
 test("the Windows launcher hands Spade exactly its four variables and no ACE_ ones", () => {
   const lines = renderSpadeCmdLauncher().split("\r\n");
   const local = lines.indexOf("setlocal DisableDelayedExpansion");
-  const exec = lines.findIndex((line) => line.includes("spade-server.exe"));
+  const exec = lines.findIndex((line) => line.includes("spade.exe"));
   // The person's ACE_* and SPADE_* are cleared before anything else.
   expect(lines.slice(1, local)).toEqual([
     `for /f "delims==" %%V in ('set ACE_ 2^>nul') do set "%%V="`,
@@ -94,14 +92,14 @@ test("the Windows launcher hands Spade exactly its four variables and no ACE_ on
   expect(assigned(run)).toEqual(["SPADE_DATA_DIR", "SPADE_ACE_HOME", "SPADE_LISTEN", "RUST_LOG"]);
   expect(run).toContain('set "SPADE_DATA_DIR=%SPADELAUNCH_HOME%\\spade"');
   expect(run).toContain('set "SPADE_ACE_HOME=%SPADELAUNCH_HOME%"');
-  expect(run).toMatch(/spade-server\.exe" >>"%SPADELAUNCH_LOG%" 2>&1$/);
+  expect(run).toMatch(/spade\.exe" >>"%SPADELAUNCH_LOG%" 2>&1$/);
   expect(lines.slice(exec + 1)).toEqual(["exit /b %ERRORLEVEL%", ""]);
 });
 
 test("the Windows launcher rotates spade.log before Spade holds it open", () => {
   const lines = renderSpadeCmdLauncher().split("\r\n");
   const rotate = lines.findIndex((line) => line.includes('.previous"'));
-  const exec = lines.findIndex((line) => line.includes("spade-server.exe"));
+  const exec = lines.findIndex((line) => line.includes("spade.exe"));
   expect(rotate).toBeGreaterThan(0);
   expect(rotate).toBeLessThan(exec);
   expect(lines[rotate]).toContain("GTR 8388608");

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { basename, dirname, join } from "node:path";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { runProcess, type Runner } from "./process.ts";
-import type { SpadeServicePlan } from "./spade-plan.ts";
+import { spadeRegistrationKind, type SpadeServicePlan } from "./spade-plan.ts";
 
 /** Whether Spade's service is registered and whether its program runs (ADR 0123). */
 export type SpadeServiceState = "absent" | "stopped" | "running";
@@ -53,17 +53,38 @@ export function readOwnFile(file: string): string | undefined {
 }
 
 /**
- * The registration (and on Windows the launcher) must be exactly what this build renders for
- * the home: an edited plist, unit, task record or launcher is never adopted or run.
+ * The registration (and on Windows the launcher) must be what this build renders for the home,
+ * or what a build before the binary's rename rendered (`plan.previous`), which the next install
+ * or restart rewrites: an edited plist, unit, task record or launcher is never adopted or run.
  */
 export function assertSpadeRegistration(plan: SpadeServicePlan): string | undefined {
   const content = readOwnFile(plan.file);
-  if (content !== undefined && content !== plan.content)
+  if (content !== undefined && spadeRegistrationKind(plan, content) === undefined)
     throw incompatibleSpadeService(plan.file, new Error("Unrecognized registration"));
   if (plan.platform === "win32") {
     const launcher = readOwnFile(plan.launcher.file);
-    if (launcher !== undefined && launcher !== plan.launcher.content)
+    if (
+      launcher !== undefined &&
+      launcher !== plan.launcher.content &&
+      launcher !== plan.previous.launcher
+    )
       throw incompatibleSpadeService(plan.launcher.file, new Error("Unrecognized launcher"));
   }
   return content;
+}
+
+/** The command the registration `content` on disk runs: the previous build's, or this one's. */
+export function registeredSpadeCommand(
+  plan: SpadeServicePlan,
+  content: string | undefined,
+): readonly string[] {
+  return content !== undefined && spadeRegistrationKind(plan, content) === "previous"
+    ? plan.previous.command
+    : plan.command;
+}
+
+/** Whether what is on disk is exactly this build's registration (and launcher on Windows). */
+export function spadeRegistrationCurrent(plan: SpadeServicePlan): boolean {
+  if (readOwnFile(plan.file) !== plan.content) return false;
+  return plan.platform !== "win32" || readOwnFile(plan.launcher.file) === plan.launcher.content;
 }

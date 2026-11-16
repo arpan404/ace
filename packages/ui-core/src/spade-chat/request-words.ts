@@ -30,7 +30,7 @@ export interface SpadeRequestCard {
 }
 
 /**
- * Spade's own tools a person may allow always (`Risk::Write` in spade-server; a command for that
+ * Spade's own tools a person may allow always (`Risk::Write` in the spade-server crate; a command for that
  * exact command). Connectors' and ace's tools may be destructive, which always asks, and the
  * request doesn't say, so they offer Allow and Deny only.
  */

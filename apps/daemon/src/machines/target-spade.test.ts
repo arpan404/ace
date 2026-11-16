@@ -174,7 +174,7 @@ test("a long name outside ASCII is cut to 100 characters before it is encoded", 
 });
 
 test("the signature matches the one Spade checks", () => {
-  // The same vector is checked in spade-server's `inbox_proof` test.
+  // The same vector is checked in the spade-server crate's `inbox_proof` test.
   expect(
     inboxProof("k".repeat(64), 1_000, "laptop-device", "Laptop", Buffer.from('{"op":"bots"}')),
   ).toBe("9326fdb7539c287a4116cc8be088e4e560fa39f64ddd273f9c3d8dac96818a75");

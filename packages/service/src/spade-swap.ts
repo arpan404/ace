@@ -8,7 +8,7 @@ import type { SpadeServiceState } from "./spade-registration.ts";
  *
  * 1. `POST /v1/maintenance` closes admission (`idle` or `now`).
  * 2. Wait: `idle` until no turn and no background job runs; `now` only for running model steps.
- * 3. Copy the new binary in, run `spade-server --check-migrations` on a SQLite backup, flip
+ * 3. Copy the new binary in, run `spade --check-migrations` on a SQLite backup, flip
  *    `current`, restart the service. Any failure keeps the old `current` and reopens admission.
  * 4. The new Spade resumes its paused turns by itself.
  */
@@ -55,7 +55,7 @@ export interface SpadeSwapPorts {
    */
   snapshot(): Promise<string | undefined>;
   /**
-   * `spade-server --check-migrations` with the new binary on a copy of `snapshot` (the check
+   * `spade --check-migrations` with the new binary on a copy of `snapshot` (the check
    * migrates the file it is given); throws why it can't.
    */
   checkMigrations(snapshot: string): Promise<void>;
@@ -105,7 +105,7 @@ export interface SpadeSwapPorts {
 export type SpadeSwapResult =
   /**
    * `absent`: Spade's service isn't registered (hidden Spade has none, ADR 0139);
-   * `not-shipped`: no `spade-server` beside this build, as in a development checkout.
+   * `not-shipped`: no `spade` beside this build, as in a development checkout.
    */
   | { kind: "skipped"; reason: "absent" | "current" | "not-shipped" }
   | { kind: "swapped"; from: string | undefined; to: string }

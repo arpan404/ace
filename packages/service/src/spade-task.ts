@@ -2,7 +2,7 @@ import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { win32 } from "node:path";
 import { checked } from "./process.ts";
 import { assertLoadedTask, taskActive } from "./service-identity.ts";
-import type { WindowsSpadePlan } from "./spade-plan.ts";
+import { spadeProcessFilter, type WindowsSpadePlan } from "./spade-plan.ts";
 import {
   assertSpadeRegistration,
   incompatibleSpadeService,
@@ -124,7 +124,7 @@ async function start(plan: WindowsSpadePlan, ports: SpadeServicePorts): Promise<
 }
 
 /**
- * `schtasks /End` ends only the task's first process (conhost), so every `spade-server.exe`
+ * `schtasks /End` ends only the task's first process (conhost), so every Spade process
  * run from this home's `releases\spade` is ended too, and only those. Spade's turns were
  * already recorded paused by the maintenance request before an update restarts it.
  */
@@ -140,7 +140,7 @@ async function stop(plan: WindowsSpadePlan, ports: SpadeServicePorts): Promise<v
   const releases = win32.join(plan.home, "releases", "spade") + "\\";
   const script = `[Console]::OutputEncoding=[Text.Encoding]::UTF8
 $root = '${releases.replaceAll("'", "''")}'
-Get-CimInstance Win32_Process -Filter "Name='spade-server.exe'" | Where-Object { ([string]$_.ExecutablePath).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.ProcessId }`;
+Get-CimInstance Win32_Process -Filter "${spadeProcessFilter}" | Where-Object { ([string]$_.ExecutablePath).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { $_.ProcessId }`;
   const found = await ports.run("powershell.exe", [
     "-NoProfile",
     "-NonInteractive",

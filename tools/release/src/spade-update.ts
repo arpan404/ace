@@ -15,7 +15,7 @@ import {
 
 /**
  * Spade's half of `ace update apply` (ADR 0123): after the daemon's swap, Spade moves to the
- * `spade-server` the now-current release carries, at that release's version. Skipped when
+ * `spade` the now-current release carries, at that release's version. Skipped when
  * Spade's service isn't registered or the release has no Spade.
  */
 export async function updateSpadeToCurrent(
@@ -39,7 +39,7 @@ export async function updateSpadeToCurrent(
 }
 
 /**
- * `spade-follow <spade-server> <version>`: the desktop app's Spade swap after it restarted into
+ * `spade-follow <spade> <version>`: the desktop app's Spade swap after it restarted into
  * an update. The app's main process can't load the updater's natives, so it runs this on its
  * bundled runtime once its daemon answers. The mode is the one the app left before the restart.
  */
@@ -50,7 +50,7 @@ export async function spadeFollowCli(
 ): Promise<SpadeSwapResult> {
   const [source, version] = args;
   if (args.length !== 2 || !source || !version)
-    throw new Error("Usage: spade-follow SPADE_SERVER VERSION");
+    throw new Error("Usage: spade-follow SPADE VERSION");
   const result = await updateSpade({
     home: root,
     source,

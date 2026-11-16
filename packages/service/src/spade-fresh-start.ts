@@ -2,14 +2,21 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, relative, win32 } from "node:path";
-import { spadeBinaryName, spadeServicePlan, type SpadeServicePlan } from "./spade-plan.ts";
+import {
+  previousSpadeBinaryName,
+  spadeBinaryName,
+  spadeProcessFilter,
+  spadeRegistrationKind,
+  spadeServicePlan,
+  type SpadeServicePlan,
+} from "./spade-plan.ts";
 import { readOwnFile } from "./spade-registration.ts";
 import { sidFromWhoami } from "./windows-user.ts";
 
 /**
  * A fresh start (ADR 0081) renames the whole home aside, `releases/spade` and Spade's data with
  * it, so Spade's service must not be running across the rename: Windows refuses to move a
- * running `spade-server.exe`, and elsewhere Spade would keep running from the moved folder.
+ * running `spade.exe`, and elsewhere Spade would keep running from the moved folder.
  * Synchronous, like the fresh start itself. Only a service ace registered for this home is
  * touched.
  */
@@ -87,7 +94,7 @@ export function spadeServiceSwitch(plan: SpadeServicePlan, run: SyncRunner) {
     };
   const releases = win32.join(plan.home, "releases", "spade") + "\\";
   const script = `$root = '${releases.replaceAll("'", "''")}'
-Get-CimInstance Win32_Process -Filter "Name='spade-server.exe'" | Where-Object { ([string]$_.ExecutablePath).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }`;
+Get-CimInstance Win32_Process -Filter "${spadeProcessFilter}" | Where-Object { ([string]$_.ExecutablePath).StartsWith($root, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }`;
   return {
     stop: () => {
       // `/End` stops only the task's conhost; the server it started is ended too, and waited for.
@@ -113,7 +120,10 @@ export function freshStartSpade(
       const plan = planFor(root);
       // Only this home's Spade: a registration for another ACE_HOME (or one ace didn't write)
       // isn't running from here and is left alone.
-      if (readOwnFile(plan.file) !== plan.content) return undefined;
+      // An earlier build's registration (naming `spade-server`) is this home's Spade too.
+      const registered = readOwnFile(plan.file);
+      if (registered === undefined || spadeRegistrationKind(plan, registered) === undefined)
+        return undefined;
       const manager = spadeServiceSwitch(plan, run);
       manager.stop();
       return {
@@ -121,14 +131,9 @@ export function freshStartSpade(
           carrySpadeProgram(plan, backup);
           // Without its binary (a desktop home keeps no release) Spade stays stopped: the app's
           // next update installs it and starts the service.
-          const binary = join(
-            plan.home,
-            "releases",
-            "spade",
-            "current",
-            spadeBinaryName(plan.platform),
-          );
-          if (existsSync(binary)) manager.start();
+          const current = join(plan.home, "releases", "spade", "current");
+          const names = [spadeBinaryName(plan.platform), previousSpadeBinaryName(plan.platform)];
+          if (names.some((name) => existsSync(join(current, name)))) manager.start();
         },
       };
     },

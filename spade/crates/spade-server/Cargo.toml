@@ -6,6 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# The crate keeps its name; the program ace ships, installs and runs is `spade`.
+[[bin]]
+name = "spade"
+path = "src/main.rs"
+
 [dependencies]
 base64.workspace = true
 hmac.workspace = true
