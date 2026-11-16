@@ -21,13 +21,14 @@ const ACE_AWAY: &str =
     "ace isn't running, so its library can't take this edit now. Save again once ace is back.";
 
 /// Which of several skills with one name is offered: ace's personal one, then ace's others, then
-/// one written in Spade, then a plugin's.
+/// one written in Spade, then one from the marketplace, then a plugin's.
 fn rank(row: &StoredSkill) -> u8 {
     match (row.origin, row.source.as_deref()) {
         (SkillOrigin::Ace, Some("personal")) => 0,
         (SkillOrigin::Ace, _) => 1,
         (SkillOrigin::Spade, _) => 2,
-        (SkillOrigin::Plugin, _) => 3,
+        (SkillOrigin::Market, _) => 3,
+        (SkillOrigin::Plugin, _) => 4,
     }
 }
 
@@ -75,7 +76,7 @@ impl SkillStore {
             SkillOrigin::Spade => true,
             // Saved through ace once ace is back.
             SkillOrigin::Ace => row.source.as_deref() == Some("personal"),
-            SkillOrigin::Plugin => false,
+            SkillOrigin::Plugin | SkillOrigin::Market => false,
         };
         Ok(Some(SkillSource {
             id: row.id,
@@ -123,10 +124,13 @@ impl SkillLibrary for SkillStore {
             let Some(ace) = ace else {
                 return here;
             };
-            // ace's library is the truth for its skills; a Spade skill is only in the store.
+            // ace's library is the truth for its skills; a Spade or market skill is only in
+            // the store.
             match AceLibrary(ace).source(&name).await? {
                 Some(found) => Ok(Some(found)),
-                None => Ok(here?.filter(|s| s.id.starts_with("sks_"))),
+                None => Ok(here?.filter(|s| {
+                    s.id.starts_with("sks_") || s.id.starts_with(super::market::PREFIX)
+                })),
             }
         })
     }
