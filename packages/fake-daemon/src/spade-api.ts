@@ -483,10 +483,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!agent) return problem(404, "No such agent.");
       return this.roles.agentRoute(request.method, id, agent.model, this.fastModel, body);
     }
-    if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
+    const searched = new URLSearchParams(query).get("q") ?? "";
+    if (root === "notes") return this.notes.route(request.method, null, id, body, sub, searched);
     if (root === "agents" && id && sub === "notes")
       return this.agents.some((agent) => agent.id === id)
-        ? this.notes.route(request.method, id, undefined, body)
+        ? this.notes.route(request.method, id, undefined, body, undefined, searched)
         : problem(404, "No such agent.");
     if (root === "agents" && id === "import" && request.method === "POST")
       return this.teams.importRoute(body);

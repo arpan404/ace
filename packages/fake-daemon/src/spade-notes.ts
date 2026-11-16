@@ -23,6 +23,12 @@ const answer = (body: unknown, status = 200): FakeSpadeAnswer => ({
   body: JSON.stringify(body),
 });
 const problem = (status: number, error: string) => answer({ error }, status);
+/** Every word of `query` is in `text`; an empty query matches all. */
+const matches = (text: string, query: string) =>
+  query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((word) => text.toLowerCase().includes(word));
 
 export class FakeSpadeNotes {
   notes: FakeSpadeNote[] = [];
@@ -72,7 +78,14 @@ export class FakeSpadeNotes {
   }
 
   /** `/v1/agents/{agent}/notes` (agent set) or `/v1/notes[/{id}]`. */
-  route(method: string, agent: string | null, id: string | undefined, body: unknown, sub?: string) {
+  route(
+    method: string,
+    agent: string | null,
+    id: string | undefined,
+    body: unknown,
+    sub?: string,
+    query = "",
+  ) {
     const text = clean(body);
     if (!id && method === "GET" && this.failReads > 0) {
       this.failReads -= 1;
@@ -82,6 +95,7 @@ export class FakeSpadeNotes {
       return answer({
         notes: this.notes
           .filter((note) => note.agent === agent)
+          .filter((note) => matches(note.text, query))
           .toSorted((a, b) => b.updated_at - a.updated_at),
       });
     if (!id && method === "POST") {
