@@ -114,7 +114,7 @@ struct BlockView: View {
     /// model, a subagent's lane, where no pill is drawn.
     private var pillNames: PillRow.Covers {
         guard let model = links.steps?.model else { return .nothing }
-        let foot: ThreadFoot = ThreadFoot(thread: thread, transfers: model.transfers)
+        let foot: ThreadFoot = .of(thread, transfers: model.transfers)
         return foot.named
     }
     /// Where an answer reads an image it names (`native.image`): only a picture the thread itself

@@ -357,7 +357,7 @@ struct ThreadView: View {
 
     /// Whether a strip shows above the composer (`ThreadFoot`), read alike by the transcript, which
     /// leaves live rows to the pill only while no strip takes its place.
-    private var hasStrip: Bool { ThreadFoot(thread: thread, transfers: model.transfers).stripShown }
+    private var hasStrip: Bool { ThreadFoot.of(thread, transfers: model.transfers).stripShown }
 
     /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
     /// request, what holds the queue, a message that didn't go, ...), or else the glass live

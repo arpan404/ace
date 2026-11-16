@@ -63,14 +63,14 @@ extension BlockRow.Background {
 
 extension ThreadFoot {
     /// The foot of `thread` as its page draws it, by the order of the page's own strip chain.
-    @MainActor init(thread: ThreadModel, transfers: TransfersModel) {
+    @MainActor static func of(_ thread: ThreadModel, transfers: TransfersModel) -> ThreadFoot {
         let screen = thread.screen
-        self.init(requests: !thread.approvals.isEmpty,
-                  hold: screen.queue?.strip != nil,
-                  notSent: screen.queue?.notSent != nil,
-                  leftRunning: screen.leftRunning != nil,
-                  transfer: transfers.thread(thread.id)?.line != nil,
-                  work: screen.work != nil,
-                  pill: screen.pill)
+        return ThreadFoot(requests: !thread.approvals.isEmpty,
+                          hold: screen.queue?.strip != nil,
+                          notSent: screen.queue?.notSent != nil,
+                          leftRunning: screen.leftRunning != nil,
+                          transfer: transfers.thread(thread.id)?.line != nil,
+                          work: screen.work != nil,
+                          pill: screen.pill)
     }
 }
