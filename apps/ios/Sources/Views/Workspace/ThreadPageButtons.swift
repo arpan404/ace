@@ -28,7 +28,7 @@ struct ThreadPageButtons: View {
     private func button(_ kind: ThreadPageKind) -> some View {
         let chosen = kind == shown
         return Button { select(kind) } label: {
-            Image(ace: kind.icon)
+            Image(ace: kind.icon).barIcon()
                 .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
         }
         .barGlyph()

@@ -265,14 +265,14 @@ struct InboxStack<Destination: View, Side: View>: View {
         AccountToolbarItem(open: header.page, settings: header.settings)
         if !chats || inbox.showsMachineNames {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu { titleMenu } label: { Image(ace: .funnelSimple) }
+                Menu { titleMenu } label: { Image(ace: .funnelSimple).barIcon() }
                     .accessibilityLabel(chats ? "Machine" : "Scope, sort and select")
                     .accessibilityIdentifier("inbox.projects")
             }
         }
         if inbox.canStartThreads && (sizeClass == .regular || !HomeTabs.composeTab) {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(action: header.compose) { Image(ace: HomeTabs.icon(.compose)) }
+                Button(action: header.compose) { Image(ace: HomeTabs.icon(.compose)).barIcon() }
                     .accessibilityLabel(chats ? "New chat" : "New thread")
                     .accessibilityIdentifier("inbox.compose")
             }
