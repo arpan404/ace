@@ -223,19 +223,6 @@
         "react-dom": "^19.3.0",
       },
     },
-    "apps/market": {
-      "name": "@ace/market",
-      "dependencies": {
-        "@ace/account-grant": "workspace:*",
-        "@ace/marketplace": "workspace:*",
-        "@ace/protocol": "workspace:*",
-        "zod": "^4.6.5",
-      },
-      "devDependencies": {
-        "@cloudflare/workers-types": "^5.20261102.1",
-        "wrangler": "^4.156.2",
-      },
-    },
     "apps/marketing": {
       "name": "@ace/marketing",
       "dependencies": {
@@ -248,6 +235,19 @@
         "astro": "7.4.2",
         "simple-icons": "16.36.0",
         "zod": "^4.6.5",
+      },
+    },
+    "apps/marketplace": {
+      "name": "@ace/marketplace-worker",
+      "dependencies": {
+        "@ace/account-grant": "workspace:*",
+        "@ace/marketplace": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.20261102.1",
+        "wrangler": "^4.156.2",
       },
     },
     "apps/push-gateway": {
@@ -1320,11 +1320,11 @@
 
     "@ace/ios": ["@ace/ios@workspace:apps/ios"],
 
-    "@ace/market": ["@ace/market@workspace:apps/market"],
-
     "@ace/marketing": ["@ace/marketing@workspace:apps/marketing"],
 
     "@ace/marketplace": ["@ace/marketplace@workspace:packages/marketplace"],
+
+    "@ace/marketplace-worker": ["@ace/marketplace-worker@workspace:apps/marketplace"],
 
     "@ace/markit-web": ["@ace/markit-web@workspace:packages/markit-web"],
 

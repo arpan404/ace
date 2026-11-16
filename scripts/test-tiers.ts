@@ -26,7 +26,7 @@ export const nodeOnlySuites = [
   // under Bun, whose fetch ignores the undici dispatcher Miniflare routes through.
   "apps/cloud/src/**/*.process.test.ts",
   // The marketplace Worker (ADR 0168), through the same harness, for the same reason.
-  "apps/market/src/**/*.process.test.ts",
+  "apps/marketplace/src/**/*.process.test.ts",
   // A daemon and its clients through that same Worker harness; the daemon's relay path on Bun is
   // covered against the self-hosted relay.
   "apps/daemon/src/ace-cloud-e2e.process.test.ts",

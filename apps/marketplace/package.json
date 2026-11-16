@@ -1,5 +1,5 @@
 {
-  "name": "@ace/market",
+  "name": "@ace/marketplace-worker",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",

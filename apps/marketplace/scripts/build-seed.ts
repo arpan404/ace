@@ -7,7 +7,7 @@ import { listingOf, recipeOf, TemplatesFile } from "../src/seed/recipes.ts";
 /*
  * Writes the seed's bot recipes from Spade's built-in templates: one `seed/spade-bot/<id>/`
  * folder each, with `bot.json` and `market.json`. Suits and skills in the seed are kept by hand.
- * Run after changing spade/config/templates.json: `bun run build-seed` in apps/market.
+ * Run after changing spade/config/templates.json: `bun run build-seed` in apps/marketplace.
  */
 
 const templates = TemplatesFile.parse(JSON.parse(await readFile(templatesPath, "utf8")));

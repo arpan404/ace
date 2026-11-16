@@ -62,8 +62,8 @@ type lists its entries as "Needs a newer ace" and never installs them.
 
 ### 2. market.acehq.dev: its own Worker and domain
 
-- **A separate service.** `market.acehq.dev` is its own Cloudflare Worker (`apps/market`,
-  package `@ace/market`, script `ace-market`) on its own domain. `cloud.acehq.dev` keeps
+- **A separate service.** `market.acehq.dev` is its own Cloudflare Worker (`apps/marketplace`,
+  package `@ace/marketplace-worker`, script `ace-market`) on its own domain. `cloud.acehq.dev` keeps
   accounts and the relay (ADR 0110, 0111, 0155) and gains nothing here, so a marketplace deploy
   or fault never touches sign-in or a live relay connection, and the two keep separate secrets
   and limits.
