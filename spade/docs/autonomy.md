@@ -198,6 +198,36 @@ value that is a function body), nor variables that make a shell or interpreter r
 `LESSOPEN`, `ZDOTDIR`…), so a definition from one command can't change what the next one's words
 run.
 
+### Spade's classifier
+
+[ADR 0172](../../docs/adr/0172-spade-classifies-calls-with-its-own-model.md). A small model built
+into Spade (`spade-classify`, int8, 1.3 MB, microseconds a call, no network) sits between the
+table above and the reviewer. It sees only calls the table sent to the reviewer, so it never
+changes what the rules decided, and only two kinds of them: a command that runs with no sandbox,
+and a connector's or plugin's tool. For each it does one of three things:
+
+| It reads                                                                                                    | Goes to                                                                      |
+| ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| a person-only effect (`pay`, `send_as_person`, `drive`, `change_access`, `credential`), above its threshold | the person, with that effect's line ("It could spend money, so you decide.") |
+| low-risk (`read`, or `write_local` in the bot's folder), above its threshold, for a command it may settle   | runs                                                                         |
+| anything else                                                                                               | the reviewer, as without it                                                  |
+
+It may settle only a command the shell classifier found nothing in, that runs no file the
+reviewer would be shown, with nothing untrusted in view, no standing work and no concern named.
+It never settles a command that points outside the bot's folders (the home folder, an absolute
+path, `..`, a variable, another machine, a URL that isn't a web page), that hides what it runs
+(decoded text run as code, `eval`, a program from a variable, an alias or function defined in the
+command, escapes, look-alike or invisible letters, text that can't be read), or that has a
+program, subcommand or flag never seen in a low-risk training command.
+
+A call it settles or raises stores `call_reviewed` with `model` `spade-classify/<hash>` and no
+cost. Each decision is logged in `<data>/classifier/decisions.jsonl` (rolling at 1 MiB, one older
+file kept): when, the conversation, the call's id and tool name, the class, its confidence, the
+low-risk and person-only probabilities and the decision, never the call's arguments. The machine's
+setting `classifier` (`PUT /v1/oversight`) turns it off; everything then goes to the reviewer.
+Its measures, data and thresholds are in `spade/crates/spade-classify/model/REPORT.md`; it is
+retrained with `spade/tools/classify-train`.
+
 ### The reviewer
 
 `review_model` from `/v1/oversight`, else the fast model, else the bot's own. Typed output:

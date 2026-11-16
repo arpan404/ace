@@ -88,21 +88,16 @@ struct ConnectorCall {
     hub: Arc<Connectors>,
 }
 
-impl Tool for ConnectorCall {
-    fn def(&self) -> ToolDef {
-        self.def.clone()
-    }
-
-    /// What its catalogue entry declares, raised by its annotations (ADR 0171): with no entry
-    /// for it, a connector's tool, which holds the person's sign-in, declares nothing.
-    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+impl ConnectorCall {
+    /// What its server and catalogue entry say about it: its annotations, and the catalogue's
+    /// word for this tool and for every tool of the app (the least it does).
+    fn facts(&self) -> spade_core::effect::Mcp {
+        use spade_core::effect::{Effect, Mcp};
         let entry = self
             .tool
             .catalogue
             .as_deref()
             .and_then(|id| self.hub.catalogue().iter().find(|entry| entry.id == id));
-        use spade_core::effect::{Effect, Mcp, mcp};
-        // The catalogue's word for this tool, and for every tool of the app: the least it does.
         let declared = [
             entry.and_then(|entry| entry.effects.get(&self.tool.tool.name)),
             entry.and_then(|entry| entry.every_tool.as_ref()),
@@ -111,11 +106,27 @@ impl Tool for ConnectorCall {
         .flatten()
         .filter_map(Effect::declared)
         .max();
-        mcp(Mcp {
+        Mcp {
             read_only: self.def.risk == Risk::Read,
             annotated: self.tool.tool.annotated,
             declared,
-        })
+        }
+    }
+}
+
+impl Tool for ConnectorCall {
+    fn def(&self) -> ToolDef {
+        self.def.clone()
+    }
+
+    /// What its catalogue entry declares, raised by its annotations (ADR 0171): with no entry
+    /// for it, a connector's tool, which holds the person's sign-in, declares nothing.
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+        spade_core::effect::mcp(self.facts())
+    }
+
+    fn hints(&self) -> Option<spade_core::effect::Mcp> {
+        Some(self.facts())
     }
 
     /// The connection, its server's address, the server's own tool name and its schema.

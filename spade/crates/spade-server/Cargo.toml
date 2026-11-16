@@ -23,6 +23,7 @@ futures-util.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+spade-classify = { path = "../spade-classify" }
 spade-core = { path = "../spade-core" }
 spade-keys = { path = "../spade-keys" }
 spade-models = { path = "../spade-models" }

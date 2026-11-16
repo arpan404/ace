@@ -14,7 +14,7 @@ use spade_store::{Agent, OVERSIGHT, StoreError, agent_key};
 use super::Engine;
 
 /// The service-wide settings.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Global {
     #[serde(default)]
     pub time_zone: Option<String>,
@@ -22,6 +22,25 @@ pub struct Global {
     pub review_default: bool,
     #[serde(default)]
     pub review_model: Option<String>,
+    /// Spade's own classifier sits between the gate and the reviewer (ADR 0172); off sends
+    /// everything the gate holds to the reviewer. On unless the person turned it off.
+    #[serde(default = "on")]
+    pub classifier: bool,
+}
+
+fn on() -> bool {
+    true
+}
+
+impl Default for Global {
+    fn default() -> Self {
+        Self {
+            time_zone: None,
+            review_default: false,
+            review_model: None,
+            classifier: true,
+        }
+    }
 }
 
 /// One bot's settings. Caps an earlier build stored beside them are ignored (ADR 0166) and
@@ -40,6 +59,7 @@ pub struct GlobalChange {
     pub review_default: Option<bool>,
     /// `Some(None)` clears it.
     pub review_model: Option<Option<String>>,
+    pub classifier: Option<bool>,
 }
 
 /// A change to one bot's settings; `Some(None)` clears a value.
@@ -91,6 +111,9 @@ impl Engine {
         }
         if let Some(on) = change.review_default {
             global.review_default = on;
+        }
+        if let Some(on) = change.classifier {
+            global.classifier = on;
         }
         if let Some(model) = change.review_model {
             global.review_model = match model {
@@ -193,6 +216,7 @@ impl Engine {
             "month_micros": month,
             "review_default": global.review_default,
             "review_model": global.review_model,
+            "classifier": global.classifier,
         }))
     }
 

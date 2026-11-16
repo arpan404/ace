@@ -179,6 +179,12 @@ pub trait Tool: Send + Sync {
         let def = self.def();
         spade_core::effect::builtin(&def.spec.name, def.risk)
     }
+    /// For a connector's or plugin's MCP tool, what its server says about it (its annotations
+    /// and any trusted declaration), which Spade's classifier reads (ADR 0172). `None` for
+    /// Spade's and ace's own tools, which the classifier isn't asked about.
+    fn hints(&self) -> Option<spade_core::effect::Mcp> {
+        None
+    }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the
     /// server and its version, the tool's own name and its schema, so an answer kept for it never
     /// carries over to another tool offered under the same name (ADR 0171, amendment 1).
