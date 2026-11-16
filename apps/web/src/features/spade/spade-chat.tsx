@@ -12,6 +12,11 @@ import {
   type SpadeHelperStep,
   type SpadeProposal,
   type SpadeView,
+  spadeQuietLine,
+  spadeRestLine,
+  withSpadeDigests,
+  type SpadeDigest,
+  type SpadeRestAction,
 } from "@ace/ui-core/spade-chat";
 import { memo, useMemo } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
@@ -26,6 +31,8 @@ import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.t
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
+import { QuietLine, RestingLine, StepsFold } from "./spade-quiet-line.tsx";
+import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -80,22 +87,45 @@ export function SpadeChat(props: {
   onRetry?(text: string): Promise<boolean>;
   /** A helper's own steps, by its job (ADR 0152), for its line to expand to. */
   onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
+  /** Its digests (ADR 0165), oldest first: messages of its own where each was made. */
+  digests?: readonly SpadeDigest[] | undefined;
+  /** The resting line's actions on its wake; resolves false when it didn't go through. */
+  onWake?(wake: string, action: SpadeRestAction): Promise<boolean>;
+  /** Open another bot's conversation: a worker's quiet line opens it. */
+  onOpenBot?(id: string): void;
 }) {
   const { view, bot } = props;
   // Days change rarely: the clock as it stands is enough for Today and Yesterday.
   const now = useSeconds(false);
   const proposals = props.proposals;
+  const digests = props.digests;
   const rows = useMemo(
     () =>
       // The notes it saves stay in its Memory dialog, never in the chat.
       spadeChatRows(
-        withProposals(spadeBubbles(view), view.entries, proposals ?? []).filter(
-          (item) => item.kind !== "remembered",
+        withSpadeDigests(
+          withProposals(spadeBubbles(view), view.entries, proposals ?? []).filter(
+            (item) => item.kind !== "remembered",
+          ),
+          digests ?? [],
         ),
         { now },
       ),
-    [view, proposals, now],
+    [view, proposals, digests, now],
   );
+  // Asleep or waiting on a wake: the resting line takes the working line's place (ADR 0160).
+  const rest =
+    view.resting &&
+    spadeRestLine(
+      view.resting,
+      {
+        worker: (id) => view.workers.get(id),
+        service: (id) => view.services.get(id),
+        bot: (id) => bot.names.get(id),
+      },
+      { now },
+    );
+  const onWake = props.onWake;
   // Busy: anything open. Stop stays while it is, waiting on the person too; the face moves only
   // while the bot works itself.
   const busy = view.busy;
@@ -118,6 +148,8 @@ export function SpadeChat(props: {
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
     onHelperSteps: props.onHelperSteps,
+    onOpenBot: props.onOpenBot,
+    face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
   };
   return (
     <div
@@ -129,7 +161,14 @@ export function SpadeChat(props: {
       {rows.map((row, index) => (
         <Row key={row.key} row={row} previous={rows[index - 1]} bot={bot} handlers={handlers} />
       ))}
-      {lined &&
+      {rest && !props.paused && onWake ? (
+        <RestingLine
+          avatar={bot.avatar}
+          line={rest}
+          onAction={(action) => onWake(rest.wake, action)}
+        />
+      ) : (
+        lined &&
         (props.paused ? (
           // Paused by Spade while the person drives: nothing runs, so no clock.
           <WorkingLine
@@ -168,7 +207,8 @@ export function SpadeChat(props: {
             since={working ? view.working?.since : undefined}
             onWatch={props.onWatch}
           />
-        ))}
+        ))
+      )}
     </div>
   );
 }
@@ -182,6 +222,9 @@ interface Handlers {
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
   onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
+  onOpenBot: ((id: string) => void) | undefined;
+  /** A bot's face by its id: a worker's, in its quiet line and a digest. */
+  face(id: string): SpadeAvatar;
 }
 
 /**
@@ -199,8 +242,12 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         ? "mt-(--chat-run-gap)"
         : "mt-(--chat-turn-gap)";
     case "helper":
-      // A helper line reads under the reply that started it, as its steps do.
-      return previous.kind === "run" || previous.item.kind === "helper"
+    case "quiet":
+      // A helper line reads under the reply that started it, as its steps do; quiet lines
+      // stack under the words they follow.
+      return previous.kind === "run" ||
+        previous.item.kind === "helper" ||
+        previous.item.kind === "quiet"
         ? "mt-1"
         : "mt-(--chat-turn-gap)";
     default:
@@ -353,6 +400,10 @@ function RunItem(props: {
           onAnswer={handlers.onAnswer}
         />
       );
+    case "steps":
+      return <StepsFold label={item.label} steps={item.steps} />;
+    case "digest":
+      return <SpadeDigestBubble digest={item.digest} when={props.when} face={handlers.face} />;
     case "skill": {
       const answer = handlers.onProposal;
       return (
@@ -460,6 +511,24 @@ function Single(props: {
           )}
         </div>
       );
+    case "quiet": {
+      const open = props.handlers.onOpenBot;
+      const quiet = item.quiet;
+      // A bot worker's line opens its chat; the rest are notes where they happened.
+      const worker =
+        (quiet.kind === "worker-started" || quiet.kind === "worker-reported") && !quiet.ace
+          ? quiet.worker
+          : undefined;
+      return (
+        <div className={cn("flex", space)}>
+          <QuietLine
+            line={spadeQuietLine(quiet)}
+            face={props.handlers.face}
+            onOpen={worker && open ? () => open(worker) : undefined}
+          />
+        </div>
+      );
+    }
     case "helper": {
       const read = props.handlers.onHelperSteps;
       return (
