@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { skeleton } from "@ace/marketplace/profile";
 import { sampleSkill } from "@ace/marketplace/testing";
-import { publish, startMarket, type Market } from "./testing/harness.ts";
+import { asSigner, publish, startMarket, type Market } from "./testing/harness.ts";
 import {
   asAccount,
   createDraft,
@@ -327,8 +327,8 @@ describe("verification checks", () => {
     await market.db.batch([
       market.db
         .prepare(
-          `UPDATE publishers SET verified = 1, verification = 'verified', proofs = ?2, rechecked = 0
-            WHERE id = ?1`,
+          `UPDATE publishers SET verified = 1, verification = 'verified', proofs = ?2,
+            approved_proofs = ?2, rechecked = 0 WHERE id = ?1`,
         )
         .bind(verified.id, JSON.stringify(approved)),
       market.db
@@ -352,15 +352,35 @@ describe("verification checks", () => {
     expect(due).toEqual([
       { publisher: verified.id, domain: "approved.example", token: "approved-token" },
     ]);
-    // The new domain passing doesn't change the proofs the mark was granted on.
+    // The new domain passing is a new application; the proofs the mark was granted on stay.
+    const fresh = { kind: "domain", domain: "new.example", via: "dns" } as const;
     await recordCheck(
       market.db,
       verified.id,
       { token: await tokenOf(verified.id, "domain") },
-      { passed: { kind: "domain", domain: "new.example", via: "dns" } },
+      { passed: fresh },
       Date.now(),
     );
-    expect(await proofsOfPublisher(verified.id)).toEqual(approved);
+    expect(await proofsOfPublisher(verified.id)).toEqual([{ kind: "account" }, fresh]);
+    const applying = await jsonOf<{ state: string; verified: boolean; proofs: unknown[] }>(
+      await asAccount(market, "acct_race_verified", "GET", "/v1/me/verification"),
+    );
+    expect(applying).toMatchObject({
+      state: "applied",
+      verified: true,
+      proofs: [{ kind: "account" }, fresh],
+    });
+    const queue = await jsonOf<{
+      verifications: { publisher: { id: string }; proofs: unknown[] }[];
+    }>(await market.fetch("/v1/signer/queue", { headers: asSigner }));
+    expect(queue.verifications.find((item) => item.publisher.id === verified.id)?.proofs).toEqual([
+      { kind: "account" },
+      fresh,
+    ]);
+    const profile = await jsonOf<{ profile: { verified: boolean; proofs: unknown[] } }>(
+      await market.fetch("/v1/publishers/race-reapplier"),
+    );
+    expect(profile.profile).toEqual(expect.objectContaining({ verified: true, proofs: approved }));
     expect(
       (await dueRechecks(market.db, Date.now(), 1000)).filter(
         (row) => row.publisher === verified.id,

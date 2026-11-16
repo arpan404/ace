@@ -24,7 +24,10 @@ export interface PublisherTable {
   pins: string;
   live_versions: number;
   verification: string;
+  /** The latest application's proofs. */
   proofs: string;
+  /** The proofs the signed verified list granted the mark on. */
+  approved_proofs: string;
   verification_reason: string | null;
   verification_flag: string | null;
   verification_at: number | null;
@@ -56,8 +59,13 @@ export async function publisherByHandle(
 export const pinsOf = (row: PublisherTable) => JSON.parse(row.pins) as MarketEntryRef[];
 export const proofsOf = (row: PublisherTable) =>
   JSON.parse(row.proofs) as MarketVerificationProof[];
+export const approvedProofsOf = (row: PublisherTable) =>
+  JSON.parse(row.approved_proofs) as MarketVerificationProof[];
 
-/** The public profile: its verified mark and proofs are what the signer's route stored. */
+/**
+ * The public profile: its verified mark and the proofs the mark was granted on, as the signer's
+ * route stored them; a newer application's proofs aren't shown until a maintainer approves them.
+ */
 export function profileOf(row: PublisherTable): MarketProfile {
   return {
     id: row.id,
@@ -68,7 +76,7 @@ export function profileOf(row: PublisherTable): MarketProfile {
     ...(row.avatar ? { avatar: row.avatar } : {}),
     joined: row.created,
     verified: row.verified === 1,
-    proofs: row.verified === 1 ? proofsOf(row) : [],
+    proofs: row.verified === 1 ? approvedProofsOf(row) : [],
     pins: pinsOf(row),
   };
 }

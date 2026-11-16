@@ -34,10 +34,11 @@ const subjectPath = "CASE ?2 WHEN 'domain' THEN '$.domain' ELSE '$.login' END";
 
 /**
  * Whether a challenge's subject is one of the proofs the publisher's mark was granted on: the
- * signed verified list stores those as the publisher's `proofs` (ADR 0173 §13).
+ * signed verified list stores those as the publisher's `approved_proofs` (ADR 0173 §13).
  */
 const approvedSubject = (subject: string) =>
-  `EXISTS (SELECT 1 FROM publishers p, json_each(p.proofs) j WHERE p.id = ?1 AND p.verified = 1
+  `EXISTS (SELECT 1 FROM publishers p, json_each(p.approved_proofs) j WHERE p.id = ?1
+    AND p.verified = 1
     AND json_extract(j.value, '$.kind') = ?2
     AND json_extract(j.value, ${subjectPath}) = ${subject})`;
 
@@ -91,9 +92,10 @@ export async function issueChallenge(
 
 /**
  * Records a check's outcome. A pass spends the token (only a waiting or failed one may pass) and,
- * in the same batch, merges the proof into the publisher's current proofs, with the account proof
- * every applicant has; the publisher then waits for a maintainer. A verified publisher's proofs
- * are the approved ones and stay as they are: the passed challenge is the new proof's record.
+ * in the same batch, merges the proof into the application's proofs, with the account proof
+ * every applicant has; the publisher then waits for a maintainer. A verified publisher applies
+ * the same way: its approved proofs (`approved_proofs`) stay as they are, so the mark and its
+ * re-checks keep to them, while the queue shows the application with the new proof.
  */
 export async function recordCheck(
   db: D1Database,
@@ -128,7 +130,7 @@ export async function recordCheck(
               WHERE json_extract(value, '$.kind') NOT IN ('account', ?4)
             UNION ALL SELECT ?5, 2, 0
             ORDER BY rank, position LIMIT 8))
-          WHERE id = ?1 AND verified = 0 AND EXISTS (SELECT 1 FROM verification_challenges
+          WHERE id = ?1 AND EXISTS (SELECT 1 FROM verification_challenges
             WHERE publisher = ?1 AND token = ?2 AND state = 'passed')`,
       )
       .bind(publisher, challenge.token, now, outcome.passed.kind, JSON.stringify(outcome.passed)),
@@ -176,7 +178,7 @@ export async function dueRechecks(
         JOIN publishers p ON p.id = c.publisher
         WHERE p.verified = 1 AND p.rechecked < ?1 AND c.state = 'passed'
         AND c.kind IN ('domain', 'domain:approved')
-        AND EXISTS (SELECT 1 FROM json_each(p.proofs)
+        AND EXISTS (SELECT 1 FROM json_each(p.approved_proofs)
           WHERE json_extract(value, '$.kind') = 'domain' AND json_extract(value, '$.domain') = c.subject)
         AND NOT (c.kind = 'domain:approved' AND EXISTS (SELECT 1 FROM verification_challenges n
           WHERE n.publisher = c.publisher AND n.kind = 'domain' AND n.state = 'passed'
