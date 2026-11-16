@@ -3,6 +3,7 @@ import {
   AgentCatalog,
   AgentRegistry,
   fileCache,
+  fileDigestMemory,
   fileInventoryStorage,
   platformTarget,
 } from "@ace/agent-registry";
@@ -23,6 +24,7 @@ export async function startAgentRegistry(context: ServiceContext): Promise<void>
     root: join(root, "installations"),
     target,
     storage: fileInventoryStorage(join(root, "inventory.json"), id),
+    digests: fileDigestMemory(join(root, "digests.json"), id),
     env: { ...process.env, ...options.providerStatus?.env },
     ...(options.acpManagers ? { managers: options.acpManagers } : {}),
   });

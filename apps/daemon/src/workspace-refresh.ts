@@ -45,6 +45,8 @@ export class WorkspaceRefresh {
     schedule: OrganizerSchedule = organizerSchedule,
     report: (error: unknown) => void = () => {},
     deadline: Deadline = deadlineOf(readDeadlineMs),
+    /** The first sweep waits this long, so a starting daemon serves its clients first. */
+    firstSweepMs = 0,
   ) {
     // Threads whose agents may be moving their checkout, kept from status events: the watch
     // reads this set every few seconds and never queries the store for it.
@@ -174,7 +176,8 @@ export class WorkspaceRefresh {
         }
       }
     };
-    sweepAndArm();
+    if (firstSweepMs > 0) this.cancel = schedule(firstSweepMs, sweepAndArm);
+    else sweepAndArm();
     const heads = new HeadWatch(async (id) => headStamp(runtime.root(id)));
     // Checkouts that can move without a thread event: a terminal's, an agent's at work, and any
     // a client is looking at. Each check stats three files, so watching them costs almost nothing.
