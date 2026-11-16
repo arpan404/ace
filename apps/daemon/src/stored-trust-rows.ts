@@ -96,14 +96,14 @@ export function indexStoredTrustRows(db: DatabaseSync, limit = rowsPerBackfill):
             .all(cursor.item_id, Number(cursor.seq), limit)
         : db.prepare(`${page} ${order}`).all(limit);
     const insert = db.prepare("INSERT OR IGNORE INTO stored_trust_rows VALUES (?, ?, ?)");
-    for (const row of rows) insert.run(row.seq, kind, row.item_id);
+    for (const row of rows) insert.run(Number(row.seq), kind, String(row.item_id));
     const last = rows.at(-1);
     if (rows.length < limit || !last)
       db.prepare("DELETE FROM stored_trust_rows_backfill WHERE kind = ?").run(kind);
     else
       db.prepare("UPDATE stored_trust_rows_backfill SET item_id = ?, seq = ? WHERE kind = ?").run(
-        last.item_id,
-        last.seq,
+        String(last.item_id),
+        Number(last.seq),
         kind,
       );
     return true;

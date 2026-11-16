@@ -28,7 +28,7 @@ function setup() {
       eventShape: shape,
       storedTrustBuild: "1.0.0",
       trustPass: {
-        rowsPerBackfill,
+        ...(rowsPerBackfill === undefined ? {} : { rowsPerBackfill }),
         scheduler: (run) => {
           state.tick = run;
           return () => {
