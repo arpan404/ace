@@ -277,6 +277,8 @@ async fn run() -> Result<(), Failure> {
         upstream,
     );
     tokio::spawn(skill_store.clone().run_mirror());
+    // Skills installed from ace's marketplace (ADR 0168), copied the same way.
+    tokio::spawn(skill_store.clone().run_market());
     let library: Arc<dyn SkillLibrary> = skill_store.clone();
     let learned = Arc::new(Learning::new(
         home.dir.join("skills"),

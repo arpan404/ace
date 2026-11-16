@@ -7,12 +7,15 @@
 //! - `spade`: written in Spade while ace was away (or on Spade Cloud, where ace never is).
 //! - `plugin`: a plugin's skill or command, offered only to bots the person allowed the plugin
 //!   ([`plugin_rows`]); read only.
+//! - `market`: a skill the person installed from ace's marketplace (ADR 0168), copied from the
+//!   daemon by [`SkillStore::market_now`] and [`SkillStore::run_market`]; read only, for every bot.
 //!
 //! The store answers [`SkillLibrary`], so `skill_search`, `skill_load`, the frozen index and
 //! proposals all read it. A proposal goes to ace while ace is there and to the store otherwise.
 
 mod folders;
 mod library;
+mod market;
 mod mirror;
 mod plugin_rows;
 
@@ -27,6 +30,7 @@ use spade_store::{SkillOrigin, Store, StoredSkill};
 use crate::clock::Clock;
 use crate::tools::{AceLibrary, SkillLibrary, WriteError};
 
+pub use market::Synced;
 pub use mirror::Mirrored;
 pub use plugin_rows::{PluginAccess, PluginFiles, PluginSkill};
 
@@ -73,7 +77,7 @@ pub struct SkillView {
     pub id: String,
     pub name: String,
     pub description: String,
-    /// `ace`, `spade` or `plugin`.
+    /// `ace`, `spade`, `plugin` or `market`.
     pub origin: &'static str,
     pub manual: bool,
     /// How many other files it has besides SKILL.md.
@@ -100,10 +104,15 @@ pub enum AddError {
 
 /// Ids of skills written in Spade: `sks_` and 20 hex digits of the SHA-256 of the name.
 fn spade_id(name: &str) -> String {
+    named_id("sks_", name)
+}
+
+/// `prefix` and 20 hex digits of the SHA-256 of `name`.
+fn named_id(prefix: &str, name: &str) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(name.as_bytes());
     let hex: String = digest.iter().take(10).map(|b| format!("{b:02x}")).collect();
-    format!("sks_{hex}")
+    format!("{prefix}{hex}")
 }
 
 /// Marks a Spade skill already sent to ace's library as the skill with that library id. It is
