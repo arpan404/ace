@@ -7,6 +7,7 @@ import { entryRow, signedOf, storedVersion, type EntryJoined, type VersionTable 
 // Listings show totals as last folded into the index (`counted`, store/downloads.ts), so what a
 // `since` reader holds and what a full read shows agree.
 const joined = `SELECT e.*, p.id AS publisher_id, p.name AS publisher_name,
+  p.state AS publisher_state, p.verified AS publisher_verified,
   (SELECT COALESCE(SUM(v.counted), 0) FROM versions v WHERE v.type = e.type AND v.name = e.name)
     AS downloads
   FROM entries e JOIN publishers p ON p.id = e.publisher`;
@@ -18,7 +19,11 @@ export async function currentStamp(db: D1Database): Promise<number> {
   return row?.value ?? 0;
 }
 
-/** Listed entries, or those changed after `since`. */
+/**
+ * Entries in the index, or those changed after `since`: `listed` means a live version, listed
+ * visibility, not archived and an active publisher, so unlisted and archived entries never
+ * appear here (ADR 0173 §5).
+ */
 export async function listedEntries(db: D1Database, since?: number): Promise<EntryRow[]> {
   const statement =
     since === undefined
@@ -39,6 +44,28 @@ export async function removedSince(
     .bind(since)
     .all<{ type: string; name: string }>();
   return results.map((row) => ({ type: row.type, name: row.name }));
+}
+
+/** One publisher's entries in the index. */
+export async function publisherEntries(db: D1Database, publisher: string): Promise<EntryRow[]> {
+  const { results } = await db
+    .prepare(`${joined} WHERE e.listed = 1 AND e.publisher = ?1 ORDER BY e.type, e.name`)
+    .bind(publisher)
+    .all<EntryJoined>();
+  return results.map(entryRow);
+}
+
+/** The entry's table row with its publisher, listed or not. */
+export async function findEntryJoined(
+  db: D1Database,
+  type: string,
+  name: string,
+): Promise<EntryJoined | undefined> {
+  const row = await db
+    .prepare(`${joined} WHERE e.type = ?1 AND e.name = ?2`)
+    .bind(type, name)
+    .first<EntryJoined>();
+  return row ?? undefined;
 }
 
 export async function findEntry(

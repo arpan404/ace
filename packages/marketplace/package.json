@@ -9,6 +9,7 @@
     "./checks": "./src/checks/index.ts",
     "./scan": "./src/scan/index.ts",
     "./profile": "./src/profile.ts",
+    "./image": "./src/image.ts",
     "./signer": "./src/signer.ts",
     "./testing": "./src/testing.ts"
   },
