@@ -32,13 +32,18 @@ import type { RosterBot } from "./use-spade-roster.ts";
  * (writing to it starts it again). The row opens the worker: a bot's chat, an ace agent's thread.
  */
 
-/** A row's end: its quiet fact, traded on hover or focus for its action, in the same place. */
-const swap = "grid shrink-0 items-center justify-items-end [&>*]:[grid-area:1/1]";
+/**
+ * A row's end: its quiet fact, traded on hover or focus for its action in the same place. On a
+ * touch screen, with no hover, both show side by side.
+ */
+const swap =
+  "grid shrink-0 items-center justify-items-end [&>*]:[grid-area:1/1] pointer-coarse:flex pointer-coarse:gap-2";
 /** The quiet fact, gone while the action shows. */
-const revealedAway = "group-hover/row:invisible group-focus-within/row:invisible";
+const revealedAway =
+  "group-hover/row:invisible group-focus-within/row:invisible pointer-coarse:visible";
 /** The action: there on hover or focus, and reachable by keyboard always. */
 const revealed =
-  "text-foreground opacity-0 focus-ring transition-opacity duration-(--motion-fast) group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 hover:bg-hover";
+  "text-foreground opacity-0 focus-ring transition-opacity duration-(--motion-fast) group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 hover:bg-active";
 
 const tones = {
   "needs-you": "text-status-needs-you",
@@ -69,8 +74,8 @@ function WorkerRow(props: {
   const [stopping, setStopping] = useState(false);
   return (
     <div
-      className="group/row relative flex min-h-(--setting-row-height) items-center gap-3 py-2"
-      style={{ paddingLeft: `calc(${row.depth} * var(--spacing) * 6)` }}
+      className="group/row relative -mx-4 flex min-h-(--setting-row-height) items-center gap-3 py-2 pr-4 transition-colors duration-(--motion-fast) hover:bg-hover"
+      style={{ paddingLeft: `calc(var(--spacing) * (4 + ${row.depth} * 6))` }}
     >
       {node.kind === "ace" ? (
         <AceMark thread={node.id} />

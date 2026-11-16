@@ -2,6 +2,7 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
+import { seedFakeWork } from "./fake-spade-work.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -515,6 +516,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
 
   seedFakeCards(here);
+  seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);
   // A few pins, oldest first: the strip under the list's buttons.
   for (const [index, id] of ["inbox", "garden", "notes"].entries()) {
