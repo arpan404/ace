@@ -9,7 +9,7 @@ import {
 
 /** A `<video>` without a decoder: it plays unless sound is refused without a gesture. */
 function fakeVideo(options: { refuseSound?: boolean; duration?: number } = {}) {
-  const element = {
+  const element: VideoElementLike & { paused: boolean; loads: number } = {
     muted: false,
     volume: 1,
     currentTime: 0,
@@ -31,7 +31,7 @@ function fakeVideo(options: { refuseSound?: boolean; duration?: number } = {}) {
     load() {
       element.loads += 1;
     },
-  } satisfies VideoElementLike & { loads: number };
+  };
   return element;
 }
 
