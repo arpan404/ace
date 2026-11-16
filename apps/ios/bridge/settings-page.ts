@@ -1,7 +1,12 @@
-import type { ClientCore } from "@ace/client";
+import { ClientError, type ClientCore } from "@ace/client";
 import { SettingsKey, SettingsProvenance, SettingsValues } from "@ace/protocol";
 import { roleKeys, runRoles } from "@ace/settings/roles";
-import { catalogModelIds, settingsScopePlan } from "@ace/ui-core";
+import {
+  catalogModelIds,
+  mediaPipelineKeys,
+  mediaPipelineRefused,
+  settingsScopePlan,
+} from "@ace/ui-core";
 import { z } from "zod";
 import { readAgents, type AgentRead } from "./agent-read.ts";
 import type { Preview } from "./agents.ts";
@@ -21,6 +26,7 @@ import {
   type Role,
   type Writes,
 } from "./settings-page-agents.ts";
+import { mediaPipelineRow, mediaPipelineRowId, mediaPipelineWrite } from "./settings-page-media.ts";
 import {
   choiceId,
   settingsPages,
@@ -128,12 +134,15 @@ function keysOf(page: PageSpec): SettingsKey[] {
       if (row.kind === "static") for (const key of [row.key, ...(row.reads ?? [])]) keys.add(key);
       if (row.kind === "defaultProvider") keys.add("providers.default");
       if (row.kind === "utilityModel") keys.add("generation.model");
+      if (row.kind === "mediaPipeline") for (const key of mediaPipelineKeys) keys.add(key);
       if (row.kind === "role") for (const key of Object.values(roleKeys(row.role))) keys.add(key);
     }
   return [...keys];
 }
 const needsAgents = (page: PageSpec) =>
-  page.sections.some((section) => section.rows.some((row) => row.kind !== "static"));
+  page.sections.some((section) =>
+    section.rows.some((row) => row.kind !== "static" && row.kind !== "mediaPipeline"),
+  );
 
 async function readValues(ports: PagePorts, keys: readonly SettingsKey[]): Promise<ReadValues> {
   const replies = await Promise.all(
@@ -194,6 +203,7 @@ function build(
   rolePage: boolean,
 ): PageRow[] {
   if (row.kind === "static") return [staticRow(row, values)];
+  if (row.kind === "mediaPipeline") return [mediaPipelineRow(values)];
   if (!context) return [];
   if (row.kind === "defaultProvider") return [defaultProviderRow(context)];
   if (row.kind === "utilityModel") return [utilityRow(context)];
@@ -264,14 +274,31 @@ export async function writeSettingsPage(
   const planned = plan(state, request.row, request.value);
   if (!planned.ok)
     return { ok: false, message: planned.message, page: shape(state, ports.preview) };
-  const reply = Entries.parse(
-    await ports.owner.request(writeRequest(planned.writes), quiet(ports.signal)),
-  );
-  if (reply.ok === false) {
-    const message = reply.diagnostics?.[0]?.message ?? "This machine didn't save that change.";
-    return { ok: false, message, page: shape(await read(ports, request.page), ports.preview) };
+  let reason: string | undefined;
+  try {
+    const reply = Entries.parse(
+      await ports.owner.request(writeRequest(planned.writes), quiet(ports.signal)),
+    );
+    if (reply.ok === false) reason = reply.diagnostics?.[0]?.message ?? notSaved;
+  } catch (error) {
+    if (!(error instanceof ClientError) || !refusedHere(error)) throw error;
+    reason = notAllowed;
   }
-  return { ok: true, page: shape(await read(ports, request.page), ports.preview) };
+  const page = shape(await read(ports, request.page), ports.preview);
+  if (reason === undefined) return { ok: true, page };
+  return { ok: false, message: refusal(request, reason), page };
+}
+
+const notSaved = "This machine didn't save that change.";
+const notAllowed = "This phone isn't allowed to change settings on this machine.";
+/** The machine turned the write away for this device's pairing: a `forbidden` error frame. */
+const refusedHere = (error: ClientError) =>
+  error.code === "daemon" && error.message === "forbidden";
+/** A refusal in the row's words: the media switch says what it couldn't do, as web's does. */
+function refusal(request: z.infer<typeof SettingsPageSet>, reason: string): string {
+  if (request.row !== mediaPipelineRowId) return reason;
+  const lowered = reason.charAt(0).toLowerCase() + reason.slice(1);
+  return mediaPipelineRefused(request.value === true, lowered);
 }
 
 /**
@@ -306,6 +333,8 @@ function plan(state: Read, rowId: string, value: unknown): Writes {
       ? { ok: false, message: lockedByEnvironment }
       : writes;
   if (found) return refuseLocked(staticWrite(found, state.values, value));
+  if (rowId === mediaPipelineRowId && rows.some((row) => row.kind === "mediaPipeline"))
+    return mediaPipelineWrite(state.values, value);
   if (!context) return { ok: false, message: "This setting isn't on this page." };
   if (rowId === "providers.default" && rows.some((row) => row.kind === "defaultProvider"))
     return refuseLocked(defaultProviderWrite(context, value));

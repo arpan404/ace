@@ -1,4 +1,10 @@
 import { useConnectionState } from "@ace/client-react";
+import {
+  mediaPipelineRefused,
+  mediaPipelineState,
+  mediaPipelineSwitch,
+  mediaPipelineValue,
+} from "@ace/ui-core";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -37,11 +43,10 @@ function MediaPipelineRow() {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const [error, setError] = useState<string>();
-  const on = encode === "auto" && delivery === "auto";
-  const mixed = encode !== delivery;
+  const { on, partly } = mediaPipelineState(encode, delivery);
 
   const turn = async (next: boolean) => {
-    const value = next ? "auto" : "legacy";
+    const value = mediaPipelineValue(next);
     setSaving(true);
     setError(undefined);
     // A spinner only once the write is slow, as every settings control does.
@@ -54,9 +59,7 @@ function MediaPipelineRow() {
     const failed = results.find((result) => result.status === "rejected");
     if (failed) {
       const reason = failed.reason instanceof Error ? failed.reason.message : undefined;
-      setError(
-        `Couldn't turn the new media pipeline ${next ? "on" : "off"}${reason ? `: ${reason}` : "."}`,
-      );
+      setError(mediaPipelineRefused(next, reason));
     }
   };
 
@@ -68,11 +71,8 @@ function MediaPipelineRow() {
       inline
       description={
         <>
-          <span className="block">
-            Encodes and streams live video with ace-media; encoding switches at once, and video
-            that's already open moves over when you open it again.
-          </span>
-          {mixed && <span className="block">Only part of the new pipeline is on.</span>}
+          <span className="block">{mediaPipelineSwitch.description}</span>
+          {partly && <span className="block">{mediaPipelineSwitch.partly}</span>}
           {error && (
             <span role="alert" className="block text-destructive">
               {error}
