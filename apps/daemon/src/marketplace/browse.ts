@@ -4,7 +4,8 @@ import type {
   MarketOperation,
   MarketResult,
 } from "@ace/protocol/marketplace";
-import { EntryBody, entryKey, search } from "@ace/marketplace";
+import { entryKey, search } from "@ace/marketplace";
+import { EntryBody } from "@ace/protocol/marketplace";
 import type { MarketHttp } from "./http.ts";
 import { readWithdrawn, summaryOf, withdrawalOf } from "./listings.ts";
 import type { MarketStore, StoredInstall } from "./store.ts";

@@ -1,7 +1,8 @@
 import type { MarketProblem } from "@ace/protocol/marketplace";
 import type { ArchiveFile } from "../archive.ts";
 import { text } from "../listing.ts";
-import { readRecipe, type Recipe } from "../recipe.ts";
+import type { Recipe } from "@ace/protocol/marketplace";
+import { readRecipe } from "../recipe.ts";
 import { checkSkill, folderSecretProblems, type SkillInspection } from "./skill.ts";
 
 /** A recipe's facts for its review, with each skill folder it holds checked as a skill. */

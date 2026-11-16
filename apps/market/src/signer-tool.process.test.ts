@@ -6,9 +6,9 @@ import {
   typeLimits,
   verifyManifest,
   verifyReviewMark,
-  VersionBody,
   verifyWithdrawn,
 } from "@ace/marketplace";
+import { VersionBody } from "@ace/protocol/marketplace";
 import { signPending, signReview, type SignerIo } from "@ace/marketplace/signer";
 import { folder, keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import {

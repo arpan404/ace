@@ -7,11 +7,11 @@ import {
   marketOrigin,
   marketPublicKey,
   shippedMarketKeys,
-  type MarketKeySet,
   marketSigningKey,
   type ArchiveFile,
   type MarketSigningKey,
 } from "@ace/marketplace";
+import { type MarketKeySet } from "@ace/protocol/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
 import { signPending, signReview, signRevocation, type SignerIo } from "@ace/marketplace/signer";
 import { option, validateArgs, type Args } from "./args.ts";

@@ -402,6 +402,12 @@ export class FakeMarketplaceWire {
         };
       case "spadeSkillFiles":
         return { op: "spadeSkillFiles", files: [] };
+      // ADR 0173: filled in by the publishing work.
+      case "discover":
+      case "publisher":
+      case "publish":
+      case "report":
+        return { op: "error", code: "unavailable", message: "Publishing isn't in the fake daemon yet" };
     }
   }
 }

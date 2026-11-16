@@ -6,7 +6,6 @@ import {
 } from "@ace/protocol/marketplace";
 import type { PluginReview } from "@ace/protocol/plugins";
 import {
-  EntryBody,
   hashFiles,
   manifestMismatch,
   readArchive,
@@ -15,12 +14,11 @@ import {
   typeLimits,
   verifyManifest,
   verifyReviewMark,
-  VersionBody,
   recipeEntries,
   type ArchiveFile,
-  type MarketKeySet,
   type WithdrawalTarget,
 } from "@ace/marketplace";
+import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";

@@ -1,8 +1,6 @@
 import { installableMarketTypes, type MarketEntrySummary } from "@ace/protocol/marketplace";
 import {
-  CategoriesBody,
   catalogFeedEntry,
-  FeaturedBody,
   isSupportedType,
   mergeIndex,
   parseIndex,
@@ -10,10 +8,14 @@ import {
   withdrawalKey,
   withdrawalReason,
   type FeedEntry,
-  type Withdrawal,
   type WithdrawalTarget,
-  type MarketKeySet,
 } from "@ace/marketplace";
+import {
+  CategoriesBody,
+  FeaturedBody,
+  type Withdrawal,
+  type MarketKeySet,
+} from "@ace/protocol/marketplace";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
 import { storedMarketWithdrawn } from "../stored-decode.ts";

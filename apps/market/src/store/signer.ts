@@ -1,10 +1,10 @@
 import type { MarketCategory, MarketPublisher, MarketEntryType } from "@ace/protocol/marketplace";
+import { withdrawalReason } from "@ace/marketplace";
 import {
-  withdrawalReason,
   type PendingVersion,
   type PendingWithdrawal,
   type Withdrawal,
-} from "@ace/marketplace";
+} from "@ace/protocol/marketplace";
 import { bumpGeneration, refreshEntry } from "./entries.ts";
 
 /* The signer's side of D1: what waits for it, and what it signed. */

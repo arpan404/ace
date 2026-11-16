@@ -1,7 +1,11 @@
-import type { MarketEntryType } from "@ace/protocol/marketplace";
+import {
+  SignerPending,
+  VersionBody,
+  type MarketEntryType,
+  type MarketKeySet,
+  type Withdrawal,
+} from "@ace/protocol/marketplace";
 import { checkArchive } from "./checks/index.ts";
-import { VersionBody } from "./feed.ts";
-import { SignerPending } from "./service-wire.ts";
 import {
   signManifest,
   signReviewMark,
@@ -9,8 +13,6 @@ import {
   verifyManifest,
   verifyWithdrawn,
   withdrawalKey,
-  type MarketKeySet,
-  type Withdrawal,
   type MarketSigningKey,
 } from "./signing.ts";
 

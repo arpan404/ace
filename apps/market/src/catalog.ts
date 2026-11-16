@@ -1,4 +1,5 @@
-import { search, type FeedEntry, type IndexBody } from "@ace/marketplace";
+import { search, type FeedEntry } from "@ace/marketplace";
+import { type MarketIndexBody as IndexBody } from "@ace/protocol/marketplace";
 import { MarketCategoryId, MarketEntryType } from "@ace/protocol/marketplace";
 import { publicVersions, summary, visibleFeatured, type EntryRow } from "./rules.ts";
 import {

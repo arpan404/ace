@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseIndex, VersionBody, verifyManifest } from "@ace/marketplace";
+import { parseIndex, verifyManifest } from "@ace/marketplace";
+import { VersionBody } from "@ace/protocol/marketplace";
 import { folder, keySetOf, sampleSkill } from "@ace/marketplace/testing";
 import { marketKey, publishSigned, startMarket, type Market } from "./testing/harness.ts";
 

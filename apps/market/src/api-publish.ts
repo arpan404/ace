@@ -1,5 +1,6 @@
 import { GrantError, verifyMarketGrant, type MarketGrantClaims } from "@ace/account-grant";
-import { maxArchiveBytes, writeArchive, WithdrawRequest } from "@ace/marketplace";
+import { maxArchiveBytes, writeArchive } from "@ace/marketplace";
+import { WithdrawRequest } from "@ace/protocol/marketplace";
 import { checkArchive } from "@ace/marketplace/checks";
 import {
   MarketPublisherName,

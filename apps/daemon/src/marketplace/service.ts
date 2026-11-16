@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
-import type { MarketKeySet, WithdrawalTarget } from "@ace/marketplace";
+import type { WithdrawalTarget } from "@ace/marketplace";
+import { type MarketKeySet } from "@ace/protocol/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
 import { GitCatalogs } from "./git.ts";
@@ -266,6 +267,12 @@ export class MarketplaceService {
         };
       case "spadeSkillFiles":
         return this.#spadeFiles(operation.name, operation.path);
+      // ADR 0173: filled in by the publishing work.
+      case "discover":
+      case "publisher":
+      case "publish":
+      case "report":
+        return error("unavailable", "Publishing isn't built yet");
     }
   }
 

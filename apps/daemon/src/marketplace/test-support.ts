@@ -8,7 +8,7 @@ import { gitRuntime, PluginManager, PluginService } from "@ace/plugins";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 import { describeEntry, type ArchiveFile } from "@ace/marketplace";
 import { keySetOf, testKey, type SignedVersion } from "@ace/marketplace/testing";
-import type { Signed } from "@ace/marketplace";
+import { type Signed } from "@ace/protocol/marketplace";
 import { SuitLibrary } from "../suits/library.ts";
 import { pluginPort } from "./plugin-port.ts";
 import { MarketplaceService } from "./service.ts";

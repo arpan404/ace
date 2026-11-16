@@ -7,18 +7,14 @@ export {
 } from "./archive.ts";
 export { contentHash, hashFiles, sha256Hex, type HashedFile } from "./hash.ts";
 export { maxArchiveBytes, listingBytes, previewBytes, typeLimits } from "./limits.ts";
-export { describeEntry, frontmatter, MarketListingFile, type Listing } from "./listing.ts";
+export { describeEntry, frontmatter, type Listing } from "./listing.ts";
 export {
-  CategoriesBody,
-  EntryBody,
   entryKey,
-  FeaturedBody,
   FeedError,
   isSupportedType,
   mergeIndex,
   parseIndex,
   readFeedEntry,
-  VersionBody,
   type FeedEntry,
   type IndexBody,
   type ParsedIndex,
@@ -30,53 +26,25 @@ export {
   type ParsedCatalog,
 } from "./catalog.ts";
 export { distance, search, words, type Searchable, type SearchQuery } from "./search.ts";
-export {
-  grantedNeeds,
-  readRecipe,
-  Recipe,
-  recipeEntries,
-  recipeLimits,
-  recipeNeeds,
-  recipeTaskChars,
-  type ReadRecipe,
-} from "./recipe.ts";
+export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
 export { secretFieldNames, secretFileProblem, secretName, secretValueProblems } from "./secrets.ts";
 export {
   canonicalJson,
-  ManifestFile,
   manifestMismatch,
-  MarketKeySet,
   marketPublicKey,
   marketSigningKey,
-  ReviewMark,
-  Signed,
   SignatureError,
+  signBlocklist,
   signManifest,
   signReviewMark,
   signWithdrawn,
+  verifyBlocklist,
   verifyManifest,
   verifyReviewMark,
   verifyWithdrawn,
-  VersionManifest,
-  Withdrawal,
   withdrawalKey,
   withdrawalReason,
-  type WithdrawalTarget,
-  WithdrawnList,
   type MarketSigningKey,
+  type WithdrawalTarget,
 } from "./signing.ts";
 export { marketOrigin, shippedMarketKeys } from "./keys.ts";
-export {
-  CategoriesUpload,
-  FeaturedUpload,
-  PendingVersion,
-  PendingWithdrawal,
-  PublishAccepted,
-  PublishRefused,
-  SearchBody,
-  SignedReviewUpload,
-  SignedVersionUpload,
-  SignedWithdrawnUpload,
-  SignerPending,
-  WithdrawRequest,
-} from "./service-wire.ts";

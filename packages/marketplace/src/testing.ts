@@ -1,4 +1,9 @@
-import type { MarketEntryType, MarketPublisher } from "@ace/protocol/marketplace";
+import type {
+  MarketEntryType,
+  MarketKeySet,
+  MarketPublisher,
+  Signed,
+} from "@ace/protocol/marketplace";
 import { writeArchive, type ArchiveFile } from "./archive.ts";
 import { contentHash, hashFiles } from "./hash.ts";
 import {
@@ -6,9 +11,7 @@ import {
   signManifest,
   signReviewMark,
   signWithdrawn,
-  type MarketKeySet,
   type MarketSigningKey,
-  type Signed,
 } from "./signing.ts";
 
 /*

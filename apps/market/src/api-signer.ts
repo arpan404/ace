@@ -1,15 +1,17 @@
 import {
-  CategoriesUpload,
-  FeaturedUpload,
-  MarketKeySet,
   SignatureError,
-  SignedReviewUpload,
-  SignedVersionUpload,
-  SignedWithdrawnUpload,
   verifyManifest,
   verifyReviewMark,
   verifyWithdrawn,
 } from "@ace/marketplace";
+import {
+  CategoriesUpload,
+  FeaturedUpload,
+  MarketKeySet,
+  SignedReviewUpload,
+  SignedVersionUpload,
+  SignedWithdrawnUpload,
+} from "@ace/protocol/marketplace";
 import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
 import type { Route, VersionKey } from "./routes.ts";
