@@ -19,13 +19,14 @@ import { clock, SceneBackdrop, timers, type SignalFeed } from "./scene-backdrop.
 import { createSceneBeat, type SceneFrames } from "./scene-beat.ts";
 import type { SceneStop } from "./scene-controller.ts";
 import { sceneSignals } from "./scene-signals.ts";
+import { noStops, sceneFrame, withStop, type SceneStops } from "./scene-stops.ts";
 import { useSignalChanges } from "./use-scene-signals.ts";
 
 /*
  * Every scene on the page (ADR 0150, "Scenes per region"): the app's backdrop and one per region
  * (sidebar, header, composer) the Suit names. They share one clock (`createSceneBeat`: 30 frames
- * a second between them), one feed of thread signals, and the rule that a scene the watchdog
- * stops stays down for that version of the Suit; each keeps its own watchdog and pause rules.
+ * a second between them), one feed of thread signals, and the stop rules of `scene-stops.ts`
+ * (by version of the Suit, not by URL); each keeps its own watchdog and pause rules.
  *
  * A Suit's `celebration` scene is not a region's backdrop: it plays above the UI for a moment
  * when the open thread's run finishes or a pull request merges (`celebration.ts`).
@@ -34,15 +35,11 @@ import { useSignalChanges } from "./use-scene-signals.ts";
 interface ScenesValue {
   frames: SceneFrames;
   signals: SignalFeed;
-  /** Whether `region`'s scene of this version of the Suit was stopped. */
-  stopped(suit: SuitDetail, region: SuitSceneRegion): boolean;
+  /** The frame `region`'s scene runs in for this read of the Suit, or null while it's down. */
+  frame(suit: SuitDetail, region: SuitSceneRegion): string | null;
   stop(suit: SuitDetail, region: SuitSceneRegion, why: SceneStop): void;
 }
 const ScenesContext = createContext<ScenesValue | undefined>(undefined);
-
-/** One version of one Suit's scene in one region. */
-const sceneKey = (suit: SuitDetail, region: SuitSceneRegion) =>
-  `${suit.summary.id}\u0000${suit.summary.contentHash}\u0000${region}`;
 
 /** A feed that hands each signal to whoever is watching. */
 function signalFeed(): SignalFeed & { send(signal: SceneSignal): void } {
@@ -105,25 +102,25 @@ export function SuitScenesProvider(props: {
   const { suit, resolved } = useTheme();
   const [frames] = useState(() => createSceneBeat({ clock, scheduler: timers }));
   const [feed] = useState(signalFeed);
-  const [stoppedKeys, setStoppedKeys] = useState<ReadonlySet<string>>(new Set());
-  const stopped = useCallback(
-    (detail: SuitDetail, region: SuitSceneRegion) => stoppedKeys.has(sceneKey(detail, region)),
-    [stoppedKeys],
+  const [stops, setStops] = useState<SceneStops>(noStops);
+  const frame = useCallback(
+    (detail: SuitDetail, region: SuitSceneRegion) => sceneFrame(stops, detail, region),
+    [stops],
   );
   const stop = useCallback((detail: SuitDetail, region: SuitSceneRegion, why: SceneStop) => {
     const reason = why.reason === "error" ? `${why.reason}: ${why.message}` : why.reason;
     console.warn(`[suits] ${detail.summary.id}'s ${region} scene was stopped (${reason})`);
-    setStoppedKeys((known) => new Set(known).add(sceneKey(detail, region)));
+    setStops((known) => withStop(known, detail, region, why));
   }, []);
   const value = useMemo(
-    () => ({ frames, signals: feed, stopped, stop }),
-    [frames, feed, stopped, stop],
+    () => ({ frames, signals: feed, frame, stop }),
+    [frames, feed, frame, stop],
   );
   const anyScene =
     suit !== null && Object.keys(suit.sceneUrls).length + (suit.sceneUrl ? 1 : 0) > 0;
 
   const celebrationUrl =
-    suit?.sceneUrls.celebration && !stopped(suit, "celebration")
+    suit?.sceneUrls.celebration && frame(suit, "celebration") !== null
       ? suit.sceneUrls.celebration
       : null;
   const [gate] = useState(() => createCelebrationGate(clock));
@@ -168,13 +165,16 @@ export function SuitScenesProvider(props: {
   );
 }
 
-/** The scene URL `region` runs now, or null: none named, stopped, or no provider. */
+/**
+ * The scene URL `region` runs now, or null: none named, stopped, or no provider; and the frame it
+ * runs in (`scene-stops.ts`), which a new read of the same version doesn't change.
+ */
 export function useRegionScene(region: SuitSceneRegion) {
   const scenes = useContext(ScenesContext);
   const { suit, resolved } = useTheme();
   const url = region === "app" ? (suit?.sceneUrl ?? suit?.sceneUrls.app) : suit?.sceneUrls[region];
-  const live = scenes && suit && url && !scenes.stopped(suit, region) ? url : null;
-  return { scenes, suit, resolved, url: live };
+  const frame = scenes && suit && url ? scenes.frame(suit, region) : null;
+  return { scenes, suit, resolved, url: frame === null ? null : (url ?? null), frame };
 }
 
 /**
@@ -182,11 +182,12 @@ export function useRegionScene(region: SuitSceneRegion) {
  * it is mounted in, under its content. Renders nothing without one.
  */
 export function RegionScene(props: { region: Exclude<SuitSceneRegion, "app"> }) {
-  const { scenes, suit, resolved, url } = useRegionScene(props.region);
-  if (!scenes || !suit || !url) return null;
+  const { scenes, suit, resolved, url, frame } = useRegionScene(props.region);
+  if (!scenes || !suit || !url || !frame) return null;
   return (
     <SceneBackdrop
       sceneUrl={url}
+      frame={frame}
       scheme={resolved.scheme}
       reduceMotion={resolved.backdropMotion === "still"}
       halfRate={resolved.backdropMotion === "reduced"}

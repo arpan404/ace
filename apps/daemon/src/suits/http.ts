@@ -128,8 +128,22 @@ export function suitsHttp(
           ? jsType
           : (types[extname(file.path).toLowerCase()] ?? "application/octet-stream"),
     );
-    // The path names one version of the Suit, so what it serves never changes.
-    response.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    if (scene) {
+      // A scene page names ace's runtime, which changes with ace while the Suit's URL doesn't:
+      // the page is checked again each time a frame loads it, by its checksum.
+      const tag = `"${createHash("sha256").update(body).digest("hex").slice(0, 32)}"`;
+      response.setHeader("Cache-Control", "private, no-cache");
+      response.setHeader("ETag", tag);
+      if (request.headers["if-none-match"] === tag) {
+        response.statusCode = 304;
+        response.end();
+        return;
+      }
+    } else {
+      // The path names one version of the Suit (and the runtime's name its hash), so what it
+      // serves never changes.
+      response.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    }
     response.setHeader("Content-Length", body.byteLength);
     response.statusCode = 200;
     response.end(request.method === "HEAD" ? undefined : body);

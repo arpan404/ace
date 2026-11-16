@@ -1,7 +1,8 @@
 import { act, waitFor } from "@testing-library/react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { SuitDetail } from "@ace/protocol/suits";
 import { fakeSuit, fakeSuitLibrary } from "@/test/fake-suits.ts";
+import { sceneReadyTimeoutMs } from "./scene-controller.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
 const root = document.documentElement;
@@ -37,9 +38,36 @@ test("the applied Suit's scene runs behind the shell, sandboxed, and the shell l
   await waitFor(() => expect(shell()?.hasAttribute("data-suit-scene")).toBe(true));
 });
 
-test("after a reconnect the scene loads from the new daemon run's URL", async () => {
+test("a reconnect that reads the same version of the Suit keeps its scene running in its frame", async () => {
   const library = fakeSuitLibrary([sample("grant-a")]);
   await open(library);
+  const running = frame();
+  act(() => library.replace([sample("grant-b")], 2));
+  // The new read carries another URL; the scene it names is the one already running.
+  await waitFor(() => expect(library.reads()).toBeGreaterThan(1));
+  await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  expect(frame()).toBe(running);
+  expect(frame()?.getAttribute("src")).toBe(sample("grant-a").sceneUrl);
+});
+
+test("a scene that never loaded gets another go, in a new frame, when the Suit is read again", async () => {
+  const library = fakeSuitLibrary([sample("grant-a")]);
+  await open(library);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    // The page loads (a daemon that is gone answers with an error page) and never says ready.
+    act(() => {
+      frame()?.dispatchEvent(new Event("load"));
+    });
+    act(() => {
+      vi.advanceTimersByTime(sceneReadyTimeoutMs + 10);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+  await waitFor(() => expect(frame()).toBeNull());
+  expect(root.getAttribute("data-suit")).toBe("sample-suit");
+
   act(() => library.replace([sample("grant-b")], 2));
   await waitFor(() => expect(frame()?.getAttribute("src")).toBe(sample("grant-b").sceneUrl));
 });

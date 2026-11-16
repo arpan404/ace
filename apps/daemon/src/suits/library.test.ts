@@ -121,6 +121,41 @@ test("asset URLs need their grant, and stop serving once the Suit changes", asyn
   expect((await fetch(new URL("scene.js", origin + fresh))).status).toBe(200);
 });
 
+test("a scene page is checked again by its checksum while the files it loads stay cached", async () => {
+  await suit("neon", { "suit.json": manifest("neon"), "scene.js": "one()" });
+  const url = origin + (detail(await library.read("neon")).sceneUrl ?? "");
+  const page = await fetch(url);
+  const tag = page.headers.get("etag");
+  expect(page.headers.get("cache-control")).toBe("private, no-cache");
+  expect(tag).toMatch(/^"[a-f0-9]{32}"$/);
+  const unchanged = await fetch(url, { headers: { "if-none-match": tag ?? "" } });
+  expect(unchanged.status).toBe(304);
+  expect(await unchanged.text()).toBe("");
+  const stale = await fetch(url, { headers: { "if-none-match": '"stale"' } });
+  expect(stale.status).toBe(200);
+  for (const file of [sceneRuntimeFile, "scene.js"])
+    expect((await fetch(new URL(file, url))).headers.get("cache-control")).toBe(
+      "private, max-age=31536000, immutable",
+    );
+});
+
+test("a version of a Suit keeps its URLs under the same key, as after a daemon restart", async () => {
+  await suit("neon", { "suit.json": manifest("neon"), "scene.js": "one()" });
+  const before = detail(await library.read("neon")).sceneUrl;
+  library.close();
+  library = new SuitLibrary({
+    root,
+    key: new Uint8Array(32).fill(7),
+    watch: nodeSuitWatch,
+    schedule: nodeSuitSchedule,
+    settleMs: 30,
+  });
+  await library.start();
+  const after = detail(await library.read("neon")).sceneUrl;
+  expect(after).toBe(before);
+  expect((await fetch(origin + (after ?? ""))).status).toBe(200);
+});
+
 test("links are refused: a linked Suit folder and a linked file are never read or served", async () => {
   const outside = join(home, "outside");
   await mkdir(outside);

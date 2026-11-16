@@ -40,6 +40,7 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
   const actives = new Set<(active: SuitActive) => void>();
   const checks = new Set<(check: SuitLiveCheck) => void>();
   const reports: SuitLiveReport[] = [];
+  let reads = 0;
   const transport: SuitTransport = {
     watch(receive) {
       lists.add(receive);
@@ -52,6 +53,7 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
       return () => lists.delete(receive);
     },
     async read(id) {
+      reads += 1;
       const found = suits.find((suit) => suit.summary.id === id);
       if (!found) throw new Error(`no Suit ${id}`);
       return found;
@@ -89,5 +91,7 @@ export function fakeSuitLibrary(initial: readonly SuitDetail[]) {
       for (const receive of checks) receive(check);
     },
     reports,
+    /** How many Suit details were read. */
+    reads: () => reads,
   };
 }

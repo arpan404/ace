@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -7,7 +15,7 @@ import type { WorkspaceId } from "@ace/protocol";
 import { accessRequest } from "./client-access.ts";
 import { readConfig, startDaemon, stubHandler } from "./index.ts";
 import { acquireLock } from "./local-files.ts";
-import { loadHostId, loadToken } from "./local-files.ts";
+import { loadHostId, loadSuitUrlKey, loadToken } from "./local-files.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -50,6 +58,18 @@ test.runIf(process.platform === "win32")("Windows refuses a junction as the data
   const dataDir = join(base, ".ace");
   symlinkSync(target, dataDir, "junction");
   expect(() => acquireLock(dataDir)).toThrow("symbolic link");
+});
+
+test("the Suit URL key is kept across daemon runs, and a damaged one is replaced", () => {
+  const dataDir = root();
+  const key = loadSuitUrlKey(dataDir);
+  expect(key.byteLength).toBe(32);
+  expect(loadSuitUrlKey(dataDir)).toEqual(key);
+  writeFileSync(join(dataDir, "suit-url-key"), "not a key");
+  const replaced = loadSuitUrlKey(dataDir);
+  expect(replaced.byteLength).toBe(32);
+  expect(replaced).not.toEqual(key);
+  expect(loadSuitUrlKey(dataDir)).toEqual(replaced);
 });
 
 test.runIf(process.platform === "win32")(

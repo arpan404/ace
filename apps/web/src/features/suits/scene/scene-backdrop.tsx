@@ -31,6 +31,11 @@ export interface SuitBackdropProps {
 }
 
 export interface SceneBackdropProps extends SuitBackdropProps {
+  /**
+   * Which frame the scene runs in (`scene-stops.ts`), when not one per URL: while it stays the
+   * same, a running scene keeps the page it loaded and a new `sceneUrl` doesn't reload it.
+   */
+  frame?: string | undefined;
   signals: SignalFeed;
   /** The page's shared clock, when several scenes run (`createSceneBeat`). */
   frames?: SceneFrames | undefined;
@@ -52,16 +57,17 @@ export interface SceneBackdropProps extends SuitBackdropProps {
 /**
  * A Suit's animated backdrop: its scene in a sandboxed, opaque-origin frame, full-bleed behind
  * the app, never hit by the pointer and hidden from assistive tech. ace drives its clock
- * (`createSceneController`); a scene the watchdog stops is unmounted and stays down until the
- * scene URL changes.
+ * (`createSceneController`); a scene the watchdog stops is unmounted and stays down until its
+ * frame (by default, its URL) changes.
  */
 export function SceneBackdrop(props: SceneBackdropProps) {
-  const [stoppedUrl, setStoppedUrl] = useState<string | null>(null);
+  const [stoppedFrame, setStoppedFrame] = useState<string | null>(null);
   const { sceneUrl, onStopped } = props;
-  if (!sceneUrl || stoppedUrl === sceneUrl) return null;
+  const frame = props.frame ?? sceneUrl;
+  if (!sceneUrl || !frame || stoppedFrame === frame) return null;
   return (
     <SceneFrame
-      key={sceneUrl}
+      key={frame}
       sceneUrl={sceneUrl}
       scheme={props.scheme}
       reduceMotion={props.reduceMotion}
@@ -73,7 +79,7 @@ export function SceneBackdrop(props: SceneBackdropProps) {
       wake={props.wake}
       finished={() => props.onFinished?.()}
       stopped={(stop) => {
-        setStoppedUrl(sceneUrl);
+        setStoppedFrame(frame);
         onStopped?.(stop, sceneUrl);
       }}
     />
@@ -130,6 +136,9 @@ function SceneFrame(props: {
   stopped: (stop: SceneStop) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
+  // The page this frame loaded: a later URL for the same frame (a reconnect's read of the same
+  // version) must not navigate it, or the scene would start over.
+  const [src] = useState(props.sceneUrl);
   // The page's load, heard from the moment the frame exists: a cached page can finish loading
   // before the effect below runs, and a listener added there would never hear it.
   const loadedEarly = useRef(false);
@@ -229,7 +238,7 @@ function SceneFrame(props: {
   return (
     <iframe
       ref={frame}
-      src={props.sceneUrl}
+      src={src}
       onLoad={() => {
         if (onPageLoad.current) onPageLoad.current();
         else loadedEarly.current = true;
