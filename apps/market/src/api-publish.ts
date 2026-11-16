@@ -14,11 +14,13 @@ import {
 import { authenticate, notYours, type Authed, type AuthedPublisher } from "./auth.ts";
 import { draftKey, draftReportKey, objectKey, versionReportKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
-import { isNewPublisher } from "./rules.ts";
+import { isNewPublisher, publisherLimits } from "./rules.ts";
 import type { EntryKey, Route, VersionKey } from "./routes.ts";
 import {
   advanceJob,
+  deferJob,
   deleteDraft,
+  deletePublishedDraft,
   draftBody,
   patchDraft,
   readDraft,
@@ -26,7 +28,7 @@ import {
   writeDraft,
   type DraftTable,
 } from "./store/drafts.ts";
-import { countUpload, limitsOf, uploadRefusal } from "./store/me-limits.ts";
+import { quotaRace, reserveUpload } from "./store/me-limits.ts";
 import {
   blockReason,
   getReport,
@@ -44,6 +46,7 @@ import {
   ownerOf,
   storePending,
   storedVersion,
+  type StoreGuard,
 } from "./store/publish.ts";
 
 /*
@@ -69,6 +72,12 @@ const blocked = (scan: MarketScanReport) =>
   );
 
 const quota = (message: string) => failure(429, "quota", message);
+const changed = () =>
+  failure(409, "conflict", "The draft changed while it was being published; try again.");
+
+/** The publisher's caps, by their standing now (ADR 0173 §9). */
+const capsOf = (publisher: AuthedPublisher, now: number) =>
+  publisherLimits(isNewPublisher(publisher, now));
 
 /** Writes the archive at its hash unless one is there: the key is its content hash. */
 async function putOnce(bucket: R2Bucket, hash: string, bytes: () => Uint8Array) {
@@ -86,6 +95,7 @@ async function storeScanned(
   key: VersionKey,
   checked: CheckedEntry,
   scan: MarketScanReport,
+  guard: StoreGuard,
   changelog?: string,
 ): Promise<Response> {
   const db = context.env.MARKET;
@@ -98,19 +108,27 @@ async function storeScanned(
   });
   if (fate === "block") return blocked(scan);
   await putOnce(context.env.OBJECTS, checked.hash, () => writeArchive(checked.files));
-  const stored = await storePending(db, {
-    publisher: publisher.id,
-    ...key,
-    hash: checked.hash,
-    size: checked.size,
-    published: context.now,
-    listing: checked.listing,
-    state: fate === "hold" ? "held" : "pending",
-    verdict: scan.verdict,
-    scanned: scan.scanner,
-    ...(changelog ? { changelog } : {}),
-  });
+  const stored = await storePending(
+    db,
+    {
+      publisher: publisher.id,
+      ...key,
+      hash: checked.hash,
+      size: checked.size,
+      published: context.now,
+      listing: checked.listing,
+      state: fate === "hold" ? "held" : "pending",
+      verdict: scan.verdict,
+      scanned: scan.scanner,
+      ...(changelog ? { changelog } : {}),
+    },
+    guard,
+  );
   if (stored.owner !== publisher.id) return notYours();
+  if (stored.hash === undefined) {
+    const draft = guard.draft ? await readDraft(db, guard.draft) : undefined;
+    return guard.draft && draft?.hash !== checked.hash ? changed() : quota(quotaRace);
+  }
   if (stored.hash !== checked.hash) return reused();
   await putReport(context.env.OBJECTS, versionReportKey(key), scan);
   return json({ status: "pending", ...key, hash: checked.hash, held: fate === "hold", scan }, 201);
@@ -165,16 +183,7 @@ export async function publish(
       ? json({ status: "pending", ...versionKey, hash: checked.hash }, 200)
       : reused();
 
-  if (publisher) {
-    const limits = await limitsOf(
-      db,
-      publisher.id,
-      isNewPublisher(publisher, context.now),
-      context.now,
-    );
-    const refusal = uploadRefusal(limits, checked.size, { newDraft: false });
-    if (refusal) return quota(refusal);
-  } else {
+  if (!publisher) {
     const id = context.newId("pub");
     const claim = await claimPublisher(db, {
       id,
@@ -208,36 +217,55 @@ export async function publish(
   );
   const input = scanInput(key.type, key.name, checked, scanCtx);
   const scanned = scanWithin(input);
-  await countUpload(db, publisher.id, context.now);
+  // An unfinished scan carries on as a draft, so the draft cap applies to it.
+  const refusal = await reserveUpload(db, {
+    publisher: publisher.id,
+    newPublisher: isNewPublisher(publisher, context.now),
+    size: checked.size,
+    newDraft: !scanned.done,
+    now: context.now,
+  });
+  if (refusal) return quota(refusal);
+  const caps = capsOf(publisher, context.now);
   if (!scanned.done) {
     // Too much to read in one request: it carries on as a draft (ADR 0173 §8).
     const id = context.newId("drf");
+    const written = await writeDraft(
+      db,
+      draftWrite(id, publisher.id, versionKey, checked, context.now),
+      {
+        done: false,
+        job: { cursor: scanned.state.cursor, files: checked.files.length, state: scanned.state },
+      },
+      caps,
+    );
+    if (!written) return quota(quotaRace);
     await context.env.OBJECTS.put(draftKey(id), body);
-    await writeDraft(db, draftWrite(id, publisher.id, versionKey, checked, context.now), {
-      done: false,
-      job: { cursor: scanned.state.cursor, files: checked.files.length, state: scanned.state },
-    });
     return json({ status: "scanning", ...versionKey, draft: id }, 202);
   }
   const scan = { ...scanned.report, hash: checked.hash };
   if (scan.verdict === "block") {
-    const stored = await storePending(db, {
-      publisher: publisher.id,
-      ...versionKey,
-      hash: checked.hash,
-      size: checked.size,
-      published: context.now,
-      listing: checked.listing,
-      state: "blocked",
-      verdict: "block",
-      blockReason: blockReason(scan),
-      scanned: scan.scanner,
-    });
+    const stored = await storePending(
+      db,
+      {
+        publisher: publisher.id,
+        ...versionKey,
+        hash: checked.hash,
+        size: checked.size,
+        published: context.now,
+        listing: checked.listing,
+        state: "blocked",
+        verdict: "block",
+        blockReason: blockReason(scan),
+        scanned: scan.scanner,
+      },
+      caps,
+    );
     if (stored.owner !== publisher.id) return notYours();
     await putReport(context.env.OBJECTS, versionReportKey(versionKey), scan);
     return blocked(scan);
   }
-  return storeScanned(context, publisher, versionKey, checked, scan);
+  return storeScanned(context, publisher, versionKey, checked, scan, caps);
 }
 
 export async function withdraw(
@@ -300,7 +328,9 @@ async function draftChecked(context: Context, draft: DraftTable) {
 
 /**
  * One more budgeted step of a draft's scan (ADR 0173 §8), from a request for the draft or the
- * cron. Answers whether the scan is done now.
+ * cron. Every step is bound to the draft's hash: bytes that aren't the ones the row names (a
+ * replace on its way) are left for later, and a step lands only while the draft still names the
+ * bytes it read. Answers whether the scan is done now.
  */
 export async function continueDraftScan(
   env: Context["env"],
@@ -314,6 +344,10 @@ export async function continueDraftScan(
   const stored = await env.OBJECTS.get(draftKey(draft.id));
   if (!job || !stored) return false;
   const checked = readChecked(draft.type, draft.name, new Uint8Array(await stored.arrayBuffer()));
+  if (checked.hash !== draft.hash) {
+    await deferJob(db, draft.id, now);
+    return false;
+  }
   const input = scanInput(
     draft.type,
     draft.name,
@@ -325,18 +359,24 @@ export async function continueDraftScan(
     await advanceJob(
       db,
       draft.id,
+      draft.hash,
       { done: false, job: { cursor: step.state.cursor, files: job.files, state: step.state } },
       now,
     );
     return false;
   }
   const report = { ...step.report, hash: checked.hash };
+  if (!(await advanceJob(db, draft.id, draft.hash, { done: true, verdict: report.verdict }, now)))
+    return false;
   await putReport(env.OBJECTS, draftReportKey(draft.id), report);
-  await advanceJob(db, draft.id, { done: true, verdict: report.verdict }, now);
   return true;
 }
 
-/** Reads, checks, scans and stores a draft's archive, new or over an existing draft. */
+/**
+ * Reads, checks, scans and stores a draft's archive, new or over an existing draft. The upload
+ * is counted and the draft written only if each fits the limits in its own statement; the row
+ * goes first, so bytes in R2 that the row doesn't name are never published or scanned as its.
+ */
 async function storeDraft(
   request: Request,
   context: Context,
@@ -346,26 +386,24 @@ async function storeDraft(
   existing: DraftTable | undefined,
 ): Promise<Response> {
   const db = context.env.MARKET;
-  const limits = await limitsOf(
-    db,
-    publisher.id,
-    isNewPublisher(publisher, context.now),
-    context.now,
-  );
   const body = await readCapped(request, maxArchiveBytes);
   if (!body) return failure(413, "too_large", `An archive is at most ${maxArchiveBytes} bytes.`);
-  const refusal = uploadRefusal(
-    { ...limits, storedBytes: limits.storedBytes - (existing?.size ?? 0) },
-    body.byteLength,
-    { newDraft: !existing },
-  );
+  const refusal = await reserveUpload(db, {
+    publisher: publisher.id,
+    newPublisher: isNewPublisher(publisher, context.now),
+    size: body.byteLength,
+    newDraft: !existing,
+    replacing: existing?.id,
+    now: context.now,
+  });
   if (refusal) return quota(refusal);
+  const caps = capsOf(publisher, context.now);
   const checked = readChecked(key.type, key.name, body);
-  await context.env.OBJECTS.put(draftKey(id), body);
   const write = draftWrite(id, publisher.id, key, checked, context.now);
+  let report: MarketScanReport | undefined;
+  let written: boolean;
   if (checked.files.length === 0) {
-    await context.env.OBJECTS.delete(draftReportKey(id));
-    await writeDraft(db, write, { done: false, job: emptyJob() });
+    written = await writeDraft(db, write, { done: false, job: emptyJob() }, caps);
   } else {
     const input = scanInput(
       key.type,
@@ -379,18 +417,24 @@ async function storeDraft(
     );
     const scanned = scanWithin(input);
     if (scanned.done) {
-      const report = { ...scanned.report, hash: checked.hash };
-      await putReport(context.env.OBJECTS, draftReportKey(id), report);
-      await writeDraft(db, write, { done: true, verdict: report.verdict });
+      report = { ...scanned.report, hash: checked.hash };
+      written = await writeDraft(db, write, { done: true, verdict: report.verdict }, caps);
     } else {
-      await context.env.OBJECTS.delete(draftReportKey(id));
-      await writeDraft(db, write, {
-        done: false,
-        job: { cursor: scanned.state.cursor, files: checked.files.length, state: scanned.state },
-      });
+      written = await writeDraft(
+        db,
+        write,
+        {
+          done: false,
+          job: { cursor: scanned.state.cursor, files: checked.files.length, state: scanned.state },
+        },
+        caps,
+      );
     }
   }
-  await countUpload(db, publisher.id, context.now);
+  if (!written) return quota(quotaRace);
+  await context.env.OBJECTS.put(draftKey(id), body);
+  if (report) await putReport(context.env.OBJECTS, draftReportKey(id), report);
+  else await context.env.OBJECTS.delete(draftReportKey(id));
   const row = await readDraft(db, id);
   return row
     ? json(await draftBody(context.env.OBJECTS, db, row), existing ? 200 : 201)
@@ -472,19 +516,28 @@ export async function draftRoute(
   }
 }
 
+/**
+ * Publishes a draft (ADR 0173 §5). The report, the bytes and the version are bound to the
+ * draft's hash: the report must have scanned the hash the row names, the archive read again from
+ * R2 must hash the same, and the version is stored only while the draft still names it.
+ */
 async function publishDraft(
   context: Context,
   publisher: AuthedPublisher,
-  draft: DraftTable,
+  read: DraftTable,
 ): Promise<Response> {
   const db = context.env.MARKET;
   const who = { handle: publisher.name, official: publisher.official };
-  if (!(await continueDraftScan(context.env, draft, who, context.now)))
+  if (!(await continueDraftScan(context.env, read, who, context.now)))
     return failure(409, "conflict", "The scan is still reading this draft; try again shortly.");
+  const draft = await readDraft(db, read.id);
+  if (!draft || draft.publisher !== publisher.id) return noDraft();
+  if (draft.scan_state !== "done") return changed();
   const problems = JSON.parse(draft.problems) as { message: string }[];
   if (problems.length > 0) return refused(problems);
   const scan = await getReport(context.env.OBJECTS, draftReportKey(draft.id));
   if (!scan) return failure(409, "conflict", "The draft's scan is missing; upload it again.");
+  if (scan.hash !== draft.hash) return changed();
   if (scan.verdict === "block") return blocked(scan);
   const key = { type: draft.type, name: draft.name, version: draft.version };
   const owner = await ownerOf(db, key.type, key.name);
@@ -496,8 +549,11 @@ async function publishDraft(
       : reused();
   const checked = await draftChecked(context, draft);
   if (!checked) return failure(409, "conflict", "The draft's archive is missing; upload it again.");
+  if (checked.hash !== draft.hash) return changed();
   if (checked.problems.length > 0) return refused(checked.problems);
-  const answer = await storeScanned(context, publisher, key, checked, scan, draft.changelog);
-  if (answer.status === 201) await deleteDraft(db, context.env.OBJECTS, draft.id);
+  const guard = { quotaBytes: capsOf(publisher, context.now).quotaBytes, draft: draft.id };
+  const answer = await storeScanned(context, publisher, key, checked, scan, guard, draft.changelog);
+  if (answer.status === 201)
+    await deletePublishedDraft(db, context.env.OBJECTS, draft.id, draft.hash);
   return answer;
 }

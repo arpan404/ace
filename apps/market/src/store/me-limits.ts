@@ -3,11 +3,21 @@ import type { MarketLimits as Schema } from "@ace/protocol/marketplace";
 import { dayOf, publisherLimits } from "../rules.ts";
 
 export type MarketLimits = z.infer<typeof Schema>;
+export type Caps = ReturnType<typeof publisherLimits>;
 
 /*
  * A publisher's limits (ADR 0173 §9): uploads a day, bytes stored in versions and drafts, and
- * drafts. Publishers are accounts, so counting them tracks no reader.
+ * drafts. Publishers are accounts, so counting them tracks no reader. Each limit is checked in
+ * the statement that uses it up, never read first and written after, so concurrent uploads
+ * can't all take the last slot.
  */
+
+/** The bytes the publisher at parameter `publisher` stores: drafts and versions not blocked. */
+export const storedBytesSql = (publisher: string) =>
+  `((SELECT COALESCE(SUM(size), 0) FROM drafts WHERE publisher = ${publisher}) +
+    (SELECT COALESCE(SUM(v.size), 0) FROM versions v JOIN entries e
+      ON e.type = v.type AND e.name = v.name
+      WHERE e.publisher = ${publisher} AND v.state != 'blocked'))`;
 
 export async function limitsOf(
   db: D1Database,
@@ -19,10 +29,7 @@ export async function limitsOf(
     .prepare(
       `SELECT
         (SELECT COALESCE(SUM(count), 0) FROM upload_days WHERE publisher = ?1 AND day = ?2) AS uploads,
-        (SELECT COALESCE(SUM(size), 0) FROM drafts WHERE publisher = ?1) +
-        (SELECT COALESCE(SUM(v.size), 0) FROM versions v JOIN entries e
-          ON e.type = v.type AND e.name = v.name
-          WHERE e.publisher = ?1 AND v.state != 'blocked') AS stored,
+        ${storedBytesSql("?1")} AS stored,
         (SELECT COUNT(*) FROM drafts WHERE publisher = ?1) AS drafts`,
     )
     .bind(publisher, dayOf(now))
@@ -53,12 +60,61 @@ export function uploadRefusal(
   return undefined;
 }
 
-export async function countUpload(db: D1Database, publisher: string, now: number): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO upload_days (publisher, day, count) VALUES (?1, ?2, 1)
-        ON CONFLICT (publisher, day) DO UPDATE SET count = count + 1`,
-    )
-    .bind(publisher, dayOf(now))
-    .run();
+export interface UploadReservation {
+  publisher: string;
+  newPublisher: boolean;
+  size: number;
+  /** Whether the upload makes a new draft, so the draft cap applies. */
+  newDraft: boolean;
+  /** The draft it replaces, whose bytes no longer count. */
+  replacing?: string | undefined;
+  now: number;
 }
+
+/**
+ * Counts one upload against today's limit, only if it fits: under the daily count, within the
+ * stored bytes and, for a new draft, under the draft cap, all in the one statement that counts
+ * it. Answers why it doesn't fit, or undefined when it was counted.
+ */
+export async function reserveUpload(
+  db: D1Database,
+  input: UploadReservation,
+): Promise<string | undefined> {
+  const caps = publisherLimits(input.newPublisher);
+  const fits = `${storedBytesSql("?1")}
+      - COALESCE((SELECT size FROM drafts WHERE id = ?8 AND publisher = ?1), 0) + ?4 <= ?5
+    AND (?6 = 0 OR (SELECT COUNT(*) FROM drafts WHERE publisher = ?1) < ?7)`;
+  const result = await db
+    .prepare(
+      `INSERT INTO upload_days (publisher, day, count) SELECT ?1, ?2, 1 WHERE ?3 > 0 AND ${fits}
+        ON CONFLICT (publisher, day) DO UPDATE SET count = count + 1
+          WHERE upload_days.count < ?3 AND ${fits}`,
+    )
+    .bind(
+      input.publisher,
+      dayOf(input.now),
+      caps.uploadsPerDay,
+      input.size,
+      caps.quotaBytes,
+      input.newDraft ? 1 : 0,
+      caps.draftLimit,
+      input.replacing ?? "",
+    )
+    .run();
+  if (result.meta.changes === 1) return undefined;
+  const limits = await limitsOf(db, input.publisher, input.newPublisher, input.now);
+  const replaced = input.replacing
+    ? ((await db
+        .prepare("SELECT size FROM drafts WHERE id = ?1")
+        .bind(input.replacing)
+        .first<{ size: number }>()) ?? { size: 0 })
+    : { size: 0 };
+  return (
+    uploadRefusal({ ...limits, storedBytes: limits.storedBytes - replaced.size }, input.size, {
+      newDraft: input.newDraft,
+    }) ?? quotaRace
+  );
+}
+
+/** A limit another upload reached at the same moment. */
+export const quotaRace = "You're at one of your upload limits; check your drafts and try again.";

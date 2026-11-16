@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { skeleton } from "@ace/marketplace/profile";
 import { sampleSkill } from "@ace/marketplace/testing";
-import { startMarket, type Market } from "./testing/harness.ts";
+import { publish, startMarket, type Market } from "./testing/harness.ts";
 import {
   asAccount,
+  createDraft,
   draftAndPublish,
   establishedPublisher,
   jsonOf,
@@ -20,6 +21,8 @@ import {
   setPendingListing,
   setVisibility,
 } from "./store/me-entries.ts";
+import { writeDraft } from "./store/drafts.ts";
+import { reserveUpload } from "./store/me-limits.ts";
 import { addAppeal, offerTransfer } from "./store/me-transfers.ts";
 import { changeHandle, setPins } from "./store/profiles.ts";
 import { addWithdrawal, storePending } from "./store/publish.ts";
@@ -214,16 +217,20 @@ describe("deleting an entry that was never listed", () => {
     );
     expect(deleted.status).toBe(200);
     // A publish that found objects/<hash> already there stores its version after the delete.
-    await storePending(market.db, {
-      publisher: maker.id,
-      type: "spade-skill",
-      name: "reused-bytes",
-      version: "1.0.0",
-      hash,
-      size: stored?.size ?? 0,
-      published: stored?.published ?? 0,
-      listing: { title: "reused-bytes", line: "", description: "", categories: [], keywords: [] },
-    });
+    await storePending(
+      market.db,
+      {
+        publisher: maker.id,
+        type: "spade-skill",
+        name: "reused-bytes",
+        version: "1.0.0",
+        hash,
+        size: stored?.size ?? 0,
+        published: stored?.published ?? 0,
+        listing: { title: "reused-bytes", line: "", description: "", categories: [], keywords: [] },
+      },
+      { quotaBytes: 1024 * 1024 * 1024 },
+    );
     await sign(market, upload, { id: maker.id, name: maker.handle });
     expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(200);
   });
@@ -359,5 +366,152 @@ describe("verification checks", () => {
         (row) => row.publisher === verified.id,
       ),
     ).toEqual([{ publisher: verified.id, domain: "approved.example", token: "approved-token" }]);
+  });
+});
+
+/** Rows for `n` drafts of the publisher's, as earlier uploads left them. */
+async function fillDrafts(publisher: string, n: number) {
+  await market.db.batch(
+    Array.from({ length: n }, (_, index) =>
+      market.db
+        .prepare(
+          `INSERT INTO drafts (id, publisher, type, name, version, hash, size, files, title,
+              scan_state, created, updated)
+            VALUES (?1, ?2, 'spade-skill', ?1, '1.0.0', ?3, 10, 1, ?1, 'done', 1, 1)`,
+        )
+        .bind(`drf_${publisher}_${index}`, publisher, "e".repeat(64)),
+    ),
+  );
+}
+const draftCount = async (publisher: string) =>
+  (
+    await market.db
+      .prepare("SELECT COUNT(*) AS n FROM drafts WHERE publisher = ?1")
+      .bind(publisher)
+      .first<{ n: number }>()
+  )?.n;
+const caps = { quotaBytes: 1024 * 1024 * 1024, draftLimit: 20 };
+const draftWrite = (publisher: string, id: string) => ({
+  id,
+  publisher,
+  type: "spade-skill" as const,
+  name: id,
+  version: "1.0.0",
+  hash: "d".repeat(64),
+  size: 10,
+  files: 1,
+  title: id,
+  problems: [],
+  now: 1,
+});
+
+describe("upload limits under concurrent uploads", () => {
+  it("two new drafts for the last slot: one is written", async () => {
+    const owner = await establishedPublisher(market, "acct_race_slots", "race-slots");
+    await fillDrafts(owner.id, 19);
+    const written = await Promise.all(
+      ["drf_slot_a", "drf_slot_b"].map((id) =>
+        writeDraft(market.db, draftWrite(owner.id, id), { done: true, verdict: "pass" }, caps),
+      ),
+    );
+    expect(written.toSorted()).toEqual([false, true]);
+    expect(await draftCount(owner.id)).toBe(20);
+  });
+
+  it("two drafts that each fit the quota alone: only one is written", async () => {
+    const owner = await establishedPublisher(market, "acct_race_bytes", "race-bytes");
+    const small = { quotaBytes: 15, draftLimit: 20 };
+    const written = await Promise.all(
+      ["drf_bytes_a", "drf_bytes_b"].map((id) =>
+        writeDraft(market.db, draftWrite(owner.id, id), { done: true, verdict: "pass" }, small),
+      ),
+    );
+    expect(written.toSorted()).toEqual([false, true]);
+  });
+
+  it("two uploads for the last of the day's uploads: one is counted", async () => {
+    const owner = await establishedPublisher(market, "acct_race_daily", "race-daily");
+    const now = Date.now();
+    await market.db
+      .prepare("INSERT INTO upload_days (publisher, day, count) VALUES (?1, ?2, 29)")
+      .bind(owner.id, Math.floor(now / 86_400_000))
+      .run();
+    const reservation = { publisher: owner.id, newPublisher: false, size: 10, now };
+    const refusals = await Promise.all([
+      reserveUpload(market.db, { ...reservation, newDraft: false }),
+      reserveUpload(market.db, { ...reservation, newDraft: false }),
+    ]);
+    expect(refusals.filter((refusal) => refusal === undefined)).toHaveLength(1);
+    expect(refusals.find((refusal) => refusal !== undefined)).toMatch(/30 times a day/);
+  });
+
+  it("a CLI upload whose scan carries on as a draft keeps to the draft cap", async () => {
+    const owner = await establishedPublisher(market, "acct_race_cli", "race-cli");
+    await fillDrafts(owner.id, 20);
+    const big = "words ".repeat(180_000);
+    const response = await publish(market, {
+      type: "spade-skill",
+      name: "race-cli-big",
+      account: "acct_race_cli",
+      files: sampleSkill("race-cli-big", {
+        "a.md": big,
+        "b.md": big,
+        "c.md": big,
+        "d.md": big,
+        "e.md": big,
+      }),
+    });
+    expect(response.status).toBe(429);
+    expect(await response.text()).toMatch(/20 drafts/);
+    expect(await draftCount(owner.id)).toBe(20);
+  });
+});
+
+describe("publishing a draft", () => {
+  it("isn't published when the draft names other bytes than its scan read", async () => {
+    await establishedPublisher(market, "acct_race_draft", "race-draft");
+    const created = await createDraft(market, "acct_race_draft", skill("race-swapped"));
+    expect(created.status).toBe(201);
+    const { id } = await jsonOf<{ id: string }>(created);
+    // A replace on its way has written the row; its bytes and report haven't landed yet.
+    await market.db
+      .prepare("UPDATE drafts SET hash = ?2 WHERE id = ?1")
+      .bind(id, "f".repeat(64))
+      .run();
+    const published = await asAccount(
+      market,
+      "acct_race_draft",
+      "POST",
+      `/v1/me/drafts/${id}/publish`,
+    );
+    expect(published.status).toBe(409);
+    expect(await count("versions", "race-swapped")).toBe(0);
+  });
+
+  it("stores no version once the draft holds other bytes", async () => {
+    const owner = await establishedPublisher(market, "acct_race_guard", "race-guard");
+    await writeDraft(
+      market.db,
+      draftWrite(owner.id, "drf_guarded"),
+      { done: true, verdict: "pass" },
+      caps,
+    );
+    const stored = await storePending(
+      market.db,
+      {
+        publisher: owner.id,
+        type: "spade-skill",
+        name: "drf_guarded",
+        version: "1.0.0",
+        hash: "c".repeat(64),
+        size: 10,
+        published: 1,
+        listing: { title: "guarded", line: "", description: "", categories: [], keywords: [] },
+      },
+      { quotaBytes: caps.quotaBytes, draft: "drf_guarded" },
+    );
+    expect(stored.written).toBe(false);
+    expect(await count("versions", "drf_guarded")).toBe(0);
+    expect(await count("entries", "drf_guarded")).toBe(0);
   });
 });

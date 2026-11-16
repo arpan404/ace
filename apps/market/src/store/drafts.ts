@@ -6,6 +6,7 @@ import type {
   MarketScanReport,
 } from "@ace/protocol/marketplace";
 import { draftKey, draftReportKey } from "../context.ts";
+import { storedBytesSql } from "./me-limits.ts";
 import { getReport } from "./me-scan.ts";
 
 /*
@@ -76,22 +77,34 @@ export interface DraftWrite {
   now: number;
 }
 
-/** The draft's row written new or over itself, with its scan done or carried on as a job. */
+/**
+ * The draft's row written new or over itself, with its scan done or carried on as a job, only if
+ * it fits the publisher's limits in the same statement: a new draft under the draft cap, and the
+ * bytes within the quota counting this draft's new size instead of its old. False when it
+ * doesn't fit (another upload took the room) or the draft is someone else's.
+ */
 export async function writeDraft(
   db: D1Database,
   draft: DraftWrite,
   scan: { done: true; verdict: string } | { done: false; job: ScanJob },
-): Promise<void> {
-  const statements = [
+  caps: { quotaBytes: number; draftLimit: number },
+): Promise<boolean> {
+  const stored = storedBytesSql("?2");
+  const [written] = await db.batch([
     db
       .prepare(
         `INSERT INTO drafts (id, publisher, type, name, version, hash, size, files, title,
             problems, scan_state, verdict, created, updated)
-          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13
+            WHERE EXISTS (SELECT 1 FROM drafts WHERE id = ?1)
+            OR ((SELECT COUNT(*) FROM drafts WHERE publisher = ?2) < ?15
+              AND ${stored} + ?7 <= ?14)
           ON CONFLICT (id) DO UPDATE SET version = excluded.version, hash = excluded.hash,
             size = excluded.size, files = excluded.files, title = excluded.title,
             problems = excluded.problems, scan_state = excluded.scan_state,
-            verdict = excluded.verdict, updated = excluded.updated`,
+            verdict = excluded.verdict, updated = excluded.updated
+          WHERE drafts.publisher = excluded.publisher
+            AND ${stored} - drafts.size + excluded.size <= ?14`,
       )
       .bind(
         draft.id,
@@ -107,40 +120,64 @@ export async function writeDraft(
         scan.done ? "done" : "scanning",
         scan.done ? scan.verdict : null,
         draft.now,
+        caps.quotaBytes,
+        caps.draftLimit,
       ),
     scan.done
-      ? db.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(draft.id)
-      : jobStatement(db, draft.id, scan.job, draft.now),
-  ];
-  await db.batch(statements);
+      ? db
+          .prepare(
+            `DELETE FROM scan_jobs WHERE draft = ?1
+              AND EXISTS (SELECT 1 FROM drafts WHERE id = ?1 AND hash = ?2 AND updated = ?3)`,
+          )
+          .bind(draft.id, draft.hash, draft.now)
+      : jobStatement(db, draft.id, draft.hash, scan.job, draft.now),
+  ]);
+  return (written?.meta.changes ?? 0) === 1;
 }
 
-const jobStatement = (db: D1Database, draft: string, job: ScanJob, now: number) =>
+/** The draft's scan job, written only while the draft still holds the bytes `hash` names. */
+const jobStatement = (db: D1Database, draft: string, hash: string, job: ScanJob, now: number) =>
   db
     .prepare(
-      `INSERT INTO scan_jobs (draft, cursor, files, state, updated) VALUES (?1, ?2, ?3, ?4, ?5)
+      `INSERT INTO scan_jobs (draft, cursor, files, state, updated)
+        SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM drafts WHERE id = ?1 AND hash = ?6)
         ON CONFLICT (draft) DO UPDATE SET cursor = excluded.cursor, files = excluded.files,
           state = excluded.state, updated = excluded.updated`,
     )
-    .bind(draft, job.cursor, job.files, JSON.stringify(job.state), now);
+    .bind(draft, job.cursor, job.files, JSON.stringify(job.state), now, hash);
 
-/** A scan job moved one step on; when done, the draft takes its verdict. */
+/**
+ * A scan job moved one step on over the bytes `hash` names; when done, the draft takes its
+ * verdict. False when the draft was replaced meanwhile, so the step read other bytes.
+ */
 export async function advanceJob(
   db: D1Database,
   draft: string,
+  hash: string,
   next: { done: true; verdict: string } | { done: false; job: ScanJob },
   now: number,
-): Promise<void> {
+): Promise<boolean> {
   if (!next.done) {
-    await jobStatement(db, draft, next.job, now).run();
-    return;
+    const result = await jobStatement(db, draft, hash, next.job, now).run();
+    return result.meta.changes === 1;
   }
-  await db.batch([
-    db.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(draft),
+  const [, done] = await db.batch([
     db
-      .prepare("UPDATE drafts SET scan_state = 'done', verdict = ?2 WHERE id = ?1")
-      .bind(draft, next.verdict),
+      .prepare(
+        `DELETE FROM scan_jobs WHERE draft = ?1
+          AND EXISTS (SELECT 1 FROM drafts WHERE id = ?1 AND hash = ?2)`,
+      )
+      .bind(draft, hash),
+    db
+      .prepare("UPDATE drafts SET scan_state = 'done', verdict = ?3 WHERE id = ?1 AND hash = ?2")
+      .bind(draft, hash, next.verdict),
   ]);
+  return (done?.meta.changes ?? 0) === 1;
+}
+
+/** Moves a job that read bytes its draft no longer names to the back of the cron's queue. */
+export async function deferJob(db: D1Database, draft: string, now: number): Promise<void> {
+  await db.prepare("UPDATE scan_jobs SET updated = ?2 WHERE draft = ?1").bind(draft, now).run();
 }
 
 export async function patchDraft(
@@ -156,6 +193,25 @@ export async function patchDraft(
     )
     .bind(id, fields.version ?? null, fields.changelog ?? null, now)
     .run();
+}
+
+/** A published draft gone, only if it still holds the bytes that were published. */
+export async function deletePublishedDraft(
+  db: D1Database,
+  bucket: R2Bucket,
+  id: string,
+  hash: string,
+): Promise<void> {
+  const [, gone] = await db.batch([
+    db
+      .prepare(
+        `DELETE FROM scan_jobs WHERE draft = ?1
+          AND EXISTS (SELECT 1 FROM drafts WHERE id = ?1 AND hash = ?2)`,
+      )
+      .bind(id, hash),
+    db.prepare("DELETE FROM drafts WHERE id = ?1 AND hash = ?2").bind(id, hash),
+  ]);
+  if ((gone?.meta.changes ?? 0) === 1) await bucket.delete([draftKey(id), draftReportKey(id)]);
 }
 
 /** The draft, its job, its bytes and its report, gone. */

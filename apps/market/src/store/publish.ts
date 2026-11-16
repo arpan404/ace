@@ -2,6 +2,7 @@ import type { Listing } from "@ace/marketplace";
 import type { MarketPublisher } from "@ace/protocol/marketplace";
 
 import { bumpGeneration } from "./entries.ts";
+import { storedBytesSql } from "./me-limits.ts";
 
 /* Publishers, and versions waiting for the signer. */
 
@@ -95,12 +96,21 @@ export async function claimPublisher(
   return existing ? { taken: "account", publisher: existing } : { taken: "name" };
 }
 
+/** What a version may be stored against: the quota, and the draft it is published from. */
+export interface StoreGuard {
+  /** The publisher's quota: a version that isn't blocked is stored only if its bytes fit. */
+  quotaBytes: number;
+  /** The draft published, whose bytes stop counting; stored only while it holds these bytes. */
+  draft?: string | undefined;
+}
+
 /**
  * Stores a checked and scanned version, unlisted, creating its entry for `publisher` if it is
  * new: `pending` for the signer, `held` for a maintainer or `blocked` by the scan (ADR 0173 §9).
- * A blocked version's number may be used again for other bytes; no other's can. Returns the
- * entry's owner and the version's hash as stored, which differ from the input when another
- * request got there first.
+ * A blocked version's number may be used again for other bytes; no other's can. The guard is
+ * checked in the statements that store: the bytes fit the quota and, from a draft, the draft
+ * still holds the hash scanned. Returns the entry's owner and the version's hash as stored,
+ * which differ from the input when another request got there first, and whether this wrote it.
  */
 export async function storePending(
   db: D1Database,
@@ -119,19 +129,43 @@ export async function storePending(
     scanned?: number | undefined;
     changelog?: string | undefined;
   },
-): Promise<{ owner: string | undefined; hash: string | undefined }> {
-  await db.batch([
+  guard: StoreGuard,
+): Promise<{ owner: string | undefined; hash: string | undefined; written: boolean }> {
+  const allowed = `(?15 IS NULL OR EXISTS (SELECT 1 FROM drafts
+      WHERE id = ?15 AND hash = ?4 AND publisher = ?8 AND scan_state = 'done'))
+    AND (?9 = 'blocked' OR ${storedBytesSql("?8")}
+      - COALESCE((SELECT size FROM drafts WHERE id = ?15), 0) + ?5 <= ?14)`;
+  const values = [
+    input.type,
+    input.name,
+    input.version,
+    input.hash,
+    input.size,
+    input.published,
+    JSON.stringify(input.listing),
+    input.publisher,
+    input.state ?? "pending",
+    input.verdict ?? null,
+    input.blockReason ?? null,
+    input.scanned ?? null,
+    input.changelog ?? "",
+    guard.quotaBytes,
+    guard.draft ?? null,
+  ];
+  const [, version] = await db.batch([
     db
       .prepare(
-        "INSERT INTO entries (type, name, publisher, title) VALUES (?1, ?2, ?3, ?2) ON CONFLICT DO NOTHING",
+        `INSERT INTO entries (type, name, publisher, title)
+          SELECT ?1, ?2, ?8, ?2 WHERE ${allowed} ON CONFLICT DO NOTHING`,
       )
-      .bind(input.type, input.name, input.publisher),
+      .bind(...values),
     db
       .prepare(
         `INSERT INTO versions (type, name, version, hash, size, published, listing, state,
             verdict, block_reason, scanned, changelog)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
           WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?1 AND name = ?2 AND publisher = ?8)
+            AND ${allowed}
           ON CONFLICT (type, name, version) DO UPDATE SET hash = excluded.hash,
             size = excluded.size, published = excluded.published, listing = excluded.listing,
             state = excluded.state, verdict = excluded.verdict,
@@ -139,28 +173,14 @@ export async function storePending(
             changelog = excluded.changelog
           WHERE versions.state = 'blocked' AND versions.listed = 0`,
       )
-      .bind(
-        input.type,
-        input.name,
-        input.version,
-        input.hash,
-        input.size,
-        input.published,
-        JSON.stringify(input.listing),
-        input.publisher,
-        input.state ?? "pending",
-        input.verdict ?? null,
-        input.blockReason ?? null,
-        input.scanned ?? null,
-        input.changelog ?? "",
-      ),
+      .bind(...values),
     bumpGeneration(db, input.type, input.name),
   ]);
   const [owner, stored] = await Promise.all([
     ownerOf(db, input.type, input.name),
     storedVersion(db, input),
   ]);
-  return { owner, hash: stored?.hash };
+  return { owner, hash: stored?.hash, written: (version?.meta.changes ?? 0) === 1 };
 }
 
 /**
