@@ -2,7 +2,11 @@ import { expect, test } from "vitest";
 import { ClientMessage } from "@ace/protocol";
 import { scopeRefusal } from "./request-scopes.ts";
 
-const scopes = { reader: ["read"], operator: ["read", "operate"] } as const;
+const scopes = {
+  reader: ["read"],
+  operator: ["read", "operate"],
+  admin: ["read", "operate", "admin"],
+} as const;
 const message = (value: unknown) => ClientMessage.parse(value);
 
 test("a read-only device may list provider accounts but not install or sign in", () => {
@@ -20,4 +24,30 @@ test("a read-only device may list provider accounts but not install or sign in",
 test("without configured scopes, every device may do everything", () => {
   const install = message({ type: "provider.install.plan", requestId: "r3", provider: "codex" });
   expect(scopeRefusal(install, undefined, "anyone")).toBeUndefined();
+});
+
+test("only an admin device may switch the media pipeline, alone or in a batch", () => {
+  const batch = message({
+    type: "settings.setMany",
+    requestId: "m1",
+    entries: [
+      { key: "media.encode", value: "auto" },
+      { key: "media.delivery", value: "auto" },
+    ],
+    layer: { kind: "global" },
+  });
+  const single = message({
+    type: "settings.set",
+    requestId: "m2",
+    key: "media.encode",
+    value: "auto",
+    layer: { kind: "global" },
+  });
+  for (const request of [batch, single]) {
+    expect(scopeRefusal(request, scopes, "operator")).toMatchObject({
+      type: "error",
+      code: "forbidden",
+    });
+    expect(scopeRefusal(request, scopes, "admin")).toBeUndefined();
+  }
 });
