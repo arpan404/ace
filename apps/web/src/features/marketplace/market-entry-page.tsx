@@ -2,7 +2,6 @@ import type { MarketEntryDetail } from "@ace/protocol/marketplace";
 import { Link } from "@tanstack/react-router";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { buttonLook } from "@/components/ui/button.tsx";
-import { useNow } from "@/lib/time.ts";
 import { useMarketEntry, useMarketReview, type EntryKey } from "./market-api.ts";
 import {
   RecipeFacts,
@@ -17,7 +16,7 @@ import {
   entryAction,
   failureSentence,
   installBlock,
-  readAtText,
+  dateText,
   sizeText,
   typeWord,
 } from "./market-model.ts";
@@ -47,7 +46,6 @@ function EntryPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
   const { summary, installed } = detail;
   const action = entryAction(detail);
   const block = installBlock(detail);
-  const now = useNow();
   const place = useMarketPlace();
   // What it brings is in its review, prepared once here and kept for Install.
   const review = useMarketReview(props.entry, {
@@ -102,7 +100,7 @@ function EntryPage(props: { entry: EntryKey; detail: MarketEntryDetail }) {
           title="Version"
           description={
             latest
-              ? `${latest.version} · ${sizeText(latest.size)} · Published ${readAtText(latest.published, now)}`
+              ? `${latest.version} · ${sizeText(latest.size)} · Published ${dateText(latest.published)}`
               : (summary.version ?? "")
           }
         />
