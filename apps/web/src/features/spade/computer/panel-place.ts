@@ -17,14 +17,15 @@ export const profileTabNames: Record<ProfileTab, string> = {
   computer: "Computer",
 };
 
-/** What Computer shows: one of the surfaces it used, or what it did. */
-export type ComputerView = SpadeSurfaceKind | "activity";
+/** What Computer shows: one of the surfaces it used, the services it runs, or what it did. */
+export type ComputerView = SpadeSurfaceKind | "services" | "activity";
 
 export const computerViews: readonly ComputerView[] = [
   "browser",
   "screen",
   "terminal",
   "files",
+  "services",
   "activity",
 ];
 
@@ -33,6 +34,7 @@ export const computerViewNames: Record<ComputerView, string> = {
   screen: "Screen",
   terminal: "Terminal",
   files: "Files",
+  services: "Services",
   activity: "Activity",
 };
 

@@ -13,7 +13,7 @@ export const Route = createFileRoute("/spade/$agentId")({
     on: z.string().optional().catch(undefined),
     profile: z.enum(["details", "library", "computer"]).optional().catch(undefined),
     computer: z
-      .enum(["browser", "screen", "terminal", "files", "activity"])
+      .enum(["browser", "screen", "terminal", "files", "services", "activity"])
       .optional()
       .catch(undefined),
     files: z.string().optional().catch(undefined),
