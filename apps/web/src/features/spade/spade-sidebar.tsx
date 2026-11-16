@@ -18,6 +18,7 @@ import { Problem } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useOneSpade, useSpadeRoster } from "./use-spade-roster.ts";
+import { useGoalMissing } from "./use-goal-missing.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useTellZone } from "./use-spade-zone.ts";
 import { useSpadeGroups } from "./use-spade-groups.ts";
@@ -50,8 +51,9 @@ export function SpadeSidebar() {
     strict: false,
     select: (params) => params.agentId ?? params.groupId,
   });
-  const all = spadeFlatEntries(roster.bots, groups);
-  const nested = spadeListEntries(roster.bots, groups, open);
+  const missing = useGoalMissing(roster.bots);
+  const all = spadeFlatEntries(roster.bots, groups, missing);
+  const nested = spadeListEntries(roster.bots, groups, open, missing);
   const searched = query.trim() !== "";
   // Searching looks through everything, pinned too; otherwise the strip holds what's pinned.
   const { pinned, rest } = searched

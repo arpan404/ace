@@ -4,6 +4,7 @@ import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeLibrary } from "./fake-spade-library.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
 import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
+import { seedFakeWork } from "./fake-spade-work.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -518,6 +519,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
 
   seedFakeCards(here);
   seedFakeLibrary(here, now);
+  seedFakeWork(daemon, here, minutes);
   seedFakeGroup(here, now);
   // A few pins, oldest first: the strip under the list's buttons.
   for (const [index, id] of ["inbox", "garden", "notes"].entries()) {

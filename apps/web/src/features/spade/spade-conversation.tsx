@@ -89,6 +89,8 @@ export function Conversation(props: {
   const digests = useSpadeDigests(bot.id);
   const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
   const [stopping, setStopping] = useState(false);
+  // A decision the person is changing: quoted on their next message (Work's Change).
+  const [quote, setQuote] = useState<string>();
   const covering = useMediaQuery(coverQuery, false);
   const memoryKey = `${bot.machine.key}/${bot.id}`;
   const [width, setWidth] = useState(() => readPanel(storage(), memoryKey).width);
@@ -284,6 +286,9 @@ export function Conversation(props: {
         stopping={stopping}
         blocked={line.ready ? undefined : line.sentence}
         placeholder={`Message ${bot.name}`}
+        quote={
+          quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
+        }
         send={conversation.send}
       />
     </div>
@@ -300,6 +305,19 @@ export function Conversation(props: {
         onView: openComputer,
         state: computer,
         side: conversation.side,
+      }}
+      work={{
+        decisions: view.decisions,
+        entries: view.entries,
+        roster: props.roster,
+        onChange: (decision) => {
+          setQuote(decision.choice);
+          // Where the profile takes the window, the chat comes back to write in.
+          if (covering) closePanel();
+        },
+        onOpenFile: (path) =>
+          openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path }),
+        onOpenActivity: () => openComputer("activity"),
       }}
       covering={covering}
       onClose={closePanel}

@@ -8,6 +8,9 @@ import { profileTabNames, profileTabs, type ProfileTab } from "./computer/panel-
 import { ProfileDetails } from "./spade-profile-details.tsx";
 import { ProfileHead } from "./spade-profile-head.tsx";
 import { ProfileLibrary } from "./spade-profile-library.tsx";
+import { ProfileWork, type ProfileWorkPlace } from "./spade-profile-work.tsx";
+import { useSpadeWork } from "./use-spade-work.ts";
+import type { SpadeDecision } from "@ace/ui-core/spade-chat";
 import { roundButton } from "./spade-profile-parts.tsx";
 import { useShareBot } from "./spade-profile-actions.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -43,7 +46,8 @@ export function ProfileStripActions(props: { bot: RosterBot; onClose(): void; ro
 
 /**
  * A bot's profile (docs/design/spade.md §4), ace's side panel beside its conversation: its face
- * and name, edited in place, then Details · Library · Computer as a segmented control. The person
+ * and name, edited in place, then Details · Work · Library · Computer as a segmented control; Work
+ * only while the bot has a goal, workers or decisions. The person
  * keeps talking while they change the bot and watches its computer beside the chat. Where the
  * window is too narrow for both (`covering`) it takes the window, its strip led by ‹ Chat.
  */
@@ -52,18 +56,24 @@ export function SpadeProfile(props: {
   tab: ProfileTab;
   onTab(tab: ProfileTab): void;
   computer: ProfileComputerPlace;
+  work: ProfileWorkPlace & { decisions: readonly SpadeDecision[] };
   covering: boolean;
   onClose(): void;
 }) {
-  const { bot, tab } = props;
+  const { bot } = props;
+  const work = useSpadeWork(bot, props.work.decisions);
+  // Work is there while there is work; on it while its reads are out, it stays rather than jump.
+  const hasWork = work.shown || (props.tab === "work" && work.pending);
+  const shownTabs = hasWork ? profileTabs : profileTabs.filter((each) => each !== "work");
+  const tab = shownTabs.includes(props.tab) ? props.tab : "details";
   const tabs = useRef<HTMLDivElement>(null);
   const ids = { tab: (each: ProfileTab) => `profile-tab-${each}`, panel: "profile-panel" };
   // Arrow keys move between the tabs, as a tab list does.
   const move = (event: React.KeyboardEvent) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-    const at = profileTabs.indexOf(tab);
+    const at = shownTabs.indexOf(tab);
     const step = event.key === "ArrowRight" ? 1 : -1;
-    const next = profileTabs[(at + step + profileTabs.length) % profileTabs.length];
+    const next = shownTabs[(at + step + shownTabs.length) % shownTabs.length];
     if (!next) return;
     event.preventDefault();
     props.onTab(next);
@@ -94,7 +104,7 @@ export function SpadeProfile(props: {
           onKeyDown={move}
           className="mx-4 mb-4 flex gap-0.5 rounded-full bg-hover p-0.5"
         >
-          {profileTabs.map((each) => {
+          {shownTabs.map((each) => {
             const selected = each === tab;
             return (
               <button
@@ -127,6 +137,8 @@ export function SpadeProfile(props: {
         >
           {tab === "details" ? (
             <ProfileDetails bot={bot} />
+          ) : tab === "work" ? (
+            <ProfileWork bot={bot} work={work} place={props.work} />
           ) : tab === "library" ? (
             <ProfileLibrary
               bot={bot}

@@ -11,6 +11,7 @@ import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 /*
@@ -62,6 +63,8 @@ export interface FakeSpadeAgent {
     note?: string;
   } | null;
   continuing?: boolean;
+  /** The bot that made it (ADR 0161); null or absent for the person's own. */
+  parent?: { id: string; name: string } | null;
 }
 
 interface Stored {
@@ -154,6 +157,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly routines: FakeSpadeRoutines;
   /** Groups, templates, duplicate, export and import (ADR 0132). */
   readonly teams: FakeSpadeTeams;
+  /** Each bot's goal and plan, and its tree of workers (ADR 0159, 0161). */
+  readonly work = new FakeSpadeWork(() => this.agents);
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
@@ -510,13 +515,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
+    if (root === "agents" && id && (sub === "task" || sub === "tree")) {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.work.route(request.method, agent, sub, subId, body) ?? problem(404, "Not found.");
+    }
     if (root === "agents" && id && sub === "pin" && request.method === "PUT") {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
       agent.pinned_at = body.pinned === true ? (agent.pinned_at ?? this.now()) : null;
       return reply({ agent });
     }
-    if (root === "agents") return this.agentRoute(request.method, id, body);
+    if (root === "agents") return this.agentRoute(request.method, id, body, query);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
       return this.connectors.route(request.method, id, sub, body, this.roster());
@@ -610,11 +620,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return this.listed().map((agent) => ({ id: agent.id, main: agent.kind === "main" }));
   }
 
-  private agentRoute(method: string, id: string | undefined, body: Json): FakeSpadeAnswer {
+  private agentRoute(
+    method: string,
+    id: string | undefined,
+    body: Json,
+    query = "",
+  ): FakeSpadeAnswer {
     if (!id && method === "GET")
       return reply({
         agents: this.listed().map((agent) =>
-          Object.assign({}, agent, { computer: this.computer.of(agent.id) }),
+          Object.assign({}, agent, this.work.rosterFields(agent), {
+            computer: this.computer.of(agent.id),
+          }),
         ),
       });
     // As Spade: the auto-review is the one level; any other is refused.
@@ -655,6 +672,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (method === "DELETE") {
       if (agent.kind === "main") return problem(409, "Spade can't be deleted.");
+      // As Spade: a bot with workers asks what becomes of them (ADR 0161).
+      const asked = this.work.deleting(agent, new URLSearchParams(query));
+      if (asked) return asked;
       this.agents = this.agents.filter((candidate) => candidate !== agent);
       this.notes.forget(agent.id);
       this.knowledge.forget(agent.id);
