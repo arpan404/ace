@@ -156,3 +156,28 @@ test("a webhook at full access warns that anyone with its secret can steer the a
   ).toBeTruthy();
   expect(webhookPanel().queryByText(/^Runs read-only/)).toBeNull();
 });
+
+test("a new webhook automation shows Read-only as its access until one is chosen, and saves none", async () => {
+  const { app } = await open("/automations/new", (seed) =>
+    on(seed, { "access.defaultMode": "auto-review" }),
+  );
+  expect(await screen.findByRole("button", { name: "Access: Auto review" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: /^When: / }));
+  await within(await screen.findByRole("dialog", { name: "When it runs" })).findByRole("combobox", {
+    name: "Runs",
+  });
+  await userEvent.click(screen.getByRole("combobox", { name: "Runs" }));
+  await userEvent.click(await screen.findByRole("option", { name: "When its webhook is called" }));
+  await userEvent.keyboard("{Escape}");
+  expect(await screen.findByRole("button", { name: "Access: Read-only" })).toBeTruthy();
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "What the agent does each time" }),
+    "Triage the deploy that failed{Enter}",
+  );
+  await heading("Triage the deploy that failed");
+  const saved = (await app.client.request({ type: "automation.list" })).automations?.find(
+    (automation) => automation.title === "Triage the deploy that failed",
+  );
+  expect(saved?.trigger).toEqual({ kind: "webhook" });
+  expect(saved?.access).toBeUndefined();
+});

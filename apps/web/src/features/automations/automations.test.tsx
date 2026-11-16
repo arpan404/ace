@@ -484,19 +484,6 @@ test("a file change automation needs globs and saves them", async () => {
   expect(saved?.trigger).toEqual({ kind: "file", paths: ["src/**/*.test.ts"] });
 });
 
-test("an automation can run when its webhook is called", async () => {
-  const { app } = await open("/automations/new");
-  await when();
-  await choose("Runs", "When its webhook is called");
-  await userEvent.keyboard("{Escape}");
-  await userEvent.type(await prompt(), "Triage the deploy that failed{Enter}");
-  await heading("Triage the deploy that failed");
-  const saved = (await app.client.request({ type: "automation.list" })).automations?.find(
-    (automation) => automation.title === "Triage the deploy that failed",
-  );
-  expect(saved?.trigger).toEqual({ kind: "webhook" });
-});
-
 test("a model picked in the chip is saved as the provider's model id", async () => {
   const { app } = await open("/automations/new");
   await chooseModel("GPT-5 Codex", "Codex");

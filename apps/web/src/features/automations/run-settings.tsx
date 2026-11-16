@@ -64,12 +64,14 @@ export function AutomationModelChip(props: {
 }
 
 /**
- * How the automation's runs get approved, in the composer's access chip. Unset, it follows the
- * project's default, else this machine's; a mode the provider can't express runs as the nearest
- * stricter one.
+ * How the automation's runs get approved, in the composer's access chip. Unset, a webhook's
+ * runs are read-only, since their text comes from outside (ADR 0158, decision 9); any other
+ * follows the project's default, else this machine's. A mode the provider can't express runs as
+ * the nearest stricter one.
  */
 export function AutomationAccess(props: {
   fields: ModelFields & { workspace: string; access?: AccessMode | undefined };
+  webhook: boolean;
   onChange(access: AccessMode): void;
 }) {
   const { provider, instance, workspace, access } = props.fields;
@@ -78,7 +80,7 @@ export function AutomationAccess(props: {
   const modes = useAccessModes(provider, undefined, instance);
   const shown = newThreadAccess({
     chosen: access,
-    projectDefault: projectDefaults?.access,
+    projectDefault: props.webhook ? "read-only" : projectDefaults?.access,
     daemonDefault,
     offers: modes.offers,
     provider: providerNames[provider],
