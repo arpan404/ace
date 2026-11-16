@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// Fixture builds launched with `--perf-probe`: while the keyboard moves, where the transcript's
-/// last line, the composer's top edge and the system's keyboard edge are drawn, read every frame
+/// last line, the composer's top edge and the keyboard's top edge are drawn, read every frame
 /// from the layers' presentation values. Each motion goes to the probe as
 /// `keyboard.<open|close>.gaps` (composer top minus last line, one rounded value per frame),
 /// `keyboard.<open|close>.drift` (the widest gap minus the narrowest) and
@@ -11,7 +11,8 @@ import UIKit
 /// Release builds compile it away.
 @MainActor final class KeyboardDriftProbe {
     static let shared = KeyboardDriftProbe()
-    /// `line` and `composer` mark their view's top edge; `composerFoot` and `keyboard` its bottom.
+    /// `line`, `composer` and `keyboard` mark their view's top edge, `composerFoot` its bottom. The
+    /// keyboard's is the view UIKit moves with the keyboard layout guide (`KeyboardEdgeReader`).
     enum Mark { case line, composer, composerFoot, keyboard }
     private var marks: [Mark: Weak] = [:]
     private var link: CADisplayLink?
@@ -89,7 +90,7 @@ import UIKit
     private func y(_ mark: Mark) -> Double? {
         guard let view = marks[mark]?.view, view.window != nil else { return nil }
         let layer = view.layer.presentation() ?? view.layer
-        let bottom = mark == .composerFoot || mark == .keyboard
+        let bottom = mark == .composerFoot
         return Double(layer.convert(CGPoint(x: 0, y: bottom ? layer.bounds.height : 0), to: nil).y)
     }
 
@@ -125,18 +126,6 @@ extension View {
         }
         #else
         self
-        #endif
-    }
-}
-
-/// Fills the space the system's keyboard avoidance leaves, so its bottom edge is the keyboard's
-/// top on every frame, on the system's own curve. Nothing outside probed fixture builds.
-struct KeyboardEdgeMark: View {
-    var body: some View {
-        #if ACE_FIXTURE
-        if PerfProbe.enabled {
-            Color.clear.keyboardDriftMark(.keyboard).allowsHitTesting(false).accessibilityHidden(true)
-        }
         #endif
     }
 }

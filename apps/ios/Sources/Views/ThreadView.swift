@@ -657,7 +657,11 @@ private struct FloatingBar<Bar: View>: ViewModifier {
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
-            KeyboardEdgeMark()
+            // Where the keyboard is drawn, frame by frame, for the ride.
+            KeyboardEdgeReader(tracker: ride.edges)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             // The composer keeps the transcript's reading width; its floor spans the window.
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)
@@ -675,7 +679,7 @@ private struct FloatingBar<Bar: View>: ViewModifier {
             let start = CACurrentMediaTime()
             guard let move = KeyboardMove(note) else { return }
             let lift = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboard: move.end))
-            ride.move(to: lift, start: start, duration: move.duration, animated: !reduceMotion)
+            ride.move(to: lift, foot: column.maxY, start: start, duration: move.duration, animated: !reduceMotion)
         }
     }
 }

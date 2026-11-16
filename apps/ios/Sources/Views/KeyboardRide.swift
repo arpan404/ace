@@ -3,10 +3,11 @@ import UIKit
 
 /// How far the docked keyboard lifts the thread's foot, frame by frame: one value the composer
 /// (`FloatingBar`) and the rows following the transcript's end (`ConversationFeed`) are both
-/// drawn by, so the two move as one (#2170). Each frame sets it from the keyboard's curve
-/// (`KeyboardCurve`) at the frame's time, measured from the notification; a SwiftUI
-/// animation would start when its change commits, frames after the keyboard does. Only the small
-/// offset modifiers read `lift`, so a frame redraws them and nothing under them.
+/// drawn by, so the two move as one (#2170). Each frame sets it from where the keyboard's edge is
+/// drawn on that frame (`KeyboardEdgeTracker`), so the composer sits on the keyboard; only when
+/// no edge can be read does it fall back to the keyboard's fitted curve (`KeyboardCurve`). A
+/// SwiftUI animation would start when its change commits, frames after the keyboard does. Only
+/// the small offset modifiers read `lift`, so a frame redraws them and nothing under them.
 @MainActor @Observable final class KeyboardRide {
     /// The lift drawn this frame.
     private(set) var lift: CGFloat = 0
@@ -17,6 +18,8 @@ import UIKit
     /// Bumped as each move starts and as each one lands.
     private(set) var moves = 0
     private(set) var landings = 0
+    /// Reads where the keyboard is drawn; `KeyboardEdgeReader` gives it its view.
+    @ObservationIgnored let edges = KeyboardEdgeTracker()
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var move: Move?
 
@@ -24,13 +27,17 @@ import UIKit
         let from: CGFloat
         let start: CFTimeInterval
         let duration: Double
+        /// The foot of the area the composer rests at, in window points: the lift is how far the
+        /// keyboard's edge is above it.
+        let foot: CGFloat
     }
 
     var running: Bool { move != nil }
 
-    /// Moves the lift to `target` on the keyboard's curve for a move announced at `start`
-    /// (`CACurrentMediaTime`) lasting `duration`; `animated: false` puts it there at once.
-    func move(to target: CGFloat, start: CFTimeInterval, duration: Double, animated: Bool) {
+    /// Moves the lift to `target` with the keyboard, for a move announced at `start`
+    /// (`CACurrentMediaTime`) lasting `duration` over a column whose foot is at `foot`;
+    /// `animated: false` puts it there at once.
+    func move(to target: CGFloat, foot: CGFloat, start: CFTimeInterval, duration: Double, animated: Bool) {
         guard target != self.target else { return }
         self.target = target
         self.duration = duration
@@ -40,7 +47,7 @@ import UIKit
             return
         }
         // A move under way goes on from where it's drawn.
-        move = Move(from: lift, start: start, duration: duration)
+        move = Move(from: lift, start: start, duration: duration, foot: foot)
         guard link == nil else { return }
         let link = CADisplayLink(target: RideTicker(ride: self), selector: #selector(RideTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
@@ -57,8 +64,18 @@ import UIKit
 
     fileprivate func tick(_ link: CADisplayLink) {
         guard let move else { return }
-        // The frame's own time, the base the curve was fitted in: the frame's target time put the
-        // composer a frame ahead of the keyboard, under it as it closed.
+        // Where the keyboard is drawn on the frame this one is for.
+        if let reading = edges.reading(at: link.targetTimestamp) {
+            let measured = max(0, move.foot - reading.y)
+            if reading.moving || abs(measured - target) < 0.5 {
+                PerfProbe.add("keyboard.source.\(reading.source.rawValue)", 1)
+                lift = measured
+                if !reading.moving { land() }
+                return
+            }
+        }
+        // No animation to read yet, or none at all: the fitted curve, from the frame's own time.
+        PerfProbe.add("keyboard.source.curve", 1)
         let elapsed = link.timestamp - move.start
         let distance = Double(target - move.from)
         // A rising lift is the keyboard opening.

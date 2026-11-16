@@ -165,10 +165,15 @@ import XCTest
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
         let closing = keyboardMotion(app, "close")
         let report = "opening \(opening), closing \(closing)"
-        // The frames go in the log either way, for the before and after of a change here.
-        print("keyboard drift: \(report)")
+        // The frames go in the log either way, for the before and after of a change here, with how
+        // each frame of the ride read the keyboard (`KeyboardRide`).
+        let sources = (app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+            .split(separator: ";").filter { $0.hasPrefix("keyboard.source.") }.joined(separator: " ")
+        print("keyboard drift: \(report); read by \(sources)")
         XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
         XCTAssertTrue(opening.drift <= 4 && closing.drift <= 4, "the gap holds each way: \(report)")
+        XCTAssertFalse(opening.trace.contains("-") || closing.trace.contains("-"), "every frame read the keyboard's edge: \(report)")
+        XCTAssertTrue(opening.lag <= 2 && closing.lag <= 2, "the composer sits on the keyboard each way: \(report)")
     }
 
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
