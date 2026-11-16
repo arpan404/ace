@@ -42,7 +42,7 @@ import XCTest
 
         // + offers the phone's sources and the catalog's builtins.
         app.buttons["composer.attach"].tap()
-        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Photo library"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["composer.add.files"].waitForExistence(timeout: 10))
         screenshot("composer-add")
         app.buttons["composer.add.files"].tap()

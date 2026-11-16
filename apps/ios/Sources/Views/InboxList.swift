@@ -321,6 +321,8 @@ private struct InboxThreadCell: View {
     /// Row swipes taken, for their haptic.
     @State private var swipes = 0
     private func swiped() { swipes += 1 }
+    /// Answers sent from the row, for the approve haptic.
+    @State private var decided = 0
 
     var body: some View {
         if let row = inbox.row(key) { threadRow(row) }
@@ -342,8 +344,15 @@ private struct InboxThreadCell: View {
         let model = inbox.client(key.machineId)
         let asks = selecting ? [] : model?.needsYou(row.id) ?? []
         let need = model.flatMap { model in
-            asks.isEmpty ? nil : InboxNeedLine(requests: asks, tally: model.needsTally(row.id), model: model, threadId: row.id) { actions.open(key) }
+            asks.isEmpty ? nil : InboxNeedLine(requests: asks, tally: model.needsTally(row.id), model: model)
         }
+        // An approval answers from the row by swipe, long press or VoiceOver; nothing in the row
+        // itself takes the tap, which opens the thread.
+        let answers = model.flatMap { model in
+            asks.first.map { NeedActions(request: $0, model: model, threadId: row.id, decided: { decided += 1 }).answers }
+        } ?? []
+        let allow = answers.first { $0.id == "allow_once" }
+        let deny = answers.first { $0.id == "deny" }
         // Snoozed and Settled draw each thread as one line, as the web's do; Inbox in three.
         let label = Group {
             if section.tab == "inbox" {
@@ -367,6 +376,8 @@ private struct InboxThreadCell: View {
         .inboxRowChrome()
         // Neutral swipe fills: status hues belong to status only.
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            // Allow once leads, so a full swipe allows; the person's accent marks it.
+            if let allow { Button(allow.label, ace: .checkCircle, action: allow.run).tint(AceTheme.Colours.accent) }
             if canOperate && !selecting {
                 if settled {
                     Button("Unsettle", ace: .arrowUUpLeft) { swiped(); actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
@@ -381,15 +392,15 @@ private struct InboxThreadCell: View {
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            // Pin alone, as Mail's leading swipe; Rename and Archive are in the long-press menu.
+            // Deny where a request waits, then Pin, as Mail's leading swipe; Rename and Archive are
+            // in the long-press menu. No full swipe: Deny takes a second, deliberate tap.
+            if let deny { Button(deny.label, ace: .x, action: deny.run).tint(Color(uiColor: .systemGray2)) }
             if canOperate && !selecting { pinButton(row, pinned).tint(Color(uiColor: .systemGray)) }
         }
         .sensoryFeedback(AceDesign.Haptic.rowAction, trigger: swipes)
+        .sensoryFeedback(AceDesign.Haptic.approve, trigger: decided)
         .accessibilityActions {
-            if let model, let request = asks.first, request.kind == "approval", model.approvalSubmissions[request.id] == nil {
-                let words = NeedActions(request: request, model: model, threadId: row.id, open: { actions.open(key) }, review: {}, decided: {})
-                ForEach(words.row) { word in Button(word.label, action: word.run) }
-            }
+            ForEach(answers) { answer in Button(answer.label, action: answer.run) }
             if canOperate {
                 if canMoveUp { Button("Move up") { step(-1) } }
                 if canMoveDown { Button("Move down") { step(1) } }
@@ -398,6 +409,12 @@ private struct InboxThreadCell: View {
         // A long press previews the thread above its actions, as the web's hover card and menu
         // do. Every action here is also in the open thread's ⋯ and in Select mode's bar.
         .contextMenu {
+            if !answers.isEmpty {
+                Section {
+                    if let allow { Button(allow.label, ace: .checkCircle, action: allow.run) }
+                    if let deny { Button(deny.label, ace: .x, action: deny.run) }
+                }
+            }
             if !selecting {
                 InboxRowMenu(inbox: inbox, key: key, canOperate: canOperate, actions: actions,
                              canMoveUp: canMoveUp, canMoveDown: canMoveDown, step: step)

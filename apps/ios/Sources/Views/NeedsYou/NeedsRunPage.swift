@@ -19,7 +19,7 @@ struct NeedsRunPage: View {
 
     private var threadId: String { entry.thread.id }
     private var actions: NeedActions {
-        NeedActions(request: request, model: model, threadId: threadId, open: openThread, review: {}, decided: decided)
+        NeedActions(request: request, model: model, threadId: threadId, decided: decided)
     }
 
     var body: some View {

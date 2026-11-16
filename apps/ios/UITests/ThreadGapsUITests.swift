@@ -34,7 +34,7 @@ import XCTest
         waitForExpectations(timeout: 10)
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
-        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Photo library"].waitForExistence(timeout: 10))
         screenshot("attach-menu")
     }
     func testFormCard() {
