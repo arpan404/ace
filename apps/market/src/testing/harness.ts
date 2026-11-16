@@ -159,9 +159,15 @@ export async function publishSigned(
   const published = await publish(market, upload);
   if (published.status !== 201 && published.status !== 200)
     throw new Error(`publish failed: ${published.status} ${await published.text()}`);
-  const publisher = await pendingPublisher(market, upload.type, upload.name);
   const version = upload.version ?? "1.0.0";
   const path = `${upload.type}/${upload.name}/${version}`;
+  // A new publisher's first version is held (ADR 0173 §9): a maintainer releases it first.
+  const accepted = (await published.json()) as { held?: boolean };
+  if (accepted.held) {
+    const released = await put(market, `/v1/signer/holds/${path}`, { decision: "approve" });
+    if (released.status !== 200) throw new Error(`release failed: ${released.status}`);
+  }
+  const publisher = await pendingPublisher(market, upload.type, upload.name);
   const signed = await put(market, `/v1/signer/versions/${path}`, {
     manifest: manifestFor(upload, publisher ? { publisher } : {}),
   });
