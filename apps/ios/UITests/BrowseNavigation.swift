@@ -16,11 +16,13 @@ extension XCUIApplication {
         XCTAssertTrue(title.waitForExistence(timeout: timeout), "the thread's title never showed")
         return title
     }
-    /// The thread's title when it starts with `text`.
+    /// The thread's title when it starts with `text`: the bar's one button without an identifier
+    /// (back, ⋯ and the panel toggle have theirs). Its label ends ", Actions Menu" only when the
+    /// thread opened at launch, so the label isn't matched on that.
     @MainActor func threadTitle(named text: String) -> XCUIElement {
-        // `BEGINSWITH ''` never matches, so no name asks for the menu alone.
-        let menu = "label CONTAINS 'Actions Menu'"
-        let predicate = text.isEmpty ? NSPredicate(format: menu) : NSPredicate(format: "\(menu) AND label BEGINSWITH %@", text)
+        let titled = "identifier == '' AND label != ''"
+        // `BEGINSWITH ''` never matches, so no name asks for the title alone.
+        let predicate = text.isEmpty ? NSPredicate(format: titled) : NSPredicate(format: "\(titled) AND label BEGINSWITH %@", text)
         return navigationBars.buttons.matching(predicate).firstMatch
     }
     /// The line under the thread's title: the project, the model and its effort.
