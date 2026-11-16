@@ -33,8 +33,8 @@ transcript re-estimate its height by about 126,000 pt and lose the end.
 ## Decision
 
 1. **The thread owns one `KeyboardRide`, and the keyboard's notification moves it.** Its `lift`
-   is set on every frame by a display link from the notification's time and `KeyboardCurve`, at
-   the time the frame is shown. Only a keyboard that reaches the foot lifts it
+   is set on every frame by a display link from the frame's time since the notification and
+   `KeyboardCurve`. Only a keyboard that reaches the foot lifts it
    (`TranscriptKeyboardLift.docked`), so a floating keyboard moves nothing.
 2. **The composer is drawn by it and takes no system keyboard avoidance.** `FloatingBar` lays the
    bar out at the foot of the keyboard-free area and offsets it up by `lift`. The offset moves its
@@ -47,18 +47,22 @@ transcript re-estimate its height by about 126,000 pt and lose the end.
 4. **The room changes at once, and a closing keyboard's room stays below the end until it lands**
    (`TranscriptKeyboardRoom`). The content never shrinks under an offset that's still moving.
    The only part of the feed the offset brings into view is that empty room.
-5. **`KeyboardCurve` is the keyboard as drawn:** an ease-out that starts 18 ms after the
-   notification at a rate of 5.94 over the notified duration, fitted to five traced moves
-   (within about 20 pt).
+5. **`KeyboardCurve` is the keyboard as drawn, erring above it:** an ease-out at a rate of 5.94
+   over the notified duration, fitted to traced moves. Where the fit is off, the composer should
+   show floor above the keyboard rather than slip under it, so an opening ride starts 12 ms after
+   the notification and a closing one 30 ms after.
 
 Rows that aren't following the end don't ride, as before. Reduce Motion moves everything at once.
 
 ## Consequences
 
 - The composer and the newest line keep their gap on every frame of an opening and a closing.
-- The composer can stray from the keyboard by up to about 20 pt mid-motion, more on a loaded
-  machine. Above it, the page-coloured floor under the bar shows; below it, the keyboard covers
-  the bar's foot for a frame or two.
+- Measured on the iPhone 17 Pro simulator (iOS 26.1), the gap between the newest line and the
+  composer moved by 0 pt on every frame of an opening and a closing (it was 44 and 276 pt).
+- The composer no longer sits exactly on the system's keyboard edge: opening, it runs up to
+  56 pt ahead, with the page-coloured floor under the bar showing between them, and dips under
+  the edge by up to 7 pt; closing, it stays within 13 pt. A machine under heavy load moved
+  these by about 20 pt more.
 - The curve came from one simulator and OS. A new iOS that changes the keyboard's motion shows up
   as the composer straying from the keyboard, and the probe's `lag` measures it.
 - A display link runs for the length of each keyboard move, about half a second, and redraws two
