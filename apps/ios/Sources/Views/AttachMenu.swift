@@ -51,12 +51,12 @@ struct AttachMenu: View {
         }
     }
     private var actions: [AttachmentMenuAction] {
-        var choices = [AttachmentMenuAction(id: "photos", title: "Photo Library", icon: .images) { choosingPhotos = true }]
+        var choices = [AttachmentMenuAction(id: "photos", title: "Photo library", icon: .images) { choosingPhotos = true }]
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
-            choices.append(AttachmentMenuAction(id: "camera", title: "Take Photo", icon: .camera) { usingCamera = true })
+            choices.append(AttachmentMenuAction(id: "camera", title: "Take photo", icon: .camera) { usingCamera = true })
         }
-        choices.append(AttachmentMenuAction(id: "file", title: "Choose File", icon: .file) { choosingFolder = false; choosingFiles = true })
-        choices.append(AttachmentMenuAction(id: "folder", title: "Choose Folder", icon: .folder) { choosingFolder = true; choosingFiles = true })
+        choices.append(AttachmentMenuAction(id: "file", title: "Choose file", icon: .file) { choosingFolder = false; choosingFiles = true })
+        choices.append(AttachmentMenuAction(id: "folder", title: "Choose folder", icon: .folder) { choosingFolder = true; choosingFiles = true })
         if recall { choices.append(AttachmentMenuAction(id: "composer.recall", title: "Previous message", icon: .clockCounterClockwise) { pickMore(.recall) }) }
         for row in more where row.action != "attach" {
             choices.append(AttachmentMenuAction(id: "composer.add.\(row.action ?? row.id)", title: SuggestionSymbol.menuTitle(row), icon: SuggestionSymbol.icon(row), group: 1) { pickMore(row) })

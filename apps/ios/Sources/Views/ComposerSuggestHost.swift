@@ -51,8 +51,8 @@ struct ComposerSuggestHost: ViewModifier {
     }
 }
 
-/// The + list's builtins as menu rows, after the phone's own Photo Library, Take Photo and Choose
-/// File (its "Attach files").
+/// The + list's builtins as menu rows, after the phone's own Photo library, Take photo and Choose
+/// file (its "Attach files").
 struct ComposerAddRows: View {
     let rows: [SuggestionRow]
     let pick: (SuggestionRow) -> Void

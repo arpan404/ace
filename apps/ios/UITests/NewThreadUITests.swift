@@ -205,7 +205,7 @@ import XCTest
         XCTAssertTrue(element(app, "newThread.attach").waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "newThread.attach").isHittable)
         element(app, "newThread.attach").tap()
-        XCTAssertTrue(app.buttons["Choose File"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Choose file"].waitForExistence(timeout: 5))
         screenshot("newthread-attach-menu")
     }
 
