@@ -81,8 +81,11 @@ standing instructions change only at a compaction (design.md, Caching).
    - evidence links: each item's call (with its event position, for `history_read`), file or
      URL;
    - the bot's last `task_status` note, labelled as its own words;
-   - `untrusted` when anything untrusted was in the goal's span; the episode then reads as
-     untrusted wherever it is shown.
+   - `untrusted` when anything untrusted was in the prompt's view at any point of the goal,
+     by the turn's rule (every untrusted event since the last compaction, and a summary drawn
+     from untrusted content): from the last compaction before the goal started to its close, so
+     a page read just before the goal counts. The episode then reads as untrusted wherever it is
+     shown.
 
    An episode is built from events by a pure fold, never by a model, so it can't invent
    anything and costs nothing. It is stored once per goal (a unique key), and the check runs

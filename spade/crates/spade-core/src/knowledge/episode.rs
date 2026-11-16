@@ -83,7 +83,8 @@ pub struct Episode {
     /// The bot's last `task_status` note during the goal: its own words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// Something untrusted was in the goal's span: the episode reads as untrusted.
+    /// Something untrusted was in the prompt's view at some point of the goal, read before it
+    /// started included: the episode reads as untrusted.
     pub untrusted: bool,
     /// The index of the event that set the goal, and of the one that closed it.
     pub started: usize,
@@ -200,13 +201,38 @@ fn fold(
             .unwrap_or_default(),
         evidence,
         note: last_note(span),
-        untrusted: span
-            .iter()
-            .any(|e| crate::context::untrusted_event(e, registry))
-            || crate::context::untrusted_summary(&events[..=closed]),
+        untrusted: tainted(events, started, closed, registry),
         started,
         closed,
     })
+}
+
+/// Whether anything untrusted was in the prompt's view at any point of the goal: what the turn's
+/// rule counts in view (every untrusted event since the last compaction, and a summary drawn from
+/// untrusted content), applied from the goal's start to its close. So content read before the
+/// goal started counts while no compaction had left it out, and so does every summary in effect
+/// during the goal, not only the last.
+fn tainted(events: &[Event], started: usize, closed: usize, registry: &Registry) -> bool {
+    let compaction = |event: &Event| match event {
+        Event::Known(Known::ContextCompacted {
+            keep_from,
+            untrusted,
+            ..
+        }) => Some((*keep_from, *untrusted)),
+        _ => None,
+    };
+    let (from, summary) = events[..started]
+        .iter()
+        .rev()
+        .find_map(compaction)
+        .map_or((0, false), |(keep_from, untrusted)| {
+            (keep_from.min(started), untrusted)
+        });
+    summary
+        || events[from..=closed].iter().any(|event| {
+            crate::context::untrusted_event(event, registry)
+                || compaction(event).is_some_and(|(_, untrusted)| untrusted)
+        })
 }
 
 /// The event holding the result of call or job `call`.

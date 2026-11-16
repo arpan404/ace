@@ -414,6 +414,63 @@ fn an_open_goal_has_no_episode_and_untrusted_reading_marks_one() {
     assert!(due[0].untrusted);
 }
 
+fn compacted(keep_from: usize, untrusted: bool) -> Event {
+    k(Known::ContextCompacted {
+        summary: "s".into(),
+        keep_from,
+        tokens_before: 0,
+        images_left_out: None,
+        untrusted,
+        carried: None,
+    })
+}
+
+fn ended(goal: &str) -> Event {
+    k(Known::GoalCleared {
+        goal: goal.into(),
+        failed: false,
+    })
+}
+
+#[test]
+fn a_page_read_before_the_goal_taints_its_episode_until_a_compaction_leaves_it_out() {
+    let page = || {
+        vec![
+            step("c0", "web_fetch", json!({ "url": "https://x.test" })),
+            result("c0", "web_fetch"),
+        ]
+    };
+    // Read just before the goal started: still in the prompt's view during it.
+    let mut events = page();
+    events.extend(worked_on("g1"));
+    events.push(ended("g1"));
+    assert!(episode::due(&events, &registry())[0].untrusted);
+
+    // A compaction before the goal left the page out, with a clean summary: the goal never saw it.
+    let mut events = page();
+    events.push(compacted(2, false));
+    events.extend(worked_on("g1"));
+    events.push(ended("g1"));
+    assert!(!episode::due(&events, &registry())[0].untrusted);
+
+    // The summary in effect when the goal started was drawn from the page.
+    let mut events = page();
+    events.push(compacted(2, true));
+    events.extend(worked_on("g1"));
+    events.push(ended("g1"));
+    assert!(episode::due(&events, &registry())[0].untrusted);
+
+    // A tainted summary in effect for part of the goal counts, even when a later compaction's
+    // own summary reads as clean.
+    let mut events = worked_on("g1");
+    let at = events.len();
+    events.push(compacted(at, true));
+    events.push(step("c9", "shell", json!({ "command": "ls" })));
+    events.push(compacted(at + 1, false));
+    events.push(ended("g1"));
+    assert!(episode::due(&events, &registry())[0].untrusted);
+}
+
 #[test]
 fn the_topic_index_is_fixed_until_the_next_compaction() {
     let indexed = |text: &str| k(Known::KnowledgeIndexed { text: text.into() });

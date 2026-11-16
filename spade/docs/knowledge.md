@@ -118,8 +118,9 @@ goal, and each conversation is checked again before its first model call after a
 
 `decisions` are the bot's own `decision` entries written while the goal was open; `note` is the
 bot's last `task_status` note, its own words; cost is the spend recorded for the conversation
-between the goal's start and close. An episode with `untrusted` (something untrusted was read
-during the goal), or a worker's, is shown to a bot as data in `<untrusted>` tags.
+between the goal's start and close. An episode with `untrusted` (something untrusted was in the
+prompt's view at some point of the goal: any untrusted event since the last compaction before
+it started, or a summary drawn from untrusted content in effect during it), or a worker's, is shown to a bot as data in `<untrusted>` tags.
 
 ## Hygiene and bounds
 
