@@ -25,16 +25,16 @@ and the same steps run whole on the signer and the device.
 
 ## The checks
 
-| Check       | What it reads |
-| ----------- | ------------- |
+| Check       | What it reads                                                                                                                                                                                                                                                                       |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `files`     | Native programs by magic bytes (Mach-O incl. fat, ELF, PE, Java class), WASM outside a plugin, compiled AppleScript, nested archives (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg), an executable bit where the type has none, and a Suit holding anything but its own file kinds. |
-| `scripts`   | Skill scripts, plugin hook and stdio server commands, and recipe-bundled skills, read through the shell reader and by token patterns. Rule table in `rules-scripts.ts`. |
-| `scene`     | A Suit's scene JS: network, workers and shared memory, `eval`/`Function`/string timers, WebAssembly, parent-frame access, and loops with no yield. |
-| `plugin`    | A plugin's declared commands and hosts against what its files hold and do. Rule table in `rules-plugin.ts`. |
-| `recipe`    | A recipe's needs against its task, and prompt injection in the task, notes and `SKILL.md`. Rule table in `rules-recipe.ts`; also run over skills and plugins so their `SKILL.md` is read. |
-| `secrets`   | `secrets.ts`'s key, token and credential-file patterns over every text file. |
-| `hidden`    | Bidirectional controls and zero-width or tag characters in code and names, mixed-script words in titles and display names, typosquats by confusable skeleton, and a title reading as "ace". |
-| `known-bad` | The maintainers' signed blocklist: content hash, file sha256 and literal patterns. |
+| `scripts`   | Skill scripts, plugin hook and stdio server commands, and recipe-bundled skills, read through the shell reader and by token patterns. Rule table in `rules-scripts.ts`.                                                                                                             |
+| `scene`     | A Suit's scene JS: network, workers and shared memory, `eval`/`Function`/string timers, WebAssembly, parent-frame access, and loops with no yield.                                                                                                                                  |
+| `plugin`    | A plugin's declared commands and hosts against what its files hold and do. Rule table in `rules-plugin.ts`.                                                                                                                                                                         |
+| `recipe`    | A recipe's needs against its task, and prompt injection in the task, notes and `SKILL.md`. Rule table in `rules-recipe.ts`; also run over skills and plugins so their `SKILL.md` is read.                                                                                           |
+| `secrets`   | `secrets.ts`'s key, token and credential-file patterns over every text file.                                                                                                                                                                                                        |
+| `hidden`    | Bidirectional controls and zero-width or tag characters in code and names, mixed-script words in titles and display names, typosquats by confusable skeleton, and a title reading as "ace".                                                                                         |
+| `known-bad` | The maintainers' signed blocklist: content hash, file sha256 and literal patterns.                                                                                                                                                                                                  |
 
 ### Reading scripts
 
@@ -67,10 +67,10 @@ its own (`rule.ts`, `script-view.ts`):
 The corpus is written for these tests; no sample runs and none carries real malware. The benign
 samples are in `corpus-benign.ts`, the malicious ones in `corpus-malicious.ts`.
 
-| Corpus | Samples | Result |
-| ------ | ------- | ------ |
-| Malicious (`corpus-malicious.ts`) | 85 across 24 categories | **100% caught** (every sample blocked or held), every category covered |
-| Benign (`corpus-benign.ts`) | 40 skills, plugins, Suits and recipes | **0 blocked, 0 warned** (0% false positives) |
+| Corpus                            | Samples                               | Result                                                                 |
+| --------------------------------- | ------------------------------------- | ---------------------------------------------------------------------- |
+| Malicious (`corpus-malicious.ts`) | 85 across 24 categories               | **100% caught** (every sample blocked or held), every category covered |
+| Benign (`corpus-benign.ts`)       | 40 skills, plugins, Suits and recipes | **0 blocked, 0 warned** (0% false positives)                           |
 
 Detection counts a sample as caught when `disposition` returns something other than `list` for an
 ordinary publisher (`newPublisher: false`), i.e. the scan itself blocked or held it, never relying

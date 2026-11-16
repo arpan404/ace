@@ -236,22 +236,22 @@ describe("the plugin rules", () => {
   });
 });
 
-describe("each check's sentence", () => {
-  const reportOf = (files: Record<string, string>) => {
-    const all = folder({ "SKILL.md": skillMd("chore"), ...files });
-    const checked = checkFiles("spade-skill", "chore", all);
-    return scanEntry({
-      type: "spade-skill",
-      name: "chore",
-      files: all,
-      listing: checked.listing,
-      inspection: checked.inspection,
-      context: { entries: [], verified: [] },
-    });
-  };
-  const sentence = (report: ReturnType<typeof reportOf>, id: string) =>
-    report.checks.find((check) => check.id === id)?.sentence;
+const reportOf = (files: Record<string, string>) => {
+  const all = folder({ "SKILL.md": skillMd("chore"), ...files });
+  const checked = checkFiles("spade-skill", "chore", all);
+  return scanEntry({
+    type: "spade-skill",
+    name: "chore",
+    files: all,
+    listing: checked.listing,
+    inspection: checked.inspection,
+    context: { entries: [], verified: [] },
+  });
+};
+const sentence = (report: ReturnType<typeof reportOf>, id: string) =>
+  report.checks.find((check) => check.id === id)?.sentence;
 
+describe("each check's sentence", () => {
   it("says what a clean check passed", () => {
     const report = reportOf(shell("echo tidy"));
     expect(sentence(report, "files")).toBe("No programs or archives inside.");
