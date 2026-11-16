@@ -3,7 +3,7 @@ import { ThreadId } from "@ace/protocol";
 import { faceForId } from "@ace/ui-core/bot-face";
 import {
   spadeMoney,
-  spadeWhen,
+  spadePastTime,
   spadeWorkersSpend,
   type SpadeAvatar,
   type SpadeDecision,
@@ -210,7 +210,7 @@ export function WorkDecisions(props: {
             <span
               className={cn("text-xs leading-5 text-subtle-foreground tabular-nums", revealedAway)}
             >
-              {spadeWhen(decision.at, now, zone)}
+              {spadePastTime(decision.at, { now, timeZone: zone })}
             </span>
             <button
               type="button"
