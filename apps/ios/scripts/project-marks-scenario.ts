@@ -70,8 +70,8 @@ export function seedProjectMarks(daemon: FakeDaemon, machine: Machine): void {
       workspace: { id: "billing", name: "billing-reconciliation-service", path: "/tmp/billing" },
       branch: "fix/payout-retries",
       machine,
+      diff: { files: 3, additions: 42, deletions: 7 },
     },
-    diff: { files: 3, additions: 42, deletions: 7 },
   });
   daemon.apply("ios-long-project", [
     facts.rootAgent("claude"),
