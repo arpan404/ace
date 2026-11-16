@@ -19,7 +19,9 @@ const shells = new Set([
   "bash",
   "zsh",
   "dash",
+  "ash",
   "ksh",
+  "mksh",
   "fish",
   "python",
   "python2",
@@ -149,7 +151,8 @@ const downloadExec: ScriptRule = {
       ...matching(
         view,
         [
-          /\b(?:eval|source|(?:ba|z|da|k)?sh\s+-c)\s+["']?\$\(\s*(?:curl|wget)\b/i,
+          // A multi-call applet (`busybox sh -c "$(busybox wget …)"`) reads as the applet.
+          /\b(?:eval|source|(?:ba|z|da|k|a)?sh\s+-c)\s+["']?\$\(\s*(?:(?:busybox|toybox)\s+)?(?:curl|wget)\b/i,
           new RegExp(`${shellReadsSubstitution}(?:curl|wget|fetch|aria2c|iwr|irm)\\b`, "i"),
         ],
         message,

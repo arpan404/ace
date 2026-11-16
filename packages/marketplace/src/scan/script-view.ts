@@ -191,6 +191,8 @@ const INTERPRETER_LANGUAGE: ReadonlyMap<string, ScriptLanguage> = new Map<string
   ["bash", "shell"],
   ["zsh", "shell"],
   ["dash", "shell"],
+  ["ash", "shell"],
+  ["mksh", "shell"],
   ["ksh", "shell"],
   ["source", "shell"],
   [".", "shell"],

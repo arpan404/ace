@@ -4,7 +4,9 @@
  * escapes undone, pipes, `$(…)`, `sh -c` strings and the wrappers that run another command
  * (`env`, `sudo`, `nohup`, `xargs`, `timeout`, `exec`, `command`, `nice`…) unwrapped to what they
  * run, with `${IFS}` and empty quotes folded first, so `c''url ${IFS}x|b\ash` reads as
- * `curl x | bash`. Backticks, process substitution `<(…)` and anything else it can't read for
+ * `curl x | bash`. A multi-call binary (`busybox sh x`, `toybox wget …`) reads as its applet, and
+ * a program it can't resolve that is handed an interpreter or a script (`./runner bash x`) is
+ * marked unreadable, so it is held, never passed (ADR 0173 §8, fail closed). Backticks, process substitution `<(…)` and anything else it can't read for
  * sure leave the whole command `unreadable`, which is itself a finding the rules act on. Pure.
  *
  * Ported from our own code; the implementation is written fresh here. It keeps the parser's
@@ -124,6 +126,39 @@ const ELEVATE: ReadonlyMap<string, string[]> = mapOf({
   runuser: ["-u", "-g", "-G", "--user", "--group"],
   su: ["-s", "-g", "-G", "--shell", "--group"],
 });
+
+/**
+ * Multi-call binaries that run the applet named by their first argument (`busybox sh x` is
+ * `sh x`, `toybox wget …` is `wget …`). The applet is read as the program, so every rule sees the
+ * real interpreter or fetcher. `busybox` alone, or with only its own flags, is kept as it is.
+ */
+const MULTI_CALL = /^(?:busybox|toybox)(?:[.-][a-z0-9]+)?$/;
+
+/**
+ * Programs whose arguments are data, never a command they run: a word like `sh` or a path to a
+ * script after one of them is an argument, not a wrapped command. Outside this list (and the
+ * known interpreters and wrappers), a program handed an interpreter or a script is a wrapper the
+ * reader can't resolve, and is held (ADR 0173 §8, fail closed).
+ */
+const LEAVES = new Set(
+  [
+    "echo printf cat tac less more head tail ls grep egrep fgrep rg ag cp mv rm ln mkdir",
+    "rmdir touch chmod chown chgrp install stat file wc sort uniq cut tr sed diff cmp tee",
+    "test [ [[ which type whereis hash basename dirname realpath readlink du df tar zip unzip",
+    "gzip gunzip md5sum sha256sum shasum shellcheck shfmt man info help cd pushd popd pwd",
+    "export unset alias read set local declare readonly return exit true false trap wait kill",
+    "pkill killall pgrep ps git vi vim nvim nano code open mktemp date sleep seq yes id",
+    "whoami uname hostname brew apt apt-get dnf yum pacman curl wget aria2c http https",
+  ]
+    .join(" ")
+    .split(" "),
+);
+
+/** Extensions of files a program may run as a script. */
+const SCRIPT_PATH =
+  /\.(?:sh|bash|zsh|ksh|dash|py|pyw|js|mjs|cjs|ts|rb|pl|php|lua|ps1|command|applescript)$/i;
+/** Places a dropped payload usually lives: any path there is treated as a script. */
+const DROP_DIR = /^(?:\/tmp|\/var\/tmp|\/dev\/shm|\/private\/tmp)\//;
 
 function basename(word: string): string {
   const slash = word.lastIndexOf("/");
@@ -517,6 +552,21 @@ function unwrap(simple: Simple, depth: number, ctx: Ctx): Simple[] {
       }
     }
 
+    if (MULTI_CALL.test(program)) {
+      // `busybox --` and the binary's own flags come before the applet; no applet, keep it.
+      const rest = simple.words.slice(1);
+      while (rest[0] !== undefined && rest[0].startsWith("-")) rest.shift();
+      if (rest.length > 0) {
+        simple.words = rest;
+        continue;
+      }
+      out.push(simple);
+      return out;
+    }
+
+    if (program === "find" && findExecRunsInterpreter(simple.words)) ctx.unreadable = true;
+    else if (handsOffCommand(program, simple.words)) ctx.unreadable = true;
+
     // A shell or interpreter at the end of a pipe (`curl … | sh`) is an ordinary pipe to the
     // scanner: the command is kept with `piped: true`, so the view gives the previous command its
     // `pipedInto`, and nothing is marked unreadable for it.
@@ -524,6 +574,37 @@ function unwrap(simple: Simple, depth: number, ctx: Ctx): Simple[] {
     return out;
   }
 }
+
+/** Whether `find … -exec`/`-execdir`/`-ok` runs an interpreter on what it finds. */
+function findExecRunsInterpreter(words: readonly string[]): boolean {
+  return words.some(
+    (word, index) =>
+      (word === "-exec" || word === "-execdir" || word === "-ok" || word === "-okdir") &&
+      INTERPRETERS.has(basename(words[index + 1] ?? "")),
+  );
+}
+
+/**
+ * Whether `words`, a command whose program is no interpreter, wrapper or known leaf, has the
+ * shape of a wrapper: its first argument past its flags is an interpreter (`runner sh x`) or a
+ * script (`launcher /tmp/x.sh`). What such a program runs can't be resolved, so it is held.
+ */
+function handsOffCommand(program: string, words: readonly string[]): boolean {
+  if (LEAVES.has(program) || INTERPRETERS.has(program) || WRAPPERS.has(program)) return false;
+  if (ELEVATE.has(program) || KEYWORDS.has(program)) return false;
+  let at = 1;
+  while (at < words.length && (words[at] ?? "").startsWith("-")) at++;
+  const operand = words[at];
+  if (operand === undefined) return false;
+  if (INTERPRETERS.has(basename(operand)) || HANDOFF_INTERPRETERS.has(basename(operand)))
+    return true;
+  // A path to a script, or an extensionless file where payloads are dropped (`/tmp/x`).
+  if (SCRIPT_PATH.test(operand)) return /^\.{0,2}\//.test(operand);
+  return DROP_DIR.test(operand) && !/\.[A-Za-z0-9]+$/.test(basename(operand));
+}
+
+/** Interpreters outside {@link INTERPRETERS} a wrapper might be handed. */
+const HANDOFF_INTERPRETERS = new Set(["python2", "pwsh", "powershell", "tclsh", "source"]);
 
 /** Reads `command` into simple commands; `unreadable` is set when any part could not be read. */
 export function readShell(command: string): ReadShell {
