@@ -1,14 +1,6 @@
-import {
-  BotsIcon,
-  CoatHangerIcon,
-  CompassIcon,
-  MagnifyingGlassIcon,
-  PuzzlePieceIcon,
-  SquaresLinkedIcon,
-  TrayCheckIcon,
-  type Icon,
-} from "@ace/icons";
+import { MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { part } from "@/lib/suit-part.ts";
 import type { MarketPlace } from "./market-address.ts";
 import { useMarketInstalled } from "./market-api.ts";
@@ -24,12 +16,12 @@ import { useMarketNav } from "./market-nav.ts";
  * three rows by the modal's width (market-widths.css).
  */
 
-const places: readonly { id: MarketPlace; name: string; icon: Icon }[] = [
-  { id: "discover", name: "Discover", icon: CompassIcon },
-  { id: "looks", name: "Looks", icon: CoatHangerIcon },
-  { id: "bots", name: "Bots", icon: BotsIcon },
-  { id: "tools", name: "Tools", icon: PuzzlePieceIcon },
-  { id: "apps", name: "Apps", icon: SquaresLinkedIcon },
+const places: readonly { id: MarketPlace; name: string }[] = [
+  { id: "discover", name: "Discover" },
+  { id: "looks", name: "Looks" },
+  { id: "bots", name: "Bots" },
+  { id: "tools", name: "Tools" },
+  { id: "apps", name: "Apps" },
 ];
 
 const placeholders: Readonly<Record<MarketPlace, string>> = {
@@ -65,7 +57,6 @@ export function MarketBar(props: {
       aria-current={current("installed")}
       onClick={() => nav.go("installed")}
     >
-      <TrayCheckIcon aria-hidden size={16} />
       Installed
       {installed && <span className="mk-count">{updates || installed.length}</span>}
     </button>
@@ -91,7 +82,6 @@ export function MarketBar(props: {
             aria-current={current(place.id)}
             onClick={() => nav.go(place.id)}
           >
-            <place.icon aria-hidden size={16} weight={current(place.id) ? "fill" : "regular"} />
             {place.name}
           </button>
         ))}
@@ -141,9 +131,14 @@ export function MarketBar(props: {
           </Button>
         ) : null}
       </span>
-      <Button variant="ghost" className="mk-bar-close" title="Close (Esc)" onClick={props.onClose}>
-        Close
-      </Button>
+      <IconButton
+        icon={XIcon}
+        label="Close"
+        keys="Esc"
+        resolve={false}
+        className="mk-bar-close"
+        onClick={props.onClose}
+      />
     </header>
   );
 }

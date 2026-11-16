@@ -1,4 +1,3 @@
-import { CardsIcon, TrendUpIcon, UserSquareIcon } from "@ace/icons";
 import { part } from "@/lib/suit-part.ts";
 import { Card, CardItem, Cards, Section, publisherName } from "./market-card.tsx";
 import type {
@@ -21,7 +20,7 @@ import { Stage } from "./market-stage.tsx";
 export function TrendingSection(props: { rows: readonly MarketTrendingView[] }) {
   if (!props.rows.length) return null;
   return (
-    <Section title="Trending this week" icon={TrendUpIcon}>
+    <Section title="Trending this week">
       <ol
         className="mk-ranked"
         aria-label="Trending this week"
@@ -157,7 +156,7 @@ export function RankedSections(props: {
     );
   if (props.where === "collections")
     return discover.collections.length ? (
-      <Section title="Collections" icon={CardsIcon}>
+      <Section title="Collections">
         <Cards cols={2} shelf label="Collections">
           {discover.collections.slice(0, 2).map((collection) => (
             <CollectionCard key={collection.id} collection={collection} />
@@ -166,7 +165,7 @@ export function RankedSections(props: {
       </Section>
     ) : null;
   return discover.publishers.length ? (
-    <Section title="Top publishers" icon={UserSquareIcon}>
+    <Section title="Top publishers">
       <Cards cols={4} shelf label="Top publishers">
         {discover.publishers.slice(0, 4).map((publisher) => (
           <PublisherCard key={publisher.handle} publisher={publisher} />

@@ -181,6 +181,13 @@
     color: var(--foreground);
     background: var(--hover);
   }
+  .mk-tab:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+  }
+  .mk-tab:focus:not(:focus-visible) {
+    outline: none;
+  }
   .mk-tab[aria-current="page"] {
     background: var(--active);
     color: var(--foreground);
@@ -190,10 +197,6 @@
     color: var(--mk-subtle);
     font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
-  }
-  .mk-tab svg {
-    width: 16px;
-    height: 16px;
   }
   .mk-search {
     grid-area: search;
@@ -240,7 +243,7 @@
   }
   .mk-bar-close {
     grid-area: close;
-    margin-right: -12px;
+    margin-right: -4px;
   }
   .mk-tabs .mk-phone-only {
     display: none;

@@ -1,5 +1,4 @@
 import type { SpadeCatalogueEntry, SpadeConnector } from "@ace/ui-core/spade-chat";
-import { SquaresLinkedIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button.tsx";
 import { useSpadeConnectors } from "@/features/spade/index.ts";
@@ -109,7 +108,7 @@ export function AppsShelf() {
   const all = apps ? [...apps.connected, ...apps.rest] : [];
   if (!all.length) return null;
   return (
-    <Section title="Apps" icon={SquaresLinkedIcon} all={() => nav.go("apps")}>
+    <Section title="Apps" all={() => nav.go("apps")}>
       <AppColumns apps={all.slice(0, 6)} label="Apps" />
     </Section>
   );

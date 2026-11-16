@@ -1,5 +1,4 @@
 import type { MarketEntrySummary } from "@ace/protocol/marketplace";
-import { BotsIcon, CoatHangerIcon, PuzzlePieceIcon, type Icon } from "@ace/icons";
 import { AppsShelf } from "./market-apps.tsx";
 import { useMarketHome, useMarketSearch } from "./market-api.ts";
 import type { MarketPlace } from "./market-address.ts";
@@ -24,7 +23,6 @@ const key = (entry: MarketEntrySummary) => `${entry.source}/${entry.type}/${entr
 
 function Shelf(props: {
   title: string;
-  icon: Icon;
   types: readonly string[];
   cols: 3 | 4;
   place: MarketPlace;
@@ -34,7 +32,7 @@ function Shelf(props: {
   const entries = found.data?.entries.slice(0, props.cols) ?? [];
   if (!entries.length) return null;
   return (
-    <Section title={props.title} icon={props.icon} all={() => nav.go(props.place)}>
+    <Section title={props.title} all={() => nav.go(props.place)}>
       <Cards cols={props.cols} shelf label={props.title}>
         {entries.map((entry) => (
           <CardItem key={key(entry)}>
@@ -59,12 +57,10 @@ export function DiscoverPage(props: { query: string }) {
     <div className="mk-inner">
       {featured.length > 0 && <Hero featured={featured} />}
       <RankedSections discover={discover} where="top" spade={spade} />
-      {!spade && (
-        <Shelf title="Looks" icon={CoatHangerIcon} types={lookTypes} cols={3} place="looks" />
-      )}
-      <Shelf title="Bots" icon={BotsIcon} types={botTypes} cols={4} place="bots" />
+      {!spade && <Shelf title="Looks" types={lookTypes} cols={3} place="looks" />}
+      <Shelf title="Bots" types={botTypes} cols={4} place="bots" />
       <RankedSections discover={discover} where="collections" spade={spade} />
-      <Shelf title="Tools" icon={PuzzlePieceIcon} types={toolTypes} cols={4} place="tools" />
+      <Shelf title="Tools" types={toolTypes} cols={4} place="tools" />
       <AppsShelf />
       <RankedSections discover={discover} where="publishers" spade={spade} />
     </div>

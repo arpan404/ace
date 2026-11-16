@@ -1,5 +1,4 @@
 import type { MarketEntrySummary } from "@ace/protocol/marketplace";
-import type { Icon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { part } from "@/lib/suit-part.ts";
 import { typeWord } from "./market-model.ts";
@@ -125,13 +124,11 @@ export function ResultRow(props: { entry: MarketEntrySummary }) {
 /** A titled section of a page; `all` is its "See all" (a place), `meta` a quiet count. */
 export function Section(props: {
   title: string;
-  icon?: Icon | undefined;
   first?: boolean | undefined;
   all?: (() => void) | undefined;
   meta?: ReactNode;
   children: ReactNode;
 }) {
-  const Glyph = props.icon;
   return (
     <section
       {...part("page-section", undefined, "market")}
@@ -140,10 +137,7 @@ export function Section(props: {
       aria-label={props.title}
     >
       <div className="mk-section-head">
-        <h2 className="mk-h2">
-          {Glyph && <Glyph aria-hidden size={18} />}
-          {props.title}
-        </h2>
+        <h2 className="mk-h2">{props.title}</h2>
         {props.all ? (
           <button type="button" className="mk-quiet" onClick={props.all}>
             See all
