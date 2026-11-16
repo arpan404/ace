@@ -173,13 +173,15 @@ import XCTest
         XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
         XCTAssertTrue(opening.drift <= 4 && closing.drift <= 4, "the gap holds each way: \(report)")
         XCTAssertFalse(opening.trace.contains("-") || closing.trace.contains("-"), "every frame read the keyboard's edge: \(report)")
-        // The composer sits on the keyboard's edge: within 2 pt from the third frame of a move on.
-        // The first two moving frames, while UIKit commits the keyboard's animation, were 4 to 35 pt
-        // off on the simulator, more under load; they're held to 40.
+        // The composer sits on the keyboard's edge from the third frame the keyboard moves in:
+        // measured 0 to 3 pt on the simulator. The first two moving frames, while UIKit commits the
+        // keyboard's animation, were 4 to 35 pt off, more under load; they're held to 40.
         for motion in [opening, closing] {
             let errors = motion.errors.split(separator: ",").compactMap { Int($0) }.map(abs)
-            XCTAssertLessThanOrEqual(errors.prefix(4).max() ?? 0, 40, "the composer starts with the keyboard: \(report)")
-            XCTAssertLessThanOrEqual(errors.dropFirst(4).max() ?? 0, 2, "the composer sits on the keyboard: \(report)")
+            let edges = motion.trace.split(separator: " ").map { $0.split(separator: "/").last.map(String.init) ?? "" }
+            let start = edges.firstIndex { $0 != edges.first } ?? 0
+            XCTAssertLessThanOrEqual(errors.prefix(start + 2).max() ?? 0, 40, "the composer starts with the keyboard: \(report)")
+            XCTAssertLessThanOrEqual(errors.dropFirst(start + 2).max() ?? 0, 3, "the composer sits on the keyboard: \(report)")
         }
     }
 

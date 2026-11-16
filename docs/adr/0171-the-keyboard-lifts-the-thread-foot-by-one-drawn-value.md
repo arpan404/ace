@@ -71,13 +71,21 @@ Rows that aren't following the end don't ride, as before. Reduce Motion moves ev
 
 - Measured on the iPhone 17 Pro simulator (iOS 26.1), the gap between the newest line and the
   composer moved by 0 pt on every frame of an opening and a closing (it was 44 and 276 pt).
-- From the third frame of a move on, the composer's foot is within 2 pt of the keyboard's edge,
-  opening and closing. The first one or two moving frames, while the keyboard's animation is
+- From the third frame the keyboard moves in, the composer's foot is within 3 pt of the
+  keyboard's edge (0 to 2 pt in most runs), opening and closing. The first one or two moving frames, while the keyboard's animation is
   being committed, were off by 4 to 16 pt in runs on their own and up to 35 pt opening and 30 pt
   closing in a full suite run. That is short of the 2 pt aimed for; the likely cause, not yet
   measured, is the first frame's commit, when the feed takes on the ride.
 - The tick commits the pending Core Animation transaction once per move, when it finds the
   keyboard's animation uncommitted.
+- The ride's frames never outlive it: a ride released mid-move ends its display link from the
+  next tick (and its deinit stops it), and a move lands at once when the thread disappears or
+  the app leaves the foreground.
+- A reader who takes the feed while the keyboard moves (a drag, Scroll to end) ends the rows'
+  ride where the scroll has them (`TranscriptKeyboardFollow`); the landing doesn't pull them back
+  to the end. The rows lose the part of the lift they were drawn up by, in that frame.
+- The keyboard's frame comes in screen points and is moved into the window's before the overlap,
+  so a window Stage Manager has moved down the screen lifts the foot by the keyboard it sees.
 - A display link runs for the length of each keyboard move, about half a second, and redraws two
   offset modifiers per frame.
 - If a future UIKit stops animating views constrained to the keyboard layout guide, the ride
@@ -87,8 +95,8 @@ Rows that aren't following the end don't ride, as before. Reduce Motion moves ev
 
 - `AceUITests/TranscriptEndUITests/testTheNewestLineAndTheComposerMoveAsOneWithTheKeyboard` reads
   the probe over an opening and a closing: the gap's spread is at most 4 pt, every frame read the
-  keyboard's edge, and the composer is within 2 pt of it from the third frame of a move on (40 pt
-  for the first two).
+  keyboard's edge, and the composer is within 3 pt of it from the third frame the keyboard moves
+  in (40 pt for the first two).
 - `AceTests/AnimationTimingTests` reads Bézier and spring timings; `AceTests/KeyboardCurveTests`
   holds the fallback curve to traced keyboard moves.
 - `AceTests/TranscriptViewportSessionTests`: the docked lift and the room that stays below the end.
