@@ -276,6 +276,8 @@ impl Transcript {
             | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }
+            | Known::KnowledgeIndexed { .. }
+            | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
             | Known::CapReached { .. }

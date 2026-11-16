@@ -76,6 +76,11 @@ pub enum Known {
     MemoryIndexed {
         text: String,
     },
+    /// The topic index of the bot's knowledge base for the cached top (ADR 0164), stored before
+    /// the first model call and once after each compaction, like `memory_indexed`.
+    KnowledgeIndexed {
+        text: String,
+    },
     /// `ask_user`: the bot asked the person (ADR 0154). The turn waits for the answer unless a
     /// `question_deferred` follows. `question` is the prompts, one per line; `questions` holds
     /// each with its kind (absent on events stored before kinds: one `text` question).
@@ -283,9 +288,18 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         verifier: Option<String>,
     },
-    /// The person ended the goal without it being done (ADR 0159).
+    /// The person ended the goal without it being done (ADR 0159); `failed` when they ended it
+    /// as failed (ADR 0164), which its episode records.
     GoalCleared {
         goal: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
+    },
+    /// A closed goal's episode was stored (ADR 0164): what worked, what failed, what it cost.
+    /// Stored once per goal, after the episode itself.
+    EpisodeStored {
+        goal: String,
+        episode: String,
     },
     /// One change to the goal's plan (ADR 0159), from a `task_plan` call Spade accepted.
     PlanChanged {

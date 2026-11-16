@@ -264,7 +264,7 @@ impl Task {
                         }
                     }
                 }
-                Known::GoalCleared { goal } => {
+                Known::GoalCleared { goal, .. } => {
                     if let Some(t) = task.as_mut().filter(|t| t.goal.id == *goal) {
                         t.goal.closed.get_or_insert(Closed::Cleared);
                     }

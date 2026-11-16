@@ -14,6 +14,7 @@ pub mod goal;
 pub mod group;
 pub mod helper;
 pub mod hooks;
+pub mod knowledge;
 pub mod maintenance;
 pub mod memory;
 pub mod oversight;
