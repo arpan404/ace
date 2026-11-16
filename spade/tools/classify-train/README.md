@@ -32,16 +32,22 @@ calls a model, a provider or the network.
 
 Each family's variants (shell) or base names (tools) are split about 60/20/20 between training,
 validation and test, and filled from separate halves of every value list (`vocab.rs`), so no form
-or value crosses sets. Validation sets the temperature and both thresholds:
+or value crosses sets. Validation alone sets the temperature and both thresholds:
 
 - **settle as low-risk** at the lowest probability above every risky validation call, never
-  below 0.95;
+  below a fixed floor of 0.95;
 - **raise to the person** at the lowest probability with at least 98% precision on validation,
   never below 0.6.
+
+The floor was raised from 0.90 after looking at the first test sets, so those are no longer a
+clean measure. The clean one is the **fresh sets** (`fresh.rs`, `--fresh-seed`, 2026 by default):
+shell variants, tool names and values written after that look, none in any earlier set (a test
+checks it), used for nothing but measuring. Don't tune on them; when they have been looked at to
+change something, write a new fresh pool.
 
 Besides the threshold, the model never settles a call that points outside the bot's folders, hides
 what it runs, or has a program, subcommand or flag never seen in a low-risk training command.
 
-The shipped model is then retrained on every template with those settings. The tricks and
-misleading tool names held out of training stay out of it as its own check. `REPORT.md` has every
+The shipped model is then retrained on every earlier template with those settings. The tricks and
+misleading tool names held out of training, and the fresh sets, stay out of it. `REPORT.md` has every
 measure.

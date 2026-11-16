@@ -10,6 +10,8 @@ use crate::rng::Rng;
 pub enum Half {
     Train,
     Held,
+    /// The fresh pool (`fresh::VALUES`), for the fresh sets only.
+    Fresh,
 }
 
 const LISTS: &[(&str, &[&str])] = &[
@@ -296,8 +298,23 @@ fn list(name: &str) -> &'static [&'static str] {
         .map_or(&[][..], |(_, l)| *l)
 }
 
+/// Every value of list `name`, both halves.
+#[cfg(test)]
+pub fn all(name: &str) -> &'static [&'static str] {
+    list(name)
+}
+
 /// A value from list `name`, from its `half`.
 pub fn value(name: &str, half: Half, rng: &mut Rng) -> String {
+    if half == Half::Fresh && !CLOSED.contains(&name) {
+        let fresh = crate::fresh::VALUES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map_or(&[][..], |(_, l)| *l);
+        if !fresh.is_empty() {
+            return (*rng.pick(fresh)).to_owned();
+        }
+    }
     let items = list(name);
     if items.is_empty() {
         return name.to_owned();
@@ -307,7 +324,7 @@ pub fn value(name: &str, half: Half, rng: &mut Rng) -> String {
     }
     let offset = match half {
         Half::Train => 0,
-        Half::Held => 1,
+        Half::Held | Half::Fresh => 1,
     };
     let count = items.len().div_ceil(2).max(1);
     let mut at = rng.below(count) * 2 + offset;

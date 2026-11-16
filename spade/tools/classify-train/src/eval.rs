@@ -59,12 +59,18 @@ const PERSON_FLOOR: f32 = 0.6;
 /// The low-risk threshold: above every risky validation call the model could settle (any not
 /// pointing outside), with a margin, and never below [`LOW_FLOOR`].
 pub fn low_threshold(val: &[&Scored], t: f32) -> f32 {
+    (validation_low(val, t)).clamp(LOW_FLOOR, 0.999)
+}
+
+/// The low-risk threshold validation alone picks: just above every risky validation call the
+/// model could settle.
+pub fn validation_low(val: &[&Scored], t: f32) -> f32 {
     let worst = val
         .iter()
         .filter(|s| !LOW_RISK.contains(&s.label) && !s.outside)
         .map(|s| s.prediction(t).low_risk())
         .fold(0.0f32, f32::max);
-    (worst + 0.01).clamp(LOW_FLOOR, 0.999)
+    worst + 0.01
 }
 
 /// The person threshold: the lowest at which raising on validation is at least 98% precise,

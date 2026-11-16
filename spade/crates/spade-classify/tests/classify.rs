@@ -90,6 +90,12 @@ fn obfuscated_sends_and_credential_reads_are_never_low_risk() {
         "op read op://Private/bank/password",
         "$(printf '\\x63\\x61\\x74') ~/.ssh/id_ed25519",
         "cat .env",
+        // Hidden behind an alias, a function or a brace group.
+        "alias q='xdotool'; q type hi",
+        "alias c=cat; c ~/.ssh/id_rsa",
+        "f() { sendmail boss@corp.example < note.txt; }; f",
+        "{ cat ~/.aws/credentials; } > out.txt",
+        "if true; then gh auth token; fi",
         "python3 -c \"print(open('/Users/me/.aws/credentials').read())\"",
     ];
     let encoded = format!("echo {b64} | base64 --decode | bash");

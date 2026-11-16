@@ -11,6 +11,7 @@
 mod data;
 mod eval;
 mod fixtures;
+mod fresh;
 mod obfuscate;
 mod rng;
 mod shell_families;
@@ -32,23 +33,32 @@ use data::{Example, Input, Split};
 use eval::{Scored, measure, row};
 
 const DEFAULT_SEED: u64 = 172;
+/// The seed of the fresh held-out sets (`fresh.rs`).
+const DEFAULT_FRESH_SEED: u64 = 2026;
 
 fn main() {
     let mut seed = DEFAULT_SEED;
+    let mut fresh_seed = DEFAULT_FRESH_SEED;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut out = root.join("crates/spade-classify/model");
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--seed" => seed = args.next().and_then(|s| s.parse().ok()).unwrap_or(seed),
+            "--fresh-seed" => {
+                fresh_seed = args
+                    .next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(fresh_seed);
+            }
             "--out" => out = args.next().map(PathBuf::from).unwrap_or(out),
             _ => {
-                eprintln!("usage: classify-train [--seed N] [--out DIR]");
+                eprintln!("usage: classify-train [--seed N] [--fresh-seed N] [--out DIR]");
                 std::process::exit(2);
             }
         }
     }
-    if let Err(error) = run(seed, &root, &out) {
+    if let Err(error) = run(seed, fresh_seed, &root, &out) {
         eprintln!("classify-train: {error}");
         std::process::exit(1);
     }
@@ -127,17 +137,19 @@ fn score(model: &Model, examples: &[Example], vectors: &[spade_classify::Feature
 /// What the shipped model never trains on: the tricks and misleading tools held out of
 /// training, so it has a held-out check of its own.
 fn held_back(e: &Example) -> bool {
-    e.adversarial
-        && e.trick.is_some_and(|trick| {
-            matches!(trick, "misleading_name" | "disguised_name")
-                || obfuscate::TRANSFORMS
-                    .iter()
-                    .any(|t| t.name == trick && t.held_out)
-        })
+    e.split == Split::Fresh
+        || e.adversarial
+            && e.trick.is_some_and(|trick| {
+                matches!(trick, "misleading_name" | "disguised_name")
+                    || obfuscate::TRANSFORMS
+                        .iter()
+                        .any(|t| t.name == trick && t.held_out)
+            })
 }
 
-fn run(seed: u64, root: &Path, out: &Path) -> Result<(), String> {
-    let examples = data::build(seed, root);
+fn run(seed: u64, fresh_seed: u64, root: &Path, out: &Path) -> Result<(), String> {
+    let mut examples = data::build(seed, root);
+    examples.extend(data::fresh(fresh_seed));
     let vectors: Vec<spade_classify::Features> =
         examples.iter().map(|e| features(&e.subject())).collect();
     // The measured run: trained on training templates only; its validation set sets the
@@ -164,11 +176,26 @@ fn run(seed: u64, root: &Path, out: &Path) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     std::fs::write(out.join("weights.bin"), &file).map_err(|e| e.to_string())?;
     let mut report = report(seed, &examples, &scored, &measured);
+    let _ = writeln!(
+        report,
+        "\nValidation alone would put the low-risk threshold at {:.3}, just above its riskiest \
+         call that the code's checks let through. The fixed floor of 0.95 is stricter, and \
+         validation shows no risky call settled at either, so the floor is kept as the bound.",
+        eval::validation_low(&val, header.temperature)
+    );
     report.push_str(&shipped_report(
         &examples,
         &shipped_scored,
         &shipped,
         file.len(),
+    ));
+    report.push_str(&fresh_report(
+        fresh_seed,
+        &examples,
+        &[
+            ("measured", &scored, &measured),
+            ("shipped", &shipped_scored, &shipped),
+        ],
     ));
     std::fs::write(out.join("REPORT.md"), &report).map_err(|e| e.to_string())?;
     println!("{report}");
@@ -188,7 +215,9 @@ fn shipped_report(examples: &[Example], scored: &[Scored], model: &Model, bytes:
         model.id(),
         eval::HEADER
     );
-    let held = subset(examples, scored, held_back);
+    let held = subset(examples, scored, |e| {
+        held_back(e) && e.split != Split::Fresh
+    });
     let _ = writeln!(
         r,
         "{}",
@@ -217,6 +246,66 @@ fn shipped_report(examples: &[Example], scored: &[Scored], model: &Model, bytes:
             p.low_risk(),
             model.screen(&p)
         );
+    }
+    r
+}
+
+/// The fresh sets, for each model: the clean measure, since nothing was tuned on them.
+fn fresh_report(
+    fresh_seed: u64,
+    examples: &[Example],
+    models: &[(&str, &[Scored], &Model)],
+) -> String {
+    let mut r = String::new();
+    let _ = writeln!(
+        r,
+        "\n## Fresh held-out sets (seed {fresh_seed})\n\nBuilt from `fresh.rs`: shell variants, tool \
+         names and values written after the first test sets had been looked at, none in any \
+         earlier set, with every trick, and never used to choose anything. The thresholds come \
+         from validation alone.\n\n{}",
+        eval::HEADER
+    );
+    let sets: [(&str, Pick); 4] = [
+        (
+            "fresh, clean",
+            Box::new(|e| e.split == Split::Fresh && !e.adversarial),
+        ),
+        (
+            "fresh, adversarial",
+            Box::new(|e| e.split == Split::Fresh && e.adversarial),
+        ),
+        (
+            "fresh, adversarial shell",
+            Box::new(|e| e.split == Split::Fresh && e.adversarial && e.is_shell()),
+        ),
+        (
+            "fresh, adversarial tools",
+            Box::new(|e| e.split == Split::Fresh && e.adversarial && !e.is_shell()),
+        ),
+    ];
+    for (model_name, scored, model) in models {
+        for (name, keep) in &sets {
+            let items = subset(examples, scored, keep);
+            let _ = writeln!(
+                r,
+                "{}",
+                row(
+                    &format!("{model_name}: {name}"),
+                    &measure(model, &items, false)
+                )
+            );
+        }
+        for (name, keep) in &sets[..2] {
+            let items = subset(examples, scored, keep);
+            let _ = writeln!(
+                r,
+                "{}",
+                row(
+                    &format!("{model_name}: {name}, with the rules"),
+                    &measure(model, &items, true)
+                )
+            );
+        }
     }
     r
 }
@@ -281,11 +370,13 @@ fn report(seed: u64, examples: &[Example], scored: &[Scored], model: &Model) -> 
         h.person,
     );
     let mut counts: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    let mut labels: BTreeMap<&str, [usize; 3]> = BTreeMap::new();
+    let mut labels: BTreeMap<&str, [usize; 4]> = BTreeMap::new();
     for e in examples {
         let split = match e.split {
             Split::Train => "train",
             Split::Val => "validation",
+            Split::Fresh if e.adversarial => "fresh adversarial",
+            Split::Fresh => "fresh held-out",
             Split::Test if e.adversarial => "adversarial test",
             Split::Test if e.seen_form => "test, seen forms",
             Split::Test => "test",
@@ -295,6 +386,7 @@ fn report(seed: u64, examples: &[Example], scored: &[Scored], model: &Model) -> 
             Split::Train => 0,
             Split::Val => 1,
             Split::Test => 2,
+            Split::Fresh => 3,
         };
         labels.entry(e.label.name()).or_default()[at] += 1;
     }

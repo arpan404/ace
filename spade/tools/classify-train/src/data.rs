@@ -27,6 +27,8 @@ pub enum Split {
     Train,
     Val,
     Test,
+    /// The fresh held-out pool (`fresh.rs`), from its own seed.
+    Fresh,
 }
 
 #[derive(Debug, Clone)]
@@ -392,6 +394,74 @@ fn tools(seed: u64, out: &mut Vec<Example>) {
             );
         }
     }
+}
+
+/// How many clean examples each fresh family gets; shell ones get three obfuscated copies each.
+const FRESH_PER_FAMILY: usize = 60;
+
+/// The fresh held-out and adversarial sets, from `fresh_seed`: fresh variants, tool names and
+/// values only, with every trick (none composed with the earlier prefixes or suffixes).
+pub fn fresh(fresh_seed: u64) -> Vec<Example> {
+    let mut out = Vec::new();
+    for family in crate::fresh::SHELL {
+        let mut rng = Rng::stream(fresh_seed, family.name);
+        for i in 0..FRESH_PER_FAMILY {
+            let variant = family.variants[i % family.variants.len()];
+            let command = expand(variant, Half::Fresh, &mut rng);
+            for _ in 0..3 {
+                if let Some((hidden, name)) = trick(&command, true, &mut rng) {
+                    out.push(Example {
+                        input: Input::Shell(hidden),
+                        label: family.label,
+                        family: family.name,
+                        source: "shell",
+                        split: Split::Fresh,
+                        trick: Some(name),
+                        adversarial: true,
+                        seen_form: false,
+                    });
+                }
+            }
+            out.push(Example {
+                input: Input::Shell(command),
+                label: family.label,
+                family: family.name,
+                source: "shell",
+                split: Split::Fresh,
+                trick: None,
+                adversarial: false,
+                seen_form: false,
+            });
+        }
+    }
+    for family in crate::fresh::TOOLS {
+        let mut rng = Rng::stream(fresh_seed, &format!("tool-{}", family.name));
+        for i in 0..FRESH_PER_FAMILY {
+            let base = family.bases[i % family.bases.len()];
+            let input = call(family, base, Half::Fresh, true, &mut rng);
+            let example = |input, trick, adversarial| Example {
+                input,
+                label: family.label,
+                family: family.name,
+                source: "tool",
+                split: Split::Fresh,
+                trick,
+                adversarial,
+                seen_form: false,
+            };
+            if family.adversarial {
+                out.push(example(input, Some("misleading_name"), true));
+            } else {
+                out.push(example(input.clone(), None, false));
+                out.push(example(
+                    disguised(input, &mut rng),
+                    Some("disguised_name"),
+                    true,
+                ));
+            }
+        }
+    }
+    out
 }
 
 fn fixture_examples(seed: u64, root: &Path) -> Vec<Example> {

@@ -77,14 +77,20 @@ way every time, and leave the rest to the reviewer as today.
    - **Splits.** Each family's templates are split about 60/20/20 between training, validation and
      test, and filled from separate halves of every value list, so no form or value crosses sets.
      Six obfuscations are never in training at all.
-   - **Thresholds.** From validation: settle at the lowest probability above every risky
-     validation call, never below 0.95; raise at the lowest probability with at least 98%
-     precision, never below 0.6. A first run with a 0.90 floor let two held-out test commands
-     through (`ssh … uptime` and `defaults write`); the floor was raised to 0.95 and that is said
-     in the code and here.
-   - **Shipped model.** Measured with the protocol above, then retrained on every template with the
-     same temperature and thresholds. The six unseen obfuscations and the misleading tool names
-     stay out of its training and are its check.
+   - **Thresholds.** From validation only. Raise at the lowest probability with at least 98%
+     precision on validation, never below 0.6. Settle at the lowest probability above every risky
+     validation call, never below a fixed floor of 0.95. Validation alone would allow 0.229, so
+     the floor is what binds; validation settles no risky call at either. The floor was set
+     earlier, after a first run with 0.90 let two of that run's test commands through (`ssh …
+uptime` and `defaults write`). That looked at test data, so the first test sets are no
+     longer a clean measure; the fresh sets below are.
+   - **Fresh held-out sets.** `classify-train/src/fresh.rs` holds shell variants for every
+     family, tool names (misleading ones included) and values written after that look, none in
+     any earlier set (a test checks it), generated from their own seed (2026) with every trick.
+     Nothing is chosen or tuned on them.
+   - **Shipped model.** Measured with the protocol above, then retrained on every earlier template
+     with the same temperature and thresholds. The six unseen obfuscations, the misleading tool
+     names and the fresh sets stay out of its training.
 6. **Wiring.** In `spade-server`, on the gate's review route: if the classifier is on and no
    verdict is stored for the call, it decides. Low-risk runs; a person-only reading raises a
    request with that effect's plain line ("It sends something in your name, so you decide.");
@@ -99,29 +105,41 @@ way every time, and leave the rest to the reviewer as today.
 
 ## Measures
 
-Seed 172, the measured run (`REPORT.md` has every set and each obfuscation):
+The clean measure is the fresh sets (seed 2026), on the shipped model (`REPORT.md` has every set,
+both models and each obfuscation):
 
-| Set                                               | Risky calls settled as low-risk | Low-risk precision | Low-risk recall | Raise precision | Raise recall |
+| Fresh set                                         | Risky calls settled as low-risk | Low-risk precision | Low-risk recall | Raise precision | Raise recall |
 | ------------------------------------------------- | ------------------------------- | ------------------ | --------------- | --------------- | ------------ |
-| validation (with obfuscations)                    | 0 of 5,235                      | 1.000              | 0.107           | 0.993           | 0.829        |
-| test, held-out forms                              | 0 of 3,017                      | 1.000              | 0.288           | 0.996           | 0.779        |
-| test, adversarial (every trick, misleading tools) | 0 of 8,062                      | 1.000              | 0.081           | 0.992           | 0.659        |
-| test, training forms with held-out values         | 0 of 2,250                      | 1.000              | 0.739           | 1.000           | 0.996        |
+| held-out forms, clean                             | 0 of 1,920                      | 1.000              | 0.118           | 0.984           | 0.942        |
+| adversarial (every trick, misleading tool names)  | 0 of 5,139                      | 1.000              | 0.032           | 0.973           | 0.843        |
+| held-out forms, clean, as wired (the rules first) | 0 of 1,920                      | 1.000              | 0.107           | 0.984           | 0.942        |
+| adversarial, as wired                             | 0 of 5,139                      | 1.000              | 0.029           | 0.973           | 0.843        |
 
-As wired (the rules' precondition applied), low-risk recall is 0.255 on held-out forms and 0.688
-on known forms, with no risky call settled. The shipped model settles none of the 3,312 risky
-calls in its own held-out tricks and tools, and raises person-only ones there at 0.9995
-precision and 0.894 recall. With seeds 1, 2 and 3 no risky call is settled in any test set;
-before the known-parts check (decision 3) seeds 1 and 3 settled 3 and 11 of about 3,000, which is
-why that check exists.
+The model measured before retraining (training templates only) also settles none of the fresh
+risky calls (0 of 1,920 clean, 0 of 5,139 adversarial), with low-risk recall 0.071 and raise
+precision 0.967 and recall 0.873 on the clean set.
 
-Recall is low on forms it never saw, by design: an unseen program, subcommand or flag abstains.
-On this Mac one classification (features and inference) takes 2.2 µs at p50 and 50 µs at p99
+Low-risk recall on forms it never saw is low, by design: a program, subcommand or flag never seen
+in a low-risk training command abstains, and the reviewer decides as before. On the forms it was
+trained on, with values it never saw, it settles 0.714 of low-risk commands (0.663 as wired) and
+no risky one; everyday commands like `git status`, `cargo test` and `cat README.md` settle, and
+`ls`, `pwd` and a plain `curl` GET abstain.
+
+The first test sets, no longer clean, settle no risky call either (0 of 3,020 held-out forms, 0
+of 8,062 adversarial). With seeds 2 and 3 nothing risky is settled in any set. With seed 1 the
+model alone settles 2 of 3,015 in its test set, both a connector tool running `cat .env`. Tool
+calls are never settled as wired, so the count there is 0; it is the reason decision 2 keeps
+tool calls to raising.
+
+On this Mac one classification (features and inference) takes 2.5 µs at p50 and 63 µs at p99
 (`cargo bench -p spade-classify`).
 
-Building the data showed one gap in the shell classifier: it reads `alias q='xdotool'; q type …`
-as nothing (it doesn't follow aliases defined in the command). The classifier counts an alias as
-hiding and never settles it; the shell classifier's own fix is separate.
+Building the data showed a gap in the shell classifier, fixed with this ADR: a command after a
+shell keyword was not read (`{ git push; }`, `if git push; then …`, `while …; do xdotool …`,
+`! git push`), nor the body of a function defined in the command, nor an alias defined in it
+(`alias q='xdotool'; q type …`). Keywords are now taken off before reading, so function bodies
+are read where they are written, and an alias is read through to its text. An alias whose text
+can't be read is unclear. `command`, `builtin`, `env` and `exec` were already unwrapped.
 
 ## Options considered
 
@@ -153,7 +171,10 @@ hiding and never settles it; the shell classifier's own fix is separate.
   plain person-only calls raised, plain reads and builds settled, outside, hidden and unknown
   commands never settled, raising never settling, the settle precondition, and damaged model
   files refused. Plus a bench for p50 and p99.
-- `classify-train`: the value halves never overlap, the fixture reader and labels, base64.
+- `classify-train`: the value halves never overlap, the fresh pool shares nothing with the
+  earlier ones, the fixture reader and labels, base64.
+- `spade_core::autonomy::shell`: tables for aliases read through, function bodies read, and
+  commands after shell keywords.
 - Through the API (`spade-server/tests/classifier.rs`): a plain command with no sandbox runs
   without the reviewer and is logged without its arguments; a tool read as a send goes to the
   person; an abstention goes to the reviewer; turned off, the reviewer decides as before; a
