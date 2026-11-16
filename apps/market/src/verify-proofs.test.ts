@@ -23,6 +23,10 @@ const txt =
   () =>
     Response.json({ Answer: records.map((data) => ({ type: 16, data: `"${data}"` })) });
 
+const silent: ProofFetch = async () => {
+  throw new DOMException("timed out", "TimeoutError");
+};
+
 describe("proof fetches", () => {
   it.each([
     ["plain http", "http://example.org/.well-known/ace-market.txt", "https only"],
@@ -76,10 +80,7 @@ describe("proof fetches", () => {
   });
 
   it("a fetch that never answers is reported, not thrown", async () => {
-    const fetch: ProofFetch = async () => {
-      throw new DOMException("timed out", "TimeoutError");
-    };
-    expect(await fetchProof("https://example.org/x", fetch)).toMatchObject({ ok: false });
+    expect(await fetchProof("https://example.org/x", silent)).toMatchObject({ ok: false });
   });
 });
 

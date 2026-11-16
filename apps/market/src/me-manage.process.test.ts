@@ -242,13 +242,13 @@ describe("visibility, archive and pins", () => {
   });
 });
 
-describe("transfers", () => {
-  const offer = async (name: string) => {
-    const response = await me("POST", `${entryPath(name)}/transfer`, { to: taker.handle });
-    expect(response.status).toBe(201);
-    return (await jsonOf<{ id: string }>(response)).id;
-  };
+async function offer(name: string) {
+  const response = await me("POST", `${entryPath(name)}/transfer`, { to: taker.handle });
+  expect(response.status).toBe(201);
+  return (await jsonOf<{ id: string }>(response)).id;
+}
 
+describe("transfers", () => {
   it("an accepted offer moves the entry to the receiver and unpins it from the giver", async () => {
     await live("moved-skill");
     await me("PUT", "/v1/me/pins", { entries: [{ type: "spade-skill", name: "moved-skill" }] });
