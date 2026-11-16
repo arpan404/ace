@@ -35,8 +35,8 @@ struct InboxThreadRow: View {
             HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 Text(row.title)
                     .aceFont(InboxRowType.title, relativeTo: .callout)
-                    // Semibold only while the thread needs the person, as on the desktop.
-                    .fontWeight(look.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                    // Attention shows by brightness, never by weight (design language §3): one weight,
+                    // full ink for every row that isn't settled.
                     .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                 Spacer(minLength: AceDesign.Space.related)
