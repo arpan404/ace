@@ -14,6 +14,8 @@ struct ThreadsTabsBar: View {
     /// VoiceOver.
     let count: (String) -> Int
     @Namespace private var fill
+    /// The control's height, grown with its words' text style so large text never clips.
+    @ScaledMetric(relativeTo: .subheadline) private var height = AceDesign.Size.segment
 
     var body: some View {
         // A quiet track on the page (not glass: it scrolls with nothing over it), hugging its
@@ -25,7 +27,7 @@ struct ThreadsTabsBar: View {
         // switches changes at once.
         .animation(.default, value: selection)
         .padding(AceDesign.Size.segmentInset)
-        .frame(height: AceDesign.Size.segment)
+        .frame(height: height)
         .background(AceDesign.Surface.fill, in: AceShape.capsule)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.margin)
@@ -67,7 +69,7 @@ struct ThreadsTabsBar: View {
                 }
             }
             // Drawn at the control's height; taps land over a full 44pt band.
-            .tapBand(drawn: AceDesign.Size.segment)
+            .tapBand(drawn: height)
         }
         .buttonStyle(.plain)
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)

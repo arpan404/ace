@@ -92,7 +92,8 @@ private struct LivePillLabel: View {
         .aceFont(AceDesign.TextRole.meta)
         .lineLimit(1)
         .padding(.horizontal, AceDesign.Space.chip)
-        .frame(height: AceDesign.Size.chip)
+        // At least a chip tall, and taller where large text needs it, so its words never clip.
+        .frame(minHeight: AceDesign.Size.chip)
         .aceGlass(in: AceDesign.Shape.control)
         .contentShape(AceDesign.Shape.control)
     }

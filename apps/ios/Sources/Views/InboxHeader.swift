@@ -89,6 +89,8 @@ struct InboxFilters: View {
 /// tab uses the same chips.
 struct InboxChip: View {
     let title: String
+    /// The segmented control's height beside it, grown with the words' text style.
+    @ScaledMetric(relativeTo: .subheadline) private var height = AceDesign.Size.segment
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             Text(title).lineLimit(1)
@@ -98,9 +100,9 @@ struct InboxChip: View {
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.horizontal, AceDesign.Space.row)
         // The segmented control's height beside it, taking taps over 44.
-        .frame(height: AceDesign.Size.segment)
+        .frame(height: height)
         .aceGlass(in: AceShape.capsule, interactive: true)
-        .tapBand(drawn: AceDesign.Size.segment)
+        .tapBand(drawn: height)
     }
 }
 
