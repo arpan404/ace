@@ -642,8 +642,6 @@ fn a_command_the_sandbox_holds_runs_unreviewed_and_what_could_leave_through_it_i
     for kind in [
         Sensitive::Publish,
         Sensitive::RemoteChange,
-        Sensitive::MessageAsPerson,
-        Sensitive::Payment,
         Sensitive::Admin,
     ] {
         assert_eq!(
@@ -651,6 +649,19 @@ fn a_command_the_sandbox_holds_runs_unreviewed_and_what_could_leave_through_it_i
             reviewed(Some(kind.reason())),
             "{kind:?}"
         );
+    }
+    // A payment or a send as the person from the sandbox is the person's, taint or not.
+    for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
+        let line = kind.persons().map(str::to_owned).unwrap_or_default();
+        assert_eq!(
+            route(shell(Class::Sensitive(kind))),
+            Route::Ask(line.clone())
+        );
+        let tainted = Call {
+            tainted: true,
+            ..shell(Class::Sensitive(kind))
+        };
+        assert_eq!(route(tainted), Route::Ask(line), "{kind:?} under taint");
     }
     // A credential read is refused, sandbox or not.
     let reads = Call {
@@ -678,16 +689,29 @@ fn a_granted_call_runs_unreviewed_until_untrusted_content_is_in_view() {
         ..granted(Class::Outward)
     };
     assert_eq!(route(tainted), reviewed(Some(GRANTED_TAINTED)));
-    // No grant covers a payment or a send as the person.
-    for kind in [
-        Sensitive::Payment,
-        Sensitive::MessageAsPerson,
-        Sensitive::Credentials,
-    ] {
-        assert_eq!(
-            route(granted(Class::Sensitive(kind))),
-            reviewed(Some(kind.reason())),
-            "{kind:?}"
-        );
+    // No grant covers a payment or a send as the person: they go to the person, taint or not.
+    for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
+        let line = kind.persons().map(str::to_owned).unwrap_or_default();
+        for tainted in [false, true] {
+            let call = Call {
+                tainted,
+                ..granted(Class::Sensitive(kind))
+            };
+            assert_eq!(route(call), Route::Ask(line.clone()), "{kind:?} {tainted}");
+        }
+    }
+    // Nor an access change: it is reviewed as without the grant, never run on it.
+    assert_eq!(
+        route(granted(Class::Sensitive(Sensitive::Credentials))),
+        reviewed(Some(Sensitive::Credentials.reason()))
+    );
+    // The person's own Always allow still runs them.
+    for kind in [Sensitive::Payment, Sensitive::MessageAsPerson] {
+        let always = Call {
+            granted: true,
+            contained: true,
+            ..gate(Decision::Run, Class::Sensitive(kind))
+        };
+        assert_eq!(route(always), Route::Run, "{kind:?}");
     }
 }

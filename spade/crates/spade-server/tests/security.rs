@@ -615,3 +615,27 @@ async fn deleting_a_bot_forgets_its_grants_log_and_checkpoints() -> Result {
     assert_eq!(store.setting(&format!("security:{}", w.bot))?, None);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_send_as_the_person_from_the_sandbox_goes_to_the_person() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            shell("c1", "gh pr comment 12 --body 'Looks good'".to_owned()),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Comment on it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), vec!["c1"]);
+    let reason = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .and_then(|e| e["reviewer_reason"].as_str())
+        .unwrap_or_default();
+    assert!(reason.contains("in your name"), "{reason}");
+    Ok(())
+}
