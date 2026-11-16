@@ -48,8 +48,10 @@ export function AttachmentChipImage(props: {
                   src={image.url}
                   alt={item.name}
                   draggable={false}
-                  loading="lazy"
-                  decoding="async"
+                  // The bytes are already on this page and only visible chips get here. A
+                  // synchronous decode keeps the composer's repaint on every keystroke from
+                  // drawing the preview at a lower resolution for a frame.
+                  decoding="sync"
                   onError={() => setFailedUrl(image.url)}
                   className="size-full object-cover"
                 />
