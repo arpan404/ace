@@ -122,6 +122,18 @@ impl Tool for PluginCall {
         })
     }
 
+    /// The plugin and its accepted version, the server, the server's own tool name and its schema.
+    fn identity(&self) -> String {
+        format!(
+            "plugin:{}@{}/{}:{}#{}",
+            self.server.plugin,
+            self.server.version(),
+            self.server.name,
+            self.tool.name,
+            super::schema_hash(&self.tool.input_schema)
+        )
+    }
+
     fn run(&self, _key: &str, arguments: Value) -> ToolFuture {
         let server = self.server.clone();
         let name = self.tool.name.clone();

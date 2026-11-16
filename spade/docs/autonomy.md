@@ -22,33 +22,36 @@ effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effec
 
 ### Effects
 
-Every tool declares its effect once:
+Every tool declares its effect once (ADR 0171 and its amendment 1):
 
-| Effect           | Meaning                                                      |
-| ---------------- | ------------------------------------------------------------ |
-| `read`           | only reads                                                   |
-| `write_local`    | changes only the bot's own things (folder, notes, routines)  |
-| `network`        | changes something outside the bot (an app, another bot, ace) |
-| `publish`        | a release, a package, a deploy, a merge                      |
-| `send_as_person` | a message, mail, comment or push in the person's name        |
-| `pay`            | spends money                                                 |
-| `change_access`  | changes sign-ins, keys or who has access                     |
-| `credential`     | hands back a secret                                          |
+| Effect           | Meaning                                                            |
+| ---------------- | ------------------------------------------------------------------ |
+| `read`           | only reads                                                         |
+| `write_local`    | changes only the bot's own things (folder, notes, routines)        |
+| `network`        | changes something outside the bot (an app, another bot, ace)       |
+| `publish`        | a release, a package, a deploy, a merge                            |
+| `send_as_person` | a message, mail, comment or push in the person's name              |
+| `pay`            | spends money                                                       |
+| `drive`          | acts in a page or app as the person would (a click, typing, a key) |
+| `change_access`  | changes sign-ins, keys or who has access                           |
+| `unknown`        | a declared word this build doesn't know                            |
+| `credential`     | hands back a secret                                                |
 
 - **Spade's own tools:** the table `BUILTIN` in `spade_core::effect`. A tool missing from it is
   `read` when its risk is read, `write_local` when it is a note, and otherwise declares nothing.
   `bot_message`, `bot_create` and `worker_message` reach another bot and are `network`; the typed
   tools below are `send_as_person`.
-- **ace's tools:** ace's risk (`read`, else `network`), and a `browser_*`, `screen_*` or `sim_*`
-  call told to press or type a purchase button (`Place order`, `Buy now`, `Checkout`, `Pay now`,
-  `Confirm booking`…) is `pay`. ace's names never make a send.
-- **Connector and plugin tools:** `readOnlyHint: true` is `read`; any other annotation is
-  `network`. A declaration wins: a connector catalogue entry's `effects` (by the server's tool
-  name) and `writes` (every tool that isn't read-only), and a plugin server's execution entry's
-  `effects`. The shipped catalogue marks PayPal, Square and Stripe writes as `pay`, and GitHub's
-  `add_issue_comment` as `send_as_person` and `merge_pull_request` as `publish`. A tool with no
-  annotation and no declaration declares nothing.
-- Names and descriptions are never read for words.
+- **ace's tools:** ace's risk: `read`, else `network`, and a `browser_*`, `screen_*` or `sim_*`
+  call ace doesn't mark read-only is `drive`. ace's names never make a send.
+- **Connector and plugin tools:** a trusted declaration is the least a tool does: a connector
+  catalogue entry's `effects` (by the server's tool name) and `every_tool` (every tool of the
+  app, read-only or not), and a plugin server's execution entry's `effects`. MCP hints can only
+  raise it: a tool not marked `readOnlyHint` is at least `network`. A tool with no trusted
+  declaration declares nothing, whatever its hints say. The shipped catalogue marks every
+  PayPal, Square and Stripe tool as `pay`, and GitHub's `add_issue_comment` as `send_as_person`
+  and `merge_pull_request` as `publish`.
+- A declared word Spade doesn't know is `unknown`, never dropped. Names and descriptions are
+  never read for words.
 
 ### Where a call goes
 
@@ -57,41 +60,57 @@ In order, first match wins:
 | Facts                                                                             | Goes to                                                                               |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`                                      |
+| `pay`, `drive`, `change_access`, `unknown`                                        | the person, unless allowed always                                                     |
+| `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
 | a command outside the sandbox, or on a machine with none                          | the classifier and ADR 0163's route (below)                                           |
 | it declares nothing, in the sandbox                                               | runs                                                                                  |
-| it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept                             |
-| `pay`, `change_access`                                                            | the person, unless allowed always                                                     |
-| `send_as_person`                                                                  | the person, unless allowed always or a typed grant covers it                          |
+| it declares nothing                                                               | the person once (`ask: undeclared`); their answer is kept for the bot and that tool   |
 | in a sandbox that holds files and network                                         | runs                                                                                  |
+| in the sandbox, but its checkpoint couldn't be taken                              | the reviewer, told so                                                                 |
 | a command asking to run outside (`outside_sandbox: true`)                         | the person (`ask: outside_sandbox`)                                                   |
 | a routine set up under untrusted content                                          | the reviewer, with that concern                                                       |
 | `read`                                                                            | runs                                                                                  |
 | `write_local`                                                                     | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
-| `network`                                                                         | runs on a grant or Always allow; otherwise the reviewer                               |
+| `network`                                                                         | runs on a `tool` grant or Always allow; otherwise the reviewer                        |
 | `publish`                                                                         | the reviewer, unless allowed always                                                   |
 
-A remembered allow for an undeclared tool still asks the person while untrusted content is in
-view. A covered push or comment under untrusted content is reviewed with the grant named.
-Requests the rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's
-`reviewer_reason` is the rule's line: "It could spend money, so you decide.", "It sends something
-in your name, so you decide.", "It pushes with your sign-in, so you decide.", "It changes sign-ins,
-keys or who has access, so you decide.", "It doesn't say what it does, so you decide once for
-this bot.", "It asks to run outside the sandbox, so you decide.", "It is too long for the reviewer
-to read whole, so you decide."
+A `tool` grant covers only a tool that declares `read`, `write_local`, `network` or `publish`.
+An undeclared tool's answer is kept under the bot and the tool's identity: its server (a
+connection and its address, or a plugin, its accepted version and server), its own name and a
+hash of its schema, never the name it is offered under; a helper reads its bot's. A name two
+sourced tools would be offered under (two servers, or names cut to a provider's 64 characters) is
+offered for neither. A remembered allow still asks the person while untrusted content is in view.
+A covered push or comment under untrusted content is reviewed with the grant named. Requests the
+rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's `reviewer_reason`
+is the rule's line, such as "It could spend money, so you decide.", "It acts in a page or app as
+you, so you decide.", "It pushes to github.com/acme/app, branch main with your sign-in, so you
+decide.", "It sends something in your name to github.com/acme/app#7, so you decide.", "It
+declares something Spade doesn't know yet, so you decide.", "It doesn't say what it does, so you
+decide once for this bot." or "It asks to run outside the sandbox, so you decide."
+
+An answer to a request Spade asked for a reason of its own (`ask`) is never stored as an Always
+allow. On the outside card, Always for this bot sets the bot's `commands` to `outside` and runs
+that call; the next command is reviewed like any command outside the sandbox. A request to run
+outside is bound to the scripts the command would run (`call_reviewed.bound`); if any changed
+when the allowed call starts, it isn't run.
 
 ### The typed outward tools
 
 Credentials never enter the sandbox, so what needs the person's sign-in goes through a tool that
-runs outside it (`tools/outward/`), a fixed program with arguments, never a shell:
+runs outside it (`tools/outward/`), a fixed program with arguments, never a shell. A repository
+is `host/owner/name`; `owner/name` means GitHub, and grants match the host too.
 
-- `git_push {repo, branch, remote?, path?}`: the remote's URL is read from the repository's
-  config file (`git config --file`, nothing run) and must be `https` or ssh and point at `repo`.
-  The branch is fetched into a clean repository in Spade's folder and pushed from there with
-  hooks off (`core.hooksPath=/dev/null`, `--no-verify`), never forced. A repository with an
-  alternates file is refused. A `git_push` grant matches `repo` and `branch`.
+- `git_push {repo, branch, remote?, path?}`: inside the bot's sandbox, a fixed script refuses a
+  `.git` that is or holds a link or an alternates file, prints the remote's URL as stored (the
+  repository's `insteadOf` never applies) and writes a bundle of the branch into a fresh folder of
+  Spade's that only that run may write. On the host, Spade fetches only that bundle (a regular
+  file) into a clean repository, adds the URL as remote `dest`, and pushes with hooks off
+  (`core.hooksPath=/dev/null`, `--no-verify`), never forced, only when `git remote get-url
+--push dest` (after the person's own URL rewriting) is `https` or ssh to the host and repository
+  named. Without a sandbox on the machine it doesn't run.
 - `pr_comment {repo, number, body}` and `issue_comment {repo, number, body}`: `gh … comment
---repo --body-file -` in Spade's folder, the body on stdin. A `pr_comment` grant covers the
-  first (`own_only` grants cover nothing yet).
+--repo host/owner/name --body-file -` in Spade's folder, the body on stdin. A `pr_comment` grant
+  covers the first (`own_only` grants cover nothing yet).
 - `send_message {app: messages | mail, to, body, subject?}`: macOS only; Spade's own AppleScript
   file, with who and what as its arguments.
 

@@ -118,6 +118,17 @@ impl Tool for ConnectorCall {
         })
     }
 
+    /// The connection, its server's address, the server's own tool name and its schema.
+    fn identity(&self) -> String {
+        format!(
+            "connector:{}@{}:{}#{}",
+            self.tool.connector,
+            self.tool.server,
+            self.tool.tool.name,
+            super::schema_hash(&self.tool.tool.input_schema)
+        )
+    }
+
     fn run(&self, _key: &str, arguments: Value) -> ToolFuture {
         let hub = self.hub.clone();
         let (connector, name) = (self.tool.connector.clone(), self.tool.tool.name.clone());

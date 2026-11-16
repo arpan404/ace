@@ -179,6 +179,33 @@ pub trait Tool: Send + Sync {
         let def = self.def();
         spade_core::effect::builtin(&def.spec.name, def.risk)
     }
+    /// What the tool is, beyond the name it is offered under: for a tool from a server, the
+    /// server and its version, the tool's own name and its schema, so an answer kept for it never
+    /// carries over to another tool offered under the same name (ADR 0171, amendment 1).
+    fn identity(&self) -> String {
+        let def = self.def();
+        format!("{}#{}", def.spec.name, schema_hash(&def.spec.schema))
+    }
+}
+
+/// A short hash of a tool's input schema, as the server sent it.
+pub fn schema_hash(schema: &Value) -> String {
+    crate::workspace::trust::hash(schema.to_string().as_bytes())
+        .chars()
+        .take(16)
+        .collect()
+}
+
+/// The tools offered under one name only: a name two tools share (two servers, or names cut down
+/// to a provider's limit) is offered for neither, so a call can't reach the other one.
+fn unambiguous(tools: Vec<Arc<dyn Tool>>) -> Vec<Arc<dyn Tool>> {
+    let names: Vec<String> = tools.iter().map(|tool| tool.def().spec.name).collect();
+    tools
+        .into_iter()
+        .zip(&names)
+        .filter(|(_, name)| names.iter().filter(|n| n == name).count() == 1)
+        .map(|(tool, _)| tool)
+        .collect()
 }
 
 /// What the engine knows about the turn a call runs in.
@@ -239,20 +266,31 @@ impl Toolbox {
 
     /// Every tool's definition now.
     pub fn registry(&self) -> Registry {
-        self.registry_from(self.sources.iter().flat_map(|source| source.tools()))
+        self.registry_from(self.sourced())
+    }
+
+    /// Every source's tools now, those sharing a name left out.
+    fn sourced(&self) -> Vec<Arc<dyn Tool>> {
+        unambiguous(self.sources.iter().flat_map(|s| s.tools()).collect())
+    }
+
+    /// The sources' tools `conversation` may use now, those sharing a name left out.
+    fn sourced_for(&self, conversation: &str) -> Vec<Arc<dyn Tool>> {
+        unambiguous(
+            self.sources
+                .iter()
+                .flat_map(|s| s.tools_for(conversation))
+                .collect(),
+        )
     }
 
     /// Every tool's definition that `conversation` may use now. The offered list (core tools
     /// plus `tool_search` and `call_tool`) is the same for every conversation.
     pub fn registry_for(&self, conversation: &str) -> Registry {
-        self.registry_from(
-            self.sources
-                .iter()
-                .flat_map(|source| source.tools_for(conversation)),
-        )
+        self.registry_from(self.sourced_for(conversation))
     }
 
-    fn registry_from(&self, sourced: impl Iterator<Item = Arc<dyn Tool>>) -> Registry {
+    fn registry_from(&self, sourced: Vec<Arc<dyn Tool>>) -> Registry {
         let mut defs: BTreeMap<String, ToolDef> = BTreeMap::new();
         for tool in sourced {
             let mut def = tool.def();
@@ -272,9 +310,8 @@ impl Toolbox {
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.core.get(name).cloned().or_else(|| {
-            self.sources
-                .iter()
-                .flat_map(|source| source.tools())
+            self.sourced()
+                .into_iter()
                 .find(|tool| tool.def().spec.name == name)
         })
     }
@@ -282,9 +319,8 @@ impl Toolbox {
     /// The tool named `name`, if `conversation` may use it.
     pub fn get_for(&self, conversation: &str, name: &str) -> Option<Arc<dyn Tool>> {
         self.core.get(name).cloned().or_else(|| {
-            self.sources
-                .iter()
-                .flat_map(|source| source.tools_for(conversation))
+            self.sourced_for(conversation)
+                .into_iter()
                 .find(|tool| tool.def().spec.name == name)
         })
     }
@@ -294,4 +330,58 @@ impl Toolbox {
 pub(crate) fn parse<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<T, ToolOutput> {
     serde_json::from_value(arguments)
         .map_err(|error| ToolOutput::error(format!("The arguments do not fit this tool: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use spade_core::tools::Risk;
+    use spade_models::ToolSpec;
+
+    struct Named(&'static str);
+
+    impl Tool for Named {
+        fn def(&self) -> ToolDef {
+            ToolDef {
+                spec: ToolSpec {
+                    name: self.0.to_owned(),
+                    description: String::new(),
+                    schema: serde_json::json!({ "type": "object" }),
+                },
+                risk: Risk::Write,
+                untrusted_output: false,
+                deferred: true,
+                background: false,
+            }
+        }
+
+        fn run(&self, _key: &str, _arguments: Value) -> ToolFuture {
+            Box::pin(async { ToolOutput::ok("ran") })
+        }
+    }
+
+    struct Offers(Vec<&'static str>);
+
+    impl ToolSource for Offers {
+        fn tools(&self) -> Vec<Arc<dyn Tool>> {
+            self.0
+                .iter()
+                .map(|name| Arc::new(Named(name)) as Arc<dyn Tool>)
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_name_two_tools_are_offered_under_is_offered_for_neither() {
+        // Two servers whose names collide once made safe for a provider, and one that doesn't.
+        let toolbox = Toolbox::new(Vec::new())
+            .with_source(Arc::new(Offers(vec!["files__delete", "files__list"])))
+            .with_source(Arc::new(Offers(vec!["files__delete"])));
+        let registry = toolbox.registry_for("c1");
+        assert!(registry.get("files__delete").is_none());
+        assert!(toolbox.get_for("c1", "files__delete").is_none());
+        assert!(toolbox.get("files__delete").is_none());
+        assert!(registry.get("files__list").is_some());
+        assert!(toolbox.get_for("c1", "files__list").is_some());
+    }
 }

@@ -61,6 +61,11 @@ impl Server {
         self.contained
     }
 
+    /// The plugin version it runs (the accepted install's hash).
+    pub fn version(&self) -> &str {
+        &self.hash
+    }
+
     /// What `tool` declares it does, when its entry says.
     pub fn declared(&self, tool: &str) -> Option<spade_core::effect::Effect> {
         self.effects.get(tool).copied()

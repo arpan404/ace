@@ -220,12 +220,22 @@ pub(super) async fn handle_calls(
                         Runs::AsksOutside => Place::AsksOutside,
                         Runs::Outside => Place::Unsandboxed(classed.class),
                     };
-                    let remembered = match (declared, &helper, &bot_events) {
-                        (Some(_), ..) => None,
-                        (None, Some(_), Some(owned)) => effect::remembered(events, &name)
-                            .or_else(|| effect::remembered(owned, &name)),
-                        (None, ..) => effect::remembered(events, &name),
+                    // An undeclared tool's answer is kept under the bot and the tool's own
+                    // identity, never its offered name alone; a helper reads its bot's.
+                    let tool_key = match declared {
+                        Some(_) => None,
+                        None => engine
+                            .tools
+                            .get_for(id, &name)
+                            .map(|tool| engine.tool_key(id, tool.identity())),
                     };
+                    let remembered = tool_key.as_deref().and_then(|key| {
+                        effect::remembered(events, key).or_else(|| {
+                            bot_events
+                                .as_deref()
+                                .and_then(|owned| effect::remembered(owned, key))
+                        })
+                    });
                     let target = spade_core::outward::target(&name, &arguments);
                     let route = effect::route(effect::Call {
                         tool: &name,
@@ -389,6 +399,9 @@ pub(super) async fn handle_calls(
                                 scope,
                                 reviewer_reason,
                                 ask,
+                                tool_key: (ask == Some(effect::Ask::Undeclared))
+                                    .then_some(tool_key)
+                                    .flatten(),
                                 helper: None,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.

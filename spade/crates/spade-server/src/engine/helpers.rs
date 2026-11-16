@@ -520,6 +520,7 @@ impl Engine {
             scope,
             reviewer_reason,
             ask,
+            tool_key,
             ..
         }) = asked
         else {
@@ -533,12 +534,13 @@ impl Engine {
             scope: scope.clone(),
             reviewer_reason: reviewer_reason.clone(),
             ask: *ask,
-            helper: Some(HelperAsk {
+            tool_key: tool_key.clone(),
+            helper: Some(Box::new(HelperAsk {
                 // The bot's job, whose end clears the wait, even for a rerun.
                 job: routing::base_job(&helper.job).to_owned(),
                 conversation: helper.conversation.clone(),
                 call_id: call_id.clone(),
-            }),
+            })),
         });
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());

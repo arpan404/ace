@@ -466,18 +466,20 @@ fn unsandboxed(call: Call<'_>, class: Class) -> Route {
 }
 
 /// The person's answer for an undeclared tool, kept for the bot (ADR 0171): their latest answer to
-/// a request about `tool` asked because it declares nothing.
-pub fn remembered(events: &[crate::Event], tool: &str) -> Option<bool> {
+/// a request asked because the tool declares nothing, about the tool with this `key` (the bot,
+/// the tool's server and version, its own name and its schema). An offered name alone never
+/// matches: it can be another server's, or a name two tools were cut down to.
+pub fn remembered(events: &[crate::Event], key: &str) -> Option<bool> {
     use crate::event::{Event, Known};
     let asked: Vec<&str> = events
         .iter()
         .filter_map(|event| match event {
             Event::Known(Known::ApprovalRequested {
                 call_id,
-                name,
                 ask: Some(Ask::Undeclared),
+                tool_key: Some(asked),
                 ..
-            }) if name == tool => Some(call_id.as_str()),
+            }) if asked == key => Some(call_id.as_str()),
             _ => None,
         })
         .collect();

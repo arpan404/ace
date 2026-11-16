@@ -32,6 +32,8 @@ pub struct ConnectorTool {
     pub tool: McpTool,
     /// The catalogue entry its connector came from, whose declarations say what its tools do.
     pub catalogue: Option<String>,
+    /// The server's address.
+    pub server: String,
 }
 
 /// Why a call returned no result.
@@ -100,6 +102,7 @@ impl Connectors {
                     name: format!("{}{SEPARATOR}{}", record.id, tool.name),
                     tool: tool.clone(),
                     catalogue: record.catalogue.clone(),
+                    server: record.url.clone(),
                 });
             }
         }

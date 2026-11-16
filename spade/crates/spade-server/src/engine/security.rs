@@ -108,6 +108,13 @@ impl Engine {
             .and_then(|found| found.effect(&Value::Null))
     }
 
+    /// What an undeclared tool's answer is kept under for the bot `conversation` works for (its
+    /// own, or a helper's bot): the bot, then the tool's identity.
+    pub(super) fn tool_key(&self, conversation: &str, identity: String) -> String {
+        let bot = self.workspace_owner(conversation).unwrap_or_default();
+        format!("{bot}|{identity}")
+    }
+
     /// The bot whose workspace `conversation` works in: its own, or a helper's bot's.
     fn workspace_owner(&self, conversation: &str) -> Option<String> {
         self.agent_of(conversation).or_else(|| {

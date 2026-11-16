@@ -167,6 +167,12 @@ settings could get around. These replace the matching parts of decisions 2 and 3
 changed after it was reviewed.`). A terminal command is also held to the folder and variables
   it was asked with.
 
+- **An undeclared tool's answer is kept for that exact tool.** It is stored under the bot and the
+  tool's identity: its server (a connection and its address, or a plugin, its accepted version
+  and server), its own name and a hash of its schema, never the name it is offered under. A
+  helper reads its bot's answer for the same tool. A name two sourced tools would be offered
+  under (two servers, or names cut to a provider's limit) is offered for neither.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

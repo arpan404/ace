@@ -508,6 +508,7 @@ mod tests {
                 scope: None,
                 reviewer_reason: None,
                 ask: None,
+                tool_key: None,
                 helper: None,
             }),
         ];
@@ -530,6 +531,7 @@ mod tests {
                 scope: None,
                 reviewer_reason: None,
                 ask: None,
+                tool_key: None,
                 helper: None,
             }),
             Event::Known(Known::StopRequested {
@@ -562,6 +564,7 @@ mod tests {
                 scope: None,
                 reviewer_reason: None,
                 ask: None,
+                tool_key: None,
                 helper: None,
             }),
             Event::Known(Known::ApprovalAnswered {
@@ -870,11 +873,12 @@ mod tests {
                 scope: None,
                 reviewer_reason: None,
                 ask: None,
-                helper: Some(crate::event::HelperAsk {
+                tool_key: None,
+                helper: Some(Box::new(crate::event::HelperAsk {
                     job: "j1".into(),
                     conversation: "h1".into(),
                     call_id: "call_0".into(),
-                }),
+                })),
             })
         };
         let mut events = vec![

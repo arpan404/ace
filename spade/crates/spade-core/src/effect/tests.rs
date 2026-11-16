@@ -420,9 +420,10 @@ fn stored_requests_fold_with_or_without_an_ask_this_build_knows() {
 }
 
 #[test]
-fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest() {
+fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_tool() {
     use crate::event::{Event, Known};
-    let asked = |call: &str, name: &str, ask: Option<Ask>| {
+    // (call, offered name, the tool's key: bot, server, original name and schema)
+    let asked = |call: &str, name: &str, key: &str| {
         Event::Known(Known::ApprovalRequested {
             reply: "r".into(),
             call_id: call.into(),
@@ -430,7 +431,8 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest() {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
-            ask,
+            ask: Some(Ask::Undeclared),
+            tool_key: Some(key.into()),
             helper: None,
         })
     };
@@ -442,28 +444,28 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest() {
             always: false,
         })
     };
-    let tool = "app__mystery";
-    assert_eq!(
-        remembered(&[asked("a", tool, Some(Ask::Undeclared))], tool),
-        None
-    );
-    let allowed = [asked("a", tool, Some(Ask::Undeclared)), answered("a", true)];
-    assert_eq!(remembered(&allowed, tool), Some(true));
+    let key = "a_1|plugin:files@h1/fs:delete#s1";
+    assert_eq!(remembered(&[asked("a", "files__delete", key)], key), None);
+    let allowed = [asked("a", "files__delete", key), answered("a", true)];
+    assert_eq!(remembered(&allowed, key), Some(true));
     let changed = [
-        asked("a", tool, Some(Ask::Undeclared)),
+        asked("a", "files__delete", key),
         answered("a", true),
-        asked("b", tool, Some(Ask::Undeclared)),
+        asked("b", "files__delete", key),
         answered("b", false),
     ];
-    assert_eq!(remembered(&changed, tool), Some(false));
-    // A usual request about the same tool, or an undeclared one about another, says nothing.
-    let other = [
-        asked("a", tool, None),
-        answered("a", false),
-        asked("b", "app__other", Some(Ask::Undeclared)),
-        answered("b", true),
-    ];
-    assert_eq!(remembered(&other, tool), None);
+    assert_eq!(remembered(&changed, key), Some(false));
+    // The same offered name from another server, another version or schema, or another bot,
+    // says nothing about this tool.
+    for other in [
+        "a_1|plugin:files@h2/fs:delete#s1",
+        "a_1|plugin:files@h1/fs:delete#s2",
+        "a_2|plugin:files@h1/fs:delete#s1",
+        "a_1|connector:files@https://x/mcp:delete#s1",
+    ] {
+        let elsewhere = [asked("a", "files__delete", other), answered("a", true)];
+        assert_eq!(remembered(&elsewhere, key), None, "{other}");
+    }
 }
 
 #[test]

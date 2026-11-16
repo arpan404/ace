@@ -356,6 +356,7 @@ mod tests {
             scope: None,
             reviewer_reason: None,
             ask: None,
+            tool_key: None,
             helper: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
@@ -366,6 +367,7 @@ mod tests {
             scope: None,
             reviewer_reason: None,
             ask: None,
+            tool_key: None,
             helper: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {

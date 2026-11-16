@@ -137,9 +137,9 @@ parent bot's id, once workers can pass grants down at creation).
 Globs: `*` within a `/` segment, `**` across. A call a `tool` grant covers runs without a review
 while nothing untrusted is in view; with untrusted content in view it is reviewed, the grant named
 as the concern. Refused at creation: a `tool` grant for a tool that declares `pay`,
-`send_as_person`, `change_access` or `credential` (`effect::never_granted`, read from the bot's
-tool as it is now: those always go to the person; a tool Spade can't find is checked again at
-each call); a push grant for every branch (`*`, `**`); a folder that is relative, `/`, uses `..`,
+`send_as_person`, `drive`, `change_access`, `unknown` or `credential`, or declares nothing
+(`effect::never_granted`, read from the bot's tool as it is now: those always go to the
+person); a push grant for every branch (`*`, `**`); a folder that is relative, `/`, uses `..`,
 isn't a folder, or is or holds a credential place or Spade's or ace's data.
 
 A folder grant is stored as the folder it names (links resolved), and every folder grant up the
@@ -169,8 +169,11 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
 - **Asking to run outside** (`outside_sandbox: true` on `shell`): a request with
   `ask: outside_sandbox`. Allow once runs that call outside; Always for this bot runs it and sets
   the bot's `commands` to `outside`; Deny declines it.
-- **Granted**: a `git_push` or `pr_comment` grant covers its typed tool; a `tool` grant covers a
-  `network` tool.
+- **Granted**: a `git_push` or `pr_comment` grant covers its typed tool, matched by
+  `host/owner/name` (a grant written `owner/name` means GitHub); a `tool` grant covers only a tool
+  that declares `read`, `write_local`, `network` or `publish`, never one that declares nothing.
+- **Unprotected**: sandboxed, but the checkpoint couldn't be taken: reviewed, after the
+  person-only rules.
 
 `workspace_write` and `workspace_edit` run without a review where the sandbox holds (a
 checkpoint first), untrusted content in view or not. What they write under taint still isn't
