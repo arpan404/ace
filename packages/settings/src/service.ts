@@ -202,6 +202,23 @@ export class SettingsService {
     }
   }
   /**
+   * Sets `key` on `layer` only when that layer's file doesn't already hold it, checked and
+   * written as one step in the file's write queue. Returns whether it wrote.
+   */
+  async setIfAbsent<K extends SettingsKey>(
+    key: K,
+    value: SettingsValues[K],
+    layer: Layer,
+  ): Promise<boolean> {
+    const parsed = this.assignment(key, value, layer);
+    const lease = await this.file(layer);
+    try {
+      return await lease.file.setIfAbsent(key, parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /**
    * Several settings on one layer, all or none: every entry is checked first, then one file
    * commit writes them, so subscribers see them change together.
    */

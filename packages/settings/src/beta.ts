@@ -1,7 +1,9 @@
-import { readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { decode } from "./document.ts";
 import { atomicWrite, readBounded } from "./io.ts";
+import type { SettingsKey } from "@ace/protocol";
 import type { SettingsService } from "./service.ts";
 
 /*
@@ -56,41 +58,122 @@ async function readLegacy(home: string): Promise<LegacyFlag> {
  * service guard. A settings file that can't be read counts as off.
  */
 export async function betaOnAtRest(home: string, feature: BetaFeature): Promise<boolean> {
-  const key = betaKeys[feature];
-  try {
-    const text = await readBounded(resolve(home, "settings.json"));
-    if (text !== undefined) {
-      const stored = decode(text).document.settings[key];
-      if (typeof stored === "boolean") return stored;
-    }
-  } catch {
-    return false;
-  }
+  const stored = await booleanAtRest(home, betaKeys[feature]);
+  if (stored !== undefined) return stored;
   return feature === "spade" && (await readLegacy(home)).spade === true;
 }
 
 /**
- * Folds `features.json`'s `spade` into `beta.spade`, once: `true` turns the setting on unless the
- * person already set it, then the key leaves the file (the file goes when nothing else is in
- * it), so turning Spade off later is never undone. Bounded: one small file and one setting, so a
- * daemon can run it at start without waiting on history. Returns whether it turned Spade on.
+ * A boolean the global `settings.json` holds for `key`, read without a settings service; undefined
+ * when it holds none or can't be read.
+ */
+export async function booleanAtRest(home: string, key: SettingsKey): Promise<boolean | undefined> {
+  try {
+    const text = await readBounded(resolve(home, "settings.json"));
+    const stored = text === undefined ? undefined : decode(text).document.settings[key];
+    return typeof stored === "boolean" ? stored : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A snapshot of `features.json` a fold has claimed; a crash leaves it for the next fold. */
+const claimedPrefix = `${legacyFeaturesFile}.folding-`;
+
+const code = (error: unknown) =>
+  error instanceof Error && "code" in error ? String(error.code) : undefined;
+
+/** Renames `from` to a name only this fold holds; undefined when someone else got it first. */
+async function claim(home: string, from: string): Promise<string | undefined> {
+  const to = join(home, `${claimedPrefix}${randomUUID()}`);
+  try {
+    await rename(join(home, from), to);
+    return to;
+  } catch (error) {
+    if (code(error) === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Snapshots earlier folds left behind (a crash between claiming and finishing). */
+async function leftovers(home: string): Promise<string[]> {
+  try {
+    return (await readdir(home)).filter((name) => name.startsWith(claimedPrefix));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Puts `rest` back as `features.json` without replacing one another writer made meanwhile: it is
+ * linked into place, which fails when a file is there. Then the newer file is kept and only the
+ * keys it lacks are added, through a temporary file and a rename.
+ */
+async function putBack(home: string, rest: Record<string, unknown>): Promise<void> {
+  const path = join(home, legacyFeaturesFile);
+  const temporary = join(home, `.${legacyFeaturesFile}.${randomUUID()}.tmp`);
+  await writeFile(temporary, `${JSON.stringify(rest, null, 2)}\n`, { mode: 0o600 });
+  try {
+    await link(temporary, path);
+  } catch (error) {
+    if (code(error) !== "EEXIST") throw error;
+    const newer = parseFeatures(await readFile(path, "utf8").catch(() => ""));
+    // A file that isn't a JSON object was the other writer's choice; it stays as it is.
+    if (newer) await atomicWrite(path, `${JSON.stringify({ ...rest, ...newer }, null, 2)}\n`);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
+function parseFeatures(text: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? Object.fromEntries(Object.entries(parsed))
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Folds `features.json`'s `spade` into `beta.spade`, once: `true` turns the setting on unless it
+ * is already saved (checked and written as one step, so an "off" saved meanwhile wins), then the
+ * key leaves the file, so turning Spade off later is never undone. The file is first claimed by
+ * renaming it away, so this fold acts on exactly what it read and a writer adding keys meanwhile
+ * makes a new file; what is left is put back without replacing that file, and a file holding
+ * other keys is never deleted. Bounded: one small file and one setting, so a daemon can run it at
+ * start without waiting on history. Returns whether it turned Spade on.
  */
 export async function foldLegacySpadeFlag(
   settings: SettingsService,
   home: string,
 ): Promise<boolean> {
-  const legacy = await readLegacy(home);
-  if (!legacy.present) return false;
-  let turnedOn = false;
-  if (legacy.spade === true) {
-    const entry = await settings.get(betaKeys.spade);
-    if (entry.provenance === "defaults") {
-      await settings.set(betaKeys.spade, true, { kind: "global" });
-      turnedOn = true;
-    }
+  const left = await leftovers(home);
+  if (left.length === 0 && !(await readLegacy(home)).present) return false;
+  const claimed: string[] = [];
+  for (const name of left) {
+    const path = await claim(home, name);
+    if (path) claimed.push(path);
   }
-  const path = join(home, legacyFeaturesFile);
-  if (Object.keys(legacy.rest).length === 0) await rm(path, { force: true });
-  else await atomicWrite(path, `${JSON.stringify(legacy.rest, null, 2)}\n`);
+  const current = await claim(home, legacyFeaturesFile);
+  if (current) claimed.push(current);
+  let turnedOn = false;
+  for (const path of claimed) {
+    const text = await readFile(path, "utf8");
+    const parsed = parseFeatures(text);
+    if (!parsed) {
+      // Not ours to read: put back as it was, unless another writer made a new file meanwhile.
+      await link(path, join(home, legacyFeaturesFile)).catch((error: unknown) => {
+        if (code(error) !== "EEXIST") throw error;
+      });
+    } else {
+      const { spade, ...rest } = parsed;
+      if (spade === true && (await settings.setIfAbsent(betaKeys.spade, true, { kind: "global" })))
+        turnedOn = true;
+      if (Object.keys(rest).length > 0) await putBack(home, rest);
+    }
+    await rm(path, { force: true });
+  }
   return turnedOn;
 }
