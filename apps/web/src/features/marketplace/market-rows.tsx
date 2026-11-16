@@ -36,7 +36,7 @@ export function MarketPage(props: {
       <div className="h-full overflow-auto">
         <div
           {...part("page-body")}
-          className="mx-auto flex w-full max-w-[720px] flex-col px-(--forge-gutter) pt-6 pb-20"
+          className="mx-auto flex w-full max-w-(--column) flex-col px-4 pt-6 pb-20 sm:px-8 sm:pt-11"
         >
           <div {...part("page-header")} className="flex min-w-0 items-start gap-4">
             <h2
