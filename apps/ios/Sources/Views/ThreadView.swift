@@ -385,6 +385,7 @@ struct ThreadView: View {
             composer
         }
         .keyboardDriftMark(.composer)
+        .keyboardDriftMark(.composerFoot)
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
@@ -644,6 +645,7 @@ private struct FloatingBar<Bar: View>: ViewModifier {
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
+            KeyboardEdgeMark()
             // The composer keeps the transcript's reading width; its floor spans the window.
             bar()
                 .frame(maxWidth: ReadingColumn.maxWidth)

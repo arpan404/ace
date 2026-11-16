@@ -1,28 +1,28 @@
 import SwiftUI
 import UIKit
 
-/// Fixture builds launched with `--perf-probe`: while the keyboard moves, the on-screen gap
-/// between the transcript's last line and the composer's top edge, read every frame from what is
-/// drawn (the layers' presentation values). Each motion goes to the probe as
-/// `keyboard.<open|close>.gaps` (one rounded gap per frame) and `keyboard.<open|close>.drift`
-/// (the widest minus the narrowest gap), so a UI test can hold the two to moving as one (#2170).
+/// Fixture builds launched with `--perf-probe`: while the keyboard moves, where the transcript's
+/// last line, the composer's top edge and the system's keyboard edge are drawn, read every frame
+/// from the layers' presentation values. Each motion goes to the probe as
+/// `keyboard.<open|close>.gaps` (composer top minus last line, one rounded value per frame),
+/// `keyboard.<open|close>.drift` (the widest gap minus the narrowest) and
+/// `keyboard.<open|close>.lag` (the farthest the composer's foot was from the keyboard's edge),
+/// so a UI test can hold the line and the composer to moving as one (#2170).
 /// Release builds compile it away.
 @MainActor final class KeyboardDriftProbe {
     static let shared = KeyboardDriftProbe()
-    enum Mark { case line, composer }
-    private weak var line: UIView?
-    private weak var composer: UIView?
+    /// `line` and `composer` mark their view's top edge; `composerFoot` and `keyboard` its bottom.
+    enum Mark { case line, composer, composerFoot, keyboard }
+    private var marks: [Mark: Weak] = [:]
     private var link: CADisplayLink?
     private var gaps: [Double] = []
+    private var lag: Double = 0
     private var until: CFTimeInterval = 0
     private var motion = "open"
     private var observing = false
 
     func register(_ view: UIView, as mark: Mark) {
-        switch mark {
-        case .line: line = view
-        case .composer: composer = view
-        }
+        marks[mark] = Weak(view: view)
         guard !observing else { return }
         observing = true
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { note in
@@ -33,7 +33,7 @@ import UIKit
     }
 
     private func began(end: CGRect?, duration: Double) {
-        guard let end, let window = line?.window ?? composer?.window else { return }
+        guard let end, let window = marks[.line]?.view?.window ?? marks[.composer]?.view?.window else { return }
         let motion = end.minY >= window.bounds.maxY - 1 ? "close" : "open"
         let until = CACurrentMediaTime() + max(duration, 0.25) + 0.3
         // The keyboard can move twice for one opening (its suggestions bar): one run for both.
@@ -45,6 +45,7 @@ import UIKit
         self.motion = motion
         self.until = until
         gaps = []
+        lag = 0
         // The frame before the motion, then every frame until it has surely settled.
         sample()
         let link = CADisplayLink(target: Ticker(), selector: #selector(Ticker.tick))
@@ -58,8 +59,8 @@ import UIKit
     }
 
     private func sample() {
-        guard let line = line.flatMap(Self.screenY), let composer = composer.flatMap(Self.screenY) else { return }
-        gaps.append((composer - line).rounded())
+        if let line = y(.line), let composer = y(.composer) { gaps.append((composer - line).rounded()) }
+        if let foot = y(.composerFoot), let keyboard = y(.keyboard) { lag = max(lag, abs(keyboard - foot).rounded()) }
     }
 
     private func finish() {
@@ -68,15 +69,19 @@ import UIKit
         self.link = nil
         guard let low = gaps.min(), let high = gaps.max() else { return }
         PerfProbe.record(["keyboard.\(motion).gaps": gaps.map { String(Int($0)) }.joined(separator: ","),
-                          "keyboard.\(motion).drift": String(Int(high - low))])
+                          "keyboard.\(motion).drift": String(Int(high - low)),
+                          "keyboard.\(motion).lag": String(Int(lag))])
     }
 
-    /// Where `view`'s top edge is drawn on screen this frame, mid-animation included.
-    private static func screenY(_ view: UIView) -> Double? {
-        guard view.window != nil else { return nil }
+    /// Where `mark`'s edge is drawn on screen this frame, mid-animation included.
+    private func y(_ mark: Mark) -> Double? {
+        guard let view = marks[mark]?.view, view.window != nil else { return nil }
         let layer = view.layer.presentation() ?? view.layer
-        return Double(layer.convert(CGPoint.zero, to: nil).y)
+        let bottom = mark == .composerFoot || mark == .keyboard
+        return Double(layer.convert(CGPoint(x: 0, y: bottom ? layer.bounds.height : 0), to: nil).y)
     }
+
+    private struct Weak { weak var view: UIView? }
 }
 
 /// The display link's target: a link holds its target strongly, so the probe isn't it.
@@ -84,7 +89,7 @@ private final class Ticker: NSObject {
     @MainActor @objc func tick() { KeyboardDriftProbe.shared.tick() }
 }
 
-/// A one-point view at the top edge of what it marks, which the probe reads.
+/// A view as large as what it marks, which the probe reads.
 private struct DriftMarkView: UIViewRepresentable {
     let mark: KeyboardDriftProbe.Mark
     func makeUIView(context: Context) -> UIView {
@@ -98,16 +103,28 @@ private struct DriftMarkView: UIViewRepresentable {
 }
 
 extension View {
-    /// Marks this view's top edge for `KeyboardDriftProbe`; nothing outside probed fixture builds.
+    /// Marks this view's edge for `KeyboardDriftProbe`; nothing outside probed fixture builds.
     @ViewBuilder func keyboardDriftMark(_ mark: KeyboardDriftProbe.Mark) -> some View {
         #if ACE_FIXTURE
         if PerfProbe.enabled {
-            background(alignment: .top) { DriftMarkView(mark: mark).frame(height: 1).allowsHitTesting(false).accessibilityHidden(true) }
+            background { DriftMarkView(mark: mark).allowsHitTesting(false).accessibilityHidden(true) }
         } else {
             self
         }
         #else
         self
+        #endif
+    }
+}
+
+/// Fills the space the system's keyboard avoidance leaves, so its bottom edge is the keyboard's
+/// top on every frame, on the system's own curve. Nothing outside probed fixture builds.
+struct KeyboardEdgeMark: View {
+    var body: some View {
+        #if ACE_FIXTURE
+        if PerfProbe.enabled {
+            Color.clear.keyboardDriftMark(.keyboard).allowsHitTesting(false).accessibilityHidden(true)
+        }
         #endif
     }
 }
