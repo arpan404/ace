@@ -27,6 +27,7 @@
     "@ace/markit-web": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
+    "@ace/plugins": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/service": "workspace:*",

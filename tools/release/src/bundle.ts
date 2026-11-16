@@ -7,6 +7,7 @@ import {
 } from "./terminal-assets.ts";
 import { readFile, cp, writeFile } from "node:fs/promises";
 import { markitWasmFile } from "@ace/markit-web/assets";
+import { packBuiltinSuits } from "@ace/plugins";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
 import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
@@ -232,9 +233,8 @@ export async function bundleDaemon(
   await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
     recursive: true,
   });
-  await cp(join(repo, "packages/plugins/builtin-suits"), join(root, "builtin-suits"), {
-    recursive: true,
-  });
+  // One `<id>.tar` per Suit, so its fonts and stills cost the archive one entry.
+  await packBuiltinSuits(join(root, "builtin-suits"), join(repo, "packages/plugins/builtin-suits"));
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
   // For measuring which sources land in which output: ACE_BUNDLE_METAFILE=<path>.
   if (process.env.ACE_BUNDLE_METAFILE)

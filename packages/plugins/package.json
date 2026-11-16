@@ -13,6 +13,7 @@
     "bench": "node bench/plugins.ts"
   },
   "dependencies": {
+    "@ace/files": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "smol-toml": "^1.4.2",
