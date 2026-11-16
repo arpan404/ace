@@ -169,32 +169,43 @@ import XCTest
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
     }
 
-    /// At accessibility text sizes the pills overflow their row. A part scrolled past the edge
-    /// doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
+    /// At accessibility text sizes the pills overflow their row. A part mostly scrolled past the
+    /// edge doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
     func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
-        // The largest size, where "Waiting on 2" and "1 command" overflow even the widest phone (at
-        // AX XL both still fit on an iPhone 17 Pro). Opened at launch: the inbox's rows are too
-        // tall at this size to scroll to it quickly.
+        // The largest size, where `ios-waiting`'s "Waiting on 2" and "1 command" overflow the row.
+        // Opened at launch: the inbox's rows are too tall at this size to scroll to it quickly.
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", "ios-waiting", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launchWithArguments()
         dismissNotificationsPrompt()
+        let status = app.descendants(matching: .any)["pill.status"]
         let commands = app.descendants(matching: .any)["pill.commands"]
         XCTAssertTrue(commands.waitForExistence(timeout: 25))
-        sleep(1)
         let width = app.windows.firstMatch.frame.width
-        XCTAssertGreaterThan(commands.frame.midX, width, "the command's pill starts past the row's edge")
-        // "Waiting on 2" shows and says the subagents; the running command's line stays.
-        XCTAssertTrue(app.buttons["subagents.rollup"].waitForNonExistence(timeout: 5), "the shown status says the subagents")
+        func shown(_ part: XCUIElement) -> CGFloat {
+            let frame = part.frame
+            return max(0, min(frame.maxX, width) - max(frame.minX, 0)) / max(frame.width, 1)
+        }
+        let rollup = app.buttons["subagents.rollup"]
         let line = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'background.'")).firstMatch
-        XCTAssertTrue(line.waitForExistence(timeout: 10), "the command its pill doesn't show stays in the transcript")
+        // At rest "Waiting on 2" shows whole and says the subagents.
+        XCTAssertEqual(shown(status), 1, accuracy: 0.01)
+        XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the shown status says the subagents")
+        // Scrolled to the row's end: the command's part shows, the status is mostly past the edge.
+        let row = app.descendants(matching: .any)["composer.live"]
+        row.swipeLeft()
+        row.swipeLeft()
+        sleep(1)
+        XCTAssertLessThan(shown(status), 0.4, "the status is past the row's edge (\(shown(status)) shown)")
+        XCTAssertGreaterThan(shown(commands), 0.6, "the command's part is in the row (\(shown(commands)) shown)")
+        XCTAssertTrue(rollup.waitForExistence(timeout: 5), "the subagents its hidden part said stay in view")
+        XCTAssertTrue(line.waitForNonExistence(timeout: 5), "the part on screen says the command")
         shot("pill-past-the-edge")
-        // Scrolled along the row, the command's pill shows and says it: its line leaves.
-        app.descendants(matching: .any)["composer.live"].swipeLeft()
-        XCTAssertTrue(commands.waitForExistence(timeout: 5))
-        XCTAssertLessThanOrEqual(commands.frame.maxX, width, "the command's pill is in the row")
-        XCTAssertTrue(line.waitForNonExistence(timeout: 5), "the pill on screen says the command")
+        // Back to the start: the status says the subagents again.
+        row.swipeRight()
+        row.swipeRight()
+        XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the status is back and says the subagents")
     }
 
     private func launch(into row: String) -> XCUIApplication {
