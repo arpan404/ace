@@ -64,7 +64,7 @@ import { endingRow, filesRow } from "./turn-ending.ts";
 import { backgroundRows } from "./background-rows.ts";
 import { stepContext } from "./thread-rows.ts";
 import { workLog, type LogFacts } from "./work-log.ts";
-import { eventFollows, messageBlock, streamingOf } from "./thread-messages.ts";
+import { eventFollows, messageBlock, momentRow, streamingOf } from "./thread-messages.ts";
 import { anchoredOffset } from "./anchored-positions.ts";
 
 /*
@@ -401,6 +401,16 @@ export function blockRow(
       return { ...base, forked: { threadId: block.threadId } };
     case "live":
       return { ...base, live: compactingLine(store) };
+    case "moment": {
+      // One row for the whole moment, drawn as an event row on its first item.
+      const items = block.itemIds.slice(0, 1);
+      return {
+        ...base,
+        kind: "event",
+        items,
+        event: momentRow(store, block.moment, block.itemIds, block.since),
+      };
+    }
     default: {
       const items = [...blockItems(block)];
       return { ...base, items, ...messageBlock(store, block.kind, items[0]) };
@@ -468,6 +478,8 @@ export function followBlocks(
     const block = blocks.get(key);
     if (block?.kind === "user" || block?.kind === "event" || block?.kind === "item")
       if (single.get(block.itemId) === key) single.delete(block.itemId);
+    if (block?.kind === "moment")
+      for (const id of block.itemIds) if (single.get(id) === key) single.delete(id);
     if (block?.kind === "message" && answers.get(block.itemId) === key) {
       answers.delete(block.itemId);
       answering.delete(block.itemId);
@@ -489,6 +501,8 @@ export function followBlocks(
       single.set(block.itemId, block.key);
       if (eventFollows(store, block.kind, block.itemId)) ordered.add(block.key);
     }
+    // A moment's row reads every item it gathers.
+    if (block.kind === "moment") for (const id of block.itemIds) single.set(id, block.key);
     if (block.kind !== "work") return;
     if (block.ongoing || block.outcome === undefined) following.add(block.key);
     for (const id of workItems(block))

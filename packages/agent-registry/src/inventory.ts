@@ -78,6 +78,23 @@ const statFile = (path: string) => stat(path, { bigint: true });
 const fileIdentity = (info: FileStats) =>
   [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
 
+/** Digests a previous run settled, as stored beside the inventory. Only a cache: bad data is dropped. */
+const RememberedDigests = z
+  .array(
+    z.object({
+      path: z.string().min(1).max(4096),
+      file: z.string().max(256),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+    }),
+  )
+  .max(256);
+export type RememberedDigest = z.infer<typeof RememberedDigests>[number];
+/** Where settled digests outlive the process; the next start reads them back. */
+export type DigestMemory = {
+  load(): Promise<unknown>;
+  save(entries: readonly RememberedDigest[]): Promise<void>;
+};
+
 /**
  * The digest a launch checks its approval against, hashed again whenever the file's device,
  * inode, size, modification or change time differs from when it was last hashed. Any write
@@ -85,12 +102,27 @@ const fileIdentity = (info: FileStats) =>
  * rewritten in place with all five preserved. A digest is reused only for a file that held
  * still while it was hashed and whose times are older than the coarsest timestamp, so a
  * second write in the same tick cannot hide behind the first.
+ *
+ * With a memory, settled digests are kept across restarts under the same rule, so a start does
+ * not hash a large agent again (Antigravity's install is hundreds of megabytes). The memory sits
+ * beside the inventory, whose approved digests it is checked against: whoever can rewrite it
+ * can already rewrite those.
  */
 export class ExecutableDigests {
   #known = new Map<string, { file: string; digest: string }>();
   #now: () => number;
-  constructor(now: () => number = Date.now) {
+  #memory: DigestMemory | undefined;
+  #saving: Promise<void> = Promise.resolve();
+  constructor(now: () => number = Date.now, memory?: DigestMemory) {
     this.#now = now;
+    this.#memory = memory;
+  }
+  /** Reads back what an earlier run settled; anything unreadable is forgotten, not fatal. */
+  async recall(): Promise<void> {
+    const stored = RememberedDigests.safeParse(await this.#memory?.load().catch(() => undefined));
+    if (!stored.success) return;
+    for (const { path, file, digest } of stored.data)
+      if (!this.#known.has(path)) this.#known.set(path, { file, digest });
   }
   async digest(path: string): Promise<string> {
     const before = await statFile(path);
@@ -108,8 +140,23 @@ export class ExecutableDigests {
     ) {
       if (this.#known.size >= 256) this.#known.clear();
       this.#known.set(path, { file, digest });
+      this.#remember();
     }
     return digest;
+  }
+  /** One write at a time, each of everything known then. A failed write costs a hash next start. */
+  #remember(): void {
+    const memory = this.#memory;
+    if (!memory) return;
+    this.#saving = this.#saving.then(() =>
+      memory
+        .save([...this.#known].map(([path, { file, digest }]) => ({ path, file, digest })))
+        .catch(() => {}),
+    );
+  }
+  /** Resolves once every digest settled so far is written. */
+  saved(): Promise<void> {
+    return this.#saving;
   }
 }
 /** The approved artifact a launch revalidates: the script behind a Windows node launch. */

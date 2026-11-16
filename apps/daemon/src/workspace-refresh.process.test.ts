@@ -28,7 +28,7 @@ afterEach(async () => {
 /** A thread on a real checkout, refreshed by the production sweep on virtual time. */
 async function refreshing(
   status: ThreadStatus,
-  options: { viewed?: boolean; details?: ThreadDetails } = {},
+  options: { viewed?: boolean; details?: ThreadDetails; firstSweepMs?: number } = {},
 ) {
   const home = await realpath(await mkdtemp(join(tmpdir(), "ace-workspace-refresh-")));
   const root = join(home, "repo");
@@ -78,8 +78,14 @@ async function refreshing(
     },
   });
   const failures: unknown[] = [];
-  const refresh = new WorkspaceRefresh(store, runtime, time.now, time.schedule, (error) =>
-    failures.push(error),
+  const refresh = new WorkspaceRefresh(
+    store,
+    runtime,
+    time.now,
+    time.schedule,
+    (error) => failures.push(error),
+    undefined,
+    options.firstSweepMs,
   );
   cleanups.push(async () => {
     await refresh.close();
@@ -102,6 +108,13 @@ async function refreshing(
       store.appendEvents(thread.id, [{ type: "thread.updated", title: "Edited" }], time.at),
   };
 }
+
+test("a starting daemon reads no checkout until its startup delay has passed", async () => {
+  const thread = await refreshing({ state: "new" }, { firstSweepMs: 3_000 });
+  expect(thread.statusReads()).toBe(0);
+  await thread.time.advance(3_000);
+  expect(thread.statusReads()).toBeGreaterThan(0);
+});
 
 test("a quiet thread nobody is viewing is not re-read every minute", async () => {
   const thread = await refreshing({ state: "new" });

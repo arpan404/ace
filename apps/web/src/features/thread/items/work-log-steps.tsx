@@ -4,6 +4,7 @@ import { isMeasurementCall, opensAgentPage, stepOpens, type StepText } from "@ac
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import { Suspense, use, useId } from "react";
 import { cn } from "@/lib/cn.ts";
+import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { useShowBrowserPanel } from "@/features/panels/index.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredQuestionStep } from "../interactions/deferred-card.ts";
@@ -171,8 +172,9 @@ function PageStepLine(props: {
 }
 
 /**
- * One quiet step row: glyph or spinner, verb, target, diff stat and note. It toggles the step's
- * detail (`panel`), or with `onOpen` shows what the step made somewhere else.
+ * One quiet step row: glyph or spinner, verb, target, diff stat and note, and while the step is
+ * in flight how long it has run. It toggles the step's detail (`panel`), or with `onOpen` shows
+ * what the step made somewhere else.
  */
 export function StepRow(
   props: {
@@ -246,6 +248,9 @@ export function StepRow(
         )}
         {step.note && step.note !== "Waiting for your approval" && (
           <span className={cn(step.failed && "text-status-failed")}>{step.note}</span>
+        )}
+        {!step.settled && live && props.item?.type === "tool_call" && (
+          <ElapsedTime from={props.item.call.startedAt} />
         )}
       </span>
     </button>

@@ -122,7 +122,7 @@ private struct AttachmentMenuButton: UIViewRepresentable {
     func makeUIView(context: Context) -> Anchor {
         let button = Anchor(type: .custom)
         var appearance = UIButton.Configuration.plain()
-        appearance.image = UIImage(named: "ph-plus").map { Self.drawn($0, side: AceDesign.Size.plusGlyph) }
+        appearance.image = UIImage(ace: .plus).map { Self.drawn($0, side: AceDesign.Size.plusGlyph) }
         appearance.contentInsets = .zero
         button.configuration = appearance
         button.showsMenuAsPrimaryAction = true
@@ -140,7 +140,7 @@ private struct AttachmentMenuButton: UIViewRepresentable {
             owner.signature = signature
             let groups = [0, 1].compactMap { group -> UIMenu? in
                 let rows = actions.filter { $0.group == group }.map { choice in
-                    UIAction(title: choice.title, image: UIImage(named: "ph-\(choice.icon.rawValue)"), identifier: UIAction.Identifier(choice.id)) { [weak owner] _ in
+                    UIAction(title: choice.title, image: UIImage(ace: choice.icon), identifier: UIAction.Identifier(choice.id)) { [weak owner] _ in
                         owner?.actions[choice.id]?()
                     }
                 }
