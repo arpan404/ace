@@ -298,9 +298,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
     });
   }
 
+  /** A call Spade asked about because of its effect (ADR 0171), not a reviewer's doubt. */
+  askAbout(
+    agent: FakeSpadeAgent,
+    callId: string,
+    name: string,
+    args: unknown,
+    ask: "undeclared" | "outside_sandbox",
+  ): void {
+    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask });
+  }
+
   private request(
     agent: FakeSpadeAgent,
-    call: { callId: string; name: string; args: unknown; reply: string; reviewerReason?: string },
+    call: {
+      callId: string;
+      name: string;
+      args: unknown;
+      reply: string;
+      reviewerReason?: string;
+      ask?: string;
+    },
   ): void {
     const { callId, name, args, reply: id } = call;
     this.store(agent.conversation, { type: "reply_started", reply: id });
@@ -317,6 +335,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       name,
       ...(args === undefined ? {} : { arguments: args }),
       ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
+      ...(call.ask === undefined ? {} : { ask: call.ask }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -463,7 +482,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ skill_id: `skl_${id}` });
     }
     if (root === "oversight") return this.oversight.route(request.method, body);
-    if (root === "security") return this.security.machineRoute(request.method);
+    if (root === "security") return this.security.machineRoute(request.method, id, body);
     if (
       root === "agents" &&
       id &&

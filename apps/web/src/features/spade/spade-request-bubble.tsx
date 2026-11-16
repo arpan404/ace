@@ -72,9 +72,15 @@ export function SpadeRequestBubble(props: {
   };
   // Asked again after a refusal: the card says so, and leads with the refusal.
   const again = spadeAskedAgain(card.sentence, item.reason);
-  const sentence = again?.sentence ?? card.sentence;
+  // Outside the sandbox (ADR 0171) is its own question, whatever the command is.
+  const outside = item.ask === "outside_sandbox";
+  const sentence = outside ? "Run this outside the sandbox?" : (again?.sentence ?? card.sentence);
   const reason = again ? `Refused before: ${again.before}` : item.reason;
-  const named = sentence.replace(/\.$/, "");
+  const named = sentence.replace(/[.?]$/, "");
+  // What Enter and the main button answer: a tool Spade had no effect for is remembered for this
+  // bot, so its one Allow is the always; outside the sandbox it is once.
+  const main: RequestAnswer = item.ask === "undeclared" ? "always" : "allow";
+  const mainWord = item.ask === "undeclared" ? "Allow" : outside ? "Allow once" : "Allow";
   return (
     <RaisedCard
       asks="request"
@@ -91,7 +97,7 @@ export function SpadeRequestBubble(props: {
           answer("deny");
         } else if (event.key === "Enter" && event.target === event.currentTarget) {
           event.preventDefault();
-          answer("allow");
+          answer(main);
         }
       }}
     >
@@ -107,9 +113,13 @@ export function SpadeRequestBubble(props: {
       <CardFooter
         start={
           <>
-            {card.always && (
+            {(outside || (card.always && item.ask !== "undeclared")) && (
               <CardWord disabled={answering !== undefined} onClick={() => answer("always")}>
-                {answering === "always" ? "Allowing…" : "Always allow"}
+                {answering === "always"
+                  ? "Allowing…"
+                  : outside
+                    ? "Always for this bot"
+                    : "Always allow"}
               </CardWord>
             )}
             <CardWord disabled={answering !== undefined} onClick={() => answer("deny")}>
@@ -118,8 +128,8 @@ export function SpadeRequestBubble(props: {
           </>
         }
         end={
-          <CardPrimary disabled={answering !== undefined} onClick={() => answer("allow")}>
-            {answering === "allow" ? "Allowing…" : "Allow"}
+          <CardPrimary disabled={answering !== undefined} onClick={() => answer(main)}>
+            {answering === main ? "Allowing…" : mainWord}
             <Kbd
               aria-hidden
               keys="enter"

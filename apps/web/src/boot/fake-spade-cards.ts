@@ -142,9 +142,13 @@ export function seedFakeCards(here: FakeSpadeApi) {
     reply: "r-watch-list",
     text: "Three are open; two wait on your review.",
   });
-  here.ask(watcher, "w-gh", "shell", {
-    command: "gh pr review 2107 --comment --body-file review.md",
-  });
+  here.askAbout(
+    watcher,
+    "w-gh",
+    "shell",
+    { command: "gh pr review 2107 --comment --body-file review.md" },
+    "outside_sandbox",
+  );
 
   const daily = here.addAgent({ id: "daily", name: "Daily", task: "Send me a lesson each day." });
   here.reply(daily, "Today's lesson is in.");
