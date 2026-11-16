@@ -194,11 +194,15 @@ export interface SpadeQuestionCard {
   askedForLater: boolean;
 }
 
+export type SpadeAskKind = "undeclared" | "outside_sandbox";
+
 export interface SpadeRequest {
   callId: string;
   name: string;
   arguments: unknown;
   reason: string | undefined;
+  /** Why Spade asked (ADR 0171): a tool with no declared effect, or a command outside the sandbox. */
+  ask?: SpadeAskKind;
   helper?: { job: string; task: string };
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
@@ -215,6 +219,7 @@ export interface SpadeApproval {
   arguments: unknown;
   /** Why the model review asked the person rather than let it run (ADR 0135). */
   reason: string | undefined;
+  ask?: SpadeAskKind;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
 }
@@ -454,6 +459,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           arguments: event.arguments,
           // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
+          ...(event.ask ? { ask: event.ask } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
@@ -467,6 +473,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           name: asked.name,
           arguments: asked.arguments,
           reason: asked.reason,
+          ...(asked.ask ? { ask: asked.ask } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
           answer: undefined,
           always: false,

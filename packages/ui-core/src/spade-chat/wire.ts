@@ -92,6 +92,8 @@ const known = z.discriminatedUnion("type", [
     arguments: z.unknown().optional(),
     /** Why the auto-review asked the person rather than approve it itself. */
     reviewer_reason: z.string().nullish().catch(undefined),
+    /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
+    ask: z.enum(["undeclared", "outside_sandbox"]).nullish().catch(undefined),
     /** A helper's call (ADR 0152), asked here in its bot's conversation. */
     helper: z
       .object({ job: z.string(), conversation: z.string(), call_id: z.string() })
