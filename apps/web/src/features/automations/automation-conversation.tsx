@@ -187,6 +187,9 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
                 automationId={automation.id}
                 source={controls.source}
                 webhook={entry.webhook}
+                runsAt={
+                  entry.owner ? { thread: true } : { thread: false, access: automation.access }
+                }
                 disabled={controls.busy || !controls.ready}
               />
             )}
