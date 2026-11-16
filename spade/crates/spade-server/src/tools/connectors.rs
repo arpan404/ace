@@ -141,6 +141,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_effect_the_shipped_catalogue_declares_is_one_spade_reads() {
+        use spade_core::effect::Effect;
+        let mut declared = 0;
+        for entry in spade_connect::catalogue::shipped() {
+            if let Some(word) = &entry.writes {
+                assert!(Effect::parse(word).is_some(), "{}: {word}", entry.id);
+                declared += 1;
+            }
+            for (tool, said) in &entry.effects {
+                assert!(Effect::declared(said).is_some(), "{}: {tool}", entry.id);
+                declared += 1;
+            }
+        }
+        // Payments apps' writes pay, so they reach the person rather than the reviewer.
+        let pays = |id: &str| {
+            spade_connect::catalogue::shipped().iter().any(|e| {
+                e.id == id && e.writes.as_deref().and_then(Effect::parse) == Some(Effect::Pay)
+            })
+        };
+        assert!(pays("stripe") && pays("paypal") && pays("square"));
+        assert!(declared >= 4);
+    }
+
+    #[test]
     fn a_call_cut_off_after_sending_never_reads_as_not_run() {
         let unknown = output(CallError::MaybeRan("connection reset".into()));
         assert!(unknown.uncertain && unknown.content.starts_with("Unknown outcome"));

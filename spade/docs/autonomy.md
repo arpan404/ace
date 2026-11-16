@@ -9,9 +9,10 @@ engine side is `engine/autonomy.rs`, `engine/calls.rs` and `engine/continuation.
 
 ## One level: the auto-review
 
-Every bot is on the auto-review (ADR 0163). A call the rule gate would ask about goes to the
-reviewer, except a payment or a send as the person, which goes to the person (below); calls the rule gate runs (reads, notes in a clean turn, writes allowed always) run,
-and the ADR 0135 review still checks those when it is switched on.
+Every bot is on the auto-review (ADR 0163). Where a call goes is decided by what it does, its
+effect, and where it runs ([ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md),
+`spade_core::effect::route`). The reviewer sees only what the table below sends it, and the ADR
+0135 review still checks calls the gate runs when it is switched on (never a sandboxed one).
 
 - Old `{"type":"access_changed","level"}` events read as `auto_review`, whatever level they name.
   Once, on its first start, this build appends an `access_changed` to `auto_review` to each
@@ -19,68 +20,92 @@ and the ADR 0135 review still checks those when it is switched on.
   stores the setting `access_levels_retired` and removes `access_levels_pinned`.
 - Nothing else stores a level: creating or changing a bot never writes one.
 
-### Always the person: spending money and sending as them
+### Effects
 
-Two kinds never go to the reviewer, under ADR 0163's amendment 1 (`Sensitive::persons`,
-`autonomy::route`): **payment** (payments, purchases, bookings that charge, transfers) and
-**message as you** (email, messages, posts and comments sent in the person's name or from their
-accounts). Each is a raised request card at once, with `call_reviewed` stored as `escalate` with
-`model: ""` and the bubble's `reviewer_reason` "It could spend money, so you decide." or "It
-sends something in your name, so you decide." No reviewer is asked, so none can approve it, and
-nothing goes back to the bot first. The same holds in a worker's or a helper's conversation,
-since every call goes through the same routing. Credentials are still refused before this, and
-the person's Always allow on such a request still lets later calls of that tool and scope run.
+Every tool declares its effect once:
 
-An app tool marked read-only whose name says it pays or sends is classed as that, so it reaches
-the person too. ace's own tools never make a payment or a send by name (`agent_message` messages
-one of the person's agents, `transfer` moves a thread); a `browser_*`, `screen_*` or `sim_*`
-call is a payment when what it is told to press or type is a purchase button (`Place order`,
-`Buy now`, `Checkout`, `Pay now`, `Confirm booking`…). A click on an element by its id alone says
-nothing, and the reviewer judges it.
+| Effect           | Meaning                                                      |
+| ---------------- | ------------------------------------------------------------ |
+| `read`           | only reads                                                   |
+| `write_local`    | changes only the bot's own things (folder, notes, routines)  |
+| `network`        | changes something outside the bot (an app, another bot, ace) |
+| `publish`        | a release, a package, a deploy, a merge                      |
+| `send_as_person` | a message, mail, comment or push in the person's name        |
+| `pay`            | spends money                                                 |
+| `change_access`  | changes sign-ins, keys or who has access                     |
+| `credential`     | hands back a secret                                          |
 
-### What the reviewer is told
+- **Spade's own tools:** the table `BUILTIN` in `spade_core::effect`. A tool missing from it is
+  `read` when its risk is read, `write_local` when it is a note, and otherwise declares nothing.
+  `bot_message`, `bot_create` and `worker_message` reach another bot and are `network`; the typed
+  tools below are `send_as_person`.
+- **ace's tools:** ace's risk (`read`, else `network`), and a `browser_*`, `screen_*` or `sim_*`
+  call told to press or type a purchase button (`Place order`, `Buy now`, `Checkout`, `Pay now`,
+  `Confirm booking`…) is `pay`. ace's names never make a send.
+- **Connector and plugin tools:** `readOnlyHint: true` is `read`; any other annotation is
+  `network`. A declaration wins: a connector catalogue entry's `effects` (by the server's tool
+  name) and `writes` (every tool that isn't read-only), and a plugin server's execution entry's
+  `effects`. The shipped catalogue marks PayPal, Square and Stripe writes as `pay`, and GitHub's
+  `add_issue_comment` as `send_as_person` and `merge_pull_request` as `publish`. A tool with no
+  annotation and no declaration declares nothing.
+- Names and descriptions are never read for words.
 
-The other kinds that used to always go to the person are reviewed, with the rule's line in
-`<concern>` (`Sensitive::reason`, e.g. "It posts or publishes something."):
+### Where a call goes
 
-| Kind            | How it is recognised                                                                                                                                                                                                               |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| payment         | the person, not reviewed: `pay`, `purchase`, `buy`, `checkout`, `charge`, `order`, `transfer`, `booking`, `reserve`, `payout`…                                                                                                     |
-| credentials     | `password`, `token`, `key`, `permission`, `role`, `invite`, `access`…                                                                                                                                                              |
-| message as you  | the person, not reviewed: a send verb (`send`, `reply`, `forward`, `respond`, `dm`, `sms`, `tweet`…), or `email`, `message`, `post`, `comment` with no other verb (`delete_comment`, `archive_email`, `create_draft` are no sends) |
-| publish         | `publish`, `share`, `announce`, `release`, `deploy`, `merge`, `upload`…                                                                                                                                                            |
-| delete outside  | `delete`, `remove`, `trash`…, or `destructiveHint` / destructive risk                                                                                                                                                              |
-| unknown         | a tool of Spade's not in its table, or an app tool with no annotations                                                                                                                                                             |
-| mislabelled     | an app tool marked read-only whose name, or its description's first word, acts (`send`, `post`, `delete`, `create`, `transfer`…); reviewed though the rule gate runs reads                                                         |
-| tainted outward | an ace or app tool that matches nothing above, while untrusted content is in view                                                                                                                                                  |
-| tainted routine | `routine_save` / `routine_delete` while untrusted content is in view, reviewed even when allowed always                                                                                                                            |
-| shell           | what the shell classifier below finds                                                                                                                                                                                              |
+In order, first match wins:
 
-Two kinds go to the person without a review, since the reviewer can't read them whole; their
-`call_reviewed` is stored with `model: ""` and the bubble's `reviewer_reason` says why:
+| Facts                                                                           | Goes to                                                         |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| its arguments name a credential place (not for a sandboxed call), or `credential` | refused: `Not run: Spade never lets a bot read…`              |
+| a command outside the sandbox, or on a machine with none                         | the classifier and ADR 0163's route (below)                    |
+| it declares nothing, in the sandbox                                              | runs                                                            |
+| it declares nothing                                                              | the person once (`ask: undeclared`); their answer is kept      |
+| `pay`, `change_access`                                                           | the person, unless allowed always                              |
+| `send_as_person`                                                                 | the person, unless allowed always or a typed grant covers it   |
+| in a sandbox that holds files and network                                        | runs                                                            |
+| a command asking to run outside (`outside_sandbox: true`)                        | the person (`ask: outside_sandbox`)                             |
+| a routine set up under untrusted content                                         | the reviewer, with that concern                                 |
+| `read`                                                                           | runs                                                            |
+| `write_local`                                                                    | runs; a file write with no checkpoint, or a note under untrusted content, is reviewed |
+| `network`                                                                        | runs on a grant or Always allow; otherwise the reviewer        |
+| `publish`                                                                        | the reviewer, unless allowed always                             |
 
-- **too long:** arguments over 32,000 characters of JSON, or shown files over 48,000;
-- **unseen script:** a script outside the folder, unreadable or too long to show.
+A remembered allow for an undeclared tool still asks the person while untrusted content is in
+view. A covered push or comment under untrusted content is reviewed with the grant named.
+Requests the rules raise store `call_reviewed` as `escalate` with `model: ""`; the bubble's
+`reviewer_reason` is the rule's line: "It could spend money, so you decide.", "It sends something
+in your name, so you decide.", "It pushes with your sign-in, so you decide.", "It changes sign-ins,
+keys or who has access, so you decide.", "It doesn't say what it does, so you decide once for
+this bot.", "It asks to run outside the sandbox, so you decide.", "It is too long for the reviewer
+to read whole, so you decide."
 
-Words come from the tool's name (split on `_`, `-`, `.` and camelCase), then the first three
-words of an app tool's description. An app's annotations are hints from a server Spade doesn't
-control: the name and description checks run before a read-only claim counts. Spade's tools that
-stay inside the bot (`workspace_*`, `memory_*`, `todo`, `task_status`, `skill_*`, `routine_*`,
-`image_generate`, `share_file`) and those that reach another bot (`bot_message`, `group_ask`) go
-to the reviewer. ace's tools and app tools that match nothing go to the reviewer, told when
-untrusted content is in view.
+### The typed outward tools
+
+Credentials never enter the sandbox, so what needs the person's sign-in goes through a tool that
+runs outside it (`tools/outward/`), a fixed program with arguments, never a shell:
+
+- `git_push {repo, branch, remote?, path?}`: the remote's URL is read from the repository's
+  config file (`git config --file`, nothing run) and must be `https` or ssh and point at `repo`.
+  The branch is fetched into a clean repository in Spade's folder and pushed from there with
+  hooks off (`core.hooksPath=/dev/null`, `--no-verify`), never forced. A repository with an
+  alternates file is refused. A `git_push` grant matches `repo` and `branch`.
+- `pr_comment {repo, number, body}` and `issue_comment {repo, number, body}`: `gh … comment
+  --repo --body-file -` in Spade's folder, the body on stdin. A `pr_comment` grant covers the
+  first (`own_only` grants cover nothing yet).
+- `send_message {app: messages | mail, to, body, subject?}`: macOS only; Spade's own AppleScript
+  file, with who and what as its arguments.
+
+Every value is checked first (`spade_core::outward`): nothing can start with `-`, a branch must
+be one git accepts, a body at most 65,000 characters. A run past 120 s is cut and reported as
+maybe sent.
 
 ### The shell classifier
 
-**What it is, and what it isn't.** The classifier is a best-effort layer in front of the reviewer.
-It catches common ways a command reaches outside the workspace and names them to the reviewer as
-its concern. It is not a containment guarantee: a shell can do more than any
-reading of its words can follow, and a command it lets through can still reach the network or
-write outside the workspace. Containment is the OS sandbox of
-[ADR 0167](../../docs/adr/0167-spade-security-boundaries.md) ([security.md](security.md)): where
-it holds files and network, a command runs in it without a review unless the classifier finds
-publishing, a server change, mail, a payment or admin rights. Where it doesn't (Linux, Windows,
-or the sandbox off), `auto_review` relies on the reviewer for what the classifier misses.
+**Only for commands outside the sandbox.** A command that runs in a working sandbox is never
+classified (ADR 0171). The classifier reads commands that run with no sandbox: a bot set to run
+outside it, a call the person allowed outside it, and machines without a sandbox (Linux and
+Windows today). It is a best-effort layer in front of the reviewer, not a containment guarantee:
+a shell can do more than any reading of its words can follow.
 
 When it can't follow what a command will run, it doesn't try harder: it sends the command to the
 person as unclear.
@@ -201,22 +226,18 @@ scope run unreviewed.
 
 ### Credentials
 
-For every call, reads included and whatever the person allowed always, a call is refused when any
-string in its arguments names a place where sign-ins live (`~/.codex`, `~/.claude`,
-`~/.claude.json`, `~/.config/gh/hosts.yml`, `~/.aws`, `~/.ssh`, `.netrc`, `~/.docker/config.json`,
-`.npmrc`, `.pypirc`, `.git-credentials`, `~/.gnupg`, the keychain folders, `~/.kube/config`,
-ace's account homes and token, Spade's database), whatever program reads it, or reads as a
-command that reads secrets (`security find-*-password`/`dump-keychain`/`export`,
-`secret-tool lookup`, `gpg --export-secret*`, `pass`, `op`, `bw`, `keyring get`, `gh auth`,
-`git credential`…), across pipes, wrappers and `sh -c` strings (`spade_core::autonomy::secrets`),
-or the tool itself says it hands back a secret: its name or its description's first sentence
-names a token, secret, password, credential, passphrase, keychain, API key or private key, it
-reads (read-only, or a verb like `get`, `read`, `fetch`, `show`, `export`, `return`), and no verb
-says it changes them. A tool that changes sign-ins or access (`rotate`, `set`, `revoke`,
-`create`…) goes to the reviewer instead, as a credentials concern:
-`Not run: Spade never lets a bot read sign-in tokens, keys or provider credentials.` This is a
-list of known places and tools, so it misses what it doesn't know; it is a guard rail in front of
-the reviewer and the person, not a sandbox.
+For every call that doesn't run in the sandbox, reads included and whatever the person allowed
+always, a call is refused when any string in its arguments names a place where sign-ins live
+(`~/.codex`, `~/.claude`, `~/.claude.json`, `~/.config/gh/hosts.yml`, `~/.aws`, `~/.ssh`,
+`.netrc`, `~/.docker/config.json`, `.npmrc`, `.pypirc`, `.git-credentials`, `~/.gnupg`, the
+keychain folders, `~/.kube/config`, ace's account homes and token, Spade's database), whatever
+program reads it, or reads as a command that reads secrets (`security find-*-password`/
+`dump-keychain`/`export`, `secret-tool lookup`, `gpg --export-secret*`, `pass`, `op`, `bw`,
+`keyring get`, `gh auth`, `git credential`…), across pipes, wrappers and `sh -c` strings
+(`spade_core::autonomy::secrets`), or the tool declares `credential`:
+`Not run: Spade never lets a bot read sign-in tokens, keys or provider credentials.` A sandboxed
+call skips this list: the sandbox's deny-list closes those places to it. A tool that declares
+`change_access` goes to the person.
 
 ### Routines
 

@@ -1,6 +1,8 @@
 # Security boundaries
 
-Date: 2026-11-15. As built for [ADR 0167](../../docs/adr/0167-spade-security-boundaries.md), in
+Date: 2026-11-15, amended 2026-11-16. As built for
+[ADR 0167](../../docs/adr/0167-spade-security-boundaries.md) and
+[ADR 0171](../../docs/adr/0171-spade-decides-on-effects.md), in
 `spade-sandbox` (the sandbox, the credential deny-list and the egress proxy), `spade_core::grant`
 (grants) and `spade-server` (`security/`, `api/security.rs`, the shell, services and plugin
 servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
@@ -129,14 +131,15 @@ parent bot's id, once workers can pass grants down at creation).
 | ------------ | ------------------- | --------------------------------------------------------- | --------------------------- |
 | `folder`     | `path`, `write`     | The folder read-only, or read-write, in the bot's sandbox | yes, at each run            |
 | `tool`       | `tool`, `arguments` | Calling `tool` when every named argument matches its glob | yes, at the gate            |
-| `git_push`   | `repo`, `branch`    | Pushing matching branches of matching repos               | stored; no push tool yet    |
-| `pr_comment` | `repo`, `own_only`  | Commenting on PRs of matching repos (only its own)        | stored; no comment tool yet |
+| `git_push`   | `repo`, `branch`    | Pushing matching branches of matching repos               | yes, by `git_push`          |
+| `pr_comment` | `repo`, `own_only`  | Commenting on PRs of matching repos (only its own)        | yes, by `pr_comment`; `own_only` covers nothing yet |
 
 Globs: `*` within a `/` segment, `**` across. A call a `tool` grant covers runs without a review
 while nothing untrusted is in view; with untrusted content in view it is reviewed, the grant named
-as the concern. Refused at creation: a `tool` grant whose name says a payment, sending as the
-person, or changing sign-ins, keys or access (`autonomy::never_granted`: those always go to the
-person); a push grant for every branch (`*`, `**`); a folder that is relative, `/`, uses `..`,
+as the concern. Refused at creation: a `tool` grant for a tool that declares `pay`,
+`send_as_person`, `change_access` or `credential` (`effect::never_granted`, read from the bot's
+tool as it is now: those always go to the person; a tool Spade can't find is checked again at
+each call); a push grant for every branch (`*`, `**`); a folder that is relative, `/`, uses `..`,
 isn't a folder, or is or holds a credential place or Spade's or ace's data.
 
 A folder grant is stored as the folder it names (links resolved), and every folder grant up the
@@ -150,19 +153,33 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
 
 ## What the gate does with it
 
-`spade_core::autonomy::route`, with two facts beside ADR 0163's:
+`spade_core::effect::route` ([autonomy.md](autonomy.md), "Where a call goes"), with these facts:
 
-- `contained`: a `shell` call whose bot's sandbox holds files and network here. It runs with no
-  review, untrusted content in view or not, when the classifier found nothing or one of: network,
-  writes or deletes outside the folder, driving other apps, unclear, unseen script. Publishing,
-  a server change, mail, payments and admin rights are still reviewed with their concern. A
-  credential read is refused first, as before.
-- `granted`: a grant covers the call (above).
+- **Sandboxed** (`Runs::Sandbox`): a `shell` call, a terminal command, a service or a plugin
+  server's call that runs in a sandbox holding files and network here, with the proxy
+  listening. It runs with no classifier, no credential word list and no review, untrusted
+  content in view or not, unless its tool declares a payment, a send or an access change, or
+  reads secrets. A checkpoint is taken first when one is due; when it can't be, the call is
+  reviewed instead.
+- **Outside the sandbox** (`Runs::Outside`): the bot's `commands` setting is `outside`, the
+  person allowed this call outside, or the machine has no sandbox. The command is classed by the
+  shell classifier and takes ADR 0163's route. The gate marks the call's key, and the shell runs
+  only marked calls unconfined; a setting that changes in between never moves an unreviewed call
+  outside.
+- **Asking to run outside** (`outside_sandbox: true` on `shell`): a request with
+  `ask: outside_sandbox`. Allow once runs that call outside; Always for this bot runs it and sets
+  the bot's `commands` to `outside`; Deny declines it.
+- **Granted**: a `git_push` or `pr_comment` grant covers its typed tool; a `tool` grant covers a
+  `network` tool.
 
-`workspace_write` and `workspace_edit` count as contained too where the sandbox holds: a
-checkpoint is taken first when one is due, and they run without a review, untrusted content in
-view or not. What they write under taint still isn't trusted (workspace.md, Trust). Routines set
-up under taint, notes and outward calls keep their rules.
+`workspace_write` and `workspace_edit` run without a review where the sandbox holds (a
+checkpoint first), untrusted content in view or not. What they write under taint still isn't
+trusted (workspace.md, Trust). Routines set up under taint and notes keep their rules.
+
+When a sandboxed command fails and its output shows the sandbox stopped it (`effect::blocked`:
+`Operation not permitted`, the proxy's 403 or a name that can't resolve, an app it can't reach),
+the result ends with a line telling the bot it may call `shell` again with
+`outside_sandbox: true`.
 
 ## Checkpoints
 
@@ -196,8 +213,13 @@ Under `/v1`, with the bearer token. Only the person's API writes any of this; no
 
 | Method and path                             | Body                             | Answer                                                                                                                                                                                                          |
 | ------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /security`                             |                                  | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], toolchains_found: [path]}` |
-| `GET /agents/{id}/security`                 |                                  | `{contained, network: Policy, plugin_network: Policy, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}`; `404` unknown bot                                      |
+| `GET /security`                             |                                  | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}` |
+| `PUT /security/commands`                    | `{commands: sandboxed\|outside}` | The machine's view; what bots without their own inherit                                                                                                                                                         |
+| `PUT /security/network`                     | `{mode, allow?, dropped?}`       | The machine's view; `400` as for a bot's                                                                                                                                                                        |
+| `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`       | As above, for plugins                                                                                                                                                                                           |
+| `GET /agents/{id}/security`                 |                                  | `{contained, commands, network: Policy, plugin_network: Policy, own: {commands, network, plugin_network}, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}` (what holds, and whether each is the bot's own); `404` unknown bot |
+| `PUT /agents/{id}/security/commands`        | `{commands: sandboxed\|outside\|null}` | The bot's view; `null` follows the machine                                                                                                                                                                  |
+| `DELETE /agents/{id}/security/network`      |                                  | The bot's view, its commands following the machine's rule again (`/plugin-network` likewise)                                                                                                                  |
 | `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`       | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                 |
 | `PUT /agents/{id}/security/plugin-network`  | `{mode, allow?, dropped?}`       | As above, for its plugins' hooks and servers                                                                                                                                                                    |
 | `PUT /agents/{id}/security/toolchains`      | `{toolchains: [path]}`           | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                        |
@@ -209,47 +231,37 @@ Under `/v1`, with the bearer token. Only the person's API writes any of this; no
 | `POST /agents/{id}/checkpoints`             |                                  | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                  |
 | `POST /agents/{id}/checkpoints/{c}/restore` |                                  | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                         |
 
-Settings are one stored setting per bot, `security:<bot id>`; a value that doesn't parse reads as
-the defaults. A change holds from the bot's next run.
+Settings are one stored setting per bot, `security:<bot id>`, and the machine's defaults,
+`security.machine`; a value that doesn't parse reads as the defaults. A bot's own value wins; a
+stored network policy equal to the built-in default (every earlier build wrote one) reads as
+following the machine. A change holds from the bot's next run.
 
-## What the UI needs
+## What the UI shows
 
-Not built here. **Settings › Spade › Security** (the machine):
+**Settings › Spade › Security** (the machine): the sandbox line; Commands, `Sandboxed` or
+`Outside the sandbox`, with one line about what Outside means; the network rules for commands
+and plugins every bot follows unless it sets its own, editable; the sites listed by default.
 
-- The sandbox line: "Commands run in macOS's sandbox" or the `reason` when they don't, and
-  whether shell commands skip the review (`contained`).
-- Whether the proxy runs (`proxy.problem` when not).
-- The default allow-list (`defaults`), read-only.
-- Toolchains found (`toolchains_found`), offered when confirming them for a bot.
+**The bot's profile, Details › Security**: Commands (`Same as this Mac`, `Sandboxed`, `Outside
+the sandbox`); each network rule marked as its own or the Mac's, with a way back to the Mac's;
+consented folders, toolchains, grants, network activity and checkpoints as before.
 
-**The bot's profile, Details › Security**:
-
-- Network for commands: mode (`Off`, `Allow list`, `Any public host`), the defaults with a switch
-  each (`dropped`), the person's additions with add and remove (show the `400` text inline).
-- Network for plugins: the same, defaulting to any public host.
-- Consented folders: the `folder` grants, each with read-only or read-write, add (a folder
-  picker) and remove; a worker's effective ones marked as narrowed by its parent.
-- Toolchains: confirmed folders, added from `toolchains_found`.
-- Grants: the `tool`, `git_push` and `pr_comment` grants with their scope in words ("Push to
-  `spade/*` of arpan404/ace"), add and revoke; never offer payments, sending as the person or
-  access changes.
-- Network activity: the egress log, newest first, refused rows marked with their `reason`, and a
-  "Allow this host" action on a refused row (adds it to `allow`).
-- Checkpoints: the list with when and why (`auto`, `person`, `before_restore`), "Take one now",
-  and "Restore" with a confirm saying the current state is kept as a checkpoint first; disabled
-  while the bot works (`409`).
+**Requests**: `ask: outside_sandbox` shows "Run this outside the sandbox?" with the command and
+Allow once, Always for this bot, Deny; `ask: undeclared` shows Allow and Deny, since the answer
+is kept for the bot and tool.
 
 ## Not built yet
 
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
   copies on other volumes don't).
-- Linux's seccomp filter (UDP, raw and Unix sockets), so Linux can count as contained.
-- Windows' AppContainer.
-- Tools that use `git_push` and `pr_comment` grants (a push or comment that holds the person's
-  sign-in outside the sandbox).
+- Linux's seccomp filter (UDP, raw and Unix sockets) and Windows' AppContainer, the next
+  phases (ADR 0171 decision 6): once each counts as contained, its commands skip the classifier
+  and the review as macOS's do.
 - Per-value provenance at egress, `derived` trust for network-off runs (each run's proxy usage
   is already counted), and quarantined readers.
 - CLI brains in the sandbox (ADR 0133 keeps them on their own read-only modes).
-- Payments and sending as the person going straight to the person at the gate: today no grant
-  covers them and the reviewer sees them as concerns (ADR 0163); routing them past the reviewer
-  waits on a classification that doesn't also catch ace's `agent_message` to a bot's own child.
+- A publish tool of Spade's own (packages, releases): publishing is a declared effect of
+  connector and plugin tools, or a command outside the sandbox.
+- ace's plugin import carrying a server's `effects` declaration (ace's `PluginExecution` is
+  strict); Spade reads it once it does.
+- `own_only` for `pr_comment` grants (whether the bot opened the pull request).
