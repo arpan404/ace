@@ -227,8 +227,10 @@ export async function reservePicture(
   db: D1Database,
   input: { publisher: string; key: string; size: number; quotaBytes: number; now: number },
 ): Promise<boolean> {
-  const fits = `${storedBytesSql("?2")} + (SELECT COALESCE(SUM(size), 0) FROM pictures
-      WHERE publisher = ?2 AND key != ?1) + ?3 <= ?5`;
+  // storedBytesSql already counts every picture of the publisher; subtract this key's own stored
+  // size (0 when it is new) so a replacement is charged only for its change.
+  const fits = `${storedBytesSql("?2")}
+      - (SELECT COALESCE(SUM(size), 0) FROM pictures WHERE publisher = ?2 AND key = ?1) + ?3 <= ?5`;
   const result = await db
     .prepare(
       `INSERT INTO pictures (key, publisher, size, at) SELECT ?1, ?2, ?3, ?4 WHERE ${fits}

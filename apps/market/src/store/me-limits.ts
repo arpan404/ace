@@ -17,7 +17,8 @@ export const storedBytesSql = (publisher: string) =>
   `((SELECT COALESCE(SUM(size), 0) FROM drafts WHERE publisher = ${publisher}) +
     (SELECT COALESCE(SUM(v.size), 0) FROM versions v JOIN entries e
       ON e.type = v.type AND e.name = v.name
-      WHERE e.publisher = ${publisher} AND v.state != 'blocked'))`;
+      WHERE e.publisher = ${publisher} AND v.state != 'blocked') +
+    (SELECT COALESCE(SUM(size), 0) FROM pictures WHERE publisher = ${publisher}))`;
 
 export async function limitsOf(
   db: D1Database,

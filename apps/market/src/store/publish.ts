@@ -90,7 +90,9 @@ export async function claimPublisher(
     )
     .bind(input.id, input.account, input.name, input.now, input.skeleton)
     .run();
-  if (result.meta.changes === 1) return { claimed: { id: input.id, name: input.name } };
+  // The publishers insert fires a trigger that also reserves the handle, so a successful insert
+  // reports more than one changed row; any change means this request claimed it.
+  if (result.meta.changes > 0) return { claimed: { id: input.id, name: input.name } };
   // Another request for the same account may have claimed first.
   const existing = await publisherOf(db, input.account);
   return existing ? { taken: "account", publisher: existing } : { taken: "name" };

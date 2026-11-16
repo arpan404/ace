@@ -5,11 +5,16 @@ import { pictureGraceMs } from "./store/profiles.ts";
 import { startMarket, type Market } from "./testing/harness.ts";
 import {
   asAccount,
+  createDraft,
   establishedPublisher,
   jsonOf,
   liveVersion,
   testPng,
 } from "./testing/publisher-harness.ts";
+import { writeArchive } from "@ace/marketplace";
+
+const writeArchiveSize = (files: Parameters<typeof writeArchive>[0]) =>
+  writeArchive(files).byteLength;
 
 /*
  * Avatars and listing pictures (ADR 0173 §3, §5, §9) against the market's D1 and R2: their bytes
@@ -96,4 +101,22 @@ it("a listing picture for a slot past the next free one is refused before any by
     .bind(painter.id)
     .first<{ n: number }>();
   expect(charged?.n).toBe(0);
+});
+
+it("a stored avatar counts against a later archive upload's quota", async () => {
+  const tight = await establishedPublisher(market, "acct_tight", "tight");
+  const draft = sampleSkill("tight-skill");
+  const size = writeArchiveSize(draft);
+  // Fill the quota to all but a little under the archive's size, with a charged picture.
+  await market.db
+    .prepare("INSERT INTO pictures (key, publisher, size, at) VALUES ('avatars/tight', ?1, ?2, 1)")
+    .bind(tight.id, 1024 * 1024 * 1024 - Math.floor(size / 2))
+    .run();
+  const response = await createDraft(market, "acct_tight", {
+    type: "spade-skill",
+    name: "tight-skill",
+    files: draft,
+  });
+  expect(response.status).toBe(429);
+  expect((await jsonOf<{ error: string }>(response)).error).toBe("quota");
 });
