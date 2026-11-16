@@ -381,10 +381,12 @@ struct ThreadView: View {
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             } else if let pill = screen.pill, foot.drawsPill {
                 // The `@` and `/` list takes the pills' place over the transcript while it's open.
-                // The pill says when it's on screen, so the transcript keeps its live rows
-                // whenever it isn't; a new screen model gets a pill of its own to say it there.
+                // Each part says when it's on screen, so the transcript keeps a fact's live rows
+                // whenever its part isn't; a new screen model gets pills of its own to say it there.
                 let screen = screen
-                ComposerLivePills(pill: pill, open: openPill) { screen.pillVisible = $0 }
+                ComposerLivePills(pill: pill, open: openPill) { part, shown in
+                    if shown { screen.visiblePills.insert(part) } else { screen.visiblePills.remove(part) }
+                }
                     .id(ObjectIdentifier(screen))
                     .transition(.opacity)
             }

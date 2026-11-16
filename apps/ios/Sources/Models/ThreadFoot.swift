@@ -4,9 +4,10 @@ import Foundation
 /// that didn't go, commands a stopped turn left running, a transfer, what stops the checkout), or
 /// else the live pill, which the `@` and `/` list also takes the place of while it's open.
 ///
-/// The page draws the pill by `drawsPill`. The transcript decides from whether the pill is
-/// actually on screen, as the pill reports it (`pillVisible`), not from the reasons it may be
-/// gone, so a live row is never hidden while no pill shows, for any reason.
+/// The page draws the pill by `drawsPill`. The transcript decides from which of the pill's parts
+/// are actually on screen, as each part reports it (`visiblePills`), not from the reasons the pill
+/// may be gone: a fact's live rows hide only while the part that says that fact shows, so a part
+/// scrolled out of the pills' row, or a pill gone for any reason, leaves its rows in view.
 struct ThreadFoot: Equatable, Sendable {
     var requests = false
     var hold = false
@@ -17,17 +18,32 @@ struct ThreadFoot: Equatable, Sendable {
     var pill: PillRow?
     /// The composer's `@` or `/` list is open: it takes the pill's place.
     var suggesting = false
-    /// The pill is on screen now, as the pill itself last reported (`ThreadScreenModel`).
-    var pillVisible = false
+    /// The pill's parts on screen now, by `LivePill.id`, as each last reported (`ThreadScreenModel`).
+    var visiblePills: Set<String> = []
 
     var stripShown: Bool { requests || hold || notSent || leftRunning || transfer || work }
     /// Whether the page draws the pill: the bridge sent one and nothing takes its place.
     var drawsPill: Bool { pill != nil && !stripShown && !suggesting }
-    /// What the pill on screen names: nothing unless the pill reports itself on screen. A strip
-    /// also counts as taking its place, so a report left over from before can't hide a row.
+    /// What the pill on screen names: each fact only while the part saying it reports itself on
+    /// screen. A strip also counts as taking the pill's place, so a report left over from before
+    /// can't hide a row.
     var named: PillRow.Covers {
-        guard pillVisible, !stripShown, let covers = pill?.covers else { return .nothing }
-        return covers
+        guard !stripShown, let pill, let covers = pill.covers else { return .nothing }
+        return PillRow.Covers(subagents: covers.subagents && visiblePills.contains(pill.part(naming: .subagents)),
+                              commands: covers.commands && visiblePills.contains(pill.part(naming: .commands)))
+    }
+}
+
+extension PillRow {
+    /// The part of the pill that says `fact` when it names it, by `LivePill.id`: its own segment
+    /// ("2 subagents", "1 command"), else the status, which names it while the root only waits
+    /// on it ("Waiting on 2", "Running 2 commands").
+    func part(naming fact: LiveFact) -> String {
+        let kind = switch fact {
+        case .subagents: "subagents"
+        case .commands: "commands"
+        }
+        return segments.contains { $0.kind == kind } ? kind : "status"
     }
 }
 
@@ -85,6 +101,6 @@ extension ThreadFoot {
                           transfer: transfers.thread(thread.id)?.line != nil,
                           work: screen.work != nil,
                           pill: screen.pill,
-                          pillVisible: screen.pillVisible)
+                          visiblePills: screen.visiblePills)
     }
 }

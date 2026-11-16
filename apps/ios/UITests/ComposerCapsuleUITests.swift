@@ -169,9 +169,30 @@ import XCTest
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
     }
 
-    private func launch(into row: String) -> XCUIApplication {
+    /// At accessibility text sizes the pills overflow their row. A part scrolled past the edge
+    /// doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
+    func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
+        let app = launch(into: "thread.ios-waiting", extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        let commands = app.descendants(matching: .any)["pill.commands"]
+        XCTAssertTrue(commands.waitForExistence(timeout: 25))
+        sleep(1)
+        let width = app.windows.firstMatch.frame.width
+        XCTAssertGreaterThan(commands.frame.midX, width, "the command's pill starts past the row's edge")
+        // "Waiting on 2" shows and says the subagents; the running command's line stays.
+        XCTAssertTrue(app.buttons["subagents.rollup"].waitForNonExistence(timeout: 5), "the shown status says the subagents")
+        let line = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'background.'")).firstMatch
+        XCTAssertTrue(line.waitForExistence(timeout: 10), "the command its pill doesn't show stays in the transcript")
+        shot("pill-past-the-edge")
+        // Scrolled along the row, the command's pill shows and says it: its line leaves.
+        app.descendants(matching: .any)["composer.live"].swipeLeft()
+        XCTAssertTrue(commands.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(commands.frame.maxX, width, "the command's pill is in the row")
+        XCTAssertTrue(line.waitForNonExistence(timeout: 5), "the pill on screen says the command")
+    }
+
+    private func launch(into row: String, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
         app.launchWithArguments()
         dismissNotificationsPrompt()
         app.revealRow(row).tap()

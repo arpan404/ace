@@ -10,11 +10,11 @@ import Testing
                 covers: PillRow.Covers(subagents: subagents, commands: commands))
     }
 
-    /// The foot as the page leaves it: the pill is on screen exactly when the page draws it,
-    /// and says so (`ComposerLivePills.onScreen`).
+    /// The foot as the page leaves it with room for every part: each of the pill's parts is on
+    /// screen exactly when the page draws the pill, and says so (`ComposerLivePills.onScreen`).
     private func drawn(_ foot: ThreadFoot) -> ThreadFoot {
         var drawn = foot
-        drawn.pillVisible = foot.drawsPill
+        drawn.visiblePills = foot.drawsPill ? Set((foot.pill.map(LivePill.of) ?? []).map(\.id)) : []
         return drawn
     }
 
@@ -50,10 +50,34 @@ import Testing
     @Test func aPillNotOnScreenForAnyReasonNamesNothing() {
         // The bridge sent a pill but it hasn't said it's on screen (not drawn yet, gone for a
         // reason the foot doesn't list): the transcript keeps every live row.
-        let foot = ThreadFoot(pill: pill(), pillVisible: false)
+        let foot = ThreadFoot(pill: pill(), visiblePills: [])
         #expect(foot.drawsPill)
         #expect(foot.named.transcriptShows(.subagents, live: true))
         #expect(foot.named.transcriptShows(.commands, live: true))
+    }
+
+    @Test func aPartScrolledOffTheRowLeavesItsFactsRowsInTheTranscript() {
+        // Large text: "Waiting on 2" shows, "1 command" is past the row's edge.
+        let foot = ThreadFoot(pill: pill(), visiblePills: ["status"])
+        #expect(!foot.named.transcriptShows(.subagents, live: true))
+        #expect(foot.named.transcriptShows(.commands, live: true))
+        // Scrolled along: the command's part shows and the status is off.
+        let along = ThreadFoot(pill: pill(), visiblePills: ["commands"])
+        #expect(along.named.transcriptShows(.subagents, live: true))
+        #expect(!along.named.transcriptShows(.commands, live: true))
+    }
+
+    @Test func aFactIsSaidByItsOwnSegmentElseByTheStatus() {
+        // "Waiting on 2" says the subagents; "1 command" says the command.
+        #expect(pill().part(naming: .subagents) == "status")
+        #expect(pill().part(naming: .commands) == "commands")
+        // Beside a working root each has its own segment.
+        let working = PillRow(status: PillRow.Status(label: "Working", lead: "Working for", since: 1, code: "", live: true, tone: "working", opens: ""),
+                              segments: [PillRow.Segment(kind: "subagents", label: "2 subagents", opens: "agents", live: false)],
+                              covers: PillRow.Covers(subagents: true, commands: false))
+        #expect(working.part(naming: .subagents) == "subagents")
+        // Only the status shows: the subagents segment is off the row, so their rows stay.
+        #expect(ThreadFoot(pill: working, visiblePills: ["status"]).named.transcriptShows(.subagents, live: true))
     }
 
     @Test(arguments: [
@@ -66,7 +90,7 @@ import Testing
         #expect(!foot.drawsPill)
         #expect(drawn(foot).named.transcriptShows(.subagents, live: true))
         // A report left over from before the strip came can't hide a row either.
-        foot.pillVisible = true
+        foot.visiblePills = ["status", "commands"]
         #expect(foot.named.transcriptShows(.subagents, live: true))
         #expect(foot.named.transcriptShows(.commands, live: true))
     }
