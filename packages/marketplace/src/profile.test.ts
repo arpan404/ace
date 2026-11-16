@@ -43,6 +43,33 @@ describe("handleProblem", () => {
     },
   );
 
+  it.each([
+    ["adm1n", "admin with a digit one"],
+    ["5upport", "support with a digit five"],
+    ["r00t", "root with zeros"],
+    ["rnod", "mod with rn for m"],
+    ["secur1ty", "security with a digit one"],
+    ["0wner", "owner with a zero"],
+    ["my-adm1n-tools", "a dash part that folds to admin"],
+    ["he1p-desk", "a dash part that folds to help"],
+    ["ace0fficial", "ace beside official with a zero"],
+    ["ace-0fficial", "ace beside official, dashed, with a zero"],
+    ["0fficial-ace", "official with a zero beside ace"],
+    ["acesuppor7", "ace beside support with a seven"],
+    ["4ce-adm1n", "ace and admin both folded"],
+    ["t3am-ace", "team with a three beside ace"],
+    ["acest4ff", "ace beside staff with a four"],
+  ])("refuses %s (%s) for a non-official account", (handle) => {
+    expect(ok(handleProblem(handle, { official: false }))).toBe(false);
+  });
+
+  it.each(["adminton", "rooted-tree", "helpful-bot", "teamwork", "spaceship", "officially-mine"])(
+    "still accepts the ordinary handle %s that only contains a reserved word",
+    (handle) => {
+      expect(ok(handleProblem(handle, { official: false }))).toBe(true);
+    },
+  );
+
   it.each(["ace", "ace-official", "acehq"])("lets the official account take %s", (handle) => {
     expect(ok(handleProblem(handle, { official: true }))).toBe(true);
   });

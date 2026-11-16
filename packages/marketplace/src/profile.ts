@@ -49,6 +49,14 @@ const RESERVED = new Set([
 /** Reserved words that, standing beside `ace` in a skeleton, make it read as official ace. */
 const ACE_QUALIFIERS = ["official", "team", "hq", "market", "support", "staff", "mod", "admin"];
 
+/*
+ * The reserved words and qualifiers as skeletons, so a handle is compared fold to fold: `adm1n`
+ * (skeleton `admln`) meets `admin` (also `admln`), and `ace0fficial` meets `aceofficial`.
+ */
+const RESERVED_SKELETONS = new Set([...RESERVED].map(skeleton));
+const ACE_SKELETON = skeleton("ace");
+const ACE_QUALIFIER_SKELETONS = ACE_QUALIFIERS.map(skeleton);
+
 /** A handle is 3 to 32 of `a-z`, `0-9` and single dashes, no leading, trailing or double dash. */
 const HANDLE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -59,9 +67,9 @@ const HANDLE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * here as `ace`.
  */
 export function readsAsAce(skel: string): boolean {
-  if (skel === "ace" || skel === "aces") return true;
-  for (const word of ACE_QUALIFIERS) {
-    if (skel === `ace${word}` || skel === `${word}ace`) return true;
+  if (skel === ACE_SKELETON || skel === `${ACE_SKELETON}s`) return true;
+  for (const word of ACE_QUALIFIER_SKELETONS) {
+    if (skel === `${ACE_SKELETON}${word}` || skel === `${word}${ACE_SKELETON}`) return true;
   }
   return false;
 }
@@ -90,15 +98,11 @@ export function handleProblem(
 
   if (options.official) return undefined;
 
-  // The whole handle, or any dash-separated part, is a reserved word.
+  // The whole handle, or any dash-separated part, is a reserved word or folds to one.
   if (RESERVED.has(handle)) return { message: `"${handle}" is a reserved handle.` };
   for (const part of parts)
-    if (RESERVED.has(part) || RESERVED.has(skeleton(part)))
-      return { message: `"${part}" is a reserved word.` };
-
-  // The skeleton as a whole is a reserved word (folded tricks), or holds `ace` beside a reserved
-  // qualifier (caught by readsAsAce above); also refuse a skeleton equal to a reserved word.
-  if (RESERVED.has(skel)) return { message: "That handle is reserved." };
+    if (RESERVED_SKELETONS.has(skeleton(part))) return { message: `"${part}" is a reserved word.` };
+  if (RESERVED_SKELETONS.has(skel)) return { message: "That handle is reserved." };
 
   return undefined;
 }
