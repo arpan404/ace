@@ -11,7 +11,14 @@ import {
   SignedOfficialUpload,
   SignedVerifiedUpload,
 } from "@ace/protocol/marketplace";
-import { malformed, marketKeys, noKeys, signatureRefused, signerAllowed } from "./api-signer.ts";
+import {
+  listAnswer,
+  malformed,
+  marketKeys,
+  noKeys,
+  signatureRefused,
+  signerAllowed,
+} from "./api-signer.ts";
 import { versionReportKey, type Context } from "./context.ts";
 import { failure, json, notFound, readJson, refused } from "./http.ts";
 import type { Route } from "./routes.ts";
@@ -44,8 +51,6 @@ const decided = (result: Decided, conflict: string) =>
     : result === "missing"
       ? notFound()
       : failure(409, "conflict", conflict);
-const older = () =>
-  failure(409, "conflict", "Another list issued at or after this one is already stored.");
 
 export async function maintainerRoute(
   request: Request,
@@ -65,10 +70,11 @@ export async function maintainerRoute(
     case "signer-hold": {
       const decision = HoldDecision.safeParse(await body());
       if (!decision.success) return malformed();
-      return decided(
-        await decideHold(db, route, decision.data.decision, context.now),
-        "That version is listed or blocked; it can't be held or released.",
-      );
+      const result = await decideHold(db, route, decision.data.decision, context.now);
+      // The signer's own re-scan that held it is the report a maintainer reads in the queue.
+      if (result === "done" && decision.data.decision === "hold" && decision.data.scan)
+        await context.env.OBJECTS.put(versionReportKey(route), JSON.stringify(decision.data.scan));
+      return decided(result, "That version is listed or blocked; it can't be held or released.");
     }
     case "signer-block": {
       const decision = BlockDecision.safeParse(await body());
@@ -152,13 +158,12 @@ async function blocklist(request: Request, context: Context) {
   } catch (error) {
     return signatureRefused(error);
   }
-  return (await setBlocklist(
-    context.env.MARKET,
-    list.issued,
-    JSON.stringify(upload.data.blocklist),
-  ))
-    ? json({ status: "stored", issued: list.issued })
-    : older();
+  const stored = await setBlocklist(context.env.MARKET, {
+    issued: list.issued,
+    signed: JSON.stringify(upload.data.blocklist),
+    basedOn: upload.data.basedOn,
+  });
+  return listAnswer(stored, list.issued);
 }
 
 async function verified(request: Request, context: Context) {
@@ -190,11 +195,11 @@ async function verified(request: Request, context: Context) {
     );
   const stored = await setVerified(
     db,
-    { body: list, signed: JSON.stringify(upload.data.verified) },
+    { body: list, signed: JSON.stringify(upload.data.verified), basedOn: upload.data.basedOn },
     upload.data.revoked,
     context.now,
   );
-  return stored ? json({ status: "stored", issued: list.issued }) : older();
+  return listAnswer(stored, list.issued);
 }
 
 async function official(request: Request, context: Context) {
@@ -212,10 +217,10 @@ async function official(request: Request, context: Context) {
     return refused([{ message: "The official list names the ace publisher only" }]);
   const stored = await setOfficial(
     context.env.MARKET,
-    { body: list, signed: JSON.stringify(upload.data.official) },
+    { body: list, signed: JSON.stringify(upload.data.official), basedOn: upload.data.basedOn },
     context.now,
   );
   if (stored === "publisher-taken")
     return failure(409, "conflict", "Another publisher id holds the ace handle.");
-  return stored === "stored" ? json({ status: "stored", issued: list.issued }) : older();
+  return listAnswer(stored, list.issued);
 }

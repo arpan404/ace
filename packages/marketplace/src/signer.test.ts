@@ -196,6 +196,10 @@ describe("the signer's re-scan", () => {
     expect(held.puts.map((put) => put.path)).toEqual([
       "/v1/signer/holds/spade-skill/rescanned/1.0.0",
     ]);
+    // The hold carries the signer's own scan, which a maintainer reads in the queue.
+    expect(bodyOf<{ scan?: { format: string; hash?: string } }>(held.puts).scan).toMatchObject({
+      format: "ace-market-scan",
+    });
     const approved = market({
       "/v1/signer/pending": pendingOf({ official: officialOf() }, { approved: true }),
     });
@@ -225,6 +229,8 @@ describe("the signed lists", () => {
       });
     const list = verifyBlocklist(bodyOf<{ blocklist: unknown }>(puts).blocklist, keySetOf(next));
     expect(list.hashes.map((item) => item.reason)).toEqual(["Mines coins"]);
+    // Each upload names the list it started from, so a concurrent edit is refused, not lost.
+    expect(bodyOf<{ basedOn?: number }>(puts).basedOn).toBe(5);
     expect(list.patterns.map((item) => item.text)).toEqual(["stratum+tcp://"]);
   });
 
@@ -249,6 +255,7 @@ describe("the signed lists", () => {
     const upload = bodyOf<{ verified: unknown; revoked: unknown }>(puts);
     expect(verifyVerifiedList(upload.verified, keySetOf(next)).publishers).toEqual([]);
     expect(upload.revoked).toEqual([{ handle: "alpha", reason: "Domain lapsed" }]);
+    expect(bodyOf<{ basedOn?: number }>(puts).basedOn).toBe(5);
   });
 
   it("makes the official list with a new ace id when the market has none", async () => {
@@ -264,6 +271,8 @@ describe("the signed lists", () => {
     const list = verifyOfficialList(bodyOf<{ official: unknown }>(puts).official, keySetOf(next));
     expect(list.publisher).toEqual({ id: "pub_new_ace", name: "ace" });
     expect(list.accounts).toEqual(["acct_owner"]);
+    // No list was stored, so the upload is based on none.
+    expect(bodyOf<{ basedOn?: number }>(puts)).not.toHaveProperty("basedOn");
   });
 
   it("withdraws every live version of a publisher, each by version", async () => {

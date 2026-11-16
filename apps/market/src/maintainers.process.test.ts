@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { verifyBlocklist, verifyOfficialList } from "@ace/marketplace";
 import { keySetOf, sampleSkill, testKey } from "@ace/marketplace/testing";
-import { MarketQueueBody, MarketReportsBody, SignerPending } from "@ace/protocol/marketplace";
+import {
+  MarketQueueBody,
+  MarketReportsBody,
+  SignerPending,
+  type MarketScanReport,
+} from "@ace/protocol/marketplace";
 import {
   asSigner,
   manifestFor,
@@ -19,6 +24,7 @@ import {
   publishLive,
   verifiedBy,
 } from "./testing/discover-harness.ts";
+import { listVersion } from "./store/signer.ts";
 
 /*
  * The maintainers' routes (ADR 0173 §7, §9, §10, §13, §14) through the Worker: the signer's token
@@ -113,6 +119,78 @@ it("a held version waits for a maintainer, not the signer; approving, holding an
     (await put(market, "/v1/signer/holds/spade-skill/nothing-here/1.0.0", { decision: "approve" }))
       .status,
   ).toBe(404);
+});
+
+it("a signature racing a maintainer's hold or block never lists the version", async () => {
+  for (const [name, decide] of [
+    ["raced-block", { route: "blocks", body: { reason: "Sends keys away" } }],
+    ["raced-hold", { route: "holds", body: { decision: "hold" } }],
+  ] as const) {
+    const upload = { type: "spade-skill" as const, name, files: sampleSkill(name) };
+    expect((await publish(market, upload)).status).toBe(201);
+    await approve(market, upload);
+    // The route read the version pending; a maintainer decides before its batch runs.
+    const answer = await put(
+      market,
+      `/v1/signer/${decide.route}/spade-skill/${name}/1.0.0`,
+      decide.body,
+    );
+    expect(answer.status).toBe(200);
+    const live = async () =>
+      market.db
+        .prepare(
+          `SELECT v.state, v.listed, p.live_versions FROM versions v
+            JOIN entries e ON e.type = v.type AND e.name = v.name
+            JOIN publishers p ON p.id = e.publisher WHERE v.name = ?1`,
+        )
+        .bind(name)
+        .first();
+    const before = await live();
+    const key = { type: "spade-skill", name, version: "1.0.0" };
+    expect(await listVersion(market.db, key, "{}", Date.now())).toBe(false);
+    expect(await live()).toEqual(before);
+    expect(before).toMatchObject({ listed: 0 });
+    // And through the route, a signature for it is refused.
+    const signed = await put(market, `/v1/signer/versions/spade-skill/${name}/1.0.0`, {
+      manifest: manifestFor(upload),
+    });
+    expect(signed.status).toBe(409);
+  }
+});
+
+it("a hold from the signer's own re-scan shows that scan in the queue", async () => {
+  const upload = {
+    type: "spade-skill" as const,
+    name: "rescan-held",
+    files: sampleSkill("rescan-held"),
+  };
+  expect((await publish(market, upload)).status).toBe(201);
+  await approve(market, upload);
+  const scan: MarketScanReport = {
+    format: "ace-market-scan",
+    scanner: 1,
+    verdict: "warn",
+    checks: [],
+    findings: [
+      {
+        check: "scripts",
+        rule: "env-read",
+        level: "warn",
+        path: "scripts/setup.sh",
+        line: 2,
+        message: "Reads the .env file when it sets up.",
+      },
+    ],
+    truncated: false,
+    read: { files: 2, textBytes: 120 },
+  };
+  const held = await put(market, "/v1/signer/holds/spade-skill/rescan-held/1.0.0", {
+    decision: "hold",
+    scan,
+  });
+  expect(held.status).toBe(200);
+  const item = (await queue()).held.find((entry) => entry.name === "rescan-held");
+  expect(item?.scan).toEqual(scan);
 });
 
 it("a pending listing edit is shown once approved and dropped once refused", async () => {
@@ -268,6 +346,7 @@ describe("the signed lists", () => {
       (
         await put(market, "/v1/signer/verified", {
           verified: off,
+          basedOn: 10,
           revoked: [{ handle: "trusty-folk", reason: "The domain changed hands" }],
         })
       ).status,
@@ -290,6 +369,64 @@ describe("the signed lists", () => {
       publishers: [{ id, handle: "someone-else", proofs: [{ kind: "account" }], at: 5 }],
     });
     expect((await put(market, "/v1/signer/verified", { verified: wrong })).status).toBe(422);
+  });
+
+  it("sending the same verified list again repairs entries an interrupted upload left stale", async () => {
+    await publishLive(market, {
+      type: "spade-skill",
+      name: "repaired-skill",
+      files: sampleSkill("repaired-skill"),
+      account: "acct_r",
+      publisher: "repaired-folk",
+    });
+    const id =
+      (
+        await market.db
+          .prepare("SELECT id FROM publishers WHERE name = 'repaired-folk'")
+          .first<{ id: string }>()
+      )?.id ?? "";
+    const stored = await (await market.fetch("/v1/verified")).json();
+    const issued = (stored as { body: { issued: number } }).body.issued;
+    const on = verifiedBy({
+      issued: issued + 1,
+      publishers: [{ id, handle: "repaired-folk", proofs: [{ kind: "account" }], at: 5 }],
+    });
+    expect(
+      (await put(market, "/v1/signer/verified", { verified: on, basedOn: issued })).status,
+    ).toBe(200);
+    const off = verifiedBy({ issued: issued + 2, publishers: [] });
+    const upload = {
+      verified: off,
+      basedOn: issued + 1,
+      revoked: [{ handle: "repaired-folk", reason: "Lapsed" }],
+    };
+    expect((await put(market, "/v1/signer/verified", upload)).status).toBe(200);
+    // Cut off after the list and the publishers were stored, before the entries were refreshed.
+    await market.db.prepare("UPDATE entries SET verified = 1 WHERE name = 'repaired-skill'").run();
+    expect((await put(market, "/v1/signer/verified", upload)).status).toBe(200);
+    const entry = await market.db
+      .prepare("SELECT verified FROM entries WHERE name = 'repaired-skill'")
+      .first();
+    expect(entry).toEqual({ verified: 0 });
+  });
+
+  it("refuses a list edit based on a list that is no longer the stored one", async () => {
+    const issued = (
+      (await (await market.fetch("/v1/blocklist")).json()) as { body: { issued: number } }
+    ).body.issued;
+    const fresh = blocklistBy({ issued: issued + 10, hashes: [], files: [], patterns: [] });
+    // Based on an older list: another maintainer's edit landed in between.
+    const stale = await put(market, "/v1/signer/blocklist", {
+      blocklist: fresh,
+      basedOn: issued - 1,
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.text()).toContain("run the command again");
+    // Based on nothing while a list is stored.
+    expect((await put(market, "/v1/signer/blocklist", { blocklist: fresh })).status).toBe(409);
+    expect(
+      (await put(market, "/v1/signer/blocklist", { blocklist: fresh, basedOn: issued })).status,
+    ).toBe(200);
   });
 
   it("copies the official list's accounts into official_accounts and serves the list", async () => {
@@ -316,7 +453,7 @@ describe("the signed lists", () => {
       publisher: { id: "pub_ace0000000000000000000", name: "ace" },
       accounts: ["acct_ace_two"],
     });
-    await put(market, "/v1/signer/official", { official: fewer });
+    await put(market, "/v1/signer/official", { official: fewer, basedOn: 10 });
     expect(
       (await market.db.prepare("SELECT account FROM official_accounts").all()).results,
     ).toEqual([{ account: "acct_ace_two" }]);

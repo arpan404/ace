@@ -16,7 +16,7 @@ import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
 import type { Route, VersionKey } from "./routes.ts";
 import { withdrawnList } from "./store/read.ts";
-import { signedList } from "./store/lists.ts";
+import { signedList, type ListStored } from "./store/lists.ts";
 import {
   hashIsStored,
   listVersion,
@@ -54,6 +54,13 @@ export function marketKeys(context: Context): MarketKeySet | undefined {
 export const malformed = () => failure(400, "invalid", "That upload isn't in the signer's form.");
 export const noKeys = () =>
   failure(503, "unavailable", "The market has no public keys configured.");
+/** The answer to a signed list's upload, by what became of it. */
+export const listAnswer = (outcome: ListStored, issued: number) =>
+  outcome === "stored"
+    ? json({ status: "stored", issued })
+    : outcome === "changed"
+      ? failure(409, "conflict", "The list changed since this edit read it; run the command again.")
+      : failure(409, "conflict", "Another list issued at or after this one is already stored.");
 export const signatureRefused = (error: unknown) => {
   if (error instanceof SignatureError) return refused([{ message: error.message }]);
   throw error;
@@ -157,7 +164,10 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
     manifest.size === stored.size;
   if (!matches)
     return refused([{ message: "The manifest names another version, publisher or files" }]);
-  await listVersion(context.env.MARKET, key, JSON.stringify(upload.data.manifest), context.now);
+  if (
+    !(await listVersion(context.env.MARKET, key, JSON.stringify(upload.data.manifest), context.now))
+  )
+    return failure(409, "conflict", "That version was held or blocked; a maintainer decides it.");
   return json({ status: "listed", ...key, hash: stored.hash });
 }
 
@@ -202,10 +212,9 @@ async function withdrawn(request: Request, context: Context) {
       issued: list.issued,
       signed: JSON.stringify(upload.data.withdrawn),
       withdrawn: list.withdrawn,
+      basedOn: upload.data.basedOn,
     },
     context.now,
   );
-  return stored
-    ? json({ status: "stored", issued: list.issued })
-    : failure(409, "conflict", "Another list issued at or after this one is already stored.");
+  return listAnswer(stored, list.issued);
 }

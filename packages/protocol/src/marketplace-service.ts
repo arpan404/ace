@@ -99,9 +99,15 @@ export type SignerPending = z.infer<typeof SignerPending>;
 
 export const SignedVersionUpload = z.object({ manifest: Signed });
 export const SignedReviewUpload = z.object({ review: Signed });
-export const SignedWithdrawnUpload = z.object({ withdrawn: Signed });
+/**
+ * The `issued` of the stored list a maintainer's edit started from, absent when none was stored
+ * (ADR 0173 §10). The Worker stores an edit only while that list is still the stored one, so two
+ * maintainers editing at once never undo each other.
+ */
+const BasedOn = z.number().int().nonnegative().optional();
+export const SignedWithdrawnUpload = z.object({ withdrawn: Signed, basedOn: BasedOn });
 /** `PUT /v1/signer/blocklist`. */
-export const SignedBlocklistUpload = z.object({ blocklist: Signed });
+export const SignedBlocklistUpload = z.object({ blocklist: Signed, basedOn: BasedOn });
 export const CategoriesUpload = z.object({ categories: z.array(MarketCategory).max(32) });
 export const FeaturedUpload = z.object({
   entries: z.array(z.object({ type: MarketEntryType, name: MarketEntryName })).max(24),
@@ -110,7 +116,7 @@ export const FeaturedUpload = z.object({
 export const CollectionsUpload = z.object({ collections: z.array(MarketCollection).max(16) });
 
 /** `PUT /v1/signer/official`: the whole signed official list (ADR 0173 §14). */
-export const SignedOfficialUpload = z.object({ official: Signed });
+export const SignedOfficialUpload = z.object({ official: Signed, basedOn: BasedOn });
 
 /* ---------------------------------------------------------------- the scan's context */
 
@@ -198,6 +204,8 @@ export type MarketQueueBody = z.infer<typeof MarketQueueBody>;
 export const HoldDecision = z.object({
   decision: z.enum(["approve", "hold"]),
   note: z.string().max(500).optional(),
+  /** The signer's own scan that held it, stored as the version's report for the queue. */
+  scan: MarketScanReport.optional(),
 });
 /** `PUT /v1/signer/blocks/{type}/{name}/{version}`: refuse a version, by scan or by hand. */
 export const BlockDecision = z.object({
@@ -220,6 +228,7 @@ export const PublisherDecision = z.object({
  */
 export const SignedVerifiedUpload = z.object({
   verified: Signed,
+  basedOn: BasedOn,
   revoked: z
     .array(z.object({ handle: MarketPublisherName, reason: z.string().trim().min(1).max(500) }))
     .max(100)

@@ -30,7 +30,8 @@ export async function addWithdrawals(
   added: readonly Withdrawal[],
 ): Promise<{ status: number; text: string; added: number }> {
   // The list may be the previous key's: what counts is that a trusted key signed it.
-  const earlier = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, trusted).withdrawn : [];
+  const stored = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, trusted) : undefined;
+  const earlier = stored?.withdrawn ?? [];
   const known = new Set(earlier.map(withdrawalKey));
   const fresh = added.filter((entry) => !known.has(withdrawalKey(entry)));
   const list = signWithdrawn(
@@ -42,5 +43,7 @@ export async function addWithdrawals(
     },
     key,
   );
-  return { ...(await io.put("/v1/signer/withdrawn", { withdrawn: list })), added: fresh.length };
+  // Based on the list read, so a withdrawal another maintainer added meanwhile is never lost.
+  const body = { withdrawn: list, ...(stored ? { basedOn: stored.issued } : {}) };
+  return { ...(await io.put("/v1/signer/withdrawn", body)), added: fresh.length };
 }

@@ -102,7 +102,8 @@ export async function signPending(
         continue;
       }
       if (fate === "hold") {
-        const answer = await io.put(versionPath("holds", version), { decision: "hold" });
+        // The scan goes with it: the queue shows this look, not the Worker's older one.
+        const answer = await io.put(versionPath("holds", version), { decision: "hold", scan });
         if (answer.status >= 200 && answer.status < 300)
           report.held.push({ version: label(version), findings: sentences(scan) });
         else report.failed.push({ what: label(version), ...answer });
