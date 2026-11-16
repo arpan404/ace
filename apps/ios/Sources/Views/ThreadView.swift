@@ -380,7 +380,8 @@ struct ThreadView: View {
                 strip
                     // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            } else if let pill = screen.pill {
+            } else if let pill = screen.pill, suggester.trigger == nil {
+                // The `@` and `/` list takes the pills' place over the transcript while it's open.
                 ComposerLivePills(pill: pill, open: openPill)
                     .transition(.opacity)
             }
@@ -389,7 +390,7 @@ struct ThreadView: View {
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
-            ComposerFloaters(behind: behind && shownPage == .chat) { jumps += 1 }
+            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
         }
         // Only a strip, the pills or the fork strip arriving or leaving animates, with the
@@ -398,6 +399,7 @@ struct ThreadView: View {
         .animation(.default, value: request?.id)
         .animation(.default, value: hasStrip)
         .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: suggester.trigger == nil)
         .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }

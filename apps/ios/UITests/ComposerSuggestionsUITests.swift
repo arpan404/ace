@@ -50,6 +50,36 @@ import XCTest
         screenshot("composer-add-files")
     }
 
+    /// A `/` list opens over the transcript: the pills step aside and the composer stays where it
+    /// was, so the foot's height never changes.
+    func testACommandListOpensOverTheTranscriptWithoutMovingTheComposer() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchWithArguments()
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
+        if alert.waitForExistence(timeout: 5) { alert.tap() }
+        app.revealRow("thread.ios-waiting").tap()
+        let live = app.descendants(matching: .any)["composer.live"]
+        XCTAssertTrue(live.waitForExistence(timeout: 25))
+        let input = app.textViews["composer.input"]
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        sleep(1)
+        let rest = input.frame.minY
+        input.typeText("/")
+        let list = app.descendants(matching: .any)["composer.suggestions"]
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        sleep(1)
+        XCTAssertFalse(live.exists, "the pills step aside while the list is open")
+        XCTAssertEqual(input.frame.minY, rest, accuracy: 1, "the composer stays where it was")
+        XCTAssertLessThanOrEqual(list.frame.maxY, input.frame.minY, "the list sits above the capsule")
+        screenshot("composer-command-over-transcript")
+        input.typeText(XCUIKeyboardKey.delete.rawValue)
+        XCTAssertTrue(list.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(live.waitForExistence(timeout: 5), "the pills come back once the list closes")
+        XCTAssertEqual(input.frame.minY, rest, accuracy: 1, "and the composer hasn't moved")
+    }
+
     func testNewThreadMentionsFilesAndOffersItsBuiltins() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

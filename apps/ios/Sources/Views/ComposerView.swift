@@ -34,7 +34,8 @@ struct ComposerView<Top: View, Leading: View>: View {
     var chips = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
     var draftKey: String? = nil
-    /// The `@` and `/` lists, and the + list's builtins; nil offers none.
+    /// The `@` and `/` lists, and the + list's builtins; nil offers none. A list open draws over
+    /// what is above the composer, which the screen keeps clear (`ThreadView`'s pills step aside).
     var suggester: ComposerSuggester? = nil
     /// The most the `@` and `/` list may take, so the message stays above the keyboard.
     var suggestionHeight: CGFloat? = nil
@@ -73,10 +74,6 @@ struct ComposerView<Top: View, Leading: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            if let suggester, suggester.trigger != nil {
-                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
-                    .transition(.opacity)
-            }
             if let words = notice ?? dictation.problem {
                 Text(words).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -85,6 +82,15 @@ struct ComposerView<Top: View, Leading: View>: View {
             }
             top()
             capsule
+        }
+        // The `@` and `/` list draws over the transcript, its foot on the composer's top, so
+        // opening it never changes the foot's height or moves what is above the capsule.
+        .overlay(alignment: .top) {
+            if let suggester, suggester.trigger != nil {
+                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
+                    .alignmentGuide(.top) { $0[.bottom] }
+                    .transition(.opacity)
+            }
         }
         .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass)).padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
         .animation(.default, value: wraps)
