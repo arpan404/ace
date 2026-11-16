@@ -21,6 +21,7 @@
     "@ace/plugins": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/suits": "workspace:*",
+    "@babel/parser": "8.0.6",
     "@noble/curves": "2.0.1",
     "@noble/hashes": "2.0.1",
     "yaml": "^2.8.1",

@@ -17,6 +17,7 @@ import { knownBadFindings } from "./checks-knownbad.ts";
 import { sceneCheck } from "./checks-scene.ts";
 import { pluginRules } from "./rules-plugin.ts";
 import { recipeRules } from "./rules-recipe.ts";
+import { flowEntryRules, flowRules } from "./rules-flow.ts";
 import { scriptRules } from "./rules-scripts.ts";
 import type { EntryRule, ScanFacts } from "./rule.ts";
 import { scanText } from "./decode.ts";
@@ -203,7 +204,7 @@ function runScriptRules(view: ScriptView, state: ScanState): void {
         true,
       ),
     );
-  for (const rule of scriptRules)
+  for (const rule of [...scriptRules, ...flowRules])
     for (const hit of rule.find(view))
       state.findings.push(
         mkFinding("scripts", rule.id, rule.level, hit.message, view.path, hit.line, rule.strict),
@@ -259,7 +260,7 @@ export function finishScan(state: ScanState, input: ScanInput): MarketScanReport
   const entryRules: readonly EntryRule[] = [
     ...(input.type === "spade-plugin" ? pluginRules : []),
     ...(input.type === "spade-plugin" || input.type === "spade-skill" || input.type === "spade-bot"
-      ? recipeRules
+      ? [...recipeRules, ...flowEntryRules]
       : []),
   ];
   for (const rule of entryRules)
