@@ -7,10 +7,9 @@ import {
   type MarketResult,
 } from "@ace/protocol/marketplace";
 import { MarketHttpError, type MarketHttp } from "./http.ts";
-import { summaryOf } from "./listings.ts";
+import { summaryOf, type RowMarks } from "./listings.ts";
 import { workerError } from "./publish.ts";
 import type { MarketStore, StoredSource } from "./store.ts";
-import type { Badges } from "./trust.ts";
 
 /*
  * Discover, publisher pages and abuse reports (ADR 0173 §3, §6, §7). Entries are index entries,
@@ -28,38 +27,39 @@ const failure = (code: ErrorResult["code"], message: string): ErrorResult => ({
   message: message.slice(0, 2000),
 });
 
-function summaries(source: StoredSource, badges: Badges, items: readonly unknown[]) {
+function summaries(source: StoredSource, marks: RowMarks, items: readonly unknown[]) {
   const out: MarketEntrySummary[] = [];
   for (const item of items) {
     const entry = readFeedEntry(item);
-    if (!("problem" in entry)) out.push(summaryOf(source, entry, badges));
+    if (!("problem" in entry)) out.push(summaryOf(source, entry, marks));
   }
   return out;
 }
 
-const one = (source: StoredSource, badges: Badges, item: unknown) =>
-  item === undefined ? undefined : summaries(source, badges, [item])[0];
+const one = (source: StoredSource, marks: RowMarks, item: unknown) =>
+  item === undefined ? undefined : summaries(source, marks, [item])[0];
 
 function discoverOf(
   body: MarketDiscoverBody,
   readAt: number,
   source: StoredSource,
-  badges: Badges,
+  marks: RowMarks,
 ) {
-  const hero = one(source, badges, body.hero);
+  const { badges } = marks;
+  const hero = one(source, marks, body.hero);
   return {
     ...(hero ? { hero } : {}),
-    featured: summaries(source, badges, body.featured),
+    featured: summaries(source, marks, body.featured),
     trending: body.trending.flatMap((row) => {
-      const entry = one(source, badges, row.entry);
+      const entry = one(source, marks, row.entry);
       return entry ? [{ entry, rank: row.rank, movement: row.movement, week: row.week }] : [];
     }),
-    fresh: summaries(source, badges, body.fresh),
+    fresh: summaries(source, marks, body.fresh),
     collections: body.collections.map((collection) => ({
       id: collection.id,
       title: collection.title,
       line: collection.line,
-      entries: summaries(source, badges, collection.entries),
+      entries: summaries(source, marks, collection.entries),
     })),
     publishers: body.publishers.map((publisher) => ({
       ...publisher,
@@ -72,7 +72,7 @@ function discoverOf(
 }
 
 export async function discover(
-  ports: { store: MarketStore; http: MarketHttp | undefined; badges: Badges; now: () => number },
+  ports: { store: MarketStore; http: MarketHttp | undefined; marks: RowMarks; now: () => number },
   source: StoredSource | undefined,
 ): Promise<MarketResult> {
   if (!source?.enabled) return failure("unavailable", "market.acehq.dev is turned off");
@@ -96,12 +96,12 @@ export async function discover(
     typeof stored === "object" && stored !== null && "body" in stored ? stored.body : undefined,
   );
   if (!body.success) return failure("unavailable", problem);
-  return { op: "discover", discover: discoverOf(body.data, readAt, source, ports.badges) };
+  return { op: "discover", discover: discoverOf(body.data, readAt, source, ports.marks) };
 }
 
 /** A publisher's public page; its mark and proofs from the signed verified list only. */
 export async function publisherPage(
-  ports: { http: MarketHttp | undefined; badges: Badges },
+  ports: { http: MarketHttp | undefined; marks: RowMarks },
   source: StoredSource | undefined,
   handle: string,
 ): Promise<MarketResult> {
@@ -119,13 +119,14 @@ export async function publisherPage(
   if (!body.success)
     return failure("failed", "The market's publisher page isn't in a form this build reads");
   const { profile } = body.data;
-  const verified = ports.badges.verified(profile.id);
+  const { badges } = ports.marks;
+  const verified = badges.verified(profile.id);
   return {
     op: "publisher",
     page: {
-      profile: { ...profile, verified, proofs: verified ? ports.badges.proofs(profile.id) : [] },
-      pinned: summaries(source, ports.badges, body.data.pinned),
-      entries: summaries(source, ports.badges, body.data.entries),
+      profile: { ...profile, verified, proofs: verified ? badges.proofs(profile.id) : [] },
+      pinned: summaries(source, ports.marks, body.data.pinned),
+      entries: summaries(source, ports.marks, body.data.entries),
       downloads: body.data.downloads,
     },
   };

@@ -19,7 +19,7 @@ import {
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
 import { storedMarketWithdrawn } from "../stored-decode.ts";
-import type { MarketStore, StoredListing, StoredSource } from "./store.ts";
+import { verifiedKey, type MarketStore, type StoredListing, type StoredSource } from "./store.ts";
 import type { Badges, Trust } from "./trust.ts";
 
 /*
@@ -172,16 +172,40 @@ export async function refreshSource(
 }
 
 /**
- * One listed entry as a row shows it. "By ace" and "Verified" come from the signed lists
- * (`badges`), never from the index's flags, which are only display data the Worker wrote.
+ * What a row's marks rest on: the signed lists (`badges`) and the publisher of each entry version
+ * whose signed manifest this device verified (`verifiedKey` → publisher id).
+ */
+export interface RowMarks {
+  badges: Badges;
+  verified: ReadonlyMap<string, string>;
+}
+
+/**
+ * The publisher id a row's marks may come from: the index's, only when a manifest this device
+ * verified names the same publisher for that version. The index and Discover are unsigned, so a
+ * Worker could put the official or a verified id on anyone's entry; without a verified manifest
+ * the row earns no mark.
+ */
+export function markedPublisher(entry: FeedEntry, marks: RowMarks): string | undefined {
+  const claimed = entry.publisher?.id;
+  if (!claimed || !entry.version) return undefined;
+  const verified = marks.verified.get(
+    verifiedKey({ type: entry.type, name: entry.name, version: entry.version }),
+  );
+  return verified === claimed ? claimed : undefined;
+}
+
+/**
+ * One listed entry as a row shows it. "By ace" and "Verified" come from the signed lists, for a
+ * publisher a verified manifest names (`markedPublisher`), never from the index's flags.
  */
 export function summaryOf(
   source: StoredSource,
   entry: FeedEntry,
-  badges: Badges,
+  marks: RowMarks,
 ): MarketEntrySummary {
   const market = source.kind === "market";
-  const publisher = entry.publisher?.id;
+  const publisher = market ? markedPublisher(entry, marks) : undefined;
   return {
     source: source.id as MarketEntrySummary["source"],
     type: entry.type,
@@ -193,12 +217,12 @@ export function summaryOf(
     keywords: entry.keywords,
     ...(entry.version ? { version: entry.version } : {}),
     reviewed: market && entry.reviewed,
-    byAce: market && badges.official(publisher),
+    byAce: marks.badges.official(publisher),
     updated: entry.updated,
     downloads: entry.downloads,
     supported: isSupportedType(entry.type, installableMarketTypes),
     ...(source.kind === "git" ? { from: source.address } : {}),
-    ...(market && badges.verified(publisher) ? { verified: true } : {}),
+    ...(marks.badges.verified(publisher) ? { verified: true } : {}),
     ...(market && entry.deprecated ? { deprecated: entry.deprecated.slice(0, 500) } : {}),
   };
 }

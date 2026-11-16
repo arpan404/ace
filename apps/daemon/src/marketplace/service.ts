@@ -17,7 +17,7 @@ import {
   type SuitPort,
 } from "./install.ts";
 import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
-import { applyBlocklist, blockedFindings } from "./blocklist.ts";
+import { applyBlocklist, blockedEntry, blockedFindings } from "./blocklist.ts";
 import { discover, publisherPage, report } from "./discover.ts";
 import { publishAction, type MarketGrantPort } from "./publish.ts";
 import { badgesOf, Trust } from "./trust.ts";
@@ -25,7 +25,8 @@ import type { MarketPublisher } from "@ace/protocol/marketplace";
 import type { ScanContext } from "@ace/marketplace/scan";
 import { newer, prepareWithBrings, Refused } from "./prepare.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
-import { MarketStore, type StoredSource } from "./store.ts";
+import { MarketStore, verifiedKey, type StoredSource } from "./store.ts";
+import type { RowMarks } from "./listings.ts";
 
 /*
  * The daemon's marketplace (ADR 0168): the one fetcher and reviewer for every type and source.
@@ -119,6 +120,8 @@ export class MarketplaceService {
     await service.#git.collect();
     // An install a crash interrupted is undone before anything else runs.
     await service.#recover();
+    // A blocklist saved before a crash, or one a pass couldn't finish, is enforced now.
+    await service.#enforceBlocklist().catch(() => {});
     const last = Math.min(...store.sources().map((source) => source.readAt ?? 0));
     service.#daily(options.now() - last > dayMs ? 5 * 60_000 : dayMs);
     return service;
@@ -164,6 +167,16 @@ export class MarketplaceService {
 
   #badges() {
     return badgesOf(this.#trust.current());
+  }
+
+  /** What list rows' marks rest on: the signed lists and the manifests this device verified. */
+  #marks(): RowMarks {
+    return { badges: this.#badges(), verified: this.#store.verifiedPublishers() };
+  }
+
+  /** Every install not yet blocked, checked against the stored signed blocklist. */
+  async #enforceBlocklist(): Promise<void> {
+    await applyBlocklist(this.#installPorts(), this.#trust.current().blocklist);
   }
 
   #installPorts() {
@@ -303,14 +316,14 @@ export class MarketplaceService {
           {
             store: this.#store,
             http: this.#http(),
-            badges: this.#badges(),
+            marks: this.#marks(),
             now: this.#options.now,
           },
           this.#store.source("market"),
         );
       case "publisher":
         return publisherPage(
-          { http: this.#http(), badges: this.#badges() },
+          { http: this.#http(), marks: this.#marks() },
           this.#store.source("market"),
           operation.handle,
         );
@@ -369,13 +382,12 @@ export class MarketplaceService {
 
   async #refreshAll(id?: string): Promise<void> {
     this.#refreshing ??= (async () => {
-      const issued = this.#trust.current().blocklist?.issued;
       for (const source of this.#store.sources())
         if (source.enabled && (!id || source.id === id)) await refreshSource(this.#deps(), source);
+      // Every refresh checks installs against the stored list, not only when a newer one
+      // arrives, so a pass a failure or crash cut short is finished here.
+      await this.#enforceBlocklist();
       await this.#applyWithdrawals();
-      const blocklist = this.#trust.current().blocklist;
-      if (blocklist && blocklist.issued !== issued)
-        await applyBlocklist(this.#installPorts(), blocklist);
       await this.#checkUpdates();
       this.#emit();
     })().finally(() => {
@@ -469,16 +481,22 @@ export class MarketplaceService {
 
   async #search(operation: Extract<MarketOperation, { op: "search" }>): Promise<MarketResult> {
     this.#refreshIfStale();
-    return searchListings(this.#store, operation, this.#badges());
+    return searchListings(this.#store, operation, this.#marks());
   }
 
   async #home(): Promise<MarketResult> {
     this.#refreshIfStale();
-    return homeOf(this.#store, this.#installed(), this.#badges());
+    return homeOf(this.#store, this.#installed(), this.#marks());
   }
 
   async #read(sourceId: string, type: string, name: string): Promise<MarketResult> {
-    const detail = await readEntry(this.#store, this.#http(), this.#badges(), sourceId, type, name);
+    const detail = await readEntry(
+      { store: this.#store, http: this.#http(), keys: this.#options.keys },
+      () => this.#marks(),
+      sourceId,
+      type,
+      name,
+    );
     if (!detail) return error("not_found", `${type}/${name} isn't listed`);
     const installed = this.#store.install(type, name);
     if (installed && installed.source === sourceId) detail.installed = publicInstall(installed);
@@ -518,6 +536,10 @@ export class MarketplaceService {
       name,
       version,
     );
+    // Each manifest prepare verified names its publisher: list rows may now show its marks.
+    for (const prepared of [entry, ...brings])
+      if (prepared.source === "market" && prepared.signed && prepared.publisher)
+        this.#store.saveVerifiedPublisher(verifiedKey(prepared), prepared.publisher.id);
     const review: PreparedReview = {
       ...entry,
       id: this.#options
@@ -585,6 +607,16 @@ export class MarketplaceService {
         "refused",
         `${entry.type}/${entry.name} ${entry.version} was withdrawn: ${reason}`,
       );
+    }
+    // So does a block: the bytes of the entry and of all it brings, against the newest list.
+    await this.#trust.learn(this.#http()).catch(() => {});
+    const blocked = blockedEntry(
+      [pending.review, ...pending.review.brings],
+      this.#trust.current().blocklist,
+    );
+    if (blocked) {
+      await this.#cancel(id);
+      return error("blocked", `Blocked by ace's market: ${blocked}`);
     }
     let installed;
     try {
