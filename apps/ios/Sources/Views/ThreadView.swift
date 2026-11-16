@@ -673,6 +673,7 @@ private struct FloatingBar<Bar: View>: ViewModifier {
             guard let move = KeyboardMove(note) else { return }
             let next = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboard: move.end))
             guard next != lift else { return }
+            PerfProbe.record(["keyboard.bar": "lift \(next) column \(column.debugDescription)"]) // DIAG
             withAnimation(reduceMotion ? nil : AceDesign.Motion.keyboard(move.duration)) { lift = next }
         }
     }
