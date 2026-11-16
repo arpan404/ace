@@ -53,11 +53,20 @@ test("a bare pull request address opens in the panel; a cmd-click leaves it to t
   await waitFor(() => expect(within(side).queryByRole("tab", { name: "#8" })).toBeNull());
 }, 30_000);
 
-test("a link to a GitHub issue or any other page stays an ordinary link", async () => {
+test("a link to any other page opens in the thread's browser; a GitHub issue opens its page in ace", async () => {
   const feed = await answer(
     "Tracked in [the issue](https://github.com/acme/ace/issues/9), docs at [the site](https://example.com/pull/3).",
   );
-  await userEvent.click(await within(feed).findByRole("link", { name: "the issue" }));
-  await userEvent.click(within(feed).getByRole("link", { name: "the site" }));
-  expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull();
+  // Not a pull request, though its path says pull: the side panel's browser opens it.
+  await userEvent.click(await within(feed).findByRole("link", { name: "the site" }));
+  const side = await screen.findByRole("region", { name: "Thread panel" });
+  // Its tab is named by the host, then by the page's title once it loads.
+  await waitFor(() =>
+    expect(within(side).getByRole("tab", { selected: true }).textContent).not.toMatch(
+      /^(Summary|#)/,
+    ),
+  );
+  expect(within(side).queryByRole("tab", { name: /^#/ })).toBeNull();
+  await userEvent.click(within(feed).getByRole("link", { name: "the issue" }));
+  expect(await screen.findByRole("heading", { name: "#9" })).toBeTruthy();
 }, 30_000);
