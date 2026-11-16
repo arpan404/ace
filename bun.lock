@@ -688,6 +688,7 @@
         "@ace/forge": "workspace:*",
         "@ace/git": "workspace:*",
         "@ace/handoff": "workspace:*",
+        "@ace/marketplace": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/project-picker": "workspace:*",

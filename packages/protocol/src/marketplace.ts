@@ -42,7 +42,8 @@ export const MarketCategoryId = z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-
 export const MarketPublisherName = z
   .string()
   .regex(/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/)
-  .refine((value) => !value.includes("--"));
+  .refine((value) => !value.includes("--"))
+  .meta({ "x-ace-constraint": "Publisher names cannot contain consecutive hyphens." });
 export const MarketPublisher = z.strictObject({
   id: z.string().min(1).max(64),
   name: MarketPublisherName,

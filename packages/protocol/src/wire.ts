@@ -91,6 +91,7 @@ import {
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "./suits.ts";
+import { MarketClientMessage, MarketServerMessage } from "./marketplace.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
 import { ComputerUsing, ComputerUsingWatch } from "./computer-using.ts";
@@ -268,6 +269,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PluginClientMessage,
   SuitClientMessage,
   SuitReportMessage,
+  MarketClientMessage,
   DiagnosticsHealthRequest,
   DiagnosticsRequest,
   PermissionCapabilitiesRequest,
@@ -388,6 +390,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TerminalOutput,
   PluginServerMessage,
   ...SuitServerMessage.options,
+  ...MarketServerMessage.options,
   DiagnosticsHealthResult,
   DiagnosticsResult,
   PermissionCapabilitiesResult,

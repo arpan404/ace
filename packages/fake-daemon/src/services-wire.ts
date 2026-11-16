@@ -34,6 +34,7 @@ import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeAutomationWire, type AutomationSeed } from "./automation-wire.ts";
 import { FakePluginsWire, type PluginSeed } from "./plugins-wire.ts";
+import { FakeMarketplaceWire, type MarketplaceSeed } from "./marketplace-wire.ts";
 import { fakePreviewSuggestions } from "./preview-suggestions.ts";
 import type { FakeServiceContext, FakeWireSession } from "./service-context.ts";
 export type { FakeWireSession } from "./service-context.ts";
@@ -62,6 +63,8 @@ export interface ServicesSeed extends AutomationSeed {
   /** Text attachments with precomputed hashes, such as published HTML visualizations. */
   attachmentTexts?: { threadId: string; sha256: string; text: string; name: string }[];
   plugins?: PluginSeed;
+  /** ace's marketplace (ADR 0168): listings, featured entries, categories and installs. */
+  marketplace?: MarketplaceSeed;
   /** Pull requests linked to existing threads, by thread id. */
   pullRequests?: Record<string, ForgePrStatus>;
   /** Global settings the person has changed from the shipped defaults. */
@@ -108,6 +111,7 @@ export class FakeServicesWire {
   readonly files: FakeFilesWire;
   private automations: FakeAutomationWire;
   private plugins = new FakePluginsWire();
+  private marketplace = new FakeMarketplaceWire(() => this.host.now());
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;
@@ -152,6 +156,7 @@ export class FakeServicesWire {
     if (seed.settings) this.settings.seed(seed.settings);
     this.automations.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);
+    if (seed.marketplace) this.marketplace.seed(seed.marketplace);
     // A seed describes the whole world; pull requests for threads this daemon lacks are skipped.
     for (const [threadId, status] of Object.entries(seed.pullRequests ?? {}))
       if (this.host.thread(threadId)) this.workspace.forge.seed(threadId, status);
@@ -187,6 +192,7 @@ export class FakeServicesWire {
     const machineUpdate = this.machineUpdate.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
     const skills = skillSession(this.skills, emit);
+    const stopMarketplace = this.marketplace.subscribe(emit);
     const browser = fakeBrowserSession(
       this.browser,
       this.host,
@@ -234,6 +240,7 @@ export class FakeServicesWire {
         stopUsing?.();
         catalog.close();
         skills.close();
+        stopMarketplace();
         picker?.abort();
         stopProjects();
 
@@ -531,6 +538,10 @@ export class FakeServicesWire {
               ok: true,
               health: fakeHealth(this.host.now(), this.host.threads().length),
             });
+            return;
+          }
+          if (message.type === "marketplace.request") {
+            emit(this.marketplace.handle(message));
             return;
           }
           if (message.type === "pluginRequest") {
