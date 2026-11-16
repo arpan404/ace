@@ -657,19 +657,19 @@ private struct FloatingBar<Bar: View>: ViewModifier {
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { column = $0 }
-                // In the keyboard-free area, so the system's avoidance never moves it.
-                .overlay(alignment: .bottom) {
-                    // The composer keeps the transcript's reading width; its floor spans the window.
-                    bar()
-                        .frame(maxWidth: ReadingColumn.maxWidth)
-                        .frame(maxWidth: .infinity)
-                        .background(alignment: .bottom) { BarFloor() }
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-                        .modifier(KeyboardRideOffset(ride: ride))
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                }
             KeyboardEdgeMark()
+            // The composer keeps the transcript's reading width; its floor spans the window.
+            bar()
+                .frame(maxWidth: ReadingColumn.maxWidth)
+                .frame(maxWidth: .infinity)
+                .background(alignment: .bottom) { BarFloor() }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                .modifier(KeyboardRideOffset(ride: ride))
+                // At the foot of the whole keyboard-free area, so the system's avoidance never
+                // moves it: only a view that can grow takes the room the keyboard would cover.
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { column = $0 }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             let start = CACurrentMediaTime()
