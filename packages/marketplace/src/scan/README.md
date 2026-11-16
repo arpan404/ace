@@ -51,8 +51,12 @@ characters removed.
 Every text file in a skill, a plugin or a recipe's bundled skills is read, not only files with a
 script's extension or shebang. A file of no known language is a `text` view: the shell reader and
 every language's token patterns read it, and its `unreadable` stays false, as prose is full of
-lone quotes. A file a plugin hook or server command names is a script whatever its name, read in
-the language of the interpreter that command runs it with, else as shell.
+lone quotes. A file a plugin hook or server command names is a script whatever its name. The
+command is read through the shell reader, so wrappers (`env`, `nohup`, `env -S`) are off and its
+program is the first word; when that program is an interpreter and the file is its script argument
+(its options skipped, so `python3 -u hooks/start` names `hooks/start`), the file is read in that
+interpreter's language. Otherwise it is read in its own language by extension or shebang, and when
+it has none, by the shell reader (its `unreadable` counting) and by every language's token patterns.
 
 Bytes become text in `decode.ts`: UTF-8, then UTF-16 by its byte-order mark, then, for any file
 with no NUL byte, one code point per byte, so Latin-1 or Windows-1252 source can't escape the

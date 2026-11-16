@@ -154,7 +154,9 @@ function isScriptLocation(type: MarketEntryType, path: string): boolean {
 /**
  * The script view for one file of `type`, or undefined when the file is not a place scripts live.
  * Every text file there gets a view; one a plugin command names (`named`) is a script whatever
- * its name, read in the language that command runs it with, else its own, else as shell.
+ * its name, read in the language that command runs it with, else its own. When neither is known,
+ * it is read by the shell reader as a shell script (an unreadable part counts) and by every
+ * language's token patterns, as a `text` view is, since what runs it is uncertain.
  */
 export function fileScriptView(
   type: MarketEntryType,
@@ -164,10 +166,10 @@ export function fileScriptView(
 ): ScriptView | undefined {
   if (!isScriptLocation(type, path)) return undefined;
   const detected = languageOf(path, source.split("\n", 1)[0] ?? "");
-  const language = named
-    ? (named.language ?? (detected === "text" ? "shell" : detected))
-    : detected;
-  return viewOf(path, source, language);
+  if (!named) return viewOf(path, source, detected);
+  if (named.language) return viewOf(path, source, named.language);
+  if (detected !== "text") return viewOf(path, source, detected);
+  return { ...viewOf(path, source, "shell"), language: "text" };
 }
 
 /** Whether a file reads as a script by its name or shebang, or because a plugin command names it. */
@@ -175,7 +177,10 @@ export function isScriptLike(path: string, source: string, named?: NamedScript):
   return named !== undefined || languageOf(path, source.split("\n", 1)[0] ?? "") !== "text";
 }
 
-/** A file a plugin hook or server command runs, with the language its interpreter gives. */
+/**
+ * A file a plugin hook or server command runs, with the language its interpreter gives; no
+ * language when the command doesn't say for sure.
+ */
 export interface NamedScript {
   language?: ScriptLanguage;
 }
@@ -205,28 +210,122 @@ const INTERPRETER_LANGUAGE: ReadonlyMap<string, ScriptLanguage> = new Map<string
 const pathPrefix = /^(?:(?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\.)\/)+/;
 
 /**
+ * Options of each interpreter that take the next word as their value, so the word after them is
+ * not the script. Long options written `--flag=value` carry their own value.
+ */
+const VALUED_OPTIONS: ReadonlyMap<ScriptLanguage, ReadonlySet<string>> = new Map([
+  ["shell", new Set(["-o", "-O", "+o", "+O", "--rcfile", "--init-file"])],
+  ["python", new Set(["-W", "-X", "-Q"])],
+  [
+    "javascript",
+    new Set([
+      "-r",
+      "--require",
+      "--import",
+      "--loader",
+      "--experimental-loader",
+      "-C",
+      "--conditions",
+      "--config",
+      "--cwd",
+      "--env-file",
+      "--preload",
+      "--title",
+    ]),
+  ],
+  ["ruby", new Set(["-I", "-r", "-C", "-E", "-F", "--encoding"])],
+  ["perl", new Set(["-I", "-M", "-m", "-x"])],
+  [
+    "powershell",
+    new Set(["-ExecutionPolicy", "-ep", "-WorkingDirectory", "-wd", "-ConfigurationName"]),
+  ],
+  ["applescript", new Set(["-l", "-s"])],
+]);
+
+/** Options after which each interpreter runs inline code or a module, never a script file. */
+const CODE_OPTIONS: ReadonlyMap<ScriptLanguage, ReadonlySet<string>> = new Map([
+  ["shell", new Set(["-c"])],
+  ["python", new Set(["-c", "-m"])],
+  ["javascript", new Set(["-e", "-p", "--eval", "--print"])],
+  ["ruby", new Set(["-e"])],
+  ["perl", new Set(["-e", "-E"])],
+  ["powershell", new Set(["-c", "-Command", "-EncodedCommand", "-e", "-ec"])],
+  ["applescript", new Set(["-e"])],
+]);
+
+/** Runtimes that take a `run` subcommand before their script (`deno run x`, `bun run x`). */
+const RUN_SUBCOMMAND = new Set(["deno", "bun"]);
+
+/**
+ * The index of the script `words` (a command, wrappers already off) runs with the language of its
+ * interpreter, or undefined when its program is no interpreter we know or it runs no script file.
+ */
+function interpretedScript(
+  words: readonly string[],
+): { index: number; language: ScriptLanguage } | undefined {
+  const program = programName(words[0]) ?? "";
+  const language = INTERPRETER_LANGUAGE.get(program);
+  if (language === undefined) return undefined;
+  const valued = VALUED_OPTIONS.get(language) ?? new Set<string>();
+  const code = CODE_OPTIONS.get(language) ?? new Set<string>();
+  let subcommand = RUN_SUBCOMMAND.has(program);
+  for (let index = 1; index < words.length; index++) {
+    const word = words[index] ?? "";
+    if (word === "--") return index + 1 < words.length ? { index: index + 1, language } : undefined;
+    if (subcommand && word === "run") {
+      subcommand = false;
+      continue;
+    }
+    if (
+      word.length > 1 &&
+      (word.startsWith("-") || (language === "shell" && word.startsWith("+")))
+    ) {
+      if (code.has(word)) return undefined;
+      if (valued.has(word)) index++;
+      continue;
+    }
+    return { index, language };
+  }
+  return undefined;
+}
+
+/** A stdio server's command and arguments as one shell line, each word quoted as it is. */
+const quotedLine = (words: readonly string[]) =>
+  words.map((word) => `'${word.replaceAll("'", "'\\''")}'`).join(" ");
+
+/**
  * The entry's files a plugin hook or stdio server command names, by path. A command word names a
- * file when, with its root variable or `./` taken off, it is that file's path.
+ * file when, with its root variable or `./` taken off, it is that file's path. Commands are read
+ * through the shell reader, so wrappers (`env`, `nohup`, `env -S`) are off and the program is the
+ * first word. A file is read in its interpreter's language only when it is that interpreter's
+ * script argument (its options skipped); named any other way, or by two interpreters that
+ * disagree, its language is uncertain (`{}`).
  */
 export function namedScripts(input: ScanInput): ReadonlyMap<string, NamedScript> {
   const named = new Map<string, NamedScript>();
   if (input.type !== "spade-plugin" || input.inspection?.type !== "spade-plugin") return named;
   const paths = new Set(input.files.map((file) => file.path));
   for (const execution of input.inspection.executions) {
-    const commands =
+    const line =
       execution.kind === "hook"
-        ? readShell(execution.command).commands.map((command) => command.words)
+        ? execution.command
         : execution.kind === "stdio"
-          ? [[execution.command, ...execution.args]]
-          : [];
-    for (const words of commands)
+          ? quotedLine([execution.command, ...execution.args])
+          : undefined;
+    if (line === undefined) continue;
+    for (const { words } of readShell(line).commands) {
+      const script = interpretedScript(words);
       for (const [index, word] of words.entries()) {
         const path = word.replace(pathPrefix, "");
-        if (!paths.has(path) || named.has(path)) continue;
-        const before = index > 0 ? programName(words[index - 1]) : undefined;
-        const language = before === undefined ? undefined : INTERPRETER_LANGUAGE.get(before);
-        named.set(path, language ? { language } : {});
+        if (!paths.has(path)) continue;
+        const language = script?.index === index ? script.language : undefined;
+        const earlier = named.get(path);
+        named.set(
+          path,
+          language && (earlier === undefined || earlier.language === language) ? { language } : {},
+        );
       }
+    }
   }
   return named;
 }

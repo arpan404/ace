@@ -36,6 +36,11 @@ describe("the shell reader", () => {
     expect(readShell(command).unreadable).toBe(false);
   });
 
+  it("keeps the words after env -S's string as the command's arguments", () => {
+    const [command] = readShell("/usr/bin/env -S 'python3 -u' hooks/start").commands;
+    expect(command?.words).toEqual(["python3", "-u", "hooks/start"]);
+  });
+
   it("marks a pipe into a shell with the pipe target, reading both commands", () => {
     const view = viewOf("x.sh", "curl -s https://x | sh", "shell");
     expect(view.commands.map((c) => c.words[0])).toEqual(["curl", "sh"]);

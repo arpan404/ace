@@ -363,6 +363,26 @@ function valueOf(words: string[], flag: string): string | undefined {
   return undefined;
 }
 
+/**
+ * What `env -S 'string' args…` runs: the string split into words, then the words after it, each
+ * kept as one word. Undefined when `words` has no `-S`.
+ */
+function splitString(words: string[]): string | undefined {
+  for (let at = 0; at < words.length; at++) {
+    const w = words[at] ?? "";
+    let script: string | undefined;
+    let rest = at + 1;
+    if (w === "-S" || w === "--split-string") {
+      script = words[at + 1];
+      rest = at + 2;
+    } else if (w.startsWith("--split-string=")) script = w.slice("--split-string=".length);
+    if (script === undefined) continue;
+    const after = words.slice(rest).map((word) => `'${word.replaceAll("'", "'\\''")}'`);
+    return [script, ...after].join(" ");
+  }
+  return undefined;
+}
+
 /** Takes off `flags` (and the value of each in `valued`) from the front of `words`. */
 function stripFlags(words: string[], valued: string[]): void {
   while (words.length > 0) {
@@ -438,9 +458,9 @@ function unwrap(simple: Simple, depth: number, ctx: Ctx): Simple[] {
     }
 
     if (program === "env") {
-      const script = valueOf(simple.words, "-S") ?? valueOf(simple.words, "--split-string");
-      if (script !== undefined) {
-        out.push(...adopt(parse(script, depth + 1, ctx), simple));
+      const split = splitString(simple.words);
+      if (split !== undefined) {
+        out.push(...adopt(parse(split, depth + 1, ctx), simple));
         return out;
       }
     }
