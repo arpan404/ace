@@ -80,17 +80,40 @@ import UIKit
 }
 
 /// The view UIKit moves with the keyboard: a one-point edge pinned to the keyboard layout guide's
-/// top, in a container that fills the window. Draws nothing and takes no touches.
+/// top, in a container pinned to the window's own edges. The guide measures the keyboard up from
+/// its view's bottom, so a container placed by SwiftUI, which can hang past the screen, put the
+/// edge 116 pt off. Draws nothing and takes no touches.
 struct KeyboardEdgeReader: UIViewRepresentable {
     let tracker: KeyboardEdgeTracker
 
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
+    func makeUIView(context: Context) -> KeyboardEdgeHost {
+        let host = KeyboardEdgeHost()
+        tracker.edge = host.edge
+        #if ACE_FIXTURE
+        if PerfProbe.enabled { KeyboardDriftProbe.shared.register(host.edge, as: .keyboard) }
+        #endif
+        return host
+    }
+
+    func updateUIView(_ view: KeyboardEdgeHost, context: Context) {}
+}
+
+/// Holds the window-sized container for `KeyboardEdgeReader`, pinning it to whichever window it
+/// joins. A view may be constrained to any of its ancestors, the window included.
+final class KeyboardEdgeHost: UIView {
+    let edge = UIView()
+    private let container = UIView()
+    private var pins: [NSLayoutConstraint] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        container.translatesAutoresizingMaskIntoConstraints = false
         container.isUserInteractionEnabled = false
-        container.isAccessibilityElement = false
-        let edge = UIView()
         edge.translatesAutoresizingMaskIntoConstraints = false
         edge.isUserInteractionEnabled = false
+        addSubview(container)
         container.addSubview(edge)
         NSLayoutConstraint.activate([
             edge.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -98,12 +121,22 @@ struct KeyboardEdgeReader: UIViewRepresentable {
             edge.heightAnchor.constraint(equalToConstant: 1),
             edge.topAnchor.constraint(equalTo: container.keyboardLayoutGuide.topAnchor),
         ])
-        tracker.edge = edge
-        #if ACE_FIXTURE
-        if PerfProbe.enabled { KeyboardDriftProbe.shared.register(edge, as: .keyboard) }
-        #endif
-        return container
     }
 
-    func updateUIView(_ view: UIView, context: Context) {}
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        NSLayoutConstraint.deactivate(pins)
+        pins = []
+        guard let window else { return }
+        pins = [
+            container.topAnchor.constraint(equalTo: window.topAnchor),
+            container.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+            container.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: window.trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(pins)
+    }
 }
