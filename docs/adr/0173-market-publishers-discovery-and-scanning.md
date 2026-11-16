@@ -97,7 +97,7 @@ no anonymous write and no other credential.
   handle given up is retired for its account, so nobody else can take it and pose as them.
 - **Fields.** Display name (1 to 60, scanned for hidden unicode and mixed scripts), bio (at most
   500), links (at most 5, `https:` only, no credentials, no IP-literal hosts, at most 2048), the
-  avatar, joined date, the **verified-by-ace** mark (maintainers only) and up to 6 pinned
+  avatar, joined date, the **verified-by-ace** mark (decision 13) and up to 6 pinned
   entries.
 - **The avatar** is PNG, JPEG or WebP, at most 512 KiB, 64 to 1024 pixels a side, at most 2:1.
   The Worker can't decode pixels without an outside service, so it **validates and strips**
@@ -293,10 +293,13 @@ reason), never silently run and never deleted, as withdrawals are.
 - `ace market sign` re-scans, then signs, holds or blocks; it also signs the blocklist.
 - `ace market review`, as above; `ace market reports` (list, `resolve ID --outcome … --note …`).
 - `ace market collection list|put ID --title … --line … TYPE/NAME …|remove ID`.
-- `ace market publisher HANDLE --verify|--unverify|--suspend REASON|--restore` and
+- `ace market publisher HANDLE --suspend REASON|--restore` and
   `--withdraw-all REASON` (signs revocations of every live version of that publisher).
 - `ace market block HASH --reason …`, `ace market block-pattern TEXT --reason …`.
 - `ace market appeals` lists appeals; `ace market appeal ID --answer TEXT [--approve|--keep]`.
+- `ace market verify HANDLE --reason …` and `ace market unverify HANDLE --reason …` sign the
+  verified list (decision 13); `ace market official add|remove ACCOUNT` signs the official list
+  (decision 14).
 
 All behind the signer's token; signatures by the key on the maintainer's machine (0168 §6).
 
@@ -314,16 +317,17 @@ All behind the signer's token; signatures by the key on the maintainer's machine
   `publish` needs admin. The fake daemon answers all of them from seeded state.
 - **Routes**, all under `/v1`:
 
-  | Route                                                                                                                                                                                                                                                                                                                           | Who                  |
-  | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-  | `GET discover`, `GET publishers/{handle}`, `GET avatars/{sha256}`, `GET previews/{sha256}`, `GET blocklist`                                                                                                                                                                                                                     | anyone               |
-  | `POST reports`                                                                                                                                                                                                                                                                                                                  | anyone, rate-limited |
-  | `GET me`, `POST me/profile`, `PUT me/profile`, `PUT me/handle`, `PUT me/avatar`, `PUT me/pins`                                                                                                                                                                                                                                  | grant                |
-  | `POST me/drafts`, `GET/PUT/PATCH/DELETE me/drafts/{id}`, `POST me/drafts/{id}/publish`                                                                                                                                                                                                                                          | grant                |
-  | `GET/DELETE me/entries/{type}/{name}`, `PUT …/listing`, `PUT …/previews/{n}`, `PUT …/latest`, `PUT …/visibility`, `PUT …/archived`, `POST …/withdraw`, `POST …/transfer`, `GET …/signals`                                                                                                                                       | grant                |
-  | `PUT …/versions/{v}/changelog`, `PUT/DELETE …/versions/{v}/deprecation`, `POST …/versions/{v}/withdraw`, `POST …/versions/{v}/appeal`                                                                                                                                                                                           | grant                |
-  | `POST me/transfers/{id}/accept`, `POST me/transfers/{id}/decline`                                                                                                                                                                                                                                                               | grant (receiver)     |
-  | `GET signer/queue`, `GET signer/scan-context`, `PUT signer/holds/{type}/{name}/{v}`, `PUT signer/blocks/{type}/{name}/{v}`, `PUT signer/listings/{type}/{name}`, `PUT signer/publishers/{handle}`, `PUT signer/collections`, `PUT signer/blocklist`, `GET signer/reports`, `PUT signer/reports/{id}`, `PUT signer/appeals/{id}` | signer token         |
+  | Route                                                                                                                                                                                                                                                                                                                                                                         | Who                           |
+  | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+  | `GET discover`, `GET publishers/{handle}`, `GET avatars/{sha256}`, `GET previews/{sha256}`, `GET blocklist`, `GET verified`                                                                                                                                                                                                                                                   | anyone                        |
+  | `POST reports`                                                                                                                                                                                                                                                                                                                                                                | anyone, rate-limited          |
+  | `GET me`, `POST me/profile`, `PUT me/profile`, `PUT me/handle`, `PUT me/avatar`, `PUT me/pins`                                                                                                                                                                                                                                                                                | grant                         |
+  | `POST me/drafts`, `GET/PUT/PATCH/DELETE me/drafts/{id}`, `POST me/drafts/{id}/publish`                                                                                                                                                                                                                                                                                        | grant                         |
+  | `GET/DELETE me/entries/{type}/{name}`, `PUT …/listing`, `PUT …/previews/{n}`, `PUT …/latest`, `PUT …/visibility`, `PUT …/archived`, `POST …/withdraw`, `POST …/transfer`, `GET …/signals`                                                                                                                                                                                     | grant                         |
+  | `PUT …/versions/{v}/changelog`, `PUT/DELETE …/versions/{v}/deprecation`, `POST …/versions/{v}/withdraw`, `POST …/versions/{v}/appeal`                                                                                                                                                                                                                                         | grant                         |
+  | `POST me/transfers/{id}/accept`, `POST me/transfers/{id}/decline`                                                                                                                                                                                                                                                                                                             | grant (receiver)              |
+  | `GET me/verification`, `POST me/verification`, `POST me/verification/check`                                                                                                                                                                                                                                                                                                   | grant (apply: recent sign-in) |
+  | `GET signer/queue`, `GET signer/scan-context`, `PUT signer/holds/{type}/{name}/{v}`, `PUT signer/blocks/{type}/{name}/{v}`, `PUT signer/listings/{type}/{name}`, `PUT signer/publishers/{handle}`, `PUT signer/collections`, `PUT signer/blocklist`, `GET signer/reports`, `PUT signer/reports/{id}`, `PUT signer/appeals/{id}`, `PUT signer/verified`, `PUT signer/official` | signer token                  |
 
 ### 12. Privacy
 
@@ -331,13 +335,84 @@ ADR 0168 §10 holds. Download totals are per version, per hour and per day, with
 fetched. Reports store no address. Search logs nothing. Rate limits keep addresses only inside the
 bindings' own memory. A publisher's signals are totals.
 
+### 13. Publisher verification
+
+- **Applying.** A publisher applies from their profile (`POST /v1/me/verification`, a sensitive
+  action) naming what to prove: a domain, and optionally a GitHub account or organisation. The
+  Worker answers one **proof token** per claim: 32 random bytes, single use, valid 48 hours.
+- **What the mark proves**, stored as the list of proofs that passed:
+  - **account**: the publisher is an authenticated ace account with a verified email (decision
+    2); every applicant has it;
+  - **domain**: a DNS TXT record `ace-market-verify=<token>` on the domain, read through
+    Cloudflare's own DNS-over-HTTPS resolver, or `https://<domain>/.well-known/ace-market.txt`
+    holding the token;
+  - **github** (optional): a public gist of the account, or a file `.ace-market.txt` in a public
+    repository of the organisation, holding the token.
+
+  `POST /v1/me/verification/check` runs the checks; a passed token is spent. Every proof fetch is
+  https only, follows no redirect, refuses IP-literal, `localhost` and private-suffix hosts, stops
+  after 5 seconds and reads at most 4 KiB.
+
+- **Maintainers decide.** An application with its passed proofs waits in `ace market review`.
+  `ace market verify <handle> --reason …` signs the publisher into the **verified list**,
+  `ace market unverify <handle> --reason …` signs them out; the publisher sees the reason. The
+  list (`ace-market-verified`, label `ace-market-verified-v1`: each verified publisher's id,
+  handle, proofs and when) is signed by the signer like the withdrawn list and served at
+  `GET /v1/verified`. The Worker can't forge it; the device reads the mark only from a list it
+  verified, and the index's `verified` flag is display data the device checks against that list.
+- **One level.** Verified or not, plus the proofs: "Verified · owns example.com".
+- **Re-checks.** The cron re-checks each verified publisher's domain proof about once a week, in
+  bounded batches. A failed re-check flags the mark for maintainers in their queue and tells the
+  publisher; it never drops the mark by itself.
+- **Impersonation** stays blocked (decision 8): lookalike handles and names of verified
+  publishers.
+- **Verification never changes a scan.** Verified publishers get the same scans, holds and
+  blocks as anyone.
+
+### 14. The official publisher, "By ace"
+
+- **`ace` is reserved** for ace's own organisation accounts. Only accounts on the signed
+  **official list** (`ace-market-official`, label `ace-market-official-v1`: the `ace`
+  publisher's id and the account ids that may publish as it) publish as `ace`; such an account
+  acts as the `ace` publisher on every write and has no profile of its own. Maintainers keep the
+  list with `ace market official add|remove <account>`; the signer signs it and uploads it with
+  the withdrawn list, and it is served at `GET /v1/official`. Builds ship the market keys that
+  check it, as for the other signed lists.
+- **"By ace" is checked on the device.** An entry is by ace when its signed manifest's publisher
+  is the official list's publisher id, on a list the device verified. The index's `byAce` and
+  the review mark's `byAce` are display data the device checks against it; no profile field
+  claims it.
+- **Same scans, plus review.** Everything published as `ace` is scanned and checked like anyone's,
+  and every version is held for a maintainer, as a new publisher's first version is.
+- **Strict impersonation.** `ace`, `acehq`, `ace-official`, `official-ace`, `ace-team` and any
+  handle whose confusable skeleton is `ace` or holds `ace` beside a reserved word (`official`,
+  `team`, `hq`, `market`, `support`, `staff`), with digit, letter, homoglyph and bidi tricks
+  folded first, are refused for every account not on the official list. Display names and titles
+  that read as "ace" or "By ace" are blocked the same way.
+- **The seed** (ace's Suits, the ten Spade recipes, the starter skills) is published as `ace`.
+  Featured and collections stay editorial and apart from ranking.
+
+### 15. Ranking tiers
+
+One place in `@ace/marketplace` (`rankingTiers`) holds the multipliers:
+
+| Tier             | Multiplier |
+| ---------------- | ---------- |
+| `official` (ace) | 1.3        |
+| `verified`       | 1.1        |
+| everyone else    | 1.0        |
+
+They multiply an entry's score in Trending, its relevance in search and a publisher's downloads in
+top publishers, and break ties in New and notable. They are bounded: a clearly more popular or
+more relevant entry still outranks an official one (an unverified entry with ten times the
+downloads outranks an official one), while among equals official ranks above verified above the
+rest. They never touch scanning, holds, blocks or the review before install.
+
 ## Open for the owner
 
-1. **Verified mark:** maintainers' judgement only, or a published rule (for example, a domain
-   proven by a DNS record)? Recommended: maintainers only for now.
-2. **A new publisher's first version always held:** keep, or hold only on a finding?
+1. **A new publisher's first version always held:** keep, or hold only on a finding?
    Recommended: keep while the market is small.
-3. **Archived entries and updates:** an archived entry offers no updates. Should a security fix
+2. **Archived entries and updates:** an archived entry offers no updates. Should a security fix
    still reach people who installed it? Recommended: unarchive to ship a fix.
 
 ## Options considered
@@ -368,7 +443,15 @@ bindings' own memory. A publisher's signals are totals.
   adversarial table of obfuscated variants, and a corpus of inert benign and malicious samples
   written for these tests (no real malware), whose measured detection is reported in the scanner's
   README.
-- **Trending** ranking, caps, bursts, decay and movement; **profile** rules (handles, reserved,
+- **Trending** ranking, caps, bursts, decay and movement; **the verified boost**: a verified
+  entry with clearly fewer downloads never passes an unverified one with many more, and among
+  equals the verified one ranks first, in trending, search and top publishers; **verification**
+  proofs (tokens single use and expiring, fetches refusing redirects, private hosts, plain http
+  and large answers), the signed verified list, re-check flags; **the tiers**: official above
+  verified above the rest among equals, and a much more popular unverified entry above an
+  official one with very few downloads; **the official publisher**: an account off the signed
+  list can't publish as `ace`, lookalike handles are refused, and a "By ace" mark not on the
+  signed list is rejected on the device; **profile** rules (handles, reserved,
   lookalikes, links, avatars).
 - **Worker** tests through its HTTP API on local D1 and R2: each write route refuses no grant, an
   expired grant, the wrong audience or purpose, a relay or cloud grant, an unverified email, a

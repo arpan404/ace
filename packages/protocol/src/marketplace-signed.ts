@@ -114,3 +114,59 @@ export type MarketBlocklist = z.infer<typeof MarketBlocklist>;
 /** A statement with its signature, as the Worker serves and stores it. */
 export const Signed = z.strictObject({ body: z.unknown(), signature: Signature });
 export type Signed = z.infer<typeof Signed>;
+
+/** One proof a verified publisher passed (ADR 0173 §13). */
+export const MarketVerificationProof = z.discriminatedUnion("kind", [
+  /** An authenticated ace account with a verified email; every verified publisher has it. */
+  z.strictObject({ kind: z.literal("account") }),
+  z.strictObject({
+    kind: z.literal("domain"),
+    domain: z
+      .string()
+      .min(3)
+      .max(253)
+      .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/),
+    via: z.enum(["dns", "well-known"]),
+  }),
+  z.strictObject({
+    kind: z.literal("github"),
+    login: z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/),
+    via: z.enum(["gist", "repository"]),
+  }),
+]);
+export type MarketVerificationProof = z.infer<typeof MarketVerificationProof>;
+
+/**
+ * The verified publishers (ADR 0173 §13), signed by the signer like the withdrawn list and
+ * served at `/v1/verified`. A device shows "Verified" only for a publisher on a list it verified.
+ */
+export const MarketVerifiedList = z.strictObject({
+  format: z.literal("ace-market-verified"),
+  issued: z.number().int().nonnegative(),
+  publishers: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(64),
+        handle: MarketPublisher.shape.name,
+        proofs: z.array(MarketVerificationProof).min(1).max(8),
+        at: z.number().int().nonnegative(),
+      }),
+    )
+    .max(10_000),
+  key: MarketKeyId,
+});
+export type MarketVerifiedList = z.infer<typeof MarketVerifiedList>;
+
+/**
+ * The official publisher (ADR 0173 §14): the `ace` publisher's id and the ace accounts that may
+ * publish as it, signed by the signer and served at `/v1/official`. "By ace" on a device means a
+ * manifest's publisher is this id, on a list the device verified.
+ */
+export const MarketOfficialList = z.strictObject({
+  format: z.literal("ace-market-official"),
+  issued: z.number().int().nonnegative(),
+  publisher: MarketPublisher,
+  accounts: z.array(z.string().min(1).max(256)).max(64),
+  key: MarketKeyId,
+});
+export type MarketOfficialList = z.infer<typeof MarketOfficialList>;

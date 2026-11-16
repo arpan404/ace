@@ -3,6 +3,8 @@ import type { z } from "zod";
 import {
   MarketBlocklist,
   MarketKeyId,
+  MarketOfficialList,
+  MarketVerifiedList,
   ReviewMark,
   Signed,
   VersionManifest,
@@ -34,6 +36,8 @@ const labels = {
   review: "ace-market-review-v1",
   withdrawn: "ace-market-withdrawn-v1",
   blocklist: "ace-market-blocklist-v1",
+  verified: "ace-market-verified-v1",
+  official: "ace-market-official-v1",
 } as const;
 type Kind = keyof typeof labels;
 
@@ -103,6 +107,14 @@ export const signBlocklist = (body: MarketBlocklist, key: MarketSigningKey) =>
   sign("blocklist", MarketBlocklist.parse(body), key);
 export const verifyBlocklist = (signed: unknown, keys: MarketKeySet) =>
   verify("blocklist", signed, MarketBlocklist, keys);
+export const signVerifiedList = (body: MarketVerifiedList, key: MarketSigningKey) =>
+  sign("verified", MarketVerifiedList.parse(body), key);
+export const verifyVerifiedList = (signed: unknown, keys: MarketKeySet) =>
+  verify("verified", signed, MarketVerifiedList, keys);
+export const signOfficialList = (body: MarketOfficialList, key: MarketSigningKey) =>
+  sign("official", MarketOfficialList.parse(body), key);
+export const verifyOfficialList = (signed: unknown, keys: MarketKeySet) =>
+  verify("official", signed, MarketOfficialList, keys);
 
 /** The public half of a signing key, as a build ships it. */
 export function marketPublicKey(key: MarketSigningKey): MarketKeySet["keys"][number] {

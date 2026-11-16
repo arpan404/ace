@@ -26,6 +26,7 @@ export {
   type ParsedCatalog,
 } from "./catalog.ts";
 export { distance, search, words, type Searchable, type SearchQuery } from "./search.ts";
+export { rankingTiers, tiered, tierOf, type RankingTier } from "./ranking.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
 export { secretFieldNames, secretFileProblem, secretName, secretValueProblems } from "./secrets.ts";
 export {
@@ -36,10 +37,14 @@ export {
   SignatureError,
   signBlocklist,
   signManifest,
+  signOfficialList,
   signReviewMark,
+  signVerifiedList,
   signWithdrawn,
   verifyBlocklist,
+  verifyVerifiedList,
   verifyManifest,
+  verifyOfficialList,
   verifyReviewMark,
   verifyWithdrawn,
   withdrawalKey,

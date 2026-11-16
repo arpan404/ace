@@ -25,6 +25,8 @@ import {
   MarketReportReason,
   MarketSignals,
   MarketTransferId,
+  MarketVerificationApply,
+  MarketVerificationStatus,
   MarketVisibility,
   MarketEntryRef,
 } from "./marketplace-publisher.ts";
@@ -110,6 +112,9 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     accept: z.boolean(),
   }),
   z.strictObject({ action: z.literal("signals"), ...entry }),
+  z.strictObject({ action: z.literal("verification") }),
+  z.strictObject({ action: z.literal("applyVerification"), ...MarketVerificationApply.shape }),
+  z.strictObject({ action: z.literal("checkVerification") }),
   z.strictObject({
     action: z.literal("appeal"),
     ...versionKey,
@@ -125,6 +130,7 @@ export const MarketPublishAnswer = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("profile"), profile: MarketProfile }),
   z.strictObject({ kind: z.literal("draft"), draft: MarketDraft }),
   z.strictObject({ kind: z.literal("signals"), signals: MarketSignals }),
+  z.strictObject({ kind: z.literal("verification"), verification: MarketVerificationStatus }),
   /** A version stored and waiting; `held` when a maintainer must look first. */
   z.strictObject({
     kind: z.literal("published"),

@@ -18,7 +18,7 @@ import {
   MarketReportState,
 } from "./marketplace-publisher.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
-import { Signed } from "./marketplace-signed.ts";
+import { MarketVerificationProof, Signed } from "./marketplace-signed.ts";
 
 /*
  * The market Worker's publishing and signer routes (ADR 0168 §6, §7; ADR 0173 §9, §10), shared
@@ -90,6 +90,10 @@ export const SignerPending = z.object({
   withdrawn: Signed.optional(),
   /** The blocklist as last signed. */
   blocklist: Signed.optional(),
+  /** The verified list as last signed. */
+  verified: Signed.optional(),
+  /** The official list as last signed. */
+  official: Signed.optional(),
 });
 export type SignerPending = z.infer<typeof SignerPending>;
 
@@ -104,6 +108,9 @@ export const FeaturedUpload = z.object({
 });
 /** `PUT /v1/signer/collections`: the whole list, in order. */
 export const CollectionsUpload = z.object({ collections: z.array(MarketCollection).max(16) });
+
+/** `PUT /v1/signer/official`: the whole signed official list (ADR 0173 §14). */
+export const SignedOfficialUpload = z.object({ official: Signed });
 
 /* ---------------------------------------------------------------- the scan's context */
 
@@ -160,6 +167,18 @@ export const MarketQueueBody = z.object({
       }),
     )
     .max(500),
+  verifications: z
+    .array(
+      z.object({
+        publisher: MarketPublisher,
+        /** Proofs passed so far, the account's always among them. */
+        proofs: z.array(MarketVerificationProof).max(8),
+        at: z.number().int().nonnegative(),
+        /** A re-check of a verified publisher's domain failed, with why. */
+        flagged: z.string().max(500).optional(),
+      }),
+    )
+    .max(500),
   appeals: z
     .array(
       MarketAppeal.extend({
@@ -190,11 +209,21 @@ export const ListingDecision = z.object({
   decision: z.enum(["approve", "refuse"]),
   reason: z.string().max(500).optional(),
 });
-/** `PUT /v1/signer/publishers/{handle}`. */
+/** `PUT /v1/signer/publishers/{handle}`: suspend or restore. Verification is the signed list. */
 export const PublisherDecision = z.object({
-  verified: z.boolean().optional(),
-  state: MarketPublisherState.optional(),
+  state: MarketPublisherState,
   reason: z.string().max(500).optional(),
+});
+/**
+ * `PUT /v1/signer/verified`: the whole signed verified list, and for a publisher just taken off
+ * it the reason they see.
+ */
+export const SignedVerifiedUpload = z.object({
+  verified: Signed,
+  revoked: z
+    .array(z.object({ handle: MarketPublisherName, reason: z.string().trim().min(1).max(500) }))
+    .max(100)
+    .default([]),
 });
 /** `PUT /v1/signer/appeals/{id}`. */
 export const AppealAnswer = z.object({

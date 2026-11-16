@@ -20,11 +20,16 @@
   ],
   // Each version's archive, at objects/<content hash>, written once.
   "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],
-  // Per caller address, counted in memory only: reads (API and pages), then publishing and
-  // withdrawing. The signer's routes, behind their secret, aren't limited.
+  // Per caller address, counted in memory only: reads (API and pages), publishing writes,
+  // counted downloads and abuse reports. The signer's routes, behind their secret, aren't
+  // limited. Nothing stores an address.
   "ratelimits": [
     { "name": "READS", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } },
     { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+    // Counted downloads per address and hash: past it a fetch is served but not counted.
+    { "name": "DOWNLOADS", "namespace_id": "2003", "simple": { "limit": 3, "period": 60 } },
+    // Anonymous abuse reports per address (ADR 0173 §7).
+    { "name": "REPORTS", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
   ],
   // No request logs: nothing records who read or searched what (ADR 0168 §10).
   "observability": { "enabled": false },
@@ -51,6 +56,8 @@
       "ratelimits": [
         { "name": "READS", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } },
         { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+        { "name": "DOWNLOADS", "namespace_id": "2003", "simple": { "limit": 3, "period": 60 } },
+        { "name": "REPORTS", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
       ],
       "observability": { "enabled": false },
       "triggers": { "crons": ["*/15 * * * *"] },

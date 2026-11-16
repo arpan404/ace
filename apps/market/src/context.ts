@@ -10,9 +10,26 @@ export interface Context {
   waitUntil(promise: Promise<unknown>): void;
   /** The account backend's grant keys. */
   grantKeys: KeySource;
-  /** A fresh publisher id. */
-  newId(): string;
+  /** A fresh id with its prefix (`pub`, `drf`, `trf`, `apl`, `rpt`): 24 random hex digits. */
+  newId(prefix: IdPrefix): string;
+  /** A fresh proof token (ADR 0173 §13): 32 random bytes as base64url. */
+  newToken(): string;
+  /** Fetch for proof checks (ADR 0173 §13) only; everything else is a binding. */
+  fetch(url: string, init: RequestInit): Promise<Response>;
 }
+
+export type IdPrefix = "pub" | "drf" | "trf" | "apl" | "rpt";
 
 /** An archive's place in R2. */
 export const objectKey = (hash: string) => `objects/${hash}`;
+/** A draft's archive. */
+export const draftKey = (id: string) => `drafts/${id}`;
+/** Pictures, by the sha256 of their stripped bytes. */
+export const avatarKey = (sha256: string) => `avatars/${sha256}`;
+export const previewKey = (sha256: string) => `previews/${sha256}`;
+/** Scan reports (ADR 0173 §8). */
+export const draftReportKey = (id: string) => `reports/drafts/${id}.json`;
+export const versionReportKey = (key: { type: string; name: string; version: string }) =>
+  `reports/versions/${key.type}/${key.name}/${key.version}.json`;
+export const listingReportKey = (key: { type: string; name: string }) =>
+  `reports/listings/${key.type}/${key.name}.json`;

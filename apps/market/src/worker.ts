@@ -1,13 +1,14 @@
 import { readRoute } from "./api-read.ts";
 import { publish, withdraw } from "./api-publish.ts";
 import { signerRoute } from "./api-signer.ts";
-import type { Context } from "./context.ts";
+import { encodeBase64url } from "@ace/account-grant";
+import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
 import { configuredKeys, defaultKeysUrl, fetchedKeys, type KeySource } from "./grant-keys.ts";
 import { failure, notFound, tooMany } from "./http.ts";
 import { aggregateDownloads } from "./store/downloads.ts";
 import { missingPage404, pageRoute } from "./pages/serve.ts";
-import { isPublicRead, isSigner, matchRoute, type Route } from "./routes.ts";
+import { matchRoute, routeClass, type Route } from "./routes.ts";
 
 /*
  * ace's marketplace Worker (ADR 0168): the thin shell. It reads the clock, makes ids and
@@ -32,10 +33,12 @@ function grantKeys(env: Env): KeySource {
   return source;
 }
 
-function publisherId(): string {
+function newId(prefix: IdPrefix): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
-  return `pub_${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  return `${prefix}_${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
+
+const newToken = () => encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
 async function limited(limit: RateLimit | undefined, request: Request): Promise<boolean> {
   if (!limit) return false;
@@ -74,14 +77,24 @@ export default {
     }
     const { route } = matched;
     // The signer is one maintainer's tool behind a long secret; it isn't limited.
-    const limit = isPublicRead(route) ? env.READS : isSigner(route) ? undefined : env.PUBLISHES;
+    const kind = routeClass(route);
+    const limit =
+      kind === "read"
+        ? env.READS
+        : kind === "report"
+          ? env.REPORTS
+          : kind === "write"
+            ? env.PUBLISHES
+            : undefined;
     if (await limited(limit, request)) return tooMany();
     const context: Context = {
       env,
       now: Date.now(),
       waitUntil: (promise) => ctx.waitUntil(promise),
       grantKeys: grantKeys(env),
-      newId: publisherId,
+      newId,
+      newToken,
+      fetch: (target, init) => fetch(target, init),
     };
     return dispatch(request, url, route, context);
   },

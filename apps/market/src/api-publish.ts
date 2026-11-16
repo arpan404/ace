@@ -1,4 +1,3 @@
-import { GrantError, verifyMarketGrant, type MarketGrantClaims } from "@ace/account-grant";
 import { maxArchiveBytes, writeArchive } from "@ace/marketplace";
 import { WithdrawRequest } from "@ace/protocol/marketplace";
 import { checkArchive } from "@ace/marketplace/checks";
@@ -7,15 +6,15 @@ import {
   MarketVersion,
   type MarketPublisher,
 } from "@ace/protocol/marketplace";
+import { authenticate, notYours } from "./auth.ts";
 import { objectKey, type Context } from "./context.ts";
-import { bearer, failure, json, readCapped, readJson, refused } from "./http.ts";
+import { failure, json, readCapped, readJson, refused } from "./http.ts";
 import type { EntryKey, VersionKey } from "./routes.ts";
 import {
   addWithdrawal,
   claimPublisher,
   nameTaken,
   ownerOf,
-  publisherOf,
   storePending,
   storedVersion,
 } from "./store/publish.ts";
@@ -27,21 +26,6 @@ import {
  * unlisted for the signer, and its number never names other bytes.
  */
 
-async function account(request: Request, context: Context): Promise<MarketGrantClaims | Response> {
-  const token = bearer(request);
-  if (!token) return failure(401, "unauthorized", "Sign in to publish.");
-  const keys = await context.grantKeys.get();
-  if (!keys) return failure(503, "unavailable", "Publishing can't check sign-ins right now.");
-  try {
-    return verifyMarketGrant(token, keys, context.now);
-  } catch (error) {
-    if (error instanceof GrantError)
-      return failure(401, "unauthorized", "That sign-in isn't one for publishing.");
-    throw error;
-  }
-}
-
-const notYours = () => failure(403, "forbidden", "Another publisher owns this entry.");
 const reused = () =>
   failure(409, "conflict", "That version number already names other files; publish a new one.");
 
@@ -55,12 +39,13 @@ export async function publish(
   context: Context,
 ): Promise<Response> {
   const db = context.env.MARKET;
-  const claims = await account(request, context);
-  if (claims instanceof Response) return claims;
+  const authed = await authenticate(request, context);
+  if (authed instanceof Response) return authed;
+  const claims = authed;
   const version = MarketVersion.safeParse(url.searchParams.get("version")).data;
   if (!version)
     return refused([{ message: "Give a version number, such as 1.0.0 (version=...)." }]);
-  let publisher = await publisherOf(db, claims.account);
+  let publisher: MarketPublisher | undefined = claims.publisher;
   const wanted = url.searchParams.get("publisher");
   if (!publisher) {
     if (!MarketPublisherName.safeParse(wanted).success)
@@ -88,7 +73,7 @@ export async function publish(
 
   if (!publisher) {
     const claim = await claimPublisher(db, {
-      id: context.newId(),
+      id: context.newId("pub"),
       account: claims.account,
       name: wanted ?? "",
       now: context.now,
@@ -130,9 +115,9 @@ export async function withdraw(
   context: Context,
 ): Promise<Response> {
   const db = context.env.MARKET;
-  const claims = await account(request, context);
-  if (claims instanceof Response) return claims;
-  const publisher: MarketPublisher | undefined = await publisherOf(db, claims.account);
+  const authed = await authenticate(request, context, { sensitive: true });
+  if (authed instanceof Response) return authed;
+  const publisher: MarketPublisher | undefined = authed.publisher;
   const owner = await ownerOf(db, key.type, key.name);
   if (!owner) return failure(404, "not_found", "No such entry.");
   if (owner !== publisher?.id) return notYours();

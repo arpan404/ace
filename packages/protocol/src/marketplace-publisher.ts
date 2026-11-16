@@ -10,6 +10,7 @@ import {
 } from "./marketplace-base.ts";
 import { MarketLink } from "./marketplace-catalog.ts";
 import { MarketScanReport, MarketScanState } from "./marketplace-scan.ts";
+import { MarketVerificationProof } from "./marketplace-signed.ts";
 
 /*
  * Publishers on the wire (ADR 0173 §2 to §5, §7): public profiles, the signed-in publisher's own
@@ -39,8 +40,10 @@ export const MarketProfile = z.strictObject({
   /** The picture's sha256, served at `/v1/avatars/{sha256}`. */
   avatar: MarketHash.optional(),
   joined: z.number().int().nonnegative(),
-  /** Verified by ace's maintainers. */
+  /** Verified by ace's maintainers, on the signed verified list (ADR 0173 §13). */
   verified: z.boolean(),
+  /** The proofs behind the mark: "Verified · owns example.com". */
+  proofs: z.array(MarketVerificationProof).max(8),
   pins: z.array(MarketEntryRef).max(6),
 });
 export type MarketProfile = z.infer<typeof MarketProfile>;
@@ -221,6 +224,38 @@ export const MarketTransfer = z.strictObject({
   direction: z.enum(["incoming", "outgoing"]),
 });
 export type MarketTransfer = z.infer<typeof MarketTransfer>;
+
+/* ---------------------------------------------------------------- verification */
+
+/** `POST /v1/me/verification` (a recent sign-in): what the publisher wants to prove. */
+export const MarketVerificationApply = z.strictObject({
+  domain: MarketVerificationProof.options[1].shape.domain.optional(),
+  github: MarketVerificationProof.options[2].shape.login.optional(),
+});
+export const MarketVerificationChallenge = z.strictObject({
+  kind: z.enum(["domain", "github"]),
+  /** The domain or GitHub login it proves. */
+  subject: z.string().max(253),
+  /** Random, single use: put it in the DNS TXT record, the well-known file, the gist or repo file. */
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  expiresAt: z.number().int().nonnegative(),
+  /** Passed and spent, failed with why, or waiting for a check. */
+  state: z.enum(["waiting", "passed", "failed"]),
+  problem: z.string().max(500).optional(),
+});
+/** `GET /v1/me/verification`: the mark, the application and what a maintainer said. */
+export const MarketVerificationStatus = z.strictObject({
+  verified: z.boolean(),
+  proofs: z.array(MarketVerificationProof).max(8),
+  /** none | applied (waiting for a maintainer) | verified | revoked */
+  state: z.enum(["none", "applied", "verified", "revoked"]),
+  challenges: z.array(MarketVerificationChallenge).max(4),
+  /** Why a maintainer revoked or refused it, shown to the publisher. */
+  reason: z.string().max(500).optional(),
+  /** A periodic re-check of a domain proof failed; maintainers look before anything changes. */
+  flagged: z.string().max(500).optional(),
+});
+export type MarketVerificationStatus = z.infer<typeof MarketVerificationStatus>;
 
 /* ---------------------------------------------------------------- your page */
 
