@@ -1,5 +1,5 @@
 import { useSidebarThread } from "@ace/client-react";
-import { ThreadId } from "@ace/protocol";
+import { RunId, ThreadId } from "@ace/protocol";
 import { faceForId } from "@ace/ui-core/bot-face";
 import {
   spadeMoney,
@@ -141,12 +141,31 @@ export function WorkWorkers(props: {
   const stop = async (node: SpadeWorkerNode) => {
     try {
       const thread = node.kind === "ace" ? ThreadId.safeParse(node.id) : undefined;
-      if (thread?.success)
-        await client.enqueue(
-          { type: "thread.interrupt", threadId: thread.data, cascade: true },
-          crypto.randomUUID(),
+      if (thread?.success) {
+        // Loaded on first use, like the sidebar's Stop: the page paints without the sender.
+        const { stopThread } = await import("@/lib/live-actions.ts");
+        const lease = client.threads();
+        const runId = lease.store.thread(thread.data)?.live?.rootRunId ?? undefined;
+        lease.release();
+        const stopped = stopThread(
+          client,
+          "list",
+          thread.data,
+          runId ? { runId: RunId.parse(runId) } : undefined,
+          (payload) => client.enqueue(payload, crypto.randomUUID()),
         );
-      else if (node.conversation) await stopConversation(client, node.conversation);
+        if (!stopped.ok) {
+          toast.error({
+            title: `Couldn't stop ${node.name}`,
+            description:
+              stopped.refused === "unfenced"
+                ? "Open it and stop it there."
+                : "Try again once the thread list is up to date.",
+          });
+          return;
+        }
+        await stopped.sent;
+      } else if (node.conversation) await stopConversation(client, node.conversation);
       await cache.invalidateQueries({ queryKey: workKey(bot) });
     } catch (error) {
       toast.error({

@@ -6,7 +6,7 @@ import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeRoles } from "./spade-roles.ts";
 import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
-import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
+import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";

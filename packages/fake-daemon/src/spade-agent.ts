@@ -1,5 +1,7 @@
 /** One agent as the fake Spade stores it, shared by the fake API and the Work tab. */
 
+import type { FakeSpadeSpending } from "./spade-oversight.ts";
+
 type Json = Record<string, unknown>;
 
 export interface FakeSpadeAgent {

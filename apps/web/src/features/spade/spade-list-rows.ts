@@ -196,21 +196,35 @@ export function spadeListEntries(
     }
     workersOf.set(botKey(maker), [...(workersOf.get(botKey(maker)) ?? []), bot]);
   }
-  const descendants = (bot: RosterBot, seen: Set<string>): RosterBot[] =>
-    (workersOf.get(botKey(bot)) ?? []).flatMap((worker) =>
-      seen.has(botKey(worker)) ? [] : [worker, ...descendants(worker, seen.add(botKey(worker)))],
-    );
+  const descendants = (bot: RosterBot, seen: Set<string>): RosterBot[] => {
+    const found: RosterBot[] = [];
+    for (const worker of workersOf.get(botKey(bot)) ?? []) {
+      if (seen.has(botKey(worker))) continue;
+      seen.add(botKey(worker));
+      found.push(worker, ...descendants(worker, seen));
+    }
+    return found;
+  };
   const familyOf = (root: RosterBot) => descendants(root, new Set([botKey(root)]));
   // Makers that made each other have no root: the first of them stands in as one.
-  const reached = new Set(roots.flatMap((root) => [root, ...familyOf(root)].map(botKey)));
+  const reached = new Set<string>();
+  for (const root of roots) {
+    reached.add(botKey(root));
+    for (const member of familyOf(root)) reached.add(botKey(member));
+  }
   for (const bot of bots) {
     if (reached.has(botKey(bot))) continue;
     roots.push(bot);
-    for (const member of [bot, ...familyOf(bot)]) reached.add(botKey(member));
+    reached.add(botKey(bot));
+    for (const member of familyOf(bot)) reached.add(botKey(member));
   }
   const rootKeys = new Set(roots.map(botKey));
-  return topLevel(roots, groups, missing).flatMap((entry) => {
-    if (entry.kind !== "bot" || !rootKeys.has(botKey(entry.bot))) return [entry];
+  const rows: SpadeListEntry[] = [];
+  for (const entry of topLevel(roots, groups, missing)) {
+    if (entry.kind !== "bot" || !rootKeys.has(botKey(entry.bot))) {
+      rows.push(entry);
+      continue;
+    }
     const family = familyOf(entry.bot);
     const unfolded = open !== undefined && [entry.bot, ...family].some((bot) => bot.id === open);
     const shown = family
@@ -218,8 +232,9 @@ export function spadeListEntries(
       .filter(
         (worker) => unfolded || worker.row.state === "needs-you" || worker.row.state === "failed",
       );
-    return [entry, ...shown.toSorted(byState)];
-  });
+    rows.push(entry, ...shown.toSorted(byState));
+  }
+  return rows;
 }
 
 /** When the person pinned the conversation (ms); undefined when it isn't pinned. */
@@ -247,14 +262,16 @@ export function splitPinned(
     rest: entries
       .filter((entry) => pinnedAt(entry) === undefined)
       // A worker whose maker moved to the strip has no row to nest under.
-      .map((entry): SpadeListEntry =>
-        entry.kind === "bot" &&
-        entry.depth === 1 &&
-        entry.bot.parent &&
-        pinnedBots.has(`${entry.bot.machine.key}/${entry.bot.parent.id}`)
-          ? { ...entry, depth: 0 }
-          : entry,
-      ),
+      .map((entry): SpadeListEntry => {
+        if (
+          entry.kind === "bot" &&
+          entry.depth === 1 &&
+          entry.bot.parent &&
+          pinnedBots.has(`${entry.bot.machine.key}/${entry.bot.parent.id}`)
+        )
+          return Object.assign({}, entry, { depth: 0 });
+        return entry;
+      }),
   };
 }
 
