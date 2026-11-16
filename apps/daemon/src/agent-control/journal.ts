@@ -508,6 +508,16 @@ export class DelegationJournal {
       this.sql("SELECT seq FROM delegation_usage_offsets WHERE thread_id=?").get(thread)?.seq ?? 0,
     );
   }
+  /**
+   * Moves the replay position past events that carry nothing to account; never backwards. A
+   * thread whose row is gone keeps no position (the offsets reference threads).
+   */
+  advanceUsageOffset(thread: ThreadId, through: number): void {
+    this.sql(
+      `INSERT INTO delegation_usage_offsets SELECT id,? FROM threads WHERE id=?
+        ON CONFLICT(thread_id) DO UPDATE SET seq=MAX(seq,excluded.seq)`,
+    ).run(through, thread);
+  }
   usageThreads(after: string) {
     return this.sql(`SELECT child_id AS thread_id,root_id FROM delegated_threads WHERE child_id>?
         UNION ALL SELECT thread_id,root_id FROM delegation_participants WHERE thread_id>?
