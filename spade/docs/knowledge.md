@@ -84,7 +84,10 @@ When a goal closes (a `done` verdict: `verified`; the person ending it: `ended`;
 with `?outcome=failed`: `failed`, stored as `goal_cleared {goal, failed: true}`), Spade folds an
 episode from the events, stores it in `episodes` (searched through `episodes_search`), then
 stores `episode_stored {goal, episode}`. One per goal: the store's key is the conversation and
-goal, and each conversation is checked again before its first model call after a start.
+goal, and the marker is written once. When Spade opens for work after a start it stores the
+episode of every closed goal that has no `episode_stored`, with no model turn needed (a crash
+between the close and the episode, or the episode and its marker); a store that fails is tried
+again before the conversation's next model step.
 
 ```json
 {

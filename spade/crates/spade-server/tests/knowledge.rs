@@ -486,3 +486,87 @@ async fn a_goal_the_person_ends_as_failed_is_remembered_as_failed() -> Result {
     assert_eq!((status, one["outcome"].clone()), (200, json!("failed")));
     Ok(())
 }
+
+/// Waits until `agent` has `count` episodes.
+async fn until_episodes(spade: &Spade, agent: &str, count: usize) -> Result<Vec<Value>> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let found = episodes(spade, agent).await?;
+        if found.len() >= count {
+            return Ok(found);
+        }
+        if Instant::now() > deadline {
+            return Err(format!("never {count} episodes: {found:?}").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_goal_closed_just_before_a_crash_is_remembered_at_start_without_another_turn() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let (agent, chat) = ids(&spade.new_agent("Builder", "").await?);
+    let (status, body) = spade
+        .put(
+            &format!("/v1/agents/{agent}/task/goal"),
+            json!({ "title": "Migrate the database", "criteria": ["no data lost"] }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, _) = spade
+        .delete(&format!("/v1/agents/{agent}/task/goal?outcome=failed"))
+        .await?;
+    assert_eq!(status, 204);
+    assert_eq!(episodes(&spade, &agent).await?.len(), 1);
+
+    // The crash came after the goal's close was stored and before its episode was.
+    // No message and no model call: the start alone remembers it.
+    let spade = spade
+        .restart_after_crash(
+            "DELETE FROM episodes;
+             DELETE FROM events WHERE json_extract(body, '$.type') = 'episode_stored';",
+            Vec::new(),
+            Vec::new(),
+        )
+        .await?;
+    let found = until_episodes(&spade, &agent, 1).await?;
+    assert_eq!(found[0]["outcome"], "failed");
+    let kept = found[0]["id"].clone();
+    let events = spade.events(&chat).await?;
+    assert_eq!(of_type(&events, "episode_stored"), 1);
+
+    // Now the crash came between the episode and its marker: the start writes the marker for
+    // the episode already stored, and never a second episode.
+    let spade = spade
+        .restart_after_crash(
+            "DELETE FROM events WHERE json_extract(body, '$.type') = 'episode_stored';",
+            Vec::new(),
+            Vec::new(),
+        )
+        .await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let events = loop {
+        let events = spade.events(&chat).await?;
+        if of_type(&events, "episode_stored") > 0 {
+            break events;
+        }
+        if Instant::now() > deadline {
+            return Err("the marker was never written".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let marker = events
+        .iter()
+        .find(|e| e["type"] == "episode_stored")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(marker["episode"], kept);
+    let found = episodes(&spade, &agent).await?;
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0]["id"], kept);
+    assert!(
+        spade.fake.seen().is_empty(),
+        "no model was called for any of it"
+    );
+    Ok(())
+}

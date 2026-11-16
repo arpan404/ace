@@ -94,6 +94,20 @@ pub struct Episode {
 /// Every goal of the conversation that closed and has no episode yet, oldest first. A
 /// conversation from before episodes gets one for each goal it closed, once.
 pub fn due(events: &[Event], registry: &Registry) -> Vec<Episode> {
+    owed_closes(events)
+        .into_iter()
+        .filter_map(|(started, closed, outcome)| fold(events, started, closed, outcome, registry))
+        .collect()
+}
+
+/// Whether some goal of the conversation closed with no episode stored for it: what [`due`]
+/// would fold, found without folding.
+pub fn owed(events: &[Event]) -> bool {
+    !owed_closes(events).is_empty()
+}
+
+/// Where each owed goal started and closed, and how it ended, oldest close first.
+fn owed_closes(events: &[Event]) -> Vec<(usize, usize, Outcome)> {
     let mut stored: Vec<&str> = Vec::new();
     let mut starts: Vec<(&str, usize)> = Vec::new();
     let mut closes: Vec<(&str, usize, Outcome)> = Vec::new();
@@ -127,7 +141,7 @@ pub fn due(events: &[Event], registry: &Registry) -> Vec<Episode> {
         .filter(|(goal, ..)| !stored.contains(goal))
         .filter_map(|(goal, closed, outcome)| {
             let started = starts.iter().find(|(g, _)| *g == goal)?.1;
-            fold(events, started, closed, outcome, registry)
+            Some((started, closed, outcome))
         })
         .collect()
 }

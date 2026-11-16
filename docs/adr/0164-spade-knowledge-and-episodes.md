@@ -88,8 +88,12 @@ standing instructions change only at a compaction (design.md, Caching).
      shown.
 
    An episode is built from events by a pure fold, never by a model, so it can't invent
-   anything and costs nothing. It is stored once per goal (a unique key), and the check runs
-   again before each model call, so a crash between the verdict and the episode loses nothing.
+   anything and costs nothing. It is stored once per goal (a unique key), and
+   `episode_stored` is written once per goal. At start, every conversation with a closed goal
+   and no `episode_stored` is swept when Spade opens for work, without waiting for a model
+   turn, so a crash between the close and the episode, or between the episode and its marker,
+   loses nothing and stores nothing twice; a store that fails is tried again before the
+   conversation's next model step and at the next start.
    `episode_search` finds the bot's own episodes and its tree's: "have I done this before?".
 
 7. **History over weeks.** `history_search` also indexes each compaction's summary, shows each

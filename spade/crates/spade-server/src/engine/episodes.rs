@@ -128,25 +128,56 @@ impl Engine {
             .collect()
     }
 
-    /// [`Engine::remember_episodes`] once per conversation after Spade starts: a goal that
-    /// closed just before a stop gets its episode. Closes while Spade runs store theirs at once.
-    pub(super) fn episodes_once(&self, id: &str) -> bool {
-        let first = self
-            .episodes_checked
+    /// Marks `id` as owed an episode, for [`Engine::sweep_episodes`] and its next model step.
+    pub(super) fn owe_episodes(&self, id: &str) {
+        self.episodes_owed
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(id.to_owned());
-        first && self.remember_episodes(id)
+    }
+
+    /// Stores the episodes of every conversation owed one: those found at start, and those a
+    /// failed store left. One that fails again stays owed.
+    pub(super) fn sweep_episodes(&self) {
+        let owed: Vec<String> = self
+            .episodes_owed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .cloned()
+            .collect();
+        for id in owed {
+            self.remember_episodes(&id);
+        }
+    }
+
+    /// [`Engine::remember_episodes`] before a model step of a conversation still owed an episode
+    /// (a store that failed). Returns whether it stored anything.
+    pub(super) fn owed_episodes(&self, id: &str) -> bool {
+        let owed = self
+            .episodes_owed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(id);
+        owed && self.remember_episodes(id)
     }
 
     /// Stores an episode for each goal of `id` that closed without one, then `episode_stored`.
-    /// Safe to call at any time and more than once: a goal keeps one episode. Returns whether it
-    /// stored anything.
+    /// Safe to call at any time and more than once: a goal keeps one episode, and its marker is
+    /// written once. Returns whether it stored anything; one that fails leaves `id` owed, so it
+    /// is tried again.
     pub(super) fn remember_episodes(&self, id: &str) -> bool {
         match self.store_episodes(id) {
-            Ok(stored) => stored,
+            Ok(stored) => {
+                self.episodes_owed
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(id);
+                stored
+            }
             Err(error) => {
                 tracing::warn!(%error, "could not store a task's episode; tried again later");
+                self.owe_episodes(id);
                 false
             }
         }

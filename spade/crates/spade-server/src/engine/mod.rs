@@ -136,8 +136,10 @@ pub struct Engine {
     daily_cap_micros: u64,
     /// Model calls admitted and not yet paid for (ADR 0135, `ledger`).
     in_flight: Mutex<ledger::InFlight>,
-    /// Conversations checked since start for a closed goal with no episode (ADR 0164).
-    episodes_checked: Mutex<std::collections::HashSet<String>>,
+    /// Conversations with a closed goal whose episode is not stored yet (ADR 0164): found at
+    /// start, or left by a store that failed. Swept when Spade opens for work and retried before
+    /// each model step of theirs.
+    episodes_owed: Mutex<std::collections::HashSet<String>>,
     /// Woken each time an admitted call settles, for calls waiting on its estimate.
     released: Notify,
     limits: Limits,
@@ -274,7 +276,7 @@ impl Engine {
             ids: setup.ids,
             daily_cap_micros: setup.daily_cap_micros,
             in_flight: Mutex::default(),
-            episodes_checked: Mutex::default(),
+            episodes_owed: Mutex::default(),
             released: Notify::new(),
             limits: setup.limits,
             skills: setup.skills,
@@ -334,6 +336,10 @@ impl Engine {
                 }
             }
             jobs::report_lost(&engine, &conversation.id)?;
+            // A goal that closed just before a stop (or a crash) is owed its episode.
+            if spade_core::knowledge::episode::owed(&events) {
+                engine.owe_episodes(&conversation.id);
+            }
         }
         // Helpers carry on from their events (ADR 0152); only those Stop was pressed on close.
         engine.settle_helpers_after_restart()?;
@@ -345,6 +351,9 @@ impl Engine {
     /// this once ace's tools are back (or after a short wait), so a resumed turn that was about to
     /// use one finds it.
     pub fn open_for_work(self: &Arc<Self>) {
+        // Closed goals with no episode get theirs before any turn resumes, with every tool the
+        // bot has back, so a conversation that never runs again is remembered too.
+        self.sweep_episodes();
         self.end_maintenance();
         // Bots' wakes are armed from their events and `keep` services start again (ADR 0160).
         self.restore_wakes();

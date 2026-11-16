@@ -678,6 +678,23 @@ impl Spade {
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
     }
 
+    /// Stops this server, runs `sql` on its database (what a crash left behind), and opens a new
+    /// engine and server on it.
+    pub async fn restart_after_crash(
+        mut self,
+        sql: &str,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
     /// Like `restart`, with `options` for the new server.
     pub async fn restart_with(
         mut self,
