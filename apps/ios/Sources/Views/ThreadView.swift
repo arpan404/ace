@@ -675,7 +675,6 @@ private struct FloatingBar<Bar: View>: ViewModifier {
             let start = CACurrentMediaTime()
             guard let move = KeyboardMove(note) else { return }
             let lift = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboard: move.end))
-            PerfProbe.record(["keyboard.bar": "lift \(lift) column \(column.debugDescription) kb \(move.end.debugDescription)"]) // DIAG
             ride.move(to: lift, start: start, duration: move.duration, animated: !reduceMotion)
         }
     }
