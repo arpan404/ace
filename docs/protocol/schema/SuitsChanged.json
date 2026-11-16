@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitsChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "suits": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "suits"
+  ],
+  "type": "object"
+}

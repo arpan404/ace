@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitLiveCheck.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checkId": {
+      "$ref": "https://ace.local/protocol/v1/SuitCheckId.json"
+    },
+    "suitId": {
+      "$ref": "https://ace.local/protocol/v1/SuitId.json"
+    }
+  },
+  "required": [
+    "checkId",
+    "suitId"
+  ],
+  "type": "object"
+}

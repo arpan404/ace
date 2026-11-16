@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitTerminal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursorBlink": {
+      "type": "boolean"
+    },
+    "cursorStyle": {
+      "enum": [
+        "block",
+        "bar",
+        "underline"
+      ],
+      "type": "string"
+    },
+    "dark": {
+      "$ref": "https://ace.local/protocol/v1/SuitTerminalColours.json"
+    },
+    "fontFamily": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "fontSize": {
+      "maximum": 24,
+      "minimum": 9,
+      "type": "number"
+    },
+    "letterSpacing": {
+      "maximum": 4,
+      "minimum": -1,
+      "type": "number"
+    },
+    "light": {
+      "$ref": "https://ace.local/protocol/v1/SuitTerminalColours.json"
+    },
+    "lineHeight": {
+      "maximum": 2,
+      "minimum": 1,
+      "type": "number"
+    },
+    "reveal": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "type": "object"
+}

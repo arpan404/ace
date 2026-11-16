@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitFont.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "properties": {
+        "asset": {
+          "$ref": "https://ace.local/protocol/v1/SuitAssetPath.json"
+        },
+        "family": {
+          "maxLength": 80,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset",
+        "family"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "system": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "system"
+      ],
+      "type": "object"
+    }
+  ]
+}
