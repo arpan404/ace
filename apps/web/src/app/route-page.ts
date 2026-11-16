@@ -64,6 +64,7 @@ export const routePages = {
   "/settings/source-control": null,
   "/settings/spade/": null,
   "/settings/spade/apps": null,
+  "/settings/spade/security": null,
   "/settings/spade/models": null,
   "/settings/spade/search": null,
   "/settings/storage": null,

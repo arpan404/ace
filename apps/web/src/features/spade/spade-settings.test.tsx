@@ -13,7 +13,7 @@ const withSpade = (spade: FakeSpadeApi) => {
   spade.addAgent({ id: "inbox", name: "Inbox" });
 };
 
-test("Settings lists Spade's four pages under its own label, and marks only the open one", async () => {
+test("Settings lists Spade's pages under its own label, and marks only the open one", async () => {
   await spadeApp("/settings/spade/models", withSpade);
   const nav = within(await screen.findByRole("navigation", { name: "Settings pages" }));
   const spade = within(nav.getByRole("region", { name: "Spade" }));
@@ -22,6 +22,7 @@ test("Settings lists Spade's four pages under its own label, and marks only the 
     "Models",
     "Web search",
     "Apps",
+    "Security",
   ]);
   await waitFor(() =>
     expect(

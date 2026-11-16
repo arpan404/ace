@@ -9,6 +9,7 @@ import { ProfileApps } from "./spade-bot-connectors.tsx";
 import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfilePlugins } from "./spade-bot-plugins.tsx";
+import { ProfileSecurity } from "./spade-bot-security.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { useEditBot } from "./spade-profile-actions.ts";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
@@ -20,7 +21,7 @@ import type { RosterBot } from "./use-spade-roster.ts";
 
 /**
  * Details: what the bot is and how it behaves. Its task, the model and machine it runs with
- * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its spending, then Duplicate,
+ * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its boundaries, its spending, then Duplicate,
  * Export and Delete. Everything edits where it shows.
  */
 export function ProfileDetails(props: { bot: RosterBot }) {
@@ -54,6 +55,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
       <ProfileRoutines bot={bot} />
       <ProfileApps bot={bot} />
       <ProfilePlugins bot={bot} />
+      <ProfileSecurity bot={bot} />
       <ProfileSpending bot={bot} />
       <Foot bot={bot} />
     </>

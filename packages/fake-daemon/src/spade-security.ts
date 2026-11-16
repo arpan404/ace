@@ -171,6 +171,7 @@ export class FakeSpadeSecurity {
       const mode = body.mode ?? "allow_list";
       if (mode !== "off" && mode !== "allow_list" && mode !== "open")
         return problem(400, `unknown variant \`${String(mode)}\``);
+      const known: FakeSpadeNetworkPolicy["mode"] = mode;
       const allow = (Array.isArray(body.allow) ? body.allow : []).map((each) =>
         String(each).trim().toLowerCase(),
       );
@@ -183,7 +184,7 @@ export class FakeSpadeSecurity {
       const dropped = (Array.isArray(body.dropped) ? body.dropped : []).map(String);
       const unknown = dropped.find((name) => !this.defaults.includes(name));
       if (unknown !== undefined) return problem(400, `${unknown} is not one of the defaults`);
-      const policy = { mode, allow: [...new Set(allow)], dropped };
+      const policy = { mode: known, allow: [...new Set(allow)], dropped };
       const settings = this.bot(id);
       if (sub === "network") settings.network = policy;
       else settings.plugin_network = policy;
