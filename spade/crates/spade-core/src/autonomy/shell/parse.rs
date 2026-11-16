@@ -6,7 +6,7 @@ use super::super::secrets::basename;
 
 /// One simple command: its words (wrappers taken off) and where its output is written.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Simple {
+pub struct Simple {
     pub words: Vec<String>,
     pub writes_to: Vec<String>,
     /// Files its input comes from (`< file`).

@@ -588,6 +588,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "classify-train"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spade-classify",
+ "spade-core",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3349,6 +3358,14 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "spade-classify"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spade-core",
 ]
 
 [[package]]

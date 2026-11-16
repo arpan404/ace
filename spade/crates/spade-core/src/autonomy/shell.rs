@@ -15,6 +15,7 @@ mod parse;
 mod paths;
 mod scripts;
 
+pub use parse::Simple;
 pub use paths::{Lexical, Place, Unseen, normalized};
 pub use scripts::LONGEST_SCRIPT;
 
@@ -22,7 +23,7 @@ use std::path::PathBuf;
 
 use super::Sensitive;
 use super::secrets::command_reads;
-use parse::{Simple, parse};
+use parse::parse;
 
 /// What a command needs, beyond the reviewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,6 +234,14 @@ pub fn simple_commands(text: &str) -> Option<Vec<Vec<String>>> {
     parse(text, 0)
         .ok()
         .map(|commands| commands.iter().map(with_targets).collect())
+}
+
+/// Every simple command in `text` as the parser reads it (words with wrappers taken off, its
+/// redirects, pipes, here-document text, subshell depth and folder), for Spade's tool-call
+/// classifier (ADR 0172), which reads the same structure as these rules; `None` when it can't be
+/// read.
+pub fn read(text: &str) -> Option<Vec<Simple>> {
+    parse(text, 0).ok()
 }
 
 fn with_targets(simple: &Simple) -> Vec<String> {
