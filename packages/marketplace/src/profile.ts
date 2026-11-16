@@ -1,5 +1,5 @@
 import type { MarketLink, MarketProblem } from "@ace/protocol/marketplace";
-import { fold, hasBidi, hasInvisible, mixedScriptWord, skeleton } from "./scan/text.ts";
+import { hasBidi, hasInvisible, mixedScriptWord, skeleton } from "./scan/text.ts";
 
 /*
  * A publisher's profile rules (ADR 0173 §3, §14), shared by the Worker, the CLI and the device:
@@ -127,8 +127,11 @@ export function displayNameProblem(
       return { message: 'That display name reads as "ace".' };
   }
 
+  // `options.verified` is other publishers' names (the caller leaves out the name's own owner),
+  // so any skeleton collision, exact or look-alike, is impersonation.
+  const skel = skeleton(trimmed);
   for (const taken of options.verified)
-    if (skeleton(taken) === skeleton(trimmed) && fold(taken).text !== fold(trimmed).text)
+    if (skeleton(taken) === skel)
       return { message: "That display name is a verified publisher's." };
 
   return undefined;
