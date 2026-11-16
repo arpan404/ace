@@ -7,9 +7,8 @@ import { disposition, scanEntry, type ScanContext, type ScanInput } from "./inde
  * The corpus harness the detection and false-positive tests share (ADR 0173 §8, Tests). A sample
  * is a folder of files written for these tests; `scanSample` runs the whole scanner over it, as
  * the signer and the device do. The benign samples live in `corpus-benign.ts` (`benignSamples`)
- * and the malicious ones in `corpus-malicious.ts` (`maliciousSamples`), both arrays of
- * {@link CorpusSample}; the detection test reads both. No sample runs; each only exhibits a
- * pattern as inert text.
+ * and the malicious ones in `corpus-malicious.ts`; this harness scores the benign side in
+ * `corpus-benign.test.ts`. No sample runs; each only exhibits a pattern as inert text.
  */
 
 export interface CorpusSample {
