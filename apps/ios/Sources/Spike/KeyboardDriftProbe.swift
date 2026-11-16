@@ -90,6 +90,9 @@ import UIKit
     private func y(_ mark: Mark) -> Double? {
         guard let view = marks[mark]?.view, view.window != nil else { return nil }
         let layer = view.layer.presentation() ?? view.layer
+        // The keyboard's edge is in a container constrained to the window: its own frame is in
+        // window points (`KeyboardEdgeTracker`).
+        if mark == .keyboard { return Double(layer.frame.minY) }
         let bottom = mark == .composerFoot
         return Double(layer.convert(CGPoint(x: 0, y: bottom ? layer.bounds.height : 0), to: nil).y)
     }

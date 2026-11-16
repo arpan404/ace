@@ -24,7 +24,7 @@ import UIKit
     /// Where the keyboard's edge is drawn on the frame shown at `time` (`CACurrentMediaTime`
     /// clock); nil while there is no edge in a window to read.
     func reading(at time: CFTimeInterval) -> Reading? {
-        guard let edge, let window = edge.window, let container = edge.superview else { return nil }
+        guard let edge, edge.window != nil else { return nil }
         let layer = edge.layer
         let animations = (layer.animationKeys() ?? [])
             .compactMap { layer.animation(forKey: $0) as? CABasicAnimation }
@@ -43,9 +43,11 @@ import UIKit
                 y = animation.isAdditive ? y + value : value
             }
         }
+        // The container is constrained to the window, so its points are the window's. Not
+        // converted through the views between: SwiftUI places its host with a transform that the
+        // constraints don't see, which added 116 pt on the simulator.
         let top = CGFloat(y) - layer.bounds.height * layer.anchorPoint.y
-        let inWindow = container.convert(CGPoint(x: 0, y: top), to: window)
-        return Reading(y: inWindow.y, source: source, moving: !animations.isEmpty)
+        return Reading(y: top, source: source, moving: !animations.isEmpty)
     }
 
     /// `animation`'s value for the edge's y at `time`; nil for a kind of animation this can't read.
