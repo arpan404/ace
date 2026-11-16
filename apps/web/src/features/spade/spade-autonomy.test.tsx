@@ -32,9 +32,9 @@ test("a refused step the bot tried again comes to the person with the reason, an
   });
   await userEvent.click(await botRow("Scout"));
   const request = within(
-    await screen.findByRole("group", { name: "Scout wants to use book flight" }),
+    await screen.findByRole("group", { name: "Scout asks again to use book flight" }),
   );
-  expect(request.getByText("Refused again: It books a flight nobody asked for.")).toBeTruthy();
+  expect(request.getByText("Refused before: It books a flight nobody asked for.")).toBeTruthy();
   await userEvent.click(request.getByRole("button", { name: "Allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k1")).toEqual([
@@ -43,9 +43,9 @@ test("a refused step the bot tried again comes to the person with the reason, an
   );
   // It stays in the chat, answered: one line that says how.
   const answered = within(
-    await screen.findByRole("group", { name: "Scout wants to use book flight. Allowed" }),
+    await screen.findByRole("group", { name: "Scout asks again to use book flight. Allowed" }),
   );
-  expect(answered.getByText("Allowed")).toBeTruthy();
+  expect(answered.queryByRole("button", { name: "Allow" })).toBeNull();
 });
 
 test("the activity log lists the reviewer's verdicts with their reasons, and how the task went on", async () => {

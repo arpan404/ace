@@ -72,7 +72,8 @@ describe("a routine in the conversation", () => {
     c.stored({ type: "reply_started", reply: "r2" });
     c.stored({ type: "step_finished", reply: "r2", text: "[quiet]" });
     c.stored({ type: "reply_finished", reply: "r2", text: "[quiet]" });
-    expect(c.bubbles()).toEqual(["bot: The deploy failed twice.\n\n[quiet]"]);
+    // One bubble per message: what it said, then its quiet ending.
+    expect(c.bubbles()).toEqual(["bot: The deploy failed twice.", "bot: [quiet]"]);
   });
 
   test("a quiet answer to the person's queued message and a later heartbeat still shows", () => {
