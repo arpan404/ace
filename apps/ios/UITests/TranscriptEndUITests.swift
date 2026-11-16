@@ -162,7 +162,7 @@ import XCTest
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         let opening = keyboardMotion(app, "open")
         transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "DIAG \(app.descendants(matching: .any)["perf.probe"].value as? String ?? "")")
         let closing = keyboardMotion(app, "close")
         let report = "opening \(opening), closing \(closing)"
         XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
