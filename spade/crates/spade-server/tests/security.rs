@@ -582,3 +582,36 @@ async fn without_the_sandbox_a_file_write_after_untrusted_content_is_reviewed() 
     assert_eq!(asked(&events), vec!["c2"]);
     Ok(())
 }
+
+#[tokio::test]
+async fn deleting_a_bot_forgets_its_grants_log_and_checkpoints() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            shell("c1", "echo x > a.txt".to_owned()),
+            Script::reply("Ok."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Go").await?;
+    w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/agents/{}/grants", w.bot),
+            json!({"kind": "tool", "tool": "preview_deploy"}),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    let data = w
+        .home
+        .parent()
+        .map(|root| root.join("data"))
+        .unwrap_or_default();
+    assert!(data.join("checkpoints").join(&w.bot).exists());
+    let (status, _) = w.spade.delete(&format!("/v1/agents/{}", w.bot)).await?;
+    assert!(status == 204 || status == 200, "{status}");
+    assert!(!data.join("checkpoints").join(&w.bot).exists());
+    let store = Store::open(&w.spade.database())?;
+    assert_eq!(store.setting(&format!("security:{}", w.bot))?, None);
+    Ok(())
+}
