@@ -188,6 +188,8 @@ import XCTest
         // and come into view. It offers faster tiers, set right there.
         tuned.tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].exists)
+        // The message's keyboard went down as the sheet opened, leaving the models in view.
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         let fast = app.buttons["tune.speed.fast"]
         XCTAssertTrue(fast.waitForExistence(timeout: 15))
         XCTAssertTrue(fast.isHittable)

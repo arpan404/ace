@@ -161,6 +161,10 @@ struct NewThreadSheet: View {
                                     star: { client.composeAction(["kind": "favorite", "key": $0]) })
             }
         }
+        // The message's keyboard would cover the sheet's models: it goes down as the sheet opens.
+        .onChange(of: choosingModel) { _, open in
+            if open { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+        }
     }
 
     /// The start's choices, under the title.
