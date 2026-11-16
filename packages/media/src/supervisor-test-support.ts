@@ -1,5 +1,7 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { rmSync } from "node:fs";
-import type { ByteSource, LaneSocket } from "./lanes.ts";
+import { deriveLaneKeys, LaneRecords, laneTranscript } from "./lane-records.ts";
+import { laneAccepted, type ByteSource, type LaneSocket } from "./lanes.ts";
 import type { MediaChild, MediaClock, MediaHost, MediaSupervisorOptions } from "./supervisor.ts";
 import { legacyMediaSettings } from "./supervisor.ts";
 import { decodeToMedia, encodeControl, type FromMedia, type ToMedia } from "./wire.ts";
@@ -123,36 +125,99 @@ export function frame(
   return out;
 }
 
+/** ace-media's lane proofs: HMAC-SHA256 keyed by the lane secret (`media_wire::lane`). */
+function laneProof(secret: Uint8Array, side: "server" | "client", ...parts: Uint8Array[]) {
+  const hmac = createHmac("sha256", secret).update(`ace-media lane v1 ${side}`);
+  for (const part of parts) hmac.update(part);
+  return new Uint8Array(hmac.digest());
+}
+
+type LaneChallenge = {
+  secret: Uint8Array;
+  nonce: Uint8Array;
+  serverNonce: Uint8Array;
+  serverProof: Uint8Array;
+};
+
+/**
+ * One lane connection as ace-media serves it. The daemon's side is the wire: the hello, the
+ * proofs and then sealed records. The test's side is plaintext: `sink` holds the frames the
+ * daemon wrote, and `source.emit` sends frames to the daemon, sealed once the lane is open.
+ */
 export class FakeSocket implements LaneSocket {
   readonly sink = new Sink();
-  readonly source = new Source();
+  readonly #wire = new Source();
+  readonly source = {
+    emit: (plain: Uint8Array) => this.#wire.emit(this.#records?.seal(plain) ?? plain),
+    end: () => this.#wire.end(),
+  };
   destroyed = false;
   hello?: Uint8Array;
+  #challenge: LaneChallenge | undefined;
+  #records?: LaneRecords;
   private readonly media: FakeMedia;
   constructor(media: FakeMedia) {
     this.media = media;
   }
   write(chunk: Uint8Array, done: (error?: Error | null) => void): boolean {
+    if (this.#records) return this.#writeSealed(chunk, done);
+    queueMicrotask(() => done());
     if (!this.hello) {
       this.hello = chunk.slice();
-      queueMicrotask(() => done());
       this.media.onHello(this);
-      return true;
+    } else if (this.#challenge) this.media.onProof(this, chunk.slice());
+    return true;
+  }
+  /** Sends ace-media's proof and nonce for the daemon's hello. */
+  challenge(challenge: LaneChallenge): void {
+    this.#challenge = challenge;
+    const reply = Uint8Array.from([...challenge.serverProof, ...challenge.serverNonce]);
+    queueMicrotask(() => this.#wire.emit(reply));
+  }
+  /** Checks the daemon's proof; once it holds, every byte either way is a record. */
+  open(proof: Uint8Array): boolean {
+    const challenge = this.#challenge;
+    const tag = this.hello?.[4] ?? 0;
+    if (!challenge || proof.length !== 32) return false;
+    const { secret, nonce, serverNonce, serverProof } = challenge;
+    const expected = laneProof(secret, "client", Uint8Array.of(tag), nonce, serverNonce);
+    if (!timingSafeEqual(proof, expected)) return false;
+    const keys = deriveLaneKeys(
+      secret,
+      laneTranscript(tag, nonce, serverNonce, serverProof, proof),
+    );
+    this.#records = new LaneRecords(keys.toDaemon, keys.toMedia);
+    this.#challenge = undefined;
+    return true;
+  }
+  #writeSealed(chunk: Uint8Array, done: (error?: Error | null) => void): boolean {
+    let plains: Uint8Array[];
+    try {
+      plains = this.#records?.open(chunk) ?? [];
+    } catch (error) {
+      this.destroy();
+      queueMicrotask(() => done(error instanceof Error ? error : new Error(String(error))));
+      return false;
     }
-    return this.sink.write(chunk, done);
+    let open = true;
+    plains.forEach((plain, i) => {
+      open = this.sink.write(plain, i === plains.length - 1 ? done : () => {});
+    });
+    if (plains.length === 0) queueMicrotask(() => done());
+    return open;
   }
   onDrain(listener: () => void): void {
     this.sink.onDrain(listener);
   }
   onData(listener: (chunk: Uint8Array) => void): void {
-    this.source.onData(listener);
+    this.#wire.onData(listener);
   }
   onEnd(listener: (error?: Error) => void): void {
-    this.source.onEnd(listener);
+    this.#wire.onEnd(listener);
   }
   destroy(): void {
     this.destroyed = true;
-    this.source.end();
+    this.#wire.end();
   }
   get lane(): "priority" | "egress" | undefined {
     return this.hello?.[4] === 1 ? "priority" : this.hello?.[4] === 2 ? "egress" : undefined;
@@ -177,7 +242,7 @@ export type FakeBehaviour = {
   exitAtOnce?: number | undefined;
 };
 
-/** One fake ace-media process: checks the lane secret, answers pings and revocations. */
+/** One fake ace-media process: checks the lane proofs, answers pings and revocations. */
 export class FakeMedia implements MediaChild {
   readonly pid: number;
   readonly stdin = new Sink();
@@ -244,8 +309,10 @@ export class FakeMedia implements MediaChild {
   }
 
   /**
-   * ace-media's lane rules: the right secret, a known tag not used before, and no lane once
-   * both are up. A refused lane is closed without an answer.
+   * ace-media's lane rules: a well-formed hello for a known tag not used before, answered with
+   * this side's proof over the daemon's nonce and a nonce of its own; then the daemon's proof
+   * over both, made with init's secret; and no lane once both are up. A refused lane is closed
+   * without an answer.
    */
   onHello(socket: FakeSocket): void {
     const hello = socket.hello;
@@ -259,11 +326,22 @@ export class FakeMedia implements MediaChild {
       new DataView(hello.buffer).getUint32(0) === 0x4143454c &&
       (tag === 1 || tag === 2) &&
       !this.#accepted.has(tag) &&
-      this.#accepted.size < 2 &&
-      hello.subarray(5).every((byte, i) => byte === secret[i]);
-    if (!ok) return void queueMicrotask(() => socket.source.end());
+      this.#accepted.size < 2;
+    if (!ok || !secret) return void queueMicrotask(() => socket.source.end());
+    const nonce = hello.slice(5);
+    // ace-media's nonce is random; a fixed one per connection keeps the fake deterministic.
+    const serverNonce = new Uint8Array(32).fill(this.sockets.indexOf(socket) + 1);
+    const serverProof = laneProof(secret, "server", Uint8Array.of(tag), nonce);
+    socket.challenge({ secret, nonce, serverNonce, serverProof });
+  }
+
+  /** The daemon's proof: a wrong one, or a tag taken meanwhile, closes the lane unanswered. */
+  onProof(socket: FakeSocket, proof: Uint8Array): void {
+    const tag = socket.hello?.[4] ?? 0;
+    if (this.#accepted.has(tag) || !socket.open(proof))
+      return void queueMicrotask(() => socket.source.end());
     this.#accepted.add(tag);
-    const accept = () => socket.source.emit(Uint8Array.of(1));
+    const accept = () => socket.source.emit(Uint8Array.of(laneAccepted));
     if (this.behaviour.hold === socket.lane) this.#held = accept;
     else queueMicrotask(accept);
   }

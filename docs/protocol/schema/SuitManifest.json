@@ -1,0 +1,152 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitManifest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "base": {
+      "$ref": "https://ace.local/protocol/v1/SuitBase.json",
+      "default": "ace"
+    },
+    "dark": {
+      "$ref": "https://ace.local/protocol/v1/SuitPalette.json"
+    },
+    "description": {
+      "default": "",
+      "maxLength": 280,
+      "type": "string"
+    },
+    "fonts": {
+      "properties": {
+        "mono": {
+          "$ref": "https://ace.local/protocol/v1/SuitFont.json"
+        },
+        "prose": {
+          "$ref": "https://ace.local/protocol/v1/SuitFont.json"
+        },
+        "ui": {
+          "$ref": "https://ace.local/protocol/v1/SuitFont.json"
+        }
+      },
+      "type": "object"
+    },
+    "format": {
+      "const": 1,
+      "type": "number"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/SuitId.json"
+    },
+    "labels": {
+      "$ref": "https://ace.local/protocol/v1/SuitLabels.json"
+    },
+    "layout": {
+      "$ref": "https://ace.local/protocol/v1/SuitLayout.json"
+    },
+    "light": {
+      "$ref": "https://ace.local/protocol/v1/SuitPalette.json"
+    },
+    "motion": {
+      "properties": {
+        "speed": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 0.5,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "name": {
+      "maxLength": 60,
+      "minLength": 1,
+      "type": "string"
+    },
+    "ornaments": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SuitOrnament.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "regions": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/SuitRegionStyle.json"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/SuitRegion.json"
+      },
+      "type": "object"
+    },
+    "reveal": {
+      "additionalProperties": {
+        "maximum": 1,
+        "minimum": 0,
+        "type": "number"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/SuitRegion.json"
+      },
+      "type": "object"
+    },
+    "scene": {
+      "default": false,
+      "type": "boolean"
+    },
+    "scenes": {
+      "$ref": "https://ace.local/protocol/v1/SuitScenes.json"
+    },
+    "shape": {
+      "properties": {
+        "border": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 0.5,
+          "type": "number"
+        },
+        "density": {
+          "enum": [
+            "compact",
+            "comfortable",
+            "spacious"
+          ],
+          "type": "string"
+        },
+        "radius": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "terminal": {
+      "$ref": "https://ace.local/protocol/v1/SuitTerminal.json"
+    },
+    "thumbnail": {
+      "properties": {
+        "dark": {
+          "$ref": "https://ace.local/protocol/v1/SuitAssetPath.json"
+        },
+        "light": {
+          "$ref": "https://ace.local/protocol/v1/SuitAssetPath.json"
+        }
+      },
+      "type": "object"
+    },
+    "version": {
+      "default": "1",
+      "maxLength": 40,
+      "type": "string"
+    },
+    "video": {
+      "$ref": "https://ace.local/protocol/v1/SuitVideo.json"
+    }
+  },
+  "required": [
+    "format",
+    "id",
+    "name"
+  ],
+  "type": "object"
+}

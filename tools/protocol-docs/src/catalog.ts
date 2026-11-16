@@ -33,6 +33,8 @@ import * as forgeFileContent from "@ace/protocol/forge-file-content";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
 import * as forgeCapabilities from "@ace/protocol/forge-capabilities";
 import * as forge from "@ace/protocol/forge";
+import * as suits from "@ace/protocol/suits";
+import * as suitParts from "@ace/protocol/suit-parts";
 import {
   htmlToolCatalog,
   imageToolCatalog,
@@ -86,6 +88,8 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./pi", pi],
   ["./forge-inbox", forgeInbox],
   ["./workspace-actions", workspaceActions],
+  ["./suits", suits],
+  ["./suit-parts", suitParts],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {

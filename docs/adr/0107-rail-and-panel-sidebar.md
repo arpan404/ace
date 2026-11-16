@@ -319,6 +319,13 @@ drift from one another.
   client runs the rule itself only for an entry that came without a place (an older daemon, an
   organize action not yet confirmed, a snooze that ran out on its clock while the daemon was
   offline), so it can't drift.
+- **Several machines, one sort.** (2026-11-16, owner's call.) Each daemon places under its own
+  `threads.sortBy`, and machines can sort differently. A list keeps its own daemon's Inbox order
+  exactly as given, even where the list's sort would rank a thread otherwise. Only another
+  machine's unpinned Inbox threads are placed again, under the list's sort, because their
+  daemon's ranks may come from a sort this list doesn't use. Sorted by hand or by creation, they
+  rank by that key beside this daemon's. Sorted by activity, one listed by hand or by creation is
+  placed by the activity rule. Pinned, Snoozed and Settled places never depend on the sort.
 - **Settled stays settled while only held.** A settled thread returns to the Inbox only while it
   needs the person or its agents work. Held at a usage limit or rate limit, or with only a
   command it left running, it stays in Settled.

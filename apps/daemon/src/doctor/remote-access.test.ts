@@ -226,6 +226,6 @@ it("a relay runs beside the LAN, and with no address of its own it is ace's rela
   });
   expect((await relay("")).get("remote.access")).toMatchObject({
     status: "ok",
-    message: `Remote access is on: LAN at 192.168.1.20:${context.config.remotePort} · ace's relay relay.acehq.dev`,
+    message: `Remote access is on: LAN at 192.168.1.20:${context.config.remotePort} · ace's relay cloud.acehq.dev`,
   });
 });

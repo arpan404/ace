@@ -103,6 +103,10 @@ export function isolatedTestEnvironment(
       ? { ACE_MEDIA_TEST_BINARY: ambient.ACE_MEDIA_TEST_BINARY }
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
+    // Rust toolchains are installed once per machine too. rustup finds its default toolchain
+    // under RUSTUP_HOME, else $HOME/.rustup, which the test home doesn't have, so `cargo` would
+    // refuse to run. CARGO_HOME stays out: cargo's registry and caches land in the test home.
+    RUSTUP_HOME: ambient.RUSTUP_HOME ?? join(realHome, ".rustup"),
   };
 }
 

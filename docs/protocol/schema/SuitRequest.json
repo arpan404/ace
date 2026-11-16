@@ -1,0 +1,66 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SuitId.json"
+        },
+        "op": {
+          "const": "read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SuitId.json"
+        },
+        "op": {
+          "const": "validate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/SuitId.json"
+        },
+        "op": {
+          "const": "remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "id"
+      ],
+      "type": "object"
+    }
+  ]
+}

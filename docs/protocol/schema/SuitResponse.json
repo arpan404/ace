@@ -1,0 +1,104 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "list",
+          "type": "string"
+        },
+        "suits": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "op",
+        "suits"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "read",
+          "type": "string"
+        },
+        "suit": {
+          "$ref": "https://ace.local/protocol/v1/SuitDetail.json"
+        }
+      },
+      "required": [
+        "op",
+        "suit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "validate",
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+        }
+      },
+      "required": [
+        "op",
+        "summary"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "remove",
+          "type": "string"
+        },
+        "removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "op",
+        "removed"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "enum": [
+            "not_found",
+            "invalid",
+            "forbidden",
+            "unavailable",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        "op": {
+          "const": "error",
+          "type": "string"
+        },
+        "summary": {
+          "$ref": "https://ace.local/protocol/v1/SuitSummary.json"
+        }
+      },
+      "required": [
+        "op",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}
