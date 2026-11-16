@@ -221,7 +221,9 @@ export const pictureGraceMs = 24 * 3_600_000;
 /**
  * Charges a picture's bytes to the publisher before they are written (ADR 0173 §9), in the one
  * statement that checks they fit beside its versions, drafts and other pictures. The same
- * picture again is charged once. False when it doesn't fit.
+ * picture again is charged once. In the same batch the row drops any claim the cron holds on
+ * the key, so the cron won't delete bytes a row now holds. False when it doesn't fit, or while
+ * the cron is deleting that very object (a retry a moment later goes through).
  */
 export async function reservePicture(
   db: D1Database,
@@ -230,16 +232,24 @@ export async function reservePicture(
   // storedBytesSql already counts every picture of the publisher; subtract this key's own stored
   // size (0 when it is new) so a replacement is charged only for its change.
   const fits = `${storedBytesSql("?2")}
-      - (SELECT COALESCE(SUM(size), 0) FROM pictures WHERE publisher = ?2 AND key = ?1) + ?3 <= ?5`;
-  const result = await db
-    .prepare(
-      `INSERT INTO pictures (key, publisher, size, at) SELECT ?1, ?2, ?3, ?4 WHERE ${fits}
-        ON CONFLICT (key, publisher) DO UPDATE SET size = excluded.size, at = excluded.at
-          WHERE ${fits}`,
-    )
-    .bind(input.key, input.publisher, input.size, input.now, input.quotaBytes)
-    .run();
-  return result.meta.changes > 0;
+      - (SELECT COALESCE(SUM(size), 0) FROM pictures WHERE publisher = ?2 AND key = ?1) + ?3 <= ?5
+      AND NOT EXISTS (SELECT 1 FROM picture_tombstones WHERE key = ?1 AND deleting = 1)`;
+  const [charged] = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO pictures (key, publisher, size, at) SELECT ?1, ?2, ?3, ?4 WHERE ${fits}
+          ON CONFLICT (key, publisher) DO UPDATE SET size = excluded.size, at = excluded.at
+            WHERE ${fits}`,
+      )
+      .bind(input.key, input.publisher, input.size, input.now, input.quotaBytes),
+    db
+      .prepare(
+        `DELETE FROM picture_tombstones WHERE key = ?1 AND deleting = 0
+          AND EXISTS (SELECT 1 FROM pictures WHERE key = ?1)`,
+      )
+      .bind(input.key),
+  ]);
+  return (charged?.meta.changes ?? 0) > 0;
 }
 
 /**
@@ -272,13 +282,67 @@ export async function sweepPictureRows(db: D1Database, now: number, limit: numbe
   ]);
 }
 
-/** Which of these R2 keys a publisher's picture row still holds. */
-export async function heldPictures(db: D1Database, keys: readonly string[]): Promise<Set<string>> {
-  const { results } = await db
-    .prepare("SELECT DISTINCT key FROM pictures WHERE key IN (SELECT value FROM json_each(?1))")
+/** How long a claim stands before the cron acts on it: at least one run apart. */
+export const pictureClaimMs = 10 * 60_000;
+
+const unheld = (key: string) => `NOT EXISTS (SELECT 1 FROM pictures WHERE pictures.key = ${key})`;
+
+/**
+ * The cron's first step on R2 objects it found past the grace period (ADR 0173 §1): each one no
+ * picture row holds gets a claim, in one statement that checks. Nothing is deleted yet; an
+ * upload that charges the key before the next step drops the claim.
+ */
+export async function claimPictures(db: D1Database, keys: readonly string[], now: number) {
+  if (keys.length === 0) return;
+  await db
+    .prepare(
+      `INSERT INTO picture_tombstones (key, claimed_at)
+        SELECT value, ?2 FROM json_each(?1) WHERE ${unheld("value")}
+        ON CONFLICT (key) DO NOTHING`,
+    )
+    .bind(JSON.stringify(keys), now)
+    .run();
+}
+
+/**
+ * The cron's second step: up to `limit` claims at least `pictureClaimMs` old whose key still no
+ * row holds are marked deleting, in one statement that re-checks, and their keys returned for
+ * the caller to delete from R2. A claim a row now holds is dropped, the object kept. A claim already marked
+ * deleting (a run cut off before it finished) is returned again. While marked, uploads of the
+ * key are refused, so no bytes land between this and the R2 delete.
+ */
+export async function startPictureDeletes(
+  db: D1Database,
+  now: number,
+  limit: number,
+): Promise<string[]> {
+  const due = `key IN (SELECT key FROM picture_tombstones
+    WHERE deleting = 1 OR claimed_at <= ?1 ORDER BY claimed_at LIMIT ?2)`;
+  const [, marked] = await db.batch<{ key: string }>([
+    db
+      .prepare(
+        `DELETE FROM picture_tombstones WHERE ${due} AND NOT ${unheld("picture_tombstones.key")}`,
+      )
+      .bind(now - pictureClaimMs, limit),
+    db
+      .prepare(
+        `UPDATE picture_tombstones SET deleting = 1
+          WHERE ${due} AND ${unheld("picture_tombstones.key")} RETURNING key`,
+      )
+      .bind(now - pictureClaimMs, limit),
+  ]);
+  return (marked?.results ?? []).map((row) => row.key);
+}
+
+/** Drops the claims of objects the cron has deleted from R2, which lets their uploads through. */
+export async function finishPictureDeletes(db: D1Database, keys: readonly string[]) {
+  if (keys.length === 0) return;
+  await db
+    .prepare(
+      "DELETE FROM picture_tombstones WHERE deleting = 1 AND key IN (SELECT value FROM json_each(?1))",
+    )
     .bind(JSON.stringify(keys))
-    .all<{ key: string }>();
-  return new Set(results.map((row) => row.key));
+    .run();
 }
 
 /** Where the cron's walk of an R2 prefix got to; undefined to start again. */

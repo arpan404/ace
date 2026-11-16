@@ -3,9 +3,11 @@ import { continueDraftScan } from "./api-publish.ts";
 import type { Env } from "./env.ts";
 import { deleteDraft, type DraftTable } from "./store/drafts.ts";
 import {
-  heldPictures,
+  claimPictures,
+  finishPictureDeletes,
   pictureGraceMs,
   setSweepCursor,
+  startPictureDeletes,
   sweepCursor,
   sweepPictureRows,
 } from "./store/profiles.ts";
@@ -42,12 +44,19 @@ export async function publisherCron(env: Env, now: number, fetch: ProofFetch): P
 
 /**
  * Pictures nothing names (ADR 0173 §1): rows past the grace period that no profile or listing
- * names are dropped, then one page of each R2 prefix is walked and objects past the grace
- * period that no row holds are deleted. An upload writes its row before its bytes and names
- * them after, so a cut-off one leaves only what this collects.
+ * names are dropped; objects claimed on an earlier run that still no row holds are deleted
+ * under their claim; then one page of each R2 prefix is walked and objects past the grace
+ * period that no row holds are claimed for a later run. An upload writes its row, dropping any
+ * claim, before its bytes and names them after, so a cut-off one leaves only what this collects
+ * and one that charges a claimed key keeps it.
  */
 export async function sweepPictures(env: Pick<Env, "MARKET" | "OBJECTS">, now: number) {
   await sweepPictureRows(env.MARKET, now, batch.pictureRows);
+  const doomed = await startPictureDeletes(env.MARKET, now, batch.pictureObjects);
+  if (doomed.length > 0) {
+    await env.OBJECTS.delete(doomed);
+    await finishPictureDeletes(env.MARKET, doomed);
+  }
   for (const prefix of picturePrefixes) {
     const after = await sweepCursor(env.MARKET, prefix);
     const page = await env.OBJECTS.list({
@@ -58,11 +67,7 @@ export async function sweepPictures(env: Pick<Env, "MARKET" | "OBJECTS">, now: n
     const old = page.objects
       .filter((object) => object.uploaded.getTime() < now - pictureGraceMs)
       .map((object) => object.key);
-    if (old.length > 0) {
-      const held = await heldPictures(env.MARKET, old);
-      const orphans = old.filter((key) => !held.has(key));
-      if (orphans.length > 0) await env.OBJECTS.delete(orphans);
-    }
+    await claimPictures(env.MARKET, old, now);
     await setSweepCursor(env.MARKET, prefix, page.truncated ? page.objects.at(-1)?.key : undefined);
   }
 }
