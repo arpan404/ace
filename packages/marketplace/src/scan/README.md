@@ -78,13 +78,20 @@ its own (`rule.ts`, `script-view.ts`):
 
 ## Measured coverage
 
-The corpus is written for these tests; no sample runs and none carries real malware. The benign
-samples are in `corpus-benign.ts`, the malicious ones in `corpus-malicious.ts`.
+The corpus is written for these tests; no sample runs and none carries real malware (every host
+is under the reserved `.invalid` domain or in the documentation IP ranges). The first corpus is in
+`corpus-malicious.ts` and `corpus-benign.ts`; the review's adversarial additions are in
+`corpus-r2-commands.ts` (instruction files and interpreter operands), `corpus-r2-flow.ts`
+(cross-line exfiltration) and `corpus-r2-scene.ts` (scene-capability bypasses).
 
-| Corpus                            | Samples                               | Result                                                                 |
-| --------------------------------- | ------------------------------------- | ---------------------------------------------------------------------- |
-| Malicious (`corpus-malicious.ts`) | 85 across 24 categories               | **100% caught** (every sample blocked or held), every category covered |
-| Benign (`corpus-benign.ts`)       | 40 skills, plugins, Suits and recipes | **0 blocked, 0 warned** (0% false positives)                           |
+| Corpus                             | Samples | Result                                         |
+| ---------------------------------- | ------- | ---------------------------------------------- |
+| Malicious, first set               | 85      | 100% caught, every category                    |
+| Malicious, instruction and operand | 29      | 100% caught                                    |
+| Malicious, data-flow exfiltration  | 12      | 100% caught                                    |
+| Malicious, scene bypass            | 14      | 100% caught                                    |
+| **Malicious, all**                 | **140** | **100% caught** (every sample blocked or held) |
+| Benign and look-alikes             | 55      | **0 blocked** (0% false positives)             |
 
 Detection counts a sample as caught when `disposition` returns something other than `list` for an
 ordinary publisher (`newPublisher: false`), i.e. the scan itself blocked or held it, never relying

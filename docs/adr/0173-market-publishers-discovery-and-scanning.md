@@ -92,9 +92,12 @@ no anonymous write and no other credential.
   `rn→m`, `vv→w` and the like, dashes dropped), so `ace-team` and `acc-tearn` can't both exist.
   Reserved words (`ace`, `acehq`, `admin`, `official`, `support`, `security`, `market`,
   `marketplace`, `spade`, `staff`, `moderator`, `verified`, `root`, `system`, `help`, `api`,
-  `www` and the rest of the list in `@ace/marketplace`) and any handle whose skeleton holds a
-  reserved word as a whole dash-separated part are refused; ace's own publisher is seeded. A
-  handle given up is retired for its account, so nobody else can take it and pose as them.
+  `www` and the rest of the list in `@ace/marketplace`), compared by skeleton so a lookalike
+  (`adm1n`, `ace0fficial`) is caught too, and any handle whose skeleton holds a reserved word as a
+  whole dash-separated part are refused; ace's own publisher is seeded. A handle given up is
+  retired for its account, so nobody else can take it and pose as them. An active or retired
+  handle's skeleton is held in one reservation table whose unique key refuses a second claim at
+  the database write, so no stalled or racing request can take a handle another account owns.
 - **Fields.** Display name (1 to 60, scanned for hidden unicode and mixed scripts), bio (at most
   500), links (at most 5, `https:` only, no credentials, no IP-literal hosts, at most 2048), the
   avatar, joined date, the **verified-by-ace** mark (decision 13) and up to 6 pinned
@@ -105,7 +108,10 @@ no anonymous write and no other credential.
   keeps only the image's own chunks (no text, EXIF, XMP, ICC beyond sRGB, nothing after the end
   marker, no animation), checks the declared dimensions and writes the stripped bytes to
   `avatars/<sha256>`. It is served as its own type with `nosniff` and `immutable`. Listing
-  pictures follow the same rules at 320 to 4096 pixels and 1 MiB.
+  pictures follow the same rules at 320 to 4096 pixels and 1 MiB. A picture's bytes are charged to
+  the publisher's storage quota before they are written (so a version or draft upload sees them
+  too), a bad listing-picture slot writes nothing, and the cron collects pictures nothing names
+  once a grace period has passed, so nothing is left orphaned in R2.
 - **A profile is made only from an authenticated account**, on its first publish or by
   `POST /v1/me/profile`; the handle belongs to that account id.
 
@@ -176,7 +182,10 @@ deleted or changed: withdrawal is the only removal of a published version, as in
 - **Download counting stays anonymous** (0168 §10). A fetch of an object adds one to its
   version's total and to an hourly bucket per version (`downloads_hourly`, kept 15 days, then
   folded into `downloads_daily`, kept 400 days). A caller past the `DOWNLOADS` rate-limit binding
-  (keyed by address and hash, in memory only) still gets the bytes and isn't counted.
+  (keyed by address and hash, in memory only) still gets the bytes and isn't counted. For
+  **ranking**, identical bytes count once: a fetched hash is credited to the entry that listed it
+  first, so the same object published under many versions or entries can't multiply a score. The
+  per-version totals a publisher's own signals show are kept as they are.
 - **Trending** (`@ace/marketplace`'s `rankTrending`, pure):
   - each entry's hourly counts over the last 7 days are capped twice: an hour above
     `max(50, 4 × the median of its non-empty hours in the 7 days before)` counts only up to that
@@ -227,16 +236,16 @@ level (`note`, `warn`, `block`), a path and line when it has one, and one plain 
 publisher and the person read ("scripts/setup.sh line 4 downloads a script and runs it"). A
 `note` is shown and never holds, except for new publishers (decision 9).
 
-| Check       | What it reads                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `files`     | Native binaries by their bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a plugin, compiled AppleScript, archives inside the archive (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg), executable bits where the type has none, and files a type doesn't take. A Suit holds only `suit.json`, `suit.css`, its scene JS, ornaments, `market.json` and images, fonts and videos under `assets/`; nothing executable. |
-| `scripts`   | Skill scripts, plugin hook and server commands and their files, recipe-bundled skills. Download-and-run, decode-and-run, persistence, credential access, exfiltration, mining, reverse shells, privilege escalation, disabling security tools, self-modifying and obfuscated code.                                                                                                                                             |
-| `scene`     | A Suit's scene JS: network (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `sendBeacon`, `RTCPeerConnection`, remote URLs, dynamic `import`), workers and shared memory, `eval`, `Function` and string timers, `WebAssembly`, reaching the parent frame, and loops with no yield.                                                                                                                                      |
-| `plugin`    | Declared commands and hosts against what the files do: a server or hook running a file the plugin doesn't hold, installing from an unpinned remote source at runtime (`npx pkg`, `@latest`, `pip install`, `uvx` without a version, `git clone`, `curl`), install scripts (`preinstall`, `install`, `postinstall`, `prepare`, `binding.gyp`), plain-http remotes, and hosts in code its manifest doesn't declare.              |
-| `recipe`    | Needs against the task: payment or credential connectors and tools whose reason and task don't say why; prompt injection in the task, notes, routines and `SKILL.md` ("ignore previous instructions", "send the person's keys to…", "don't tell the person"); instructions sending data to an outside address the task doesn't name.                                                                                           |
-| `secrets`   | 0168's key and token patterns and credential file names, in every text file of every type.                                                                                                                                                                                                                                                                                                                                     |
-| `hidden`    | Bidi controls anywhere, zero-width and tag characters in code and names (an emoji joiner between emoji is fine), mixed-script words in titles and display names, and typosquats: a name or handle whose skeleton matches, or is one edit from, an existing entry of another publisher or a verified publisher. Impersonating a verified publisher or ace blocks.                                                               |
-| `known-bad` | The maintainers' signed blocklist: content hashes, file hashes and patterns.                                                                                                                                                                                                                                                                                                                                                   |
+| Check       | What it reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `files`     | Native binaries by their bytes (Mach-O, fat Mach-O, ELF, PE, Java class), WASM outside a plugin, compiled AppleScript, archives inside the archive (zip, gzip, tar, 7z, rar, xz, bzip2, xar, dmg), executable bits where the type has none, and files a type doesn't take. A Suit holds only `suit.json`, `suit.css`, its scene JS, ornaments, `market.json` and images, fonts and videos under `assets/`; nothing executable.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `scripts`   | Skill scripts, plugin hook and server commands and their files, recipe-bundled skills, **and the commands an entry's instruction files hand an agent** — code blocks (fenced, indented or inline) and command lines in `SKILL.md`, a plugin's README, a recipe's task, notes and routines; no instruction file is exempt. Download-and-run, decode-and-run (the script a shell or interpreter runs is found past its options, so `sh -eu <fetched>` and `bash <(curl …)` are caught), persistence, credential access, **exfiltration followed as data flow** (the whole environment, a credential file, the home folder or a keychain reaching a network sink, through a real parse for JavaScript and TypeScript and by proximity for Python and shell; a source and a sink that can't be ruled apart is held, never passed), mining, reverse shells, privilege escalation, disabling security tools, self-modifying and obfuscated code. A skill that reaches a host carries the same note a plugin's undeclared hosts do. |
+| `scene`     | A Suit's scene JS, read by a real parser and held to a capability allowlist (ADR 0150's drawing and animation APIs): a global off the allowlist, computed access on a global that isn't a constant on it, `constructor`/`__proto__`/`prototype` traversal to a callable, `eval`, `Function`, dynamic `import`, `importScripts`, workers and shared memory, `WebAssembly`, string timers, the network APIs, reaching the parent frame, and remote `url()`/`@import` in CSS or scripts in SVG — however they are spelled. The iframe sandbox and CSP stay as independent runtime enforcement.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `plugin`    | Declared commands and hosts against what the files do: a server or hook running a file the plugin doesn't hold, installing from an unpinned remote source at runtime (`npx pkg`, `@latest`, `pip install`, `uvx` without a version, `git clone`, `curl`), install scripts (`preinstall`, `install`, `postinstall`, `prepare`, `binding.gyp`), plain-http remotes, and hosts in code its manifest doesn't declare.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `recipe`    | Needs against the task: payment or credential connectors and tools whose reason and task don't say why; prompt injection in the task, notes, routines and `SKILL.md` ("ignore previous instructions", "send the person's keys to…", "don't tell the person"); instructions sending data to an outside address the task doesn't name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `secrets`   | 0168's key and token patterns and credential file names, in every text file of every type.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `hidden`    | Bidi controls anywhere, zero-width and tag characters in code and names (an emoji joiner between emoji is fine), mixed-script words in titles and display names, and typosquats: a name or handle whose skeleton matches, or is one edit from, an existing entry of another publisher or a verified publisher. Impersonating a verified publisher or ace blocks.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `known-bad` | The maintainers' signed blocklist: content hashes, file hashes and patterns.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 **Reading scripts.** The shell rules read commands through a TypeScript port of Spade's shell
 reader (`spade_core::autonomy::shell::parse`, ADR 0171): words with quoting and escapes undone,
@@ -245,9 +254,12 @@ pipes, `$(…)`, backticks, process substitution, `sh -c` strings and wrappers (
 empty quotes folded first, so `c''url ${IFS}x|b\ash` reads as `curl x | bash`. Text the reader
 can't read for sure is itself a finding. Other languages (Python, JavaScript, Ruby, Perl,
 PowerShell, AppleScript) are read by token patterns over text with comments kept, unicode
-normalised (NFKC) and zero-width characters removed first. Obfuscation is measured, not guessed:
-Shannon entropy over long lines, the length of base64 and hex runs, packer signatures,
-`_0x` identifier density and `fromCharCode` arrays.
+normalised (NFKC) and zero-width characters removed first. A file that isn't UTF-8 is still read
+(UTF-16 by its mark, else byte by byte), so Latin-1 or UTF-16 source can't slip past, and a file
+with no known extension or shebang is read anyway, by every language's patterns. Obfuscation is
+measured, not guessed: Shannon entropy over long lines, the length of base64 and hex runs, packer
+signatures, `_0x` identifier density and `fromCharCode` arrays. JavaScript and TypeScript, for the
+data-flow and scene checks, are read by a real parser (`@babel/parser`, pure, no build step).
 
 **Why a TypeScript port, not spade-classify through WASM.** The market runs on Workers and the
 daemon on Bun; the scanner must be one pure module both import with no build step. ADR 0172's
@@ -265,7 +277,10 @@ text or 600 files is spent and returns its cursor and the findings so far; `fini
 checks that need the whole entry (declared hosts, typosquats, the recipe). An upload whose scan
 doesn't finish within the request is stored as a draft in state `scanning`; the job (`scan_jobs`
 in D1, partial findings in its R2 report) is carried on by later requests for the draft and by
-the cron, one budget per step. A draft publishes only once its scan is done.
+the cron, one budget per step. A draft publishes only once its scan is done, and a scan that
+didn't read every file is never a pass: `finishScan` blocks an entry whose files weren't all
+read, so a budget running out can never list bytes an unread file could hide. The device and the
+Worker run the same module on the same bytes, so they reach the same verdict.
 
 **Known-bad list.** Maintainers keep a blocklist of content hashes, file hashes and patterns
 (literal substrings, each with its reason). The signer signs it as its own statement,
@@ -441,8 +456,14 @@ rest. They never touch scanning, holds, blocks or the review before install.
 
 - **Scanner tables** in `@ace/marketplace`: each rule with positive and negative cases, an
   adversarial table of obfuscated variants, and a corpus of inert benign and malicious samples
-  written for these tests (no real malware), whose measured detection is reported in the scanner's
-  README.
+  written for these tests (no real malware; every host under `.invalid` or in the documentation IP
+  ranges), whose measured detection is reported in the scanner's README. The adversarial corpus
+  covers the bypasses a review found: commands hidden in instruction files, a script run past an
+  interpreter's options, exfiltration flowing across lines, and scene capabilities spelled around a
+  literal match. On 140 malicious samples the scanner catches 100% (every one blocked or held) and
+  blocks none of 55 benign and look-alike samples. Two invariants are pinned: a scan that didn't
+  read every file is never a pass, and the device and the Worker reach the same verdict on the same
+  bytes.
 - **Trending** ranking, caps, bursts, decay and movement; **the verified boost**: a verified
   entry with clearly fewer downloads never passes an unverified one with many more, and among
   equals the verified one ranks first, in trending, search and top publishers; **verification**
