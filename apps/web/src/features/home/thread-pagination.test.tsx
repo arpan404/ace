@@ -30,7 +30,9 @@ const historyRows = (main: HTMLElement) =>
 
 test("History pages older settled threads as its end comes into view, and retries a failed page", async () => {
   const app = await history();
-  const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValueOnce(new Error("offline"));
+  // Older pages fail until Retry: the sidebar's Settled pages the same store too, so one failed
+  // call alone could land on either list.
+  const fail = vi.spyOn(app.client, "threadsMore").mockRejectedValue(new Error("offline"));
   await app.open("/history");
   const lease = app.client.threads();
   try {
@@ -42,6 +44,7 @@ test("History pages older settled threads as its end comes into view, and retrie
     });
     expect(lease.store.ids).toHaveLength(20);
     expect(historyRows(main)).toHaveLength(20);
+    fail.mockRestore();
     await userEvent.click(retry);
     // No button to press after that: each page arrives as the end shows, until none are left.
     await waitFor(() => expect(lease.store.ids).toHaveLength(46));

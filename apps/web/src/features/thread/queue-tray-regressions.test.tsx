@@ -2,7 +2,7 @@ import { facts, replayCursor } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { resetQueueEdits } from "./composer/queue-edit.ts";
 
@@ -224,20 +224,27 @@ test("a pending keyboard reorder preserves focus deliberately moved to the compo
   await app.open(`/t/${threadId}`);
   const composer = await screen.findByRole("combobox", { name: "Message" });
   await userEvent.type(composer, "First{Enter}Second{Enter}");
-  const ready = await screen.findByRole("button", { name: "Reorder queued message 2" });
-  await waitFor(() => expect(ready.getAttribute("aria-disabled")).toBe("false"));
-  act(() => app.daemon.refuseConnections(true));
-  await waitFor(() => expect(app.client.state).not.toBe("ready"));
-  // The connection takes the composer's strip; its queue indicator brings the queue back.
-  await userEvent.click(await screen.findByRole("button", { name: "Show 2 queued messages" }));
   const handle = await screen.findByRole("button", { name: "Reorder queued message 2" });
+  await waitFor(() => expect(handle.getAttribute("aria-disabled")).toBe("false"));
+  // A queue change goes out only on a current copy (offline it is refused). The daemon is slow
+  // to take this one: the person moves the message up, then goes back to the composer and
+  // types while the move is still on its way.
+  const send = app.client.command.bind(app.client);
+  let land: (() => void) | undefined;
+  const slow = vi
+    .spyOn(app.client, "command")
+    .mockImplementation((payload, ...rest) =>
+      payload.type === "queue.move"
+        ? new Promise((resolve) => (land = () => resolve(send(payload, ...rest))))
+        : send(payload, ...rest),
+    );
   handle.focus();
   await userEvent.keyboard("{Alt>}{ArrowUp}{/Alt}");
-  await waitFor(() => expect(rows()[0]?.textContent).toContain("Second"));
+  await waitFor(() => expect(land).toBeDefined());
   await userEvent.click(composer);
   await userEvent.type(composer, "Keep typing");
-  act(() => app.daemon.refuseConnections(false));
-  await waitFor(() => expect(app.client.state).toBe("ready"), { timeout: 8_000 });
+  act(() => land?.());
+  slow.mockRestore();
   await waitFor(async () =>
     expect((await queue(app)).messages.map((message) => message.input)).toEqual([
       [{ type: "text", text: "Second" }],
