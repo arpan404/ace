@@ -19,7 +19,10 @@ function cut(text: string): string {
   const bytes = Buffer.byteLength(text);
   if (bytes <= keptBytes) return text;
   // A whole-character prefix: cut by bytes, drop a broken last character.
-  const kept = Buffer.from(text).subarray(0, keptBytes).toString("utf8").replace(/�$/, "");
+  const kept = Buffer.from(text)
+    .subarray(0, keptBytes)
+    .toString("utf8")
+    .replace(/\uFFFD$/, "");
   return `${kept}… [cut: ${bytes} bytes]`;
 }
 
