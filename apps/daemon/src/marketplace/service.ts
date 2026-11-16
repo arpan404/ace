@@ -175,8 +175,8 @@ export class MarketplaceService {
   }
 
   /** Every install not yet blocked, checked against the stored signed blocklist. */
-  async #enforceBlocklist(): Promise<void> {
-    await applyBlocklist(this.#installPorts(), this.#trust.current().blocklist);
+  async #enforceBlocklist(): Promise<boolean> {
+    return await applyBlocklist(this.#installPorts(), this.#trust.current().blocklist);
   }
 
   #installPorts() {
@@ -377,6 +377,8 @@ export class MarketplaceService {
     const source: StoredSource = { id, kind: "git", address, enabled: true };
     this.#store.saveSource(source);
     await refreshSource(this.#deps(), source);
+    // The read may have learned a newer blocklist; what is installed answers to it now.
+    if (await this.#enforceBlocklist().catch(() => false)) this.#emit();
     return this.#sources();
   }
 
@@ -609,7 +611,9 @@ export class MarketplaceService {
       );
     }
     // So does a block: the bytes of the entry and of all it brings, against the newest list.
-    await this.#trust.learn(this.#http()).catch(() => {});
+    const learned = await this.#trust.learn(this.#http()).catch(() => undefined);
+    // A newer list also answers for what is already installed, not only for this install.
+    if (learned?.blocklist && (await this.#enforceBlocklist().catch(() => false))) this.#emit();
     const blocked = blockedEntry(
       [pending.review, ...pending.review.brings],
       this.#trust.current().blocklist,

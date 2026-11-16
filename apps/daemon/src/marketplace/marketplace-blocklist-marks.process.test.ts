@@ -151,6 +151,25 @@ describe("the blocklist over what is installed", () => {
   });
 });
 
+describe("a blocklist learned while installing", () => {
+  it("turns an installed skill it names off at once, before any refresh", async () => {
+    const skill = sampleSkill("triage-mail", { "notes.md": "Sort by sender.\n" });
+    publish(signedVersion({ type: "spade-skill", name: "triage-mail", files: skill }), skill);
+    const other = sampleSkill("sort-news", { "notes.md": "Group by topic.\n" });
+    publish(signedVersion({ type: "spade-skill", name: "sort-news", files: other }), other);
+    await harness.ask({ op: "refresh" }, "sources");
+    const first = await prepare("spade-skill", "triage-mail");
+    await harness.ask({ op: "install", id: first.id, hash: first.hash, choices: none }, "done");
+    const second = await prepare("spade-skill", "sort-news");
+    lists["blocklist"] = blockFile(fileOf(skill, "notes.md"), "Steals mail");
+    await harness.ask({ op: "install", id: second.id, hash: second.hash, choices: none }, "done");
+    const states = Object.fromEntries((await installed()).map((item) => [item.name, item.state]));
+    expect(states).toEqual({ "triage-mail": "blocked", "sort-news": "on" });
+    const skills = (await harness.ask({ op: "spadeSkills" }, "spadeSkills")).skills;
+    expect(skills.map((item) => item.name)).toEqual(["sort-news"]);
+  });
+});
+
 const officialList = (id: string) =>
   signOfficialList(
     {
