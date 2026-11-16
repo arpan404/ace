@@ -24,6 +24,37 @@ const SERVICES: &[&str] = &[
     "com.apple.trustd.agent",
 ];
 
+/// The system's folders, read-only: programs, libraries, frameworks, the system's settings, the
+/// developer tools and Homebrew. Not `/Users`, `/Volumes`, `/private/var` (but for the time zones
+/// and the developer tools' link) or `/private/tmp`.
+const SYSTEM_READ: &[&str] = &[
+    "/System",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/Library",
+    "/opt",
+    "/nix",
+    "/private/etc",
+    "/private/var/db/timezone",
+    "/private/var/select",
+    "/Applications/Xcode.app",
+];
+
+/// Single system files read the same way.
+const SYSTEM_READ_FILES: &[&str] = &["/private/var/db/xcode_select_link"];
+
+/// Links at the root to `/private`, and folders above the system's, looked up only.
+const ROOT_LINKS: &[&str] = &[
+    "/etc",
+    "/var",
+    "/tmp",
+    "/private",
+    "/private/var",
+    "/private/var/db",
+    "/Applications",
+];
+
 /// Device nodes every command may read and write.
 const DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/random", "/dev/urandom"];
 
@@ -43,20 +74,19 @@ pub fn profile(policy: &Policy) -> String {
         "allow mach-lookup",
         SERVICES.iter().map(|s| global(s)),
     );
-    // Reads: everything, then the home folder hidden, then what the policy opens inside it.
-    out.push_str("(allow file-read*)\n");
-    rule(
-        &mut out,
-        "deny file-read*",
-        policy.hide.iter().map(|p| subpath(p)),
-    );
+    // Reads: the system's own folders and what the policy opens, nothing else. The home folders,
+    // `/Users/Shared`, other volumes and the person's temporary storage (`/private/var/folders`,
+    // `/private/tmp`) are outside every rule. `/` itself is listed (the loader reads it).
     rule(
         &mut out,
         "allow file-read*",
-        policy.readable().map(|p| subpath(p)),
+        std::iter::once(literal(Path::new("/")))
+            .chain(SYSTEM_READ.iter().map(|p| subpath(Path::new(p))))
+            .chain(SYSTEM_READ_FILES.iter().map(|p| literal(Path::new(p))))
+            .chain(policy.readable().map(|p| subpath(p))),
     );
-    // A hidden folder's ancestors stay visible to `stat`, so a granted place inside can be
-    // reached by its path (`realpath`, `getcwd`).
+    // The folders above an opened place (and the root's links to `/private`) can be looked up,
+    // not listed, so a path inside resolves (`realpath`, `getcwd`).
     rule(
         &mut out,
         "allow file-read-metadata",
@@ -167,7 +197,9 @@ fn string(text: &str) -> String {
 fn ancestors(policy: &Policy) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = policy
         .readable()
+        .chain(policy.scratch.iter())
         .flat_map(|p| p.ancestors().skip(1).map(Path::to_path_buf))
+        .chain(ROOT_LINKS.iter().map(PathBuf::from))
         .collect();
     out.sort();
     out.dedup();
@@ -202,11 +234,7 @@ mod tests {
     #[test]
     fn the_deny_list_comes_after_every_grant_and_the_workspace_after_the_deny_list() {
         let text = profile(&policy());
-        let hide = position(&text, "(deny file-read*\n  (subpath \"/Users/p\")");
-        let open = position(
-            &text,
-            "(allow file-read*\n  (subpath \"/Users/p/spade/workspace/b1\")",
-        );
+        let open = position(&text, "(allow file-read*\n  (literal \"/\")");
         let deny = position(
             &text,
             "(deny file-read* file-write*\n  (subpath \"/Users/p/.ssh\")",
@@ -215,8 +243,34 @@ mod tests {
             &text,
             "(allow file-read* file-write*\n  (subpath \"/Users/p/spade/workspace/b1\"))",
         );
-        assert!(hide < open && open < deny && deny < workspace);
+        assert!(open < deny && deny < workspace);
         assert!(text.starts_with("(version 1)\n(deny default)\n"));
+    }
+
+    #[test]
+    fn reads_are_the_systems_folders_and_what_the_policy_opens_never_everything() {
+        let text = profile(&policy());
+        assert!(!text.contains("(allow file-read*)"));
+        for opened in [
+            "/System",
+            "/usr",
+            "/Users/p/spade/workspace/b1",
+            "/Users/p/.cargo/bin",
+        ] {
+            assert!(
+                text.contains(&format!("(subpath \"{opened}\")")),
+                "{opened}"
+            );
+        }
+        for closed in [
+            "/Users\"",
+            "/Users/p\"",
+            "/Volumes",
+            "/private/var/folders",
+            "/private/tmp\"",
+        ] {
+            assert!(!text.contains(&format!("(subpath \"{closed}")), "{closed}");
+        }
     }
 
     #[test]

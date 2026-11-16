@@ -281,3 +281,25 @@ fn a_plugins_own_folder_inside_aces_data_is_readable_and_the_rest_of_aces_data_i
         &format!("cat {}", quoted(&world.home.join(".ssh/id_ed25519"))),
     );
 }
+
+#[test]
+fn only_system_folders_are_readable_outside_what_the_policy_opens() {
+    let world = world();
+    let policy = policy(&world, None);
+    // Beside the fake home, in the person's own temporary storage.
+    refused(
+        &policy,
+        &format!("cat {}", quoted(&world.root.join("victim.txt"))),
+    );
+    let temp = std::env::temp_dir();
+    refused(&policy, &format!("ls {}", quoted(&temp)));
+    for place in ["/Users/Shared", "/Volumes", "/Users", "/private/tmp"] {
+        refused(&policy, &format!("ls {place}"));
+    }
+    // The system and its toolchains still run.
+    let text = ok(
+        &policy,
+        "ls /usr/bin >/dev/null && python3 -c 'print(6*7)' && date >/dev/null && echo fine",
+    );
+    assert!(text.contains("42") && text.contains("fine"), "{text}");
+}
