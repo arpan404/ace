@@ -18,8 +18,12 @@ import {
 
 const context: ScanContext = { entries: [], verified: [] };
 
-function inputFor(sample: { type: ScanInput["type"]; name: string; files: ScanInput["files"] }) {
-  const files = folder(sample.files as Record<string, string | Uint8Array>);
+function inputFor(sample: {
+  type: ScanInput["type"];
+  name: string;
+  files: Record<string, string | Uint8Array>;
+}) {
+  const files = folder(sample.files);
   const checked = checkFiles(sample.type, sample.name, files);
   return {
     type: sample.type,
