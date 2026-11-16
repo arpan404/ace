@@ -269,6 +269,9 @@ pub(super) async fn handle_calls(
                                 &name,
                                 Verdict::Escalate,
                                 &reason,
+                                // Bound to the files it runs as they are now: a command the
+                                // person allows outside the sandbox runs only if they still are.
+                                super::autonomy::binding(&classed.shown),
                             ) {
                                 Ok(true) => {}
                                 Ok(false) => return Handled::Stopped,
@@ -288,6 +291,7 @@ pub(super) async fn handle_calls(
                                 &name,
                                 Verdict::Refuse,
                                 &reason,
+                                None,
                             ) {
                                 Ok(true) => {}
                                 Ok(false) => return Handled::Stopped,
@@ -420,6 +424,14 @@ pub(super) async fn handle_calls(
                 if runs_outside {
                     engine.mark_outside(&key);
                 }
+                // A command allowed outside the sandbox runs only while the files it runs are
+                // as they were when the person was asked.
+                if asked_outside(events, &pending.call.id) {
+                    bound.insert(
+                        pending.call.id.clone(),
+                        review::bound(events, &pending.call.id),
+                    );
+                }
                 runnable.push((pending.call, name, arguments));
             }
             Status::Declined => {
@@ -485,11 +497,12 @@ fn rule_verdict(
     name: &str,
     verdict: Verdict,
     reason: &str,
+    bound: Option<String>,
 ) -> Result<bool, spade_store::StoreError> {
     if review::stored(events, &call.id).is_some() {
         return Ok(true);
     }
-    super::autonomy::record_rule(engine, id, reply, call, name, verdict, reason)
+    super::autonomy::record_rule(engine, id, reply, call, name, verdict, reason, bound)
 }
 
 /// Whether the person answered "always" to an earlier call of `name` with the same scope (for

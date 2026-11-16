@@ -183,10 +183,15 @@ impl Engine {
         let awaited = transcript.awaiting.iter().any(|c| c == call_id)
             || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
         // "Always for this bot" on a request to run outside the sandbox: the bot's commands run
-        // outside it from now on (ADR 0171).
+        // outside it from now on, each reviewed (ADR 0171).
         if awaited && allowed && always && asks_outside(&events, call_id) {
             self.run_commands_outside(id);
         }
+        // A request Spade asked for a reason of its own (outside the sandbox, a tool that
+        // declares nothing) is answered for this call only: its "always" is kept elsewhere (the
+        // bot's setting, the answer for the tool), never as an Always allow that would let the
+        // same command or tool run unreviewed later.
+        let always = always && !asked_for_a_reason(&events, call_id);
         if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
             // A helper's call (ADR 0152): the answer reaches the helper.
             self.answer_for_helper(id, &events, call_id, allowed, always)?;
@@ -213,6 +218,15 @@ impl Engine {
         self.live(id).wake.notify_one();
         Ok(())
     }
+}
+
+/// Whether the request `call_id` was asked for a reason of Spade's own (`ask`).
+fn asked_for_a_reason(events: &[Event], call_id: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(event, Event::Known(Known::ApprovalRequested {
+            call_id: c, ask: Some(_), ..
+        }) if c == call_id)
+    })
 }
 
 /// Whether the request `call_id` asked to run a command outside the sandbox.

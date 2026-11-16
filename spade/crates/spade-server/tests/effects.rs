@@ -367,6 +367,88 @@ mod sandboxed {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn always_for_this_bot_moves_its_commands_outside_but_never_allows_one_unreviewed()
+    -> Result {
+        let w = world(true, vec![], |_| {
+            let run = json!({ "command": "sh task.sh", "outside_sandbox": true });
+            vec![
+                Script::reply("").call("c1", "shell", run),
+                Script::reply("Ran it."),
+                Script::reply("").plain(TITLE),
+                // The same command again, its script rewritten meanwhile.
+                Script::reply("").call("c2", "shell", json!({ "command": "sh task.sh" })),
+                Script::reply("Asked."),
+            ]
+        })
+        .await?;
+        let workspace = w.workspaces.of(&w.bot)?.path()?;
+        std::fs::write(workspace.join("task.sh"), "echo first\n")?;
+        w.spade.say(&w.conversation, "Run the task").await?;
+        w.spade
+            .wait_for(&w.conversation, "approval_requested")
+            .await?;
+        answer(
+            &w.spade,
+            &w.conversation,
+            "c1",
+            json!({ "allowed": true, "always": true }),
+        )
+        .await?;
+        let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        assert!(output(&events, "c1").contains("first"), "{events:?}");
+        // The card's Always is the bot's setting, not an Always allow for the command.
+        let answered = events
+            .iter()
+            .find(|e| e["type"] == "approval_answered")
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(answered["always"], false, "{answered}");
+        std::fs::write(workspace.join("task.sh"), "echo rewritten\n")?;
+        w.spade.say(&w.conversation, "Again").await?;
+        let events = w
+            .spade
+            .wait_for_count(&w.conversation, "approval_requested", 2)
+            .await?;
+        assert!(
+            events
+                .iter()
+                .any(|e| e["type"] == "call_reviewed" && e["call_id"] == "c2"),
+            "the rewritten script is reviewed: {events:?}"
+        );
+        assert!(output(&events, "c2").is_empty(), "not run unreviewed");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_script_changed_after_allow_once_is_not_run_outside() -> Result {
+        let w = world(true, vec![], |_| {
+            vec![
+                Script::reply("").call(
+                    "c1",
+                    "shell",
+                    json!({ "command": "sh task.sh", "outside_sandbox": true }),
+                ),
+                Script::reply("Stopped."),
+            ]
+        })
+        .await?;
+        let workspace = w.workspaces.of(&w.bot)?.path()?;
+        std::fs::write(workspace.join("task.sh"), "echo as asked\n")?;
+        w.spade.say(&w.conversation, "Run the task").await?;
+        w.spade
+            .wait_for(&w.conversation, "approval_requested")
+            .await?;
+        // Swapped while the card waits.
+        std::fs::write(workspace.join("task.sh"), "echo swapped\n")?;
+        answer(&w.spade, &w.conversation, "c1", json!({ "allowed": true })).await?;
+        let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+        let ran = output(&events, "c1");
+        assert!(!ran.contains("swapped"), "{ran}");
+        assert!(ran.contains("changed after it was"), "{ran}");
+        Ok(())
+    }
+
     /// Records what a push would start on the host, and answers each with success.
     #[derive(Default)]
     struct HostLog(std::sync::Mutex<Vec<Vec<String>>>);

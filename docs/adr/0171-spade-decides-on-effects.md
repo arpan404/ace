@@ -157,6 +157,16 @@ settings could get around. These replace the matching parts of decisions 2 and 3
   after the person's own URL rewriting has the host and name the call named. Without a sandbox
   on the machine, `git_push` doesn't run; a push there is a reviewed shell command.
 
+- **The outside card is answered for one call.** Its Always for this bot sets the bot's
+  `commands` to `outside` and runs that call; it is never stored as an Always allow, so the same
+  command later is reviewed like any command outside the sandbox. A request Spade asks for a
+  reason of its own (`ask`) never stores an Always allow.
+- **Allow once is bound to what it runs.** When the bot asks to run a command outside, the
+  scripts it would run there are read and hashed into the request's `call_reviewed.bound`; if
+  any differs when the allowed call is about to start, it isn't run (`Not run: A file it runs
+changed after it was reviewed.`). A terminal command is also held to the folder and variables
+  it was asked with.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

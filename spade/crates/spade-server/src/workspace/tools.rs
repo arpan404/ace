@@ -486,12 +486,9 @@ impl Tool for ShellTool {
             return classify_shell(arguments, &Lexical);
         };
         // Its home is the workspace whatever folder it starts in, so the bot's sandbox holds it.
-        if self.shell.contains(&workspace) && !self.shell.outside(&workspace) {
-            return if asks_outside(arguments) {
-                Classed::asks_outside()
-            } else {
-                Classed::sandboxed()
-            };
+        let asks = self.shell.contains(&workspace) && !self.shell.outside(&workspace);
+        if asks && !asks_outside(arguments) {
+            return Classed::sandboxed();
         }
         let start = match &self.shell {
             Commands::Terminal(terminals) => self
@@ -504,10 +501,19 @@ impl Tool for ShellTool {
             Commands::OneShot(_) => None,
         }
         .unwrap_or_else(|| workspace.clone());
-        match super::place::FsPlace::new(start, &workspace) {
+        let classed = match super::place::FsPlace::new(start, &workspace) {
             Some(place) => classify_shell(arguments, &place),
             None => classify_shell(arguments, &Lexical),
+        };
+        // Asking to run outside: what it would run there is read now, so the request is bound
+        // to those files and a script it reads secrets in is refused.
+        if asks {
+            return Classed {
+                runs: spade_core::autonomy::Runs::AsksOutside,
+                ..classed
+            };
         }
+        classed
     }
 
     /// "Always" allows this exact command, nothing like it.

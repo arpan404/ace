@@ -71,6 +71,7 @@ pub(super) enum Reviewed {
 
 /// Stores a verdict the rules reached without a model (a call the reviewer can't read whole, or
 /// one that reaches credentials), so the activity log shows it and a restart reaches it again.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn record_rule(
     engine: &Engine,
     id: &str,
@@ -79,6 +80,7 @@ pub(super) fn record_rule(
     name: &str,
     verdict: Verdict,
     reason: &str,
+    bound: Option<String>,
 ) -> Result<bool, spade_store::StoreError> {
     let event = Event::Known(Known::CallReviewed {
         reply: reply.to_owned(),
@@ -88,7 +90,7 @@ pub(super) fn record_rule(
         reason: reason.to_owned(),
         model: String::new(),
         cost_micros: 0,
-        bound: None,
+        bound,
     });
     engine.record_unless_stopped(id, reply, &event)
 }
