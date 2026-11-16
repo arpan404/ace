@@ -48,6 +48,12 @@ export interface VideoControllerOptions {
 export const videoFailureLimit = 3;
 /** How often, at most, the position is written while it plays. */
 export const positionEveryMs = 5_000;
+/**
+ * Seconds of picture that must play before earlier failures are forgiven. Metadata arriving
+ * isn't enough: a file whose header reads but whose frames don't decode would otherwise load,
+ * fail and load again forever.
+ */
+export const recoveredAfterSeconds = 5;
 const retryMs = [1_000, 4_000];
 
 export const shouldPlay = (facts: VideoFacts) =>
@@ -60,7 +66,7 @@ export interface VideoController {
   loaded(): void;
   /** The element's position moved (`timeupdate`). */
   progressed(now: number): void;
-  /** The element failed to load or decode. */
+  /** The element failed to load or decode. Three in a row, without picture playing between, drop it. */
   failed(): void;
   /** The person clicked or pressed a key: sound the browser held back may play now. */
   gesture(): void;
@@ -85,6 +91,10 @@ export function createVideoController(options: VideoControllerOptions): VideoCon
   let disposed = false;
   let lastWrite = Number.NEGATIVE_INFINITY;
   let cancelRetry = noop;
+  // Picture played since the last failure, counted from small forward steps only (a seek or
+  // the loop's wrap counts nothing).
+  let played = 0;
+  let lastTime: number | undefined;
 
   element.muted = audio.muted;
   element.volume = Math.min(1, Math.max(0, audio.volume));
@@ -120,10 +130,17 @@ export function createVideoController(options: VideoControllerOptions): VideoCon
       const duration = element.duration;
       if (kept !== undefined && Number.isFinite(duration) && duration > 0)
         element.currentTime = kept % duration;
-      failures = 0;
+      lastTime = element.currentTime;
       start();
     },
     progressed(now) {
+      const time = element.currentTime;
+      const step = lastTime === undefined ? 0 : time - lastTime;
+      lastTime = time;
+      if (failures > 0 && step > 0 && step < 1) {
+        played += step;
+        if (played >= recoveredAfterSeconds) failures = 0;
+      }
       if (now - lastWrite < positionEveryMs) return;
       lastWrite = now;
       save();
@@ -131,6 +148,8 @@ export function createVideoController(options: VideoControllerOptions): VideoCon
     failed() {
       if (gone || disposed) return;
       failures += 1;
+      played = 0;
+      lastTime = undefined;
       if (failures >= videoFailureLimit) {
         gone = true;
         cancelRetry();

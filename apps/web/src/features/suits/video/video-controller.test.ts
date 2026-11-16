@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   createVideoController,
   positionEveryMs,
+  recoveredAfterSeconds,
   storedPosition,
   type VideoElementLike,
   type VideoFacts,
@@ -182,7 +183,19 @@ test("a video that fails is tried again, and dropped after its third failure", (
   expect(element.loads).toBe(2);
 });
 
-test("a video that loads after failing starts its count again", () => {
+test("a file whose header loads but whose frames don't decode is still dropped after three failures", () => {
+  const element = fakeVideo();
+  const { controller, timers, stopped } = controlled(element);
+  controller.facts(onScreen);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    controller.loaded();
+    controller.failed();
+    timers.advance(5_000);
+  }
+  expect(stopped()).toBe(1);
+});
+
+test("a video that plays a few seconds after failing has its earlier failures forgiven", () => {
   const element = fakeVideo();
   const { controller, timers, stopped } = controlled(element);
   controller.failed();
@@ -190,7 +203,28 @@ test("a video that loads after failing starts its count again", () => {
   controller.failed();
   timers.advance(4_000);
   controller.loaded();
+  for (let second = 0; second <= recoveredAfterSeconds * 4; second++) {
+    element.currentTime = second / 4;
+    controller.progressed(second * 250);
+  }
   controller.failed();
   controller.failed();
   expect(stopped()).toBe(0);
+});
+
+test("seeking or looping doesn't count as picture played", () => {
+  const element = fakeVideo();
+  const { controller, timers, stopped } = controlled(element);
+  controller.failed();
+  timers.advance(1_000);
+  controller.loaded();
+  // Big jumps only: a seek forward, the loop's wrap back.
+  for (const time of [0, 60, 120, 0, 90]) {
+    element.currentTime = time;
+    controller.progressed(time);
+  }
+  controller.failed();
+  timers.advance(4_000);
+  controller.failed();
+  expect(stopped()).toBe(1);
 });
