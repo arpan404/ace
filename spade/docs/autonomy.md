@@ -149,7 +149,11 @@ It tries to read every simple command: across `|`, `;`, `&&`, `||`, `$(…)`, `s
 variable assignments and wrappers. What a wrapper runs (`find -exec`/`-execdir`/`-ok`, `xargs`,
 `parallel`, `timeout`, `nice`, `nohup`, `time`, `watch`, `command`, `builtin`, `exec`, `env`
 and `env -S`, `flock`, `sudo`, `doas`, `su -c`…) is unwrapped through the same reading, and each
-command gets both the credential and the effect checks. A command with no `command` argument is
+command gets both the credential and the effect checks. A command after a shell keyword (`{`,
+`if`, `then`, `else`, `elif`, `while`, `until`, `do`, `!`, `function name`) is read, so a function
+defined in the command has its body read where it is written. An alias defined in the command is
+read through to its text wherever it is used (a shell may expand it); one whose text can't be read
+is unclear. A command with no `command` argument is
 unclear. Anything it passes still goes to the reviewer.
 
 Inline code (`python -c`, `node -e`, `perl -e`, `ruby -e`, `php -r`, an awk program) is in the

@@ -312,12 +312,14 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
     }
     out.push(current);
     let mut simple: Vec<Simple> = Vec::new();
+    // Aliases the command defines, by name, read through where they are used.
+    let mut aliases: Vec<(String, String)> = Vec::new();
     for command in out
         .into_iter()
         .filter(|c| !c.words.is_empty() || !c.writes_to.is_empty() || c.here.is_some())
     {
         let fed = command.here.is_some();
-        let unwrapped = unwrap(command, depth)?;
+        let unwrapped = through_aliases(unwrap(command, depth)?, &mut aliases, depth)?;
         // Text fed to anything but a script reader Spade follows stays unread.
         if fed
             && !unwrapped.last().is_some_and(|last| {
@@ -330,6 +332,72 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
     }
     simple.extend(nested);
     Ok(simple)
+}
+
+/// Records the aliases `commands` define, and reads each use of one as what it stands for
+/// (its text, then the words after the name). An alias whose text can't be read leaves the
+/// command unreadable. Read through even where a shell wouldn't expand it (on the line that
+/// defines it, or under `bash -c`), since some shells do.
+fn through_aliases(
+    commands: Vec<Simple>,
+    aliases: &mut Vec<(String, String)>,
+    depth: usize,
+) -> Result<Vec<Simple>, Unreadable> {
+    let mut out = Vec::new();
+    for command in commands {
+        let Some(first) = command.words.first() else {
+            out.push(command);
+            continue;
+        };
+        if basename(first) == "alias" {
+            for definition in command.words[1..].iter().filter(|w| !w.starts_with('-')) {
+                if let Some((name, text)) = definition.split_once('=') {
+                    aliases.retain(|(known, _)| known != name);
+                    aliases.push((name.to_owned(), text.to_owned()));
+                }
+            }
+            out.push(command);
+            continue;
+        }
+        out.extend(expand(command, aliases, depth, &[])?);
+    }
+    Ok(out)
+}
+
+/// One command with the alias it starts with read through; `used` are the aliases already
+/// read on the way here, which a shell never expands again.
+fn expand(
+    command: Simple,
+    aliases: &[(String, String)],
+    depth: usize,
+    used: &[&str],
+) -> Result<Vec<Simple>, Unreadable> {
+    let Some((name, text)) = command.words.first().and_then(|first| {
+        aliases
+            .iter()
+            .rev()
+            .find(|(name, _)| name == first && !used.contains(&name.as_str()))
+    }) else {
+        return Ok(vec![command]);
+    };
+    if used.len() > DEEPEST {
+        return Err(Unreadable);
+    }
+    let mut now: Vec<&str> = used.to_vec();
+    now.push(name);
+    let mut inner = adopt(parse(text, depth + 1)?, &command);
+    let Some(last) = inner.last_mut() else {
+        return Ok(Vec::new());
+    };
+    last.words.extend(command.words[1..].iter().cloned());
+    last.writes_to.extend(command.writes_to.iter().cloned());
+    last.reads_from.extend(command.reads_from.iter().cloned());
+    last.piped |= command.piped;
+    let mut out = Vec::new();
+    for read in inner {
+        out.extend(expand(read, aliases, depth, &now)?);
+    }
+    Ok(out)
 }
 
 /// Programs whose here-document or here-string Spade reads as their script.
@@ -459,6 +527,11 @@ fn substitution(chars: &[char], start: usize) -> Result<(String, usize), Unreada
     }
     Err(Unreadable)
 }
+
+/// Shell keywords that can stand before a command, or close a compound one.
+const KEYWORDS: &[&str] = &[
+    "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "esac",
+];
 
 /// Programs that run the command after them, with their flags that take a value.
 const WRAPPERS: &[(&str, &[&str])] = &[
@@ -594,6 +667,17 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
         };
         if is_assignment(&first) {
             simple.words.remove(0);
+            continue;
+        }
+        // A shell keyword before a command (`{ cmd; }`, `if cmd; then cmd; fi`, `while`,
+        // `do`, `! cmd`, a function's body): what follows it is what runs.
+        if KEYWORDS.contains(&first.as_str()) {
+            simple.words.remove(0);
+            continue;
+        }
+        // `function name { body; }`: the body is read where it is written, as if it ran.
+        if first == "function" {
+            simple.words.drain(..simple.words.len().min(2));
             continue;
         }
         let program = basename(&first).to_owned();

