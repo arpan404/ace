@@ -28,10 +28,12 @@ import XCTest
         XCTAssertTrue(app.buttons["1 hour"].waitForExistence(timeout: 5))
         screenshot("inbox-snooze")
         app.buttons["1 hour"].tap()
-        // The snoozed row leaves the Inbox for the Snoozed tab, where it says when it wakes.
+        // The snoozed row leaves the Inbox for the Snoozed tab, where it says when it wakes. A row
+        // the lazy list unloaded also "leaves", so the proof is finding it on the Snoozed tab.
         XCTAssertTrue(tree.waitForNonExistence(timeout: 15))
         app.tapThreadsTab(snoozedTab)
-        XCTAssertTrue(tree.waitForExistence(timeout: 10))
+        app.bringToMiddle(tree)
+        XCTAssertTrue(tree.waitForExistence(timeout: 15), "the snoozed thread is on the Snoozed tab")
         XCTAssertTrue(tree.label.contains("Until"), tree.label)
         // The Snoozed list is short and its rows sit right under the tabs: dragging it would only
         // pull to refresh.
