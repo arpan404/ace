@@ -94,7 +94,7 @@ import XCTest
     func testTheTitleOpensOneMenuWithModelEffortAndAccessFirst() {
         let app = launch(into: "thread.ios-done")
         let title = app.threadTitle(timeout: 25)
-        XCTAssertTrue(title.label.contains("· Med") || (title.value as? String)?.contains("Med") == true, "the title's line reads the model and effort")
+        XCTAssertTrue(app.threadSubtitle(containing: "Med").exists, "the line under the title reads the model and effort")
         title.tap()
         let model = app.titleMenuItem("thread.title.model", label: "Model")
         XCTAssertTrue(model.waitForExistence(timeout: 10))

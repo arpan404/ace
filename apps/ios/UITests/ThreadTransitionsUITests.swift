@@ -70,7 +70,7 @@ import XCTest
         app.buttons["rename.save"].tap()
         sleep(2)
         screenshot("renamed")
-        XCTAssertTrue(app.threadTitle(named: "Fake the queue clock").waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Fake the queue clock"].waitForExistence(timeout: 15), "the bar's title is the new name")
         app.buttons["thread.menu"].tap()
         // Turns and Attachments sit in the ⋯ panel's Conversation menu.
         let turns = app.threadMenuItem("thread.turns")
