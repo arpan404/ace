@@ -241,28 +241,104 @@ async fn the_bot_trying_a_refused_step_again_asks_the_person_who_can_allow_it() 
 }
 
 #[tokio::test]
-async fn sending_email_as_the_person_is_reviewed_with_that_concern_and_runs_when_approved() -> Result
-{
+async fn a_payment_never_runs_on_the_reviewers_approval_and_reaches_the_person() -> Result {
+    let pay = FakeTool::new("pay_invoice", Risk::Write, "Paid").app("Billing: Pays an invoice");
+    let paid = calls_of(&pay);
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "pay_invoice", json!({ "invoice": 7 })),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
+            Script::reply("Paid."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(pay) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Pay invoice 7").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It could spend money, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
+    assert_eq!(ran(&paid), 0);
+    // The person decides it.
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    settled(&spade, &conversation).await?;
+    assert_eq!(ran(&paid), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sending_email_as_the_person_reaches_them_and_their_always_allow_still_holds() -> Result {
     let send = FakeTool::new("send_email", Risk::Write, "Sent").app("Mail: Sends an email");
     let sent = calls_of(&send);
     let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "send_email", json!({ "to": "sam@example.com" })),
-            Script::reply("").plain(APPROVE),
             Script::reply("Sent."),
             Script::reply("").plain(TITLE),
+            Script::reply("").call("c2", "send_email", json!({ "to": "kim@example.com" })),
+            Script::reply("Sent again."),
         ],
         vec![Arc::new(send) as Arc<dyn Tool>],
     )
     .await?;
     let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Email Sam").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
+    assert_eq!(ran(&sent), 0);
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            json!({ "allowed": true, "always": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    settled(&spade, &conversation).await?;
+    assert_eq!(ran(&sent), 1);
+    // The person's Always allow lets the next send run with no question and no review.
+    spade.say(&conversation, "Email Kim too").await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while ran(&sent) < 2 && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(ran(&sent), 2);
+    assert_eq!(count(&events, "approval_requested"), 1, "{events:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> Result {
+    let publish =
+        FakeTool::new("publish_page", Risk::Write, "Published").app("Site: Publishes a page");
+    let published = calls_of(&publish);
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "publish_page", json!({ "page": "notes" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Published."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(publish) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Publish the notes page").await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(count(&events, "approval_requested"), 0);
-    assert_eq!(ran(&sent), 1);
+    assert_eq!(ran(&published), 1);
     let review = spade.fake.seen()[1].body.to_string();
     assert!(
-        review.contains("It sends a message as the person."),
+        review.contains("It posts or publishes something."),
         "{review}"
     );
     Ok(())
@@ -690,15 +766,16 @@ async fn stop_calls_off_a_step_waiting_out_its_backoff() -> Result {
 }
 
 #[tokio::test]
-async fn an_app_tool_that_claims_to_read_but_sends_is_reviewed_and_a_refusal_holds() -> Result {
-    let tool = FakeTool::new("send_message", Risk::Read, "sent").app("Reads the inbox");
+async fn an_app_tool_that_claims_to_read_but_shares_is_reviewed_and_a_refusal_holds() -> Result {
+    let tool = FakeTool::new("share_doc", Risk::Read, "shared").app("Reads the document");
     let ran_calls = calls_of(&tool);
     let spade = reviewed_by_fake(
         vec![
-            Script::reply("").call("c1", "send_message", json!({ "to": "all" })),
-            Script::reply("")
-                .plain(r#"{"verdict":"refuse","reason":"Nobody asked to message everyone."}"#),
-            Script::reply("I won't send it."),
+            Script::reply("").call("c1", "share_doc", json!({ "with": "all" })),
+            Script::reply("").plain(
+                r#"{"verdict":"refuse","reason":"Nobody asked to share it with everyone."}"#,
+            ),
+            Script::reply("I won't share it."),
             Script::reply("").plain(TITLE),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],

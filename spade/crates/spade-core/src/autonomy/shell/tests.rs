@@ -205,6 +205,7 @@ fn commands_that_reach_out_or_cant_be_undone_go_to_the_person() {
         ("git push origin main", Publish),
         ("git -C repo push --force", Publish),
         ("gh pr create --fill", Publish),
+        ("gh issue comment 3 --body hi", MessageAsPerson),
         ("gh release create v1", Publish),
         ("gh issue edit 3 --title x", Publish),
         ("gh api -X POST repos/o/r/issues", Publish),

@@ -57,8 +57,52 @@ fn calls_are_classed_by_their_tool_and_what_it_says_about_itself() {
             app(""),
             Class::Sensitive(Sensitive::Payment),
         ),
+        // A post or a comment from the person's account is sent in their name.
         (
             "create_post",
+            Risk::Write,
+            app(""),
+            Class::Sensitive(Sensitive::MessageAsPerson),
+        ),
+        (
+            "add_issue_comment",
+            Risk::Write,
+            app(""),
+            Class::Sensitive(Sensitive::MessageAsPerson),
+        ),
+        (
+            "slack_post_message",
+            Risk::Write,
+            app(""),
+            Class::Sensitive(Sensitive::MessageAsPerson),
+        ),
+        (
+            "book_flight",
+            Risk::Write,
+            app("Creates a booking and charges the saved card"),
+            Class::Sensitive(Sensitive::Payment),
+        ),
+        // What's done with something sent, other than sending it, is no send.
+        (
+            "delete_comment",
+            Risk::Destructive,
+            app(""),
+            Class::Sensitive(Sensitive::DeleteOutside),
+        ),
+        (
+            "archive_email",
+            Risk::Write,
+            app("Archives an email"),
+            Class::Outward,
+        ),
+        (
+            "create_draft",
+            Risk::Write,
+            app("Creates a draft email"),
+            Class::Outward,
+        ),
+        (
+            "publish_page",
             Risk::Write,
             app(""),
             Class::Sensitive(Sensitive::Publish),
@@ -95,6 +139,10 @@ fn calls_are_classed_by_their_tool_and_what_it_says_about_itself() {
             Class::Sensitive(Sensitive::Unknown),
         ),
         ("thread_start", Risk::Write, Source::Ace, Class::Outward),
+        // ace's own tools act on ace: messaging an agent or moving a thread is neither a send
+        // nor a payment.
+        ("agent_message", Risk::Write, Source::Ace, Class::Outward),
+        ("transfer", Risk::Write, Source::Ace, Class::Outward),
         (
             "thread_merge",
             Risk::Write,
@@ -119,16 +167,26 @@ fn calls_are_classed_by_their_tool_and_what_it_says_about_itself() {
 
 #[test]
 fn an_app_tool_that_claims_to_read_but_says_it_acts_is_not_taken_at_its_word() {
-    for (name, description) in [
-        ("send_email", "Reads mail"),
-        ("messages", "Sends a message to a channel"),
-        ("transfer_funds", ""),
-        ("share_doc", "Shares a document"),
-        ("invite_member", ""),
-    ] {
+    for (name, description) in [("share_doc", "Shares a document"), ("invite_member", "")] {
         assert_eq!(
             classify(name, Risk::Read, app(description), &json!({})),
             Class::Sensitive(Sensitive::Mislabelled),
+            "{name}"
+        );
+    }
+    // One that says it pays or sends is classed as that, so the person decides it.
+    for (name, description, kind) in [
+        ("send_email", "Reads mail", Sensitive::MessageAsPerson),
+        (
+            "messages",
+            "Sends a message to a channel",
+            Sensitive::MessageAsPerson,
+        ),
+        ("transfer_funds", "", Sensitive::Payment),
+    ] {
+        assert_eq!(
+            classify(name, Risk::Read, app(description), &json!({})),
+            Class::Sensitive(kind),
             "{name}"
         );
     }
@@ -144,6 +202,47 @@ fn an_app_tool_that_claims_to_read_but_says_it_acts_is_not_taken_at_its_word() {
 }
 
 #[test]
+fn a_purchase_ace_s_browser_or_screen_is_told_to_complete_is_a_payment() {
+    let act = |name: &str, arguments: Value| classify(name, Risk::Write, Source::Ace, &arguments);
+    let payment = Class::Sensitive(Sensitive::Payment);
+    assert_eq!(
+        act(
+            "browser_act",
+            json!({ "action": "click", "text": "Place order" })
+        ),
+        payment
+    );
+    assert_eq!(
+        act("screen_act", json!({ "steps": [{ "click": "Buy now" }] })),
+        payment
+    );
+    assert_eq!(
+        act(
+            "browser_act",
+            json!({ "action": "click", "text": "Proceed to checkout" })
+        ),
+        payment
+    );
+    // Typing words about buying, or pressing anything else, is no purchase.
+    assert_eq!(
+        act(
+            "browser_act",
+            json!({ "action": "type", "text": "best laptops to buy" })
+        ),
+        Class::Outward
+    );
+    assert_eq!(
+        act("browser_act", json!({ "action": "click", "ref": "e12" })),
+        Class::Outward
+    );
+    // Only a tool that drives a page or an app is read this way.
+    assert_eq!(
+        act("thread_start", json!({ "task": "Place order 7" })),
+        Class::Outward
+    );
+}
+
+#[test]
 fn a_shell_command_is_classed_by_what_it_runs() {
     let shell = |command: &str| {
         classify(
@@ -155,6 +254,10 @@ fn a_shell_command_is_classed_by_what_it_runs() {
     };
     assert_eq!(shell("cargo test"), Class::Inside);
     assert_eq!(shell("git push"), Class::Sensitive(Sensitive::Publish));
+    assert_eq!(
+        shell("gh pr comment 3 --body 'Looks good'"),
+        Class::Sensitive(Sensitive::MessageAsPerson)
+    );
     assert_eq!(
         classify(SHELL, Risk::Write, Source::Spade, &json!({})),
         Class::Sensitive(Sensitive::Unclear)
@@ -186,10 +289,31 @@ fn what_the_rule_gate_would_hold_goes_to_the_reviewer_with_what_singles_it_out()
         (gate(Asks, Class::Inside), reviewed(None)),
         (gate(Asks, Class::Outward), reviewed(None)),
         (gate(Runs, Class::Outward), Route::Run),
-        // What used to always ask the person is reviewed, told why it was singled out.
+        // Spending money and sending as the person go to the person; no reviewer approves them.
+        (gate(Asks, message), Route::Ask(SENDS_AS_YOU.to_owned())),
         (
-            gate(Asks, message),
-            reviewed(Some(Sensitive::MessageAsPerson.reason())),
+            gate(Asks, Class::Sensitive(Sensitive::Payment)),
+            Route::Ask(SPENDS.to_owned()),
+        ),
+        (
+            Call {
+                tainted: true,
+                ..gate(Asks, Class::Sensitive(Sensitive::Payment))
+            },
+            Route::Ask(SPENDS.to_owned()),
+        ),
+        // One that claims to read is put to the person all the same.
+        (
+            Call {
+                risk: Risk::Read,
+                ..gate(Runs, Class::Sensitive(Sensitive::Payment))
+            },
+            Route::Ask(SPENDS.to_owned()),
+        ),
+        // Publishing and deletes outside the folder stay with the reviewer, told why.
+        (
+            gate(Asks, Class::Sensitive(Sensitive::Publish)),
+            reviewed(Some(Sensitive::Publish.reason())),
         ),
         (
             gate(Asks, Class::Sensitive(Sensitive::DeleteOutside)),
@@ -261,8 +385,9 @@ fn what_the_rule_gate_would_hold_goes_to_the_reviewer_with_what_singles_it_out()
             },
             reviewed(Some(Sensitive::Mislabelled.reason())),
         ),
-        // The person's "always" for a write still holds.
+        // The person's "always" for a write still holds, for a send or a payment too.
         (gate(Runs, message), Route::Run),
+        (gate(Runs, Class::Sensitive(Sensitive::Payment)), Route::Run),
     ];
     for (call, expected) in cases {
         assert_eq!(route(call), expected, "{call:?}");
