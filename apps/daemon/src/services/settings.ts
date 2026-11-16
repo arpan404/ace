@@ -58,6 +58,7 @@ export function createSettingsSession(context: SocketContext): SocketService {
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
+          (!key.startsWith("media.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
           ((key !== "computer.blockedApps" &&
             key !== "providers.codex.toolSource" &&
