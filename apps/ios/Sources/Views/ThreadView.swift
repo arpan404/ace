@@ -635,33 +635,30 @@ private struct GoalPresentation: Identifiable {
     var id: Int { epoch }
 }
 
-/// The thread's foot as the system's bottom bar: on iOS 26 a `safeAreaBar`, so the transcript's
-/// insets, keyboard avoidance and the soft scroll edge under the composer's glass are the system's
-/// own, and the rows and the composer move together on the keyboard's curve. Before iOS 26 a
-/// bottom inset over the page colour, which runs on down behind the keyboard's translucent edge
-/// and the home indicator. The composer keeps the transcript's reading width.
+/// The thread's foot as the system's bottom inset: the transcript's insets and keyboard avoidance
+/// are the system's own, so the rows and the composer move together on the keyboard's curve. The
+/// composer keeps the transcript's reading width; under it the page colour runs on down behind
+/// the keyboard's translucent edge and the home indicator.
+///
+/// Not iOS 26's `safeAreaBar`, which would add the soft scroll edge: on iOS 26.1 it drops taps on
+/// the live pills and Scroll to end above the capsule (the capsule's own buttons still work), so
+/// the foot keeps a plain inset until that holds.
 private struct ThreadFoot<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content.safeAreaBar(edge: .bottom, spacing: AceTheme.Spacing.none) { placed }
-        } else {
-            content.safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                placed.background(alignment: .bottom) { BarFloor() }
-            }
+        content.safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
+            bar()
+                .frame(maxWidth: ReadingColumn.maxWidth)
+                .frame(maxWidth: .infinity)
+                .background(alignment: .bottom) { BarFloor() }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
-    }
-    private var placed: some View {
-        bar()
-            .frame(maxWidth: ReadingColumn.maxWidth)
-            .frame(maxWidth: .infinity)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
     }
 }
 
-/// Before iOS 26, the page colour from the composer's lower edge on down, behind the keyboard's
-/// translucent edge and the home indicator. The composer itself stays glass over the transcript.
+/// The page colour from the composer's lower edge on down, behind the keyboard's translucent edge
+/// and the home indicator. The composer itself stays glass over the transcript.
 private struct BarFloor: View {
     private let below = AceDesign.Size.tap * 8
     private let fade = AceDesign.Space.margin

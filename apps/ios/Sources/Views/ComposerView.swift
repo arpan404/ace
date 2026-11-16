@@ -86,11 +86,15 @@ struct ComposerView<Top: View, Leading: View>: View {
         // The `@` and `/` list draws over the transcript, its foot on the composer's top, so
         // opening it never changes the foot's height or moves what is above the capsule.
         .overlay(alignment: .top) {
-            if let suggester, suggester.trigger != nil {
-                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
-                    .alignmentGuide(.top) { $0[.bottom] }
-                    .transition(.opacity)
-            }
+            // A line along the composer's top: the list hangs up from it.
+            Color.clear.frame(height: AceTheme.Spacing.none)
+                .overlay(alignment: .bottom) {
+                    if let suggester, suggester.trigger != nil {
+                        ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity)
+                    }
+                }
         }
         .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass)).padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
         .animation(.default, value: wraps)

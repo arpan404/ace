@@ -981,11 +981,12 @@ struct ConversationFeed: View {
 /// over the rows' own (a tool group, a step, a link), so it never opens what lay under the finger.
 /// Scrolling still dismisses it interactively. With the keyboard down the gesture is off and taps,
 /// links, selection and menus reach the rows as usual.
+/// The gesture rides the rows, not a shape over the whole feed: the feed runs on under the
+/// composer, whose pills and buttons keep their own taps.
 private struct TapPutsKeyboardAway: ViewModifier {
     let up: Bool
     func body(content: Content) -> some View {
         content
-            .contentShape(Rectangle())
             .highPriorityGesture(TapGesture().onEnded {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }, including: up ? .all : .subviews)
