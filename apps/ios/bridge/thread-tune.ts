@@ -253,7 +253,19 @@ export class TuneFollower {
     this.#put("tune", () => {
       // While a fork is written the sheet tunes the fork, never this thread's next message.
       const fork = this.#forking();
-      if (fork) return forkTuneRow(fork.choice ?? this.#current(), fork.tune);
+      if (fork) {
+        if (fork.choice) return forkTuneRow(fork.choice, fork.tune);
+        // A fork on this thread's model starts as the thread runs, before any pick of its own.
+        const own = threadTuning({
+          thread: this.#store.thread,
+          choice: this.#shown(),
+          pending: undefined,
+        });
+        return forkTuneRow(this.#current(), fork.tune, {
+          effort: own.effort.current,
+          speed: own.speed.speed,
+        });
+      }
       const tuning = this.#tuning();
       const { effort, speed, preset, options } = tuning;
       const picked = optionEffort(options);

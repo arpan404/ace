@@ -37,9 +37,24 @@ const answer = (item: string, text: string, nativeId: string) => ({
 });
 
 /** Two finished turns: "Plan the change" → "Here is the plan.", then "Use the other approach". */
-function twoTurns(provider: ProviderKind = "codex", running = false): FakeDaemon {
+function twoTurns(
+  provider: ProviderKind = "codex",
+  running = false,
+  execution?: {
+    provider: ProviderKind;
+    model: string;
+    instanceId: string;
+    options: Record<string, string>;
+  },
+): FakeDaemon {
   const fake = fixture();
-  fake.createThread({ id: "t", workspaceId: "ace", title: "Edits", provider });
+  fake.createThread({
+    id: "t",
+    workspaceId: "ace",
+    title: "Edits",
+    provider,
+    ...(execution ? { execution } : {}),
+  });
   fake.apply("t", [
     facts.rootAgent(provider),
     facts.turn("root"),
@@ -384,6 +399,37 @@ test("effort and speed picked while forking start the fork, and this thread's tu
   );
   expect(after).toMatchObject({ speed: before.speed, pending: false });
   expect(commands("thread.send")).toHaveLength(0);
+});
+
+test("a fork on the thread's own fast model, picked at High and Standard, runs at High and Standard", async () => {
+  const thread = await opened(
+    twoTurns("codex", false, {
+      provider: "codex",
+      model: "gpt-6",
+      instanceId: "codex-personal",
+      options: { serviceTier: "priority" },
+    }),
+  );
+  thread.handle({ type: "fork.open", at: { kind: "latest" }, requestId: "l" });
+  await until(() => admission("l")?.ok, "the fork");
+  // Before any pick the fork reads as the thread runs: fast.
+  await until(() => tune()?.speed === "fast", "the fork's inherited speed");
+  thread.handle({ type: "effort", effort: "high", requestId: "e" });
+  thread.handle({ type: "speed", speed: "standard", requestId: "s" });
+  await until(() => admission("s"), "the picks");
+  expect(admission("e")?.ok).toBe(true);
+  expect(admission("s")?.ok).toBe(true);
+  expect(tune()).toMatchObject({ effort: "high", speed: "standard" });
+  thread.handle({
+    type: "send",
+    text: "Slower",
+    opposite: false,
+    continues: true,
+    requestId: "go",
+  });
+  await until(() => commands("thread.fork").length === 1, "the fork on the wire");
+  const selection = commands("thread.fork")[0]?.selection as { options: Record<string, unknown> };
+  expect(selection.options).toEqual({ effort: "high" });
 });
 
 test("editing a message with an image forks with the same image, removable without touching the thread", async () => {

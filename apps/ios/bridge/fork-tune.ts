@@ -33,20 +33,39 @@ export function forkTakesSpeed(model: ModelChoice | undefined, speed: Speed) {
   return speed === "standard" || speedOption(model?.speeds ?? [], speed) !== undefined;
 }
 
-/** The session options the fork starts with: only what was picked. */
-export function forkOptions(model: ModelChoice | undefined, tune: ForkTune): ExecutionOptions {
-  const options: ExecutionOptions = {};
+/**
+ * The session options the fork starts with: `base` (what it inherits) with what was picked put
+ * over it. A picked field replaces the inherited one; a standard speed clears the tier.
+ */
+export function forkOptions(
+  model: ModelChoice | undefined,
+  tune: ForkTune,
+  base: ExecutionOptions = {},
+): ExecutionOptions {
+  // A picked speed replaces the inherited tier, standard by leaving none.
+  const kept =
+    tune.speed === undefined
+      ? base
+      : Object.fromEntries(Object.entries(base).filter(([key]) => key !== "serviceTier"));
+  const options: ExecutionOptions = { ...kept };
   if (tune.effort !== undefined) options["effort"] = tune.effort;
-  const tier =
-    tune.speed === undefined || tune.speed === "standard"
-      ? undefined
-      : speedOption(model?.speeds ?? [], tune.speed);
-  if (tier !== undefined) options["serviceTier"] = tier;
+  if (tune.speed !== undefined) {
+    const tier =
+      tune.speed === "standard" ? undefined : speedOption(model?.speeds ?? [], tune.speed);
+    if (tier !== undefined) options["serviceTier"] = tier;
+  }
   return options;
 }
 
-/** The model sheet's tune row (`thread.tune`) for the fork, in place of the thread's own. */
-export function forkTuneRow(model: ModelChoice | undefined, tune: ForkTune) {
+/**
+ * The model sheet's tune row (`thread.tune`) for the fork, in place of the thread's own. A fork on
+ * the thread's own model starts at the thread's effort and speed (`inherited`) unless picked.
+ */
+export function forkTuneRow(
+  model: ModelChoice | undefined,
+  tune: ForkTune,
+  inherited: ForkTune = {},
+) {
   const efforts = model?.efforts ?? [];
   const preset = resolveEffort(efforts, undefined, model?.defaultEffort);
   const tiers = model?.speeds ?? [];
@@ -58,15 +77,15 @@ export function forkTuneRow(model: ModelChoice | undefined, tune: ForkTune) {
       label: preview(effortLabel(id), 64),
       short: preview(effortShortLabel(id), 32),
     })),
-    effort: tune.effort ?? preset ?? "",
-    effortDefault: tune.effort === undefined,
+    effort: tune.effort ?? inherited.effort ?? preset ?? "",
+    effortDefault: (tune.effort ?? inherited.effort) === undefined,
     effortReason: "",
     effortPreset: preset ?? "",
     speeds:
       tiers.length > 1
         ? tiers.map((tier) => ({ speed: tier.speed, label: speedLabel(tier.speed) }))
         : [],
-    speed: tune.speed ?? speedPreset,
+    speed: tune.speed ?? inherited.speed ?? speedPreset,
     speedReason: "",
     speedPreset,
     pending: false,

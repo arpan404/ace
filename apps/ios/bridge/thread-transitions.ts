@@ -80,8 +80,7 @@ export function forkPayload(request: {
   };
   const problem = continuationAttachmentProblem(request.files, reads, request.modalities);
   if (problem) return { refused: problem };
-  const options = forkOptions(request.model, request.draft.tune);
-  const tuned = Object.keys(options).length > 0;
+  const tuned = request.draft.tune.effort !== undefined || request.draft.tune.speed !== undefined;
   const parent = request.store.thread?.title;
   const title = parent ? `${parent} (fork)`.slice(0, 256) : undefined;
   return {
@@ -94,9 +93,19 @@ export function forkPayload(request: {
       // The thread's own selection forks natively; only a different pick, or its own model at
       // another effort or speed, is sent.
       ...(request.draft.choice
-        ? { selection: { ...choiceSelection(request.draft.choice), options } }
+        ? {
+            selection: {
+              ...choiceSelection(request.draft.choice),
+              options: forkOptions(request.model, request.draft.tune),
+            },
+          }
         : tuned && selection
-          ? { selection: { ...selection, options: { ...selection.options, ...options } } }
+          ? {
+              selection: {
+                ...selection,
+                options: forkOptions(request.model, request.draft.tune, selection.options),
+              },
+            }
           : {}),
       ...(title ? { title } : {}),
       ...(request.context ? { context: request.context } : {}),
