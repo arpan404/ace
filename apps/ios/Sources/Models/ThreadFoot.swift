@@ -52,6 +52,15 @@ extension BlockRow.Agents {
     }
 }
 
+extension BlockRow.Background {
+    /// Whether the pill can stand in for a step's lines while they run: one still runs, and every
+    /// running one is a command the pill counts and its Agents sheet stops (`counted`). A running
+    /// task it doesn't count (a monitor) shows only on its line, so a step holding one keeps it.
+    static func leaveToPill(_ lines: [BlockRow.Background]) -> Bool {
+        lines.contains(where: \.running) && lines.allSatisfy { !$0.running || $0.counted == true }
+    }
+}
+
 extension ThreadFoot {
     /// The foot of `thread` as its page draws it, by the order of the page's own strip chain.
     @MainActor init(thread: ThreadModel, transfers: TransfersModel) {

@@ -1,5 +1,5 @@
 import type { ThreadSource } from "@ace/client";
-import { backgroundCommand, backgroundTaskLine, ledgerOf } from "@ace/ui-core";
+import { backgroundCommand, backgroundTaskLine, ledgerOf, turnTreeOf } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
@@ -23,6 +23,12 @@ export function backgroundRows(store: ThreadSource, ids: readonly string[]) {
         label: backgroundTaskLine(task.status),
         command: preview(backgroundCommand(task, store.item(id)), 512),
         running: task.status === "running",
+        /**
+         * Settled, or a running command the thread's live tree counts (the pill's "1 command",
+         * whose Agents sheet stops it). A running task it doesn't count (a monitor) shows only
+         * on this line, so the phone keeps it.
+         */
+        counted: task.status !== "running" || turnTreeOf(store).countsTask(task.id),
         status: task.status,
         stoppable: task.stoppable,
         startedAt: task.startedAt,

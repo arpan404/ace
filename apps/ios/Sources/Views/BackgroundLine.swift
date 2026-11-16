@@ -70,9 +70,9 @@ struct BackgroundLine: View {
 /// Commands a log's calls left running, as a step of the log where they started: one task's
 /// line, or several started back to back as one group ("2 background tasks · 1 running") whose
 /// running lines stay in view, Stop and all; the ended ones open from the group. The rows
-/// update in place as the tasks end; they never move. While any of them runs and the pill over
-/// the composer names commands, the pill says it (its Agents sheet has Stop) and the step waits
-/// here until they have all ended (`ThreadFoot`).
+/// update in place as the tasks end; they never move. While any of them runs, every running one
+/// is a command the pill counts, and the pill over the composer names commands, the pill says it
+/// (its Agents sheet has Stop) and the step waits here until they have all ended (`ThreadFoot`).
 struct BackgroundStep: View {
     let row: BlockRow.LogRow
     let source: LogSource
@@ -80,7 +80,7 @@ struct BackgroundStep: View {
     private var key: String { "group:\(row.id)" }
     var body: some View {
         let lines = (row.items ?? []).compactMap { source.background[$0] }
-        if pillNames.transcriptShows(.commands, live: lines.contains { $0.running }) { step(lines) }
+        if pillNames.transcriptShows(.commands, live: BlockRow.Background.leaveToPill(lines)) { step(lines) }
     }
     private func step(_ lines: [BlockRow.Background]) -> some View {
         let items = row.items ?? []

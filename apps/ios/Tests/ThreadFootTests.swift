@@ -72,4 +72,25 @@ import Testing
     @Test func aLiveGroupWithAChildOnAnotherMachineKeepsItsRowWhichOpensItThere() {
         #expect(!group(live: true, machines: ["", "build-box"]).leavesToPill)
     }
+
+    private func line(_ command: String, running: Bool, counted: Bool?) -> BlockRow.Background {
+        BlockRow.Background(itemId: command, taskId: command, label: "", command: command, running: running,
+                            stoppable: true, startedAt: 0, endedAt: nil, counted: counted)
+    }
+
+    @Test func runningCommandsThePillCountsAreLeftToIt() {
+        #expect(BlockRow.Background.leaveToPill([line("bun run dev:relay", running: true, counted: true),
+                                                 line("bun test", running: false, counted: true)]))
+    }
+
+    @Test func aStepWithARunningTaskThePillDoesNotCountKeepsItsRow() {
+        // A shell and a monitor: the pill says "1 command" for the shell alone.
+        #expect(!BlockRow.Background.leaveToPill([line("bun run dev:relay", running: true, counted: true),
+                                                  line("tail -f relay.log", running: true, counted: false)]))
+        #expect(!BlockRow.Background.leaveToPill([line("bun run dev:relay", running: true, counted: nil)]))
+    }
+
+    @Test func aSettledStepKeepsItsRowAsTheRecord() {
+        #expect(!BlockRow.Background.leaveToPill([line("bun test", running: false, counted: true)]))
+    }
 }

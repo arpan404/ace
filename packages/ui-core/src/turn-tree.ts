@@ -409,6 +409,10 @@ export class TurnTree {
   get backgroundCommands() {
     return this.shells.size;
   }
+  /** Whether `backgroundCommands` counts this task: a running shell, not ace's bookkeeping. */
+  countsTask(taskId: string): boolean {
+    return this.shells.has(`task:${taskId}`);
+  }
   get needsYou() {
     return this.attention > 0;
   }

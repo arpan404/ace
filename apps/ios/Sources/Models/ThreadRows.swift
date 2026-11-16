@@ -203,6 +203,9 @@ struct BlockRow: Codable, Sendable, Equatable {
         /// Ms since 1970.
         let startedAt: Double
         let endedAt: Double?
+        /// Settled, or running and counted by the live tree the pill reads (its "1 command"); nil
+        /// from older bridges, read as not, so a running line keeps its row.
+        var counted: Bool? = nil
     }
 }
 
