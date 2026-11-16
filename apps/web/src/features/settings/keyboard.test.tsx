@@ -60,7 +60,12 @@ test("rebindings survive leaving Settings › Keyboard, and Reset all restores e
   await userEvent.click(agents);
   press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   const nav = screen.getByRole("navigation", { name: "Settings pages" });
-  await userEvent.click(within(nav).getByRole("link", { name: "General" }));
+  // Spade's section has a General page of its own; this is the device's.
+  const general = within(nav)
+    .getAllByRole("link", { name: "General" })
+    .find((link) => link.getAttribute("href") === "/settings/general");
+  if (!general) throw new Error("No link to Settings › General");
+  await userEvent.click(general);
   await userEvent.click(within(nav).getByRole("link", { name: "Keyboard" }));
   expect((await shortcut("Summary")).textContent).toBe("Alt+Ctrl+Y");
 

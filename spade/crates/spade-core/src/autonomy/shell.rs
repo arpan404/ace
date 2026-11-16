@@ -7,6 +7,7 @@
 //! `sudo`…). It is a best-effort layer in front of the reviewer, not containment (that is an OS
 //! sandbox's job): what it can't follow it sends to the person as unclear.
 
+mod apple;
 mod effects;
 mod make;
 mod options;
@@ -72,8 +73,9 @@ pub fn assess(command: &str, place: &dyn Place) -> Assessment {
 pub(super) struct Walk {
     pub shown: Vec<Shown>,
     pub credentials: bool,
-    /// The first kind found; a plain kind (publishing, the network…) is said over "unclear" or
-    /// "can't show", since it names what the command does.
+    /// The first kind found of the highest rank: a payment or a send as the person (theirs
+    /// alone to decide) over any other, and a plain kind (publishing, the network…) over
+    /// "unclear" or "can't show", since it names what the command does.
     pub sensitive: Option<Sensitive>,
     /// Real paths of the files that run.
     pub ran: Vec<PathBuf>,
@@ -117,9 +119,13 @@ impl Budget {
 
 impl Walk {
     pub(super) fn kind(&mut self, kind: Sensitive) {
-        let vague = |k: Sensitive| matches!(k, Sensitive::Unclear | Sensitive::UnseenScript);
+        let rank = |k: Sensitive| match k {
+            _ if k.persons().is_some() => 2,
+            Sensitive::Unclear | Sensitive::UnseenScript => 0,
+            _ => 1,
+        };
         match self.sensitive {
-            Some(found) if !vague(found) || vague(kind) => {}
+            Some(found) if rank(found) >= rank(kind) => {}
             _ => self.sensitive = Some(kind),
         }
     }

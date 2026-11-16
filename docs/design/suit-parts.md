@@ -213,6 +213,24 @@ The route each address shows is listed in `apps/web/src/app/route-page.ts`;
 `apps/web/src/features/suits/suit-pages-drift.test.tsx` walks every route and fails when its
 screen stops naming its page.
 
+## Spade
+
+A Spade conversation (docs/design/spade.md) reuses the parts above; these are where each one sits.
+
+| Part                         | Where                                                                                    | States                                                         | Variants                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `spade-message`              | A bubble: the person's, the bot's, Spade's or another bot's in a run, its files.         | `working` (being written), `failed`                            | `user`, `spade`, `bot`, `other`                                      |
+| `header-title`               | The pill floating at the top of a conversation: the face and name that open the profile. | `open` (a group's profile is open)                             | `spade-pill`                                                         |
+| `card`                       | A raised card waiting on the person: an open question or request.                        | `waiting`                                                      | `spade-question`, `spade-request`                                    |
+| `nav-item`                   | A bot's or group's row in Spade's list.                                                  | `active` (the open conversation)                               | `agent`, `group`                                                     |
+| `right-panel`                | A bot's profile, beside the conversation or over it in a narrow window.                  |                                                                | `spade-profile`                                                      |
+| `page-header` / `page-title` | The profile's head: the face, and the name.                                              |                                                                | `profile` (header)                                                   |
+| `segmented` / `segment`      | Details · Work · Library · Computer.                                                     | `selected` (segment)                                           | `profile` (segmented); the tab's name (segment)                      |
+| `panel-body`                 | The shown tab's content.                                                                 | `active`                                                       | the tab's name                                                       |
+| `page-section`               | A section of the profile (Apps, Routines, Activity, …).                                  |                                                                | `profile`                                                            |
+| `tabs` / `tab`               | The computer's views.                                                                    | `selected` (tab)                                               | `computer` (tabs); the view's kind (tab)                             |
+| `list` / `list-row`          | Activity and its rows; a connected app, a routine, a file or folder.                     | activity: `working`, `done`, `failed`; routine: `checked` (on) | activity: the entry's kind; `connector`, `routine`, `file`, `folder` |
+
 ## Settings, account and connection pages
 
 `apps/web/src/features/settings/settings-parts-drift.test.tsx` renders these pages with fake data
@@ -370,3 +388,7 @@ reduce-motion frame.
   Automations, Code review, Spade) and `rail-item`s set `data-state` as the selection moves;
   buttons and links in Settings carry `button` (with a variant) or `link`; `:not()`, `:is()` and
   `:where()` may test state attributes alone.
+- Version 1, 2026-11-15: Spade's messenger surfaces name their parts (see "Spade"): the pill is
+  `header-title` `spade-pill`, raised cards are `card` `waiting` (`spade-question`,
+  `spade-request`), and a bot's profile is `right-panel` `spade-profile` with its head, segments,
+  sections and rows.

@@ -1,5 +1,4 @@
 import type { SpadeStatus } from "@ace/protocol";
-import type { SpadeCallState } from "./fold.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 
 /*
@@ -134,28 +133,6 @@ export function spadeToolWords(name: string): ToolWords {
   if (known) return known;
   const plain = plainName(name);
   return { base: `use ${plain}`, doing: `Using ${plain}`, done: `Used ${plain}` };
-}
-
-/** A call's line in a reply: what it did, or why it didn't. */
-export function spadeCallLine(name: string, state: SpadeCallState): string {
-  const words = spadeToolWords(name);
-  switch (state) {
-    case "done":
-      return words.done;
-    case "failed":
-      return `Couldn't ${words.base}`;
-    case "declined":
-      return `You declined: ${words.base}`;
-    case "skipped":
-      return `Didn't ${words.base}`;
-    case "refused":
-      return `Not run: ${words.base}`;
-    case "waiting":
-      return `Waiting for you: ${words.base}`;
-    case "queued":
-    case "running":
-      return words.doing;
-  }
 }
 
 /** The approval's one sentence: "Spade wants to send an email." `who`: the bot asking. */

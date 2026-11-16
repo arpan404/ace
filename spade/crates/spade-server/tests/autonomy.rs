@@ -317,6 +317,36 @@ async fn sending_email_as_the_person_reaches_them_and_their_always_allow_still_h
 }
 
 #[tokio::test]
+async fn an_applescript_that_sends_an_imessage_reaches_the_person_without_a_review() -> Result {
+    let shell = shell();
+    let runs = calls_of(&shell);
+    let command = "osascript <<'APPLESCRIPT'\n\
+                   tell application \"Messages\"\n  \
+                   set targetChat to chat id \"any;-;+16013291450\"\n  \
+                   send \"hi from spade v2\" to targetChat\n\
+                   end tell\n\
+                   APPLESCRIPT";
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": command })),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
+            Script::reply("Sent."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(shell) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Text hi to my number").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
+    assert_eq!(ran(&runs), 0);
+    Ok(())
+}
+
+#[tokio::test]
 async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> Result {
     let publish =
         FakeTool::new("publish_page", Risk::Write, "Published").app("Site: Publishes a page");
@@ -406,8 +436,10 @@ async fn a_held_call_goes_to_the_person_when_the_reviewer_cant_be_reached() -> R
     spade.say(&conversation, "List the files").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
     let asked = first(&events, "approval_requested").ok_or("not asked")?;
-    let reason = asked["reviewer_reason"].as_str().unwrap_or("");
-    assert!(reason.starts_with("The review couldn't run"), "{reason}");
+    assert_eq!(
+        asked["reviewer_reason"],
+        "The reviewer couldn't be reached, so you decide."
+    );
     let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
     assert_eq!(verdict["verdict"], "escalate");
     assert_eq!(verdict["model"], support::UNREACHABLE_REVIEWER);
@@ -961,15 +993,46 @@ async fn reading_credentials_is_refused_for_reads_and_any_reader_without_a_revie
     Ok(())
 }
 
+/// A reasoning model's answer cut off by its token budget, mid-string.
+const CUT_SHORT: &str = r#"{"verdict":"approve","reason":"It only builds the proj"#;
+
 #[tokio::test]
-async fn a_reviewer_answer_that_does_not_parse_goes_to_the_person() -> Result {
+async fn a_reviewer_answer_cut_short_is_asked_for_again_and_its_second_answer_holds() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
     let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
-            // A verdict Spade's reviewer no longer gives.
+            Script::reply("").plain(CUT_SHORT),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Built."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(tool) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Build it").await?;
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "approval_requested"), 0, "{events:?}");
+    assert_eq!(ran(&commands), 1);
+    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    assert_eq!(verdict["verdict"], "allow");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reviewer_cut_short_twice_leaves_the_call_to_the_person_in_plain_words() -> Result {
+    let tool = shell();
+    let commands = calls_of(&tool);
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
+            Script::reply("").plain(CUT_SHORT),
+            // A verdict Spade's reviewer no longer gives doesn't parse either.
             Script::reply("").plain(r#"{"verdict":"escalate","reason":"Unsure."}"#),
+            // Only reached if it were asked a third time: it would approve.
+            Script::reply("").plain(APPROVE),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
@@ -978,8 +1041,12 @@ async fn a_reviewer_answer_that_does_not_parse_goes_to_the_person() -> Result {
     spade.say(&conversation, "Build it").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
     let asked = first(&events, "approval_requested").ok_or("not asked")?;
-    let reason = asked["reviewer_reason"].as_str().unwrap_or("");
-    assert!(reason.starts_with("The review couldn't run"), "{reason}");
+    let reason = "The reviewer couldn't decide on this, so you decide.";
+    assert_eq!(asked["reviewer_reason"], reason, "{events:?}");
+    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    assert_eq!(verdict["verdict"], "escalate");
+    assert_eq!(verdict["reason"], reason);
+    assert_eq!(spade.fake.seen().len(), 3, "the bot's step and two reviews");
     assert_eq!(ran(&commands), 0);
     Ok(())
 }

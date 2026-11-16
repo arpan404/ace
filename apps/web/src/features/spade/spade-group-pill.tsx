@@ -1,3 +1,4 @@
+import { part } from "@/lib/suit-part.ts";
 import { GroupFaces } from "./spade-group-faces.tsx";
 import { conversationPill } from "./spade-pill.tsx";
 import type { ShownMember } from "./use-spade-groups.ts";
@@ -19,6 +20,7 @@ export function GroupPill(props: {
       onClick={props.onToggle}
       aria-expanded={props.open}
       aria-label={`${props.name}: ${props.open ? "close" : "open"} its profile`}
+      {...part("header-title", props.open && "open", "spade-pill")}
       className={conversationPill}
     >
       <GroupFaces members={props.members} size={28} className="[--faces-cut:transparent]" />

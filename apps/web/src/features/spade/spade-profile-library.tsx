@@ -1,5 +1,5 @@
 import { formatAge } from "@ace/ui-core/time";
-import { FileIcon, FolderIcon, StackIcon } from "@phosphor-icons/react";
+import { FileIcon, FolderIcon, StackIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import { LibraryPage } from "./spade-library-page.tsx";
 import { LibraryPages } from "./spade-library-pages.tsx";
@@ -118,6 +119,7 @@ function Files(props: { bot: RosterBot; onOpen(files: FilesAt): void }) {
             key={entry.path}
             type="button"
             data-setting-slot=""
+            {...part("list-row", undefined, entry.kind)}
             onClick={() =>
               props.onOpen(
                 entry.kind === "folder" ? { folder: entry.path } : { folder: "", file: entry.path },

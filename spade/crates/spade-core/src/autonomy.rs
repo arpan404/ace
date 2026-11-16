@@ -275,6 +275,8 @@ pub struct Classed {
     pub shown: Vec<shell::Shown>,
     /// What it runs (a script, a package script) reads sign-ins or credentials.
     pub credentials: bool,
+    /// It will run in the bot's OS sandbox, which holds files and network here (ADR 0167).
+    pub contained: bool,
 }
 
 impl From<Class> for Classed {
@@ -283,6 +285,7 @@ impl From<Class> for Classed {
             class,
             shown: Vec::new(),
             credentials: false,
+            contained: false,
         }
     }
 }
@@ -304,6 +307,7 @@ pub fn classify_shell(arguments: &Value, place: &dyn shell::Place) -> Classed {
         class,
         shown: assessed.shown,
         credentials,
+        contained: false,
     }
 }
 
@@ -326,6 +330,17 @@ fn acts(name: &str, description: &str) -> bool {
         .iter()
         .chain(first.as_ref())
         .any(|w| ACTIONS.contains(&w.as_str()))
+}
+
+/// Why a tool can never be granted (ADR 0167 decision 5), from its name: a payment, sending as
+/// the person, or changing sign-ins, keys or access always goes to the person.
+pub fn never_granted(tool: &str) -> Option<&'static str> {
+    match words_say(tool, "") {
+        Some(kind @ (Sensitive::Payment | Sensitive::MessageAsPerson | Sensitive::Credentials)) => {
+            Some(kind.reason())
+        }
+        _ => None,
+    }
 }
 
 /// The sensitive kind a tool's name (split into words) names, else its description's first
@@ -651,6 +666,39 @@ pub struct Call {
     pub standing: bool,
     /// Its arguments fit the reviewer's prompt whole.
     pub fits: bool,
+    /// It runs in the bot's OS sandbox, which holds files and network on this machine
+    /// (ADR 0167).
+    pub contained: bool,
+    /// A grant of the bot's covers it (ADR 0167 decision 5).
+    pub granted: bool,
+}
+
+/// What the OS sandbox holds whatever the command does (ADR 0167 decision 8): nothing found, or
+/// a finding whose effect it stops (the network but through the proxy's policy, writes and
+/// deletes outside the folder and granted ones, other apps, code the classifier can't read).
+/// What could travel through an allowed path (publishing, a server change, mail, payments) and
+/// admin rights are still reviewed.
+fn sandbox_holds(class: Class) -> bool {
+    matches!(
+        class,
+        Class::Inside
+            | Class::Sensitive(
+                Sensitive::Network
+                    | Sensitive::WriteOutside
+                    | Sensitive::DeleteOutside
+                    | Sensitive::Automation
+                    | Sensitive::Unclear
+                    | Sensitive::UnseenScript
+            )
+    )
+}
+
+/// Kinds no grant covers: they always go to the person (ADR 0167 decision 5).
+fn never_covered(class: Class) -> bool {
+    matches!(
+        class,
+        Class::Sensitive(Sensitive::Payment | Sensitive::MessageAsPerson | Sensitive::Credentials)
+    )
 }
 
 pub fn route(call: Call) -> Route {
@@ -658,8 +706,20 @@ pub fn route(call: Call) -> Route {
     if call.credentials {
         return Route::Refuse(CREDENTIALS_REFUSED.to_owned());
     }
+    // A command the OS sandbox holds has no effect outside it to judge, untrusted content in
+    // view or not (ADR 0167 decision 8).
+    if call.contained && !call.standing && sandbox_holds(call.class) {
+        return Route::Run;
+    }
+    // What a grant covers runs unreviewed while nothing untrusted is in view; under taint it is
+    // reviewed, told of the grant (per-value provenance comes later, ADR 0167 decision 6).
+    let granted = call.granted && !call.standing && !never_covered(call.class);
+    if granted && !call.tainted {
+        return Route::Run;
+    }
     // What the reviewer must be told, if anything singles the call out.
     let concern = match call.class {
+        _ if granted => Some(GRANTED_TAINTED),
         Class::Sensitive(kind) => Some(kind.reason()),
         Class::Outward if call.tainted => Some(TAINTED_OUTWARD),
         _ if call.standing && call.tainted => Some(Sensitive::TaintedRoutine.reason()),
@@ -693,6 +753,8 @@ pub fn route(call: Call) -> Route {
 const SPENDS: &str = "It could spend money, so you decide.";
 const SENDS_AS_YOU: &str = "It sends something in your name, so you decide.";
 const TAINTED_OUTWARD: &str = "It acts outside the bot's folder after reading untrusted content.";
+const GRANTED_TAINTED: &str = "A grant of the person's covers it, but untrusted content is in view: check its arguments \
+     came from the person or the bot's own work, not from that content.";
 const TOO_LONG: &str = "It is too long for the reviewer to read whole, so you decide.";
 
 /// The longest arguments (as JSON) the reviewer reads; longer ones go to the person, since the
@@ -874,8 +936,41 @@ pub fn prompt(case: &Case<'_>) -> Prompt {
             // Whole: the reviewer must see everything that would run ([`fits_review`]).
             quoted(&case.arguments.to_string(), usize::MAX),
         ))
-        .max_tokens(300)
+        .max_tokens(REVIEW_TOKENS)
 }
+
+/// The most a reviewer may write. Its answer is a short JSON object, but a reasoning model
+/// spends this same budget on its thinking first, so it is sized to hold a careful think and
+/// the answer: a tight one cuts the JSON off mid-string. It bounds the cost; what is billed is
+/// what the model used.
+pub const REVIEW_TOKENS: u32 = 4_000;
+
+/// Whether a reviewer's failed answer is worth asking for once more: it answered but the
+/// judgment came back empty or cut short, or didn't parse. A failure to reach the reviewer (the
+/// endpoint, a key, the model) won't change on the spot.
+pub fn answer_again(error: &spade_models::ModelError) -> bool {
+    matches!(
+        error,
+        spade_models::ModelError::Shape { .. } | spade_models::ModelError::Empty { .. }
+    )
+}
+
+/// What the person is told when a review failed, in one plain sentence. The error itself, with
+/// its model and type names, is for the logs only.
+pub fn undecided(error: &spade_models::ModelError) -> &'static str {
+    use spade_models::ModelError as E;
+    match error {
+        E::Shape { .. } | E::Empty { .. } => UNDECIDED,
+        E::MissingKey { .. } => "The reviewer's endpoint needs a key, so you decide.",
+        E::UnknownModel(_) => "The reviewer's model isn't on your endpoints, so you decide.",
+        E::Listing { .. } | E::Setup(_) | E::Provider { .. } | E::Unanswered { .. } => {
+            "The reviewer couldn't be reached, so you decide."
+        }
+    }
+}
+
+/// The reviewer answered, but twice not with a judgment Spade could read.
+pub const UNDECIDED: &str = "The reviewer couldn't decide on this, so you decide.";
 
 /// Text as data inside a tag: cut short, and with nothing that could close the tag.
 fn quoted(text: &str, longest: usize) -> String {

@@ -174,6 +174,7 @@ function OpenCard(props: {
   if (!current) return null;
   return (
     <RaisedCard
+      asks="question"
       ref={card}
       role="group"
       aria-label={props.label}

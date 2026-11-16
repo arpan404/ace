@@ -1,5 +1,5 @@
 import { spadeQuoted } from "@ace/ui-core/spade-chat";
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { useToast } from "@/components/ui/toast.tsx";

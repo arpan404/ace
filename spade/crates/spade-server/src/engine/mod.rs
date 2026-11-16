@@ -22,6 +22,7 @@ mod helpers;
 mod inbox;
 mod index;
 mod jobs;
+mod judge;
 mod knowledge;
 mod knowledge_api;
 mod ledger;
@@ -41,6 +42,7 @@ pub mod roster;
 mod routines;
 mod routing;
 mod search;
+mod security;
 mod services;
 mod trim;
 mod turn;
@@ -199,6 +201,8 @@ pub struct Engine {
     wakes: wakes::Shared,
     /// Bots' owned services (ADR 0160), once the server has set them.
     services: std::sync::OnceLock<Arc<crate::services::Services>>,
+    /// Bots' sandbox, network policies and grants (ADR 0167), once the server has set them.
+    security: std::sync::OnceLock<Arc<crate::security::Security>>,
     /// Bots' workers: the tree, its reports and its grants (ADR 0161, `workers`).
     workers: workers::Shared,
     /// Digests' timer and the notice stream (ADR 0165, `digests`).
@@ -302,6 +306,7 @@ impl Engine {
             helpers: helpers::Shared::default(),
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
+            security: std::sync::OnceLock::new(),
             workers: workers::Shared::default(),
             digests: digests::Shared::default(),
             #[cfg(feature = "test-hooks")]
@@ -1037,8 +1042,11 @@ impl Engine {
         let pause_rx = self.turn_pause(id, &live);
         let engine = self.clone();
         let id = id.to_owned();
-        let worker =
-            tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
+        let worker = tokio::spawn(async move {
+            // Never while the bot's workspace is being restored (ADR 0167).
+            engine.maintenance_wait(&id).await;
+            turn::run(engine, id, reply, stop_rx, pause_rx).await
+        });
         *live.worker.lock().unwrap_or_else(|p| p.into_inner()) = Some(worker.abort_handle());
     }
 }

@@ -132,6 +132,7 @@ impl Services {
                             tee: Some(tee),
                             cleanup: None,
                             stdin: None,
+                            kind: crate::workspace::shell::Kind::Command,
                         },
                     )
                     .await;
@@ -189,6 +190,14 @@ impl Services {
         for gone in all {
             gone.task.abort();
         }
+    }
+
+    /// How many services of `conversation` run now.
+    pub fn running_of(&self, conversation: &str) -> usize {
+        lock(&self.running)
+            .values()
+            .filter(|r| r.conversation == conversation)
+            .count()
     }
 
     pub fn is_running(&self, service: &str) -> bool {

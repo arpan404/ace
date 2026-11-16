@@ -281,6 +281,13 @@ impl Engine {
             self.forget_activity(&conversation);
             deleted
         };
+        // Its network policies, grants, egress log and checkpoints go with it (ADR 0167).
+        if matches!(deleted, Ok(true))
+            && let Some(security) = self.security()
+        {
+            let (security, id) = (security.clone(), id.to_owned());
+            let _ = tokio::task::spawn_blocking(move || security.forget(&id)).await;
+        }
         self.live
             .lock()
             .unwrap_or_else(|p| p.into_inner())

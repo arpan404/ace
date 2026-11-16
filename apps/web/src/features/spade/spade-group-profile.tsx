@@ -1,6 +1,6 @@
 import { spadeGroupMembersMax, spadeGroupMembersMin } from "@ace/ui-core/spade-chat";
 import { formatAge } from "@ace/ui-core/time";
-import { CaretLeftIcon, XIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, XIcon } from "@ace/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";

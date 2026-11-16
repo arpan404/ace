@@ -104,7 +104,9 @@ test("once a reply ends its steps leave no line in the chat, only its words", as
   });
   const chat = within(await feed("Garden"));
   await chat.findByText("The beds are fine.");
-  expect(chat.queryByText(/Ran \d+ commands|wrote a file|Steps/i)).toBeNull();
+  expect(
+    chat.queryByText(/Ran \d+ commands|wrote a file|Steps|not run|Always allowed/i),
+  ).toBeNull();
   expect(chat.queryByRole("list", { name: "Steps" })).toBeNull();
   // Tool arguments never show in the chat itself.
   expect(chat.queryByText(/ls beds|plan\.md/)).toBeNull();

@@ -14,6 +14,7 @@ pub mod event;
 pub mod face;
 pub mod gate;
 pub mod goal;
+pub mod grant;
 pub mod group;
 pub mod helper;
 pub mod hooks;

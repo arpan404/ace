@@ -67,6 +67,16 @@ pub enum Commands {
     Terminal(Arc<crate::computer::Terminals>),
 }
 
+impl Commands {
+    /// Whether a command with home `home` runs contained in the bot's OS sandbox (ADR 0167).
+    fn contains(&self, home: &std::path::Path) -> bool {
+        match self {
+            Self::OneShot(shell) => shell.contains(home),
+            Self::Terminal(terminals) => terminals.contains(home),
+        }
+    }
+}
+
 impl From<Shell> for Commands {
     fn from(shell: Shell) -> Self {
         Self::OneShot(shell)
@@ -422,9 +432,12 @@ impl Tool for ShellTool {
              Windows) and answers its output. Stops it after timeout_s seconds (60 unless given; \
              give a longer one for long builds and test runs, as long as the work needs). A \
              command still running after 30 seconds moves to the background: the call answers \
-             at once with its job id and the output arrives later as a <job_result>. The person \
-             is asked before every command they have not allowed always. To read files, use \
-             workspace_read and workspace_search instead.",
+             at once with its job id and the output arrives later as a <job_result>. Where \
+             Spade's sandbox holds commands, they run without a review: they can write only in \
+             your folder and folders the person granted, can't read the person's files or \
+             sign-ins, and reach the network only through hosts your network policy allows \
+             (a refused host answers 403 from Spade's proxy). Elsewhere each command is \
+             reviewed. To read files, use workspace_read and workspace_search instead.",
             json!({ "type": "object",
                     "properties": { "command": { "type": "string" },
                                     "timeout_s": { "type": "integer", "minimum": 1 } },
@@ -462,13 +475,16 @@ impl Tool for ShellTool {
             Commands::OneShot(_) => None,
         }
         .unwrap_or_else(|| workspace.clone());
-        match super::place::FsPlace::new(start, &workspace) {
+        let mut classed = match super::place::FsPlace::new(start, &workspace) {
             Some(place) => spade_core::autonomy::classify_shell(arguments, &place),
             None => spade_core::autonomy::classify_shell(
                 arguments,
                 &spade_core::autonomy::shell::Lexical,
             ),
-        }
+        };
+        // Its home is the workspace whatever folder it starts in, so the bot's sandbox holds it.
+        classed.contained = self.shell.contains(&workspace);
+        classed
     }
 
     /// "Always" allows this exact command, nothing like it.

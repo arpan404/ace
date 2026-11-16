@@ -6,7 +6,7 @@ import {
   UserPlusIcon,
   UsersThreeIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";

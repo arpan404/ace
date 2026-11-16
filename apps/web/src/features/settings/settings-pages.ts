@@ -13,7 +13,7 @@ import {
   NotePencilIcon,
   KeyboardIcon,
   PaletteIcon,
-  SquaresFourIcon,
+  AppWindowIcon,
   TerminalWindowIcon,
   UserCircleIcon,
   WrenchIcon,
@@ -101,7 +101,7 @@ function spadePages(): SettingsPage[] {
     {
       to: "/settings/spade/apps",
       title: "Apps",
-      icon: SquaresFourIcon,
+      icon: AppWindowIcon,
       group: "machine",
       section: spade(),
     },

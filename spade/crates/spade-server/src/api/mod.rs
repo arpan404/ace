@@ -20,6 +20,7 @@ mod recipes;
 mod routines;
 mod routing;
 mod search;
+mod security;
 mod skills;
 mod teams;
 mod wakes;
@@ -157,6 +158,7 @@ pub fn router(state: AppState) -> Router {
         .merge(knowledge::routes())
         .merge(oversight::routes())
         .merge(routing::routes())
+        .merge(security::routes())
         .merge(workspace::routes())
         .merge(skills::routes())
         .merge(computer::routes())

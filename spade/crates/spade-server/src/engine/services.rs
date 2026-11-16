@@ -27,6 +27,12 @@ impl Engine {
         self.services.get()
     }
 
+    /// How many of `conversation`'s services run now.
+    pub(crate) fn services_running(&self, conversation: &str) -> usize {
+        self.services()
+            .map_or(0, |services| services.running_of(conversation))
+    }
+
     /// Starts service `name` running `command` in `cwd` for tool call `key`
     /// (`conversation.call`); its id. Refused once the person stopped the reply or job that made
     /// the call: admitted and stored under the record lock Stop stores its marker under, so a

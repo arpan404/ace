@@ -126,6 +126,11 @@ impl Terminals {
         self
     }
 
+    /// Whether a bot command with home `home` runs contained in the OS sandbox here (ADR 0167).
+    pub fn contains(&self, home: &Path) -> bool {
+        self.shell.contains(home)
+    }
+
     /// Who hears that a terminal started, ended or ran something.
     pub fn on_change(&self, changed: Changed) {
         *lock(&self.changed) = Some(changed);
@@ -813,6 +818,9 @@ impl Terminal {
                     tee: Some(tee),
                     cleanup: Some(cleanup),
                     stdin: None,
+                    kind: crate::workspace::shell::Kind::Terminal {
+                        scratch: self.scratch.clone(),
+                    },
                 },
             )
             .await;

@@ -3,11 +3,8 @@ import {
   emptySpadeConversation,
   foldSpade,
   parseSpadeLiveFrame,
-  parseSpadeStored,
   spadeBubbles,
-  spadeHelperSteps,
   spadeView,
-  type SpadeStored,
 } from "./index.ts";
 
 function conversation() {
@@ -93,29 +90,4 @@ describe("a helper in its bot's conversation", () => {
     expect(c.view().approvals).toEqual([]);
     expect(helperLines(c)).toEqual(["Helper found: Sent."]);
   });
-});
-
-test("a helper's steps read as its words and a line per call", () => {
-  const events: SpadeStored[] = [
-    { type: "user_message", text: "Read the build log" },
-    { type: "reply_started", reply: "r1" },
-    {
-      type: "step_finished",
-      reply: "r1",
-      text: "Looking.",
-      calls: [{ id: "c1", name: "web_fetch", arguments: { url: "https://ci.example" } }],
-    },
-    { type: "tool_started", reply: "r1", call_id: "c1", name: "web_fetch" },
-    { type: "tool_finished", reply: "r1", call_id: "c1", name: "web_fetch", content: "log" },
-    { type: "step_finished", reply: "r1", text: "Step 3 failed." },
-    { type: "reply_finished", reply: "r1", text: "Step 3 failed." },
-  ].flatMap((event, index) => {
-    const parsed = parseSpadeStored({ seq: index + 1, at: index, event });
-    return parsed ? [parsed] : [];
-  });
-  expect(spadeHelperSteps(events).map((step) => `${step.kind}: ${step.text}`)).toEqual([
-    "text: Looking.",
-    "call: Read a web page",
-    "text: Step 3 failed.",
-  ]);
 });

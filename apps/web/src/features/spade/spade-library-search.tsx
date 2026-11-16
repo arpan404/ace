@@ -1,4 +1,4 @@
-import { FileIcon, FolderIcon, MagnifyingGlassIcon, StackIcon, XIcon } from "@phosphor-icons/react";
+import { FileIcon, FolderIcon, MagnifyingGlassIcon, StackIcon, XIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";

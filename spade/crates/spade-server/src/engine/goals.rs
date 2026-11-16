@@ -124,8 +124,9 @@ impl Engine {
                 }
                 Ok(Err(error)) => {
                     let cost = admitted.settle_if(error.usage());
-                    let why = format!("The check couldn't run: {error}");
-                    verify::unchecked(&task, claim, &why, &model, cost)
+                    // The error names models and types: for the logs, not the person.
+                    tracing::warn!(%error, conversation = id, "the check of done failed");
+                    verify::unchecked(&task, claim, "The check couldn't run.", &model, cost)
                 }
                 Err(_) => verify::unchecked(&task, claim, "The check took too long.", &model, 0),
             }

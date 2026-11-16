@@ -251,7 +251,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[]; p
     </div>
   );
   return (
-    <Screen title="">
+    <Screen page="spade" title="">
       <div className="relative flex h-full min-h-0">
         <div
           className={cn("min-w-0 flex-1", shown && covering && "invisible")}

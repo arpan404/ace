@@ -5,8 +5,13 @@
 //! and a `PATH` of system folders only, a deadline, and capped output. Whatever it started is
 //! killed when the run ends, however it ends (finished, timed out, or the call dropped), and the
 //! output readers go with it.
+//!
+//! When the shell has a [`Confine`] (ADR 0167), a command whose home is a bot's workspace runs in
+//! that bot's OS sandbox, with its traffic sent through the egress proxy. Where the machine has a
+//! sandbox and a run can't be confined, it doesn't run.
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -42,6 +47,61 @@ pub struct Job<'a> {
     /// Written to the command's stdin, which is then closed (a plugin hook's event, ADR 0151).
     /// `None` leaves stdin empty.
     pub stdin: Option<Vec<u8>>,
+    /// Whose run it is, for the sandbox: a bot's command, or a plugin's.
+    pub kind: Kind,
+}
+
+/// Whose a sandboxed run is (ADR 0167): its network policy and what else it may read follow.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Kind {
+    /// The bot's own one-shot command or service: the bot's network policy.
+    #[default]
+    Command,
+    /// A command in the bot's terminal: as [`Kind::Command`], also writing its state files in
+    /// `scratch` (Spade's folder, outside the workspace).
+    Terminal { scratch: PathBuf },
+    /// A plugin's hook or server: it may also read its plugin's folder; its network is the bot's
+    /// plugin policy (open by default: the person installed it).
+    Plugin { root: PathBuf },
+}
+
+/// The OS sandbox a bot's runs go through (ADR 0167), set by the server.
+pub trait Confine: Send + Sync {
+    /// How to run a command whose home is `home`: `Ok(None)` when no sandbox applies (not a bot's
+    /// workspace, or none on this machine), `Err` when one should but can't, so it never runs
+    /// unconfined.
+    fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String>;
+
+    /// Whether a bot command with home `home` runs contained (files and network) on this machine.
+    fn contains(&self, home: &Path) -> bool;
+
+    /// Blocking work to do before a run of `kind` with home `home` starts (a checkpoint of the
+    /// workspace, ADR 0167 decision 8); `None` when there is none.
+    /// Its error means the run must not start.
+    fn before(
+        &self,
+        _home: &Path,
+        _kind: &Kind,
+    ) -> Option<Box<dyn FnOnce() -> Result<(), String> + Send>> {
+        None
+    }
+}
+
+/// Wraps `program args` in a run's sandbox: the program and arguments to start instead.
+pub type Launcher =
+    Box<dyn Fn(&Path, &[OsString]) -> Result<(PathBuf, Vec<OsString>), String> + Send>;
+
+/// One run's sandbox: how to start it, what to add to its environment, and what to hold while
+/// it runs (its proxy ticket).
+pub struct Confined {
+    /// Wraps `program args` in the sandbox.
+    pub launch: Launcher,
+    /// Set after everything else.
+    pub env: Vec<(String, String)>,
+    /// Folders put before the system ones on `PATH` (the bot's confirmed toolchains).
+    pub path_first: Vec<String>,
+    /// The run's proxy access, ended when the run is.
+    pub hold: Box<dyn std::any::Any + Send + Sync>,
 }
 
 /// The ends of a command's processes, as they happen: each recorded before it runs and settled
@@ -112,6 +172,8 @@ pub struct Ran {
 #[derive(Clone)]
 pub struct Shell {
     env: Env,
+    /// The sandbox, when the server set one.
+    confine: Option<Arc<dyn Confine>>,
     /// How long ending a command's processes waits before it starts (zero but in tests, which
     /// stand in for a machine too loaded to end them at once).
     end_delay: Duration,
@@ -123,8 +185,31 @@ impl Shell {
     pub fn new(env: Env) -> Self {
         Self {
             env,
+            confine: None,
             end_delay: Duration::ZERO,
         }
+    }
+
+    /// The same shell, running bots' commands in `confine`'s sandbox.
+    pub fn confined(mut self, confine: Arc<dyn Confine>) -> Self {
+        self.confine = Some(confine);
+        self
+    }
+
+    /// How a run of `kind` with home `home` is confined, for a process this shell doesn't start
+    /// itself (a plugin's server): as [`Confine::confine`].
+    pub fn confine(&self, home: &Path, kind: &Kind) -> Result<Option<Confined>, String> {
+        match &self.confine {
+            Some(confine) => confine.confine(home, kind),
+            None => Ok(None),
+        }
+    }
+
+    /// Whether a bot command with home `home` runs contained (files and network) here.
+    pub fn contains(&self, home: &Path) -> bool {
+        self.confine
+            .as_ref()
+            .is_some_and(|confine| confine.contains(home))
     }
 
     /// Makes every end of a command's processes wait `delay` first: for tests of what happens
@@ -178,6 +263,7 @@ impl Shell {
             tee: None,
             cleanup: None,
             stdin: None,
+            kind: Kind::Command,
         })
         .await
     }
@@ -194,11 +280,45 @@ impl Shell {
         let mark = uuid::Uuid::new_v4().simple().to_string();
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
-        let mut child = platform::command(&self.env, command)
+        let confined = match &self.confine {
+            Some(confine) => {
+                if let Some(work) = confine.before(home, &job.kind) {
+                    match tokio::task::spawn_blocking(work).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(why)) => return Err(format!("The command didn't run: {why}.")),
+                        Err(_) => {
+                            return Err("The command didn't run: its checkpoint failed.".to_owned());
+                        }
+                    }
+                }
+                confine.confine(home, &job.kind)?
+            }
+            None => None,
+        };
+        let mut environment = self.environment(home);
+        let mut shell = match &confined {
+            None => platform::command(&self.env, command),
+            Some(confined) => {
+                let (program, args) = platform::shell_args(&self.env, command);
+                let (program, args) = (confined.launch)(&program, &args)?;
+                if !confined.path_first.is_empty()
+                    && let Some((_, path)) = environment.iter_mut().find(|(n, _)| n == "PATH")
+                {
+                    *path = format!(
+                        "{}{}{path}",
+                        confined.path_first.join(platform::PATH_SEP),
+                        platform::PATH_SEP
+                    );
+                }
+                platform::wrapped(program, args)
+            }
+        };
+        let mut child = shell
             .current_dir(dir)
             .env_clear()
-            .envs(self.environment(home))
+            .envs(environment)
             .envs(job.env.iter().cloned())
+            .envs(confined.iter().flat_map(|c| c.env.iter().cloned()))
             .env(platform::MARK, &mark)
             .stdin(if job.stdin.is_some() {
                 Stdio::piped()
@@ -251,6 +371,8 @@ impl Shell {
         // Whatever it left running in the background goes now, before the pipes are drained.
         let settled = contained.kill().await && settled;
         let pipes_closed = readers.finish(DRAIN).await;
+        // The run's proxy access ends with it.
+        drop(confined);
         let (stdout, out_cut) = stdout.map(|o| o.take()).unwrap_or_default();
         let (stderr, err_cut) = stderr.map(|o| o.take()).unwrap_or_default();
         Ok(Ran {
@@ -358,6 +480,23 @@ mod platform {
     pub(super) fn command(_env: &super::Env, command: &str) -> Command {
         let mut shell = Command::new("/bin/sh");
         shell.arg("-c").arg(command).process_group(0);
+        shell
+    }
+
+    pub(super) const PATH_SEP: &str = ":";
+
+    /// The shell and its arguments for `command`, for a sandbox to wrap.
+    pub(super) fn shell_args(
+        _env: &super::Env,
+        command: &str,
+    ) -> (std::path::PathBuf, Vec<std::ffi::OsString>) {
+        ("/bin/sh".into(), vec!["-c".into(), command.into()])
+    }
+
+    /// The sandbox's launch, in its own process group like any command.
+    pub(super) fn wrapped(program: std::path::PathBuf, args: Vec<std::ffi::OsString>) -> Command {
+        let mut shell = Command::new(program);
+        shell.args(args).process_group(0);
         shell
     }
 
@@ -494,6 +633,30 @@ mod platform {
             .args(["/D", "/S", "/C"])
             .raw_arg(format!("\"{command}\""))
             .creation_flags(CREATE_NEW_PROCESS_GROUP);
+        shell
+    }
+
+    pub(super) const PATH_SEP: &str = ";";
+
+    /// Windows has no sandbox yet (ADR 0167): nothing is ever wrapped, but the shape matches.
+    pub(super) fn shell_args(
+        env: &super::Env,
+        command: &str,
+    ) -> (std::path::PathBuf, Vec<std::ffi::OsString>) {
+        (
+            format!("{}\\System32\\cmd.exe", system_root(env)).into(),
+            vec![
+                "/D".into(),
+                "/S".into(),
+                "/C".into(),
+                format!("\"{command}\"").into(),
+            ],
+        )
+    }
+
+    pub(super) fn wrapped(program: std::path::PathBuf, args: Vec<std::ffi::OsString>) -> Command {
+        let mut shell = Command::new(program);
+        shell.args(args).creation_flags(CREATE_NEW_PROCESS_GROUP);
         shell
     }
 

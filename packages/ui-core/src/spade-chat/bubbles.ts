@@ -11,7 +11,6 @@ import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 import type { SpadeQuiet } from "./quiet.ts";
-import { spadeCallLine } from "./words.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
@@ -76,16 +75,6 @@ type SpadeBubbleOf =
   | { kind: "search-setup"; key: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
   | { kind: "quiet"; key: string; quiet: SpadeQuiet }
-  /**
-   * A reply's steps folded into one line under its words, shown when the auto-review refused
-   * one (ADR 0163): "2 steps, 1 not run", opening to each step, a refusal with its reason.
-   */
-  | {
-      kind: "steps";
-      key: string;
-      label: string;
-      steps: readonly { key: string; text: string; refused: boolean }[];
-    }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /**
@@ -121,9 +110,7 @@ type SpadeBubbleOf =
       reason: string | undefined;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
-      state: "open" | "allowed" | "denied" | "closed";
-      /** Allowed always. */
-      always: boolean;
+      state: "open";
     };
 
 /** Why a reply failed, as its bubble says it. */
@@ -161,7 +148,9 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const shown = new Set<string>();
   const ask = (request: SpadeRequest, key: string, at: number | undefined) => {
     shown.add(request.callId);
-    bubbles.push({ ...askBubble(request, key, open.get(request.callId)), ...stamp(at) });
+    // Only a request still waiting on the person shows; once answered or closed it is finished.
+    const waiting = open.get(request.callId);
+    if (waiting) bubbles.push({ ...askBubble(request, key, waiting), ...stamp(at) });
   };
   for (const entry of view.entries) {
     if (entry.kind === "request") {
@@ -297,11 +286,11 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
 /** `at` as a bubble carries it: absent when unknown. */
 const stamp = (at: number | undefined): { at?: number } => (at === undefined ? {} : { at });
 
-/** A request's bubble: open while Spade still waits on it, with the newest reason it has. */
+/** A request's card: only one still waiting on the person shows, with the newest reason it has. */
 function askBubble(
   request: SpadeRequest,
   key: string,
-  waiting: SpadeApproval | undefined,
+  waiting: SpadeApproval,
 ): Extract<SpadeBubble, { kind: "ask" }> {
   return {
     kind: "ask",
@@ -309,10 +298,9 @@ function askBubble(
     callId: request.callId,
     name: request.name,
     arguments: request.arguments,
-    reason: waiting?.reason ?? request.reason,
-    helper: waiting?.helper ?? request.helper,
-    state: waiting ? "open" : (request.answer ?? "closed"),
-    always: request.always,
+    reason: waiting.reason ?? request.reason,
+    helper: waiting.helper ?? request.helper,
+    state: "open",
   };
 }
 
@@ -385,8 +373,6 @@ function replyBubbles(
     } else if (part.kind === "files") {
       hold(held, part.key, part.paths);
     } else if (part.kind === "request") {
-      // Answered in a reply that has ended, it is part of the work, not a bubble.
-      if (entry.end !== undefined && part.answer !== undefined) continue;
       ask(part, `${entry.key}:${part.key}`, entry.startedAt);
     }
   }
@@ -418,37 +404,9 @@ function replyBubbles(
     if (tail()) attach();
     else say("", false);
   }
-  const steps = refusedSteps(entry);
-  if (steps) bubbles.push(steps);
   // Under the finished reply, so it sits below the bot's own words about it.
   const setup = entry.parts.find((part) => part.kind === "search-setup");
   if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
-}
-
-/**
- * A reply's steps as one folded line, when the auto-review refused any: the refusals are what
- * the person should be able to find, so only then do its steps show. Undefined otherwise.
- */
-const steps = (n: number) => `${n} step${n === 1 ? "" : "s"}`;
-
-function refusedSteps(entry: SpadeReplyEntry): Extract<SpadeBubble, { kind: "steps" }> | undefined {
-  const calls = entry.parts.filter((part) => part.kind === "call");
-  const refused = calls.filter((call) => call.state === "refused").length;
-  if (!refused) return undefined;
-  const ran = calls.length - refused;
-  return {
-    kind: "steps",
-    key: `${entry.key}:steps`,
-    label: ran ? `${steps(ran)}, ${refused} not run` : `${steps(refused)} not run`,
-    steps: calls.map((call) => ({
-      key: call.key,
-      text:
-        call.state === "refused" && call.reason
-          ? `${spadeCallLine(call.name, call.state)} · ${call.reason}`
-          : spadeCallLine(call.name, call.state),
-      refused: call.state === "refused",
-    })),
-  };
 }
 
 interface Held {

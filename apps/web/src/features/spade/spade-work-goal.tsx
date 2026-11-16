@@ -13,7 +13,7 @@ import {
   HandIcon,
   PlusIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
