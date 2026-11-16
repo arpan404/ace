@@ -1,0 +1,96 @@
+import type {
+  MarketReportRequest,
+  MarketReportsBody,
+  ReportResolution,
+} from "@ace/protocol/marketplace";
+import type { z } from "zod";
+
+/*
+ * Anonymous abuse reports (ADR 0173 §7): the entry, the reason and the words, and nothing about
+ * who sent them. An entry holds at most 500 open ones.
+ */
+
+export const openReportsPerEntry = 500;
+
+export type Filed = "filed" | "missing" | "full";
+
+export async function fileReport(
+  db: D1Database,
+  report: MarketReportRequest,
+  id: string,
+  now: number,
+): Promise<Filed> {
+  const result = await db
+    .prepare(
+      `INSERT INTO reports (id, type, name, version, reason, note, at)
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+        WHERE EXISTS (SELECT 1 FROM entries WHERE type = ?2 AND name = ?3)
+          AND (SELECT COUNT(*) FROM reports WHERE type = ?2 AND name = ?3 AND state = 'open') < ?8`,
+    )
+    .bind(
+      id,
+      report.type,
+      report.name,
+      report.version ?? null,
+      report.reason,
+      report.note,
+      now,
+      openReportsPerEntry,
+    )
+    .run();
+  if (result.meta.changes === 1) return "filed";
+  const entry = await db
+    .prepare("SELECT 1 AS found FROM entries WHERE type = ?1 AND name = ?2")
+    .bind(report.type, report.name)
+    .first();
+  return entry ? "full" : "missing";
+}
+
+type Row = MarketReportsBody["reports"][number];
+
+/** Open reports first, then newest first. */
+export async function listReports(db: D1Database): Promise<Row[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, type, name, version, reason, note, at, state, outcome FROM reports
+        ORDER BY state = 'open' DESC, at DESC LIMIT 500`,
+    )
+    .all<{
+      id: string;
+      type: Row["type"];
+      name: string;
+      version: string | null;
+      reason: Row["reason"];
+      note: string;
+      at: number;
+      state: Row["state"];
+      outcome: string | null;
+    }>();
+  return results.map((row) => {
+    const report: Row = {
+      id: row.id,
+      type: row.type,
+      name: row.name,
+      reason: row.reason,
+      note: row.note,
+      at: row.at,
+      state: row.state,
+    };
+    if (row.version) report.version = row.version;
+    if (row.outcome) report.outcome = row.outcome;
+    return report;
+  });
+}
+
+export async function resolveReport(
+  db: D1Database,
+  id: string,
+  resolution: z.infer<typeof ReportResolution>,
+  now: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE reports SET state = ?2, outcome = ?3, resolved = ?4 WHERE id = ?1")
+    .bind(id, resolution.state, resolution.note ?? null, now)
+    .run();
+  return result.meta.changes === 1;
+}

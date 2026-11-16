@@ -18,27 +18,32 @@ interface PendingRow {
   published: number;
   publisher_id: string;
   publisher_name: string;
+  approved: number;
 }
 
 export async function pendingVersions(db: D1Database): Promise<PendingVersion[]> {
   const { results } = await db
     .prepare(
-      `SELECT v.type, v.name, v.version, v.hash, v.size, v.published,
+      `SELECT v.type, v.name, v.version, v.hash, v.size, v.published, v.approved,
           p.id AS publisher_id, p.name AS publisher_name
         FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
         JOIN publishers p ON p.id = e.publisher
-        WHERE v.listed = 0 ORDER BY v.published LIMIT 500`,
+        WHERE v.state = 'pending' AND v.listed = 0 ORDER BY v.published LIMIT 500`,
     )
     .all<PendingRow>();
-  return results.map((row) => ({
-    type: row.type,
-    name: row.name,
-    version: row.version,
-    hash: row.hash,
-    size: row.size,
-    published: row.published,
-    publisher: { id: row.publisher_id, name: row.publisher_name },
-  }));
+  return results.map((row) => {
+    const pending: PendingVersion = {
+      type: row.type,
+      name: row.name,
+      version: row.version,
+      hash: row.hash,
+      size: row.size,
+      published: row.published,
+      publisher: { id: row.publisher_id, name: row.publisher_name },
+    };
+    if (row.approved === 1) pending.approved = true;
+    return pending;
+  });
 }
 
 export async function pendingWithdrawals(db: D1Database): Promise<PendingWithdrawal[]> {
@@ -54,20 +59,27 @@ export async function pendingWithdrawals(db: D1Database): Promise<PendingWithdra
 export async function versionForSigning(
   db: D1Database,
   key: { type: string; name: string; version: string },
-): Promise<{ hash: string; size: number; publisher: MarketPublisher } | undefined> {
+): Promise<{ hash: string; size: number; state: string; publisher: MarketPublisher } | undefined> {
   const row = await db
     .prepare(
-      `SELECT v.hash, v.size, p.id AS publisher_id, p.name AS publisher_name
+      `SELECT v.hash, v.size, v.state, p.id AS publisher_id, p.name AS publisher_name
         FROM versions v JOIN entries e ON e.type = v.type AND e.name = v.name
         JOIN publishers p ON p.id = e.publisher
         WHERE v.type = ?1 AND v.name = ?2 AND v.version = ?3`,
     )
     .bind(key.type, key.name, key.version)
-    .first<{ hash: string; size: number; publisher_id: string; publisher_name: string }>();
+    .first<{
+      hash: string;
+      size: number;
+      state: string;
+      publisher_id: string;
+      publisher_name: string;
+    }>();
   return row
     ? {
         hash: row.hash,
         size: row.size,
+        state: row.state,
         publisher: { id: row.publisher_id, name: row.publisher_name },
       }
     : undefined;
@@ -83,11 +95,30 @@ export async function hashIsStored(db: D1Database, hash: string): Promise<boolea
 
 type Key = { type: string; name: string; version: string };
 
+/**
+ * Lists a signed version. The first time it goes live its publisher's count of live versions
+ * moves (ADR 0173 §9) and its entry's first listing is set, in the same batch.
+ */
 export async function listVersion(db: D1Database, key: Key, manifest: string, now: number) {
+  const unlisted = `EXISTS (SELECT 1 FROM versions WHERE type = ?1 AND name = ?2 AND version = ?3
+    AND listed = 0)`;
   await db.batch([
     db
       .prepare(
-        "UPDATE versions SET listed = 1, manifest = ?4 WHERE type = ?1 AND name = ?2 AND version = ?3",
+        `UPDATE publishers SET live_versions = live_versions + 1
+          WHERE id = (SELECT publisher FROM entries WHERE type = ?1 AND name = ?2) AND ${unlisted}`,
+      )
+      .bind(key.type, key.name, key.version),
+    db
+      .prepare(
+        `UPDATE entries SET first_listed = COALESCE(first_listed, ?4)
+          WHERE type = ?1 AND name = ?2 AND ${unlisted}`,
+      )
+      .bind(key.type, key.name, key.version, now),
+    db
+      .prepare(
+        `UPDATE versions SET listed = 1, state = 'listed', manifest = ?4
+          WHERE type = ?1 AND name = ?2 AND version = ?3`,
       )
       .bind(key.type, key.name, key.version, manifest),
     bumpGeneration(db, key.type, key.name),

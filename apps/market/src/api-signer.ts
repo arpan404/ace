@@ -16,6 +16,7 @@ import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
 import type { Route, VersionKey } from "./routes.ts";
 import { withdrawnList } from "./store/read.ts";
+import { signedList } from "./store/lists.ts";
 import {
   hashIsStored,
   listVersion,
@@ -35,14 +36,14 @@ import {
  * Worker checks against the market's public keys before anything is listed.
  */
 
-async function signerAllowed(request: Request, context: Context): Promise<boolean> {
+export async function signerAllowed(request: Request, context: Context): Promise<boolean> {
   const expected = context.env.MARKET_SIGNER_TOKEN;
   const given = bearer(request);
   if (!expected || !given) return false;
   return sameSecret(given, expected);
 }
 
-function marketKeys(context: Context): MarketKeySet | undefined {
+export function marketKeys(context: Context): MarketKeySet | undefined {
   try {
     return MarketKeySet.safeParse(JSON.parse(context.env.MARKET_PUBLIC_KEYS ?? "")).data;
   } catch {
@@ -50,9 +51,10 @@ function marketKeys(context: Context): MarketKeySet | undefined {
   }
 }
 
-const malformed = () => failure(400, "invalid", "That upload isn't in the signer's form.");
-const noKeys = () => failure(503, "unavailable", "The market has no public keys configured.");
-const signatureRefused = (error: unknown) => {
+export const malformed = () => failure(400, "invalid", "That upload isn't in the signer's form.");
+export const noKeys = () =>
+  failure(503, "unavailable", "The market has no public keys configured.");
+export const signatureRefused = (error: unknown) => {
   if (error instanceof SignatureError) return refused([{ message: error.message }]);
   throw error;
 };
@@ -68,12 +70,23 @@ export async function signerRoute(
   const db = context.env.MARKET;
   switch (route.kind) {
     case "signer-pending": {
-      const [versions, withdrawals, list] = await Promise.all([
+      // Only versions waiting for the signer: held and blocked ones wait for a maintainer.
+      const [versions, withdrawals, list, blocklist, verified, official] = await Promise.all([
         pendingVersions(db),
         pendingWithdrawals(db),
         withdrawnList(db),
+        signedList(db, "blocklist"),
+        signedList(db, "verified"),
+        signedList(db, "official"),
       ]);
-      return json({ versions, withdrawals, ...(list ? { withdrawn: list.signed } : {}) });
+      return json({
+        versions,
+        withdrawals,
+        ...(list ? { withdrawn: list.signed } : {}),
+        ...(blocklist ? { blocklist: blocklist.signed } : {}),
+        ...(verified ? { verified: verified.signed } : {}),
+        ...(official ? { official: official.signed } : {}),
+      });
     }
     case "signer-object": {
       if (!(await hashIsStored(db, route.hash))) return notFound();
@@ -131,6 +144,9 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
   }
   const stored = await versionForSigning(context.env.MARKET, key);
   if (!stored) return notFound();
+  // A held or blocked version waits for a maintainer, whatever the signer says.
+  if (stored.state !== "pending" && stored.state !== "listed")
+    return failure(409, "conflict", `That version is ${stored.state}; a maintainer decides it.`);
   const matches =
     manifest.type === key.type &&
     manifest.name === key.name &&

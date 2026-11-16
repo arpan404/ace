@@ -1,26 +1,17 @@
 import type { Route } from "./routes.ts";
 import type { Context } from "./context.ts";
 import { objectKey } from "./context.ts";
-import {
-  entryPage,
-  featuredEntries,
-  indexBody,
-  parseSince,
-  searchEntries,
-  searchInput,
-} from "./catalog.ts";
+import { entryPage, featuredEntries, indexBody, parseSince, searchInput } from "./catalog.ts";
 import { etagOf, failure, notFound } from "./http.ts";
-import {
-  categories,
-  countDownload,
-  hashIsListed,
-  signedVersion,
-  withdrawnList,
-} from "./store/read.ts";
+import { searchSort, searchSorted } from "./store/discover.ts";
+import { countDownload } from "./store/downloads.ts";
+import { categories, hashIsListed, signedVersion, withdrawnList } from "./store/read.ts";
 
 /*
- * The catalog API (ADR 0168 §3): no sign-in, no cookie, and nothing kept about who asked. A
- * download raises its version's anonymous total and nothing else.
+ * The catalog API (ADR 0168 §3, ADR 0173 §6): no sign-in, no cookie, and nothing kept about who
+ * asked. A download raises its version's anonymous totals (all time, per hour, per day) and
+ * nothing else; a caller past the DOWNLOADS binding, keyed by address and hash in the binding's
+ * own memory, still gets the bytes and isn't counted.
  */
 
 const revalidate = { "cache-control": "public, max-age=0, must-revalidate" };
@@ -51,7 +42,14 @@ export async function readRoute(
       return tagged(request, await indexBody(db, since));
     }
     case "search":
-      return tagged(request, await searchEntries(db, searchInput(url.searchParams)));
+      return tagged(
+        request,
+        await searchSorted(
+          db,
+          searchInput(url.searchParams),
+          searchSort(url.searchParams.get("sort")),
+        ),
+      );
     case "categories":
       return tagged(request, { categories: await categories(db) });
     case "featured": {
@@ -98,8 +96,17 @@ async function object(request: Request, hash: string, context: Context): Promise
   }
   const stored = await context.env.OBJECTS.get(objectKey(hash));
   if (!stored) return notFound();
-  context.waitUntil(countDownload(context.env.MARKET, hash));
+  if (await counted(request, hash, context))
+    context.waitUntil(countDownload(context.env.MARKET, hash, context.now));
   return new Response(stored.body, {
     headers: { ...headers, "content-length": String(stored.size) },
   });
+}
+
+/** Whether this fetch counts: once per caller and hash per the binding's window. */
+async function counted(request: Request, hash: string, context: Context): Promise<boolean> {
+  const limit = context.env.DOWNLOADS;
+  if (!limit) return true;
+  const address = request.headers.get("cf-connecting-ip") ?? "unknown";
+  return (await limit.limit({ key: `${address}:${hash}` })).success;
 }
