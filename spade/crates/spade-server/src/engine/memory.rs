@@ -360,7 +360,7 @@ impl Engine {
             MemoryCall::Update => self.tool_update(&agent.id, text("id"), text("text")),
             MemoryCall::Forget => self.tool_forget(&agent.id, text("id")),
             MemoryCall::Search => self.tool_search(&agent.id, text("query")),
-            MemoryCall::HistorySearch => self.history_search(caller, text("query")),
+            MemoryCall::HistorySearch => self.history_search(caller, arguments),
             MemoryCall::HistoryRead => self.history_read(caller, arguments),
         };
         result.unwrap_or_else(|error| match error {
@@ -453,17 +453,50 @@ impl Engine {
         Ok(ToolOutput::ok(Value::Array(listed).to_string()))
     }
 
-    fn history_search(&self, caller: &str, query: &str) -> Result<ToolOutput, NoteError> {
-        let Some(query) = memory::match_query(query) else {
+    fn history_search(&self, caller: &str, arguments: &Value) -> Result<ToolOutput, NoteError> {
+        let words = arguments.get("query").and_then(Value::as_str).unwrap_or("");
+        let Some(query) = memory::match_query(words) else {
             return Ok(ToolOutput::error("Give some words to look for in `query`."));
         };
-        let found = self.store.search_history(caller, &query, FOUND)?;
+        let day = |key: &str| -> Result<Option<i64>, String> {
+            match arguments
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|d| !d.trim().is_empty())
+            {
+                None => Ok(None),
+                Some(text) => spade_core::knowledge::parse_day(text)
+                    .map(Some)
+                    .ok_or_else(|| format!("`{key}` is a date like 2026-11-15.")),
+            }
+        };
+        let (since_ms, until_ms) = match (day("since"), day("until")) {
+            (Ok(since), Ok(until)) => (since, until),
+            (Err(why), _) | (_, Err(why)) => return Ok(ToolOutput::error(why)),
+        };
+        let window = spade_store::HistoryWindow {
+            since_ms,
+            // `until` names a day: everything on it is included.
+            until_ms: until_ms.map(|ms| ms + 86_400_000),
+            oldest_first: arguments
+                .get("oldest_first")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        };
+        let found = self
+            .store
+            .search_history_in(caller, &query, window, FOUND)?;
         if found.is_empty() {
             return Ok(ToolOutput::ok("Nothing in this conversation matched."));
         }
         let mut out = String::from("Matches, by position (read one with history_read):\n");
         for found in found {
-            out.push_str(&format!("\n[position {}] {}", found.seq, found.snippet));
+            out.push_str(&format!(
+                "\n[position {}] {}: {}",
+                found.seq,
+                spade_core::knowledge::day(found.at_ms),
+                found.snippet
+            ));
         }
         Ok(ToolOutput::ok(out))
     }

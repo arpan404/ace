@@ -480,12 +480,14 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.execute_batch(
             "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
                  DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
-                 ALTER TABLE spend DROP COLUMN role;",
+                 ALTER TABLE spend DROP COLUMN role;
+                 DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
+                 DROP TABLE episodes_search; DROP TABLE episodes;",
         )?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 7,
+            crate::schema::current_version() as i64 - 8,
         )?;
     }
     let store = Store::open(&path)?;

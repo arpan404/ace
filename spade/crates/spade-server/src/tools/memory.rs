@@ -109,9 +109,15 @@ impl Tool for MemoryTool {
                 spec(
                     "history_search",
                     "Search this conversation's full stored history by keyword, including parts \
-                     that were summarised away. Returns positions to read with history_read.",
+                     that were summarised away and the summaries themselves, back to its first \
+                     day. Each match has its position and date; read one with history_read.",
                     json!({ "type": "object",
-                            "properties": { "query": string("Words to look for.") },
+                            "properties": {
+                                "query": string("Words to look for."),
+                                "since": string("Optional: only from this day on, like 2026-11-01."),
+                                "until": string("Optional: only up to this day, included."),
+                                "oldest_first": { "type": "boolean",
+                                    "description": "Oldest matches first instead of best." } },
                             "required": ["query"] }),
                 ),
                 Risk::Read,

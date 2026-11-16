@@ -164,6 +164,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::spend::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0164: knowledge bases, their links, and episodes of closed goals.
+        sql: crate::knowledge::SCHEMA,
+        backfill: Some(crate::episodes::create),
+    },
 ];
 
 /// The schema version this build brings a database up to.

@@ -110,9 +110,15 @@ fn a_growing_topic_folds_its_oldest_bot_entries_and_never_the_persons() {
     let folds = topic_folds(&topic);
     let folded: Vec<&String> = folds.iter().flat_map(|f| &f.entries).collect();
     assert!(!folded.contains(&&"k_000".to_owned()), "the person's stays");
-    let untrusted = folds.iter().find(|f| f.trust == Trust::Untrusted).unwrap();
+    let untrusted = folds
+        .iter()
+        .find(|f| f.trust == Trust::Untrusted)
+        .unwrap_or_else(|| panic!("expected a value"));
     assert_eq!(untrusted.entries, vec!["k_001", "k_002"]);
-    let trusted = folds.iter().find(|f| f.trust == Trust::Trusted).unwrap();
+    let trusted = folds
+        .iter()
+        .find(|f| f.trust == Trust::Trusted)
+        .unwrap_or_else(|| panic!("expected a value"));
     assert_eq!(trusted.entries[0], "k_003", "oldest first");
     // What remains: unfolded entries plus one digest per fold.
     let remaining = topic.len() - folded.len() + folds.len();
@@ -131,7 +137,7 @@ fn a_full_base_folds_oldest_first_and_refuses_rather_than_drop_the_persons_entri
         .collect();
     let used: u64 = base.iter().map(Entry::bytes).sum();
     assert_eq!(bound_folds(&base, used + 100, 50), Some(Vec::new()));
-    let folds = bound_folds(&base, used, 200).expect("room by folding");
+    let folds = bound_folds(&base, used, 200).unwrap_or_else(|| panic!("room by folding"));
     assert!(!folds.is_empty());
     assert_eq!(folds[0].entries[0], "k_00");
     // Only the person's entries: nothing may fold, so the write is refused.
@@ -383,7 +389,7 @@ fn a_goal_the_person_ends_is_remembered_as_ended_or_failed_with_what_the_check_r
             due[0].failed[0]
                 .why
                 .as_deref()
-                .unwrap()
+                .unwrap_or_else(|| panic!("expected a value"))
                 .contains("the run failed")
         );
         assert_eq!(due[0].missing, vec!["a green test run"]);

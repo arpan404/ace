@@ -178,6 +178,7 @@ impl Engine {
             }
         };
         self.set_status(id, None);
+        self.remember_episodes(id);
         if carry_on {
             self.carry_on(id);
         }
@@ -272,6 +273,12 @@ impl Engine {
 
     /// The person ends the open goal without it being done.
     pub fn clear_goal(&self, agent: &str) -> Result<(), GoalError> {
+        self.end_goal(agent, false)
+    }
+
+    /// The person ends the open goal without it being done; `failed` records it as failed in
+    /// its episode (ADR 0164).
+    pub fn end_goal(&self, agent: &str, failed: bool) -> Result<(), GoalError> {
         let agent = self.store.agent(agent)?.ok_or(GoalError::NotFound)?;
         let id = agent.conversation;
         {
@@ -282,8 +289,9 @@ impl Engine {
                 .ok_or(GoalError::NoGoal)?
                 .goal
                 .id;
-            self.append(&id, &Event::Known(Known::GoalCleared { goal }))?;
+            self.append(&id, &Event::Known(Known::GoalCleared { goal, failed }))?;
         }
+        self.remember_episodes(&id);
         self.announce(&id);
         Ok(())
     }

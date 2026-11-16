@@ -302,6 +302,14 @@ async fn drive(
                 if !helper && super::memory::index_if_due(engine, id, &events) {
                     continue;
                 }
+                // A goal closed with no episode yet (a restart between the two), and the
+                // knowledge topics for the cached top (ADR 0164).
+                if !helper && engine.episodes_once(id) {
+                    continue;
+                }
+                if !helper && super::episodes::index_if_due(engine, id, &events) {
+                    continue;
+                }
                 // What the person did on the bot's computer meanwhile (cowork), before the step's
                 // prompt is built, so the step reads it.
                 if !helper && engine.offer_person_activity(id) {

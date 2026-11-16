@@ -2,7 +2,7 @@
 //! reads it, and sets, changes or ends the goal; only the person changes an open goal.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -59,9 +59,26 @@ pub(super) async fn set(
     }
 }
 
-/// `DELETE /v1/agents/{id}/task/goal`: ends the open goal without it being done.
-pub(super) async fn clear(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match state.engine.clear_goal(&id) {
+/// `?outcome=failed` on ending a goal: its episode records it as failed (ADR 0164).
+#[derive(Deserialize, Default)]
+pub(super) struct Ending {
+    #[serde(default)]
+    outcome: Option<String>,
+}
+
+/// `DELETE /v1/agents/{id}/task/goal`: ends the open goal without it being done;
+/// `?outcome=failed` ends it as failed.
+pub(super) async fn clear(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(ending): Query<Ending>,
+) -> Response {
+    let failed = match ending.outcome.as_deref() {
+        None | Some("ended") => false,
+        Some("failed") => true,
+        Some(_) => return problem(StatusCode::BAD_REQUEST, "outcome is ended or failed"),
+    };
+    match state.engine.end_goal(&id, failed) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => goal_problem(&error),
     }

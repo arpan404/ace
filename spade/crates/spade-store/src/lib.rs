@@ -5,7 +5,9 @@
 
 mod agents;
 mod endpoints;
+mod episodes;
 mod helpers;
+mod knowledge;
 mod notes;
 mod oversight;
 mod routines;
@@ -18,8 +20,10 @@ mod workers;
 
 pub use agents::{Agent, NewAgent};
 pub use endpoints::{StoredEndpoint, StoredModel};
+pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;
-pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
+pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
+pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 pub use skills::{SkillOrigin, SkillUse, StoredSkill};

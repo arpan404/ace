@@ -47,6 +47,9 @@ pub struct Limits {
     /// One orchestrator's worker bots that work at once (`SPADE_WORKERS_AT_ONCE`, ADR 0161);
     /// the rest wait queued.
     pub workers_at_once: usize,
+    /// Each bot's knowledge base, in bytes, when the person set no size for it
+    /// (`SPADE_KNOWLEDGE_BYTES`, ADR 0164).
+    pub knowledge_bytes: u64,
 }
 
 impl Default for Limits {
@@ -66,6 +69,7 @@ impl Default for Limits {
             review_timeout: Duration::from_secs(60),
             turn_log_bytes: 64 << 20,
             workers_at_once: 32,
+            knowledge_bytes: spade_core::knowledge::DEFAULT_BYTES,
         }
     }
 }
