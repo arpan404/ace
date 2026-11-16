@@ -194,15 +194,16 @@ import XCTest
         XCTAssertEqual(shown(status), 1, accuracy: 0.01)
         XCTAssertLessThan(shown(app.buttons["pill.goal"]), 0.5, "the row overflows")
         XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the shown status says the subagents")
-        // Scrolled to the row's end: the command's part shows, the status is mostly past the edge.
+        // Scrolled to the row's end, where the goal shows: "Waiting on 2" and "1 command" are both
+        // past the edge, so the transcript says the subagents and the command itself.
         let row = app.descendants(matching: .any)["composer.live"]
         row.swipeLeft()
         row.swipeLeft()
         sleep(1)
         XCTAssertLessThan(shown(status), 0.4, "the status is past the row's edge (\(shown(status)) shown)")
-        XCTAssertGreaterThan(shown(commands), 0.6, "the command's part is in the row (\(shown(commands)) shown)")
-        XCTAssertTrue(rollup.waitForExistence(timeout: 5), "the subagents its hidden part said stay in view")
-        XCTAssertTrue(line.waitForNonExistence(timeout: 5), "the part on screen says the command")
+        XCTAssertLessThan(shown(commands), 0.4, "the command's part is past the row's edge (\(shown(commands)) shown)")
+        XCTAssertTrue(rollup.waitForExistence(timeout: 5), "the subagents their hidden part said stay in view")
+        XCTAssertTrue(line.waitForExistence(timeout: 5), "the command its hidden part said stays in view")
         shot("pill-past-the-edge")
         // Back to the start: the status says the subagents again.
         row.swipeRight()
