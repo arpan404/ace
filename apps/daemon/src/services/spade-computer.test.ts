@@ -53,7 +53,13 @@ test("Spade reads a bot's computer and takes it over and back over its socket", 
   expect(await ask({ type: "spade.computer.get", requestId: "g", bot: "fares" })).toEqual({
     type: "spade.computer.result",
     requestId: "g",
-    computer: { bot: "fares", driver: "bot", browser: { tabs: [] }, screen: { apps: [] } },
+    computer: {
+      bot: "fares",
+      driver: "bot",
+      mode: "cowork",
+      browser: { tabs: [] },
+      screen: { apps: [] },
+    },
   });
   expect(
     await ask({ type: "spade.computer.drive", requestId: "d", bot: "fares", driver: "person" }),
@@ -61,6 +67,7 @@ test("Spade reads a bot's computer and takes it over and back over its socket", 
     type: "spade.computer.drive.result",
     requestId: "d",
     driver: "person",
+    mode: "exclusive",
     stopped: true,
   });
   expect(
@@ -69,6 +76,7 @@ test("Spade reads a bot's computer and takes it over and back over its socket", 
     type: "spade.computer.drive.result",
     requestId: "b",
     driver: "bot",
+    mode: "cowork",
     handback: { drivenMs: 0, visited: [], opened: [], closed: [], screenUsed: false },
   });
 });
