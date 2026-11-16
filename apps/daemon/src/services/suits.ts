@@ -1,9 +1,9 @@
-import { randomBytes } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { logError } from "@ace/diagnostics";
 import { seedBuiltinSuits } from "@ace/plugins";
 import type { SuitResponse, SuitServerMessage } from "@ace/protocol/suits";
+import { loadSuitUrlKey } from "../local-files.ts";
 import { SuitLibrary } from "../suits/library.ts";
 import { SuitLiveChecks } from "../suits/live-checks.ts";
 import { SuitLooks, type LookSocket } from "../suits/looks.ts";
@@ -21,8 +21,8 @@ export async function startSuits(context: ServiceContext): Promise<void> {
   );
   const library = new SuitLibrary({
     root,
-    // Asset URL grants last one daemon run; clients read the Suit again on reconnect.
-    key: randomBytes(32),
+    // Asset URL grants outlive a daemon run: a Suit's version keeps its URLs (local-files.ts).
+    key: loadSuitUrlKey(config.dataDir),
     watch: nodeSuitWatch,
     schedule: nodeSuitSchedule,
   });

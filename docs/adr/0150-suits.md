@@ -83,6 +83,12 @@ A scene is the animated backdrop behind the transcript and sidebar.
   is. A project may name a default Suit that devices without a choice follow.
 - The boot appearance cache (`ace.boot-appearance`) stores the applied Suit's resolved tokens,
   so first paint is right. The scene starts after first paint.
+- A Suit's files are served at URLs that name its version (its content hash) under a key the
+  daemon keeps across runs, so a reconnect or a daemon restart changes no URL: files stay in the
+  browser's cache (`immutable`), and only the scene page, which names ace's runtime, is checked
+  again by its checksum (`ETag`). Clients run scenes by version, not URL: a new read of the same
+  version leaves a running scene alone, and a scene that never loaded gets another go on the next
+  read. (Added 2026-11-15.)
 - Suits are for web and desktop only. The iPhone and Android apps keep ace's own themes and don't
   read the Suit library; the owner decided on 2026-11-15 that Suits don't fit the phone apps.
 

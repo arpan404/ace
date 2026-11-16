@@ -3,9 +3,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 /*
  * Where a Suit's scene and assets are served: `/v1/suits/<id>/<contentHash>/<grant>/<file>`.
  * An iframe or a font face can't send the device's bearer, so the URL carries its own grant: an
- * HMAC of the Suit and its content under a key this daemon run holds. Only an authenticated
- * `read` hands one out; it names one version of one Suit, never a device credential, and dies
- * with the daemon run or the next edit to the Suit.
+ * HMAC of the Suit and its content under the daemon's Suit URL key (`loadSuitUrlKey`, kept
+ * across runs). Only an authenticated `read` hands one out; it names one version of one Suit,
+ * never a device credential, and dies with the next edit to the Suit (a new content hash). So a
+ * version keeps one URL across reconnects and restarts, and clients keep their cached files.
  */
 
 export const suitsPathPrefix = "/v1/suits/";

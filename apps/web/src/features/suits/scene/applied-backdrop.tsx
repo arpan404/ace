@@ -6,25 +6,26 @@ import { useRegionScene } from "./suit-scenes.tsx";
  * The applied Suit's app scene behind the shell (ADR 0150), in the scheme and motion on screen,
  * on the page's shared clock (`SuitScenesProvider`). A scene the watchdog stops is turned off for
  * that version of the Suit, which carries on with its colours; an edit to the Suit (a new
- * content hash) gets its scene back. Reconnecting gives the scene a new URL (a new daemon run's
- * grant) but not a new version, so it stays off.
+ * content hash) gets its scene back. A reconnect reads the same version again: a running scene
+ * carries on in its frame, and one that never loaded gets another go (`scene-stops.ts`).
  */
 export function AppliedSuitBackdrop(props: {
   /** Whether a scene draws now, so the shell can let it show through. */
   onShowing(showing: boolean): void;
 }) {
-  const { scenes, suit, resolved, url } = useRegionScene("app");
+  const { scenes, suit, resolved, url, frame } = useRegionScene("app");
   const { onShowing } = props;
   const showing = url !== null;
   useEffect(() => {
     onShowing(showing);
   }, [onShowing, showing]);
 
-  if (!scenes || !suit || !url) return null;
+  if (!scenes || !suit || !url || !frame) return null;
   return (
     <>
       <SceneBackdrop
         sceneUrl={url}
+        frame={frame}
         scheme={resolved.scheme}
         reduceMotion={resolved.backdropMotion === "still"}
         halfRate={resolved.backdropMotion === "reduced"}
