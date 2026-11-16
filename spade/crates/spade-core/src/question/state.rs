@@ -57,6 +57,7 @@ pub fn views<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<View> {
                 call_id,
                 question,
                 questions,
+                ..
             } => cards.push(View {
                 call_id: call_id.clone(),
                 reply: reply.clone(),

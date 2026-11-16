@@ -105,6 +105,7 @@ pub(super) async fn handle_calls(
                         call_id: pending.call.id.clone(),
                         question: ask.summary(),
                         questions: ask.questions,
+                        later: !ask.wait,
                     })];
                     if !ask.wait {
                         asked.push(Event::Known(Known::QuestionDeferred {

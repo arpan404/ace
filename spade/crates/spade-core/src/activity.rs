@@ -483,6 +483,15 @@ impl Log {
                     Fields::named("worker_reported", &redact::one_line(&words)),
                 );
             }
+            // A choice made on the person's behalf (ADR 0165).
+            Known::DecisionMade(decision) => {
+                let words = format!("decided {}: {}", decision.decision, decision.choice);
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("decision_made", &redact::one_line(&words)),
+                );
+            }
             Known::CapReached {
                 scope, cap_micros, ..
             } => {

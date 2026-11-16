@@ -444,6 +444,7 @@ fn types_for(kinds: &[Kind]) -> Vec<&'static str> {
         });
         if *kind == Kind::Task {
             types.push("task_paused");
+            types.push("decision_made");
         }
     }
     types

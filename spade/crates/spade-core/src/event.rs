@@ -85,6 +85,10 @@ pub enum Known {
         question: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         questions: Vec<crate::question::Question>,
+        /// Asked with `wait: false` (ADR 0154 decision 4): the bot keeps working, so the event's
+        /// escalation level is `ask`, not `block` (ADR 0165). Its `question_deferred` follows.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        later: bool,
     },
     /// The question is left for later (ADR 0154): by the person (**Answer later**), or by the
     /// bot asking with `wait: false` (`by_bot`). The call is answered at once and the turn goes
@@ -553,6 +557,9 @@ pub enum Known {
     WorkerDetached {
         by: String,
     },
+    /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
+    /// Shown in digests and the activity log; the model reads only its call's result.
+    DecisionMade(crate::decision::Decision),
 }
 
 fn is_zero(n: &u32) -> bool {

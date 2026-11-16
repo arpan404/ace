@@ -303,6 +303,7 @@ impl Transcript {
             | Known::WorkerReported(_)
             | Known::WorkerBudget { .. }
             | Known::WorkerDetached { .. }
+            | Known::DecisionMade(_)
             | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {
@@ -836,6 +837,7 @@ mod tests {
                 call_id: "q1".into(),
                 question: "Window or aisle?".into(),
                 questions: Vec::new(),
+                later: false,
             }),
             Event::Known(Known::ToolStarted {
                 reply: "r1".into(),
