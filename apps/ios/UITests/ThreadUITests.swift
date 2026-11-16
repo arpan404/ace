@@ -46,9 +46,10 @@ import XCTest
         tests.tap()
         XCTAssertTrue(words("Writing the PID-reuse regression.", in: app).waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
-        // The lane opened over the tree, inside the Agents sheet: back to the tree, then closed.
+        // On the phone the tree and the lane are pages pushed over the thread: back twice.
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.closeSheet()
+        XCTAssertTrue(app.descendants(matching: .any)["agents.page"].waitForExistence(timeout: 10))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
         app.openModelPicker()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
