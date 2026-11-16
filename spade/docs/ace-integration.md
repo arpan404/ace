@@ -9,11 +9,17 @@ daemon is away.
 
 ## The Spade service
 
-- **Binary.** Each release carries `spade-server` for its target. Installing or updating copies it
-  to `<ACE_HOME>/releases/spade/<version>/spade-server` and points
-  `<ACE_HOME>/releases/spade/current` at that folder; the service runs
-  `<ACE_HOME>/releases/spade/current/spade-server`. In development, `ACE_SPADE_BIN` names a build
-  (for example `spade/target/release/spade-server`) and `ace spade on` registers that instead.
+- **Binary.** Each release carries `spade` (`spade.exe` on Windows, built from the `spade-server`
+  crate) for its target. Installing or updating copies it to
+  `<ACE_HOME>/releases/spade/<version>/spade` and points `<ACE_HOME>/releases/spade/current` at
+  that folder; the service runs `<ACE_HOME>/releases/spade/current/spade`. In development,
+  `ACE_SPADE_BIN` names a build (for example `spade/target/release/spade`) and `ace spade on`
+  registers that instead.
+- **Before the rename.** Builds before 2026-11-15 named the binary `spade-server`. The service's
+  registration that such a build wrote (naming `current/spade-server`) is still taken as ace's
+  own, and the updater's restart rewrites it to run `current/spade`. A release folder holding only
+  `spade-server` gets `spade` beside it, a second name for the same file, wherever ace reads it,
+  so a rollback to that release still finds its binary.
 - **Registration** (`@ace/service`, beside the daemon's): launchd `dev.ace.next.spade` (RunAtLoad,
   KeepAlive, ThrottleInterval as the daemon's), systemd `ace-next-spade.service` (`--user`,
   `Restart=on-failure`, `RestartSec=1`), Windows Task Scheduler task `ace-next-spade` (logon
@@ -42,7 +48,7 @@ features show spade` / `ace features hide spade` write the file; `ace spade on` 
 characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token file's contents
   as the key and the nonce as the message. Before sending Spade's token or a grant to the address
   in `server.json`, the daemon and the desktop app check the proof against a fresh nonce; a wrong
-  or missing proof means it isn't Spade, and nothing secret is sent. `version` is ace's release version, stamped into the build through `ACE_SPADE_VERSION` (the crate's own version when unset); `spade-server --version` prints it. `api` is Spade's HTTP API version;
+  or missing proof means it isn't Spade, and nothing secret is sent. `version` is ace's release version, stamped into the build through `ACE_SPADE_VERSION` (the crate's own version when unset); `spade --version` prints it. `api` is Spade's HTTP API version;
   clients accept the current and previous one. Nothing before binding touches the keychain or
   the network, so a keychain prompt (a re-signed binary) or ace being away never delays it. Spade,
   the main agent, is created from the database before binding, so it is listed from the first
@@ -73,7 +79,7 @@ first, then Spade:
 2. `idle` waits until no turn runs and no background job runs; `now` waits only for running model
    steps (up to 30 s). Then each open turn is recorded paused.
 3. The updater copies the new binary to `releases/spade/<version>/`, runs
-   `spade-server --check-migrations <snapshot>` against a SQLite backup of
+   `spade --check-migrations <snapshot>` against a SQLite backup of
    `<SPADE_DATA_DIR>/spade.sqlite` (exit 0: the new version can open it; a database written by a newer Spade is refused, never used), flips `current` and
    restarts the service. Any failure keeps the old `current`, reopens admission and reports why.
 4. The new Spade resumes paused turns. A background job that was still running in `now` mode is
