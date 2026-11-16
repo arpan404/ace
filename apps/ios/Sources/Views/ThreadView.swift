@@ -355,13 +355,9 @@ struct ThreadView: View {
                                openWork: metadata == nil ? nil : { showWork = true })
     }
 
-    /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
-    private var hasStrip: Bool {
-        !stripRequests.isEmpty
-            || (screen.queue?.strip).map { HoldStripState.of(strip: $0, canOperate: model.canOperate, archived: archived).visible } == true
-            || screen.queue?.notSent != nil || screen.leftRunning != nil
-            || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
-    }
+    /// Whether a strip shows above the composer (`ThreadFoot`), read alike by the transcript, which
+    /// leaves live rows to the pill only while no strip takes its place.
+    private var hasStrip: Bool { ThreadFoot(thread: thread, transfers: model.transfers).stripShown }
 
     /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
     /// request, what holds the queue, a message that didn't go, ...), or else the glass live
