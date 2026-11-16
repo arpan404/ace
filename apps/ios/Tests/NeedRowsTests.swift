@@ -4,8 +4,8 @@ import Testing
 
 /// A needs-you row as the bridge publishes it (`inbox-needs.ts`): the line counts the requests
 /// on this thread it can show, says apart how many wait in the thread's delegated work, says when
-/// the phone's read stopped before finding them all, and a request too large to send offers only
-/// Open.
+/// the phone's read stopped before finding them all, and only a whole approval answers from the
+/// row itself.
 @Suite @MainActor struct NeedRowsTests {
     @Test func requestsWaitingInDelegatedWorkAreSaidApartFromTheOnesThisRowShows() throws {
         // One approval on this thread; two requests in a delegated child thread.
@@ -49,7 +49,7 @@ import Testing
         #expect(model.needsTally("asking") == NeedTally(here: 2))
     }
 
-    @Test func aRequestTooLargeToSendIsCountedAndOffersOnlyOpen() throws {
+    @Test func aRequestTooLargeToSendIsCountedAndOffersNoAnswerFromItsRow() throws {
         let model = waiting()
         let tooLarge: [String: Any] = [
             "id": "huge", "kind": "too_large", "state": "pending", "title": "A request too large to show here",
@@ -59,11 +59,44 @@ import Testing
         model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [tooLarge])]))
         let request = try #require(model.needsYou("asking").first)
         #expect(model.needsTally("asking") == NeedTally(here: 1))
-        var opened = 0
-        let actions = NeedActions(request: request, model: model, threadId: "asking", open: { opened += 1 }, review: {}, decided: {})
-        #expect(actions.row.map(\.id) == ["open"])
-        actions.row.first?.run()
-        #expect(opened == 1)
+        // Answered on a computer: the row opens its thread and offers no answer of its own.
+        #expect(NeedActions(request: request, model: model, threadId: "asking", decided: {}).answers.isEmpty)
+    }
+
+    @Test func aWaitingApprovalAnswersFromItsRowWithDenyAndAllowOnce() throws {
+        let model = waiting()
+        var ask = approval("ask-1")
+        ask["options"] = [["id": "ask-1:deny", "label": "Deny", "kind": "deny"], ["id": "ask-1:allow", "label": "Allow once", "kind": "allow_once"]]
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [ask])]))
+        let request = try #require(model.needsYou("asking").first)
+        let actions = NeedActions(request: request, model: model, threadId: "asking", decided: {})
+        // What the row's swipes, long-press menu and VoiceOver actions offer.
+        #expect(actions.answers.map(\.label) == ["Allow once", "Deny"])
+    }
+
+    @Test func aRequestThatNeedsMoreThanAllowOrDenyOffersNoAnswerFromItsRow() throws {
+        let model = waiting()
+        let question: [String: Any] = [
+            "id": "scope", "kind": "question", "state": "pending", "title": "Scope", "description": "", "command": "",
+            "truncated": false, "options": [],
+        ]
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [question])]))
+        let request = try #require(model.needsYou("asking").first)
+        let actions = NeedActions(request: request, model: model, threadId: "asking", decided: {})
+        #expect(actions.answers.isEmpty)
+    }
+
+    @Test func anApprovalOnItsWayOrOnAViewOnlyPhoneOffersNoAnswerFromItsRow() throws {
+        let model = waiting()
+        model.receive(try json([needs(total: 1, loaded: 1, more: false, elsewhere: 0, requests: [approval("ask-1")])]))
+        let request = try #require(model.needsYou("asking").first)
+        let actions = NeedActions(request: request, model: model, threadId: "asking", decided: {})
+        #expect(actions.answers.map(\.label) == ["Allow once"])
+        model.approvalSubmissions["ask-1"] = ApprovalSubmission(requestId: "r-1", phase: .waiting)
+        #expect(actions.answers.isEmpty)
+        model.approvalSubmissions["ask-1"] = nil
+        model.canOperate = false
+        #expect(actions.answers.isEmpty)
     }
 
     /// A model whose inbox lists the asking thread as needing the person.

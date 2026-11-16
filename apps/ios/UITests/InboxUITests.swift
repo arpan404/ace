@@ -89,6 +89,54 @@ import XCTest
         XCTAssertTrue(done.waitForExistence(timeout: 10))
     }
 
+    /// A waiting approval answers from the inbox without opening: the trailing swipe's Allow once
+    /// sends it, and the long-press menu's Deny another. Each row stops waiting once the machine
+    /// closes its request. Both threads are seeded for this test alone.
+    func testSwipeAllowsAWaitingApprovalAndTheMenuDeniesOne() throws {
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        let allowed = try fresh("approval", port: port)
+        let denied = try fresh("approval", port: port)
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", port]
+        app.launchWithArguments()
+        // The row shows the command it waits on; it has no buttons of its own.
+        let command = "git push origin fix/queue"
+        let row = app.revealRow("thread.\(allowed)")
+        XCTAssertTrue(row.label.contains(command), row.label)
+        XCTAssertFalse(row.buttons["inbox.need.allow_once"].exists, "the row answers by swipe, not by an in-row button")
+        screenshot("inbox-waiting")
+        row.swipeLeft()
+        let allow = app.buttons["Allow once"]
+        XCTAssertTrue(allow.waitForExistence(timeout: 5))
+        screenshot("inbox-swipe-allow")
+        allow.tap()
+        wait(for: [expectation(for: NSPredicate(format: "NOT (label CONTAINS %@)", command), evaluatedWith: row)], timeout: 15)
+
+        let other = app.revealRow("thread.\(denied)")
+        XCTAssertTrue(other.label.contains(command), other.label)
+        other.press(forDuration: 1.0)
+        let deny = app.buttons["Deny"]
+        XCTAssertTrue(deny.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Allow once"].exists, "the menu offers both answers")
+        deny.tap()
+        wait(for: [expectation(for: NSPredicate(format: "NOT (label CONTAINS %@)", command), evaluatedWith: other)], timeout: 15)
+    }
+
+    /// A new thread from the fixture for one test, so answering it never changes another's.
+    private func fresh(_ scenario: String, port: String) throws -> String {
+        var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/fresh")))
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(["scenario": scenario])
+        let done = expectation(description: "fixture thread")
+        let answer = FreshThread()
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            if let data, let body = try? JSONDecoder().decode([String: String].self, from: data) { answer.id = body["threadId"] }
+            done.fulfill()
+        }.resume()
+        wait(for: [done], timeout: 10)
+        return try XCTUnwrap(answer.id, "the fixture made no \(scenario) thread")
+    }
+
     private func screenshot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = "ios-\(name)"
@@ -96,3 +144,6 @@ import XCTest
         add(attachment)
     }
 }
+
+/// The fixture's answer, written once by the request's callback before the test reads it.
+private final class FreshThread: @unchecked Sendable { var id: String? }
