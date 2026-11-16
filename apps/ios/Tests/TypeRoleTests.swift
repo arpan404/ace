@@ -5,7 +5,7 @@ import UIKit
 /// Every text role is drawn at its system text style's own size, at the default text size and as
 /// Dynamic Type grows or shrinks it, so ace's text sits on iOS's scale everywhere.
 @Suite @MainActor struct TypeRoleTests {
-    static let roles: [(String, AceDesign.Role)] = [
+    nonisolated static let roles: [(String, AceDesign.Role)] = [
         ("header", AceDesign.TextRole.header), ("navTitle", AceDesign.TextRole.navTitle),
         ("navSubtitle", AceDesign.TextRole.navSubtitle), ("message", AceDesign.TextRole.message),
         ("answer", AceDesign.TextRole.answer), ("rowTitle", AceDesign.TextRole.rowTitle),
@@ -14,7 +14,7 @@ import UIKit
         ("time", AceDesign.TextRole.time), ("code", AceDesign.TextRole.code),
         ("branch", AceDesign.TextRole.branch), ("caption", AceDesign.TextRole.caption),
     ]
-    static let sizes: [UIContentSizeCategory] = [.extraSmall, .large, .extraExtraExtraLarge, .accessibilityExtraExtraExtraLarge]
+    nonisolated static let sizes: [UIContentSizeCategory] = [.extraSmall, .large, .extraExtraExtraLarge, .accessibilityExtraExtraExtraLarge]
 
     @Test(arguments: sizes) func everyRoleIsItsSystemStylesSize(_ category: UIContentSizeCategory) {
         let traits = UITraitCollection(preferredContentSizeCategory: category)
