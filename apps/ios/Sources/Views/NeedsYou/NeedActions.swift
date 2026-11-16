@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// What a request offers from outside its thread, for a row and for the needs-you run alike.
+/// What a request offers from outside its thread, for an inbox row and for the needs-you run.
 /// Approvals answer with the options the request itself offered (the shared verbs, in the
-/// thread strip's words); nothing is invented. A question opens its answer, a plan its review,
-/// browser help its thread. While an answer travels, the words say so instead.
+/// thread strip's words); nothing is invented. Anything else is answered in its thread. While an
+/// answer travels, the words say so instead.
 @MainActor struct NeedActions {
     struct Word: Identifiable {
         let id: String
@@ -14,15 +14,14 @@ import SwiftUI
     let request: ApprovalRow
     let model: ClientModel
     let threadId: String
-    let open: () -> Void
-    let review: () -> Void
     /// A decision was sent: the haptic's trigger.
     let decided: () -> Void
 
     /// What is happening to an answer on its way: saved on the phone, then with the machine
     /// until it closes the request.
-    var progress: String? {
-        switch model.approvalSubmissions[request.id]?.phase {
+    var progress: String? { Self.progress(model.approvalSubmissions[request.id]) }
+    static func progress(_ submission: ApprovalSubmission?) -> String? {
+        switch submission?.phase {
         case .saving?: "Sending…"
         case .waiting?: "Sent"
         case nil: nil
@@ -35,16 +34,14 @@ import SwiftUI
     /// ("Always allow in this project").
     var always: Word? { verb("always_allow") }
 
-    /// The row's words, at most two.
-    var row: [Word] {
-        switch request.kind {
-        case "approval": [deny, allow].compactMap { $0 }
-        case "question": [request.unanswerable == true ? Word(id: "open", label: "Open", primary: true, run: open)
-                                                        : Word(id: "answer", label: "Answer", primary: true, run: review)]
-        // Browser help is answered in the thread; a request too large to send, on a computer.
-        case "browser_help", "too_large": [Word(id: "open", label: "Open", primary: true, run: open)]
-        default: [Word(id: "review", label: "Review", primary: true, run: review)]
-        }
+    /// What an inbox row answers without opening its thread, for its swipes, long-press menu and
+    /// VoiceOver actions: Allow once, then Deny, as offered. Only an approval whose answer isn't
+    /// already on its way, shown whole, on a phone that may act; a question, a plan or a form
+    /// needs more than yes or no and is answered in its thread.
+    var answers: [Word] {
+        guard request.kind == "approval", !request.tooLargeToApprove, model.canOperate,
+              model.approvalSubmissions[request.id] == nil else { return [] }
+        return [allow, deny].compactMap { $0 }
     }
 
     private func verb(_ name: String) -> Word? {

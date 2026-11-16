@@ -1,0 +1,69 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitLayout.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "composer": {
+      "default": "docked",
+      "enum": [
+        "docked",
+        "floating"
+      ],
+      "type": "string"
+    },
+    "header": {
+      "default": "bar",
+      "enum": [
+        "bar",
+        "minimal",
+        "hidden"
+      ],
+      "type": "string"
+    },
+    "messages": {
+      "default": "bubbles",
+      "enum": [
+        "bubbles",
+        "flat",
+        "cards"
+      ],
+      "type": "string"
+    },
+    "rail": {
+      "default": "shown",
+      "enum": [
+        "shown",
+        "hidden",
+        "merged"
+      ],
+      "type": "string"
+    },
+    "sidebar": {
+      "default": "left",
+      "enum": [
+        "left",
+        "right"
+      ],
+      "type": "string"
+    },
+    "sidebarWidth": {
+      "maximum": 480,
+      "minimum": 200,
+      "type": "integer"
+    },
+    "toolRows": {
+      "default": "compact",
+      "enum": [
+        "compact",
+        "detailed",
+        "terminal"
+      ],
+      "type": "string"
+    },
+    "transcriptWidth": {
+      "maximum": 1400,
+      "minimum": 560,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

@@ -18,7 +18,6 @@ struct InboxLineRow: View {
 
     var body: some View {
         let look = row.look
-        let strong = look?.strong == true
         HStack(spacing: AceDesign.Space.row) {
             // One width with or without the account's bubble, so every title starts in line.
             ProviderMark(provider: row.provider, size: AceDesign.Size.rowMark, account: row.account, quiet: dimmed)
@@ -27,8 +26,7 @@ struct InboxLineRow: View {
                 .frame(width: AceDesign.Size.rowLineLead, alignment: .leading)
             Text(row.title)
                 .aceFont(InboxRowType.title, relativeTo: .callout)
-                .fontWeight(strong ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
-                // Attention is brightness alone: what needs the person reads in full ink.
+                // Attention is brightness alone, never weight: what needs the person reads in full ink.
                 .foregroundStyle(dimmed && look?.level != "needs-you" ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                 .lineLimit(1)
             Spacer(minLength: AceDesign.Space.related)

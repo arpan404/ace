@@ -7,6 +7,7 @@ import {
 } from "./terminal-assets.ts";
 import { readFile, cp, writeFile } from "node:fs/promises";
 import { markitWasmFile } from "@ace/markit-web/assets";
+import { packBuiltinSuits } from "@ace/plugins";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
 import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
@@ -108,7 +109,9 @@ export async function bundleDaemon(
               if (args.path.endsWith("/plugins/src/builtins.ts"))
                 contents = contents.replace('"../builtin-skills"', '"./builtin-skills"');
               if (args.path.endsWith("/plugins/src/builtin-suits.ts"))
-                contents = contents.replace('"../builtin-suits"', '"./builtin-suits"');
+                contents = contents
+                  .replace('"../builtin-suits"', '"./builtin-suits"')
+                  .replace('"../builtins-lock.json"', '"./builtins-lock.json"');
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
@@ -232,9 +235,9 @@ export async function bundleDaemon(
   await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
     recursive: true,
   });
-  await cp(join(repo, "packages/plugins/builtin-suits"), join(root, "builtin-suits"), {
-    recursive: true,
-  });
+  await cp(join(repo, "packages/plugins/builtins-lock.json"), join(root, "builtins-lock.json"));
+  // One `<id>.tar` per Suit, so its fonts and stills cost the archive one entry.
+  await packBuiltinSuits(join(root, "builtin-suits"), join(repo, "packages/plugins/builtin-suits"));
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
   // For measuring which sources land in which output: ACE_BUNDLE_METAFILE=<path>.
   if (process.env.ACE_BUNDLE_METAFILE)

@@ -35,8 +35,8 @@ struct InboxThreadRow: View {
             HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 Text(row.title)
                     .aceFont(InboxRowType.title, relativeTo: .callout)
-                    // Semibold only while the thread needs the person, as on the desktop.
-                    .fontWeight(look.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                    // Attention shows by brightness, never by weight (design language §3): one weight,
+                    // full ink for every row that isn't settled.
                     .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                 Spacer(minLength: AceDesign.Space.related)
@@ -154,7 +154,7 @@ struct InboxRowContext: View {
         }
         .aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption2)
         .foregroundStyle(AceTheme.Colours.subtleForeground)
-        .frame(minHeight: AceDesign.Size.rowLine3)
+        .frame(minHeight: InboxRowType.lastLine)
     }
 }
 
@@ -178,6 +178,9 @@ struct InboxRowWork: View {
 @MainActor enum InboxRowType {
     static let title = AceDesign.TextRole.rowTitle
     static let line = AceDesign.TextRole.meta
+    /// The third line's height, the same for a branch and for a request, so rows with either
+    /// space evenly in one list.
+    static let lastLine = AceDesign.Size.rowNeedLine
     /// Above or below a row's lines: the phone's row padding, or less where the density is
     /// compact.
     static func padding(_ density: String, _ wanted: CGFloat = AceDesign.Size.rowPaddingTop) -> CGFloat {

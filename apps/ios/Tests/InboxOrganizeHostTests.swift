@@ -288,6 +288,15 @@ import Testing
         #expect(links.take(unlocked: true, machinesReady: true).isEmpty)
     }
 
+    @Test func aLinkGivenAtLaunchWaitsAndOpensAsAnOpenedOneDoes() {
+        let settings = URL(string: "ace://settings")!
+        var links = PendingLinks(launching: settings)
+        #expect(links.take(unlocked: false, machinesReady: true).isEmpty, "the lock still holds it")
+        #expect(links.take(unlocked: true, machinesReady: true) == [settings])
+        var none = PendingLinks(launching: URL(string: "https://example.com"))
+        #expect(none.take(unlocked: true, machinesReady: true).isEmpty, "only ace links open")
+    }
+
     private let question = DeleteQuestion(title: "Delete 2 threads?", message: "", running: "", confirm: "Delete", force: false)
     private let retry = DeleteQuestion(title: "Delete thread?", message: "", running: "", confirm: "Stop and delete", force: true)
 

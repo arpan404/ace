@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "thread",
+    "new-thread",
+    "chats",
+    "chat",
+    "pulls",
+    "pull",
+    "issues",
+    "issue",
+    "inbox",
+    "review",
+    "automations",
+    "automation",
+    "skills",
+    "skill",
+    "usage",
+    "spade",
+    "history",
+    "settings",
+    "sign-in",
+    "setup",
+    "connect"
+  ],
+  "type": "string"
+}

@@ -183,9 +183,9 @@ const migrations = [
   // exist before it.
   `CREATE TABLE IF NOT EXISTS spade_computer_drivers (bot TEXT PRIMARY KEY, takeover TEXT NOT NULL);`,
   // The sequence of the event that last wrote an item's body, so a reader of its raw payloads
-  // (`item.raw`) can tell versions apart without reading them; existing rows start at creation.
-  `ALTER TABLE item_heads ADD COLUMN raw_seq INTEGER NOT NULL DEFAULT 0;
-  UPDATE item_heads SET raw_seq = created_seq;`,
+  // (`item.raw`) can tell versions apart without reading them. Existing rows keep 0, which the
+  // reader takes as their creation (`ItemStore.rawRevision`), so the step rewrites no row.
+  `ALTER TABLE item_heads ADD COLUMN raw_seq INTEGER NOT NULL DEFAULT 0;`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

@@ -46,7 +46,7 @@ struct AgentTreeNode: View {
             icon
             VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
                 Text(row.depth == 0 && row.name.isEmpty ? "Main agent" : row.name)
-                    .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .body)
+                    .aceFont(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
                 // With nothing more to say (no words, no running time) a node keeps to one line.
@@ -93,7 +93,7 @@ struct AgentTreeNode: View {
                 Text(metaWords).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
             }
         }
-        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        .aceFont(AceDesign.TextRole.meta)
         .foregroundStyle(AceTheme.Colours.subtleForeground)
     }
 
@@ -141,7 +141,7 @@ struct AgentTreeNode: View {
     private func stopTracking(_ lost: AgentSheet.Lost, _ request: ApprovalRow?) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Text(lost.sentence)
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceTheme.StatusText.needsYou)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("agents.node.lost")
@@ -179,13 +179,13 @@ struct AgentTreeTask: View {
                 .frame(width: AceDesign.Size.lead)
             VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
                 Group {
-                    if task.kind == "shell" { Text(task.title).aceMonospace(AceDesign.TextRole.code, relativeTo: .footnote) }
-                    else { Text(task.title).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote) }
+                    if task.kind == "shell" { Text(task.title).aceMonospace(AceDesign.TextRole.code) }
+                    else { Text(task.title).aceFont(AceDesign.TextRole.meta) }
                 }
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(1).truncationMode(.middle)
                 Text(task.status.label.prefix(1).uppercased() + task.status.label.dropFirst())
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(task.status.token == "failed" ? AceTheme.StatusText.failed : AceTheme.Colours.subtleForeground)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

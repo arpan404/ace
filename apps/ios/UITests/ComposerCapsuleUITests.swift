@@ -54,7 +54,7 @@ import XCTest
         let from = transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
         from.press(forDuration: 0.1, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48)))
         sleep(2)
-        XCTAssertTrue(app.buttons["thread.title"].isHittable)
+        XCTAssertTrue(app.threadTitle().isHittable)
         shot("working")
     }
 
@@ -94,7 +94,7 @@ import XCTest
     func testTheTitleOpensOneMenuWithModelEffortAndAccessFirst() {
         let app = launch(into: "thread.ios-done")
         let title = app.threadTitle(timeout: 25)
-        XCTAssertTrue(title.label.contains("· Med") || (title.value as? String)?.contains("Med") == true, "the title's line reads the model and effort")
+        XCTAssertTrue(app.threadSubtitle(containing: "Med").exists, "the line under the title reads the model and effort")
         title.tap()
         let model = app.titleMenuItem("thread.title.model", label: "Model")
         XCTAssertTrue(model.waitForExistence(timeout: 10))
@@ -132,9 +132,12 @@ import XCTest
         XCTAssertTrue(text.waitForExistence(timeout: 5))
         text.typeText("Keep the window bounded by bytes.")
         button(app, "review.save", "Save").tap()
-        let chat = app.buttons["thread.page.chat"]
-        if !chat.waitForExistence(timeout: 3) { app.closeSheet() }
-        if chat.exists { chat.tap() }
+        // A phone shows Changes as a page, Chat back from ⋯; elsewhere it is a sheet.
+        if app.descendants(matching: .any)["thread.page.changes.body"].waitForExistence(timeout: 3) {
+            app.showThreadPage("chat")
+        } else {
+            app.closeSheet()
+        }
         let chip = app.buttons["composer.comments"]
         XCTAssertTrue(chip.waitForExistence(timeout: 15))
         let field = app.otherElements["composer.surface"].firstMatch
@@ -167,6 +170,48 @@ import XCTest
 
     private func button(_ app: XCUIApplication, _ identifier: String, _ label: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
+    }
+
+    /// At accessibility text sizes the pills overflow their row. A part mostly scrolled past the
+    /// edge doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
+    func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
+        // The largest size, where `ios-waiting-goal`'s "Waiting on 2", "1 command" and "Pursuing
+        // goal" overflow the row. Opened at launch: the inbox's rows are too tall at this size to
+        // scroll to it quickly.
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", "ios-waiting-goal", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchWithArguments()
+        dismissNotificationsPrompt()
+        let status = app.descendants(matching: .any)["pill.status"]
+        let commands = app.descendants(matching: .any)["pill.commands"]
+        XCTAssertTrue(commands.waitForExistence(timeout: 25))
+        let width = app.windows.firstMatch.frame.width
+        func shown(_ part: XCUIElement) -> CGFloat {
+            let frame = part.frame
+            return max(0, min(frame.maxX, width) - max(frame.minX, 0)) / max(frame.width, 1)
+        }
+        let rollup = app.buttons["subagents.rollup"]
+        let line = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'background.'")).firstMatch
+        // At rest "Waiting on 2" shows whole and says the subagents; the goal is past the edge.
+        XCTAssertEqual(shown(status), 1, accuracy: 0.01)
+        XCTAssertLessThan(shown(app.buttons["pill.goal"]), 0.5, "the row overflows")
+        XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the shown status says the subagents")
+        // Scrolled to the row's end, where the goal shows: "Waiting on 2" and "1 command" are both
+        // past the edge, so the transcript says the subagents and the command itself.
+        let row = app.descendants(matching: .any)["composer.live"]
+        row.swipeLeft()
+        row.swipeLeft()
+        sleep(1)
+        XCTAssertLessThan(shown(status), 0.4, "the status is past the row's edge (\(shown(status)) shown)")
+        XCTAssertLessThan(shown(commands), 0.4, "the command's part is past the row's edge (\(shown(commands)) shown)")
+        XCTAssertTrue(rollup.waitForExistence(timeout: 5), "the subagents their hidden part said stay in view")
+        XCTAssertTrue(line.waitForExistence(timeout: 5), "the command its hidden part said stays in view")
+        shot("pill-past-the-edge")
+        // Back to the start: the status says the subagents again.
+        row.swipeRight()
+        row.swipeRight()
+        XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the status is back and says the subagents")
     }
 
     private func launch(into row: String) -> XCUIApplication {

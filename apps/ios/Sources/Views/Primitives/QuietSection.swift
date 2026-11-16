@@ -13,7 +13,7 @@ struct QuietSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let title {
-                Text(title).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(title).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.subtle)
                     .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
                     .accessibilityAddTraits(.isHeader)
@@ -51,14 +51,14 @@ struct QuietRowText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Group {
-                if mono { Text(verbatim: title).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout) }
-                else { Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout) }
+                if mono { Text(verbatim: title).aceMonospace(AceDesign.TextRole.rowTitle) }
+                else { Text(title).aceFont(AceDesign.TextRole.rowTitle) }
             }
             // One line, cut in the middle; at accessibility sizes the whole title wraps instead,
             // so names that differ only at their end stay apart.
             .foregroundStyle(tone).lineLimit(typeSize.isAccessibilitySize ? nil : 1).truncationMode(.middle)
             if let detail, !detail.isEmpty {
-                Text(detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(detail).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
             }
         }
@@ -76,7 +76,7 @@ struct TextActionStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.action)
             .fontWeight(tone == .prominent ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(colour(pressed: configuration.isPressed))
             .lineLimit(1)

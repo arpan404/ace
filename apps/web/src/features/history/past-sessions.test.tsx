@@ -72,8 +72,8 @@ test("New thread shows no past sessions, even when provider history exists", asy
   expect(screen.queryByText(/past sessions/i)).toBeNull();
   expect(screen.queryByText("Fix the old retry loop")).toBeNull();
   expect(screen.queryByRole("button", { name: /^(Import|Continue) / })).toBeNull();
-  await made.open("/setup");
-  await screen.findByRole("heading", { level: 1, name: "Set up" });
+  await made.open("/setup?step=agents");
+  await screen.findByRole("heading", { level: 1, name: "Connect your agents" });
   expect(screen.queryByText(/past sessions|existing conversation/i)).toBeNull();
   expect(made.daemon.pastSessions.lists).toBe(0);
 });

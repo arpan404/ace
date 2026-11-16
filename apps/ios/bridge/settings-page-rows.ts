@@ -16,6 +16,7 @@ import {
   emulatorWindowSwitch,
   followUpChoices,
   limitPolicyChoices,
+  mediaPipelineSwitch,
   remotePushSwitch,
   sortByChoices,
   type LimitPolicyChoice,
@@ -69,7 +70,11 @@ export type AgentRow =
   | { kind: "defaultProvider" }
   | { kind: "role"; role: "build" | "judgment" | "review" | "verify" }
   | { kind: "utilityModel" };
-export type RowSpec = StaticRow | AgentRow;
+/** Beta's new media pipeline: one switch over two settings (`settings-page-media.ts`). */
+export interface MediaPipelineRow {
+  kind: "mediaPipeline";
+}
+export type RowSpec = StaticRow | AgentRow | MediaPipelineRow;
 
 export interface SectionSpec {
   id: string;
@@ -415,4 +420,17 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
     ],
     "With Bring ignored files, local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead.",
   ),
+  /** Features still being tried out on this machine, as web's Settings › Beta lists them. */
+  beta: {
+    id: "beta",
+    title: "Beta",
+    sections: [
+      {
+        id: "video",
+        title: "Video",
+        footer: mediaPipelineSwitch.description,
+        rows: [{ kind: "mediaPipeline" }],
+      },
+    ],
+  },
 };

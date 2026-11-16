@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppUpdateInstruction, AppUpdateReply, AppUpdateReport } from "@ace/protocol";
 import type { UpdateStatus } from "../../shared/contract.ts";
-import { UpdateReporter } from "./update-report.ts";
+import { UpdateReporter, updateRetryMs } from "./update-report.ts";
 
 const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
   state: "current",
@@ -28,8 +28,10 @@ function daemon(replies: (AppUpdateReply | undefined)[] = []) {
   const told: (AppUpdateReport | "withdrawn")[] = [];
   const instructed: AppUpdateInstruction[] = [];
   let up = true;
+  let ready = true;
   const timers: { run(): void; cancelled: boolean }[] = [];
   const reporter = new UpdateReporter({
+    ready: async () => ready,
     send: async (report) => {
       if (!up) throw new Error("connect ECONNREFUSED");
       told.push(report);
@@ -53,7 +55,14 @@ function daemon(replies: (AppUpdateReply | undefined)[] = []) {
   const renew = () => {
     for (const timer of timers.splice(0)) if (!timer.cancelled) timer.run();
   };
-  return { told, instructed, reporter, down: (on: boolean) => (up = !on), renew };
+  return {
+    told,
+    instructed,
+    reporter,
+    readiness: (on: boolean) => (ready = on),
+    down: (on: boolean) => (up = !on),
+    renew,
+  };
 }
 
 describe("app update reporting", () => {
@@ -208,4 +217,68 @@ describe("app update reporting", () => {
     await reporter.settled();
     expect(instructed).toEqual([install]);
   });
+});
+
+it("waits for readiness and retries a startup timeout without needing a reconnect", async () => {
+  const { reporter, told, readiness, down, renew } = daemon();
+  readiness(false);
+  reporter.connected(true);
+  reporter.status(status());
+  await reporter.settled();
+  expect(told).toEqual([]);
+  readiness(true);
+  down(true);
+  renew();
+  await reporter.settled();
+  expect(told).toEqual([]);
+  down(false);
+  renew();
+  await reporter.settled();
+  expect(told).toEqual([expect.objectContaining({ state: "current" })]);
+  await reporter.withdraw();
+  renew();
+  await reporter.settled();
+  expect(told).toHaveLength(2);
+});
+
+it("retries a timed-out report after two seconds and cancels retry on disconnect", async () => {
+  const reports: AppUpdateReport[] = [];
+  const timers = new Set<{ ms: number; run(): void }>();
+  let timeout = true;
+  const reporter = new UpdateReporter({
+    send: async (report) => {
+      if (timeout)
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      reports.push(report);
+    },
+    withdraw: async () => {},
+    log: () => {},
+    timers: {
+      set(ms, run) {
+        const timer = { ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  reporter.status(status());
+  reporter.connected(true);
+  await reporter.settled();
+  expect(reports).toEqual([]);
+  const retry = [...timers].find((timer) => timer.ms === updateRetryMs);
+  expect(retry).toBeDefined();
+  timeout = false;
+  if (retry) {
+    timers.delete(retry);
+    retry.run();
+  }
+  await reporter.settled();
+  expect(reports).toEqual([expect.objectContaining({ state: "current" })]);
+  timeout = true;
+  reporter.status(status({ state: "available", version: "1.4.2" }));
+  await reporter.settled();
+  reporter.connected(false);
+  expect([...timers].filter((timer) => timer.ms === updateRetryMs)).toEqual([]);
 });

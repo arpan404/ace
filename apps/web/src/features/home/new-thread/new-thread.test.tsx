@@ -54,10 +54,12 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   await made.open("/");
   await screen.findByRole("navigation", { name: "Projects" });
   await userEvent.keyboard("{Meta>}n{/Meta}");
+  // With several projects, New thread asks which one first.
+  const step = await screen.findByRole("dialog", { name: "New thread in" });
+  await userEvent.click(within(step).getByRole("option", { name: "relay" }));
   await screen.findByRole("heading", { level: 1, name: "New thread" });
+  expect(await screen.findByRole("button", { name: /^Project: relay/ })).toBeTruthy();
 
-  await userEvent.click(await screen.findByRole("button", { name: /^Project:/ }));
-  await userEvent.click(await screen.findByRole("option", { name: "relay" }));
   await chooseModel("GPT-5 Codex", "Codex", /^Model: Opus 5.5/);
   await closeModelControl();
   expect(

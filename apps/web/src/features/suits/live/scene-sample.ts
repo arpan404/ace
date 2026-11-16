@@ -1,5 +1,6 @@
 import type { SceneHostMessage } from "@ace/protocol/suits";
 import { messageFromScene } from "../scene/scene-controller.ts";
+import { readVideoFrame } from "../video/video-frame.ts";
 import type { SceneGrid } from "./colour-check.ts";
 
 /*
@@ -13,7 +14,6 @@ import type { SceneGrid } from "./colour-check.ts";
 export interface SceneFrame {
   /** The element the frame sits in: everything inside it paints over the scene. */
   host: Element;
-  frame: HTMLIFrameElement;
   /** Elements over the scene and under the host's content (`data-suit-veil`). */
   veils: Element[];
   grid: SceneGrid | undefined;
@@ -53,16 +53,45 @@ function sampleOne(frame: HTMLIFrameElement, view: Window): Promise<SceneGrid | 
   });
 }
 
-/** Every scene frame on the page with what it shows now. */
+/**
+ * A Suit's video as it shows now (ADR 0169), read in the page itself: the video is ace's own
+ * element. A frame the page can't read (no CORS) gives no grid, so the text over it is unchecked.
+ */
+function sampleVideo(video: HTMLVideoElement | HTMLImageElement): SceneGrid | undefined {
+  const fit = video.dataset.fit === "contain" ? "contain" : "cover";
+  try {
+    const read = readVideoFrame(video, columns, rows, fit);
+    return read ? { columns, rows, pixels: Array.from(read.pixels), box: read.box } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const veilsIn = (host: Element) =>
+  [...host.children].filter((child) => child.hasAttribute("data-suit-veil"));
+
+/** Every scene frame and Suit video on the page with what it shows now. */
 export async function sampleScenes(document: Document): Promise<SceneFrame[]> {
   const view = document.defaultView;
   if (!view) return [];
   const frames = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-suit-scene-frame]")];
-  return Promise.all(
+  // A Suit's video, or the still image that stands in for one.
+  const videos = [
+    ...document.querySelectorAll<HTMLVideoElement | HTMLImageElement>(
+      "video[data-suit-video], img[data-suit-poster]",
+    ),
+  ];
+  const scenes = await Promise.all(
     frames.map(async (frame) => {
       const host = frame.parentElement ?? document.documentElement;
-      const veils = [...host.children].filter((child) => child.hasAttribute("data-suit-veil"));
-      return { host, frame, veils, grid: await sampleOne(frame, view) };
+      return { host, veils: veilsIn(host), grid: await sampleOne(frame, view) };
     }),
   );
+  return [
+    ...scenes,
+    ...videos.map((video) => {
+      const host = video.parentElement ?? document.documentElement;
+      return { host, veils: veilsIn(host), grid: sampleVideo(video) };
+    }),
+  ];
 }

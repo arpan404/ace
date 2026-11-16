@@ -56,6 +56,9 @@ struct TuneRow: Codable, Sendable, Equatable {
     let pending: Bool
     let canReset: Bool
     let notice: String
+    /// The model's own default level and speed, which the model sheet marks.
+    var effortPreset: String? = nil
+    var speedPreset: String? = nil
 }
 /// The thread's access (`bridge/thread-access.ts`): the mode in effect, or the one picked to
 /// replace it at the agent's next turn, and the modes its provider supports. `state` "none" has
@@ -149,8 +152,16 @@ struct PillRow: Codable, Sendable, Equatable {
         var detail: String? = nil
         var id: String { kind }
     }
+    /// Which live facts the pill names (`pillCovers` in `bridge/thread-pill.ts`).
+    struct Covers: Codable, Sendable, Equatable {
+        let subagents: Bool
+        let commands: Bool
+        static let nothing = Covers(subagents: false, commands: false)
+    }
     let status: Status?
     let segments: [Segment]
+    /// Nil from older bridges: the pill names nothing, and the transcript keeps its live rows.
+    var covers: Covers? = nil
 }
 /// The goal's sheet: its words, progress and the changes ace can make to it.
 struct GoalRow: Codable, Sendable, Equatable {

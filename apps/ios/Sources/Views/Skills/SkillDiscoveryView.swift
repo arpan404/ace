@@ -26,14 +26,14 @@ struct SkillDiscoveryView: View {
             VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                 QuietSection {
                     QuietSectionRow {
-                        Text("Project").aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                        Text("Project").aceFont(AceDesign.TextRole.rowTitle)
                             .foregroundStyle(AceDesign.Ink.primary)
                         Spacer(minLength: AceDesign.Space.related)
                         Picker("Project", selection: $project) { ForEach(projects) { Text($0.name).tag($0.id) } }
                             .labelsHidden().pickerStyle(.menu).tint(AceDesign.Ink.muted)
                     }
                     QuietSectionRow {
-                        Text("Coding agent").aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                        Text("Coding agent").aceFont(AceDesign.TextRole.rowTitle)
                             .foregroundStyle(AceDesign.Ink.primary)
                         Spacer(minLength: AceDesign.Space.related)
                         Picker("Coding agent", selection: $provider) { ForEach(ProviderLabels.ids, id: \.self) { Text($0.capitalized).tag($0) } }
@@ -56,7 +56,7 @@ struct SkillDiscoveryView: View {
                                 VStack(alignment: .leading, spacing: AceDesign.Space.row) {
                                     AceMarkdown(text: entry.description)
                                     Text("Use this entry from a conversation's Skills and commands menu.")
-                                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                        .aceFont(AceDesign.TextRole.meta)
                                         .foregroundStyle(AceDesign.Ink.muted)
                                 }
                                 .padding(.horizontal, AceDesign.Space.margin)
@@ -67,7 +67,7 @@ struct SkillDiscoveryView: View {
                         } label: {
                             QuietSectionRow {
                                 QuietRowText(title: entry.title ?? entry.name, detail: entry.description)
-                                Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                Text(entry.kind.capitalized).aceFont(AceDesign.TextRole.action)
                                     .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
                                 RowCaret()
                             }

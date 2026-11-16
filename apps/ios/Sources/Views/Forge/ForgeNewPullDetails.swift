@@ -31,10 +31,10 @@ struct ForgeNewPullDetailsSection: View {
                                      @ViewBuilder page: @escaping () -> Page) -> some View {
         NavigationLink { page() } label: {
             QuietSectionRow {
-                Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceDesign.Ink.primary)
+                Text(title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                 Spacer(minLength: AceDesign.Space.related)
                 Text(picked.isEmpty ? "None" : picked.joined(separator: ", "))
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(picked.isEmpty ? AceDesign.Ink.subtle : AceDesign.Ink.muted)
                     .lineLimit(1).truncationMode(.tail)
                 RowCaret()
@@ -46,7 +46,7 @@ struct ForgeNewPullDetailsSection: View {
 
     private var milestoneRow: some View {
         QuietSectionRow {
-            Text("Milestone").aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceDesign.Ink.primary)
+            Text("Milestone").aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
             Spacer(minLength: AceDesign.Space.related)
             Menu {
                 Picker("Milestone", selection: $draft.milestone) {
@@ -58,7 +58,7 @@ struct ForgeNewPullDetailsSection: View {
                 }
             } label: {
                 Text(details.milestones.first { $0.number == draft.milestone }?.title ?? "None")
-                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(draft.milestone == nil ? AceDesign.Ink.subtle : AceDesign.Ink.muted)
                     .lineLimit(1)
             }

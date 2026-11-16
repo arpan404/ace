@@ -344,7 +344,7 @@ struct ChangedFileHeader: View {
                 Spacer(minLength: AceTheme.Spacing.xs)
                 FileStatusWord(status: file.status)
                 if reviewed {
-                    Text("Viewed").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
+                    Text("Viewed").aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
                 } else {
                     counts
                 }
@@ -361,7 +361,7 @@ struct ChangedFileHeader: View {
         .background(alignment: drag < 0 ? .trailing : .leading) {
             // What the swipe does, revealed under the row as it moves.
             Text(reviewed ? "Not viewed" : "Viewed")
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(HeaderSwipe.marks(drag, reach: Self.reach) ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
                 .padding(.horizontal, AceDesign.Space.margin)
                 .opacity(drag == 0 ? 0 : 1)
@@ -412,7 +412,7 @@ struct FileStatusWord: View {
     let status: String
     var body: some View {
         if let word = Self.word(status) {
-            Text(word).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+            Text(word).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
         }
     }
     static func word(_ status: String) -> String? {

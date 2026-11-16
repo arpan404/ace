@@ -1,21 +1,18 @@
 import SwiftUI
 
-/// The line a needs-you row grows under its title: the first request in one line and its text
-/// actions at the right. An approval shows its command in mono in a capsule, cut in the middle,
-/// with Deny (muted) and Allow once (accent); a question its prompt with Answer; a plan, a form or
-/// browser help a sentence with Review or Open. Several waiting read "1 of 3" quietly. While an
-/// answer is on its way the actions give way to what is happening ("Allowing…"); the line leaves
-/// only when the daemon closes the request. Fixed height, on the row's one left edge.
+/// The line a needs-you row grows under its title: what the first request waits on, across the
+/// row's width. An approval shows its command in mono in a capsule, cut in the middle; a question
+/// its prompt; a plan, a form or browser help a sentence. Several waiting read "1 of 3" quietly.
+/// The line holds no buttons: a tap on the row opens the thread, and an approval answers by the
+/// row's swipes, long-press menu and VoiceOver actions (`NeedActions.answers`). While an answer is
+/// on its way the line says so ("Sending…"); it leaves only when the daemon closes the request.
+/// The third line's height, as a branch's, on the row's one left edge.
 struct InboxNeedLine: View {
     let requests: [ApprovalRow]
     /// What waits: here, in delegated work, and whether the read found it all.
     let tally: NeedTally
     let model: ClientModel
-    let threadId: String
-    /// Opens the thread, for what the phone answers there (browser help, long questions).
-    let open: () -> Void
-    @State private var sheet: RequestSheetItem?
-    @State private var decided = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// What VoiceOver reads for the line, inside the row's name.
     var spoken: String? {
@@ -27,64 +24,43 @@ struct InboxNeedLine: View {
     var body: some View {
         if let request = requests.first {
             HStack(alignment: .center, spacing: AceDesign.Space.related) {
-                NeedSubject(request: request)
+                // At accessibility sizes the subject takes a second line rather than cutting more.
+                NeedSubject(request: request, lines: typeSize.isAccessibilitySize ? 2 : 1)
                 if let position = NeedWords.position(tally) {
                     Text(position)
-                        .aceFont(AceDesign.TextRole.time, relativeTo: .caption).monospacedDigit()
+                        .aceFont(AceDesign.TextRole.time).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                         .fixedSize()
                         .accessibilityLabel(NeedWords.spokenPosition(tally) ?? position)
                 }
-                // The words' own inset sits outside the row's trailing edge, so they end with it.
-                words(request).fixedSize().padding(.trailing, -AceDesign.Space.stripWord)
-            }
-            .frame(height: AceDesign.Size.rowNeedLine)
-            .sensoryFeedback(AceDesign.Haptic.approve, trigger: decided)
-            .sheet(item: $sheet) { item in
-                if let shown = requests.first(where: { $0.id == item.id }) {
-                    NeedsRequestSheet(request: shown, model: model, threadId: threadId, open: open) { sheet = nil }
+                if let progress = NeedActions.progress(model.approvalSubmissions[request.id]) {
+                    Text(progress)
+                        .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .fixedSize()
+                        .accessibilityIdentifier("inbox.need.progress")
                 }
             }
-            // The request a sheet shows was answered: the sheet goes with it.
-            .onChange(of: requests.map(\.id)) { _, ids in if let item = sheet, !ids.contains(item.id) { sheet = nil } }
+            .frame(minHeight: InboxRowType.lastLine)
             .accessibilityIdentifier("inbox.need")
-        }
-    }
-
-    @ViewBuilder private func words(_ request: ApprovalRow) -> some View {
-        let actions = NeedActions(request: request, model: model, threadId: threadId, open: open,
-                                  review: { sheet = RequestSheetItem(id: request.id) }, decided: { decided += 1 })
-        if let progress = actions.progress {
-            Text(progress)
-                .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .padding(.horizontal, AceDesign.Space.stripWord)
-                .accessibilityIdentifier("inbox.need.progress")
-        } else if model.canOperate {
-            HStack(spacing: AceTheme.Spacing.none) {
-                ForEach(actions.row) { action in
-                    Button(action.label, action: action.run)
-                        .buttonStyle(NeedWordStyle(primary: action.primary))
-                        .accessibilityIdentifier("inbox.need.\(action.id)")
-                }
-            }
         }
     }
 }
 
-/// What the request is, in one line: an approval's command (or what it touches) in a mono
-/// capsule, otherwise its sentence in muted ink.
+/// What the request is: an approval's command (or what it touches) in a mono capsule, otherwise
+/// its sentence in muted ink. It takes the line's whole width.
 private struct NeedSubject: View {
     let request: ApprovalRow
+    let lines: Int
     var body: some View {
         let payload = request.command.isEmpty ? (request.strip?.payload ?? "") : request.command
         if request.kind == "approval" && !payload.isEmpty {
             Text(payload)
-                .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                .aceMonospace(AceDesign.TextRole.code)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .lineLimit(1).truncationMode(.middle)
+                .lineLimit(lines).truncationMode(.middle)
                 .padding(.horizontal, AceDesign.Space.related)
-                .frame(height: AceDesign.Size.rowNeedLine)
+                .frame(minHeight: InboxRowType.lastLine)
                 .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(-1)
@@ -92,7 +68,7 @@ private struct NeedSubject: View {
             Text(NeedWords.subject(request))
                 .aceFont(InboxRowType.line, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .lineLimit(1)
+                .lineLimit(lines)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(-1)
         }
@@ -107,7 +83,7 @@ struct NeedWordStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.action)
             .fontWeight(primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(primary ? AceTheme.Colours.accent : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.stripWord)
@@ -126,7 +102,7 @@ struct NeedActionStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.action)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(1)
             .padding(.horizontal, AceDesign.Space.stripWord)

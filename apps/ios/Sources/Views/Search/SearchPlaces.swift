@@ -85,7 +85,7 @@ struct SearchPlaceCapsules: View {
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
             }
         }
-        .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+        .aceFont(AceDesign.TextRole.action)
         .foregroundStyle(AceTheme.Colours.foreground)
         .padding(.horizontal, AceDesign.Space.margin)
         .frame(minHeight: AceDesign.Size.tap)

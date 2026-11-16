@@ -1459,7 +1459,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 | --- | --- | --- | --- |
 | query | yes | string | {"minLength":1,"maxLength":500,"description":"In plain words, e.g. \"click a button in Safari\"."} |
 | limit | no | integer | {"default":5,"minimum":1,"maximum":10} |
-| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use"] |  |
+| family | no | ["ace-agents","ace-browser","visualize","ace-threads","ace-computer-use","make-a-suit"] |  |
 
 Example:
 

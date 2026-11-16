@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// One of a strip's actions: a word, the primary one in semibold ink, the rest muted. Never an
-/// icon, a capsule or a colour: Deny reads as plainly as the others.
+/// One of a strip's answers, drawn as a real button (owner, 2026-11-16): the primary one, the way
+/// on ("Allow once", "Try again"), prominent glass; the rest bordered capsules in ink. Deny reads
+/// as plainly as the others, never red.
 struct DockAction: Identifiable {
     let id: String
     let label: String
@@ -9,8 +10,6 @@ struct DockAction: Identifiable {
     var enabled = true
     /// The accessibility identifier; `strip.<id>` when not given.
     var identifier: String? = nil
-    /// A way to more (Details): first, apart from the answers.
-    var aside = false
     let run: () -> Void
 }
 
@@ -21,29 +20,31 @@ struct DockPager {
     let move: (Int) -> Void
 }
 
-/// Every strip above the composer, drawn alike (DESIGN.md "words, not chrome"): one glass shape
-/// the composer's width and corners, sitting on it. One short sentence led by the provider's mark
-/// or the row's status icon; under it at most one line, the payload in mono (cut in the middle,
-/// a tap shows it whole, or opens it) or a muted detail. Its actions are words, "Deny · Always ·
-/// Allow": at the sentence's end when they fit beside it, else on a line of their own at the
-/// trailing edge. Long content is never here: it opens in a sheet. The words come from
-/// `@ace/ui-core/mobile`.
+/// Every strip above the composer, drawn alike: one glass shape the composer's width and corners,
+/// sitting on it. One short sentence led by the provider's mark or the row's status icon; under it
+/// at most one line, the payload in mono (cut in the middle, a tap shows it whole, or opens it) or
+/// a muted detail. Where the strip has more to show (a request's details), tapping its words opens
+/// it. Its answers are real buttons at least 44 points tall with room between them: a lone one at
+/// the sentence's end, several on a line of their own at the trailing edge, stacked full width
+/// when they don't fit one line. Long content is never here: it opens in a sheet. The words come
+/// from `@ace/ui-core/mobile`.
 struct DockStrip: View {
     let line: StripLineRow
     var pager: DockPager? = nil
     let actions: [DockAction]
     /// Opens the payload in full; nil shows it whole in place on a tap.
     var openPayload: (() -> Void)? = nil
+    /// Opens what the strip is about in full (a request's details): its sentence and payload are
+    /// one tap that opens it.
+    var openDetails: (() -> Void)? = nil
     var identifier = "thread.strip"
     var sentenceIdentifier = "strip.sentence"
     @State private var expanded = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.inGlassBlock) private var inBlock
 
-    /// Details first, then the answers in the bridge's order.
-    private var ordered: [DockAction] { actions.filter(\.aside) + actions.filter { !$0.aside } }
-    /// The words fit at the sentence's end: at most two short ones beside it.
-    private var inline: Bool { actions.count <= 2 }
+    /// A lone answer fits at the sentence's end; more go on their own line.
+    private var inline: Bool { actions.count == 1 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -51,7 +52,7 @@ struct DockStrip: View {
                 StripLeadMark(lead: line.lead)
                 sentence
                 if let pager, pager.total > 1 { pagerView(pager) }
-                if inline { words(ordered) }
+                if inline, let only = actions.first { StripButton(action: only) }
             }
             if !line.payload.isEmpty { payload }
             if !line.detail.isEmpty {
@@ -62,12 +63,13 @@ struct DockStrip: View {
                     .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
                     .accessibilityIdentifier("strip.detail")
             }
-            if !inline {
-                words(ordered).frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.top, AceDesign.Space.tight)
+            if actions.count > 1 {
+                StripButtons(actions: actions).padding(.top, AceDesign.Space.related)
             }
         }
-        .padding(.horizontal, AceDesign.Space.margin)
+        // Above the composer its words start where the field's do (`ReadingColumn.stripLead`).
+        .padding(.leading, inBlock ? AceDesign.Space.margin : ReadingColumn.stripLead)
+        .padding(.trailing, AceDesign.Space.margin)
         .padding(.top, AceDesign.Space.row)
         .padding(.bottom, AceDesign.Space.stripBottom)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -81,23 +83,34 @@ struct DockStrip: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private var sentence: some View {
+    @ViewBuilder private var sentence: some View {
+        if let openDetails {
+            Button(action: openDetails) { sentenceText }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows the details")
+                .accessibilityIdentifier(sentenceIdentifier)
+        } else {
+            sentenceText.accessibilityIdentifier(sentenceIdentifier)
+        }
+    }
+
+    private var sentenceText: some View {
         Text(line.sentence)
-            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .aceFont(AceDesign.TextRole.segment).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(2)
             .monospacedDigit()
             .contentTransition(.numericText())
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier(sentenceIdentifier)
+            .contentShape(Rectangle())
     }
 
     private var payload: some View {
         Button {
-            if let openPayload { openPayload() } else { withAnimation { expanded.toggle() } }
+            if let open = openDetails ?? openPayload { open() } else { withAnimation { expanded.toggle() } }
         } label: {
             Text(line.payload)
-                .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                .aceMonospace(AceDesign.TextRole.code)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(expanded ? nil : 1)
                 .truncationMode(.middle)
@@ -108,20 +121,8 @@ struct DockStrip: View {
         .buttonStyle(.plain)
         .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
         .accessibilityLabel(line.payload)
-        .accessibilityHint(expanded ? "Shows one line" : "Shows it all")
+        .accessibilityHint(openDetails != nil ? "Shows the details" : expanded ? "Shows one line" : "Shows it all")
         .accessibilityIdentifier("strip.payload")
-    }
-
-    private func words(_ shown: [DockAction]) -> some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            ForEach(shown) { action in
-                Button(action.label, action: action.run)
-                    .buttonStyle(StripTextButtonStyle(prominent: action.primary))
-                    .disabled(!action.enabled)
-                    .accessibilityIdentifier(action.identifier ?? "strip.\(action.id)")
-            }
-        }
-        .fixedSize()
     }
 
     private func pagerView(_ pager: DockPager) -> some View {
@@ -180,5 +181,60 @@ private struct StripSurfaceGlass: ViewModifier {
     let inBlock: Bool
     func body(content: Content) -> some View {
         if inBlock { content } else { content.aceGlass(in: AceDesign.Shape.container) }
+    }
+}
+
+/// A strip's answers on their own line: in one row at the trailing edge when they fit, else
+/// stacked full width, the way on last, nearest the thumb.
+private struct StripButtons: View {
+    let actions: [DockAction]
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AceDesign.Space.related) {
+                ForEach(actions) { StripButton(action: $0) }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(spacing: AceDesign.Space.related) {
+                ForEach(actions) { StripButton(action: $0, fill: true) }
+            }
+        }
+    }
+}
+
+/// One answer as a system capsule button: large, so it stands at least 44 points tall. The way on
+/// is prominent glass on iOS 26 (filled before it); the rest are bordered in ink.
+private struct StripButton: View {
+    let action: DockAction
+    var fill = false
+    var body: some View {
+        Button(action: action.run) {
+            Text(action.label)
+                .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                .fontWeight(action.primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                .lineLimit(1)
+                .frame(maxWidth: fill ? .infinity : nil)
+        }
+        .modifier(StripButtonLook(primary: action.primary))
+        .buttonBorderShape(.capsule)
+        .controlSize(.large)
+        .frame(minHeight: AceDesign.Size.tap)
+        .fixedSize(horizontal: !fill, vertical: false)
+        .disabled(!action.enabled)
+        .accessibilityIdentifier(action.identifier ?? "strip.\(action.id)")
+    }
+}
+
+private struct StripButtonLook: ViewModifier {
+    let primary: Bool
+    func body(content: Content) -> some View {
+        if primary {
+            if #available(iOS 26, *) {
+                content.buttonStyle(.glassProminent).tint(AceTheme.Colours.accent)
+            } else {
+                content.buttonStyle(.borderedProminent).tint(AceTheme.Colours.accent)
+            }
+        } else {
+            content.buttonStyle(.bordered).tint(AceTheme.Colours.foreground)
+        }
     }
 }

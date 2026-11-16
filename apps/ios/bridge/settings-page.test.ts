@@ -557,3 +557,78 @@ test("without a Downloads folder on the machine, the Browser page says downloads
     "No usable Downloads folder here; empty keeps them with each thread.",
   );
 });
+
+const pipeline = (shown: SettingsPage) => row(shown, "beta.mediaPipeline");
+const media = (daemon: FakeDaemon) => ({
+  encode: daemon.services.settings.get("media.encode"),
+  delivery: daemon.services.settings.get("media.delivery"),
+});
+
+test("Beta's media pipeline switch reads in web's words and turns both settings on together", async () => {
+  const p = await ports();
+  const shown = await page(p, "beta");
+  expect(shown.title).toBe("Beta");
+  expect(shown.sections[0]?.footer).toMatch(/^Encodes and streams live video with ace-media/);
+  expect(pipeline(shown)).toMatchObject({
+    title: "New media pipeline",
+    control: { kind: "toggle" },
+    value: false,
+    note: null,
+  });
+
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.mediaPipeline",
+    value: true,
+  });
+
+  expect(written.ok).toBe(true);
+  expect(written.page && pipeline(written.page).value).toBe(true);
+  expect(media(p.daemon)).toEqual({ encode: "auto", delivery: "auto" });
+});
+
+test("a half-on pipeline shows off, says only part is on, and turning it off sets both back", async () => {
+  const p = await ports();
+  p.daemon.services.settings.write("media.encode", "auto");
+  const shown = pipeline(await page(p, "beta"));
+  expect(shown).toMatchObject({ value: false, note: "Only part of the new pipeline is on." });
+
+  await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.mediaPipeline",
+    value: false,
+  });
+
+  expect(media(p.daemon)).toEqual({ encode: "legacy", delivery: "legacy" });
+});
+
+test("the switch shows a change made on another device when the page is read again", async () => {
+  const p = await ports();
+  expect(pipeline(await page(p, "beta")).value).toBe(false);
+  p.daemon.services.settings.write("media.encode", "auto");
+  p.daemon.services.settings.write("media.delivery", "auto");
+  expect(pipeline(await page(p, "beta")).value).toBe(true);
+});
+
+test("a phone the machine won't let change it is told so politely and nothing is written", async () => {
+  const daemon = fixture();
+  daemon.refuseRequests("forbidden", "settings.setMany");
+  const p = await ports(daemon);
+
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "beta",
+    row: "beta.mediaPipeline",
+    value: true,
+  });
+
+  expect(written).toMatchObject({
+    ok: false,
+    message:
+      "Couldn't turn the new media pipeline on: this phone isn't allowed to change settings on this machine.",
+  });
+  expect(written.page && pipeline(written.page).value).toBe(false);
+  expect(media(daemon)).toEqual({ encode: "legacy", delivery: "legacy" });
+});

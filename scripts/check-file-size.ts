@@ -7,7 +7,10 @@ const tracked = execFileSync("git", ["ls-files", "-z", "--", "*.ts", "*.tsx", "*
   encoding: "utf8",
 })
   .split("\0")
-  .filter((path) => path && !path.startsWith("fixtures/") && !path.includes("/__fixtures__/"));
+  .filter((path) => path && !path.startsWith("fixtures/") && !path.includes("/__fixtures__/"))
+  // A shipped Suit's scene is one script by format (ADR 0150: the scene page loads exactly one
+  // file per region), so it can't be split into modules the way source can.
+  .filter((path) => !/^packages\/plugins\/builtin-suits\/[^/]+\/[A-Za-z0-9-]+\.js$/.test(path));
 
 const oversized = tracked
   .map((path) => ({ path, lines: readFileSync(path, "utf8").split("\n").length }))

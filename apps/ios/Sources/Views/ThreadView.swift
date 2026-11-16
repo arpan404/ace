@@ -18,10 +18,9 @@ struct ThreadView: View {
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showModels = false
-    @State private var showTune = false
     @State private var lane: BlockRow.Agents.Entry?
     /// The page showing on a phone (`ThreadPager`), and the one last asked for, which keeps its
-    /// bar button while it shows even before the thread has something for it.
+    /// place while it shows even before the thread has something for it.
     @State private var page: ThreadPageKind = .chat
     @State private var requestedPage: ThreadPageKind?
     /// The screen a phone pushed over the thread from ⋯ (Files, Terminal, Browser, Agents).
@@ -49,7 +48,6 @@ struct ThreadView: View {
     @State private var showQueue = false
     /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
     @Environment(\.panelPlace) private var panelPlace
-    @Environment(\.horizontalSizeClass) private var sizeClass
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -64,6 +62,8 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The strip over the capsule: the `@` and `/` list opens above it, never over it.
+    @State private var stripHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     /// A pasted file's words going back into the message as text.
@@ -112,10 +112,7 @@ struct ThreadView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            content(pageWidth: geometry.size.width)
-        }
-        .background { DismissCapture(box: back) }
+        content.background { DismissCapture(box: back) }
     }
 
     private var feed: some View {
@@ -153,15 +150,9 @@ struct ThreadView: View {
         pager.modifier(ThreadHeaderBar(shown: headerStatus != nil) { header })
     }
 
-    /// The bar's widths: Chat and Changes beside ⋯ only on a phone, and only while the title keeps
-    /// its room; at accessibility text sizes they move into ⋯.
-    private func barLayout(pageWidth: CGFloat) -> ThreadBarLayout {
-        ThreadBarLayout(pageWidth: pageWidth, leadingTitle: sizeClass == .compact, panel: panelPlace != .none,
-                        pages: panelPlace == .none ? pages.kinds.count : 0, largeText: typeSize.isAccessibilitySize)
-    }
-
-    private func content(pageWidth: CGFloat) -> some View {
-        headed
+    private var content: some View {
+        let heading = heading
+        return headed
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -169,16 +160,16 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                let bar = barLayout(pageWidth: pageWidth)
-                ThreadToolbar(heading: heading, layout: bar,
-                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived,
-                                               open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
-                                               shownPage: shownPage, switchInBar: bar.switchInBar, leave: leave),
-                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
-                              pages: panelPlace == .none ? ThreadPageSwitch(pages: pages, shown: shownPage, select: select) : nil,
-                              leadingTitle: sizeClass == .compact)
+                ThreadToolbar(menu: ThreadMenu(model: model, threadId: thread.id,
+                                               facts: ThreadMenuFacts.of(model: model, thread: thread, archived: archived),
+                                               title: metadata?.title ?? "", open: open, opensInPanel: panelPlace != .none,
+                                               pages: panelPlace == .none ? pages : nil, shownPage: shownPage, leave: leave),
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) },
+                              coveredByDrawer: drawerOpen)
             }
-            .navigationTitle(metadata?.title ?? "Thread")
+            // The system's title, the project and model under it, and its menu.
+            .threadTitle(metadata?.title ?? "Thread", subtitle: heading.subtitle)
+            .toolbarTitleMenu { if heading.hasMenu { EquatableView(content: heading) } }
             .navigationBarTitleDisplayMode(.inline)
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.
@@ -256,9 +247,6 @@ struct ThreadView: View {
                                        mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
-            }
-            .sheet(isPresented: $showTune) {
-                if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
             }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
@@ -343,29 +331,26 @@ struct ThreadView: View {
         return ThreadTitleMenu(title: metadata?.title ?? "Thread", place: subtitle,
                                project: project, projectLook: row?.workspaceId.flatMap { model.projectLooks[$0] },
                                projectInitials: row?.badge ?? "", projectTint: row?.tint,
-                               provider: row?.provider ?? "", providerAccount: row?.account,
                                startedBy: row?.startedBy,
-                               status: model.headerStatus(of: thread)?.label,
-                               width: 0,
                                model: changesModel ? ThreadModelWords.line(screen) : nil,
-                               tune: changesModel ? screen.tune : nil, access: changesModel ? screen.access : nil,
+                               access: changesModel ? screen.access : nil,
                                canRename: operable, canRetitle: operable, actions: titleActions,
-                               openModel: { showModels = true }, openTune: { showTune = true },
-                               setEffort: { effort in Task { _ = await model.setEffort(effort) } },
-                               setSpeed: { speed in Task { _ = await model.setSpeed(speed) } },
+                               openModel: { showModels = true },
                                setAccess: { mode in Task { _ = await model.setAccess(mode) } },
                                rename: { renaming = true },
                                retitle: { [thread] in Task { _ = await model.retitle(thread.id) } },
                                openWork: metadata == nil ? nil : { showWork = true })
     }
 
-    /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
-    private var hasStrip: Bool {
-        !stripRequests.isEmpty
-            || (screen.queue?.strip).map { HoldStripState.of(strip: $0, canOperate: model.canOperate, archived: archived).visible } == true
-            || screen.queue?.notSent != nil || screen.leftRunning != nil
-            || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
+    /// The foot above the composer (`ThreadFoot`): a strip, else the pill unless the `@` and `/`
+    /// list is open.
+    private var foot: ThreadFoot {
+        let transfers: TransfersModel = model.transfers
+        var foot: ThreadFoot = ThreadFoot.of(thread, transfers: transfers)
+        foot.suggesting = suggester.trigger != nil
+        return foot
     }
+    private var hasStrip: Bool { foot.stripShown }
 
     /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
     /// request, what holds the queue, a message that didn't go, ...), or else the glass live
@@ -378,10 +363,18 @@ struct ThreadView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if hasStrip {
                 strip
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
                     // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            } else if let pill = screen.pill {
-                ComposerLivePills(pill: pill, open: openPill)
+            } else if let pill = screen.pill, foot.drawsPill {
+                // The `@` and `/` list takes the pills' place over the transcript while it's open.
+                // Each part says when it's on screen, so the transcript keeps a fact's live rows
+                // whenever its part isn't; a new screen model gets pills of its own to say it there.
+                let screen = screen
+                ComposerLivePills(pill: pill, open: openPill) { part, shown in
+                    if shown { screen.visiblePills.insert(part) } else { screen.visiblePills.remove(part) }
+                }
+                    .id(ObjectIdentifier(screen))
                     .transition(.opacity)
             }
             composer
@@ -389,7 +382,7 @@ struct ThreadView: View {
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
-            ComposerFloaters(behind: behind && shownPage == .chat) { jumps += 1 }
+            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
         }
         // Only a strip, the pills or the fork strip arriving or leaving animates, with the
@@ -398,6 +391,7 @@ struct ThreadView: View {
         .animation(.default, value: request?.id)
         .animation(.default, value: hasStrip)
         .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: suggester.trigger == nil)
         .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
@@ -489,6 +483,7 @@ struct ThreadView: View {
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
+                         listAbove: hasStrip ? stripHeight : 0,
                          run: runComposerAction, focusRequest: composerFocus) {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }
@@ -603,7 +598,7 @@ struct ThreadView: View {
     }
     /// The requests the strip above the composer shows.
     private var stripRequests: [ApprovalRow] { thread.approvals }
-    /// Shows a page; asking for one keeps its bar button while it shows.
+    /// Shows a page; asking for one keeps it while it shows.
     private func select(_ next: ThreadPageKind) {
         requestedPage = next == .chat ? nil : next
         guard page != next else { return }

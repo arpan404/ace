@@ -395,11 +395,12 @@ export class ItemStore {
   }
   /**
    * Which version of an item's raw payloads is stored: its creation and the write that last
-   * replaced its body, read from its head row alone. Undefined without the item.
+   * replaced its body, read from its head row alone. Undefined without the item. A row from
+   * before `raw_seq` holds 0 there: its body was last written at its creation.
    */
   rawRevision(threadId: ThreadId, itemId: string): string | undefined {
     const row = this.statement(
-      "SELECT created_seq, raw_seq FROM item_heads WHERE id = ? AND thread_id = ?",
+      "SELECT created_seq, CASE raw_seq WHEN 0 THEN created_seq ELSE raw_seq END AS raw_seq FROM item_heads WHERE id = ? AND thread_id = ?",
     ).get(itemId, threadId);
     return row ? `${Number(row.created_seq)}.${Number(row.raw_seq)}` : undefined;
   }

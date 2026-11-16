@@ -1,0 +1,74 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitActive.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "preview",
+          "type": "string"
+        },
+        "suitId": {
+          "$ref": "https://ace.local/protocol/v1/SuitId.json"
+        }
+      },
+      "required": [
+        "kind",
+        "suitId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "none",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "keepId": {
+          "$ref": "https://ace.local/protocol/v1/SuitKeepId.json"
+        },
+        "kind": {
+          "const": "keep",
+          "type": "string"
+        },
+        "suitId": {
+          "$ref": "https://ace.local/protocol/v1/SuitId.json"
+        }
+      },
+      "required": [
+        "kind",
+        "suitId",
+        "keepId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "keepId": {
+          "$ref": "https://ace.local/protocol/v1/SuitKeepId.json"
+        },
+        "kind": {
+          "const": "restore",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "keepId"
+      ],
+      "type": "object"
+    }
+  ]
+}

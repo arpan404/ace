@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitTerminalColours.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ansi": {
+      "additionalProperties": {
+        "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+        "type": "string"
+      },
+      "propertyNames": {
+        "enum": [
+          "black",
+          "red",
+          "green",
+          "yellow",
+          "blue",
+          "magenta",
+          "cyan",
+          "white",
+          "brightBlack",
+          "brightRed",
+          "brightGreen",
+          "brightYellow",
+          "brightBlue",
+          "brightMagenta",
+          "brightCyan",
+          "brightWhite"
+        ],
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "background": {
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+      "type": "string"
+    },
+    "cursor": {
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+      "type": "string"
+    },
+    "cursorAccent": {
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+      "type": "string"
+    },
+    "foreground": {
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+      "type": "string"
+    },
+    "selection": {
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -84,8 +84,10 @@ import XCTest
             app.buttons["composer.send"].tap()
             let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: chip)
             wait(for: [gone], timeout: 20)
-            let changesPage = app.buttons["thread.page.changes"]
-            if changesPage.exists, !changesPage.isSelected { changesPage.tap() }
+            // On a phone the send may land on Chat: Changes comes back from ⋯.
+            if !app.descendants(matching: .any)["thread.page.changes.body"].exists, !app.buttons["changes.close"].exists {
+                app.showThreadPage("changes")
+            }
         }
         let sent = app.staticTexts["Sent"].firstMatch.waitForExistence(timeout: 20)
         capture("sent")
@@ -130,12 +132,11 @@ import XCTest
         capture("viewed")
 
         // Leaving Changes and coming back keeps the mark and the count: on a phone Changes is a
-        // page beside Chat, elsewhere a sheet.
-        let chat = app.buttons["thread.page.chat"]
-        if chat.exists {
-            chat.tap()
+        // page beside Chat, both in ⋯, elsewhere a sheet.
+        if app.descendants(matching: .any)["thread.page.changes.body"].exists {
+            app.showThreadPage("chat")
             XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10))
-            app.buttons["thread.page.changes"].tap()
+            app.showThreadPage("changes")
         } else {
             app.buttons["changes.close"].tap()
             XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 10))
@@ -183,10 +184,8 @@ import XCTest
 
     /// The fixture's `ios-changes` thread opened at launch, then its Changes.
     private func openChanges(_ app: XCUIApplication) {
-        let page = app.buttons["thread.page.changes"]
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 30), "the thread opens at launch")
-        if page.waitForExistence(timeout: 5) { page.tap(); return }
         menu.tap()
         let changes = app.threadMenuItem("thread.changes")
         XCTAssertTrue(changes.waitForExistence(timeout: 10)); changes.tap()

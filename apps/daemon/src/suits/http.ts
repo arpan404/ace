@@ -2,13 +2,15 @@ import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname } from "node:path";
 import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
+import { isSuitVideoPath } from "@ace/protocol/suits";
 import { isSceneFile } from "@ace/suits";
 import type { SuitLibrary } from "./library.ts";
 import { suitsPathPrefix } from "./urls.ts";
+import { serveSuitVideo } from "./video-http.ts";
 
 /*
  * `GET /v1/suits/<id>/<hash>/<grant>/<file>` (`urls.ts`): a Suit's scene page, its scene.js and
- * its assets. The grant in the path is the only authority; cookies and headers are ignored and
+ * its assets, and its videos streamed by byte range (`video-http.ts`, ADR 0169). The grant in the path is the only authority; cookies and headers are ignored and
  * nothing is set that could carry one. Every response is sandboxed by its CSP, so a file opened
  * on its own runs nowhere near the daemon's origin.
  */
@@ -103,6 +105,17 @@ export function suitsHttp(
     if (!suits || !target) {
       response.statusCode = 404;
       response.end();
+      return;
+    }
+    if (isSuitVideoPath(target.file)) {
+      const video = await suits.video(target.id, target.hash, target.file);
+      if (!video) {
+        response.statusCode = 404;
+        response.end();
+        return;
+      }
+      response.setHeader("Content-Security-Policy", fileCsp);
+      await serveSuitVideo(request, response, video);
       return;
     }
     const script = pageScript(target.file);

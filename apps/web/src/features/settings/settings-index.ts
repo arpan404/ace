@@ -1,5 +1,5 @@
 import { settingDescriptions } from "./setting-descriptions.ts";
-import { agentSettingTitles } from "@ace/ui-core";
+import { agentSettingTitles, mediaPipelineSwitch } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
@@ -740,7 +740,7 @@ const entries = [
   {
     id: "beta.mediaPipeline",
     page: "/settings/beta",
-    title: "New media pipeline",
+    title: mediaPipelineSwitch.title,
     keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
   },
 ] as const satisfies readonly SettingEntry[];

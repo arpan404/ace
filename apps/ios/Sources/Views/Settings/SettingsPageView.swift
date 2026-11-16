@@ -50,6 +50,8 @@ struct SettingsPageView<Extra: View>: View {
     private var list: some View {
         List {
             if let scope, scope.several { SettingsScopeSection(scope: scope, client: model) }
+            // A view-only pairing can read every row but change none, so the page says why first.
+            if !model.canOperate { Section { ViewOnlyNote.settings }.insetRowBackground() }
             if let data {
                 ForEach(data.sections) { section in
                     Section {

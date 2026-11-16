@@ -33,6 +33,8 @@ function withPlace(each: ThreadListEntry, input: Parameters<typeof placeThread>[
   return Object.assign({}, each, { place: placeThread(each, input) });
 }
 
+/** Threads whose ids start "theirs-" came placed by another machine's daemon. */
+const fromElsewhere = (each: ThreadListEntry) => each.id.startsWith("theirs-");
 /** Settled by the daemon a while ago, read, at rest. */
 const settledAt = (at: number) => ({ readAt: at, settledAt: at, settledReason: "manual" as const });
 /** Finished and already opened. */
@@ -125,6 +127,18 @@ test("a client shows the daemon's places as given, and places only entries that 
   expect(built.inbox).toEqual(["b"]);
 });
 
+test("this daemon's Inbox order is kept even where the list's own sort would rank it otherwise", () => {
+  const created = { baseline: 0, now, sortBy: "created" } as const;
+  const activity = { baseline: 0, now, sortBy: "activity" } as const;
+  // The daemon placed by creation: the newer idle thread leads the older working one.
+  const mine = [
+    entry("older-works", { state: "working", agents: 1 }, now - day, { createdAt: now - 2 * day }),
+    entry("newer-idle", { state: "done" }, now - day, { ...seen(now), createdAt: now - day }),
+  ].map((each) => withPlace(each, created));
+  const built = threadTabs(mine, placeReader({ fallback: activity }));
+  expect(built.inbox).toEqual(["newer-idle", "older-works"]);
+});
+
 test("sorted by hand, threads from a machine sorting by activity follow the hand order with this one's", () => {
   const manual = { baseline: 0, now, sortBy: "manual" } as const;
   const activity = { baseline: 0, now, sortBy: "activity" } as const;
@@ -137,7 +151,10 @@ test("sorted by hand, threads from a machine sorting by activity follow the hand
     entry("theirs-asks", { state: "needs_you", interactions: 1 }, now, { listOrder: 5 }),
     entry("theirs-mid", { state: "done" }, now - day, { ...seen(now), listOrder: 20 }),
   ].map((each) => withPlace(each, activity));
-  const built = threadTabs([...mine, ...theirs], placeReader({ fallback: manual }));
+  const built = threadTabs(
+    [...mine, ...theirs],
+    placeReader({ fallback: manual, placedElsewhere: fromElsewhere }),
+  );
   expect(built.inbox).toEqual(["mine-top", "theirs-mid", "mine-low", "theirs-asks"]);
 });
 
@@ -149,7 +166,10 @@ test("sorted by activity, threads from a machine sorting by hand rank by how the
     entry("theirs-asks", { state: "needs_you", interactions: 1 }, now - 2 * day),
     entry("theirs-idle", { state: "done" }, now, seen(now)),
   ].map((each) => withPlace(each, manual));
-  const built = threadTabs([mine, ...theirs], placeReader({ fallback: activity }));
+  const built = threadTabs(
+    [mine, ...theirs],
+    placeReader({ fallback: activity, placedElsewhere: fromElsewhere }),
+  );
   expect(built.inbox).toEqual(["theirs-asks", "theirs-idle", "mine-idle"]);
 });
 
@@ -164,14 +184,17 @@ test("pinned, snoozed and settled threads from machines on another sort keep the
     entry("set-mine", { state: "done" }, now - day, settledAt(now - day)),
   ].map((each) => withPlace(each, manual));
   const theirs = [
-    entry("pin-theirs", { state: "done" }, now, { ...seen(now), pinned: true, pinOrder: 3 }),
-    entry("snz-theirs", { state: "done" }, now, { ...seen(now), snoozedUntil: sooner }),
-    entry("set-theirs", { state: "done" }, now, settledAt(now)),
+    entry("theirs-pin", { state: "done" }, now, { ...seen(now), pinned: true, pinOrder: 3 }),
+    entry("theirs-snz", { state: "done" }, now, { ...seen(now), snoozedUntil: sooner }),
+    entry("theirs-set", { state: "done" }, now, settledAt(now)),
   ].map((each) => withPlace(each, activity));
-  const built = threadTabs([...mine, ...theirs], placeReader({ fallback: manual }));
-  expect(built.pinned).toEqual(["pin-theirs", "pin-mine"]);
-  expect(built.snoozed).toEqual(["snz-theirs", "snz-mine"]);
-  expect(built.settled).toEqual(["set-theirs", "set-mine"]);
+  const built = threadTabs(
+    [...mine, ...theirs],
+    placeReader({ fallback: manual, placedElsewhere: fromElsewhere }),
+  );
+  expect(built.pinned).toEqual(["theirs-pin", "pin-mine"]);
+  expect(built.snoozed).toEqual(["theirs-snz", "snz-mine"]);
+  expect(built.settled).toEqual(["theirs-set", "set-mine"]);
 });
 
 test("an unconfirmed copy keeps its tabs but folds the Inbox's live bands into one list by activity", () => {

@@ -274,7 +274,8 @@ export const SuitOrnament = z.object({
   asset: z
     .string()
     .regex(/^assets\/[A-Za-z0-9._/-]+\.(svg|html)$/)
-    .refine((path) => !path.split("/").includes("..")),
+    .refine((path) => !path.split("/").includes(".."))
+    .meta({ "x-ace-constraint": "No `..` path segment: the path stays inside assets/." }),
 });
 export type SuitOrnament = z.infer<typeof SuitOrnament>;
 

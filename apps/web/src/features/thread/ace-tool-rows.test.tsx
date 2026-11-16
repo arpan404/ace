@@ -113,7 +113,9 @@ test("browser and device steps name the element and device from what earlier ste
   expect(steps.textContent).not.toContain("octocat");
   expect(within(steps).getByRole("button", { name: "Clicked “Sign in”" })).toBeTruthy();
   expect(
-    within(steps).getByRole("button", { name: "You were using that tab Failed" }),
+    within(steps).getByRole("button", {
+      name: "You were using this tab, so the agent waited Failed",
+    }),
   ).toBeTruthy();
 });
 

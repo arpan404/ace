@@ -31,13 +31,17 @@ export type SuitId = z.infer<typeof SuitId>;
 
 const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
+const insideAssets = (path: string) => !path.split("/").includes("..");
+const insideAssetsRule = "No `..` path segment: the path stays inside assets/.";
+
 /** A path inside the Suit's `assets/` folder, never outside it. */
 export const SuitAssetPath = z
   .string()
   .min(1)
   .max(200)
   .regex(/^assets\/[A-Za-z0-9._/-]+$/)
-  .refine((path) => !path.split("/").includes(".."), "must stay inside assets/");
+  .refine(insideAssets, "must stay inside assets/")
+  .meta({ "x-ace-constraint": insideAssetsRule });
 
 /** Built-in themes a Suit may start from (`themeIds` in @ace/themes); unset palette fields come from it. */
 export const SuitBase = z.enum(["ace", "paper", "midnight", "grove", "harbor", "dusk"]);
@@ -94,6 +98,50 @@ export const SuitFont = z.union([
   z.object({ system: z.string().min(1).max(200) }),
 ]);
 export type SuitFont = z.infer<typeof SuitFont>;
+
+/** A video file a Suit plays (ADR 0169): under `assets/`, one of the types ace streams. */
+export const suitVideoExtensions = [".mp4", ".m4v", ".mov", ".webm"] as const;
+export const isSuitVideoPath = (path: string) =>
+  path.startsWith("assets/") &&
+  suitVideoExtensions.some((extension) => path.toLowerCase().endsWith(extension));
+
+/** The extension is in the pattern, any case, so the JSON Schema states the rule too. */
+export const SuitVideoPath = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^assets\/[A-Za-z0-9._/-]*\.(?:[mM][pP]4|[mM]4[vV]|[mM][oO][vV]|[wW][eE][bB][mM])$/)
+  .refine(insideAssets, "must stay inside assets/")
+  .meta({ "x-ace-constraint": insideAssetsRule });
+
+/**
+ * A video behind the shell (ADR 0169). ace plays it in its own element; no Suit code runs for it.
+ * `sources` are renditions of one video: ace plays the smallest that covers the window.
+ */
+export const SuitVideo = z.looseObject({
+  sources: z.array(SuitVideoPath).min(1).max(3),
+  /** A still shown before the first frame, under Reduce motion, while saving power and on failure. */
+  poster: SuitAssetPath.optional(),
+  fit: z.enum(["cover", "contain"]).default("cover"),
+  /** The Suit's own say over sound; ace has no audio control in its UI. */
+  audio: z
+    .object({
+      muted: z.boolean().default(false),
+      /** The loudest it plays, 0–1. */
+      volume: z.number().min(0).max(1).default(0.6),
+    })
+    .default({ muted: false, volume: 0.6 }),
+  /** What ace takes from the picture; every value bounded, protected colours never touched. */
+  palette: z
+    .object({
+      /** The accent tokens follow the picture's strongest colour, fitted by `deriveAccent`. */
+      accent: z.boolean().default(true),
+      /** How much of that colour the veil over the video takes, 0–0.25. */
+      tint: z.number().min(0).max(0.25).default(0.12),
+    })
+    .default({ accent: true, tint: 0.12 }),
+});
+export type SuitVideo = z.infer<typeof SuitVideo>;
 
 /** One CSS value; never a rule or a list of declarations. */
 const SuitCssValue = z
@@ -156,6 +204,8 @@ export const SuitManifest = z.looseObject({
   ornaments: z.array(SuitOrnament).max(16).optional(),
   /** Short labels in fixed places; status words are never replaceable. */
   labels: SuitLabels.optional(),
+  /** A video behind the shell instead of an app scene (ADR 0169). */
+  video: SuitVideo.optional(),
   /** A scene per region; `scene.js` alone means `{ app: "scene.js" }`. */
   scenes: SuitScenes.optional(),
   /** The terminal's colours, font and cursor (it draws on a canvas, out of CSS's reach). */

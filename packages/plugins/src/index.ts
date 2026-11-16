@@ -45,7 +45,12 @@ export {
   builtinGuides,
   prepareBuiltinSkills,
 } from "./builtins.ts";
-export { seedBuiltinSuits } from "./builtin-suits.ts";
+export {
+  packBuiltinSuits,
+  seedBuiltinSuits,
+  type SeedResult,
+  type ShippedSuits,
+} from "./builtin-suits.ts";
 
 export {
   parseCodexToolConfig,

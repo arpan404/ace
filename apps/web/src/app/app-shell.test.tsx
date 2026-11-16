@@ -96,7 +96,7 @@ test("live indicators stay at full strength while connected and dim only while t
   expect(shell()?.hasAttribute("data-live-held")).toBe(false);
 });
 
-test("a working row's icon dims while the daemon is unreachable and comes back at full strength", async () => {
+test("a working row claims nothing while the daemon is unreachable and works again at full strength", async () => {
   // The rule that dims live indicators, as the app loads it.
   const style = document.createElement("style");
   style.textContent = readFileSync(join(import.meta.dirname, "../styles/motion.css"), "utf8");
@@ -114,9 +114,12 @@ test("a working row's icon dims while the daemon is unreachable and comes back a
     const opacity = () => (icon() ? getComputedStyle(icon() as Element).opacity : undefined);
     await waitFor(() => expect(shell()?.getAttribute("data-connection")).toBe("ready"));
     expect(opacity()).toBe("1");
+    // Unreachable, the list isn't current: the row says Syncing and shows no working mark.
     act(() => app.daemon.refuseConnections(true));
-    await waitFor(() => expect(opacity()).toBe("0.6"));
+    await waitFor(() => expect(row.getAttribute("aria-label")).toMatch(/daemon\. Syncing,/));
+    expect(icon()).toBeNull();
     act(() => app.daemon.refuseConnections(false));
+    await waitFor(() => expect(row.getAttribute("aria-label")).toMatch(/daemon\. Working/));
     await waitFor(() => expect(opacity()).toBe("1"));
   } finally {
     style.remove();

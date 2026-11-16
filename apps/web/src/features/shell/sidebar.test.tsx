@@ -109,6 +109,8 @@ test("Spade in the rail opens Spade's place, between Chats and Code review", asy
   const history = createMemoryHistory({ initialEntries: ["/new"] });
   await harness({ history }).open("/new");
   await title("New thread");
+  // Until the daemon says Spade is shown (ADR 0139), its mark is the coming-soon one.
+  await within(appNav()).findByRole("link", { name: "Spade" });
   const order = within(appNav())
     .getAllByRole("link")
     .map((link) => link.getAttribute("aria-label"));

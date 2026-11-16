@@ -35,6 +35,8 @@ export interface UpdateReportPorts {
    * the daemon's reply, which may carry an instruction.
    */
   send(report: AppUpdateReport): Promise<AppUpdateReply | void>;
+  /** A fresh health probe, before reporting to a daemon that may still be busy starting. */
+  ready?(): Promise<boolean>;
   /** The daemon asked for something new (ADR 0113): each instruction id arrives once. */
   instructed?(instruction: AppUpdateInstruction): void;
   /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
@@ -49,11 +51,13 @@ export interface UpdateReportPorts {
  * after the daemon dropped it.
  */
 export const updateRenewMs = 20_000;
+export const updateRetryMs = 2_000;
 
 /**
  * Tells this app's daemon about its update status (ADR 0041's loopback host-token routes), so
  * paired clients can show it: on every change, and once each time the daemon comes up, since
- * the daemon keeps it only in memory. A failed send waits for the next change or connection.
+ * the daemon keeps it only in memory. A failed send retries while connected, checking readiness
+ * before each attempt.
  */
 export class UpdateReporter {
   #ports: UpdateReportPorts;
@@ -64,6 +68,9 @@ export class UpdateReporter {
   #sending: Promise<void> = Promise.resolve();
   #stopRenewing: (() => void) | undefined;
   #heard: string | undefined;
+  #failures = 0;
+  #stopRetry: (() => void) | undefined;
+  #generation = 0;
   constructor(ports: UpdateReportPorts) {
     this.#ports = ports;
   }
@@ -75,6 +82,10 @@ export class UpdateReporter {
   connected(on: boolean): void {
     if (on === this.#connected) return;
     this.#connected = on;
+    this.#generation++;
+    this.#stopRetry?.();
+    this.#stopRetry = undefined;
+    this.#failures = 0;
     this.#sent = undefined;
     this.#push();
     this.#renew();
@@ -85,6 +96,8 @@ export class UpdateReporter {
    */
   withdraw(): Promise<void> {
     this.#withdrawn = true;
+    this.#stopRetry?.();
+    this.#stopRetry = undefined;
     this.#stopRenewing?.();
     this.#stopRenewing = undefined;
     this.#sending = this.#sending.then(async () => {
@@ -113,22 +126,46 @@ export class UpdateReporter {
       this.#renew();
     });
   }
+  #retry(): void {
+    if (this.#stopRetry || !this.#connected || this.#withdrawn) return;
+    this.#stopRetry = this.#ports.timers.set(updateRetryMs, () => {
+      this.#stopRetry = undefined;
+      this.#push();
+    });
+  }
   #push(): void {
     this.#sending = this.#sending.then(async () => {
       const report = this.#report;
       if (!report || !this.#connected || this.#withdrawn) return;
       const key = JSON.stringify(report);
       if (key === this.#sent) return;
+      const generation = this.#generation;
       try {
+        if (this.#ports.ready && !(await this.#ports.ready())) {
+          this.#retry();
+          return;
+        }
+        if (generation !== this.#generation || !this.#connected || this.#withdrawn) return;
         const reply = await this.#ports.send(report);
+        if (generation !== this.#generation || !this.#connected) return;
+        this.#stopRetry?.();
+        this.#stopRetry = undefined;
+        this.#failures = 0;
         this.#sent = key;
+        if (this.#withdrawn) return;
         const instruction = reply?.instruction;
         if (instruction && instruction.id !== this.#heard) {
           this.#heard = instruction.id;
           this.#ports.instructed?.(instruction);
         }
       } catch (error) {
-        this.#ports.log(`Couldn't report the app's update status to its daemon: ${String(error)}`);
+        if (generation !== this.#generation || !this.#connected || this.#withdrawn) return;
+        // Startup stalls are transient; report persistent failures once, while retrying.
+        if (++this.#failures === 3)
+          this.#ports.log(
+            `Couldn't report the app's update status to its daemon: ${String(error)}`,
+          );
+        this.#retry();
       }
     });
   }

@@ -23,13 +23,13 @@ struct NeedsThreadPage: View {
                     }
                     .accessibilityElement(children: .combine)
                     Text(row.hover?.sentence ?? row.look?.meaning ?? "Needs you")
-                        .aceFont(AceDesign.TextRole.header, relativeTo: .headline)
+                        .aceFont(AceDesign.TextRole.header)
                         .foregroundStyle(AceTheme.Colours.foreground)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("run.sentence")
                     if let detail = row.hover?.detail, !detail.isEmpty {
                         Text(detail)
-                            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                            .aceFont(AceDesign.TextRole.segment)
                             .monospaced(row.hover?.code == true)
                             .foregroundStyle(AceTheme.Colours.mutedForeground)
                             .lineLimit(4)

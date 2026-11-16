@@ -37,6 +37,13 @@ enum SpikeConfiguration {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.firstIndex(of: "--spike-open").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
     }
+    /// The `ace://` link `--spike-link URL` opens at launch, as one opened from another app would,
+    /// without the system's "Open in ace?" prompt `simctl openurl` raises (screenshots, tests).
+    static var linkOnLaunch: URL? {
+        guard enabled else { return nil }
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.firstIndex(of: "--spike-link").flatMap { arguments.indices.contains($0 + 1) ? URL(string: arguments[$0 + 1]) : nil }
+    }
     /// The item `--spike-focus ID` asks the opened thread to show, as a search hit does.
     static var focusOnLaunch: String? {
         let arguments = ProcessInfo.processInfo.arguments

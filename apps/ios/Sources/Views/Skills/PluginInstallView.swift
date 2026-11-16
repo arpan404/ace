@@ -41,7 +41,7 @@ struct PluginInstallView: View {
                         .padding(.horizontal, AceDesign.Space.margin)
                         .accessibilityIdentifier("plugins.install.next")
                     Text("ace reads the repository's marketplace, and shows you what a plugin runs before anything is installed.")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, AceDesign.Space.margin)

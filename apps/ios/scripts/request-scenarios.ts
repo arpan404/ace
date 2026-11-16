@@ -260,6 +260,11 @@ const ask = (key: string, title: string, target: Record<string, unknown>) => ({
   }),
 });
 
+/** An approval arriving in a thread already open, as an agent asks for one mid-turn. */
+export function askLater(daemon: FakeDaemon, threadId: string): void {
+  daemon.apply(threadId, [ask("late", "Run bun run lint", { command: "bun run lint" })]);
+}
+
 /** ios-three-asks: three approvals waiting at once, so the strip pages them ("1 of 3"). */
 function threeAsks(daemon: FakeDaemon, details: Details): void {
   const id = "ios-three-asks";

@@ -1,0 +1,374 @@
+/*
+ * Drop Zone: tactical and realistic. Olive-charcoal gear, one khaki marking colour, condensed
+ * uppercase HUD titles, and khaki corner brackets on the message box like a scope's reticle.
+ * The backdrop (scene.js) runs behind the transcript and the sidebar as one picture.
+ */
+
+[data-part="app"],
+[data-part="menu"],
+[data-part="popover"],
+[data-part="dialog"],
+[data-part="tooltip"],
+[data-part="toast"],
+[data-part="command-palette"] {
+  --suit-hud: "DIN Condensed", "DIN Alternate", "Avenir Next Condensed", var(--font-sans);
+  --suit-wash: color-mix(in oklab, var(--color-foreground) 5%, transparent);
+  --suit-mark: color-mix(in oklab, var(--color-tint) 70%, transparent);
+  --suit-mark-wash: color-mix(in oklab, var(--color-tint) 14%, transparent);
+  --suit-bracket: var(--color-tint);
+}
+[data-scheme="dark"] [data-part="app"],
+[data-scheme="dark"] [data-part="menu"],
+[data-scheme="dark"] [data-part="popover"],
+[data-scheme="dark"] [data-part="dialog"],
+[data-scheme="dark"] [data-part="tooltip"],
+[data-scheme="dark"] [data-part="toast"],
+[data-scheme="dark"] [data-part="command-palette"] {
+  --suit-lift: 0 14px 36px -12px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(255 255 255 / 0.03);
+}
+[data-scheme="light"] [data-part="app"],
+[data-scheme="light"] [data-part="menu"],
+[data-scheme="light"] [data-part="popover"],
+[data-scheme="light"] [data-part="dialog"],
+[data-scheme="light"] [data-part="tooltip"],
+[data-scheme="light"] [data-part="toast"],
+[data-scheme="light"] [data-part="command-palette"] {
+  --suit-lift: 0 14px 32px -16px rgb(26 27 23 / 0.25), 0 0 0 1px rgb(26 27 23 / 0.05);
+}
+
+/* ── Sidebar: a thin tint over the backdrop, one hairline, no blur ─────────────────────── */
+
+[data-part="app"] {
+  --suit-sidebar-border: 1px solid var(--color-border);
+  --suit-sidebar-shadow: none;
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 76%, transparent);
+  --suit-sidebar-backdrop-filter: none;
+  --suit-right-panel-background: var(--color-sidebar);
+}
+[data-part="sidebar"] {
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+[data-part="sidebar-header"]::after {
+  content: "";
+  display: block;
+  height: 1px;
+  margin-top: 8px;
+  background: linear-gradient(90deg, var(--suit-mark), transparent 70%);
+}
+[data-part="thread-row"],
+[data-part="chat-row"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"],
+[data-part="rail-item"] {
+  border-radius: 2px;
+  transition: background-color 140ms ease;
+}
+[data-part="rail-item"] {
+  color: var(--color-muted-foreground);
+}
+[data-part="thread-row"]:hover,
+[data-part="chat-row"]:hover,
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"]:hover,
+[data-part="rail-item"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
+[data-part="chat-row"][data-state="active"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"][data-state="active"],
+[data-part="rail-item"][data-state="active"] {
+  background: var(--color-active);
+  color: var(--color-foreground);
+}
+[data-part="thread-row"][data-state="unread"] [data-part="thread-title"] {
+  font-weight: 600;
+}
+[data-part="thread-meta"] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── HUD type: condensed uppercase for titles and small labels ─────────────────────────── */
+
+[data-part="page-title"],
+[data-part="header-title"] {
+  font-family: var(--suit-hud);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+/* DIN Condensed rides high in its line box; settle it onto the icon's centre line. */
+[data-part="header-title"] {
+  transform: translateY(0.12em);
+}
+[data-part="badge"],
+[data-part="turn-divider"] {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78em;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────────────────── */
+
+[data-part="header"] {
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+
+/* ── Transcript ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="message-user"] {
+  background: color-mix(in oklab, var(--color-surface-1) 94%, transparent);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 3px;
+}
+[data-part="link"]:not([data-variant]) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, var(--color-link) 45%, transparent);
+}
+[data-part="link"]:not([data-variant]):hover {
+  text-decoration-color: var(--color-link);
+}
+[data-part="inline-code"] {
+  background: var(--color-code);
+  border-radius: 2px;
+  padding: 0 0.3em;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+[data-part="code-block"],
+[data-part="tool-output"],
+[data-part="diff"] {
+  background: var(--color-code);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+}
+[data-part="tool-row"],
+[data-part="tool-group-header"] {
+  border-radius: 2px;
+}
+[data-part="tool-group-header"] {
+  background: var(--color-background);
+}
+[data-part="tool-row"]:hover,
+[data-part="tool-group-header"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="tool-icon"] {
+  color: var(--color-faint-foreground);
+}
+[data-part="tool-row"]:hover [data-part="tool-icon"] {
+  color: var(--color-link);
+}
+
+/* ── Composer: reticle brackets at the four corners ────────────────────────────────────── */
+
+[data-part="composer"] {
+  position: relative;
+  border-radius: 3px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-1);
+  box-shadow: var(--suit-lift);
+  transition: border-color 160ms ease;
+}
+[data-part="composer"]::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) left top / 14px 2px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) left top / 2px 14px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) right top / 14px 2px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) right top / 2px 14px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) left bottom / 14px 2px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) left bottom / 2px 14px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) right bottom / 14px 2px no-repeat,
+    linear-gradient(var(--suit-bracket), var(--suit-bracket)) right bottom / 2px 14px no-repeat;
+}
+[data-part="composer"]:focus-within {
+  border-color: var(--suit-mark);
+}
+[data-part="composer-send"] {
+  border-radius: 2px;
+}
+[data-part="composer-strip"] {
+  border-radius: 3px 3px 0 0;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  background: var(--color-surface-1);
+}
+[data-part="queue-item"][data-state="selected"] {
+  background: var(--color-active);
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────────────────────── */
+
+[data-part="button"] {
+  border-radius: 2px;
+  transition:
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+[data-part="button"][data-variant="primary"] {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+[data-part="button"][data-variant="secondary"] {
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+[data-part="button"]:focus-visible,
+[data-part="icon-button"]:focus-visible,
+[data-part="input"]:focus-visible,
+[data-part="select"]:focus-visible,
+[data-part="tab"]:focus-visible,
+[data-part="segment"]:focus-visible {
+  outline: 1px solid var(--color-tint);
+  outline-offset: 2px;
+}
+[data-part="icon-button"] {
+  border-radius: 2px;
+}
+[data-part="icon-button"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="icon-button"]:disabled,
+[data-part="icon-button"][data-state="disabled"] {
+  color: var(--color-subtle-foreground);
+}
+[data-part="icon-button"][data-state="active"] {
+  background: var(--color-active);
+  color: var(--color-foreground);
+}
+[data-part="input"],
+[data-part="select"],
+[data-part="search-field"] {
+  border-radius: 2px;
+}
+[data-part="input"]:focus,
+[data-part="search-field"]:focus-within {
+  border-color: var(--suit-mark);
+}
+[data-part="switch"],
+[data-part="switch-thumb"],
+[data-part="checkbox"],
+[data-part="slider-thumb"],
+[data-part="segmented"],
+[data-part="segment"],
+[data-part="segmented-thumb"],
+[data-part="badge"],
+[data-part="label-chip"],
+[data-part="branch-chip"],
+[data-part="kbd"] {
+  border-radius: 2px;
+}
+[data-part="segment"][data-state="selected"] {
+  font-weight: 600;
+}
+[data-part="kbd"] {
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+}
+[data-part="scrollbar"] {
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* ── Side panel ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="right-panel"] {
+  background: var(--color-sidebar);
+  box-shadow: inset 1px 0 0 var(--color-border);
+}
+[data-part="panel-header"] {
+  background: var(--color-sidebar);
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="panel-tab"] {
+  border-radius: 2px;
+  color: var(--color-muted-foreground);
+}
+[data-part="panel-tab"]:hover {
+  background: var(--suit-wash);
+  color: var(--color-foreground);
+}
+[data-part="panel-tab"][data-state="selected"] {
+  background: var(--color-active);
+  color: var(--color-foreground);
+}
+[data-part="panel-toolbar"] {
+  background: var(--color-surface-1);
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="panel-body"] {
+  background: var(--color-background);
+}
+[data-part="panel-body"][data-variant="terminal"],
+[data-part="terminal"] {
+  background: var(--color-code);
+}
+[data-part="diff-file"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+
+/* ── Full pages ────────────────────────────────────────────────────────────────────────── */
+
+[data-part="page-header"] {
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+[data-part="card"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+[data-part="card"][data-variant="settings-group"] {
+  background: color-mix(in oklab, var(--color-surface-1) 95%, transparent);
+}
+[data-part="settings-row"] + [data-part="settings-row"] {
+  border-top: 1px solid var(--color-border);
+}
+[data-part="list-row"],
+[data-part="table-row"],
+[data-part="pr-row"],
+[data-part="issue-row"] {
+  border-radius: 2px;
+}
+[data-part="list-row"]:hover,
+[data-part="table-row"]:hover,
+[data-part="pr-row"]:hover,
+[data-part="issue-row"]:hover {
+  background: var(--suit-wash);
+}
+[data-part="stat"] {
+  border-left: 2px solid var(--color-tint);
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Menus, dialogs, overlays ──────────────────────────────────────────────────────────── */
+
+[data-part="menu"],
+[data-part="popover"],
+[data-part="command-palette"],
+[data-part="dialog"] {
+  border-radius: 3px;
+  border: 1px solid var(--color-border-strong);
+  box-shadow: var(--suit-lift);
+}
+[data-part="menu-item"] {
+  border-radius: 2px;
+}
+[data-part="menu-item"]:hover {
+  background: var(--suit-mark-wash);
+}
+[data-part="tooltip"],
+[data-part="toast"] {
+  border-radius: 3px;
+  box-shadow: var(--suit-lift);
+}
+[data-part="message-agent"]::selection,
+[data-part="message-user"]::selection {
+  background: var(--suit-mark-wash);
+}
+
+/* Light mode: a denser sidebar tint, so the softened backdrop reads as an even wash, not patches. */
+[data-scheme="light"] [data-part="app"] {
+  --suit-sidebar-background: color-mix(in oklab, var(--color-sidebar) 88%, transparent);
+}

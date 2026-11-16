@@ -2,11 +2,13 @@ import type { SuitProblem, SuitSummary } from "@ace/protocol/suits";
 import { themeIds, themes, type Scheme } from "@ace/themes";
 import { PlusIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
+import { videoSizeLabel } from "@ace/suits";
 import { onRadioKeys } from "@/components/ui/radio-keys.ts";
 import { part } from "@/lib/suit-part.ts";
 import { suitReady } from "@/theme/suits/applied-suit.ts";
 import { useSuitDetail, useSuitLibrary } from "@/theme/suits/suit-library.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { useVideoSize } from "@/features/suits/index.ts";
 import { AppPreview } from "./app-preview.tsx";
 import { useLook } from "./look.ts";
 import { PickerCard } from "./picker-card.tsx";
@@ -22,8 +24,17 @@ const card =
   "grid w-full grid-cols-2 gap-x-4 gap-y-5 @min-[420px]:grid-cols-3 @min-[420px]:gap-x-5";
 const skeleton = "block aspect-[16/9] rounded-lg bg-skel";
 
-function tagsFor(summary: SuitSummary): string[] {
+/**
+ * The card's tags. A Suit with a video says so, and while it plays here, the size its file
+ * really has (ADR 0169): "4K" only for a 4K file.
+ */
+function tagsFor(
+  summary: SuitSummary,
+  video: { has: boolean; size: { width: number; height: number } | undefined },
+): string[] {
   const tags = summary.scene ? ["Scene"] : [];
+  if (video.size) tags.push(`Video, ${videoSizeLabel(video.size)}`);
+  else if (video.has) tags.push("Video");
   if (summary.schemes.length === 1)
     tags.push(summary.schemes[0] === "dark" ? "Dark only" : "Light only");
   return tags;
@@ -78,6 +89,8 @@ function SuitCard(props: { summary: SuitSummary; checked: boolean; off: boolean 
   const { resolved } = useTheme();
   const { pick } = useLook();
   const ready = suitReady(summary);
+  const detail = useSuitDetail(summary);
+  const size = useVideoSize(summary.id);
   return (
     <PickerCard
       label={summary.name}
@@ -85,7 +98,7 @@ function SuitCard(props: { summary: SuitSummary; checked: boolean; off: boolean 
       checked={props.checked}
       disabled={!ready || props.off}
       onChoose={() => pick({ suit: summary.id })}
-      tags={tagsFor(summary)}
+      tags={tagsFor(summary, { has: detail?.manifest.video !== undefined, size })}
       preview={<SuitThumbnail summary={summary} scheme={resolved.scheme} />}
       after={ready ? undefined : <Problems summary={summary} />}
     />

@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "contentHash": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/SuitId.json"
+    },
+    "name": {
+      "type": "string"
+    },
+    "problems": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SuitProblem.json"
+      },
+      "type": "array"
+    },
+    "scene": {
+      "type": "boolean"
+    },
+    "schemes": {
+      "items": {
+        "enum": [
+          "light",
+          "dark"
+        ],
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "description",
+    "schemes",
+    "scene",
+    "contentHash",
+    "problems"
+  ],
+  "type": "object"
+}

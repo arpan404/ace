@@ -47,7 +47,7 @@ struct ComposerSuggestionList: View {
                 Text("Searching…").foregroundStyle(AceTheme.Colours.mutedForeground).line()
             }
         }
-        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+        .aceFont(AceDesign.TextRole.rowTitle)
         .frame(maxWidth: .infinity, alignment: .leading)
         .concentricContainer()
         .background(GroupedSurface.colour, in: shape)

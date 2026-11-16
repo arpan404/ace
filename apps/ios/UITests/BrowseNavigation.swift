@@ -8,11 +8,50 @@ extension XCUIApplication {
         XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
         threadMenuItem("thread.agents").tap()
     }
-    /// The thread's title, which opens its menu: model, effort and access, then the thread's actions.
+    /// The agent tree, from the live pill's part that opens it ("Waiting on 3", "2 subagents",
+    /// "1 command"): while it shows, the pill is where live subagents and commands are.
+    @MainActor func openAgentsFromPill() {
+        let part = buttons.matching(NSPredicate(format: "identifier IN %@", ["pill.status", "pill.subagents", "pill.commands"])).firstMatch
+        XCTAssertTrue(part.waitForExistence(timeout: 15))
+        part.tap()
+        XCTAssertTrue(descendants(matching: .any)["agents.page"].waitForExistence(timeout: 10))
+    }
+    /// A row of the Agents sheet, by the agent's name.
+    @MainActor func agentsRow(_ name: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS %@", name)).firstMatch
+    }
+    /// A strip's answers are real buttons: those of `identifiers` that show, in order, are each a
+    /// full tap tall and none sits flush against the next.
+    @MainActor func assertStripButtons(_ identifiers: [String], file: StaticString = #filePath, line: UInt = #line) {
+        let shown = identifiers.map { buttons[$0] }.filter(\.exists)
+        XCTAssertGreaterThanOrEqual(shown.count, 2, "the strip offers its answers", file: file, line: line)
+        for button in shown { XCTAssertGreaterThanOrEqual(button.frame.height, 44, button.identifier, file: file, line: line) }
+        for (one, next) in zip(shown, shown.dropFirst()) {
+            let apart = max(next.frame.minX - one.frame.maxX, next.frame.minY - one.frame.maxY)
+            // Eight points apart, give or take layout rounding.
+            XCTAssertGreaterThanOrEqual(apart, 7.5, "\(one.identifier) sits against \(next.identifier)", file: file, line: line)
+        }
+    }
+    /// The thread's title, which opens its menu: model, effort and access, then the thread's
+    /// actions. It is the system's title, which has no identifier of ours: the bar's button that
+    /// opens the title's menu.
     @MainActor @discardableResult func threadTitle(timeout: TimeInterval = 15) -> XCUIElement {
-        let title = buttons["thread.title"]
+        let title = threadTitle(named: "")
         XCTAssertTrue(title.waitForExistence(timeout: timeout), "the thread's title never showed")
         return title
+    }
+    /// The thread's title when it starts with `text`: the bar's one button without an identifier
+    /// (back, ⋯ and the panel toggle have theirs). Its label ends ", Actions Menu" only when the
+    /// thread opened at launch, so the label isn't matched on that.
+    @MainActor func threadTitle(named text: String) -> XCUIElement {
+        let titled = "identifier == '' AND label != ''"
+        // `BEGINSWITH ''` never matches, so no name asks for the title alone.
+        let predicate = text.isEmpty ? NSPredicate(format: titled) : NSPredicate(format: "\(titled) AND label BEGINSWITH %@", text)
+        return navigationBars.buttons.matching(predicate).firstMatch
+    }
+    /// The line under the thread's title: the project, the model and its effort.
+    @MainActor func threadSubtitle(containing text: String) -> XCUIElement {
+        navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS ' · '", text)).firstMatch
     }
     /// An item of the title's menu, by identifier or (iOS 27 drops a menu item's identifier) by
     /// the start of its label.
@@ -33,39 +72,36 @@ extension XCUIApplication {
         XCTAssertTrue(item.waitForExistence(timeout: 10), "the title's menu has no Model")
         item.tap()
     }
-    /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
-    /// so the item is found by either. Secondary actions are grouped in native menus.
+    /// An item of the thread's ⋯ menu, one system menu. iOS 27 drops a menu item's identifier
+    /// and keeps its label, so the item is found by either; the menu scrolls to items below its fold.
     @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {
-        let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
+        let labels = ["thread.changes": "Changes", "thread.chat": "Chat", "thread.agents": "Agents", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
                       "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
                       "thread.reload": "Reload from machine", "thread.scripts": "Run and preview",
-                      "thread.work": "Work", "thread.attachments": "Attachments",
+                      "thread.work": "Work", "thread.attachments": "Attachments", "thread.summary": "Summary",
                       "thread.computer": "Computer use", "thread.openIn": "Open in",
                       "thread.turns": "Turns", "thread.logs": "Logs",
                       "thread.menu.rename": "Rename…", "thread.forkLast": "Fork from the last turn",
                       "thread.merge": "Bring back to parent…", "thread.continueOn": "Continue on"]
-        // A menu item with a second line reads both in its label: match its first words.
-        let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
-                                                labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
-        if item.waitForExistence(timeout: 2) && item.isHittable { return item }
-        // On a phone Changes is a page beside Chat in the bar, not a ⋯ entry: close the panel
-        // and hand back the bar's button.
-        let page = buttons["thread.page.changes"]
-        if identifier == "thread.changes", page.exists {
-            if buttons["thread.options.tools"].exists { coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap() }
-            _ = page.waitForExistence(timeout: 3)
-            return page
-        }
-        let conversation: Set<String> = ["thread.search", "thread.turns", "thread.attachments", "thread.menu.rename", "thread.forkLast", "thread.merge"]
-        let group = identifier == "thread.continueOn" || identifier.hasPrefix("thread.action.") ? "organize"
-            : conversation.contains(identifier) ? "conversation" : "tools"
-        let category = buttons["thread.options.\(group)"]
-        if category.waitForExistence(timeout: 2) { category.tap() }
+        let label = labels[identifier] ?? identifier
+        // A menu item with a second line reads both in its label: match its first words. Beside
+        // the iPad's panel the agent tree is "Agent tree".
+        let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@ OR (%@ == 'thread.agents' AND label == 'Agent tree')",
+                                                identifier, label, "\(label),", identifier)).firstMatch
         _ = item.waitForExistence(timeout: 3)
         let menu = collectionViews.firstMatch
         for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
         return item
+    }
+    /// Shows the thread's Chat or Changes page from ⋯, where a phone keeps them.
+    @MainActor func showThreadPage(_ page: String) {
+        let menu = buttons["thread.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+        let item = threadMenuItem("thread.\(page)")
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "⋯ offers \(page)")
+        item.tap()
     }
     /// The Search tab, before a query: its places and the latest threads.
     @MainActor func openSearch() {
@@ -159,8 +195,9 @@ extension XCUIApplication {
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.
     /// The drag runs down the element's own column: beside an iPad's open thread the list is not
-    /// in the middle of the window.
-    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 30) {
+    /// in the middle of the window. Twenty drags each way reach the fixture's last inbox rows at
+    /// body-size rows.
+    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 40) {
         for attempt in 0..<attempts {
             // A row the lazy list hasn't loaded has no frame to read yet; its list is the one
             // under the Threads list's own Inbox control.
@@ -220,9 +257,9 @@ extension XCUIApplication {
         if first.identifier != "changes.file.\(path)" && first.value as? String == "Open" { first.tap() }
         return buttons["changes.file.\(path)"]
     }
-    /// Closes whichever redesigned sheet is on top with its X.
+    /// Closes whichever redesigned sheet is on top with its X (the model sheet: Done).
     @MainActor func closeSheet() {
-        for id in ["modelSheet.close", "changes.close", "agents.close", "newThread.close", "settings.close"] where buttons[id].exists {
+        for id in ["modelSheet.close", "modelSheet.done", "changes.close", "agents.close", "newThread.close", "settings.close"] where buttons[id].exists {
             buttons[id].tap()
             return
         }

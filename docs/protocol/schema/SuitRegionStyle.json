@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitRegionStyle.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "backdropFilter": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "^[^{};]*$",
+      "type": "string"
+    },
+    "background": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "^[^{};]*$",
+      "type": "string"
+    },
+    "border": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "^[^{};]*$",
+      "type": "string"
+    },
+    "shadow": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "^[^{};]*$",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

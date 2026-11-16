@@ -1,0 +1,168 @@
+{
+  "format": 1,
+  "id": "loam",
+  "name": "Loam",
+  "description": "A blocky voxel sandbox: neutral stone panels with bevelled edges, pixel type, and a little block world behind it by day and by torchlight.",
+  "version": "3",
+  "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
+  "dark": {
+    "canvas": "#121315",
+    "sidebar": "#0E0F10",
+    "surface": "#1B1C1F",
+    "raised": "#222326",
+    "hover": "#28292D",
+    "active": "#313337",
+    "code": "#0F1012",
+    "border": "#26282B",
+    "borderStrong": "#3E4146",
+    "text": "#ECEDEF",
+    "muted": "#B5B8BD",
+    "subtle": "#A0A4AA",
+    "faint": "#7C8086",
+    "accent": "#D4D7DB",
+    "accentHover": "#E6E8EB",
+    "accentFg": "#18191B",
+    "accentText": "#DDE0E4",
+    "diffAdd": "#1C2618",
+    "diffAddFg": "#86C46A",
+    "diffDel": "#2C1A17",
+    "diffDelFg": "#E57A66",
+    "syntax": {
+      "kw": "#D9A36A",
+      "fn": "#E2E4E7",
+      "str": "#9CC77E",
+      "num": "#7FC3C9",
+      "type": "#C9A0D6",
+      "com": "#82868C",
+      "punc": "#A0A4AA"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#F4F5F6",
+    "sidebar": "#E9EBED",
+    "surface": "#FFFFFF",
+    "raised": "#FFFFFF",
+    "hover": "#E6E8EB",
+    "active": "#DADDE1",
+    "code": "#EEF0F2",
+    "border": "#DCDFE3",
+    "borderStrong": "#BDC1C7",
+    "text": "#18191B",
+    "muted": "#45484D",
+    "subtle": "#5A5E64",
+    "faint": "#858990",
+    "accent": "#3A3F46",
+    "accentHover": "#2A2E34",
+    "accentFg": "#FFFFFF",
+    "accentText": "#3A3F46",
+    "diffAdd": "#E6F1DE",
+    "diffAddFg": "#3B7A22",
+    "diffDel": "#F7E3DE",
+    "diffDelFg": "#A83A26",
+    "syntax": {
+      "kw": "#8A4B12",
+      "fn": "#2E3238",
+      "str": "#3D6E22",
+      "num": "#1F6A73",
+      "type": "#76458A",
+      "com": "#6E7278",
+      "punc": "#5A5E64"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"SF Pro Text\", Inter, system-ui, sans-serif"
+    },
+    "prose": {
+      "system": "\"SF Pro Text\", Inter, system-ui, sans-serif"
+    },
+    "mono": {
+      "system": "\"SF Mono\", Menlo, ui-monospace, monospace"
+    }
+  },
+  "shape": {
+    "radius": 0,
+    "border": 2
+  },
+  "motion": {
+    "speed": 0.9
+  },
+  "layout": {
+    "toolRows": "detailed"
+  },
+  "labels": {
+    "composer-placeholder": "What shall we build today?"
+  },
+  "reveal": {
+    "app": 0.6,
+    "header": 0,
+    "transcript": 0.35,
+    "page": 0.35,
+    "rail": 0,
+    "right-panel": 0,
+    "sidebar": 0.5
+  },
+  "terminal": {
+    "fontFamily": "\"SF Mono\", Menlo, monospace",
+    "fontSize": 12.5,
+    "lineHeight": 1.35,
+    "cursorStyle": "block",
+    "cursorBlink": true,
+    "dark": {
+      "background": "#0F1012",
+      "foreground": "#E2E4E7",
+      "cursor": "#D4D7DB",
+      "cursorAccent": "#111214",
+      "selection": "#D4D7DB33",
+      "ansi": {
+        "black": "#3A3631",
+        "red": "#E57A66",
+        "green": "#86C46A",
+        "yellow": "#E3C26A",
+        "blue": "#7FA6D9",
+        "magenta": "#C9A0D6",
+        "cyan": "#7FC3C9",
+        "white": "#CFC7B8",
+        "brightBlack": "#7A7366",
+        "brightRed": "#F09A88",
+        "brightGreen": "#A5D98C",
+        "brightYellow": "#F0D68E",
+        "brightBlue": "#A0BFE6",
+        "brightMagenta": "#DAB9E4",
+        "brightCyan": "#A3D7DB",
+        "brightWhite": "#F4EFE6"
+      }
+    },
+    "light": {
+      "background": "#F7F8F9",
+      "foreground": "#18191B",
+      "cursor": "#3A3F46",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#3A3F4626",
+      "ansi": {
+        "black": "#1E1A15",
+        "red": "#A83A26",
+        "green": "#3B7A22",
+        "yellow": "#856400",
+        "blue": "#2F5C9E",
+        "magenta": "#76458A",
+        "cyan": "#1F6A73",
+        "white": "#5D554A",
+        "brightBlack": "#4A4339",
+        "brightRed": "#BF4A34",
+        "brightGreen": "#4A8C2E",
+        "brightYellow": "#9A7400",
+        "brightBlue": "#3D6CB2",
+        "brightMagenta": "#8A559E",
+        "brightCyan": "#2A7C86",
+        "brightWhite": "#8E8578"
+      }
+    }
+  }
+}

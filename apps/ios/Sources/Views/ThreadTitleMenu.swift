@@ -1,14 +1,12 @@
 import SwiftUI
 
-/// The thread's title and the line under it as one tap target that opens one system menu, as a
-/// document's title does in the system's own apps. The line reads where the thread is and what
-/// runs it: the project's mark and name, then the provider's mark (with its account badge) and
-/// the model and its effort ("▣ ace-next · ✳ Opus 5.5 · Med ⌄"). When the line is short the
-/// project's name is cut first, never below its first letters; then it goes, its mark staying;
-/// only then are the model's words cut. No piece is ever a bare "…". A chat has no project and
-/// shows the model alone; without a model to change (view only, archived) it reads "project ·
-/// branch". The menu: the project's mark, name and branch first (opening Work), then Model (the
-/// picker sheet), Effort and Access as submenus, then the thread's own actions.
+/// What the thread's system title shows and opens, as a document's title does in the system's
+/// own apps. The bar draws the title, and under it (`subtitle`) where the thread is and what
+/// runs it: "billing-reconciliation-service · Opus 5.5 · Med"; the system cuts it to the room
+/// the bar leaves. A chat has no project and shows the model alone; without a model to change
+/// (view only, archived) it reads "project · branch". The title's menu (`toolbarTitleMenu`):
+/// the project's mark, name and branch first (opening Work), then Model, effort and speed (one
+/// sheet for all three) and Access as a submenu, then the thread's own actions.
 ///
 /// It redraws only when what it shows changes (`==`): a menu rebuilt while open drops the item
 /// under the finger, and the thread's row changes many times a second while it works.
@@ -18,7 +16,7 @@ struct ThreadTitleMenu: View, Equatable {
         let name: String
         /// "Med", "Med · Fast"; nil when the model has nothing to tune.
         let tune: String?
-        /// A switch not in effect yet: why, read out with it.
+        /// A switch not in effect yet: why, shown under the menu's Model row.
         let note: String?
         let queued: Bool
     }
@@ -30,152 +28,33 @@ struct ThreadTitleMenu: View, Equatable {
     /// The project's initials and its tint (1 to 12) from its row, drawn as the web draws them.
     var projectInitials = ""
     var projectTint: Int? = nil
-    /// The provider that runs the thread, and its account's short mark when the provider has
-    /// more than one account (the inbox row's badge); nil draws the plain mark.
-    var provider = ""
-    var providerAccount: String? = nil
-    /// "Started by Claude" when an outside app started the thread (ADR 0122): it heads the menu
-    /// and is read with the title.
+    /// "Started by Claude" when an outside app started the thread (ADR 0122): it heads the menu.
     var startedBy: String? = nil
     @Environment(\.colorScheme) private var scheme
-    let status: String?
-    var width: CGFloat
-    /// Aligned to the leading edge (beside the back button) rather than centred.
-    var leading = false
     /// Nil where the model can't be changed here.
     var model: ModelLine? = nil
-    var tune: TuneRow? = nil
     var access: ThreadAccessRow? = nil
     var canRename = false
     var canRetitle = false
     var actions = ThreadTitleActions()
     var openModel: () -> Void = {}
-    var openTune: () -> Void = {}
-    var setEffort: (String?) -> Void = { _ in }
-    var setSpeed: (String) -> Void = { _ in }
     var setAccess: (String) -> Void = { _ in }
     var rename: () -> Void = {}
     var retitle: () -> Void = {}
     /// The checkout's sheet: branch, worktree, pull request. Nil where there is none to open.
     var openWork: (() -> Void)? = nil
 
-    private var hasMenu: Bool { model != nil || canRename || canRetitle || openWork != nil || !actions.isEmpty }
-
-    var body: some View {
-        Group {
-            if hasMenu {
-                Menu { items } label: { label(chevron: true) }
-                    // No bar-button padding: the words fill exactly the width they're given.
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .menuOrder(.fixed)
-                    .accessibilityIdentifier("thread.title")
-                    .accessibilityHint("Model and thread actions")
-            } else {
-                label(chevron: false).accessibilityIdentifier("thread.title")
-            }
-        }
-        // UIKit measures the title at its ideal size, the width the toolbar gives, and may give
-        // it less where the bar's buttons need the room: it narrows, never pushing them out.
-        .frame(minWidth: 0, idealWidth: width, maxWidth: width, alignment: alignment)
+    /// The line under the title: the project and the model with its tuning, the model alone for
+    /// a chat, or "project · branch" where the model can't be changed.
+    var subtitle: String {
+        guard let model else { return place }
+        return [project, Self.modelWords(model)].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    private func label(chevron: Bool) -> some View {
-        VStack(alignment: leading ? .leading : .center, spacing: AceTheme.Spacing.none) {
-            Text(title).aceFont(AceDesign.TextRole.navTitle, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            subtitle(chevron: chevron)
-        }
-        .frame(minWidth: 0, idealWidth: width, maxWidth: width, alignment: alignment)
-        // The whole heading is the target: both lines and the space between them.
-        .frame(minHeight: AceDesign.Size.tap)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityValue([startedBy, model.map(Self.spoken), status].compactMap { $0 }.joined(separator: ", "))
-    }
+    /// Whether the title has a menu to open at all.
+    var hasMenu: Bool { model != nil || canRename || canRetitle || openWork != nil || !actions.isEmpty || startedBy != nil }
 
-    @ViewBuilder private func subtitle(chevron: Bool) -> some View {
-        Group {
-            if let model {
-                // The first that fits: everything; the project's name cut, its first letters
-                // kept; its mark alone; the model's words cut at their end.
-                ViewThatFits(in: .horizontal) {
-                    if !project.isEmpty {
-                        modelLine(model, chevron: chevron, name: .whole)
-                        modelLine(model, chevron: chevron, name: .cut)
-                    }
-                    modelLine(model, chevron: chevron, name: .none)
-                    modelLine(model, chevron: chevron, name: .none, cutModel: true)
-                }
-            } else if !place.isEmpty {
-                HStack(spacing: AceDesign.Space.tight) {
-                    if !project.isEmpty { mark }
-                    providerMark(nil)
-                    Text(place).lineLimit(1).truncationMode(.middle)
-                    caret(chevron)
-                }
-            } else {
-                caret(chevron)
-            }
-        }
-        .frame(maxWidth: width, alignment: alignment)
-        .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
-        .foregroundStyle(model == nil ? AceTheme.Colours.subtleForeground : AceTheme.Colours.mutedForeground)
-    }
-
-    private var alignment: Alignment { leading ? .leading : .center }
-
-    /// How much of the project's name a subtitle line shows.
-    private enum ProjectName { case whole, cut, none }
-
-    /// One way to draw "▣ project · ✳ model · effort ⌄": the marks, the dot and the chevron at
-    /// their size; the project's name whole, cut to the room left (never below its first five
-    /// letters), or gone; the model's words whole, or cut at their end as the last resort.
-    private func modelLine(_ model: ModelLine, chevron: Bool, name: ProjectName, cutModel: Bool = false) -> some View {
-        HStack(spacing: AceDesign.Space.tight) {
-            if !project.isEmpty {
-                mark
-                switch name {
-                case .whole:
-                    Text(project).lineLimit(1).fixedSize().foregroundStyle(AceTheme.Colours.subtleForeground)
-                case .cut:
-                    // Its ideal width is its first letters and "…", so this line is chosen only
-                    // when they fit; laid out, the name takes the room left and is cut there.
-                    ZStack(alignment: .leading) {
-                        Text(verbatim: "\(project.prefix(5))…").lineLimit(1).fixedSize().hidden()
-                        Text(project).lineLimit(1).truncationMode(.tail)
-                            .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
-                    }
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                case .none:
-                    EmptyView()
-                }
-                if name != .none {
-                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize().accessibilityHidden(true)
-                }
-            }
-            providerMark(model.provider)
-            if cutModel {
-                Text(Self.modelWords(model)).lineLimit(1).truncationMode(.tail)
-            } else {
-                Text(Self.modelWords(model)).lineLimit(1).fixedSize()
-            }
-            if model.queued {
-                AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption).fixedSize()
-            }
-            caret(chevron)
-        }
-    }
-
-    @ViewBuilder private func caret(_ shown: Bool) -> some View {
-        if shown {
-            AceIcon(.caretDown, size: AceDesign.Size.rowPin, weight: .bold, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .fixedSize()
-                .accessibilityHidden(true)
-        }
-    }
+    var body: some View { items }
 
     @ViewBuilder private var items: some View {
         if let startedBy { Section { Text(startedBy) } }
@@ -193,12 +72,11 @@ struct ThreadTitleMenu: View, Equatable {
         }
         if let model {
             Section {
-                // A menu row's title, subtitle and icon: the model in effect under "Model".
+                // A menu row's title, subtitle and icon: the model and its tuning in effect.
                 Button(action: openModel) {
-                    Text("Model"); Text(model.note ?? model.name); Image(ace: .cpu)
+                    Text("Model, effort and speed…"); Text(model.note ?? Self.modelWords(model)); Image(ace: .cpu)
                 }
                 .accessibilityIdentifier("thread.title.model")
-                if let tune, !tune.efforts.isEmpty || tune.speeds.count > 1 { effortMenu(tune) }
                 if let access, access.state != "none", !access.choices.isEmpty { accessMenu(access) }
             } header: {
                 if openWork == nil, !place.isEmpty { Text(place) }
@@ -231,11 +109,6 @@ struct ThreadTitleMenu: View, Equatable {
         guard !project.isEmpty, place.hasPrefix(lead) else { return "" }
         return String(place.dropFirst(lead.count))
     }
-    /// The project's own mark, sized to the subtitle's line.
-    private var mark: some View {
-        ProjectMark(initials: projectInitials, look: projectLook,
-                    tint: ProjectTint.of(look: projectLook, tint: projectTint), size: AceDesign.Size.glyphMeta)
-    }
     /// The same mark as a menu row draws it: rendered to a picture in its own colours.
     private var projectImage: Image {
         if let image = ProjectMark.image(initials: projectInitials, look: projectLook,
@@ -243,40 +116,6 @@ struct ThreadTitleMenu: View, Equatable {
             return Image(uiImage: image)
         }
         return Image(ace: .folderSimple)
-    }
-
-    /// Effort and speed as the system's own pickers; a level the provider can't change now is
-    /// shown, dimmed, with why in its subtitle.
-    private func effortMenu(_ tune: TuneRow) -> some View {
-        Menu {
-            if !tune.efforts.isEmpty {
-                Picker("Effort", selection: Binding(get: { tune.effort }, set: { setEffort($0) })) {
-                    ForEach(tune.efforts) { Text($0.label).tag($0.id) }
-                }
-                .pickerStyle(.inline)
-                .disabled(!tune.effortReason.isEmpty)
-                .accessibilityIdentifier("thread.title.effort.levels")
-            }
-            if tune.speeds.count > 1 {
-                Picker("Speed", selection: Binding(get: { tune.speed }, set: { setSpeed($0) })) {
-                    ForEach(tune.speeds) { Text($0.label).tag($0.speed) }
-                }
-                .pickerStyle(.inline)
-                .disabled(!tune.speedReason.isEmpty)
-            }
-            if tune.canReset {
-                Button("Use the model's default") { setEffort(nil) }
-            }
-        } label: {
-            Text("Effort"); Text(effortSubtitle(tune)); Image(ace: .gauge)
-        }
-        .accessibilityIdentifier("thread.title.effort")
-    }
-
-    private func effortSubtitle(_ tune: TuneRow) -> String {
-        if tune.pending { return "Applies with your next message" }
-        let reason = [tune.effortReason, tune.speedReason].first { !$0.isEmpty }
-        return model?.tune ?? reason ?? ""
     }
 
     private func accessMenu(_ access: ThreadAccessRow) -> some View {
@@ -295,28 +134,16 @@ struct ThreadTitleMenu: View, Equatable {
         .accessibilityIdentifier("thread.title.access")
     }
 
-    /// The provider's mark, wearing its account's badge when there are several accounts.
-    @ViewBuilder private func providerMark(_ fromModel: String?) -> some View {
-        let kind = fromModel.flatMap { $0.isEmpty ? nil : $0 } ?? provider
-        if !kind.isEmpty {
-            ProviderMark(provider: kind, size: AceDesign.Size.glyphMeta, account: providerAccount).fixedSize()
-        }
-    }
     /// "Opus 5.5 · Med": the model and its tuning as one run of words, cut at its end.
     private static func modelWords(_ model: ModelLine) -> String {
         model.tune.map { "\(model.name) · \($0)" } ?? model.name
     }
 
-    private static func spoken(_ model: ModelLine) -> String {
-        [model.name, model.tune, model.note].compactMap { $0 }.joined(separator: ", ")
-    }
-
     nonisolated static func == (lhs: ThreadTitleMenu, rhs: ThreadTitleMenu) -> Bool {
         lhs.title == rhs.title && lhs.place == rhs.place && lhs.project == rhs.project && lhs.projectLook == rhs.projectLook
             && lhs.projectInitials == rhs.projectInitials && lhs.projectTint == rhs.projectTint
-            && lhs.provider == rhs.provider && lhs.providerAccount == rhs.providerAccount
-            && lhs.startedBy == rhs.startedBy && lhs.status == rhs.status && lhs.width == rhs.width && lhs.leading == rhs.leading
-            && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
+            && lhs.startedBy == rhs.startedBy
+            && lhs.model == rhs.model && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
             && (lhs.openWork == nil) == (rhs.openWork == nil)
     }
