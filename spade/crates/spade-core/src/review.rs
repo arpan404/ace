@@ -154,7 +154,7 @@ pub fn prompt(case: &Case<'_>) -> Prompt {
             case.tool,
             cut(case.description, 1_000),
         ))
-        .max_tokens(300)
+        .max_tokens(crate::autonomy::REVIEW_TOKENS)
 }
 
 fn cut(text: &str, longest: usize) -> String {

@@ -17,6 +17,9 @@ pub(super) struct Simple {
     pub group: usize,
     /// The folder it starts in, when a wrapper changed it (`env -C dir`).
     pub dir: Option<String>,
+    /// Text a here-document or here-string feeds it. Only read for a program Spade reads
+    /// scripts of (`osascript`); for any other the command is [`Unreadable`].
+    pub here: Option<String>,
 }
 
 impl Simple {
@@ -64,17 +67,25 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
     let mut in_word = false;
     let mut target = false;
     let mut input = false;
+    // The next word is a here-string's text.
+    let mut here = false;
+    // Here-documents opened on this line, whose bodies start after its end.
+    let mut pending: Vec<Opened> = Vec::new();
     let mut i = 0;
     let end_word = |word: &mut String,
                     in_word: &mut bool,
                     target: &mut bool,
                     input: &mut bool,
+                    here: &mut bool,
                     current: &mut Simple| {
         if !*in_word {
             return;
         }
         let taken = std::mem::take(word);
-        if *target {
+        if *here {
+            current.here = Some(taken);
+            *here = false;
+        } else if *target {
             current.writes_to.push(taken);
             *target = false;
         } else if *input {
@@ -93,6 +104,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 &mut in_word,
                 &mut target,
                 &mut input,
+                &mut here,
                 &mut current,
             ),
             '\n' | ';' | '&' | '|' | '(' | ')' => {
@@ -103,6 +115,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                         &mut in_word,
                         &mut target,
                         &mut input,
+                        &mut here,
                         &mut current,
                     );
                     i += 1;
@@ -118,6 +131,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     &mut in_word,
                     &mut target,
                     &mut input,
+                    &mut here,
                     &mut current,
                 );
                 if target {
@@ -127,6 +141,9 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 if matches!(c, '&' | '|') && chars.get(i + 1) == Some(&c) {
                     i += 1;
                 }
+                if here {
+                    return Err(Unreadable);
+                }
                 out.push(std::mem::take(&mut current));
                 match c {
                     '(' => group += 1,
@@ -135,6 +152,18 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 }
                 current.piped = piped;
                 current.group = group;
+                if c == '\n' && !pending.is_empty() {
+                    // The bodies of this line's here-documents, in order.
+                    i += 1;
+                    for opened in std::mem::take(&mut pending) {
+                        let (body, next) = body(&chars, i, &opened)?;
+                        if let Some(command) = out.get_mut(opened.at) {
+                            command.here = Some(body);
+                        }
+                        i = next;
+                    }
+                    continue;
+                }
             }
             '\'' => {
                 in_word = true;
@@ -189,9 +218,29 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 i = next;
                 continue;
             }
+            '<' if chars.get(i + 1) == Some(&'<') => {
+                end_word(
+                    &mut word,
+                    &mut in_word,
+                    &mut target,
+                    &mut input,
+                    &mut here,
+                    &mut current,
+                );
+                if chars.get(i + 2) == Some(&'<') {
+                    // A here-string: the next word is the text.
+                    here = true;
+                    i += 3;
+                    continue;
+                }
+                let (opened, next) = opening(&chars, i + 2, out.len())?;
+                pending.push(opened);
+                i = next;
+                continue;
+            }
             '<' => {
-                // A here-document or here-string carries text Spade doesn't read as a command.
-                if matches!(chars.get(i + 1), Some('<') | Some('(')) {
+                // Process substitution runs a command Spade doesn't read.
+                if chars.get(i + 1) == Some(&'(') {
                     return Err(Unreadable);
                 }
                 end_word(
@@ -199,6 +248,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     &mut in_word,
                     &mut target,
                     &mut input,
+                    &mut here,
                     &mut current,
                 );
                 input = true;
@@ -214,6 +264,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     &mut in_word,
                     &mut target,
                     &mut input,
+                    &mut here,
                     &mut current,
                 );
                 if chars.get(i + 1) == Some(&'(') {
@@ -253,21 +304,130 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
         &mut in_word,
         &mut target,
         &mut input,
+        &mut here,
         &mut current,
     );
-    if target {
+    if target || here || !pending.is_empty() {
         return Err(Unreadable);
     }
     out.push(current);
     let mut simple: Vec<Simple> = Vec::new();
     for command in out
         .into_iter()
-        .filter(|c| !c.words.is_empty() || !c.writes_to.is_empty())
+        .filter(|c| !c.words.is_empty() || !c.writes_to.is_empty() || c.here.is_some())
     {
-        simple.extend(unwrap(command, depth)?);
+        let fed = command.here.is_some();
+        let unwrapped = unwrap(command, depth)?;
+        // Text fed to anything but a script reader Spade follows stays unread.
+        if fed
+            && !unwrapped.last().is_some_and(|last| {
+                last.here.is_some() && last.words.first().is_some_and(|w| reads_here(w))
+            })
+        {
+            return Err(Unreadable);
+        }
+        simple.extend(unwrapped);
     }
     simple.extend(nested);
     Ok(simple)
+}
+
+/// Programs whose here-document or here-string Spade reads as their script.
+fn reads_here(program: &str) -> bool {
+    basename(program) == "osascript"
+}
+
+/// A here-document opened on a line: its delimiter, and the command it feeds.
+struct Opened {
+    delimiter: String,
+    /// `<<-`: leading tabs come off each line.
+    tabs: bool,
+    /// The delimiter was quoted, so the body is taken as written.
+    literal: bool,
+    /// The command's index among those read so far.
+    at: usize,
+}
+
+/// The delimiter after `<<` (at `start`), and the index after it.
+fn opening(chars: &[char], start: usize, at: usize) -> Result<(Opened, usize), Unreadable> {
+    let mut i = start;
+    let tabs = chars.get(i) == Some(&'-');
+    if tabs {
+        i += 1;
+    }
+    while matches!(chars.get(i), Some(' ' | '\t')) {
+        i += 1;
+    }
+    let mut delimiter = String::new();
+    let mut literal = false;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '\'' | '"' => {
+                literal = true;
+                i += 1;
+                loop {
+                    match chars.get(i) {
+                        None | Some('\n') => return Err(Unreadable),
+                        Some(&q) if q == c => break,
+                        Some(&ch) => delimiter.push(ch),
+                    }
+                    i += 1;
+                }
+            }
+            '\\' => {
+                literal = true;
+                i += 1;
+                delimiter.push(*chars.get(i).ok_or(Unreadable)?);
+            }
+            ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '(' | ')' => break,
+            '$' | '`' => return Err(Unreadable),
+            _ => delimiter.push(c),
+        }
+        i += 1;
+    }
+    if delimiter.is_empty() {
+        return Err(Unreadable);
+    }
+    Ok((
+        Opened {
+            delimiter,
+            tabs,
+            literal,
+            at,
+        },
+        i,
+    ))
+}
+
+/// A here-document's body from `start` (a line's beginning) to its delimiter line, and the
+/// index after that line. One whose text could run a command (`$(...)`, backticks in an unquoted
+/// body) or with no delimiter line can't be read.
+fn body(chars: &[char], start: usize, opened: &Opened) -> Result<(String, usize), Unreadable> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut i = start;
+    while i < chars.len() {
+        let end = chars[i..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map_or(chars.len(), |n| i + n);
+        let line: String = chars[i..end].iter().collect();
+        let line = if opened.tabs {
+            line.trim_start_matches('\t').to_owned()
+        } else {
+            line
+        };
+        let next = (end + 1).min(chars.len());
+        if line == opened.delimiter {
+            let text = lines.join("\n");
+            if !opened.literal && (text.contains("$(") || text.contains('`')) {
+                return Err(Unreadable);
+            }
+            return Ok((text, next));
+        }
+        lines.push(line);
+        i = end + 1;
+    }
+    Err(Unreadable)
 }
 
 /// The text inside `$(...)` starting at `start` (the `$`), and the index after its `)`.
