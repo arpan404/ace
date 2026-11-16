@@ -14,7 +14,7 @@ struct GlassChoiceItem: Identifiable, Equatable {
 /// Exclusive choices in words on one glass capsule (system glass on iOS 26, the regular material
 /// on iOS 18): the chosen one sits on a flat thumb that springs across as the choice moves, as
 /// DESIGN.md's segmented control does. It scrolls sideways when the words don't fit. The model
-/// sheet's tabs and its Effort, Speed and Access use it.
+/// sheet's Effort and Speed and the skill editors use it.
 struct GlassChoice: View {
     let items: [GlassChoiceItem]
     let selection: String?

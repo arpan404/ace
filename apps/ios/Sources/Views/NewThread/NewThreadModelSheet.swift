@@ -5,8 +5,8 @@ import SwiftUI
 /// Favorites when the person has starred any model, else on the account the draft runs on, with
 /// its model checked wherever it shows. The tabs follow the web's rules (`newThreadTabs` in
 /// `@ace/ui-core/mobile`): a CLI that isn't installed or signed in has no tab, and an account at
-/// its limit says so above its models. Picks edit the draft as they're made (another model starts
-/// at its own default effort and speed); X puts the draft back as it was.
+/// its limit says so above its models. Every tap edits the draft at once: a model closes the sheet
+/// and starts at its own default effort and speed.
 struct NewThreadModelSheet: View {
     @Bindable var compose: ComposeModel
     let drafts: NewThreadDraftModel
@@ -17,7 +17,6 @@ struct NewThreadModelSheet: View {
     @State private var query = ""
     @State private var expanded: Set<String> = []
     @State private var shown: String?
-    @State private var snapshot: NewThreadChoice.Snapshot?
     private var draft: NewThreadDraft { drafts.draft }
     private var choice: NewThreadChoice { NewThreadChoice(compose: compose, draft: draft) }
     private var read: ComposeAgentsRead { compose.agentsRead }
@@ -48,13 +47,12 @@ struct NewThreadModelSheet: View {
             rows: listed.rows, hidden: listed.hidden, expanded: open && hasMore && !ModelSearch.active(query),
             toggleMore: { if open { expanded.remove(tab) } else { expanded.insert(tab) } },
             rowPrefix: "model.\(providerOf(tab))", morePrefix: "agent.\(providerOf(tab))",
-            starProblem: read.starProblem, retry: reload, cancel: restore, confirm: { dismiss() },
+            starProblem: read.starProblem, retry: reload, confirm: nil,
             choose: pick, star: { star($0.key) },
             tune: choice.model.map { TuneChoices.model($0, effort: choice.effort, speed: draft.speed) },
             pickEffort: { level in tuned { $0.effort = level.id } },
             pickSpeed: { level in tuned { $0.speed = level.id } }
         )
-        .onAppear { if snapshot == nil { snapshot = .init(draft) } }
         // Where it opens is decided once the tabs arrive, so a new star never moves the sheet.
         .task(id: compose.agentsState) { if shown == nil, compose.agentsState == "ready", !tabs.isEmpty { shown = tab } }
     }
@@ -64,10 +62,13 @@ struct NewThreadModelSheet: View {
     }
     private func providerOf(_ tab: String) -> String { tabs.first { $0.id == tab }?.provider ?? tab }
     private func pick(_ row: ModelPickerRow) {
+        // The model it already runs on keeps the effort and speed picked for it.
+        if row.chosen { dismiss(); return }
         let refs = read.tabs.flatMap(\.models)
         guard let ref = refs.first(where: { $0.account + "\u{0}" + $0.key == row.id }),
               let (agent, model) = NewThreadPickerRows.resolve(read.agents, ref) else { return }
         drafts.edit { $0.provider = agent.provider; $0.model = model.key; $0.account = model.account; $0.effort = nil; $0.speed = nil }
+        dismiss()
     }
     /// A tuning pick makes the suggested agent and model the draft's own.
     private func tuned(_ change: @escaping (inout NewThreadDraft) -> Void) {
@@ -76,9 +77,5 @@ struct NewThreadModelSheet: View {
             draft.provider = agent.provider; draft.model = model.key; draft.account = model.account
             change(&draft)
         }
-    }
-    private func restore() {
-        guard let snapshot else { return }
-        drafts.edit { snapshot.restore(&$0) }
     }
 }

@@ -35,30 +35,16 @@ struct TuneChoices: Equatable {
                            speed: row(speeds, selected: tune.speed, reason: tune.speedReason), footer: footer)
     }
 
-    /// A model from the list: its own levels, the picked ones selected, else its defaults.
-    /// `effortReason` and `speedReason` say why the provider can't take them.
-    static func model(_ model: ComposeAgent.Model, effort: String?, speed: String?,
-                      effortReason: String = "", speedReason: String = "") -> TuneChoices {
+    /// New thread's model: its own levels, the picked ones selected, else its defaults. A new
+    /// thread starts with them, so nothing blocks a row.
+    static func model(_ model: ComposeAgent.Model, effort: String?, speed: String?) -> TuneChoices {
         let efforts = model.efforts.map { TuneChoiceRow.Level(id: $0.id, label: $0.label, isDefault: $0.id == model.defaultEffort) }
         let speedDefault = model.defaultSpeed ?? "standard"
         let speeds = (model.speeds ?? []).map { TuneChoiceRow.Level(id: $0.speed, label: $0.label, isDefault: $0.speed == speedDefault) }
         let pickedEffort = efforts.contains { $0.id == effort } ? effort : nil
         let pickedSpeed = speeds.contains { $0.id == speed } ? speed : nil
-        return TuneChoices(effort: row(efforts, selected: pickedEffort ?? model.defaultEffort ?? efforts.first?.id ?? "", reason: effortReason),
-                           speed: row(speeds, selected: pickedSpeed ?? speedDefault, reason: speedReason), footer: nil)
-    }
-
-    /// An open thread's sheet: the thread's own tuning while `target` is the model in use, else
-    /// the picked model's levels. Another model on the same provider keeps the provider's
-    /// reasons; another provider starts its session with what's picked, so nothing blocks it.
-    static func forThread(tune: TuneRow?, current: NewThreadPickerRows.Chosen?, target: NewThreadPickerRows.Chosen?,
-                          model: ComposeAgent.Model?, effort: String?, speed: String?) -> TuneChoices? {
-        if target == nil || target == current { return tune.map(thread) }
-        guard let model else { return nil }
-        let sameProvider = target?.provider == current?.provider
-        return Self.model(model, effort: effort, speed: speed,
-                          effortReason: sameProvider ? tune?.effortReason ?? "" : "",
-                          speedReason: sameProvider ? tune?.speedReason ?? "" : "")
+        return TuneChoices(effort: row(efforts, selected: pickedEffort ?? model.defaultEffort ?? efforts.first?.id ?? "", reason: ""),
+                           speed: row(speeds, selected: pickedSpeed ?? speedDefault, reason: ""), footer: nil)
     }
 
     private static func row(_ levels: [TuneChoiceRow.Level], selected: String, reason: String) -> TuneChoiceRow? {

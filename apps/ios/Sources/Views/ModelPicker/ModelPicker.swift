@@ -10,10 +10,11 @@ enum ModelPickerState: Equatable {
 
 /// The one model sheet shared by an open thread and New thread: X on the left, a check on the
 /// right, "Find a model" at the bottom within the thumb's reach (under the title before iOS 26).
-/// At its top, Effort and Speed for the model it would run on (`TuneSection`); below them
-/// Favorites and one tab per account on a glass bar that stays pinned while the models scroll,
-/// then the shown tab's models as plain rows under hairlines, each with a star. A tab that can't
-/// take work says why in one line above its models. Searching hides the tune rows and tabs.
+/// At its top, Effort and Speed for the model it runs on (`TuneSection`); below them the account
+/// whose models show (`AccountPicker`: Favorites or one account), pinned while the models scroll,
+/// then that account's models as plain rows under hairlines, each with a star. An account that
+/// can't take work says why in one line above its models. Searching hides the tune rows and the
+/// account. Where `confirm` is nil a tap on a model applies it and there is no ✓.
 struct ModelPicker: View {
     @Binding var query: String
     let tabs: [ModelPickerTab]
@@ -33,7 +34,8 @@ struct ModelPicker: View {
     var confirming = false
     /// Puts back what the sheet changed as it went, when X closes it.
     var cancel: () -> Void = {}
-    let confirm: () -> Void
+    /// The ✓ in the bar; nil where a tap on a model applies it and closes the sheet.
+    let confirm: (() -> Void)?
     let choose: (ModelPickerRow) -> Void
     let star: (ModelPickerRow) -> Void
     /// Effort and Speed for the model it would run on; nil or empty shows no rows.
@@ -68,26 +70,22 @@ struct ModelPicker: View {
         .presentationDetents([.medium, .large], selection: $detent).presentationDragIndicator(.visible)
     }
 
-    private var tabBar: some View {
-        GlassChoice(items: tabs.map(item), selection: shown, idPrefix: "tab") { shown = $0 }
+    private var accounts: some View {
+        AccountPicker(tabs: tabs, shown: $shown)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, AceTheme.Spacing.lg)
             .padding(.top, AceTheme.Spacing.xs)
             .padding(.bottom, AceTheme.Spacing.sm)
-            .frame(maxWidth: .infinity)
             .background(AceTheme.Colours.background)
             .listRowInsets(EdgeInsets())
-    }
-    private func item(_ tab: ModelPickerTab) -> GlassChoiceItem {
-        GlassChoiceItem(id: tab.id, label: tab.name,
-                        glyph: tab.provider.map { .provider($0, quiet: tab.note != nil) } ?? .symbol("star"))
     }
 
     @ViewBuilder private var content: some View {
         if let tune, !tune.isEmpty, !searching {
             TuneSection(choices: tune, pickEffort: pickEffort, pickSpeed: pickSpeed)
         }
-        // The tabs head the models and stay pinned while they scroll.
-        Section { models } header: { if tabs.count > 1 && !searching { tabBar } }
+        // The account heads its models and stays pinned while they scroll.
+        Section { models } header: { if tabs.count > 1 && !searching { accounts } }
             .listSectionSeparator(.hidden, edges: .top)
     }
 
@@ -137,7 +135,10 @@ struct ModelPicker: View {
 
     @ViewBuilder private var confirmButton: some View {
         if confirming { ProgressView() }
-        else if #available(iOS 26, *) {
+        else if let confirm { confirmButton(confirm) }
+    }
+    @ViewBuilder private func confirmButton(_ confirm: @escaping () -> Void) -> some View {
+        if #available(iOS 26, *) {
             Button(role: .confirm, action: confirm) { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.onAccent) }
                 .buttonStyle(.glassProminent).tint(AceTheme.Colours.accent)
                 .accessibilityLabel("Done").accessibilityIdentifier("modelSheet.done")

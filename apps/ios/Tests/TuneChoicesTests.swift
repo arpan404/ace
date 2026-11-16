@@ -2,8 +2,7 @@ import Testing
 @testable import Ace
 
 /// The Effort and Speed rows at the top of the model sheet: which levels show, the one selected,
-/// the default marked, and why a row can't change, for the thread's model and a model picked in
-/// the list before Done.
+/// the default marked, and why a row can't change, for the thread's model and New thread's.
 @Suite struct TuneChoicesTests {
     private func tune(effortReason: String = "", speedReason: String = "", pending: Bool = false, notice: String = "",
                       speeds: [String] = ["standard", "fast"]) -> TuneRow {
@@ -16,9 +15,6 @@ import Testing
                                             efforts: [.init(id: "low", label: "Low"), .init(id: "max", label: "Max")], defaultEffort: "low",
                                             speeds: [.init(speed: "standard", label: "Standard"), .init(speed: "fast", label: "Fast")],
                                             defaultSpeed: "standard")
-    private let running = NewThreadPickerRows.Chosen(provider: "claude", key: "claude\u{0}opus", account: "personal")
-    private let onSonnet = NewThreadPickerRows.Chosen(provider: "claude", key: "claude\u{0}sonnet", account: "personal")
-    private let onCodex = NewThreadPickerRows.Chosen(provider: "codex", key: "codex\u{0}gpt", account: "personal")
 
     @Test func theThreadsLevelsShowInWordsWithTheCurrentSelectedAndTheDefaultMarked() {
         let shown = TuneChoices.thread(tune())
@@ -47,32 +43,18 @@ import Testing
         #expect(TuneChoices.thread(tune()).footer == nil)
     }
 
-    @Test func theModelInUseShowsTheThreadsOwnTuning() {
-        let shown = TuneChoices.forThread(tune: tune(), current: running, target: running, model: nil, effort: nil, speed: nil)
-        #expect(shown?.effort?.selected == "high")
+    @Test func aModelPickedForANewThreadStartsAtItsOwnDefaults() {
+        let shown = TuneChoices.model(sonnet, effort: nil, speed: nil)
+        #expect(shown.effort?.levels.map(\.label) == ["Low", "Max"])
+        #expect(shown.effort?.selected == "low")
+        #expect(shown.speed?.selected == "standard")
+        #expect(shown.footer == nil)
     }
 
-    @Test func aModelPickedInTheListShowsItsOwnLevelsWithItsDefaultChosen() {
-        let shown = TuneChoices.forThread(tune: tune(), current: running, target: onCodex, model: sonnet, effort: nil, speed: nil)
-        #expect(shown?.effort?.levels.map(\.label) == ["Low", "Max"])
-        #expect(shown?.effort?.selected == "low")
-        #expect(shown?.effort?.levels.filter(\.isDefault).map(\.id) == ["low"])
-        #expect(shown?.speed?.selected == "standard")
-        #expect(shown?.footer == nil)
-    }
-
-    @Test func aLevelPickedForAPickedModelIsTheOneSelected() {
-        let shown = TuneChoices.forThread(tune: tune(), current: running, target: onCodex, model: sonnet, effort: "max", speed: "fast")
-        #expect(shown?.effort?.selected == "max")
-        #expect(shown?.speed?.selected == "fast")
-    }
-
-    @Test func anotherModelOnTheSameProviderKeepsTheProvidersReasonsAnotherProviderHasNone() {
-        let blocked = tune(effortReason: "Claude Code sets effort only when a thread starts")
-        let same = TuneChoices.forThread(tune: blocked, current: running, target: onSonnet, model: sonnet, effort: nil, speed: nil)
-        #expect(same?.effort?.reason == "Claude Code sets effort only when a thread starts")
-        let other = TuneChoices.forThread(tune: blocked, current: running, target: onCodex, model: sonnet, effort: nil, speed: nil)
-        #expect(other?.effort?.reason == nil)
+    @Test func aLevelAnotherModelHadFallsBackToThisModelsDefault() {
+        let shown = TuneChoices.model(sonnet, effort: "high", speed: "ultrafast")
+        #expect(shown.effort?.selected == "low")
+        #expect(shown.speed?.selected == "standard")
     }
 
     @Test func aNewThreadShowsItsModelsLevelsAndThePickedOnes() {
