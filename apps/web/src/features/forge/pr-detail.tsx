@@ -576,11 +576,15 @@ export function PrDetail(props: {
         reread,
       }
     : undefined;
+  // Absolutely placed things in the tabs' scrollers (screen-reader labels) take the article as
+  // their containing block and can hang below it. `overflow-clip` keeps them from making the
+  // panel around it scrollable, and the article itself can't be scrolled, so the header never
+  // slides out of view.
   return (
     <article
       aria-label={`Pull request #${props.number}`}
       className={cn(
-        "@container/pr relative flex h-full min-h-0 flex-col bg-panel [--forge-gutter:1rem]",
+        "@container/pr relative flex h-full min-h-0 flex-col overflow-clip bg-panel [--forge-gutter:1rem]",
         sceneThrough,
         props.page && "sm:[--forge-gutter:2rem]",
       )}
