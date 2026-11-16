@@ -42,6 +42,8 @@ type Put = (key: string, read: () => Record<string, unknown> | undefined) => voi
 /** Sends `payload` under `id`: `refused` runs when it isn't saved or the daemon turns it down. */
 export type Dispatch = (payload: CommandPayload, id: string, refused: () => void) => void;
 type Admission = (id: string, ok: boolean, message: string) => void;
+/** Why a move from the sheet didn't go: the person left its thread before it could. */
+const droppedMove = "Couldn't switch model. Choose it again.";
 
 const SettingEntries = z.object({
   entries: z.array(z.object({ key: z.string(), value: z.unknown() })),
@@ -272,9 +274,12 @@ export class ThreadModelSheet {
     admit: Admission,
     read = true,
   ): void {
+    // The person left this thread: a move for it goes nowhere, and they're told.
+    if (this.#signal.aborted) return admit(requestId, false, droppedMove);
     const scene = this.#scene();
     // A move held in the sheet across a reconnect reaches a runtime that hasn't read the models
-    // yet: it reads them once, then decides, rather than losing the move.
+    // yet: it reads them once, then decides, rather than losing the move. `pick` checks again
+    // that the person is still here before anything is sent.
     if (!scene && read && !this.#read && this.#store.thread) {
       void this.open().then(() =>
         this.pick(target, confirmed, tune, requestId, send, admit, false),
