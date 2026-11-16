@@ -1,117 +1,216 @@
 import SwiftUI
 
-/// One of the thread's screens in the ⋯ panel's icon grid.
-private struct MenuScreen: Identifiable {
-    let id: String
-    let title: String
-    let icon: AceIcon.Name
-    let destination: ThreadDestination
-    /// What VoiceOver reads: the title, or a page's words with its count ("Changes, 6 files"),
-    /// as the bar's own page buttons read.
-    var spoken: String? = nil
-    var identifier: String { id }
-}
-
-/// The thread's screens, always one tap away (`ThreadDestination.menuScreens`): beside the
-/// iPad's side panel they open as its tabs; on a phone they push over the thread, led by Chat or
-/// Changes when the bar has no room for them.
-private struct MenuScreenGrid: View {
-    let pages: ThreadPages?
-    let shownPage: ThreadPageKind
-    let switchInBar: Bool
-    let open: (ThreadDestination) -> Void
-    let dismiss: DismissAction
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    private var screens: [MenuScreen] {
-        ThreadDestination.menuScreens(pages: pages, shown: shownPage, switchInBar: switchInBar).compactMap(screen)
-    }
-
-    private func screen(_ destination: ThreadDestination) -> MenuScreen? {
-        switch destination {
-        case .chat: MenuScreen(id: "thread.chat", title: "Chat", icon: .chatCircle, destination: .chat,
-                               spoken: pages?.label(of: .chat))
-        case .changes: MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes,
-                                  spoken: pages?.label(of: .changes))
-        case .files: MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files)
-        case .terminal: MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal)
-        case .browser: MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser)
-        case .agents: MenuScreen(id: "thread.agents", title: "Agents", icon: .treeStructure, destination: .agents)
-        default: nil
+/// What the ⋯ menu shows, read from the model when the thread's view redraws. The menu compares
+/// these, never the model's own state: a system menu rebuilt while open drops the item under
+/// the finger, and the thread's row changes many times a second while it works.
+struct ThreadMenuFacts: Equatable {
+    /// The thread's row, for its organize actions (`ThreadActionItems`).
+    struct Organize: Equatable {
+        let key: InboxKey
+        let row: ThreadRow
+        let labels: [String: String]
+        let sections: [String: String]
+        let snooze: [InboxLayout.SnoozeOption]
+        /// The same actions under the same words; the rest of the row is not compared.
+        static func == (lhs: Organize, rhs: Organize) -> Bool {
+            lhs.key == rhs.key && lhs.row.menu == rhs.row.menu && lhs.row.group == rhs.row.group
+                && lhs.row.snoozeEvents == rhs.row.snoozeEvents && lhs.labels == rhs.labels
+                && lhs.sections == rhs.sections && lhs.snooze == rhs.snooze
         }
     }
+    var canOperate = false
+    var archived = false
+    var forkLast = false
+    var hasParent = false
+    var canStop = false
+    var stopping = false
+    /// Continue on another device: shown while devices are linked, enabled once the thread rests.
+    var continueOn: Bool? = nil
+    var snooze: [InboxLayout.SnoozeOption] = []
+    /// Nil until the thread's row is held: Snooze and Archive then run on the thread directly.
+    var organize: Organize? = nil
+
+    @MainActor static func of(model: ClientModel, thread: ThreadModel, archived: Bool) -> ThreadMenuFacts {
+        let screen = thread.screen
+        var facts = ThreadMenuFacts(canOperate: model.canOperate, archived: archived,
+                                    forkLast: screen.transitions?.lastTurn == true, hasParent: screen.transitions?.parent != nil,
+                                    canStop: screen.controls?.canStop == true, stopping: screen.stopping,
+                                    snooze: model.inboxLayout.snooze)
+        if model.canOperate, model.transfers.linked, !archived {
+            facts.continueOn = model.transfers.thread(thread.id)?.canContinue == true
+        }
+        if let row = model.inbox[thread.id], let hostId = model.hostId, model.canOperate {
+            facts.organize = Organize(key: InboxKey(machineId: hostId, id: thread.id), row: row,
+                                      labels: model.inboxLayout.menuLabels ?? [:], sections: model.inboxLayout.menuSections ?? [:],
+                                      snooze: model.inboxLayout.snooze)
+        }
+        return facts
+    }
+}
+
+/// The ⋯ menu, one system menu: the page not showing (a phone with changes), the thread's
+/// screens as one row (`ThreadDestination.menuScreens`), then the conversation, the thread's
+/// tools and how it is organized, each its own section, so every action is one tap away. It
+/// redraws only when what it shows changes (`==`).
+struct ThreadMenu: View, Equatable {
+    let model: ClientModel
+    let threadId: String
+    let facts: ThreadMenuFacts
+    /// The thread's title, as Continue on… names it.
+    var title = ""
+    let open: (ThreadDestination) -> Void
+    /// Where `open` sends a tool now (the iPad side panel, or over the thread): it is part of
+    /// what the menu is, so a change rebuilds the menu with a fresh `open`.
+    var opensInPanel = false
+    /// The thread's pages on a phone; nil beside the side panel.
+    var pages: ThreadPages? = nil
+    var shownPage: ThreadPageKind = .chat
+    /// Leaves the thread after it was snoozed or archived.
+    let leave: () -> Void
+    @Environment(\.threadOrganizer) private var organizer
 
     var body: some View {
-        // Large text gets two columns so labels never clip; otherwise four across.
-        let columns = Array(repeating: GridItem(.flexible(), spacing: AceDesign.Space.tight),
-                            count: typeSize.isAccessibilitySize ? 2 : 4)
-        LazyVGrid(columns: columns, spacing: AceDesign.Space.related) {
-            ForEach(screens) { screen in
-                Button {
-                    open(screen.destination)
-                    dismiss()
-                } label: {
-                    VStack(spacing: AceTheme.Spacing.xxs) {
-                        AceIcon(screen.icon, size: AceDesign.Size.barIcon, relativeTo: .body)
-                            .foregroundStyle(AceTheme.Colours.foreground)
-                            .frame(height: AceDesign.Size.barIcon)
-                        Text(screen.title)
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                            .foregroundStyle(AceTheme.Colours.foreground)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(screen.spoken ?? screen.title)
-                .accessibilityIdentifier(screen.id)
+        Menu {
+            items
+        } label: {
+            // Only the glyph: the bar's buttons keep their size at every text size (`barGlyph`).
+            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
+                .barGlyph()
+                .foregroundStyle(AceTheme.Colours.foreground)
+        }
+        .menuOrder(.fixed)
+        .accessibilityShowsLargeContentViewer {
+            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
+            Text("Thread options")
+        }
+        .accessibilityLabel("Thread options")
+        .accessibilityIdentifier("thread.menu")
+    }
+
+    @ViewBuilder private var items: some View {
+        if let page = ThreadDestination.menuPage(pages: pages, shown: shownPage) { pageItem(page) }
+        ControlGroup {
+            ForEach(ThreadDestination.menuScreens(pages: pages), id: \.self, content: screenItem)
+        }
+        conversation
+        tools
+        organize
+        if facts.canOperate, facts.canStop {
+            Section {
+                Button("Stop all agents", ace: .stopCircle, role: .destructive) { model.stopTree() }
+                    .disabled(facts.stopping)
+                    .accessibilityIdentifier("thread.stopAll")
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Open a screen")
     }
-}
 
-/// One compact row in the ⋯ panel's action sections.
-private struct MenuRow: View {
-    let title: String
-    let icon: AceIcon.Name
-    var identifier: String? = nil
-    var role: ButtonRole? = nil
-    let action: () -> Void
-    var body: some View {
-        Button(role: role, action: action) {
-            Label(title, ace: icon)
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(role == .destructive ? AceDesign.Ink.destructive : AceTheme.Colours.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: AceDesign.Size.tap)
-                .contentShape(Rectangle())
+    /// Chat or Changes, whichever isn't showing: Changes with its file count under it.
+    private func pageItem(_ page: ThreadDestination) -> some View {
+        let kind: ThreadPageKind = page == .changes ? .changes : .chat
+        let files = kind == .changes ? pages?.changedFiles ?? 0 : 0
+        return Section {
+            Button { open(page) } label: {
+                Text(kind.title)
+                if files > 0 { Text(files == 1 ? "1 file" : "\(files) files") }
+                Image(ace: kind.icon)
+            }
+            .accessibilityLabel(pages?.label(of: kind) ?? kind.title)
+            .accessibilityIdentifier("thread.\(kind.rawValue)")
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(identifier ?? title)
     }
-}
 
-/// A compact sheet of primary destinations and native menus for secondary actions.
-struct ThreadMenuPanel: View {
-    let model: ClientModel
-    let thread: ThreadModel
-    var title = ""
-    let archived: Bool
-    let open: (ThreadDestination) -> Void
-    let leave: () -> Void
-    /// The thread's pages on a phone, which decide its screens; nil beside the iPad's side panel,
-    /// where the screens open as its tabs from the grid.
-    var pages: ThreadPages? = nil
-    /// The page showing, and whether Chat and Changes are in the bar; when they aren't, the grid
-    /// leads with the page not showing.
-    var shownPage: ThreadPageKind = .chat
-    var switchInBar = true
-    @Environment(\.threadOrganizer) private var organizer
-    @Environment(\.dismiss) private var dismiss
-    private var row: ThreadRow? { model.inbox[thread.id] }
+    @ViewBuilder private func screenItem(_ destination: ThreadDestination) -> some View {
+        switch destination {
+        case .changes: item("Changes", .plusMinus, "thread.changes", destination)
+        case .files: item("Files", .folder, "thread.files", destination)
+        case .terminal: item("Terminal", .terminalWindow, "thread.terminal", destination)
+        case .browser: item("Browser", .compass, "thread.browser", destination)
+        case .agents: item("Agents", .treeStructure, "thread.agents", destination)
+        default: EmptyView()
+        }
+    }
+
+    private func item(_ title: String, _ icon: AceIcon.Name, _ id: String, _ destination: ThreadDestination) -> some View {
+        Button(title, ace: icon) { open(destination) }.accessibilityIdentifier(id)
+    }
+
+    /// What can be done with the conversation itself.
+    @ViewBuilder private var conversation: some View {
+        Section {
+            item("Find in thread", .magnifyingGlass, "thread.search", .search)
+            item("Turns", .listBullets, "thread.turns", .turns)
+            item("Attachments", .paperclip, "thread.attachments", .attachments)
+        }
+        if facts.canOperate, !facts.archived {
+            Section {
+                item("Rename…", .pencilSimple, "thread.menu.rename", .rename)
+                if facts.forkLast { item("Fork from the last turn", .gitFork, "thread.forkLast", .forkLast) }
+                if facts.hasParent { item("Bring back to parent…", .gitMerge, "thread.merge", .merge) }
+            }
+        }
+    }
+
+    /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
+    @ViewBuilder private var tools: some View {
+        Section {
+            item("Summary", .listChecks, "thread.summary", .summary)
+            // On a phone the agent tree is in the row of screens above.
+            if pages == nil { item("Agent tree", .treeStructure, "thread.agents", .agents) }
+            item("Work", .gitBranch, "thread.work", .work)
+            item("Run and preview…", .play, "thread.scripts", .scripts)
+            item("Logs", .scroll, "thread.logs", .logs)
+        }
+        Section {
+            item("Devices", .deviceMobile, "thread.devices", .devices)
+            item("Computer use", .aceComputerUse, "thread.computer", .computer)
+            item("Skills and tools", .wrench, "thread.tools", .tools)
+            OpenOnHostMenu(model: model, target: HostOpenTarget(threadId: threadId)) {
+                Label("Open in…", ace: .arrowSquareOut)
+            }
+            .accessibilityIdentifier("thread.openIn")
+            Button("Reload from machine", ace: .arrowClockwise) { model.reloadFromMachine() }
+                .accessibilityIdentifier("thread.reload")
+        }
+    }
+
+    /// Continue on, then the row's own actions (read, pin, snooze, settle, archive), or Snooze
+    /// and Archive on the thread itself while no row is held.
+    @ViewBuilder private var organize: some View {
+        if let ready = facts.continueOn {
+            Section {
+                Button { model.continueOn(threadId: threadId, title: title) } label: {
+                    Text("Continue on…")
+                    if !ready { Text("Available once the thread stops working") }
+                    Image(ace: .desktop)
+                }
+                .disabled(!ready)
+                .accessibilityIdentifier("thread.continueOn")
+            }
+        }
+        if let organizer, let held = facts.organize {
+            ThreadActionItems(key: held.key, row: held.row, labels: held.labels, sections: held.sections,
+                              snoozeOptions: held.snooze, organizer: leaving(organizer))
+        } else if facts.canOperate {
+            Section {
+                if !facts.snooze.isEmpty {
+                    Menu {
+                        SnoozeChoiceButtons(choices: SnoozeChoice.list(times: facts.snooze, row: nil)) { preset in
+                            Task { if await model.snooze(threadId, preset: preset) { leave() } }
+                        }
+                    } label: { Label("Snooze", ace: .bellSimpleZ) }
+                }
+                if !facts.archived {
+                    // Archive is undone from the archive, so it is not drawn as destructive.
+                    Button("Archive", ace: .archive) {
+                        Task { if await model.archive(threadId) { leave() } }
+                    }
+                    .accessibilityIdentifier("thread.action.archive")
+                }
+            }
+        }
+    }
+
+    /// Archiving or snoozing the open thread leaves it.
     private func leaving(_ organizer: ThreadOrganizer) -> ThreadOrganizer {
         ThreadOrganizer(perform: { key, id in
                             organizer.perform(key, id)
@@ -121,179 +220,8 @@ struct ThreadMenuPanel: View {
                         wake: organizer.wake)
     }
 
-    var body: some View {
-        ScrollView { panel }
-            .scrollBounceBehavior(.basedOnSize)
-            .accessibilityIdentifier("thread.options.scroll")
-            .frame(idealWidth: AceDesign.Size.popover, maxWidth: AceDesign.Size.popoverWide)
-            .accessibilityLabel("Thread options")
-    }
-
-    private var panel: some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            MenuScreenGrid(pages: pages, shownPage: shownPage, switchInBar: switchInBar, open: open, dismiss: dismiss)
-                .padding(.bottom, AceDesign.Space.related)
-            Divider()
-            Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
-                .accessibilityIdentifier("thread.options.conversation")
-                .menuIndicator(.hidden)
-            Menu { tools } label: { groupLabel("Tools", icon: .wrench) }
-                .accessibilityIdentifier("thread.options.tools")
-                .menuIndicator(.hidden)
-            Menu {
-                if let organizer, let row, let hostId = model.hostId, model.canOperate {
-                    ThreadActionItems(key: InboxKey(machineId: hostId, id: thread.id), row: row,
-                                      labels: model.inboxLayout.menuLabels ?? [:],
-                                      sections: model.inboxLayout.menuSections ?? [:],
-                                      snoozeOptions: model.inboxLayout.snooze,
-                                      organizer: dismissing(leaving(organizer)))
-                    Divider()
-                }
-                system
-            } label: { groupLabel("Organize", icon: .folderSimple) }
-                .accessibilityIdentifier("thread.options.organize")
-                .menuIndicator(.hidden)
-            if model.canOperate, thread.screen.controls?.canStop == true {
-                Divider()
-                MenuRow(title: "Stop all agents", icon: .stopCircle) {
-                    model.stopTree(); dismiss()
-                }
-                .disabled(thread.screen.stopping)
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.vertical, AceDesign.Space.row)
-    }
-
-    private func groupLabel(_ title: String, icon: AceIcon.Name) -> some View {
-        HStack {
-            Label(title, ace: icon)
-            Spacer(minLength: AceDesign.Space.related)
-            Image(systemName: "chevron.right")
-                .font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-        }
-        .aceFont(AceTheme.Typography.body, relativeTo: .body)
-        .foregroundStyle(AceTheme.Colours.foreground)
-        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    /// What can be done with the conversation itself.
-    @ViewBuilder private var conversation: some View {
-        MenuRow(title: "Find in thread", icon: .magnifyingGlass, identifier: "thread.search") { open(.search); dismiss() }
-        MenuRow(title: "Turns", icon: .listBullets, identifier: "thread.turns") { open(.turns); dismiss() }
-        MenuRow(title: "Attachments", icon: .paperclip, identifier: "thread.attachments") { open(.attachments); dismiss() }
-        if model.canOperate, !archived {
-            Divider()
-            MenuRow(title: "Rename…", icon: .pencilSimple, identifier: "thread.menu.rename") {
-                open(.rename); dismiss()
-            }
-            if thread.screen.transitions?.lastTurn == true {
-                MenuRow(title: "Fork from the last turn", icon: .gitFork, identifier: "thread.forkLast") {
-                    open(.forkLast); dismiss()
-                }
-            }
-            if thread.screen.transitions?.parent != nil {
-                MenuRow(title: "Bring back to parent…", icon: .gitMerge, identifier: "thread.merge") {
-                    open(.merge); dismiss()
-                }
-            }
-        }
-    }
-
-    /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
-    @ViewBuilder private var tools: some View {
-        MenuRow(title: "Summary", icon: .listChecks, identifier: "thread.summary") { open(.summary); dismiss() }
-        // On a phone the agent tree is in the grid above.
-        if pages == nil {
-            MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
-        }
-        MenuRow(title: "Logs", icon: .scroll, identifier: "thread.logs") { open(.logs); dismiss() }
-        Divider()
-        MenuRow(title: "Reload from machine", icon: .arrowClockwise, identifier: "thread.reload") {
-            model.reloadFromMachine(); dismiss()
-        }
-        MenuRow(title: "Run and preview…", icon: .play, identifier: "thread.scripts") {
-            open(.scripts); dismiss()
-        }
-        MenuRow(title: "Work", icon: .gitBranch, identifier: "thread.work") {
-            open(.work); dismiss()
-        }
-        MenuRow(title: "Devices", icon: .deviceMobile, identifier: "thread.devices") {
-            open(.devices); dismiss()
-        }
-        MenuRow(title: "Computer use", icon: .aceComputerUse, identifier: "thread.computer") {
-            open(.computer); dismiss()
-        }
-        MenuRow(title: "Skills and tools", icon: .wrench, identifier: "thread.tools") {
-            open(.tools); dismiss()
-        }
-        OpenOnHostMenu(model: model, target: HostOpenTarget(threadId: thread.id)) {
-            Label("Open in…", ace: .arrowSquareOut)
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: AceDesign.Size.tap)
-                .contentShape(Rectangle())
-        }
-        .accessibilityIdentifier("thread.openIn")
-    }
-
-    /// Continue on, and the organize fallbacks when no row is held. (The Lock Screen shows every
-    /// agent in one Live Activity, so a thread has no item of its own for it.)
-    @ViewBuilder private var system: some View {
-        if model.canOperate, model.transfers.linked, !archived {
-            let ready = model.transfers.thread(thread.id)?.canContinue == true
-            Button {
-                model.continueOn(threadId: thread.id, title: title); dismiss()
-            } label: {
-                Label {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text("Continue on…")
-                        if !ready {
-                            Text("Available once the thread stops working")
-                                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                } icon: { Image(ace: .desktop) }
-            }
-            .disabled(!ready)
-            .accessibilityIdentifier("thread.continueOn")
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: AceDesign.Size.tap)
-        }
-        if organizer == nil || row == nil {
-            if model.canOperate, !model.inboxLayout.snooze.isEmpty {
-                Menu {
-                    SnoozeChoiceButtons(choices: SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox[thread.id])) { preset in
-                        Task { if await model.snooze(thread.id, preset: preset) { leave() } }
-                        dismiss()
-                    }
-                } label: {
-                    Label("Snooze", ace: .bellSimpleZ)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: AceDesign.Size.tap)
-                        .contentShape(Rectangle())
-                }
-            }
-            if model.canOperate, !archived {
-                MenuRow(title: "Archive", icon: .archive) {
-                    Task { if await model.archive(thread.id) { leave() } }
-                    dismiss()
-                }
-            }
-        }
-    }
-
-    /// Organize actions dismiss the panel after they run, as a Menu does.
-    private func dismissing(_ organizer: ThreadOrganizer) -> ThreadOrganizer {
-        let dismiss = dismiss
-        return ThreadOrganizer(perform: { key, id in organizer.perform(key, id); dismiss() },
-                               snooze: { key, preset in organizer.snooze(key, preset); dismiss() },
-                               wake: { organizer.wake($0); dismiss() })
+    nonisolated static func == (lhs: ThreadMenu, rhs: ThreadMenu) -> Bool {
+        lhs.model === rhs.model && lhs.threadId == rhs.threadId && lhs.facts == rhs.facts && lhs.title == rhs.title
+            && lhs.opensInPanel == rhs.opensInPanel && lhs.pages == rhs.pages && lhs.shownPage == rhs.shownPage
     }
 }
