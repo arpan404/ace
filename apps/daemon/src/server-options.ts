@@ -157,6 +157,8 @@ export interface ServerOptions {
   store: Store;
   handler: CommandHandler;
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
+  /** ace's marketplace (ADR 0168): `marketplace.request` and its change pushes. */
+  marketplace?: import("./marketplace/service.ts").MarketplaceService;
   /** The Suit library (ADR 0150): socket requests, change pushes and its asset URLs. */
   suits?: import("./suits/library.ts").SuitLibrary;
   suitLooks?: import("./suits/looks.ts").SuitLooks;

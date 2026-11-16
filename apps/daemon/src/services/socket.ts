@@ -11,6 +11,7 @@ import type {
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
 import type { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "@ace/protocol/suits";
+import type { MarketClientMessage, MarketServerMessage } from "@ace/protocol/marketplace";
 import type { MainSocket } from "../main-socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { MaintenanceGate } from "@ace/service";
@@ -19,6 +20,7 @@ export type SocketMessage =
   | PluginClientMessage
   | SuitClientMessage
   | SuitReportMessage
+  | MarketClientMessage
   | BrowserClientMessage
   | BrowserBackendClientMessage
   | UserBrowserExtensionMessage;
@@ -89,7 +91,9 @@ export interface SocketContext {
     remoteStatus?(): import("@ace/protocol").RemoteAccessStatus;
   };
   connected(): boolean;
-  send(message: ServerMessage | PluginServerMessage | SuitServerMessage): void;
+  send(
+    message: ServerMessage | PluginServerMessage | SuitServerMessage | MarketServerMessage,
+  ): void;
   fail(
     code: string,
     message: string,

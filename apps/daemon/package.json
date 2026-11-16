@@ -58,6 +58,7 @@
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/orchestrator": "workspace:*",
+    "@ace/marketplace": "workspace:*",
     "@ace/plugins": "workspace:*",
     "@ace/preview": "workspace:*",
     "@ace/project-picker": "workspace:*",

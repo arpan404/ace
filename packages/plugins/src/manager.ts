@@ -18,6 +18,7 @@ import {
   isMissing,
   ownDirectory,
   readPackageText,
+  writeContained,
 } from "./files.ts";
 import {
   extractPlugin,
@@ -161,6 +162,48 @@ export class PluginManager {
         } finally {
           await rm(temporary, { recursive: true, force: true });
         }
+      }
+    });
+  }
+  /**
+   * A review of a plugin whose bytes the caller already holds and verified (ADR 0168: a
+   * marketplace version, checked against its signed manifest). Written into staging as given and
+   * hashed again: `hash` must match, so acceptance binds these exact bytes as a git prepare does.
+   * `origin` stands where a git prepare records its repository and ref, and `commit` pins it.
+   */
+  async prepareFiles(request: {
+    name: string;
+    hash: string;
+    commit: string;
+    origin: { repository: string; ref: string };
+    files: readonly { path: string; executable: boolean; content: Uint8Array }[];
+  }): Promise<PluginReview> {
+    const name = PluginName.parse(request.name);
+    return this.lock(async () => {
+      if (this.registry.summaries().length >= limits.pending)
+        throw new Error("Pending review limit");
+      const id = PluginReview.shape.id.parse(this.options.id());
+      if (this.registry.summaries().some((review) => review.id === id))
+        throw new Error("Duplicate review id");
+      const stage = join(this.root, "staging", id);
+      await assertNoSymlinks(stage);
+      await mkdir(stage, { recursive: true, mode: 0o700 });
+      try {
+        for (const file of request.files)
+          await writeContained(stage, file.path, file.content, file.executable);
+        const digest = await inspectPackage(stage);
+        if (digest.hash !== request.hash) throw new Error("Integrity mismatch");
+        const text = await readPackageText(stage, digest.files);
+        const imported = importPlugin(text);
+        if (imported.manifest.name !== name) throw new Error("Catalog and manifest name mismatch");
+        validateComponents(imported, text);
+        const review = reviewPlugin(imported, { id, commit: request.commit, hash: digest.hash });
+        jsonSize(review, reviewBytes);
+        this.registry.saveReview({ review, ...request.origin });
+        return review;
+      } catch (error) {
+        await rm(stage, { recursive: true, force: true });
+        throw error;
       }
     });
   }

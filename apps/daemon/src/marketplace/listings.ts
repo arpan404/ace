@@ -1,0 +1,148 @@
+import { installableMarketTypes, type MarketEntrySummary } from "@ace/protocol/marketplace";
+import {
+  CategoriesBody,
+  catalogFeedEntry,
+  FeaturedBody,
+  isSupportedType,
+  mergeIndex,
+  parseIndex,
+  verifyWithdrawn,
+  type FeedEntry,
+  type MarketKeySet,
+} from "@ace/marketplace";
+import type { GitCatalogs } from "./git.ts";
+import type { MarketHttp } from "./http.ts";
+import type { MarketStore, StoredListing, StoredSource } from "./store.ts";
+
+/*
+ * Reading each source's listing into the daemon's copy (ADR 0168 §3, §9): the market's index as
+ * a delta since the last read, its categories, featured list and signed withdrawn list; a git
+ * catalog's entries at its current commit. A read that fails keeps the last listing and says when
+ * it was read.
+ */
+
+export const withdrawnKey = "withdrawn";
+
+export interface WithdrawnState {
+  issued: number;
+  /** Every hash ever withdrawn by a verified list, so replaying an older list never undoes one. */
+  hashes: Record<string, string>;
+}
+
+export function readWithdrawn(store: MarketStore): WithdrawnState {
+  const raw = store.meta(withdrawnKey);
+  return raw ? (JSON.parse(raw) as WithdrawnState) : { issued: 0, hashes: {} };
+}
+
+async function readMarket(
+  store: MarketStore,
+  http: MarketHttp,
+  keys: MarketKeySet,
+  source: StoredSource,
+): Promise<StoredSource> {
+  const previous = await store.listing(source.id);
+  const since =
+    source.stamp !== undefined && previous.entries.length > 0
+      ? { stamp: source.stamp, etag: source.etag }
+      : undefined;
+  const answer = await http.index(since);
+  let next: StoredListing = previous;
+  let stamp = source.stamp;
+  let etag = source.etag;
+  if (!answer.unchanged) {
+    const index = parseIndex(answer.body);
+    next = { ...previous, entries: mergeIndex(previous.entries, index) };
+    stamp = index.stamp;
+    etag = answer.etag;
+  }
+  const categories = CategoriesBody.safeParse(await http.categories());
+  const featured = FeaturedBody.safeParse(await http.featured());
+  next = {
+    ...next,
+    categories: categories.success ? categories.data.categories : next.categories,
+    featured: featured.success ? featured.data.entries : next.featured,
+  };
+  const signed = await http.withdrawn();
+  if (signed !== undefined) {
+    const list = verifyWithdrawn(signed, keys);
+    const state = readWithdrawn(store);
+    if (list.issued > state.issued) {
+      for (const entry of list.withdrawn) state.hashes[entry.hash] = entry.reason;
+      state.issued = list.issued;
+      store.setMeta(withdrawnKey, JSON.stringify(state));
+    }
+  }
+  await store.saveListing(source.id, next);
+  return { ...source, stamp, etag };
+}
+
+async function readGit(
+  store: MarketStore,
+  git: GitCatalogs,
+  source: StoredSource,
+  now: number,
+): Promise<StoredSource> {
+  const { commit, catalog } = await git.read(source.address);
+  const folders: NonNullable<StoredListing["folders"]> = {};
+  for (const entry of catalog.entries)
+    folders[`${entry.type}/${entry.name}`] = {
+      source: entry.source,
+      hash: entry.hash,
+      description: entry.description,
+    };
+  await store.saveListing(source.id, {
+    entries: catalog.entries.map((entry) => catalogFeedEntry(entry, now)),
+    categories: [],
+    featured: [],
+    folders,
+  });
+  return { ...source, commit };
+}
+
+/** Reads one source; on failure keeps its listing and records why. */
+export async function refreshSource(
+  deps: {
+    store: MarketStore;
+    http: MarketHttp | undefined;
+    git: GitCatalogs;
+    keys: MarketKeySet;
+    now: () => number;
+  },
+  source: StoredSource,
+): Promise<StoredSource> {
+  let next: StoredSource;
+  try {
+    if (source.kind === "market") {
+      if (!deps.http) throw new Error("market.acehq.dev is turned off");
+      next = await readMarket(deps.store, deps.http, deps.keys, source);
+    } else next = await readGit(deps.store, deps.git, source, deps.now());
+    next = { ...next, readAt: deps.now(), problem: undefined };
+  } catch (error) {
+    next = {
+      ...source,
+      problem: (error instanceof Error ? error.message : "The read failed").slice(0, 500),
+    };
+  }
+  deps.store.saveSource(next);
+  return next;
+}
+
+export function summaryOf(source: StoredSource, entry: FeedEntry): MarketEntrySummary {
+  return {
+    source: source.id as MarketEntrySummary["source"],
+    type: entry.type,
+    name: entry.name,
+    title: entry.title,
+    line: entry.line,
+    ...(entry.publisher ? { publisher: entry.publisher } : {}),
+    categories: entry.categories,
+    keywords: entry.keywords,
+    ...(entry.version ? { version: entry.version } : {}),
+    reviewed: source.kind === "market" && entry.reviewed,
+    byAce: source.kind === "market" && entry.byAce,
+    updated: entry.updated,
+    downloads: entry.downloads,
+    supported: isSupportedType(entry.type, installableMarketTypes),
+    ...(source.kind === "git" ? { from: source.address } : {}),
+  };
+}

@@ -1,6 +1,7 @@
 import type { Item, ServerMessage, Thread, ThreadListEntry } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import type { SuitServerMessage } from "@ace/protocol/suits";
+import type { MarketServerMessage } from "@ace/protocol/marketplace";
 import { historyMessageIdentity, isRawHistoryItem } from "./history-visibility.ts";
 import { providerNotice } from "./provider-notices.ts";
 import { structuredCopy } from "./structured-copy.ts";
@@ -32,7 +33,7 @@ export const wireTrims = {
 export const supportedWireTrims: readonly string[] = Object.values(wireTrims);
 
 type Capabilities = NonNullable<Thread["capabilities"]>;
-type Outgoing = ServerMessage | PluginServerMessage | SuitServerMessage;
+type Outgoing = ServerMessage | PluginServerMessage | SuitServerMessage | MarketServerMessage;
 type Listed = Thread | ThreadListEntry;
 
 /** More distinct capability sets than this on one connection are sent whole, not keyed. */
