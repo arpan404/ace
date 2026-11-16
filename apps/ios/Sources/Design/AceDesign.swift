@@ -421,8 +421,9 @@ extension AceDesign.Ink {
 }
 
 extension AceDesign.Motion {
-    /// Follows the keyboard: the system hands its own duration, ace adds no bounce.
-    static func keyboard(_ duration: Double) -> Animation { .spring(duration: duration, bounce: 0) }
+    /// Close to the keyboard's own ease-out (`KeyboardCurve`), for what animates as it moves: the
+    /// composer opening as it takes the keyboard.
+    static func keyboard(_ duration: Double) -> Animation { .timingCurve(0.1, 0.7, 0.3, 1, duration: duration) }
 }
 
 // MARK: - Pull requests, files and tools: the values these places name

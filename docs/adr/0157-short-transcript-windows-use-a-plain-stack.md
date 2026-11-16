@@ -2,7 +2,8 @@
 
 Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15, choosing option 1 of
 three in chat). Amends [ADR 0062](0062-long-thread-data-apis.md), "Phone client", decision
-**List** (the feed stays a `LazyVStack`).
+**List** (the feed stays a `LazyVStack`). Amended by
+[ADR 0171](0171-the-keyboard-lifts-the-thread-foot-by-one-drawn-value.md).
 
 ## Context
 
