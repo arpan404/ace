@@ -152,6 +152,11 @@ export interface PlaceReaderInput {
    * stale, so the Inbox's live bands claim nothing and fold into one list by activity.
    */
   unconfirmed?: boolean | undefined;
+  /**
+   * Whether another machine's daemon placed the entry, under its own sort. Absent, every entry
+   * is this list's own daemon's, and its places are read as given.
+   */
+  placedElsewhere?: ((entry: ThreadListEntry) => boolean) | undefined;
 }
 
 /**
@@ -170,12 +175,12 @@ export function currentPlace(entry: ThreadListEntry, now: number): ThreadPlace |
 const live: ReadonlySet<InboxBand> = new Set(["needs-you", "running", "unseen", "idle"]);
 
 /**
- * The daemon's place under the list's own sort (`sortBy`), or undefined when only the shared
- * rule can say. Each daemon places its threads under its own `threads.sortBy`, so another
- * machine's threads may come ranked by a sort this list doesn't use: sorted by hand or by
- * creation, every unpinned Inbox thread ranks by that key here, whoever placed it; sorted by
- * activity, a thread its daemon listed by hand is placed again. Pinned, Snoozed and Settled
- * places don't depend on the sort.
+ * Another machine's place under this list's own sort (`sortBy`), or undefined when only the
+ * shared rule can say. Each daemon places its threads under its own `threads.sortBy`, so another
+ * machine's threads may come ranked by a sort this list doesn't use (ADR 0107, "Placement on the
+ * daemon"): sorted by hand or by creation, they rank by that key here; sorted by activity, one
+ * its daemon listed by hand or by creation is placed again. Pinned, Snoozed and Settled places
+ * don't depend on the sort. This list's own daemon's places are never re-ranked.
  */
 function inSort(
   place: ThreadPlace,
@@ -188,8 +193,9 @@ function inSort(
 }
 
 /**
- * Each entry's place as the panel shows it: the daemon's, else `placeThread` on the fallback
- * clock. With a `sortBy` the fallback names, every machine's threads rank under it (`inSort`).
+ * Each entry's place as the panel shows it: the daemon's as given, else `placeThread` on the
+ * fallback clock. Another machine's threads (`placedElsewhere`) rank under the `sortBy` the
+ * fallback names where their daemon's sort can't apply (`inSort`).
  * Worked out once per entry snapshot: entries are replaced, never changed.
  */
 export function placeReader(
@@ -200,8 +206,9 @@ export function placeReader(
     const hit = known.get(entry);
     if (hit) return hit.place;
     const placed = currentPlace(entry, input.fallback.now);
+    const elsewhere = placed !== undefined && input.placedElsewhere?.(entry) === true;
     let place =
-      (placed && inSort(placed, entry, input.fallback.sortBy)) ??
+      (elsewhere ? inSort(placed, entry, input.fallback.sortBy) : placed) ??
       placeThread(entry, input.fallback);
     if (input.unconfirmed && place?.band !== undefined && live.has(place.band))
       place = { ...place, band: "idle", rank: [activityOf(entry)] };

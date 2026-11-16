@@ -94,9 +94,14 @@ const listEqual = (a: HomeList, b: HomeList) =>
   arrayEqual(a.needsYou, b.needsYou) &&
   arrayEqual(a.panel.inbox, b.panel.inbox);
 
+/** Whether a listed thread is another machine's, placed by its daemon under its own sort. */
+const fromOtherMachine = (entry: ThreadListEntry) => machineRow(entry.id) !== undefined;
+
 /**
  * Each entry's place: the daemon's, else the shared rule on this clock (an older daemon, or an
- * organize action not yet confirmed). A new catalog, baseline, sort or minute starts over.
+ * organize action not yet confirmed). This daemon's places are shown as given; another
+ * machine's threads rank under this list's sort where their daemon's can't apply (ADR 0107).
+ * A new catalog, baseline, sort or minute starts over.
  */
 export function usePlaceOf(
   now: number,
@@ -106,7 +111,12 @@ export function usePlaceOf(
   const sortBy = useHomeSort();
   const { baseline } = useOrganizer().getState();
   return useMemo(
-    () => placeReader({ fallback: { baseline, now, models, sortBy }, unconfirmed }),
+    () =>
+      placeReader({
+        fallback: { baseline, now, models, sortBy },
+        unconfirmed,
+        placedElsewhere: fromOtherMachine,
+      }),
     [models, baseline, now, sortBy, unconfirmed],
   );
 }
