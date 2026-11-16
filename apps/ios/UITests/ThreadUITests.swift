@@ -30,27 +30,29 @@ import XCTest
         screenshot("thread-transcript")
         worked.tap()
         screenshot("thread-worked-expanded")
-        // At body size the expanded turn runs past the composer: bring the rollup above it first.
-        let rollup = app.buttons["subagents.rollup"].firstMatch
-        clearOfComposer(rollup, in: app)
-        rollup.tap()
-        let review = app.buttons["subagent.Review PID-reuse safety"]
+        // The subagents still work: the pill says so and opens their tree, and the transcript
+        // keeps no live row for them until they have ended.
+        XCTAssertFalse(app.buttons["subagents.rollup"].exists, "a live tree shows once, on the pill")
+        app.openAgentsFromPill()
+        let review = app.agentsRow("Review PID-reuse safety")
         XCTAssertTrue(review.waitForExistence(timeout: 10))
-        // The opened rows run two lines each: bring the last above the strip and composer.
-        clearOfComposer(review, in: app)
         review.tap()
         XCTAssertTrue(app.staticTexts["Review the kill-all change for PID-reuse safety."].waitForExistence(timeout: 25))
         screenshot("thread-child")
         app.navigationBars.buttons.firstMatch.tap()
-        let tests = app.buttons["subagent.Write orphan-cleanup tests"]
-        // Back from the child the transcript may sit where this row isn't loaded: look for it.
-        findInTranscript(tests, in: app)
+        app.openAgentsFromPill()
+        let tests = app.agentsRow("Write orphan-cleanup tests")
         XCTAssertTrue(tests.waitForExistence(timeout: 25))
-        clearOfComposer(tests, in: app)
         tests.tap()
         XCTAssertTrue(words("Writing the PID-reuse regression.", in: app).waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
-        app.buttons["Done"].tap()
+        // The lane is pushed over the agent tree: back to the tree, then away from it (its X where
+        // the tree is a sheet, back where it is a page), until the thread is in front again.
+        for _ in 0..<4 where !app.textViews["composer.input"].isHittable {
+            if app.buttons["agents.close"].isHittable { app.buttons["agents.close"].tap() } else { app.navigationBars.buttons.element(boundBy: 0).tap() }
+            sleep(1)
+        }
+        XCTAssertTrue(app.textViews["composer.input"].waitForExistence(timeout: 10))
         app.openModelPicker()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
@@ -76,38 +78,25 @@ import XCTest
         XCTAssertTrue(app.buttons["Stop all agents"].waitForExistence(timeout: 10))
         screenshot("thread-menu")
     }
-    /// With the subagents opened at the thread's end, the feed still scrolls the last line fully
-    /// above the strip and composer, and "Scroll to end" stays away while the end is in view.
-    func testLastLineClearsComposerWithSubagentsOpen() {
+    /// While the subagents work, their tree is the pill's: the thread's end clears the pill and
+    /// composer with no live group above it, and "Scroll to end" stays away at the end.
+    func testLastLineClearsComposerWhileSubagentsWork() {
         let app = launch()
         reveal("thread.ios-agents", in: app)
         app.buttons["thread.ios-agents"].tap()
-        let rollup = app.buttons["subagents.rollup"].firstMatch
-        XCTAssertTrue(rollup.waitForExistence(timeout: 25))
-        clearOfComposer(rollup, in: app)
-        rollup.tap()
-        XCTAssertTrue(app.buttons["subagent.Review PID-reuse safety"].waitForExistence(timeout: 10))
+        let last = words("Wiring the filters while the agents work", in: app)
+        XCTAssertTrue(last.waitForExistence(timeout: 25))
+        let pill = app.descendants(matching: .any)["composer.live"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["subagents.rollup"].exists, "the live tree is on the pill, not in the transcript")
         let transcript = app.scrollViews["transcript"]
         for _ in 0..<3 { transcript.swipeUp(velocity: .fast) }
         sleep(2)
-        screenshot("thread-end-subagents-open")
-        let last = words("Wiring the filters while the agents work", in: app)
-        XCTAssertTrue(last.waitForExistence(timeout: 5))
+        screenshot("thread-end-subagents-on-pill")
         let input = app.textViews["composer.input"]
-        let pill = app.descendants(matching: .any)["composer.live"]
-        let barTop = pill.exists ? min(pill.frame.minY, input.frame.minY) : input.frame.minY
+        let barTop = min(pill.frame.minY, input.frame.minY)
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "the last line sits under the composer")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows at the end")
-        // Opened again while at the end, the rows push the end up rather than under the composer.
-        rollup.tap()
-        XCTAssertTrue(app.buttons["subagent.Review PID-reuse safety"].waitForNonExistence(timeout: 5))
-        sleep(1)
-        rollup.tap()
-        XCTAssertTrue(app.buttons["subagent.Review PID-reuse safety"].waitForExistence(timeout: 5))
-        sleep(2)
-        screenshot("thread-end-subagents-reopened")
-        XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "opening the rows at the end hides the last line")
-        XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows after opening the rows at the end")
     }
     func testTheTurnRailJumpsToATurnAndScrollToEndReturns() {
         let app = launch()
@@ -213,6 +202,15 @@ import XCTest
         app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(app.buttons["approval.allow_session"].waitForExistence(timeout: 25))
         screenshot("thread-approval")
+        // The answers are real buttons: each a full tap tall, none flush against another, so Deny
+        // is never a hair from Allow.
+        app.assertStripButtons(["approval.deny", "approval.allow_session", "approval.allow_once"])
+        // Tapping the request's words opens its details, with every option.
+        app.buttons["request.details"].tap()
+        XCTAssertTrue(app.buttons["request.close"].waitForExistence(timeout: 10))
+        screenshot("thread-approval-details")
+        app.buttons["request.close"].tap()
+        XCTAssertTrue(app.buttons["request.close"].waitForNonExistence(timeout: 5))
     }
     /// Leaving a scrolled transcript with a "Worked for" log open tears its views down after the
     /// thread's session closed; their releases must not surface as a failed request in the inbox.
@@ -425,14 +423,6 @@ import XCTest
         for _ in 0..<4 where input.exists && row.frame.maxY > input.frame.minY - 120 {
             app.scrollViews["transcript"].swipeUp(velocity: .slow)
         }
-    }
-    /// Scrolls the transcript until `element` is loaded: toward its end first, then back up it,
-    /// since the lazy transcript loads only the rows near what shows.
-    private func findInTranscript(_ element: XCUIElement, in app: XCUIApplication) {
-        let transcript = app.scrollViews["transcript"]
-        guard transcript.waitForExistence(timeout: 10), !element.waitForExistence(timeout: 3) else { return }
-        for _ in 0..<3 where !element.exists { transcript.swipeUp(velocity: .slow) }
-        for _ in 0..<8 where !element.exists { transcript.swipeDown(velocity: .slow) }
     }
     private func swipeToTop(_ app: XCUIApplication) {
         let transcript = app.scrollViews["transcript"]

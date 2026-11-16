@@ -114,6 +114,12 @@ struct BlockRow: Codable, Sendable, Equatable {
         /// One child still at work shows as its own row; otherwise the group folds. Nil from
         /// older bridges, which show a lone entry alone.
         var single: Bool? = nil
+        /// Any child still works, waits or asks; nil from older bridges, read as settled so
+        /// the group always shows.
+        var live: Bool? = nil
+        /// Every child still at work is one the live tree counts (the tree the pill and the Agents
+        /// sheet read); nil from older bridges, read as not, so the group keeps its row.
+        var counted: Bool? = nil
         /// The group's worst child, as a status palette key.
         var token: String = ""
         /// Its facts are stale while it ran: "Last seen: " leads the counts.
@@ -197,6 +203,9 @@ struct BlockRow: Codable, Sendable, Equatable {
         /// Ms since 1970.
         let startedAt: Double
         let endedAt: Double?
+        /// Settled, or running and counted by the live tree the pill reads (its "1 command"); nil
+        /// from older bridges, read as not, so a running line keeps its row.
+        var counted: Bool? = nil
     }
 }
 

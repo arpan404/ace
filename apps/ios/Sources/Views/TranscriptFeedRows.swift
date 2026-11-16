@@ -43,13 +43,17 @@ struct TranscriptFeedRowView: View, Equatable {
     let links: TranscriptLinks
     @Environment(\.aceDensityId) private var densityId
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The block draws nothing now (a live subagent group or command left to the pill): it takes
+    /// no gap either, so hidden rows leave no space above the composer.
+    @State private var empty = false
     var body: some View {
         let _ = PerfCounters.bump("row.body")
         // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer;
         // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)
+            .onGeometryChange(for: Bool.self) { $0.size.height < 1 } action: { empty = $0 }
             // The approved feed: one 14pt gap between its parts; its sides are the composer's edge.
-            .padding(.bottom, AceDesign.Space.feedGap * AceTheme.density(densityId).transcriptRoom)
+            .padding(.bottom, empty ? AceTheme.Spacing.none : AceDesign.Space.feedGap * AceTheme.density(densityId).transcriptRoom)
             .padding(.horizontal, ReadingColumn.bar(sizeClass).text)
     }
 }

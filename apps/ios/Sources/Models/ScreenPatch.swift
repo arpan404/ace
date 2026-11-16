@@ -152,8 +152,16 @@ struct PillRow: Codable, Sendable, Equatable {
         var detail: String? = nil
         var id: String { kind }
     }
+    /// Which live facts the pill names (`pillCovers` in `bridge/thread-pill.ts`).
+    struct Covers: Codable, Sendable, Equatable {
+        let subagents: Bool
+        let commands: Bool
+        static let nothing = Covers(subagents: false, commands: false)
+    }
     let status: Status?
     let segments: [Segment]
+    /// Nil from older bridges: the pill names nothing, and the transcript keeps its live rows.
+    var covers: Covers? = nil
 }
 /// The goal's sheet: its words, progress and the changes ace can make to it.
 struct GoalRow: Codable, Sendable, Equatable {

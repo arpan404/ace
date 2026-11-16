@@ -70,16 +70,22 @@ struct BackgroundLine: View {
 /// Commands a log's calls left running, as a step of the log where they started: one task's
 /// line, or several started back to back as one group ("2 background tasks · 1 running") whose
 /// running lines stay in view, Stop and all; the ended ones open from the group. The rows
-/// update in place as the tasks end; they never move.
+/// update in place as the tasks end; they never move. While any of them runs, every running one
+/// is a command the pill counts, and the pill over the composer names commands, the pill says it
+/// (its Agents sheet has Stop) and the step waits here until they have all ended (`ThreadFoot`).
 struct BackgroundStep: View {
     let row: BlockRow.LogRow
     let source: LogSource
+    @Environment(\.pillNames) private var pillNames
     private var key: String { "group:\(row.id)" }
     var body: some View {
+        let lines = (row.items ?? []).compactMap { source.background[$0] }
+        if pillNames.transcriptShows(.commands, live: BlockRow.Background.leaveToPill(lines)) { step(lines) }
+    }
+    private func step(_ lines: [BlockRow.Background]) -> some View {
         let items = row.items ?? []
-        let lines = items.compactMap { source.background[$0] }
         let running = Set(row.runningIds ?? [])
-        Group {
+        return Group {
             if items.count == 1, let line = lines.first {
                 BackgroundLine(line: line)
             } else {
@@ -124,4 +130,7 @@ extension EnvironmentValues {
     @Entry var stopBackground: ((String) -> Void)? = nil
     /// Background tasks the strip above the composer offers Stop for.
     @Entry var stripTasks: Set<String> = []
+    /// What the pill over the composer names while it shows (`ThreadFoot`); nothing outside a
+    /// thread's own page.
+    @Entry var pillNames: PillRow.Covers = .nothing
 }
