@@ -874,8 +874,41 @@ pub fn prompt(case: &Case<'_>) -> Prompt {
             // Whole: the reviewer must see everything that would run ([`fits_review`]).
             quoted(&case.arguments.to_string(), usize::MAX),
         ))
-        .max_tokens(300)
+        .max_tokens(REVIEW_TOKENS)
 }
+
+/// The most a reviewer may write. Its answer is a short JSON object, but a reasoning model
+/// spends this same budget on its thinking first, so it is sized to hold a careful think and
+/// the answer: a tight one cuts the JSON off mid-string. It bounds the cost; what is billed is
+/// what the model used.
+pub const REVIEW_TOKENS: u32 = 4_000;
+
+/// Whether a reviewer's failed answer is worth asking for once more: it answered but the
+/// judgment came back empty or cut short, or didn't parse. A failure to reach the reviewer (the
+/// endpoint, a key, the model) won't change on the spot.
+pub fn answer_again(error: &spade_models::ModelError) -> bool {
+    matches!(
+        error,
+        spade_models::ModelError::Shape { .. } | spade_models::ModelError::Empty { .. }
+    )
+}
+
+/// What the person is told when a review failed, in one plain sentence. The error itself, with
+/// its model and type names, is for the logs only.
+pub fn undecided(error: &spade_models::ModelError) -> &'static str {
+    use spade_models::ModelError as E;
+    match error {
+        E::Shape { .. } | E::Empty { .. } => UNDECIDED,
+        E::MissingKey { .. } => "The reviewer's endpoint needs a key, so you decide.",
+        E::UnknownModel(_) => "The reviewer's model isn't on your endpoints, so you decide.",
+        E::Listing { .. } | E::Setup(_) | E::Provider { .. } | E::Unanswered { .. } => {
+            "The reviewer couldn't be reached, so you decide."
+        }
+    }
+}
+
+/// The reviewer answered, but twice not with a judgment Spade could read.
+pub const UNDECIDED: &str = "The reviewer couldn't decide on this, so you decide.";
 
 /// Text as data inside a tag: cut short, and with nothing that could close the tag.
 fn quoted(text: &str, longest: usize) -> String {

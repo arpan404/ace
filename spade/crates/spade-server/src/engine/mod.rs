@@ -22,6 +22,7 @@ mod helpers;
 mod inbox;
 mod index;
 mod jobs;
+mod judge;
 mod knowledge;
 mod knowledge_api;
 mod ledger;

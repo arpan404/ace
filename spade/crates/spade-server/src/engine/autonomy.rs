@@ -7,6 +7,8 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::Event;
 use spade_core::autonomy::{self, Access, Case, Judgment, Outcome, refusals};
+
+use super::judge::Judged;
 use spade_core::context;
 use spade_core::event::{Call, Known, Verdict};
 use spade_core::review;
@@ -121,8 +123,8 @@ pub(super) fn binding(shown: &[spade_core::autonomy::shell::Shown]) -> Option<St
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
 /// call is used again, so a restart never reviews (or pays for) a call twice. A refusal goes back
 /// to the bot unless it retries a refused step (`refusals`); anything but a clear answer (a
-/// failure, a timeout, an answer that doesn't parse) goes to the person: an
-/// unreviewed call never runs.
+/// failure, a timeout, an answer that doesn't parse twice) goes to the person: an unreviewed
+/// call never runs.
 pub(super) async fn review(
     engine: &Arc<Engine>,
     id: &str,
@@ -161,53 +163,23 @@ pub(super) async fn review(
         refused: refused.shown(),
     };
     let prompt = autonomy::prompt(&case).session(id);
-    let admitted = engine
-        .admit(id, &model)
-        .for_role(spade_core::routing::Role::Review);
-    let (outcome, cost) = {
-        let asked = tokio::select! {
-            answer = tokio::time::timeout(
-                engine.limits.review_timeout,
-                engine.models.generate::<Judgment>(&model, &prompt),
-            ) => Some(answer),
-            _ = stop.wait_for(|stopped| *stopped) => None,
-        };
-        // A call cut off before its usage came is still paid for: at least its prompt.
-        let estimate = || {
-            super::ledger::likely_usage(
-                super::ledger::prompt_tokens(&prompt),
-                Default::default(),
-                0,
-            )
-        };
-        let Some(asked) = asked else {
-            admitted.settle(&estimate());
-            return Reviewed::Stopped;
-        };
-        match asked {
-            Ok(Ok(generated)) => {
-                let cost = admitted.settle(&generated.usage);
-                (
-                    autonomy::judged(&generated.value, &refused, under.call),
-                    cost,
-                )
-            }
-            Ok(Err(error)) => {
-                let cost = match error.usage() {
-                    Some(usage) => admitted.settle(&usage),
-                    None if error.may_have_billed() => admitted.settle(&estimate()),
-                    None => admitted.settle_if(None),
-                };
-                (
-                    Outcome::Escalate(format!("The review couldn't run: {error}")),
-                    cost,
-                )
-            }
-            Err(_) => (
-                Outcome::Escalate("The review took too long, so you decide.".to_owned()),
-                admitted.settle(&estimate()),
-            ),
-        }
+    let (outcome, cost) = match super::judge::judge::<Judgment>(
+        engine,
+        id,
+        &model,
+        &prompt,
+        engine.limits.review_timeout,
+        stop,
+    )
+    .await
+    {
+        Judged::Answer(judgment, cost) => (autonomy::judged(&judgment, &refused, under.call), cost),
+        Judged::Failed(why, cost) => (Outcome::Escalate(why.to_owned()), cost),
+        Judged::TimedOut(cost) => (
+            Outcome::Escalate("The review took too long, so you decide.".to_owned()),
+            cost,
+        ),
+        Judged::Stopped => return Reviewed::Stopped,
     };
     let (verdict, reason) = match &outcome {
         Outcome::Run => (Verdict::Allow, String::new()),

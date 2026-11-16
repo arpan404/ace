@@ -13,6 +13,7 @@ use spade_core::tools::{Registry, ToolDef};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::judge::Judged;
 
 /// Longest a review may take before the call goes to the person.
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(60);
@@ -59,38 +60,23 @@ pub(super) async fn call(
         arguments,
     };
     let prompt = review::prompt(&case).session(id);
-    let admitted = engine
-        .admit(id, &model)
-        .for_role(spade_core::routing::Role::Review);
-    let (verdict, reason, cost) = {
-        let asked = tokio::select! {
-            answer = tokio::time::timeout(
-                REVIEW_TIMEOUT,
-                engine.models.generate::<Judgment>(&model, &prompt),
-            ) => answer,
-            _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
-        };
-        match asked {
-            Ok(Ok(generated)) => {
-                let cost = admitted.settle(&generated.usage);
-                let reason = generated.value.reason.trim().to_owned();
-                (Verdict::from(generated.value.verdict), reason, cost)
-            }
-            Ok(Err(error)) => {
-                let cost = admitted.settle_if(error.usage());
-                (
-                    Verdict::Escalate,
-                    format!("The review couldn't run: {error}"),
-                    cost,
-                )
-            }
-            Err(_) => (
+    let (verdict, reason, cost) =
+        match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
+            .await
+        {
+            Judged::Answer(judgment, cost) => (
+                Verdict::from(judgment.verdict),
+                judgment.reason.trim().to_owned(),
+                cost,
+            ),
+            Judged::Failed(why, cost) => (Verdict::Escalate, why.to_owned(), cost),
+            Judged::TimedOut(cost) => (
                 Verdict::Escalate,
                 "The review took too long, so you decide.".to_owned(),
-                0,
+                cost,
             ),
-        }
-    };
+            Judged::Stopped => return Reviewed::Stopped,
+        };
     let reviewed = Event::Known(Known::CallReviewed {
         reply: reply.to_owned(),
         call_id: call.id.clone(),

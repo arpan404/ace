@@ -172,8 +172,14 @@ run.
   turn's since the last compaction, or a summary drawn from one.
 - Its cost is recorded even when the provider sends no usage (a timeout, Stop, an
   error that may have billed): Spade settles an estimate from the prompt.
-- Failure, a 60 s timeout or unparseable output (an `escalate` verdict included): the person
-  is asked, with the reason. An unreviewed call never runs.
+- It may write up to 4,000 tokens (`REVIEW_TOKENS`, the ADR 0135 review too): a reasoning
+  model spends that budget on its thinking before the JSON, and a tight one cuts the answer off.
+- An answer that comes back empty, cut short or unparseable (an `escalate` verdict included) is
+  asked for once more, within the same 60 s; each try's cost is recorded.
+- Failure, a 60 s timeout, or a second answer Spade can't read: the person is asked, with one
+  plain sentence ("The reviewer couldn't decide on this, so you decide.", "The reviewer
+  couldn't be reached, so you decide.", "The review took too long, so you decide."). The raw
+  error, with model and type names, goes to the logs only. An unreviewed call never runs.
 - Status line while it reads: `Checking a step`.
 
 ### When the person is asked
