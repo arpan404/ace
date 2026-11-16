@@ -17,6 +17,12 @@ import {
   type SuitPort,
 } from "./install.ts";
 import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
+import { applyBlocklist, blockedFindings } from "./blocklist.ts";
+import { discover, publisherPage, report } from "./discover.ts";
+import { publishAction, type MarketGrantPort } from "./publish.ts";
+import { badgesOf, Trust } from "./trust.ts";
+import type { MarketPublisher } from "@ace/protocol/marketplace";
+import type { ScanContext } from "@ace/marketplace/scan";
 import { newer, prepareWithBrings, Refused } from "./prepare.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { MarketStore, type StoredSource } from "./store.ts";
@@ -62,17 +68,26 @@ const error = (
   code: Extract<MarketResult, { op: "error" }>["code"],
   message: string,
   problems?: Refused["problems"],
+  scan?: Refused["scan"],
 ): MarketResult => ({
   op: "error",
   code,
   message: message.slice(0, 2000),
   ...(problems?.length ? { problems: problems.slice(0, 200) } : {}),
+  ...(scan ? { scan } : {}),
 });
+
+/** What one request may use beyond the service's own ports. */
+export interface MarketRequestPorts {
+  /** Mints a market grant for a `publish` action; absent or undefined answers `signed_out`. */
+  grant?: MarketGrantPort | undefined;
+}
 
 export class MarketplaceService {
   readonly #options: MarketplaceOptions;
   readonly #store: MarketStore;
   readonly #git: GitCatalogs;
+  readonly #trust: Trust;
   readonly #pending = new Map<string, Pending>();
   readonly #listeners = new Set<(counts: { installed: number; updates: number }) => void>();
   #queue: Promise<unknown> = Promise.resolve();
@@ -83,6 +98,7 @@ export class MarketplaceService {
   private constructor(options: MarketplaceOptions, store: MarketStore) {
     this.#options = options;
     this.#store = store;
+    this.#trust = new Trust(store, options.keys);
     this.#git = new GitCatalogs({
       root: join(options.root, "git"),
       runtime: options.git,
@@ -141,8 +157,13 @@ export class MarketplaceService {
       http: this.#http(),
       git: this.#git,
       keys: this.#options.keys,
+      trust: this.#trust,
       now: this.#options.now,
     };
+  }
+
+  #badges() {
+    return badgesOf(this.#trust.current());
   }
 
   #installPorts() {
@@ -171,16 +192,17 @@ export class MarketplaceService {
     for (const listener of this.#listeners) listener(counts);
   }
 
-  async request(operation: MarketOperation): Promise<MarketResult> {
+  async request(operation: MarketOperation, ports: MarketRequestPorts = {}): Promise<MarketResult> {
     try {
-      return await this.#handle(operation);
+      return await this.#handle(operation, ports);
     } catch (thrown) {
-      if (thrown instanceof Refused) return error(thrown.code, thrown.message, thrown.problems);
+      if (thrown instanceof Refused)
+        return error(thrown.code, thrown.message, thrown.problems, thrown.scan);
       return error("failed", thrown instanceof Error ? thrown.message : "The marketplace failed");
     }
   }
 
-  async #handle(operation: MarketOperation): Promise<MarketResult> {
+  async #handle(operation: MarketOperation, ports: MarketRequestPorts): Promise<MarketResult> {
     this.#sweep();
     switch (operation.op) {
       case "sources":
@@ -246,6 +268,15 @@ export class MarketplaceService {
         return this.#serial(async () => {
           const install = this.#store.install(operation.type, operation.name);
           if (!install) return error("not_found", "That entry isn't installed");
+          if (install.state === "blocked") {
+            // Blocked bytes stay off while the newest verified blocklist still names them.
+            const found = await blockedFindings(
+              this.#installPorts(),
+              install,
+              this.#trust.current().blocklist,
+            );
+            if (found.length > 0) return error("blocked", install.reason ?? "This is blocked");
+          }
           await turnOn(this.#installPorts(), install);
           const { reason: _reason, ...rest } = install;
           this.#store.saveInstall({ ...rest, state: "on" });
@@ -267,12 +298,26 @@ export class MarketplaceService {
         };
       case "spadeSkillFiles":
         return this.#spadeFiles(operation.name, operation.path);
-      // ADR 0173: filled in by the publishing work.
       case "discover":
+        return discover(
+          {
+            store: this.#store,
+            http: this.#http(),
+            badges: this.#badges(),
+            now: this.#options.now,
+          },
+          this.#store.source("market"),
+        );
       case "publisher":
+        return publisherPage(
+          { http: this.#http(), badges: this.#badges() },
+          this.#store.source("market"),
+          operation.handle,
+        );
       case "publish":
+        return publishAction({ http: this.#http(), grant: ports.grant }, operation.request);
       case "report":
-        return error("unavailable", "Publishing isn't built yet");
+        return report(this.#http(), operation);
     }
   }
 
@@ -324,9 +369,13 @@ export class MarketplaceService {
 
   async #refreshAll(id?: string): Promise<void> {
     this.#refreshing ??= (async () => {
+      const issued = this.#trust.current().blocklist?.issued;
       for (const source of this.#store.sources())
         if (source.enabled && (!id || source.id === id)) await refreshSource(this.#deps(), source);
       await this.#applyWithdrawals();
+      const blocklist = this.#trust.current().blocklist;
+      if (blocklist && blocklist.issued !== issued)
+        await applyBlocklist(this.#installPorts(), blocklist);
       await this.#checkUpdates();
       this.#emit();
     })().finally(() => {
@@ -396,29 +445,40 @@ export class MarketplaceService {
       if (install.type === "spade-bot" || install.bundledBy) continue;
       const listing = listings.get(install.source) ?? (await this.#store.listing(install.source));
       listings.set(install.source, listing);
-      const offered = listing.entries.find(
+      const listed = listing.entries.find(
         (entry) => entry.type === install.type && entry.name === install.name,
-      )?.version;
+      );
+      const offered = listed?.version;
       const update = offered && newer(offered, install.version) ? offered : undefined;
-      if (update !== install.update) {
-        const { update: _old, ...rest } = install;
-        this.#store.saveInstall(update ? { ...rest, update } : rest);
+      // The index says whether its latest version is deprecated: it speaks for the installed
+      // version only when that is the latest.
+      const deprecated =
+        install.source === "market" && listed?.version === install.version
+          ? listed.deprecated?.slice(0, 500)
+          : install.deprecated;
+      if (update !== install.update || deprecated !== install.deprecated) {
+        const { update: _old, deprecated: _note, ...rest } = install;
+        this.#store.saveInstall({
+          ...rest,
+          ...(update ? { update } : {}),
+          ...(deprecated ? { deprecated } : {}),
+        });
       }
     }
   }
 
   async #search(operation: Extract<MarketOperation, { op: "search" }>): Promise<MarketResult> {
     this.#refreshIfStale();
-    return searchListings(this.#store, operation);
+    return searchListings(this.#store, operation, this.#badges());
   }
 
   async #home(): Promise<MarketResult> {
     this.#refreshIfStale();
-    return homeOf(this.#store, this.#installed());
+    return homeOf(this.#store, this.#installed(), this.#badges());
   }
 
   async #read(sourceId: string, type: string, name: string): Promise<MarketResult> {
-    const detail = await readEntry(this.#store, this.#http(), sourceId, type, name);
+    const detail = await readEntry(this.#store, this.#http(), this.#badges(), sourceId, type, name);
     if (!detail) return error("not_found", `${type}/${name} isn't listed`);
     const installed = this.#store.install(type, name);
     if (installed && installed.source === sourceId) detail.installed = publicInstall(installed);
@@ -436,7 +496,10 @@ export class MarketplaceService {
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
     const plugins = this.#options.plugins();
+    const scanContext = await this.#scanContext();
     const ports = {
+      badges: this.#badges(),
+      scanContext,
       http: this.#http(),
       git: this.#git,
       keys: this.#options.keys,
@@ -468,6 +531,33 @@ export class MarketplaceService {
     const built = buildReview(review);
     this.#pending.set(review.id, { review, items: built.items });
     return { op: "review", review: built.review };
+  }
+
+  /** What the device's scan compares against: every listed entry, the signed lists. */
+  async #scanContext(): Promise<(publisher: MarketPublisher | undefined) => ScanContext> {
+    const trust = this.#trust.current();
+    const badges = badgesOf(trust);
+    const entries: ScanContext["entries"][number][] = [];
+    for (const source of this.#store.sources())
+      for (const entry of (await this.#store.listing(source.id)).entries)
+        entries.push({
+          type: entry.type,
+          name: entry.name,
+          publisher: entry.publisher?.name ?? "",
+          downloads: entry.downloads,
+        });
+    const verified = (trust.verified?.publishers ?? []).map((publisher) => ({
+      handle: publisher.handle,
+      displayName: publisher.handle,
+    }));
+    return (publisher) => ({
+      entries,
+      verified,
+      ...(publisher
+        ? { publisher: { handle: publisher.name, official: badges.official(publisher.id) } }
+        : {}),
+      ...(trust.blocklist ? { blocklist: trust.blocklist } : {}),
+    });
   }
 
   async #install(
@@ -509,6 +599,10 @@ export class MarketplaceService {
       throw thrown;
     }
     this.#pending.delete(id);
+    if (pending.review.deprecated) {
+      installed = { ...installed, deprecated: pending.review.deprecated.slice(0, 500) };
+      this.#store.saveInstall(installed);
+    }
     this.#emit();
     return { op: "done", installed: publicInstall(installed) };
   }

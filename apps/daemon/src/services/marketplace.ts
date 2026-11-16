@@ -78,7 +78,13 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
         return true;
       }
-      const task = marketplace.request(message.operation).then(reply);
+      // A publish mints its market grant through this machine's ace account, for this request
+      // alone; it never reaches the socket, the disk or a log.
+      const account = options.machineAccount;
+      const grant = account ? () => account.marketGrant(options.hostId) : undefined;
+      const task = marketplace
+        .request(message.operation, message.operation.op === "publish" ? { grant } : {})
+        .then(reply);
       tasks.add(task);
       void task.finally(() => tasks.delete(task));
       return true;

@@ -7,8 +7,19 @@ import { maxArchiveBytes } from "@ace/marketplace";
 
 export type MarketFetch = (
   url: string,
-  init: { headers: Record<string, string>; signal: AbortSignal },
+  init: {
+    headers: Record<string, string>;
+    signal: AbortSignal;
+    method?: string;
+    body?: Uint8Array<ArrayBuffer> | string;
+  },
 ) => Promise<Response>;
+
+/** A write's answer: its status and its JSON body (undefined when there was none). */
+export interface MarketAnswer {
+  status: number;
+  body: unknown;
+}
 
 export class MarketHttpError extends Error {
   override name = "MarketHttpError";
@@ -60,12 +71,18 @@ export class MarketHttp {
     this.#fetch = options.fetch;
   }
 
-  async #get(path: string, headers: Record<string, string> = {}): Promise<Response> {
+  async #get(
+    path: string,
+    headers: Record<string, string> = {},
+    write?: { method: string; body?: Uint8Array<ArrayBuffer> | string },
+  ): Promise<Response> {
     let response: Response;
     try {
       response = await this.#fetch(this.origin + path, {
         headers: { accept: "application/json", ...headers },
         signal: AbortSignal.timeout(timeoutMs),
+        ...(write ? { method: write.method } : {}),
+        ...(write?.body === undefined ? {} : { body: write.body }),
       });
     } catch (error) {
       throw new MarketHttpError(
@@ -110,9 +127,45 @@ export class MarketHttp {
       `/v1/entries/${encodeURIComponent(type)}/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
     );
 
+  discover = () => this.#json("/v1/discover");
+  publisher = (handle: string) => this.#json(`/v1/publishers/${encodeURIComponent(handle)}`);
+
   /** The signed withdrawn list, or undefined before the market has one. */
-  async withdrawn(): Promise<unknown> {
-    const response = await this.#get("/v1/withdrawn");
+  withdrawn = () => this.#signed("/v1/withdrawn");
+  /** The signed blocklist, verified list and official list (ADR 0173 §8, §13, §14). */
+  blocklist = () => this.#signed("/v1/blocklist");
+  verified = () => this.#signed("/v1/verified");
+  official = () => this.#signed("/v1/official");
+
+  /**
+   * A request with any method, its answer read whatever the status, so the caller maps the
+   * market's error shape. `headers` may carry a market grant: it goes to this origin only.
+   */
+  async send(
+    method: string,
+    path: string,
+    options: { headers?: Record<string, string>; body?: Uint8Array | string } = {},
+  ): Promise<MarketAnswer> {
+    const sent = options.body;
+    const response = await this.#get(path, options.headers, {
+      method,
+      ...(sent === undefined
+        ? {}
+        : { body: typeof sent === "string" ? sent : new Uint8Array(sent) }),
+    });
+    const bytes = await capped(response, jsonBytes);
+    const text = new TextDecoder().decode(bytes);
+    let body: unknown;
+    try {
+      body = text ? JSON.parse(text) : undefined;
+    } catch {
+      body = undefined;
+    }
+    return { status: response.status, body };
+  }
+
+  async #signed(path: string): Promise<unknown> {
+    const response = await this.#get(path);
     if (response.status === 404) {
       await response.body?.cancel();
       return undefined;

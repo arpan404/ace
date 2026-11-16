@@ -9,6 +9,7 @@ import { EntryBody } from "@ace/protocol/marketplace";
 import type { MarketHttp } from "./http.ts";
 import { readWithdrawn, summaryOf, withdrawalOf } from "./listings.ts";
 import type { MarketStore, StoredInstall } from "./store.ts";
+import type { Badges } from "./trust.ts";
 
 /*
  * Browsing the daemon's copy of every listing (ADR 0168 §3, §11): search, the home page's
@@ -35,19 +36,26 @@ async function enabledListings(store: MarketStore) {
   );
 }
 
+/** Search, each publisher's tier from the signed lists (ADR 0173 §15). */
 export async function searchListings(
   store: MarketStore,
   operation: Extract<MarketOperation, { op: "search" }>,
+  badges: Badges,
 ): Promise<MarketResult> {
   const lists = await enabledListings(store);
-  const summaries = lists.flatMap(({ source, listing }) =>
-    listing.entries.map((entry) => summaryOf(source, entry)),
+  const rows = lists.flatMap(({ source, listing }) =>
+    listing.entries.map((entry) => ({
+      ...summaryOf(source, entry, badges),
+      tier: source.kind === "market" ? badges.tier(entry.publisher?.id) : ("other" as const),
+    })),
   );
-  const found = search(summaries, operation);
+  const found = search(rows, operation);
   const read = lists.map(({ source }) => source.readAt ?? 0);
   return {
     op: "search",
-    entries: found.slice(operation.offset, operation.offset + operation.limit),
+    entries: found
+      .slice(operation.offset, operation.offset + operation.limit)
+      .map(({ tier: _tier, ...summary }) => summary),
     total: found.length,
     ...(read.length && Math.min(...read) > 0 ? { readAt: Math.min(...read) } : {}),
   };
@@ -57,13 +65,14 @@ export async function searchListings(
 export async function homeOf(
   store: MarketStore,
   installed: readonly MarketInstalled[],
+  badges: Badges,
 ): Promise<MarketResult> {
   const lists = await enabledListings(store);
   const market = lists.find(({ source }) => source.kind === "market");
   const summaries = new Map(
     lists.flatMap(({ source, listing }) =>
       listing.entries.map(
-        (entry) => [`${source.id}:${entryKey(entry)}`, summaryOf(source, entry)] as const,
+        (entry) => [`${source.id}:${entryKey(entry)}`, summaryOf(source, entry, badges)] as const,
       ),
     ),
   );
@@ -88,6 +97,7 @@ export async function homeOf(
 export async function readEntry(
   store: MarketStore,
   http: MarketHttp | undefined,
+  badges: Badges,
   sourceId: string,
   type: string,
   name: string,
@@ -98,7 +108,7 @@ export async function readEntry(
   const entry = listing.entries.find((item) => item.type === type && item.name === name);
   if (!entry) return undefined;
   const detail: MarketEntryDetail = {
-    summary: summaryOf(source, entry),
+    summary: summaryOf(source, entry, badges),
     description: "",
     versions: [],
   };

@@ -20,10 +20,12 @@ import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
 import { storedMarketWithdrawn } from "../stored-decode.ts";
 import type { MarketStore, StoredListing, StoredSource } from "./store.ts";
+import type { Badges, Trust } from "./trust.ts";
 
 /*
  * Reading each source's listing into the daemon's copy (ADR 0168 §3, §9): the market's index as
- * a delta since the last read, its categories, featured list and signed withdrawn list; a git
+ * a delta since the last read, its categories, featured list, its signed withdrawn list and
+ * the signed blocklist, verified and official lists (ADR 0173, `trust.ts`); a git
  * catalog's entries at its current commit. A read that fails keeps the last listing and says when
  * it was read.
  */
@@ -86,6 +88,7 @@ async function readMarket(
   store: MarketStore,
   http: MarketHttp,
   keys: MarketKeySet,
+  trust: Trust,
   source: StoredSource,
 ): Promise<StoredSource> {
   const previous = await store.listing(source.id);
@@ -111,6 +114,7 @@ async function readMarket(
     featured: featured.success ? featured.data.entries : next.featured,
   };
   await learnWithdrawn(store, http, keys);
+  await trust.learn(http);
   await store.saveListing(source.id, next);
   return { ...source, stamp, etag };
 }
@@ -145,6 +149,7 @@ export async function refreshSource(
     http: MarketHttp | undefined;
     git: GitCatalogs;
     keys: MarketKeySet;
+    trust: Trust;
     now: () => number;
   },
   source: StoredSource,
@@ -153,7 +158,7 @@ export async function refreshSource(
   try {
     if (source.kind === "market") {
       if (!deps.http) throw new Error("market.acehq.dev is turned off");
-      next = await readMarket(deps.store, deps.http, deps.keys, source);
+      next = await readMarket(deps.store, deps.http, deps.keys, deps.trust, source);
     } else next = await readGit(deps.store, deps.git, source, deps.now());
     next = { ...next, readAt: deps.now(), problem: undefined };
   } catch (error) {
@@ -166,7 +171,17 @@ export async function refreshSource(
   return next;
 }
 
-export function summaryOf(source: StoredSource, entry: FeedEntry): MarketEntrySummary {
+/**
+ * One listed entry as a row shows it. "By ace" and "Verified" come from the signed lists
+ * (`badges`), never from the index's flags, which are only display data the Worker wrote.
+ */
+export function summaryOf(
+  source: StoredSource,
+  entry: FeedEntry,
+  badges: Badges,
+): MarketEntrySummary {
+  const market = source.kind === "market";
+  const publisher = entry.publisher?.id;
   return {
     source: source.id as MarketEntrySummary["source"],
     type: entry.type,
@@ -177,11 +192,13 @@ export function summaryOf(source: StoredSource, entry: FeedEntry): MarketEntrySu
     categories: entry.categories,
     keywords: entry.keywords,
     ...(entry.version ? { version: entry.version } : {}),
-    reviewed: source.kind === "market" && entry.reviewed,
-    byAce: source.kind === "market" && entry.byAce,
+    reviewed: market && entry.reviewed,
+    byAce: market && badges.official(publisher),
     updated: entry.updated,
     downloads: entry.downloads,
     supported: isSupportedType(entry.type, installableMarketTypes),
     ...(source.kind === "git" ? { from: source.address } : {}),
+    ...(market && badges.verified(publisher) ? { verified: true } : {}),
+    ...(market && entry.deprecated ? { deprecated: entry.deprecated.slice(0, 500) } : {}),
   };
 }
