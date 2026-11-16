@@ -172,7 +172,12 @@ import XCTest
     /// At accessibility text sizes the pills overflow their row. A part scrolled past the edge
     /// doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
     func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
-        let app = launch(into: "thread.ios-waiting", extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        // Opened at launch: at this size the inbox's rows are too tall to scroll to it quickly.
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", "ios-waiting", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"]
+        app.launchWithArguments()
+        dismissNotificationsPrompt()
         let commands = app.descendants(matching: .any)["pill.commands"]
         XCTAssertTrue(commands.waitForExistence(timeout: 25))
         sleep(1)
@@ -190,9 +195,9 @@ import XCTest
         XCTAssertTrue(line.waitForNonExistence(timeout: 5), "the pill on screen says the command")
     }
 
-    private func launch(into row: String, extra: [String] = []) -> XCUIApplication {
+    private func launch(into row: String) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launchWithArguments()
         dismissNotificationsPrompt()
         app.revealRow(row).tap()
