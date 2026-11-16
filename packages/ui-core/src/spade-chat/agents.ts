@@ -72,6 +72,8 @@ export interface SpadeAgent {
   computer: SpadeComputer | undefined;
   /** Where it is on its task, and whether it carries on by itself. */
   progress: SpadeTaskProgress | undefined;
+  /** The bot that made it as a worker (ADR 0161); undefined when the person made it. */
+  parent: { id: string; name: string } | undefined;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -114,6 +116,10 @@ const agentShape = z.object({
   last_message: lastMessageShape.nullish().catch(undefined),
   seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
   unseen: z.boolean().catch(false).default(false),
+  parent: z
+    .object({ id: z.string().min(1), name: z.string().catch("") })
+    .nullish()
+    .catch(undefined),
 });
 
 function avatarOf(raw: unknown, seed: string, main: boolean): SpadeAvatar {
@@ -177,6 +183,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     review: parseSpadeReview(record.review),
     computer: parseSpadeComputer(record.computer),
     progress: parseSpadeTaskProgress(record),
+    parent: agent.parent ?? undefined,
     raw: record,
   };
 }

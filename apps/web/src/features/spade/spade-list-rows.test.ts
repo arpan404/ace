@@ -2,6 +2,7 @@ import { parseSpadeAgentValue, parseSpadeGroupValue } from "@ace/ui-core/spade-c
 import { expect, test } from "vitest";
 import {
   searchSpadeList,
+  spadeFlatEntries,
   spadeBotRow,
   spadeListEntries,
   spadeNeedsYouCount,
@@ -140,4 +141,106 @@ test("pinned conversations leave the rows and read oldest pin first, Spade's inc
     spadeListEntries([bot({ id: "main", kind: "main", name: "Spade", pinned_at: 5 })], []),
   );
   expect(spadePinned.pinned.map(name)).toEqual(["Spade"]);
+});
+
+const maker = { id: "gh", name: "Github watcher" };
+const family = () => [
+  bot({
+    id: "gh",
+    name: "Github watcher",
+    last_activity: 5,
+    state: "working",
+    status: "Waiting on 2 workers",
+  }),
+  bot({
+    id: "lark",
+    name: "Linux repro",
+    last_activity: 4,
+    state: "working",
+    status: "Running tests",
+    parent: maker,
+  }),
+  bot({
+    id: "otter",
+    name: "Changelog",
+    last_activity: 3,
+    last_message: said("Drafted"),
+    parent: maker,
+  }),
+  bot({ id: "inbox", name: "Inbox", last_activity: 1, state: "working", status: "Reading" }),
+];
+const shape = (entries: ReturnType<typeof spadeListEntries>) =>
+  entries.map((entry) => `${"bot" in entry ? entry.bot.id : entry.group.id}:${entry.depth}`);
+
+test("workers nest under their maker while the maker or one of its workers is open", () => {
+  expect(shape(spadeListEntries(family(), [], "gh"))).toEqual([
+    "gh:0",
+    "lark:1",
+    "otter:1",
+    "inbox:0",
+  ]);
+  expect(shape(spadeListEntries(family(), [], "otter"))).toEqual([
+    "gh:0",
+    "lark:1",
+    "otter:1",
+    "inbox:0",
+  ]);
+});
+
+test("a folded family is one row, but a worker that needs you or failed stays raised under its maker", () => {
+  expect(shape(spadeListEntries(family(), [], "inbox"))).toEqual(["gh:0", "inbox:0"]);
+  const bots = family();
+  bots[2] = bot({
+    id: "otter",
+    name: "Changelog",
+    state: "waiting",
+    waiting_for: "question",
+    parent: maker,
+  });
+  bots[1] = bot({
+    id: "lark",
+    name: "Linux repro",
+    problem: "Codex is signed out.",
+    parent: maker,
+  });
+  const entries = spadeListEntries(bots, [], undefined);
+  expect(shape(entries)).toEqual(["gh:0", "otter:1", "lark:1", "inbox:0"]);
+  expect(entries[1]?.row).toMatchObject({ state: "needs-you" });
+  expect(entries[2]?.row).toMatchObject({ state: "failed" });
+});
+
+test("a worker whose maker isn't listed is an ordinary bot, and the same id on another machine isn't its maker", () => {
+  const other = { key: "m2", name: "Linux box", primary: false };
+  const bots = [
+    bot({ id: "gh", name: "Github watcher" }, { machine: other }),
+    bot({ id: "lark", name: "Linux repro", parent: maker }),
+  ];
+  expect(shape(spadeListEntries(bots, [], "lark"))).toContain("lark:0");
+});
+
+test("the search and the pin strip still reach a worker while its family is folded", () => {
+  const bots = family();
+  bots[1] = bot({ id: "lark", name: "Linux repro", pinned_at: 9, parent: maker });
+  const all = spadeFlatEntries(bots, []);
+  const nested = spadeListEntries(bots, [], undefined);
+  expect(
+    searchSpadeList(all, "linux").map((entry) => ("bot" in entry ? entry.bot.id : "")),
+  ).toEqual(["lark"]);
+  const { pinned, rest } = splitPinned(nested, all);
+  expect(pinned.map((entry) => ("bot" in entry ? entry.bot.id : ""))).toEqual(["lark"]);
+  expect(shape(rest)).toEqual(["gh:0", "inbox:0"]);
+});
+
+test("a worker's row keeps its own state when its maker is pinned", () => {
+  const bots = family();
+  bots[0] = bot({
+    id: "gh",
+    name: "Github watcher",
+    pinned_at: 9,
+    last_activity: 5,
+    state: "working",
+  });
+  const { rest } = splitPinned(spadeListEntries(bots, [], "gh"), spadeFlatEntries(bots, []));
+  expect(shape(rest)).toEqual(["lark:0", "otter:0", "inbox:0"]);
+  expect(rest[0]?.row.state).toBe("working");
 });

@@ -8,7 +8,12 @@ import { SpadeListSearch, SpadeListTop } from "./spade-list-head.tsx";
 import { BotListRow, GroupListRow, ListSkeletonRows } from "./spade-list-parts.tsx";
 import { SpadePinStrip } from "./spade-pin-strip.tsx";
 import { SpadeRowMenu } from "./spade-row-menu.tsx";
-import { searchSpadeList, spadeListEntries, splitPinned } from "./spade-list-rows.ts";
+import {
+  searchSpadeList,
+  spadeFlatEntries,
+  spadeListEntries,
+  splitPinned,
+} from "./spade-list-rows.ts";
 import { Problem } from "./spade-screen-parts.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
@@ -45,12 +50,13 @@ export function SpadeSidebar() {
     strict: false,
     select: (params) => params.agentId ?? params.groupId,
   });
-  const all = spadeListEntries(roster.bots, groups);
+  const all = spadeFlatEntries(roster.bots, groups);
+  const nested = spadeListEntries(roster.bots, groups, open);
   const searched = query.trim() !== "";
   // Searching looks through everything, pinned too; otherwise the strip holds what's pinned.
   const { pinned, rest } = searched
     ? { pinned: [], rest: searchSpadeList(all, query) }
-    : splitPinned(all);
+    : splitPinned(nested, all);
   const entries = rest;
   const closeSearch = () => {
     setQuery("");
@@ -99,7 +105,10 @@ export function SpadeSidebar() {
             <ul className="flex flex-col">
               {entries.map((entry) =>
                 entry.kind === "bot" ? (
-                  <li key={`${entry.bot.machine.key}/${entry.bot.id}`}>
+                  <li
+                    key={`${entry.bot.machine.key}/${entry.bot.id}`}
+                    className={entry.depth ? "pl-6" : undefined}
+                  >
                     <SpadeRowMenu entry={entry}>
                       <BotListRow
                         bot={entry.bot}
