@@ -201,9 +201,8 @@ test("an edit on disk is announced once it settles, with the new list", async ()
 test("every Suit ace ships passes every check the daemon runs before one applies", async () => {
   await rm(root, { recursive: true, force: true });
   const seeded = await seedBuiltinSuits(root);
-  // ace may ship no Suits at all, in which case `seeded` is empty and there is nothing to check.
-  expect(Array.isArray(seeded)).toBe(true);
-  for (const id of seeded) {
+  expect(seeded.stale).toEqual([]);
+  for (const id of seeded.installed) {
     const checked = await library.validate(id);
     expect(checked.op === "validate" && [id, checked.summary.problems]).toEqual([id, []]);
   }

@@ -15,10 +15,15 @@ import type { SocketContext, SocketService } from "./socket.ts";
 export async function startSuits(context: ServiceContext): Promise<void> {
   const { config, resources, services } = context;
   const root = join(await realpath(config.dataDir), "suits");
-  // The Suits ace ships, copied once into a library that doesn't exist yet.
-  await seedBuiltinSuits(root).catch((error: unknown) =>
-    context.log.log("error", "Seeding the shipped Suits failed", logError(error)),
-  );
+  // The Suits ace ships: new ones copied in, unchanged older copies updated (builtins-lock.json).
+  await seedBuiltinSuits(root)
+    .then(({ stale }) => {
+      if (stale.length > 0)
+        context.log.log("error", "Shipped Suits don't match builtins-lock.json", { stale });
+    })
+    .catch((error: unknown) =>
+      context.log.log("error", "Seeding the shipped Suits failed", logError(error)),
+    );
   const library = new SuitLibrary({
     root,
     // Asset URL grants outlive a daemon run: a Suit's version keeps its URLs (local-files.ts).
