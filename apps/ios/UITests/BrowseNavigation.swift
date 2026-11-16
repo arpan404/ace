@@ -8,11 +8,21 @@ extension XCUIApplication {
         XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
         threadMenuItem("thread.agents").tap()
     }
-    /// The thread's title, which opens its menu: model, effort and access, then the thread's actions.
+    /// The thread's title, which opens its menu: model, effort and access, then the thread's
+    /// actions. It is the system's title, which has no identifier of ours: the bar's button that
+    /// opens the title's menu.
     @MainActor @discardableResult func threadTitle(timeout: TimeInterval = 15) -> XCUIElement {
-        let title = buttons["thread.title"]
+        let title = threadTitle(named: "")
         XCTAssertTrue(title.waitForExistence(timeout: timeout), "the thread's title never showed")
         return title
+    }
+    /// The thread's title when it starts with `text`.
+    @MainActor func threadTitle(named text: String) -> XCUIElement {
+        navigationBars.buttons.matching(NSPredicate(format: "label ENDSWITH ', Actions Menu' AND label BEGINSWITH %@", text)).firstMatch
+    }
+    /// The line under the thread's title: the project, the model and its effort.
+    @MainActor func threadSubtitle(containing text: String) -> XCUIElement {
+        navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS ' · '", text)).firstMatch
     }
     /// An item of the title's menu, by identifier or (iOS 27 drops a menu item's identifier) by
     /// the start of its label.

@@ -54,7 +54,7 @@ import XCTest
         let from = transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
         from.press(forDuration: 0.1, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48)))
         sleep(2)
-        XCTAssertTrue(app.buttons["thread.title"].isHittable)
+        XCTAssertTrue(app.threadTitle().isHittable)
         shot("working")
     }
 

@@ -3,7 +3,7 @@ import Testing
 
 /// The thread's bar: the system's title with the project and model under it, and ⋯ as a system
 /// menu that leads with the page not showing (a phone) and then the thread's screens.
-@Suite struct ThreadMenuTests {
+@Suite @MainActor struct ThreadMenuTests {
     private func title(project: String = "", place: String = "", model: ThreadTitleMenu.ModelLine? = nil) -> ThreadTitleMenu {
         ThreadTitleMenu(title: "Retry payouts", place: place, project: project, model: model)
     }
