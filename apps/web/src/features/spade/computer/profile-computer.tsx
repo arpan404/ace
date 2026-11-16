@@ -1,13 +1,17 @@
 import { spadeUsedSurfaces, type SpadeAvatar } from "@ace/ui-core/spade-chat";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/cn.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { SpadeActivity } from "../spade-activity.tsx";
 import { SpadeFace } from "../spade-face.tsx";
+import { useSpadeClient, useSpadeMachine } from "../spade-machine.tsx";
 import { ProfileSection } from "../spade-profile-parts.tsx";
 import type { RosterBot } from "../use-spade-roster.ts";
+import { BotServices, servicesKey } from "./bot-services.tsx";
 import { BotTerminal } from "./bot-terminal.tsx";
 import { DriveLine } from "./drive-line.tsx";
 import { FileManager } from "./file-manager.tsx";
+import { readServices } from "./services-api.ts";
 import { computerViewNames, computerViews, type ComputerView } from "./panel-place.ts";
 import { SurfacePicture } from "./surface-picture.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
@@ -33,8 +37,8 @@ const whose = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
 /**
  * Computer: what the bot drives, at the profile's size. A switcher of only the surfaces it has
  * used (Spade's `used`), the ones it uses now marked live, then Activity; the browser or screen
- * live in its frame with a caption ("Github watcher's browser"), its terminal, its files, or what
- * it did in Spade's words. While its computer starts, its small face and "Waking up…". Who drives
+ * live in its frame with a caption ("Github watcher's browser"), its terminal, its files, the
+ * services it keeps running (once it started one), or what it did in Spade's words. While its computer starts, its small face and "Waking up…". Who drives
  * shows under the surface only while someone does, with Take over or Hand back. Never used: one
  * line, then what it did.
  */
@@ -44,15 +48,29 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
   const computer = state.computer;
   // What it used, and the surface a link asked for (terminal and files are always there), so
   // the view never jumps away under the person.
-  const asked = place.view !== undefined && place.view !== "activity" ? place.view : undefined;
-  const used = spadeUsedSurfaces(computer);
+  const client = useSpadeClient();
+  const machine = useSpadeMachine().key;
+  const services = useQuery({
+    queryKey: [...servicesKey, machine, bot.id],
+    queryFn: ({ signal }) => readServices(client, bot.id, signal),
+    refetchInterval: place.view === "services" ? 5_000 : 30_000,
+  });
+  const runsServices = (services.data?.length ?? 0) > 0;
+  const asked =
+    place.view !== undefined && place.view !== "activity" && place.view !== "services"
+      ? place.view
+      : undefined;
+  const used: ComputerView[] = spadeUsedSurfaces(computer);
   if (asked && !used.includes(asked)) used.push(asked);
+  // Services once it started one, or while a link asks for them.
+  if (runsServices || place.view === "services") used.push("services");
   used.sort((a, b) => computerViews.indexOf(a) - computerViews.indexOf(b));
   const waking = computer?.state === "starting";
   const views: ComputerView[] = [...used, "activity"];
   const live = (kind: ComputerView) =>
     computer?.surfaces.some((each) => each.kind === kind && each.live) === true;
-  const fallback = used.find((kind) => live(kind)) ?? used[0] ?? "activity";
+  const fallback =
+    used.find((kind) => live(kind)) ?? used.find((kind) => kind !== "services") ?? "activity";
   const view = place.view && views.includes(place.view) ? place.view : fallback;
   if (used.length === 0)
     return (
@@ -71,7 +89,8 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
       </>
     );
   const surface = computer?.surfaces.find((each) => each.kind === view);
-  const words = view === "activity" ? "" : computerViewNames[view].toLowerCase();
+  const words =
+    view === "activity" || view === "services" ? "" : computerViewNames[view].toLowerCase();
   // Starting a surface it never had: the frame it will show in heads the tab until it does.
   const wakingNew = waking && !used.includes("browser") && !used.includes("screen");
   return (
@@ -169,6 +188,8 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
               <DriveLine bot={bot} state={state} what="computer" />
             </div>
           </div>
+        ) : view === "services" ? (
+          <BotServices bot={bot} services={services} />
         ) : (
           <SpadeActivity bot={bot} />
         )}

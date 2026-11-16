@@ -43,11 +43,20 @@ export function SpadeModelPicker(props: {
   label?: string | undefined;
   /** The words of the empty choice, when the setting has one. */
   none?: string | undefined;
+  /**
+   * The model the empty choice comes to (a role following Settings): shown in place of `none`
+   * while it is chosen, and beside it in the list.
+   */
+  follows?: string | undefined;
   className?: string | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const sources = useModelSources(open);
-  const shown = spadeModelLabel(sources, props.value, props.none);
+  const shown =
+    !props.value && props.follows
+      ? spadeModelLabel(sources, props.follows)
+      : spadeModelLabel(sources, props.value, props.none);
+  const followsName = props.follows ? spadeModelLabel(sources, props.follows).name : undefined;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -70,6 +79,7 @@ export function SpadeModelPicker(props: {
           sources={sources}
           value={props.value}
           none={props.none}
+          noneFacts={followsName}
           onPick={(value) => {
             props.onChange(value);
             setOpen(false);
@@ -115,10 +125,12 @@ function ModelList(props: {
   sources: SpadeModelSources;
   value: string;
   none: string | undefined;
+  /** Beside the empty choice: what it comes to. */
+  noneFacts?: string | undefined;
   onPick(value: string): void;
 }) {
   const [query, setQuery] = useState("");
-  const groups = spadeModelGroups(props.sources, query, props.none);
+  const groups = spadeModelGroups(props.sources, query, props.none, props.noneFacts);
   const flat = groups.flatMap((group) => group.options);
   const list = useListHighlight({ count: flat.length });
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {

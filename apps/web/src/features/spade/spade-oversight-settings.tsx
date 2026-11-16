@@ -12,7 +12,7 @@ import {
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { useTellZone } from "./use-spade-zone.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
-import { CouldNotRead, fault, ModelSettingRow, Refusal } from "./spade-settings-rows.tsx";
+import { CouldNotRead, fault, Refusal } from "./spade-settings-rows.tsx";
 
 /**
  * Spending and the model review (ADR 0135) as Settings › Spade › General holds them: read once,
@@ -38,26 +38,17 @@ export function useOversightSettings(ready: boolean) {
 type OversightSettings = ReturnType<typeof useOversightSettings>;
 
 /**
- * The review's two rows: the model that checks steps (none picked: the fast model), and
- * whether every bot's steps are reviewed unless its own page says otherwise.
+ * Whether every bot's steps are reviewed unless its own page says otherwise. The model that
+ * reviews them is the Reviewing steps role, in Settings › Spade › Models.
  */
 export function ReviewRows(props: { settings: OversightSettings }) {
   const { oversight, change } = props.settings;
   if (!oversight.data) return null;
   return (
-    <>
-      <ModelSettingRow
-        title="Review model"
-        description="Checks the steps a bot would need you for"
-        value={oversight.data.reviewModel}
-        none="Same as fast model"
-        save={(model) => change({ review_model: model })}
-      />
-      <ReviewDefaultRow
-        oversight={oversight.data}
-        onChange={(on) => change({ review_default: on })}
-      />
-    </>
+    <ReviewDefaultRow
+      oversight={oversight.data}
+      onChange={(on) => change({ review_default: on })}
+    />
   );
 }
 

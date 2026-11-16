@@ -6,6 +6,7 @@ import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProfileApps } from "./spade-bot-connectors.tsx";
+import { BotRoles } from "./spade-bot-roles.tsx";
 import { ProfileSpending } from "./spade-bot-oversight.tsx";
 import { ProfilePlugins } from "./spade-bot-plugins.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
@@ -16,8 +17,8 @@ import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.t
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /**
- * Details: what the bot is and how it behaves. Its task, the model and machine it runs with,
- * its routines, the apps and plugins it may use, its spending, then Duplicate,
+ * Details: what the bot is and how it behaves. Its task, the model and machine it runs with
+ * (and, folded, the models for its other work), its routines, the apps and plugins it may use, its spending, then Duplicate,
  * Export and Delete. Everything edits where it shows.
  */
 export function ProfileDetails(props: { bot: RosterBot }) {
@@ -46,6 +47,7 @@ export function ProfileDetails(props: { bot: RosterBot }) {
         <SettingRow title="Machine" inline>
           <span className="truncate text-ui text-foreground">{bot.machine.name}</span>
         </SettingRow>
+        <BotRoles bot={bot} />
       </ProfileSection>
       <ProfileRoutines bot={bot} />
       <ProfileApps bot={bot} />

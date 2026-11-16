@@ -1,7 +1,10 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
+import { FakeSpadeKnowledge } from "./spade-knowledge.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
+import { FakeSpadeRoles } from "./spade-roles.ts";
+import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
@@ -125,6 +128,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
   skillStore: { skills: Json[]; ace: boolean } = { skills: [], ace: false };
   /** What the bots remember, their own and the shared ones (ADR 0128). */
   readonly notes: FakeSpadeNotes;
+  /** Each bot's knowledge pages and past work (ADR 0164). */
+  readonly knowledge: FakeSpadeKnowledge;
+  /** Each bot's services (ADR 0160). */
+  readonly services = new FakeSpadeServices();
+  /** Models for other work, for every bot and on each (ADR 0162). */
+  readonly roles = new FakeSpadeRoles();
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
   /** The person's connected apps and each bot's allow list (ADR 0131). */
@@ -150,6 +159,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.spade = spade;
     this.now = now;
     this.notes = new FakeSpadeNotes(now);
+    this.knowledge = new FakeSpadeKnowledge(now);
     this.routines = new FakeSpadeRoutines(now);
     const agents = () => this.agents;
     this.teams = new FakeSpadeTeams({
@@ -410,6 +420,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     ];
   }
 
+  /** The global roles; the review's model is the oversight's own setting, as on Spade. */
+  private rolesRoute(method: string, body: Json): FakeSpadeAnswer {
+    this.roles.global.review = this.oversight.oversight.review_model;
+    const answered = this.roles.globalRoute(method, body);
+    this.oversight.oversight.review_model = this.roles.global.review ?? null;
+    return answered;
+  }
+
   answer(request: FakeSpadeRequest): FakeSpadeAnswer | Promise<FakeSpadeAnswer> {
     this.requests.push(request);
     const [path = "", query = ""] = request.path.split("?");
@@ -460,10 +478,28 @@ export class FakeSpadeApi implements FakeSpadeServer {
         ? this.oversight.activityRoute(id, new URLSearchParams(query))
         : this.oversight.agentRoute(request.method, agent, body);
     }
-    if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
+    if (root === "agents" && id && (sub === "knowledge" || sub === "episodes")) {
+      if (!this.agents.some((agent) => agent.id === id)) return problem(404, "No such agent.");
+      const rest = sub === "episodes" ? ["episodes"] : parts.slice(3);
+      return this.knowledge.agentRoute(request.method, id, rest, new URLSearchParams(query), body);
+    }
+    if (root === "knowledge" && id) return this.knowledge.entryRoute(request.method, id, sub, body);
+    if (root === "episodes" && id) return this.knowledge.episodeRoute(request.method, id);
+    if (root === "agents" && id && sub === "services") {
+      if (!this.agents.some((agent) => agent.id === id)) return problem(404, "No such agent.");
+      return this.services.route(request.method, id, parts.slice(3), new URLSearchParams(query));
+    }
+    if (root === "models" && id === "roles") return this.rolesRoute(request.method, body);
+    if (root === "agents" && id && sub === "models") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.roles.agentRoute(request.method, id, agent.model, this.fastModel, body);
+    }
+    const searched = new URLSearchParams(query).get("q") ?? "";
+    if (root === "notes") return this.notes.route(request.method, null, id, body, sub, searched);
     if (root === "agents" && id && sub === "notes")
       return this.agents.some((agent) => agent.id === id)
-        ? this.notes.route(request.method, id, undefined, body)
+        ? this.notes.route(request.method, id, undefined, body, undefined, searched)
         : problem(404, "No such agent.");
     if (root === "agents" && id === "import" && request.method === "POST")
       return this.teams.importRoute(body);
@@ -621,6 +657,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (agent.kind === "main") return problem(409, "Spade can't be deleted.");
       this.agents = this.agents.filter((candidate) => candidate !== agent);
       this.notes.forget(agent.id);
+      this.knowledge.forget(agent.id);
       return { status: 204 };
     }
     return problem(405, "Not allowed.");

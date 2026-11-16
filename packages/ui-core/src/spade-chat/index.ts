@@ -32,3 +32,6 @@ export * from "./fold-capabilities.ts";
 export * from "./quiet.ts";
 export * from "./wakes.ts";
 export * from "./digests.ts";
+export * from "./knowledge.ts";
+export * from "./services.ts";
+export * from "./roles.ts";
