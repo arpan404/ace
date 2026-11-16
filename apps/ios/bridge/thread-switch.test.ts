@@ -202,6 +202,27 @@ test("effort and speed picked after a switch goes out but before the thread move
   });
 });
 
+test("a switch sent before the sheet's models were read waits for them instead of being refused", async () => {
+  const thread = open(connect(codexThread()), "sw");
+  await until(() => latest("thread.tune"), "the thread");
+  // As after a reconnect: the sheet's move arrives before this runtime read any models.
+  thread.handle({
+    type: "switchModel",
+    key: gpt,
+    account: "codex-team",
+    confirmed: true,
+    effort: "high",
+    requestId: "team",
+  });
+  await until(() => latest("admission", "team"), "admission");
+  expect(admission("team").ok).toBe(true);
+  await until(() => commands("thread.switch").length === 1, "the switch on the wire");
+  expect(commands("thread.switch")[0]?.selection).toMatchObject({
+    instanceId: "codex-team",
+    options: { effort: "high" },
+  });
+});
+
 test("a switch made while the agent works reads as pending until its next turn", async () => {
   const { thread } = await openSheet(connect(codexThread("gpt-6", true)));
   thread.handle({

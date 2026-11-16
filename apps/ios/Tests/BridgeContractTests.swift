@@ -293,6 +293,11 @@ import SQLite3
         model.requestModels()
         try await until("the thread's models") { thread.screen.modelsState == "ready" && thread.screen.modelList.current != nil }
         let next = try switchTarget(thread.screen.modelList)
+        // Visited again on the same screen (a new route, a snapshot retry): a later generation than
+        // the reconnect starts from, as when a person has been on a thread a while.
+        model.open("ios-plan")
+        model.open("ios-plan")
+        try await until("the thread read again") { model.thread?.loaded == true && model.thread?.epoch == 3 }
         let move = HeldModelMove(threadId: thread.id, visit: thread.visit, key: next.key, account: next.account)
         let confirmedEpoch = thread.epoch
         await model.connect(target: try target(), directory: root)

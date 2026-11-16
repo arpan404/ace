@@ -270,8 +270,17 @@ export class ThreadModelSheet {
     requestId: string,
     send: Dispatch,
     admit: Admission,
+    read = true,
   ): void {
     const scene = this.#scene();
+    // A move held in the sheet across a reconnect reaches a runtime that hasn't read the models
+    // yet: it reads them once, then decides, rather than losing the move.
+    if (!scene && read && !this.#read && this.#store.thread) {
+      void this.open().then(() =>
+        this.pick(target, confirmed, tune, requestId, send, admit, false),
+      );
+      return;
+    }
     if (!scene) return admit(requestId, false, "Still reading this thread. Try again.");
     if (this.#fork?.open()) return this.#pickForFork(scene, target, requestId, admit);
     if (this.#sending)
