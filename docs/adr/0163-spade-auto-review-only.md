@@ -2,7 +2,8 @@
 
 Status: accepted. Date: 2026-11-15. Decided by: the owner (2026-11-15: Spade has only one access
 mode, auto-review; Ask and Full access go). Amends [ADR 0144](0144-spade-autonomous-bots.md)
-decisions 1–5, 7 and 8. Follows the research behind the Spade harness audit (a reviewer that
+decisions 1–5, 7 and 8; amended by its own amendment 1 (payments and sends go to the person).
+Follows the research behind the Spade harness audit (a reviewer that
 never sees the bot's own text; refusals go back to the bot; repeated refusals go to the person).
 
 ## Context
@@ -60,6 +61,44 @@ choice itself was one more thing for the person to get right per bot.
    `access_levels_retired` records that it ran and `access_levels_pinned` is removed.
 8. **Clients.** The web app's access choices go: the profile's access row, the new-bot line's
    access part and the Full access confirm. A raised request still shows as the request card.
+
+## Amendment 1: spending money and sending as the person are the person's (2026-11-15)
+
+Decided by the owner (2026-11-15). Decision 2 put every held call before the reviewer; two kinds
+now never go to it:
+
+- **Spending money:** payments, purchases, bookings that charge, transfers.
+- **Sending as the person:** email, messages, posts or comments sent in their name or from their
+  accounts.
+
+A call Spade classes as either goes straight to the person as a raised request card. No reviewer
+is asked, so none can approve it, and nothing goes back to the bot first. Its `call_reviewed` is
+the rules' own (`verdict: escalate`, `model: ""`) and the bubble's `reviewer_reason` is "It could
+spend money, so you decide." or "It sends something in your name, so you decide." This holds for
+workers and helpers too: their calls go through the same routing. Credentials are still refused
+before it. The person's Always allow (decision 6) on such a request still lets later calls of
+that tool and scope run without asking. Publishing, deletes outside the folder and every other
+concern stay with the reviewer.
+
+Classification is the existing one (`spade_core::autonomy::classify` and the shell classifier),
+extended:
+
+- posts and comments from an app count as sends (`create_post`, `add_issue_comment`), and so
+  does `gh pr|issue comment`; a message noun with another verb (`delete_comment`,
+  `archive_email`, `create_draft`) no longer reads as one;
+- `booking`, `reserve`, `reservation`, `withdraw`, `payout` and `remit` read as payments;
+- an app tool marked read-only whose name or description says it pays or sends is classed as
+  that, so it reaches the person rather than the reviewer;
+- ace's own tool names never make a payment or a send (`agent_message`, `transfer` act on
+  ace); a `browser_*`, `screen_*` or `sim_*` call told to press or type a purchase button
+  (`Place order`, `Buy now`, `Checkout`…) is a payment. A click on an element by its id alone
+  can't be classed and stays with the reviewer.
+
+Consequence: the first bullet of Consequences no longer holds for payments and sends; a
+publish can still run on the reviewer's approval alone. Tests: the routing table in
+`spade_core::autonomy`; through the API, a payment and a send never run on a reviewer's approval
+and reach the person (the send's Always allow then holds), a worker's payment reaches the
+person, and a publish is still reviewed.
 
 ## Options considered
 
