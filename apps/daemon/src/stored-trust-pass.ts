@@ -20,7 +20,8 @@ import type { TrustTableWrites } from "./stored-trust-writes.ts";
  * dropped until it opens again. Once the pass finishes nothing watches the generation: one
  * daemon owns a data directory (`acquireLock`), so a second writer of another build while this
  * one runs is unsupported. Thread rows not yet confirmed (`thread-row-trust.ts`) are confirmed
- * first, in small batches, instead of waiting for later opens.
+ * first, in small batches, instead of waiting for later opens; then older revision and chunk rows
+ * are mapped by sequence (`stored-trust-rows.ts`), since no sequence is confirmed before they are.
  */
 
 /** Thread rows confirmed per batch. */
@@ -82,6 +83,7 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
   const saveEvery = options.batchesPerSave ?? batchesPerSave;
   let head = options.headSeq();
   let threadsDone = false;
+  let rowsMapped = false;
   let unsaved: { from: number; rejected: number[] } | undefined;
   let sinceSave = 0;
   let stop: (() => void) | undefined;
@@ -118,6 +120,10 @@ export function startStoredTrustPass(options: StoredTrustPassOptions): { close()
     if (!threadsDone) {
       if (options.writes.stampThreadRows(threadRowsPerBatch) > 0) return true;
       threadsDone = true;
+    }
+    if (!rowsMapped) {
+      if (options.writes.indexRows()) return true;
+      rowsMapped = true;
     }
     const done = verifyStoredBatch(db, trust);
     if (!done || trust.rejected.size + done.rejected.length > limit) {

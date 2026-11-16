@@ -9,6 +9,7 @@ import {
   untrusted,
   type StoredTrust,
 } from "./stored-decode.ts";
+import { chunkRow, revisionRow, storedTrustRowsComplete } from "./stored-trust-rows.ts";
 
 /**
  * One batch of the idle trust pass (`stored-trust-pass.ts`, ADR 0125): which of the stored rows
@@ -17,7 +18,8 @@ import {
  * A sequence is trusted for every row a read trusts by that sequence, so a batch enumerates
  * those rows by the sequence itself, never by what the event at it names: the event, the item
  * created at it and that item's text preview, every history revision at it and every streamed
- * text chunk at it, whichever item they belong to. A sequence where any of them differs is
+ * text chunk at it, whichever item they belong to, the last two through the map of rows by
+ * sequence (`stored-trust-rows.ts`), so a batch checks nothing until that map is complete. A sequence where any of them differs is
  * rejected, as is one that has such rows but no event. Each body's size is read from SQLite's
  * record header (`octet_length`, which loads no content) before it is loaded, and every load is
  * charged to the batch's byte budget: a sequence whose rows together exceed it is rejected
@@ -81,10 +83,13 @@ const statements = {
     "SELECT seq, octet_length(payload) AS bytes FROM events WHERE seq < ? ORDER BY seq DESC LIMIT ?",
   item: "SELECT id, octet_length(item) AS bytes FROM items WHERE created_seq = ?",
   preview: "SELECT octet_length(item) AS bytes FROM item_previews WHERE id = ?",
-  revisions:
-    "SELECT item_id, octet_length(item) AS bytes FROM history_item_revisions WHERE seq = ?",
-  chunks:
-    "SELECT item_id, octet_length(field) + octet_length(append) AS bytes FROM item_text_chunks WHERE seq = ?",
+  // The map of rows by sequence (`stored-trust-rows.ts`) finds them; the join reads their sizes.
+  revisions: `SELECT r.item_id, octet_length(r.item) AS bytes FROM stored_trust_rows m
+    JOIN history_item_revisions r ON r.item_id = m.item_id AND r.seq = m.seq
+    WHERE m.seq = ? AND m.kind = ${revisionRow}`,
+  chunks: `SELECT c.item_id, octet_length(c.field) + octet_length(c.append) AS bytes FROM stored_trust_rows m
+    JOIN item_text_chunks c ON c.item_id = m.item_id AND c.seq = m.seq
+    WHERE m.seq = ? AND m.kind = ${chunkRow}`,
   event: "SELECT seq, id, thread_id, at, payload FROM events WHERE seq = ?",
   itemBody: "SELECT item FROM items WHERE id = ?",
   previewBody: "SELECT item FROM item_previews WHERE id = ?",
@@ -93,10 +98,8 @@ const statements = {
   // Rows at a sequence with no event: nothing names them, so they stay validated.
   orphans: `SELECT created_seq AS seq FROM items WHERE created_seq >= ?1 AND created_seq < ?2
       AND NOT EXISTS (SELECT 1 FROM events WHERE seq = items.created_seq)
-    UNION SELECT seq FROM history_item_revisions r WHERE seq >= ?1 AND seq < ?2
-      AND NOT EXISTS (SELECT 1 FROM events WHERE seq = r.seq)
-    UNION SELECT seq FROM item_text_chunks c WHERE seq >= ?1 AND seq < ?2
-      AND NOT EXISTS (SELECT 1 FROM events WHERE seq = c.seq)`,
+    UNION SELECT seq FROM stored_trust_rows m WHERE seq >= ?1 AND seq < ?2
+      AND NOT EXISTS (SELECT 1 FROM events WHERE seq = m.seq)`,
 };
 type Statements = Record<keyof typeof statements, StatementSync>;
 function prepare(db: DatabaseSync): Statements {
@@ -107,15 +110,6 @@ function prepare(db: DatabaseSync): Statements {
   return prepared as Statements;
 }
 const text = (value: SQLOutputValue | undefined) => (typeof value === "string" ? value : undefined);
-
-/**
- * The indexes that let a batch find revisions and chunks by sequence alone. Created at open,
- * like this table's other indexes; the first open after an upgrade builds them once.
- */
-export function openStoredTrustIndexes(db: DatabaseSync): void {
-  db.exec(`CREATE INDEX IF NOT EXISTS history_item_revisions_seq ON history_item_revisions(seq);
-    CREATE INDEX IF NOT EXISTS item_text_chunks_seq ON item_text_chunks(seq);`);
-}
 
 /** Every row written at one sequence besides its event, sized without loading them. */
 function rowsAt(s: Statements, seq: number) {
@@ -156,7 +150,8 @@ export interface StoredTrustBatch {
 
 /**
  * Check the sequences just below `trust.from`: at most `limit` events, loading at most `budget`
- * bytes of stored JSON (see the module comment). Reads only. Undefined when nothing is left.
+ * bytes of stored JSON (see the module comment). Reads only. Undefined when nothing is left, or
+ * while the map of rows by sequence is still being filled.
  */
 export function verifyStoredBatch(
   db: DatabaseSync,
@@ -165,7 +160,7 @@ export function verifyStoredBatch(
   budget = bytesPerBatch,
 ): StoredTrustBatch | undefined {
   const high = trust.from;
-  if (!(high > 0)) return undefined;
+  if (!(high > 0) || !storedTrustRowsComplete(db)) return undefined;
   const s = prepare(db);
   const rejected = new Set<number>();
   let spent = 0;
