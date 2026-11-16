@@ -9,7 +9,6 @@ import {
   verifyManifest,
   verifyReviewMark,
   verifyWithdrawn,
-  withdrawnHashes,
 } from "@ace/marketplace";
 import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
@@ -184,11 +183,11 @@ async function withdrawn(request: Request, context: Context) {
     {
       issued: list.issued,
       signed: JSON.stringify(upload.data.withdrawn),
-      reasons: withdrawnHashes(list),
+      withdrawn: list.withdrawn,
     },
     context.now,
   );
   return stored
     ? json({ status: "stored", issued: list.issued })
-    : failure(409, "conflict", "A list issued at or after this one is already stored.");
+    : failure(409, "conflict", "Another list issued at or after this one is already stored.");
 }

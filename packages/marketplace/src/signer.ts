@@ -8,7 +8,9 @@ import {
   signWithdrawn,
   verifyManifest,
   verifyWithdrawn,
+  withdrawalKey,
   type MarketKeySet,
+  type Withdrawal,
   type MarketSigningKey,
 } from "./signing.ts";
 
@@ -82,26 +84,65 @@ export async function signPending(
     else report.failed.push({ what: label(version), ...answer });
   }
   if (pending.withdrawals.length > 0) {
-    // The list may be the previous key's: what counts is that a trusted key signed it.
-    const earlier = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, trusted).withdrawn : [];
-    const known = new Set(earlier.map((entry) => entry.hash));
-    const added = pending.withdrawals
-      .filter((entry) => !known.has(entry.hash))
-      .map((entry) => ({ hash: entry.hash, reason: entry.reason, at: entry.at }));
-    const list = signWithdrawn(
-      {
-        format: "ace-market-withdrawn",
-        issued: now(),
-        withdrawn: [...earlier, ...added],
-        key: key.id,
-      },
-      key,
-    );
-    const answer = await io.put("/v1/signer/withdrawn", { withdrawn: list });
-    if (answer.status >= 200 && answer.status < 300) report.withdrawn = added.length;
-    else report.failed.push({ what: "the withdrawn list", ...answer });
+    // A publisher's withdrawal names their version, never every copy of its bytes.
+    const added: Withdrawal[] = pending.withdrawals.map((entry) => ({
+      scope: "version",
+      type: entry.type,
+      name: entry.name,
+      version: entry.version,
+      hash: entry.hash,
+      reason: entry.reason,
+      at: entry.at,
+    }));
+    const answer = await addWithdrawals(io, key, now, trusted, pending, added);
+    if (answer.status >= 200 && answer.status < 300) report.withdrawn = answer.added;
+    else
+      report.failed.push({ what: "the withdrawn list", status: answer.status, text: answer.text });
   }
   return report;
+}
+
+/** Signs the stored list with `added` appended (each once) and uploads it. */
+async function addWithdrawals(
+  io: SignerIo,
+  key: MarketSigningKey,
+  now: () => number,
+  trusted: MarketKeySet,
+  pending: SignerPending,
+  added: readonly Withdrawal[],
+): Promise<{ status: number; text: string; added: number }> {
+  // The list may be the previous key's: what counts is that a trusted key signed it.
+  const earlier = pending.withdrawn ? verifyWithdrawn(pending.withdrawn, trusted).withdrawn : [];
+  const known = new Set(earlier.map(withdrawalKey));
+  const fresh = added.filter((entry) => !known.has(withdrawalKey(entry)));
+  const list = signWithdrawn(
+    {
+      format: "ace-market-withdrawn",
+      issued: now(),
+      withdrawn: [...earlier, ...fresh],
+      key: key.id,
+    },
+    key,
+  );
+  return { ...(await io.put("/v1/signer/withdrawn", { withdrawn: list })), added: fresh.length };
+}
+
+/**
+ * A maintainer's revocation of bytes wherever they are listed (`ace market revoke`): its own
+ * act, never what a publisher's withdrawal does.
+ */
+export async function signRevocation(
+  io: SignerIo,
+  key: MarketSigningKey,
+  now: () => number,
+  trusted: MarketKeySet,
+  revoke: { hash: string; reason: string },
+): Promise<{ status: number; text: string }> {
+  const pending = SignerPending.parse(await io.get("/v1/signer/pending"));
+  const answer = await addWithdrawals(io, key, now, trusted, pending, [
+    { scope: "hash", hash: revoke.hash, reason: revoke.reason, at: now() },
+  ]);
+  return { status: answer.status, text: answer.text };
 }
 
 /**

@@ -6,7 +6,7 @@ import type {
 } from "@ace/protocol/marketplace";
 import { EntryBody, entryKey, search } from "@ace/marketplace";
 import type { MarketHttp } from "./http.ts";
-import { readWithdrawn, summaryOf } from "./listings.ts";
+import { readWithdrawn, summaryOf, withdrawalOf } from "./listings.ts";
 import type { MarketStore, StoredInstall } from "./store.ts";
 
 /*
@@ -109,10 +109,11 @@ export async function readEntry(
     const page = http ? EntryBody.safeParse(await http.entry(type, name)) : undefined;
     if (page?.success) {
       detail.description = page.data.description;
-      const withdrawn = readWithdrawn(store).hashes;
+      const state = readWithdrawn(store);
       detail.versions = page.data.versions;
       for (const version of detail.versions) {
-        const reason = withdrawn[version.hash] ?? version.withdrawn;
+        const reason =
+          withdrawalOf(state, source.id, { type, name, ...version }) ?? version.withdrawn;
         if (reason) version.withdrawn = reason.slice(0, 500);
       }
     }

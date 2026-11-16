@@ -1,6 +1,8 @@
 import type { Listing } from "@ace/marketplace";
 import type { MarketPublisher } from "@ace/protocol/marketplace";
 
+import { bumpGeneration } from "./entries.ts";
+
 /* Publishers, and versions waiting for the signer. */
 
 export async function publisherOf(
@@ -113,6 +115,7 @@ export async function storePending(
         JSON.stringify(input.listing),
         input.publisher,
       ),
+    bumpGeneration(db, input.type, input.name),
   ]);
   const [owner, stored] = await Promise.all([
     ownerOf(db, input.type, input.name),

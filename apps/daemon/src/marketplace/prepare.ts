@@ -19,6 +19,7 @@ import {
   recipeEntries,
   type ArchiveFile,
   type MarketKeySet,
+  type WithdrawalTarget,
 } from "@ace/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
 import type { GitCatalogs } from "./git.ts";
@@ -51,8 +52,8 @@ export interface PreparePorts {
   http: MarketHttp | undefined;
   git: GitCatalogs;
   keys: MarketKeySet;
-  /** Withdrawn hashes and their reasons, from the newest verified list. */
-  withdrawn: () => ReadonlyMap<string, string>;
+  /** Why a version of this source is withdrawn, from every verified list, if it is. */
+  withdrawal: (target: WithdrawalTarget) => string | undefined;
   /** ADR 0014's review of a plugin from these bytes. */
   preparePlugin: (input: PluginFilesInput) => Promise<PluginReview>;
 }
@@ -162,11 +163,12 @@ async function fromMarket(
   const page = EntryBody.safeParse(await http.entry(type, name));
   if (!page.success) throw new Refused("The market's entry page isn't in a form this build reads");
   const summary = readFeedEntry(page.data.entry);
-  const withdrawn = ports.withdrawn();
+  const withdrawn = (item: { version: string; hash: string }) =>
+    ports.withdrawal({ type, name, version: item.version, hash: item.hash });
   const version =
     wanted ??
     page.data.versions
-      .filter((item) => !item.withdrawn && !withdrawn.has(item.hash))
+      .filter((item) => !item.withdrawn && !withdrawn(item))
       .toSorted((a, b) => versionOrder(b.version, a.version))[0]?.version;
   if (!version) throw new Refused(`${name} has no version to install`, { code: "not_found" });
   const body = VersionBody.safeParse(await http.version(type, name, version));
@@ -182,7 +184,7 @@ async function fromMarket(
   }
   if (manifest.type !== type || manifest.name !== name || manifest.version !== version)
     throw new Refused("The signed manifest names another version");
-  const reason = withdrawn.get(manifest.hash);
+  const reason = withdrawn({ version, hash: manifest.hash });
   if (reason) throw new Refused(`This version was withdrawn: ${reason}`);
   let reviewed = false;
   let byAce = false;

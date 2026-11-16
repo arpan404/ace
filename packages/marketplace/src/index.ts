@@ -59,7 +59,9 @@ export {
   verifyWithdrawn,
   VersionManifest,
   Withdrawal,
-  withdrawnHashes,
+  withdrawalKey,
+  withdrawalReason,
+  type WithdrawalTarget,
   WithdrawnList,
   type MarketSigningKey,
 } from "./signing.ts";

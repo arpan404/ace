@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { MarketInstalled, MarketOperation, MarketResult } from "@ace/protocol/marketplace";
-import type { MarketKeySet } from "@ace/marketplace";
+import type { MarketKeySet, WithdrawalTarget } from "@ace/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
 import { GitCatalogs } from "./git.ts";
@@ -15,7 +15,7 @@ import {
   type SpadePort,
   type SuitPort,
 } from "./install.ts";
-import { learnWithdrawn, readWithdrawn, refreshSource } from "./listings.ts";
+import { learnWithdrawn, readWithdrawn, refreshSource, withdrawalOf } from "./listings.ts";
 import { newer, prepareWithBrings, Refused } from "./prepare.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { MarketStore, type StoredSource } from "./store.ts";
@@ -365,20 +365,18 @@ export class MarketplaceService {
   }
 
   async #applyWithdrawals(): Promise<void> {
-    const withdrawn = readWithdrawn(this.#store).hashes;
+    const state = readWithdrawn(this.#store);
     // A review of withdrawn bytes, or of a recipe that brings them, ends here.
     for (const [id, pending] of this.#pending)
-      if ([pending.review, ...pending.review.brings].some((entry) => withdrawn[entry.hash]))
+      if (
+        [pending.review, ...pending.review.brings].some((entry) =>
+          withdrawalOf(state, entry.source, entry),
+        )
+      )
         await this.#cancel(id);
     for (const install of this.#store.installs()) {
-      const reason = withdrawn[install.hash];
-      if (
-        !reason ||
-        install.state !== "on" ||
-        install.source !== "market" ||
-        install.type === "spade-bot"
-      )
-        continue;
+      const reason = withdrawalOf(state, install.source, install);
+      if (!reason || install.state !== "on" || install.type === "spade-bot") continue;
       await turnOff(this.#installPorts(), install);
       this.#store.saveInstall({ ...install, state: "withdrawn", reason: reason.slice(0, 500) });
     }
@@ -435,7 +433,8 @@ export class MarketplaceService {
       http: this.#http(),
       git: this.#git,
       keys: this.#options.keys,
-      withdrawn: () => new Map(Object.entries(readWithdrawn(this.#store).hashes)),
+      withdrawal: (target: WithdrawalTarget) =>
+        withdrawalOf(readWithdrawn(this.#store), source.id, target),
       preparePlugin: (input: Parameters<MarketPluginPort["prepareFiles"]>[0]) => {
         if (!plugins) throw new Refused("Plugins aren't ready", { code: "unavailable" });
         return plugins.prepareFiles(input);
@@ -480,9 +479,9 @@ export class MarketplaceService {
     await this.#recover();
     // A withdrawal learned since the review counts: for the entry and for all it brings.
     await learnWithdrawn(this.#store, this.#http(), this.#options.keys).catch(() => {});
-    const withdrawn = readWithdrawn(this.#store).hashes;
+    const state = readWithdrawn(this.#store);
     for (const entry of [pending.review, ...pending.review.brings]) {
-      const reason = withdrawn[entry.hash];
+      const reason = withdrawalOf(state, entry.source, entry);
       if (!reason) continue;
       await this.#cancel(id);
       return error(

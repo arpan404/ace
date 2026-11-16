@@ -183,8 +183,18 @@ export function signedVersion(input: {
   };
 }
 
+/**
+ * A signed withdrawn list. An entry naming its type, name and version is a publisher's
+ * withdrawal of that version; one naming only a hash is a maintainer's revocation.
+ */
 export function signedWithdrawn(
-  withdrawn: { hash: string; reason: string }[],
+  withdrawn: {
+    hash: string;
+    reason: string;
+    type?: MarketEntryType;
+    name?: string;
+    version?: string;
+  }[],
   options: { key?: MarketSigningKey; issued?: number } = {},
 ): Signed {
   const key = options.key ?? testKey();
@@ -193,7 +203,19 @@ export function signedWithdrawn(
     {
       format: "ace-market-withdrawn",
       issued,
-      withdrawn: withdrawn.map((entry) => ({ ...entry, at: issued })),
+      withdrawn: withdrawn.map((entry) =>
+        entry.type && entry.name && entry.version
+          ? {
+              scope: "version" as const,
+              type: entry.type,
+              name: entry.name,
+              version: entry.version,
+              hash: entry.hash,
+              reason: entry.reason,
+              at: issued,
+            }
+          : { scope: "hash" as const, hash: entry.hash, reason: entry.reason, at: issued },
+      ),
       key: key.id,
     },
     key,

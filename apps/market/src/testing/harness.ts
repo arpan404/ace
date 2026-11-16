@@ -46,7 +46,15 @@ export async function startMarket() {
   await worker.applyD1Migrations("MARKET");
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
     worker.fetch(`https://market.acehq.dev${path}`, init);
-  return { fetch, close: () => harness.close() };
+  const env = (await worker.getEnv()) as { MARKET: D1Database };
+  return {
+    fetch,
+    /** The market's D1, for tests of the store's own rules. */
+    db: env.MARKET,
+    /** Runs the Worker's scheduled work, as its cron does. */
+    scheduled: () => worker.scheduled({ cron: "*/15 * * * *", scheduledTime: new Date() }),
+    close: () => harness.close(),
+  };
 }
 export type Market = Awaited<ReturnType<typeof startMarket>>;
 

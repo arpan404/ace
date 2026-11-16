@@ -70,11 +70,26 @@ export const ReviewMark = z.strictObject({
 });
 export type ReviewMark = z.infer<typeof ReviewMark>;
 
-export const Withdrawal = z.strictObject({
-  hash: MarketHash,
-  reason: z.string().min(1).max(500),
-  at: z.number().int().nonnegative(),
-});
+const reason = z.string().min(1).max(500);
+const at = z.number().int().nonnegative();
+/**
+ * One withdrawal. A publisher withdraws one of their own versions (`version`): it names the
+ * entry and version as well as the bytes, and touches nothing else holding the same bytes. Only
+ * a maintainer revokes bytes wherever they are (`hash`).
+ */
+export const Withdrawal = z.discriminatedUnion("scope", [
+  z.strictObject({
+    scope: z.literal("version"),
+    type: MarketEntryType,
+    name: MarketEntryName,
+    version: MarketVersion,
+    hash: MarketHash,
+    reason,
+    at,
+  }),
+  z.strictObject({ scope: z.literal("hash"), hash: MarketHash, reason, at }),
+]);
+export type Withdrawal = z.infer<typeof Withdrawal>;
 export const WithdrawnList = z.strictObject({
   format: z.literal("ace-market-withdrawn"),
   /** When the signer made this list: a device keeps the newest it has verified. */
@@ -198,7 +213,34 @@ export function manifestMismatch(
   return undefined;
 }
 
-/** Hashes of withdrawn versions, newest reason kept, from a verified list. */
-export function withdrawnHashes(list: WithdrawnList): Map<string, string> {
-  return new Map(list.withdrawn.map((entry) => [entry.hash, entry.reason]));
+/** A version of an entry with its bytes, as a withdrawal may name it. */
+export interface WithdrawalTarget {
+  type: string;
+  name: string;
+  version: string;
+  hash: string;
 }
+
+/**
+ * Why `target` is withdrawn, if it is: a maintainer revoked its bytes, or its publisher
+ * withdrew this very version. Another entry holding the same bytes is untouched by the latter.
+ */
+export function withdrawalReason(
+  withdrawn: readonly Withdrawal[],
+  target: WithdrawalTarget,
+): string | undefined {
+  return withdrawn.find(
+    (entry) =>
+      entry.hash === target.hash &&
+      (entry.scope === "hash" ||
+        (entry.type === target.type &&
+          entry.name === target.name &&
+          entry.version === target.version)),
+  )?.reason;
+}
+
+/** The identity of a withdrawal, so a list never holds the same one twice. */
+export const withdrawalKey = (entry: Withdrawal) =>
+  entry.scope === "hash"
+    ? `hash:${entry.hash}`
+    : `version:${entry.type}/${entry.name}@${entry.version}:${entry.hash}`;

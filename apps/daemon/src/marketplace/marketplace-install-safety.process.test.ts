@@ -197,3 +197,43 @@ describe("making a recipe's bot", () => {
     expect((await harness.ask({ op: "spadeSkills" }, "spadeSkills")).skills).toEqual([]);
   });
 });
+
+describe("a publisher's withdrawal", () => {
+  it("withdraws their own version only, not another entry holding the same bytes", async () => {
+    const version = publish({ type: "spade-skill", name: "triage-mail", files: sampleSkill() });
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await install(await prepare("spade-skill", "triage-mail"))).toMatchObject({
+      op: "done",
+    });
+    market.withdraw(
+      signedWithdrawn(
+        [
+          {
+            type: "spade-skill",
+            name: "a-copy",
+            version: "1.0.0",
+            hash: version.hash,
+            reason: "Mine, withdrawn",
+          },
+        ],
+        { issued: 5 },
+      ),
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await installed()).toEqual([
+      expect.objectContaining({ name: "triage-mail", state: "on" }),
+    ]);
+
+    market.withdraw(
+      signedWithdrawn([{ hash: version.hash, reason: "Revoked by ace" }], { issued: 6 }),
+    );
+    await harness.ask({ op: "refresh" }, "sources");
+    expect(await installed()).toEqual([
+      expect.objectContaining({
+        name: "triage-mail",
+        state: "withdrawn",
+        reason: "Revoked by ace",
+      }),
+    ]);
+  });
+});

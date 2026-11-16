@@ -7,11 +7,16 @@ import {
   mergeIndex,
   parseIndex,
   verifyWithdrawn,
+  withdrawalKey,
+  withdrawalReason,
   type FeedEntry,
+  type Withdrawal,
+  type WithdrawalTarget,
   type MarketKeySet,
 } from "@ace/marketplace";
 import type { GitCatalogs } from "./git.ts";
 import type { MarketHttp } from "./http.ts";
+import { storedMarketWithdrawn } from "../stored-decode.ts";
 import type { MarketStore, StoredListing, StoredSource } from "./store.ts";
 
 /*
@@ -25,13 +30,32 @@ export const withdrawnKey = "withdrawn";
 
 export interface WithdrawnState {
   issued: number;
-  /** Every hash ever withdrawn by a verified list, so replaying an older list never undoes one. */
-  hashes: Record<string, string>;
+  /**
+   * Every withdrawal a verified list ever held, so replaying an older list never undoes one: a
+   * publisher's of one version, or a maintainer's of bytes wherever they are.
+   */
+  withdrawn: Withdrawal[];
 }
 
 export function readWithdrawn(store: MarketStore): WithdrawnState {
   const raw = store.meta(withdrawnKey);
-  return raw ? (JSON.parse(raw) as WithdrawnState) : { issued: 0, hashes: {} };
+  return raw ? storedMarketWithdrawn(raw) : { issued: 0, withdrawn: [] };
+}
+
+/**
+ * Why an entry from `source` is withdrawn, if it is. A maintainer's revocation covers its bytes
+ * from any source; a publisher's withdrawal covers only that market entry's version.
+ */
+export function withdrawalOf(
+  state: WithdrawnState,
+  source: string,
+  target: WithdrawalTarget,
+): string | undefined {
+  const applies =
+    source === "market"
+      ? state.withdrawn
+      : state.withdrawn.filter((entry) => entry.scope === "hash");
+  return withdrawalReason(applies, target);
 }
 
 /**
@@ -49,7 +73,9 @@ export async function learnWithdrawn(
   const list = verifyWithdrawn(signed, keys);
   const state = readWithdrawn(store);
   if (list.issued <= state.issued) return;
-  for (const entry of list.withdrawn) state.hashes[entry.hash] = entry.reason;
+  const known = new Set(state.withdrawn.map(withdrawalKey));
+  for (const entry of list.withdrawn)
+    if (!known.has(withdrawalKey(entry))) state.withdrawn.push(entry);
   state.issued = list.issued;
   store.setMeta(withdrawnKey, JSON.stringify(state));
 }

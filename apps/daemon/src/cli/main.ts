@@ -48,6 +48,7 @@ ace features [show|hide spade]
 ace marketplace check PATH --type TYPE [--name NAME]
 ace market keygen KEY_FILE [--id ID]|market sign --key KEY_FILE [--url URL]
 ace market review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed]|market feature TYPE/NAME ...
+ace market revoke HASH --reason TEXT --key KEY_FILE
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree, --any or --all (default) for several IDs; --timeout DURATION. Run: --stream jsonl.

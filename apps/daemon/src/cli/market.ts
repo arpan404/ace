@@ -13,7 +13,7 @@ import {
   type MarketSigningKey,
 } from "@ace/marketplace";
 import { checkFiles } from "@ace/marketplace/checks";
-import { signPending, signReview, type SignerIo } from "@ace/marketplace/signer";
+import { signPending, signReview, signRevocation, type SignerIo } from "@ace/marketplace/signer";
 import { option, validateArgs, type Args } from "./args.ts";
 import { print } from "./io.ts";
 import { CliFailure } from "./output.ts";
@@ -25,6 +25,8 @@ import { CliFailure } from "./output.ts";
  *   ace market sign --key KEY_FILE [--url URL]    sign every pending version that passes again
  *   ace market review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed] [--url URL]
  *   ace market feature TYPE/NAME ... [--url URL]  the featured list (reviewed entries only)
+ *   ace market revoke HASH --reason TEXT --key KEY_FILE [--url URL]
+ *                                                 withdraw bytes wherever they are listed
  *   ace marketplace check PATH --type TYPE [--name NAME]   the publish checks on a folder
  *
  * The signer's token comes from ACE_MARKET_SIGNER_TOKEN; the key only ever from its file.
@@ -173,10 +175,26 @@ export async function marketCommand(args: Args): Promise<void> {
         throw new CliFailure("failed", `The market answered ${answer.status}: ${answer.text}`);
       return print(args, { ok: true, featured: entries.length });
     }
+    case "revoke": {
+      validateArgs(args, ["key", "url", "reason"], 3, 3);
+      const hash = args.words[2] ?? "";
+      const reason = option(args, "reason");
+      if (!/^[a-f0-9]{64}$/.test(hash))
+        throw new CliFailure("refused", "Name the bytes by their content hash");
+      if (!reason) throw new CliFailure("refused", "Say why with --reason; devices show it");
+      const key = await readKey(option(args, "key"));
+      const answer = await signRevocation(signerIo(marketUrl(args)), key, now, trustedWith(key), {
+        hash,
+        reason,
+      });
+      if (answer.status < 200 || answer.status >= 300)
+        throw new CliFailure("failed", `The market answered ${answer.status}: ${answer.text}`);
+      return print(args, { ok: true, revoked: hash });
+    }
     default:
       throw new CliFailure(
         "refused",
-        "Use ace market keygen, sign, review or feature. See ace --help.",
+        "Use ace market keygen, sign, review, feature or revoke. See ace --help.",
       );
   }
 }

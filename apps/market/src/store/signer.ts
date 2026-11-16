@@ -1,6 +1,11 @@
 import type { MarketCategory, MarketPublisher, MarketEntryType } from "@ace/protocol/marketplace";
-import type { PendingVersion, PendingWithdrawal } from "@ace/marketplace";
-import { refreshEntry } from "./entries.ts";
+import {
+  withdrawalReason,
+  type PendingVersion,
+  type PendingWithdrawal,
+  type Withdrawal,
+} from "@ace/marketplace";
+import { bumpGeneration, refreshEntry } from "./entries.ts";
 
 /* The signer's side of D1: what waits for it, and what it signed. */
 
@@ -79,12 +84,14 @@ export async function hashIsStored(db: D1Database, hash: string): Promise<boolea
 type Key = { type: string; name: string; version: string };
 
 export async function listVersion(db: D1Database, key: Key, manifest: string, now: number) {
-  await db
-    .prepare(
-      "UPDATE versions SET listed = 1, manifest = ?4 WHERE type = ?1 AND name = ?2 AND version = ?3",
-    )
-    .bind(key.type, key.name, key.version, manifest)
-    .run();
+  await db.batch([
+    db
+      .prepare(
+        "UPDATE versions SET listed = 1, manifest = ?4 WHERE type = ?1 AND name = ?2 AND version = ?3",
+      )
+      .bind(key.type, key.name, key.version, manifest),
+    bumpGeneration(db, key.type, key.name),
+  ]);
   await refreshEntry(db, key.type, key.name, now);
 }
 
@@ -94,66 +101,92 @@ export async function setReview(
   review: { signed: string; reviewed: boolean; byAce: boolean },
   now: number,
 ) {
-  await db
-    .prepare(
-      `UPDATE versions SET review = ?4, reviewed = ?5, by_ace = ?6
-        WHERE type = ?1 AND name = ?2 AND version = ?3`,
-    )
-    .bind(
-      key.type,
-      key.name,
-      key.version,
-      review.signed,
-      review.reviewed ? 1 : 0,
-      review.byAce ? 1 : 0,
-    )
-    .run();
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE versions SET review = ?4, reviewed = ?5, by_ace = ?6
+          WHERE type = ?1 AND name = ?2 AND version = ?3`,
+      )
+      .bind(
+        key.type,
+        key.name,
+        key.version,
+        review.signed,
+        review.reviewed ? 1 : 0,
+        review.byAce ? 1 : 0,
+      ),
+    bumpGeneration(db, key.type, key.name),
+  ]);
   await refreshEntry(db, key.type, key.name, now);
 }
 
 /**
- * Stores the signed withdrawn list if it is newer than the stored one, and marks every version
- * by it: withdrawn with its reason when listed, not withdrawn otherwise. Returns false for an
- * older list.
+ * Stores the signed withdrawn list and marks every version by it, in one batch: the list and the
+ * marks change together or not at all. Each statement after the list's applies only while this
+ * very list is the stored one, so an older upload racing a newer one changes nothing. Sending
+ * the stored list again runs the marking and the entries' refresh again, which is how an upload
+ * cut off part way carries on. Returns false when a different list issued at or after it is
+ * already stored.
  */
 export async function setWithdrawn(
   db: D1Database,
-  list: { issued: number; signed: string; reasons: ReadonlyMap<string, string> },
+  list: { issued: number; signed: string; withdrawn: readonly Withdrawal[] },
   now: number,
 ): Promise<boolean> {
+  const hashes = JSON.stringify([...new Set(list.withdrawn.map((entry) => entry.hash))]);
+  const affected = async () =>
+    (
+      await db
+        .prepare(
+          `SELECT type, name, version, hash FROM versions
+            WHERE withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?1))`,
+        )
+        .bind(hashes)
+        .all<Key & { hash: string }>()
+    ).results;
+  const before = await affected();
+  const marks = before.flatMap((row) => {
+    const reason = withdrawalReason(list.withdrawn, row);
+    return reason ? [{ key: `${row.type}/${row.name}@${row.version}`, reason }] : [];
+  });
+  const guard = "(SELECT issued = ?1 AND signed = ?2 FROM withdrawn WHERE id = 1)";
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO withdrawn (id, issued, signed) VALUES (1, ?1, ?2)
+          ON CONFLICT (id) DO UPDATE SET issued = excluded.issued, signed = excluded.signed
+          WHERE excluded.issued > withdrawn.issued`,
+      )
+      .bind(list.issued, list.signed),
+    db
+      .prepare(
+        `UPDATE entries SET generation = generation + 1 WHERE ${guard} AND EXISTS (
+          SELECT 1 FROM versions v WHERE v.type = entries.type AND v.name = entries.name
+            AND (v.withdrawn IS NOT NULL OR v.hash IN (SELECT value FROM json_each(?3))))`,
+      )
+      .bind(list.issued, list.signed, hashes),
+    db
+      .prepare(
+        `UPDATE versions SET withdrawn = (
+            SELECT json_extract(m.value, '$.reason') FROM json_each(?3) m
+            WHERE json_extract(m.value, '$.key') = versions.type || '/' || versions.name || '@' || versions.version)
+          WHERE ${guard} AND (withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?4)))`,
+      )
+      .bind(list.issued, list.signed, JSON.stringify(marks), hashes),
+    db
+      .prepare(
+        `DELETE FROM pending_withdrawals WHERE ${guard} AND (type || '/' || name || '@' || version)
+          IN (SELECT json_extract(value, '$.key') FROM json_each(?3))`,
+      )
+      .bind(list.issued, list.signed, JSON.stringify(marks)),
+  ]);
   const stored = await db
-    .prepare(
-      `INSERT INTO withdrawn (id, issued, signed) VALUES (1, ?1, ?2)
-        ON CONFLICT (id) DO UPDATE SET issued = excluded.issued, signed = excluded.signed
-        WHERE excluded.issued > withdrawn.issued`,
-    )
-    .bind(list.issued, list.signed)
-    .run();
-  if (stored.meta.changes !== 1) return false;
-  const hashes = JSON.stringify([...list.reasons.keys()]);
-  const { results } = await db
-    .prepare(
-      `SELECT type, name, version, hash, withdrawn FROM versions
-        WHERE withdrawn IS NOT NULL OR hash IN (SELECT value FROM json_each(?1))`,
-    )
-    .bind(hashes)
-    .all<Key & { hash: string; withdrawn: string | null }>();
-  const changed = results.filter((row) => (list.reasons.get(row.hash) ?? null) !== row.withdrawn);
-  if (changed.length > 0)
-    await db.batch(
-      changed.map((row) =>
-        db
-          .prepare(
-            "UPDATE versions SET withdrawn = ?4 WHERE type = ?1 AND name = ?2 AND version = ?3",
-          )
-          .bind(row.type, row.name, row.version, list.reasons.get(row.hash) ?? null),
-      ),
-    );
-  await db
-    .prepare("DELETE FROM pending_withdrawals WHERE hash IN (SELECT value FROM json_each(?1))")
-    .bind(hashes)
-    .run();
-  const entries = new Map(changed.map((row) => [`${row.type}/${row.name}`, row]));
+    .prepare("SELECT issued, signed FROM withdrawn WHERE id = 1")
+    .first<{ issued: number; signed: string }>();
+  if (stored?.issued !== list.issued || stored.signed !== list.signed) return false;
+  const entries = new Map(
+    [...before, ...(await affected())].map((row) => [`${row.type}/${row.name}`, row]),
+  );
   for (const row of entries.values()) await refreshEntry(db, row.type, row.name, now);
   return true;
 }
