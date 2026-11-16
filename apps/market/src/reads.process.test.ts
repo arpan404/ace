@@ -36,6 +36,9 @@ const versions = async () =>
     }
   ).versions;
 
+const downloads = async (version: string) =>
+  (await versions()).find((row) => row.version === version)?.downloads;
+
 describe("reading the catalog", () => {
   it("sets no cookie on any read route or page", async () => {
     for (const path of [
@@ -61,8 +64,6 @@ describe("reading the catalog", () => {
     const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`);
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     await response.arrayBuffer();
-    const downloads = async (version: string) =>
-      (await versions()).find((row) => row.version === version)?.downloads;
     // The read-route test above fetched it once too; its count lands after the response.
     await expect.poll(() => downloads("1.0.0")).toBe(2);
     await (await market.fetch(`/v1/objects/${hashes["1.0.0"]}`)).arrayBuffer();
