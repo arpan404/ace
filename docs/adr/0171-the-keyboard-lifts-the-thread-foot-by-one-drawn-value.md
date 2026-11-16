@@ -73,7 +73,9 @@ Rows that aren't following the end don't ride, as before. Reduce Motion moves ev
   composer moved by 0 pt on every frame of an opening and a closing (it was 44 and 276 pt).
 - From the third frame of a move on, the composer's foot is within 2 pt of the keyboard's edge,
   opening and closing. The first one or two moving frames, while the keyboard's animation is
-  being committed, were off by up to 16 pt opening and 11 pt closing across three runs.
+  being committed, were off by 4 to 16 pt in runs on their own and up to 35 pt opening and 30 pt
+  closing in a full suite run. That is short of the 2 pt aimed for; the likely cause, not yet
+  measured, is the first frame's commit, when the feed takes on the ride.
 - The tick commits the pending Core Animation transaction once per move, when it finds the
   keyboard's animation uncommitted.
 - A display link runs for the length of each keyboard move, about half a second, and redraws two
@@ -85,7 +87,7 @@ Rows that aren't following the end don't ride, as before. Reduce Motion moves ev
 
 - `AceUITests/TranscriptEndUITests/testTheNewestLineAndTheComposerMoveAsOneWithTheKeyboard` reads
   the probe over an opening and a closing: the gap's spread is at most 4 pt, every frame read the
-  keyboard's edge, and the composer is within 2 pt of it from the third frame of a move on (20 pt
+  keyboard's edge, and the composer is within 2 pt of it from the third frame of a move on (40 pt
   for the first two).
 - `AceTests/AnimationTimingTests` reads Bézier and spring timings; `AceTests/KeyboardCurveTests`
   holds the fallback curve to traced keyboard moves.
