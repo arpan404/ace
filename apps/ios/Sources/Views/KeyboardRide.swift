@@ -71,7 +71,7 @@ import UIKit
         // tick shows a frame after the frame it's computed for, measured on the simulator as the
         // composer trailing the keyboard by exactly one frame.
         let frame = link.targetTimestamp - link.timestamp
-        if let reading = edges.reading(at: link.targetTimestamp + frame) {
+        if let reading = edges.reading(at: link.targetTimestamp + frame, notified: move.start) {
             let measured = max(0, move.foot - reading.y)
             if reading.moving {
                 self.move?.edgeMoved = true

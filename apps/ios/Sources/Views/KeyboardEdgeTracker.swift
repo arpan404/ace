@@ -22,8 +22,9 @@ import UIKit
     fileprivate weak var edge: UIView?
 
     /// Where the keyboard's edge is drawn on the frame shown at `time` (`CACurrentMediaTime`
-    /// clock); nil while there is no edge in a window to read.
-    func reading(at time: CFTimeInterval) -> Reading? {
+    /// clock), for a move whose notification came at `notified`; nil while there is no edge in a
+    /// window to read.
+    func reading(at time: CFTimeInterval, notified: CFTimeInterval) -> Reading? {
         guard let edge, edge.window != nil else { return nil }
         let layer = edge.layer
         let animations = (layer.animationKeys() ?? [])
@@ -35,7 +36,7 @@ import UIKit
             // Core Animation applies them in the order added: an additive one moves the value
             // so far, any other replaces it.
             for animation in animations {
-                guard let value = Self.value(of: animation, in: layer, at: time) else {
+                guard let value = Self.value(of: animation, in: layer, at: time, notified: notified) else {
                     y = Double(layer.presentation()?.position.y ?? layer.position.y)
                     source = .presentation
                     break
@@ -51,12 +52,15 @@ import UIKit
     }
 
     /// `animation`'s value for the edge's y at `time`; nil for a kind of animation this can't read.
-    private static func value(of animation: CABasicAnimation, in layer: CALayer, at time: CFTimeInterval) -> Double? {
+    private static func value(of animation: CABasicAnimation, in layer: CALayer, at time: CFTimeInterval,
+                              notified: CFTimeInterval) -> Double? {
         guard let from = coordinate(animation.fromValue, keyPath: animation.keyPath) else { return nil }
         let to = coordinate(animation.toValue, keyPath: animation.keyPath) ?? (animation.isAdditive ? 0 : Double(layer.position.y))
         let local = layer.convertTime(time, from: nil)
-        // An animation not yet committed has no begin time: it starts as this frame commits.
-        let begin = animation.beginTime > 0 ? animation.beginTime : layer.convertTime(CACurrentMediaTime(), from: nil)
+        // An animation not yet committed has no begin time. The keyboard it follows started with
+        // its notification: counting from the commit instead put the composer up to 30 pt behind
+        // on the first frames of a move.
+        let begin = animation.beginTime > 0 ? animation.beginTime : layer.convertTime(notified, from: nil)
         let elapsed = (local - begin) * Double(animation.speed) + animation.timeOffset
         let fraction: Double
         if elapsed >= animation.duration {
