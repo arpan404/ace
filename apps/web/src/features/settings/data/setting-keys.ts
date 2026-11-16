@@ -38,6 +38,8 @@ export const settingKeys = {
   hostedPairingLink: setting("remote.hostedPairingLink", z.boolean(), false),
   relayMcp: setting("remote.relayMcp", z.boolean(), false),
   relayWebhooks: setting("remote.relayWebhooks", z.boolean(), false),
+  tailscaleWebhooks: setting("remote.tailscaleWebhooks", z.boolean(), false),
+  publicUrlWebhooks: setting("remote.publicUrlWebhooks", z.boolean(), false),
   tailscaleMcp: setting("remote.tailscaleMcp", z.boolean(), false),
   mcpPublicUrl: setting("remote.mcpPublicUrl", SettingsValues.shape["remote.mcpPublicUrl"], null),
   agentAccess: setting("remote.agentAccess", SettingsValues.shape["remote.agentAccess"], "off"),

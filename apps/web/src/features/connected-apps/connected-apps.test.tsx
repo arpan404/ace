@@ -81,21 +81,50 @@ test("Connect an app lists the machine's four addresses, with Tailscale's switch
   expect(await within(section).findByRole("button", { name: /^(Add|Change)$/ })).toBeTruthy();
 });
 
-test("automation webhooks through ace cloud have their own switch, apart from outside apps", async () => {
+type WebhookKey =
+  | "remote.publicUrlWebhooks"
+  | "remote.tailscaleWebhooks"
+  | "remote.relayWebhooks"
+  | "remote.relayMcp"
+  | "remote.tailscaleMcp";
+
+test("automation webhooks have a switch per way in, each setting only its own key", async () => {
   const app = harness();
   await app.open("/settings/remote/primary");
-  const section = await screen.findByRole("region", { name: "Connect an app" });
-  const webhooks = await within(section).findByRole("switch", {
-    name: "Automation webhooks through ace cloud",
-  });
-  expect(within(section).getByText(/never the secret/)).toBeTruthy();
-  await userEvent.click(webhooks);
-  const read = (key: "remote.relayWebhooks" | "remote.relayMcp") =>
+  const group = within(await screen.findByRole("region", { name: "Automation webhooks" }));
+  const read = (key: WebhookKey) =>
     app.client
       .request({ type: "settings.get", key, scope: {} })
       .then((reply) => reply.entries[0]?.value);
+  const own = await group.findByRole("switch", { name: "Automation webhooks at your own URL" });
+  // Without your own URL there is nowhere for that way to serve, and the row says so.
+  expect(own.getAttribute("aria-disabled")).toBe("true");
+  expect(group.getByText("Add your own URL under Connect an app first.")).toBeTruthy();
+  expect(group.getByText(/ts\.net name, which keeps request bodies off ace cloud/)).toBeTruthy();
+  expect(group.getByText(/never the secret/)).toBeTruthy();
+
+  await userEvent.click(group.getByRole("switch", { name: "Automation webhooks over Tailscale" }));
+  await waitFor(async () => expect(await read("remote.tailscaleWebhooks")).toBe(true));
+  await userEvent.click(
+    group.getByRole("switch", { name: "Automation webhooks through ace cloud" }),
+  );
   await waitFor(async () => expect(await read("remote.relayWebhooks")).toBe(true));
+  expect(await read("remote.publicUrlWebhooks")).toBe(false);
   expect(await read("remote.relayMcp")).toBe(false);
+  expect(await read("remote.tailscaleMcp")).toBe(false);
+
+  await app.client.request({
+    type: "settings.set",
+    key: "remote.mcpPublicUrl",
+    value: "https://ace.example.com",
+    layer: { kind: "global" },
+  });
+  await waitFor(() => expect(own.getAttribute("aria-disabled")).not.toBe("true"));
+  expect(group.getByText(/own proxy, which keeps request bodies off ace cloud/)).toBeTruthy();
+  await userEvent.click(own);
+  await waitFor(async () => expect(await read("remote.publicUrlWebhooks")).toBe(true));
+  expect(await read("remote.tailscaleWebhooks")).toBe(true);
+  expect(await read("remote.relayWebhooks")).toBe(true);
 });
 
 test("a sign-in approved on another device shows up in the list without reopening Settings", async () => {
