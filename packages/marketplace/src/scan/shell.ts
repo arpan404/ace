@@ -1,0 +1,472 @@
+/*
+ * A TypeScript port of Spade's shell reader (`spade_core::autonomy::shell::parse`, ADR 0171), for
+ * the scanner (ADR 0173 §8). It reads a command into simple commands: words with quoting and
+ * escapes undone, pipes, `$(…)`, `sh -c` strings and the wrappers that run another command
+ * (`env`, `sudo`, `nohup`, `xargs`, `timeout`, `exec`, `command`, `nice`…) unwrapped to what they
+ * run, with `${IFS}` and empty quotes folded first, so `c''url ${IFS}x|b\ash` reads as
+ * `curl x | bash`. Backticks, process substitution `<(…)` and anything else it can't read for
+ * sure leave the whole command `unreadable`, which is itself a finding the rules act on. Pure.
+ *
+ * Ported from our own code; the implementation is written fresh here. It keeps the parser's
+ * design, not its exact Rust shape: the scanner needs which programs run with which words, their
+ * redirects and pipes, and whether reading gave up, nothing more.
+ */
+
+/** One simple command the reader found: its words (wrappers taken off) and its redirects. */
+export interface Simple {
+  /** The program and its arguments, quoting and escapes undone, wrappers removed. */
+  words: string[];
+  /** Its input is the previous command's output. */
+  piped: boolean;
+  /** Files its output is written to (`> file`, `>> file`, `&> file`). */
+  writesTo: string[];
+  /** Files its input comes from (`< file`). */
+  readsFrom: string[];
+  /** The 1-based source line where the command begins. */
+  line: number;
+}
+
+/** The reader's answer: the simple commands, and whether some text could not be read for sure. */
+export interface ReadShell {
+  commands: Simple[];
+  unreadable: boolean;
+}
+
+const DEEPEST = 4;
+
+class Unreadable extends Error {}
+
+/** Shell keywords that can stand before a command, or close a compound one. */
+const KEYWORDS = new Set([
+  "{",
+  "}",
+  "if",
+  "then",
+  "else",
+  "elif",
+  "fi",
+  "do",
+  "done",
+  "while",
+  "until",
+  "!",
+  "esac",
+  "case",
+]);
+
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish", "ash", "mksh"]);
+const INTERPRETERS = new Set([
+  ...SHELLS,
+  "python",
+  "python3",
+  "node",
+  "deno",
+  "bun",
+  "perl",
+  "ruby",
+  "php",
+  "lua",
+  "osascript",
+  "awk",
+  "gawk",
+  "mawk",
+  "nawk",
+]);
+
+/** Wrappers that run the command after them, with the flags of each that take a value. */
+const WRAPPERS: Record<string, string[]> = {
+  env: ["-u", "-C", "--unset", "--chdir"],
+  command: [],
+  builtin: [],
+  exec: ["-a"],
+  nohup: [],
+  time: ["-f", "-o", "--format", "--output"],
+  nice: ["-n", "--adjustment"],
+  ionice: ["-c", "-n", "-p", "--class", "--classdata"],
+  stdbuf: ["-i", "-o", "-e"],
+  timeout: ["-s", "-k", "--signal", "--kill-after"],
+  caffeinate: ["-t", "-w"],
+  xargs: [
+    "-I",
+    "-n",
+    "-P",
+    "-L",
+    "-d",
+    "-E",
+    "-s",
+    "-a",
+    "--max-args",
+    "--max-procs",
+    "--delimiter",
+    "--arg-file",
+  ],
+  setsid: [],
+  unbuffer: [],
+  chronic: [],
+  torsocks: [],
+  strace: ["-o", "-e", "-p", "-s", "-u"],
+  ltrace: ["-o", "-e", "-p", "-s", "-u"],
+  chrt: [],
+  taskset: [],
+};
+
+/**
+ * Wrappers that run the command after them with other rights: kept as their own one-word command
+ * (so a rule can see the elevation), and unwrapped, so what they run is read too. Flags that take
+ * a value are listed so the command that follows is found.
+ */
+const ELEVATE: Record<string, string[]> = {
+  sudo: ["-u", "-g", "-h", "-p", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group"],
+  doas: ["-u", "-C"],
+  pkexec: ["--user"],
+  runuser: ["-u", "-g", "-G", "--user", "--group"],
+  su: ["-s", "-g", "-G", "--shell", "--group"],
+};
+
+function basename(word: string): string {
+  const slash = word.lastIndexOf("/");
+  const name = slash < 0 ? word : word.slice(slash + 1);
+  return name.toLowerCase();
+}
+
+function isAssignment(word: string): boolean {
+  const eq = word.indexOf("=");
+  if (eq <= 0) return false;
+  const name = word.slice(0, eq);
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
+}
+
+/**
+ * `${IFS}` and other `${…}` word-splitting tricks, and empty quotes, folded before tokenising, as
+ * Spade's reader does, so a command spaced out with `${IFS}` reads with its words apart. `${IFS}`
+ * (and `$IFS`) become a space; an empty `${X}`/`$X`-less construct is dropped. Everything else is
+ * left for the tokeniser to undo.
+ */
+function foldIfs(text: string): string {
+  return text
+    .replaceAll(/\$\{IFS\}/g, " ")
+    .replaceAll(/\$IFS\b/g, " ")
+    .replaceAll(/\$\{IFS:-[^}]*\}/g, " ");
+}
+
+/** The inner text of a `$(…)` and the index after its `)`; `dollar` is the index of the `$`. */
+function substitution(chars: string[], dollar: number): { inner: string; end: number } {
+  const from = dollar + 2; // past '$('
+  let depth = 1;
+  for (let i = from; i < chars.length; i++) {
+    if (chars[i] === "(") depth++;
+    else if (chars[i] === ")") {
+      depth--;
+      if (depth === 0) return { inner: chars.slice(from, i).join(""), end: i + 1 };
+    }
+  }
+  throw new Unreadable();
+}
+
+/**
+ * The simple commands of one `text`, at nesting `depth`. Throws `Unreadable` on anything it can't
+ * read for sure: backticks, `<(…)`, an unterminated quote, a dangling redirect.
+ */
+function parse(text: string, depth: number): Simple[] {
+  if (depth > DEEPEST) throw new Unreadable();
+  const chars = Array.from(foldIfs(text));
+  const out: Simple[] = [];
+  // Commands inside `$(…)`: they run, so they are read and appended to the result.
+  const nested: Simple[] = [];
+  let line = 1;
+  let current: Simple = { words: [], piped: false, writesTo: [], readsFrom: [], line };
+  let word = "";
+  let wordLine = 1;
+  let inWord = false;
+  let target = false;
+  let input = false;
+  let i = 0;
+
+  const endWord = () => {
+    if (!inWord) return;
+    const taken = word;
+    word = "";
+    inWord = false;
+    if (target) {
+      current.writesTo.push(taken);
+      target = false;
+    } else if (input) {
+      current.readsFrom.push(taken);
+      input = false;
+    } else {
+      if (current.words.length === 0) current.line = wordLine;
+      current.words.push(taken);
+    }
+  };
+  const breakCommand = (piped: boolean) => {
+    endWord();
+    if (target || input) throw new Unreadable();
+    out.push(current);
+    current = { words: [], piped, writesTo: [], readsFrom: [], line };
+  };
+
+  while (i < chars.length) {
+    const c = chars[i];
+    if (!inWord) wordLine = line;
+    if (c === "\n") line++;
+    if (c === " " || c === "\t") {
+      endWord();
+    } else if (c === "\n" || c === ";" || c === "&" || c === "|" || c === "(" || c === ")") {
+      if (c === "&" && chars[i + 1] === ">") {
+        endWord();
+        i++;
+        if (chars[i + 1] === ">") i++;
+        target = true;
+        i++;
+        continue;
+      }
+      const piped = c === "|" && chars[i + 1] !== "|";
+      if ((c === "&" || c === "|") && chars[i + 1] === c) i++;
+      breakCommand(piped);
+    } else if (c === "'") {
+      inWord = true;
+      i++;
+      for (;;) {
+        const ch = chars[i];
+        if (ch === undefined) throw new Unreadable();
+        if (ch === "'") break;
+        word += ch;
+        i++;
+      }
+    } else if (c === '"') {
+      inWord = true;
+      i++;
+      for (;;) {
+        const ch = chars[i];
+        if (ch === undefined || ch === "`") throw new Unreadable();
+        if (ch === '"') break;
+        if (ch === "\\") {
+          i++;
+          const next = chars[i];
+          if (next === undefined) throw new Unreadable();
+          word += next;
+        } else if (ch === "$" && chars[i + 1] === "(") {
+          const sub = substitution(chars, i);
+          for (const command of parse(sub.inner, depth + 1)) nested.push(command);
+          word += "$SUB";
+          i = sub.end;
+          continue;
+        } else {
+          word += ch;
+        }
+        i++;
+      }
+    } else if (c === "`") {
+      throw new Unreadable();
+    } else if (c === "\\") {
+      inWord = true;
+      i++;
+      const ch = chars[i];
+      if (ch !== undefined && ch !== "\n") word += ch;
+    } else if (c === "$" && chars[i + 1] === "(") {
+      const sub = substitution(chars, i);
+      for (const command of parse(sub.inner, depth + 1)) nested.push(command);
+      inWord = true;
+      word += "$SUB";
+      i = sub.end;
+      continue;
+    } else if (c === "<" && chars[i + 1] === "(") {
+      // Process substitution runs a command the reader doesn't follow.
+      throw new Unreadable();
+    } else if (c === "<") {
+      endWord();
+      input = true;
+    } else if (c === ">") {
+      if (inWord && /^\d+$/.test(word)) {
+        word = "";
+        inWord = false;
+      }
+      endWord();
+      if (chars[i + 1] === "(") throw new Unreadable();
+      if (chars[i + 1] === ">" || chars[i + 1] === "|") i++;
+      if (chars[i + 1] === "&") {
+        i += 2;
+        while (chars[i] !== undefined && (/\d/.test(chars[i] ?? "") || chars[i] === "-")) i++;
+        continue;
+      }
+      target = true;
+    } else if (c === "#" && !inWord) {
+      while (i < chars.length && chars[i] !== "\n") i++;
+      continue;
+    } else {
+      inWord = true;
+      word += c;
+    }
+    i++;
+  }
+  endWord();
+  if (target || input) throw new Unreadable();
+  out.push(current);
+
+  const simple: Simple[] = [];
+  for (const command of out) {
+    if (command.words.length === 0 && command.writesTo.length === 0) continue;
+    for (const unwrapped of unwrap(command, depth)) simple.push(unwrapped);
+  }
+  for (const command of nested) simple.push(command);
+  return simple;
+}
+
+/** The value given to `flag` (`-c x`, `--flag=x`), if any. */
+function valueOf(words: string[], flag: string): string | undefined {
+  for (let at = 0; at < words.length; at++) {
+    const w = words[at];
+    if (w === flag) return words[at + 1];
+    if (flag.startsWith("--") && w?.startsWith(`${flag}=`)) return w.slice(flag.length + 1);
+  }
+  return undefined;
+}
+
+/** Takes off `flags` (and the value of each in `valued`) from the front of `words`. */
+function stripFlags(words: string[], valued: string[]): void {
+  while (words.length > 0) {
+    const w = words[0] ?? "";
+    if (w === "--") {
+      words.shift();
+      return;
+    }
+    if (!w.startsWith("-") && !isAssignment(w)) return;
+    const takes = valued.includes(w);
+    words.shift();
+    if (takes && words.length > 0) words.shift();
+  }
+}
+
+/** A command the string `parent` runs (`sh -c`, `su -c`): it inherits the pipe and line of `parent`. */
+function adopt(inner: Simple[], parent: Simple): Simple[] {
+  const first = inner[0];
+  if (first) first.piped = first.piped || parent.piped;
+  for (const command of inner) command.line = parent.line;
+  return inner;
+}
+
+/**
+ * Takes variable assignments and wrappers off `simple`, reads `sh -c` strings, and unwraps what
+ * `sudo`, `env -S`, `xargs` and the rest run, each through the same reading.
+ */
+function unwrap(simple: Simple, depth: number): Simple[] {
+  if (depth > DEEPEST) throw new Unreadable();
+  const out: Simple[] = [];
+  for (;;) {
+    const first = simple.words[0];
+    if (first === undefined) {
+      if (simple.writesTo.length > 0) out.push(simple);
+      return out;
+    }
+    if (isAssignment(first) || KEYWORDS.has(first)) {
+      simple.words.shift();
+      continue;
+    }
+    if (first === "function") {
+      simple.words.splice(0, Math.min(2, simple.words.length));
+      continue;
+    }
+    const program = basename(first);
+    if (program.startsWith("$") || program === "eval") throw new Unreadable();
+
+    const elevate = ELEVATE[program];
+    if (elevate) {
+      out.push({
+        words: [first],
+        piped: simple.piped,
+        writesTo: [],
+        readsFrom: [],
+        line: simple.line,
+      });
+      simple.words.shift();
+      if (program === "su") {
+        const script = valueOf(simple.words, "-c") ?? valueOf(simple.words, "--command");
+        if (script === undefined) return out;
+        out.push(...adopt(parse(script, depth + 1), simple));
+        return out;
+      }
+      stripFlags(simple.words, elevate);
+      continue;
+    }
+
+    if (program === "command" && simple.words.some((w) => w === "-v" || w === "-V")) {
+      out.push(simple);
+      return out;
+    }
+
+    if (program === "env") {
+      const script = valueOf(simple.words, "-S") ?? valueOf(simple.words, "--split-string");
+      if (script !== undefined) {
+        out.push(...adopt(parse(script, depth + 1), simple));
+        return out;
+      }
+    }
+
+    const wrapper = WRAPPERS[program];
+    if (wrapper) {
+      const replace =
+        program === "xargs"
+          ? (valueOf(simple.words, "-I") ?? valueOf(simple.words, "--replace") ?? "{}")
+          : undefined;
+      simple.words.shift();
+      stripFlags(simple.words, wrapper);
+      if (
+        (program === "timeout" || program === "chrt" || program === "taskset") &&
+        simple.words.length > 1
+      )
+        simple.words.shift();
+      if (replace !== undefined) {
+        const next = simple.words[0];
+        if (next !== undefined && INTERPRETERS.has(basename(next))) {
+          const at = simple.words
+            .slice(1)
+            .findIndex((w) => w === "-c" || w === "-e" || w === "-E" || w === "-r");
+          const code = at < 0 ? undefined : simple.words[at + 2];
+          if (!(code !== undefined && !code.includes(replace) && !code.includes("{}")))
+            throw new Unreadable();
+        }
+      }
+      continue;
+    }
+
+    if (program === "watch") {
+      simple.words.shift();
+      stripFlags(simple.words, ["-n", "-d", "--interval", "-q", "--equexit"]);
+      out.push(...adopt(parse(simple.words.join(" "), depth + 1), simple));
+      return out;
+    }
+
+    if (SHELLS.has(program)) {
+      const at = simple.words.findIndex(
+        (w) => w.startsWith("-") && !w.startsWith("--") && w.includes("c"),
+      );
+      const script = at < 0 ? undefined : simple.words[at + 1];
+      if (script !== undefined) {
+        if (script.includes("{}")) throw new Unreadable();
+        out.push(...adopt(parse(script, depth + 1), simple));
+        return out;
+      }
+    }
+
+    // A shell or interpreter reading its program from a pipe runs text the reader never sees.
+    if (
+      simple.piped &&
+      INTERPRETERS.has(program) &&
+      simple.words.slice(1).every((w) => w.startsWith("-"))
+    )
+      throw new Unreadable();
+
+    out.push(simple);
+    return out;
+  }
+}
+
+/** Reads `command` into simple commands; `unreadable` is set when any part could not be read. */
+export function readShell(command: string): ReadShell {
+  try {
+    return { commands: parse(command, 0), unreadable: false };
+  } catch (error) {
+    if (error instanceof Unreadable) return { commands: [], unreadable: true };
+    throw error;
+  }
+}
