@@ -41,7 +41,7 @@ export async function startMarket() {
       },
     ],
   });
-  await harness.listen();
+  const { url } = await harness.listen();
   const worker = harness.getWorker();
   await worker.applyD1Migrations("MARKET");
   const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
@@ -49,6 +49,8 @@ export async function startMarket() {
   const env = (await worker.getEnv()) as { MARKET: D1Database };
   return {
     fetch,
+    /** Where the Worker listens, for tools that reach it over HTTP (the `ace market` CLI). */
+    url,
     /** The market's D1, for tests of the store's own rules. */
     db: env.MARKET,
     /** Runs the Worker's scheduled work, as its cron does. */
