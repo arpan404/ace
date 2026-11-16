@@ -39,7 +39,7 @@ struct InboxView: View {
     /// The project New thread starts in, over the list's own filter.
     @State private var composeProject: String?
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
-    @State private var links = PendingLinks()
+    @State private var links = PendingLinks(launching: SpikeConfiguration.linkOnLaunch)
     /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
