@@ -55,7 +55,9 @@ import UIKit
         guard let from = coordinate(animation.fromValue, keyPath: animation.keyPath) else { return nil }
         let to = coordinate(animation.toValue, keyPath: animation.keyPath) ?? (animation.isAdditive ? 0 : Double(layer.position.y))
         let local = layer.convertTime(time, from: nil)
-        let elapsed = (local - animation.beginTime) * Double(animation.speed) + animation.timeOffset
+        // An animation not yet committed has no begin time: it starts as this frame commits.
+        let begin = animation.beginTime > 0 ? animation.beginTime : layer.convertTime(CACurrentMediaTime(), from: nil)
+        let elapsed = (local - begin) * Double(animation.speed) + animation.timeOffset
         let fraction: Double
         if elapsed >= animation.duration {
             fraction = 1
