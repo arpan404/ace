@@ -9,7 +9,6 @@ import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind } from "./wire.ts";
-import { spadeCapSentence } from "./oversight.ts";
 import { spadeHelperLine } from "./helper-words.ts";
 
 /*
@@ -193,18 +192,6 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         text: spadeHelperLine(entry, waiting),
         open: entry.outcome === undefined,
         ...stamp(entry.at),
-      });
-      continue;
-    }
-    if (entry.kind === "cap") {
-      pushBot(bubbles, held, {
-        key: entry.key,
-        text: spadeCapSentence(entry.scope, entry.capMicros),
-        live: false,
-        end: undefined,
-        failure: undefined,
-        images: [],
-        documents: [],
       });
       continue;
     }
@@ -445,12 +432,12 @@ function pushBot(
 /**
  * Try again on the last bubble when the conversation's last reply failed after a message the
  * person typed: that message's words, sent again. A message with pictures, files or a recording
- * isn't offered (they would be lost), nor one a routine, group or bot sent, nor a cap's failure.
+ * isn't offered (they would be lost), nor one a routine, group or bot sent.
  */
 function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
   const at = bubbles.length - 1;
   const last = bubbles[at];
-  if (last?.kind !== "bot" || !last.failure || last.failure.kind === "cap") return;
+  if (last?.kind !== "bot" || !last.failure) return;
   const reply = entries.findLastIndex((entry) => entry.kind === "reply");
   if (reply !== entries.length - 1) return;
   const asked = entries.slice(0, reply).findLast((entry) => entry.kind === "user");

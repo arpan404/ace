@@ -10,8 +10,6 @@ import {
   spadeActivitySearch,
   spadeActivityWords,
   spadeBubbles,
-  spadeDollarsOf,
-  spadeMicrosOf,
   spadeMoney,
   spadeView,
 } from "./index.ts";
@@ -35,7 +33,7 @@ const agentBody = (fields: Record<string, unknown>) =>
   });
 
 describe("spending", () => {
-  test("a bot's spend, caps and the cap it is at are read; null caps mean no cap", () => {
+  test("a bot's spend is read, and the caps an older Spade sends are not", () => {
     const agent = parseSpadeAgent(
       agentBody({
         spending: {
@@ -49,14 +47,7 @@ describe("spending", () => {
         review: true,
       }),
     );
-    expect(agent?.spending).toEqual({
-      todayMicros: 420_000,
-      monthMicros: 3_100_000,
-      dailyCapMicros: 1_000_000,
-      monthlyCapMicros: undefined,
-      capped: "daily",
-      resetsAt: 1_794_200_000_000,
-    });
+    expect(agent?.spending).toEqual({ todayMicros: 420_000, monthMicros: 3_100_000 });
     expect(agent?.review).toBe(true);
   });
 
@@ -67,12 +58,6 @@ describe("spending", () => {
     expect(agent?.review).toBeUndefined();
   });
 
-  test("a capped value this client doesn't know reads as not capped", () => {
-    const agent = parseSpadeAgent(agentBody({ spending: { today_micros: 5, capped: "weekly" } }));
-    expect(agent?.spending?.capped).toBeUndefined();
-    expect(agent?.spending?.todayMicros).toBe(5);
-  });
-
   test("money shows cents, and a spend under a cent never reads as free", () => {
     expect(spadeMoney(1_000_000)).toBe("$1.00");
     expect(spadeMoney(12_345_678)).toBe("$12.35");
@@ -80,27 +65,7 @@ describe("spending", () => {
     expect(spadeMoney(0)).toBe("$0.00");
   });
 
-  test("typed dollars become micros; empty is no cap and nonsense is refused", () => {
-    expect(spadeMicrosOf("2.50")).toBe(2_500_000);
-    expect(spadeMicrosOf("$1")).toBe(1_000_000);
-    expect(spadeMicrosOf("  ")).toBeUndefined();
-    expect(spadeMicrosOf("-1")).toBeNull();
-    expect(spadeMicrosOf("abc")).toBeNull();
-  });
-
-  test("a cap keeps every micro both ways, and a sum too large or too fine is refused", () => {
-    for (const micros of [1_000, 1, 2_500_000, 123_456_789]) {
-      expect(spadeMicrosOf(spadeDollarsOf(micros))).toBe(micros);
-    }
-    expect(spadeDollarsOf(1_000)).toBe("0.001");
-    expect(spadeDollarsOf(2_500_000)).toBe("2.5");
-    expect(spadeMicrosOf("0.001")).toBe(1_000);
-    expect(spadeMicrosOf("0.0000001")).toBeNull();
-    expect(spadeMicrosOf("9".repeat(400))).toBeNull();
-    expect(spadeMicrosOf("9007199254.740993")).toBeNull();
-  });
-
-  test("oversight reads the service's cap, spend and review default", () => {
+  test("oversight reads the service's spend and review default, and no cap", () => {
     expect(
       parseSpadeOversight(
         JSON.stringify({
@@ -114,11 +79,13 @@ describe("spending", () => {
           },
         }),
       ),
-    ).toMatchObject({
+    ).toEqual({
       timeZone: "Europe/Berlin",
-      dailyCapMicros: 5_000_000,
+      todayMicros: 1,
+      monthMicros: 2,
       reviewDefault: true,
       reviewModel: undefined,
+      raw: expect.any(Object),
     });
     expect(parseSpadeOversight("{}")).toBeUndefined();
   });
@@ -141,7 +108,7 @@ describe("activity", () => {
     expect(empty?.nextBefore).toBe(5_001);
     const older = parseSpadeActivity(
       JSON.stringify({
-        entries: [{ id: "9-0", seq: 9, at: 1, kind: "cap", summary: "" }],
+        entries: [{ id: "9-0", seq: 9, at: 1, kind: "spend", summary: "" }],
         more: true,
       }),
     );
@@ -197,7 +164,6 @@ describe("activity", () => {
     expect(words({ kind: "review", name: "send_email", outcome: "escalated" })).toBe(
       "The reviewer asked you: send an email",
     );
-    expect(words({ kind: "cap", name: "monthly" })).toBe("Reached its monthly cap");
   });
 
   test("a reviewer verdict reads as approved, refused or asked you, with its reason under it", () => {
@@ -245,21 +211,19 @@ describe("activity", () => {
 });
 
 describe("the chat", () => {
-  test("a reached cap is one bubble of the bot's, once per period", () => {
+  test("a cap an older Spade stored shows nothing: Spade has no spending limits", () => {
     const c = conversation();
-    const cap = {
+    c.stored({ type: "user_message", text: "Plan my week" });
+    c.stored({
       type: "cap_reached",
       scope: "daily",
       cap_micros: 1_000_000,
       period_start: 1_794_100_000_000,
       resets_at: 1_794_186_400_000,
-    };
-    c.stored(cap);
-    c.stored(cap);
+    });
     const bubbles = c.bubbles();
-    expect(bubbles.map((bubble) => (bubble.kind === "bot" ? bubble.text : bubble.kind))).toEqual([
-      "I've reached my daily spending cap of $1.00, so I've stopped until midnight. You can raise it in my settings.",
-    ]);
+    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["person"]);
+    expect(JSON.stringify(bubbles)).not.toMatch(/cap/i);
   });
 
   test("an escalated call's approval says why the review asked", () => {
@@ -398,6 +362,5 @@ describe("an activity row", () => {
       words: "Asked you",
       tone: "needs",
     });
-    expect(exception({ kind: "cap", name: "daily" })?.tone).toBe("failed");
   });
 });

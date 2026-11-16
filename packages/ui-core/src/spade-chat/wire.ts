@@ -4,16 +4,10 @@ import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
- * is rate limiting, the model failed, a spending cap stopped it, or anything else.
+ * is rate limiting, the model failed, or anything else. Spade has no spending caps (ADR 0166): a
+ * `cap` an older Spade stored reads as `other`.
  */
-export const spadeFailureKinds = [
-  "unreachable",
-  "key",
-  "rate_limited",
-  "model",
-  "cap",
-  "other",
-] as const;
+export const spadeFailureKinds = ["unreachable", "key", "rate_limited", "model", "other"] as const;
 export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
 
 /*
@@ -173,14 +167,8 @@ const known = z.discriminatedUnion("type", [
     is_error: z.boolean().optional(),
     files,
   }),
-  /** The bot reached a spending cap; stored once per day or month (ADR 0135). */
-  z.object({
-    type: z.literal("cap_reached"),
-    scope: z.enum(["daily", "monthly"]),
-    cap_micros: z.number().nonnegative().catch(0).default(0),
-    period_start: z.unknown().optional(),
-    resets_at: z.number().nullish().catch(undefined),
-  }),
+  // `cap_reached` (ADR 0135) is gone with the caps (ADR 0166): one an older Spade stored is
+  // kept as raw data and shows nothing.
   /** The model review judged a call before it ran (ADR 0135). */
   z.object({
     type: z.literal("call_reviewed"),

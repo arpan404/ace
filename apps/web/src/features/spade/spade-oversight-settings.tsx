@@ -94,14 +94,14 @@ function ReviewDefaultRow(props: {
   );
 }
 
-/** What every bot spent together this month and today, and the service's daily cap. */
+/** What every bot spent together this month and today: information only (ADR 0166). */
 export function SpendingSection(props: { settings: OversightSettings }) {
   const { oversight } = props.settings;
   const label = "Spending, every bot together";
   if (oversight.isPending)
     return (
       <SettingSection label={label} anchor="spending">
-        <LoadingRows label={label} rows={2} />
+        <LoadingRows label={label} rows={1} />
       </SettingSection>
     );
   if (oversight.isError)
@@ -124,11 +124,6 @@ export function SpendingSection(props: { settings: OversightSettings }) {
         inline
       >
         <span className="text-ui text-foreground tabular-nums">{spadeMoney(data.monthMicros)}</span>
-      </SettingRow>
-      <SettingRow title="Daily cap" density="compact" inline>
-        <span className="text-ui text-muted-foreground tabular-nums">
-          {data.dailyCapMicros === undefined ? "None" : spadeMoney(data.dailyCapMicros)}
-        </span>
       </SettingRow>
     </SettingSection>
   );

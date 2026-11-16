@@ -95,7 +95,6 @@ describe("a failed reply's sentence", () => {
     expect(spadeFailureSentence("model", "OpenCode Go")).toBe(
       "The model on OpenCode Go failed to answer.",
     );
-    expect(spadeFailureSentence("cap", undefined)).toBe("It reached a spending limit.");
   });
 
   test("an endpoint this app doesn't know reads as the endpoint", () => {
