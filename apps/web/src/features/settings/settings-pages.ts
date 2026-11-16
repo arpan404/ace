@@ -13,6 +13,7 @@ import {
   NotePencilIcon,
   KeyboardIcon,
   PaletteIcon,
+  ShieldIcon,
   AppWindowIcon,
   TerminalWindowIcon,
   UserCircleIcon,
@@ -36,6 +37,7 @@ export type SettingsPath =
   | "/settings/spade/models"
   | "/settings/spade/search"
   | "/settings/spade/apps"
+  | "/settings/spade/security"
   | "/settings/browser"
   | "/settings/simulators"
   | "/settings/keyboard"
@@ -74,7 +76,7 @@ export const settingsGroupTitles: Record<SettingsGroup, string | undefined> = {
 /** A page of Settings › Spade's group, `nav` naming its row when the heading doesn't. */
 const spade = (nav?: string) => ({ label: "Spade", ...(nav ? { nav } : {}) });
 
-/** Settings › Spade: four pages on the machine Spade runs on, under a "Spade" label. */
+/** Settings › Spade: five pages on the machine Spade runs on, under a "Spade" label. */
 function spadePages(): SettingsPage[] {
   return [
     {
@@ -102,6 +104,13 @@ function spadePages(): SettingsPage[] {
       to: "/settings/spade/apps",
       title: "Apps",
       icon: AppWindowIcon,
+      group: "machine",
+      section: spade(),
+    },
+    {
+      to: "/settings/spade/security",
+      title: "Security",
+      icon: ShieldIcon,
       group: "machine",
       section: spade(),
     },

@@ -3,8 +3,8 @@ import { lazy, Suspense } from "react";
 import { SettingsBody } from "@/features/settings/index.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 
-/** Settings › Spade's four pages. */
-export type SpadeSettingsPage = "general" | "models" | "search" | "apps";
+/** Settings › Spade's pages. */
+export type SpadeSettingsPage = "general" | "models" | "search" | "apps" | "security";
 
 const pages = {
   general: {
@@ -31,6 +31,14 @@ const pages = {
     title: "Apps",
     body: lazy(() =>
       import("./spade-settings-apps.tsx").then((module) => ({ default: module.SpadeAppsSettings })),
+    ),
+  },
+  security: {
+    title: "Security",
+    body: lazy(() =>
+      import("./spade-settings-security.tsx").then((module) => ({
+        default: module.SpadeSecuritySettings,
+      })),
     ),
   },
 } as const;

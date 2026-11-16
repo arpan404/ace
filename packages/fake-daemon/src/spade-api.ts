@@ -7,6 +7,7 @@ import { FakeSpadeRoles } from "./spade-roles.ts";
 import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
+import { FakeSpadeSecurity } from "./spade-security.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
@@ -143,6 +144,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly connectors = new FakeSpadeConnectors();
   /** Caps, the review and the activity log (ADR 0135). */
   readonly oversight = new FakeSpadeOversight();
+  /** The sandbox, and each bot's network, grants, egress log and checkpoints (ADR 0167). */
+  readonly security: FakeSpadeSecurity;
   /** Web search settings: the SearXNG address and whether a Brave key is set. */
   readonly search = new FakeSpadeSearch();
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
@@ -164,6 +167,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.notes = new FakeSpadeNotes(now);
     this.knowledge = new FakeSpadeKnowledge(now);
     this.routines = new FakeSpadeRoutines(now);
+    this.security = new FakeSpadeSecurity(now);
     const agents = () => this.agents;
     this.teams = new FakeSpadeTeams({
       // The list as it is now: a delete replaces it.
@@ -459,6 +463,19 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ skill_id: `skl_${id}` });
     }
     if (root === "oversight") return this.oversight.route(request.method, body);
+    if (root === "security") return this.security.machineRoute(request.method);
+    if (
+      root === "agents" &&
+      id &&
+      (sub === "security" || sub === "grants" || sub === "checkpoints")
+    )
+      return this.security.agentRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
+        parts.slice(2),
+        new URLSearchParams(query),
+        body,
+      );
     if (root === "agents" && id && sub === "wakes")
       return this.wakes.route(request.method, id, subId, parts[4]);
     if (root === "digests" && request.method === "GET")
