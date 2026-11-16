@@ -287,36 +287,20 @@ extension AceDesign.Size {
     static let rowPebble: CGFloat = 16
     /// The agent cursor over a page, as the web's 22px.
     static let pageCursor: CGFloat = 22
-    /// The person's avatar at the leading edge of a home list's bar: a bar button's size.
-    static let barAvatar: CGFloat = 36
+    /// The person's avatar inside its bar button: the system draws the 44pt glass around it.
+    static let barAvatar: CGFloat = 32
     /// A grouped list's row (More, Settings), its glyph, chevron and corners.
     static let settingsRow: CGFloat = 48
     static let groupGlyph: CGFloat = 18
     static let chevron: CGFloat = 11
     static let groupCorner: CGFloat = 22
-    /// The header's glass capsule (More, Pull requests, Search): each cell drawn this wide and
-    /// the capsule this tall, every button still a 44pt target.
-    static let headerBar: CGFloat = 36
-    static let headerCell: CGFloat = 42
-    static let headerGlyph: CGFloat = 17
-    /// The home screen's own header row, under the status bar.
-    static let header: CGFloat = 42
-    /// The title's chevron.
-    static let titleChevron: CGFloat = 12
     /// The segmented control: each tab this tall on a track inset this much.
     static let segmentTab: CGFloat = 28
     static let segmentInset: CGFloat = 3
     static let segment: CGFloat = segmentTab + 2 * segmentInset
-    /// The bottom bar: the tab pill and the compose circle, the pill's inset and one tab.
-    static let tabBar: CGFloat = 50
+    /// The iPad sidebar's places capsule: its inset around the places, and each place's round cell.
     static let tabInset: CGFloat = 4
-    static let tabWidth: CGFloat = 66
-    /// A tab's outline icon, and compose's glyph.
-    static let tabIcon: CGFloat = 21
-    static let composeGlyph: CGFloat = 20
-    /// An open thread's round glass Back and ⋯, and their glyphs.
     static let navButton: CGFloat = 36
-    static let navGlyph: CGFloat = 17
     /// The person's bubble's corners.
     static let bubbleCorner: CGFloat = 19
     /// A transcript step's glyph, and the line it sits on.

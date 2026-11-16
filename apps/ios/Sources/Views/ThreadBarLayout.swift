@@ -32,8 +32,8 @@ struct ThreadBarLayout: Equatable {
             headingWidth = without
             return
         }
-        // A glyph per page and the glass's inset around them, then the gap that groups them with ⋯.
-        let pageSwitch = CGFloat(pages) * (AceDesign.Size.pill + 2) + 2 * AceDesign.Space.related + Self.switchSlack
+        // A system bar button per page, in the glass group they share with ⋯.
+        let pageSwitch = CGFloat(pages) * AceDesign.Size.tap + Self.switchSlack
         let beside = Self.heading(pageWidth: pageWidth, leading: leadingTitle, trailing: buttons + pageSwitch)
         switchInBar = beside >= Self.minimumTitle
         headingWidth = switchInBar ? beside : without

@@ -72,7 +72,7 @@ struct ThreadToolbar: ToolbarContent {
             ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
             // The page buttons and ⋯ share one glass background, as grouped bar buttons do.
             if let pages = shownSwitch {
-                ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
+                ToolbarItemGroup(placement: .topBarTrailing) { pageButtons(pages) }
                     .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
             }
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
@@ -80,7 +80,7 @@ struct ThreadToolbar: ToolbarContent {
         } else {
             ToolbarItem(placement: .principal) { title }
             if let pages = shownSwitch {
-                ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
+                ToolbarItemGroup(placement: .topBarTrailing) { pageButtons(pages) }
             }
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
         }
@@ -104,11 +104,7 @@ struct ThreadToolbar: ToolbarContent {
         return EquatableView(content: heading).clipped()
     }
     private func pageButtons(_ pages: ThreadPageSwitch) -> some View {
-        ThreadPageButtons(pages: pages.pages, shown: pages.shown, select: pages.select)
-            .barGlyph()
-            .opacity(coveredByDrawer ? 0 : 1)
-            .allowsHitTesting(!coveredByDrawer)
-            .accessibilityHidden(coveredByDrawer)
+        ThreadPageButtons(pages: pages.pages, shown: pages.shown, select: pages.select, hidden: coveredByDrawer)
     }
     private var displayedMenu: some View {
         EquatableView(content: menu)
@@ -162,15 +158,14 @@ struct ThreadMenu: View, Equatable {
         Button {
             showing = true
         } label: {
-            // Only the glyph: the panel ⋯ presents keeps the person's text size.
-            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
-                .barGlyph()
+            // A plain glyph, so iOS draws the bar button at its own size; only the glyph keeps the
+            // default size: the panel ⋯ presents keeps the person's text size.
+            Image(ace: .dotsThree, weight: .bold)
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .contentShape(Rectangle())
         }
-        .buttonBorderShape(.circle)
+        .barGlyph()
         .accessibilityShowsLargeContentViewer {
-            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
+            Image(ace: .dotsThree, weight: .bold)
             Text("Thread options")
         }
         // On the menu itself: a label on its icon leaves the button VoiceOver reads unnamed.

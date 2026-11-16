@@ -10,41 +10,33 @@ extension ThreadPageKind {
     }
 }
 
-/// Chat and Changes as one small switch in the thread's navigation bar, beside ⋯: a glyph each,
-/// the page showing in full ink on the raised fill the Threads tabs use, the other muted. The
-/// fill slides to the page showing, a tap's or a swipe's. VoiceOver reads each as a button,
-/// selected when it shows, with its words ("Changes, 6 files").
+/// Chat and Changes in the thread's navigation bar, beside ⋯: a system bar button each, sized and
+/// grouped in glass by iOS. The page showing is in full ink, the other muted. VoiceOver reads
+/// each as a button, selected when it shows, with its words ("Changes, 6 files"). Put them in a
+/// `ToolbarItemGroup`, so each is its own bar button.
 struct ThreadPageButtons: View {
     let pages: ThreadPages
     let shown: ThreadPageKind
     let select: (ThreadPageKind) -> Void
-    @Namespace private var fill
+    /// Hidden under the open drawer: still laid out, so the bar doesn't move.
+    var hidden = false
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            ForEach(pages.kinds) { kind in button(kind) }
-        }
-        .animation(.default, value: shown)
+        ForEach(pages.kinds) { kind in button(kind) }
     }
 
     private func button(_ kind: ThreadPageKind) -> some View {
         let chosen = kind == shown
         return Button { select(kind) } label: {
-            AceIcon(kind.icon, size: AceDesign.Size.navGlyph + 1)
+            Image(ace: kind.icon)
                 .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-                .frame(width: AceDesign.Size.pill + 2, height: AceDesign.Size.pill)
-                .background {
-                    if chosen {
-                        AceShape.capsule.fill(AceDesign.Surface.raised)
-                            .shadow(color: .black.opacity(AceShadow.tabOpacity), radius: AceShadow.tabRadius, y: AceShadow.tabY)
-                            .matchedGeometryEffect(id: "chosen", in: fill)
-                    }
-                }
-                .contentShape(AceShape.capsule)
         }
-        .buttonStyle(.plain)
+        .barGlyph()
+        .opacity(hidden ? 0 : 1)
+        .allowsHitTesting(!hidden)
+        .accessibilityHidden(hidden)
         .accessibilityShowsLargeContentViewer {
-            AceIcon(kind.icon, size: AceDesign.Size.navGlyph + 1)
+            Image(ace: kind.icon)
             Text(pages.label(of: kind))
         }
         .accessibilityLabel(pages.label(of: kind))
