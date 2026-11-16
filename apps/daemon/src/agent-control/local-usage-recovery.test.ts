@@ -36,8 +36,8 @@ function tree() {
     },
     chatter() {
       store.appendEvents(child, [
-        { type: "thread.client.updated", changes: { title: "renamed" } },
-        { type: "thread.client.updated", changes: { title: "renamed again" } },
+        { type: "thread.client.updated", changes: { pinned: true } },
+        { type: "thread.client.updated", changes: { pinned: false } },
       ]);
     },
     /** A restart: a fresh journal over the same database, recovering before work is admitted. */
