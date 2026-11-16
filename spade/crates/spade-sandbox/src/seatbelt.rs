@@ -74,11 +74,26 @@ pub fn profile(policy: &Policy) -> String {
         "deny file-read* file-write*",
         policy.deny.iter().map(|p| subpath(p)),
     );
+    // A plugin's own folder, inside ace's data, opened again for reading; then the credential
+    // places closed once more, so nothing reopened can reach them.
+    rule(
+        &mut out,
+        "allow file-read*",
+        policy.reopen.iter().map(|p| subpath(p)),
+    );
+    if !policy.reopen.is_empty() {
+        rule(
+            &mut out,
+            "deny file-read* file-write*",
+            policy.secrets.iter().map(|p| subpath(p)),
+        );
+    }
     // The workspace and its temporary folder, inside Spade's data folder, opened again.
     rule(
         &mut out,
         "allow file-read* file-write*",
-        [subpath(&policy.workspace)].into_iter(),
+        std::iter::once(subpath(&policy.workspace))
+            .chain(policy.scratch.iter().map(|p| subpath(p))),
     );
     rule(
         &mut out,
@@ -171,6 +186,9 @@ mod tests {
             read: vec!["/Users/p/.cargo/bin".into()],
             hide: vec!["/Users/p".into()],
             deny: vec!["/Users/p/.ssh".into(), "/Users/p/spade".into()],
+            secrets: vec!["/Users/p/.ssh".into()],
+            reopen: vec![],
+            scratch: vec![],
             proxy_port: Some(4100),
         }
     }

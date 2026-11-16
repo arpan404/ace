@@ -67,6 +67,7 @@ fn policy(world: &World, proxy_port: Option<u16>) -> Policy {
         ],
         toolchains: vec![world.home.join(".cargo")],
         also_read: vec![],
+        scratch: vec![],
         proxy_port,
     })
 }
@@ -245,5 +246,38 @@ fn a_run_cannot_start_or_drive_other_apps() {
     refused(
         &policy,
         "osascript -e 'tell application \"Finder\" to get the name of every disk'",
+    );
+}
+
+#[test]
+fn a_plugins_own_folder_inside_aces_data_is_readable_and_the_rest_of_aces_data_is_not() {
+    let world = world();
+    let plugin = world.home.join(".ace/plugins/p1");
+    std::fs::create_dir_all(&plugin).unwrap_or_default();
+    std::fs::write(plugin.join("server.js"), "plugin").unwrap_or_default();
+    std::fs::write(world.home.join(".ace/grant.json"), "ace token").unwrap_or_default();
+    let policy = Policy::build(&Facts {
+        home: world.home.clone(),
+        spade_data: world.home.join("Library/Spade"),
+        workspace: world.workspace.clone(),
+        also_read: vec![plugin.clone()],
+        ..Facts::default()
+    });
+    let text = ok(
+        &policy,
+        &format!("cat {}", quoted(&plugin.join("server.js"))),
+    );
+    assert_eq!(text, "plugin");
+    refused(
+        &policy,
+        &format!("echo x > {}", quoted(&plugin.join("server.js"))),
+    );
+    refused(
+        &policy,
+        &format!("cat {}", quoted(&world.home.join(".ace/grant.json"))),
+    );
+    refused(
+        &policy,
+        &format!("cat {}", quoted(&world.home.join(".ssh/id_ed25519"))),
     );
 }

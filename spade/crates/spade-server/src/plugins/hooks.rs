@@ -86,6 +86,9 @@ impl Plugins {
                     tee: None,
                     cleanup: None,
                     stdin: Some(stdin.clone()),
+                    kind: crate::workspace::shell::Kind::Plugin {
+                        root: std::path::PathBuf::from(&root),
+                    },
                 })
                 .await;
             let result = match ran {

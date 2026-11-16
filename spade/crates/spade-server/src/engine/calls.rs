@@ -219,6 +219,9 @@ pub(super) async fn handle_calls(
                             ),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments, &classed.shown),
+                        // The bot's OS sandbox holds it (ADR 0167): only a shell command says so.
+                        contained: classed.contained,
+                        granted: engine.granted(id, &name, &arguments),
                     });
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;

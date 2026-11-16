@@ -3547,6 +3547,7 @@ dependencies = [
  "spade-keys",
  "spade-mcp",
  "spade-models",
+ "spade-sandbox",
  "spade-search",
  "spade-server",
  "spade-store",

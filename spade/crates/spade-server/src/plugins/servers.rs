@@ -36,6 +36,8 @@ pub struct Server {
     pub client: McpClient,
     tools: Mutex<Option<Vec<McpTool>>>,
     problem: Mutex<Option<String>>,
+    /// Its sandbox's proxy access, held as long as the server may run (ADR 0167).
+    _hold: Option<Box<dyn std::any::Any + Send + Sync>>,
 }
 
 /// A local server as a bot's settings show it.
@@ -106,6 +108,7 @@ impl Servers {
         server: &LocalServer,
         dir: &Path,
         base_env: Vec<(String, String)>,
+        shell: &crate::workspace::shell::Shell,
     ) -> Arc<Server> {
         let key = (agent.to_owned(), server.plugin.clone(), server.name.clone());
         let mut map = lock(&self.map);
@@ -129,6 +132,39 @@ impl Servers {
         if let Some(idle) = *lock(&self.idle) {
             command.idle = idle;
         }
+        // The bot's sandbox, reading the plugin's folder too (ADR 0167). Where it should hold
+        // the server and can't, the server doesn't start.
+        let (hold, problem) = match shell.confine(
+            dir,
+            &crate::workspace::shell::Kind::Plugin { root: root.into() },
+        ) {
+            Ok(None) => (None, None),
+            Ok(Some(confined)) => {
+                let args: Vec<std::ffi::OsString> = command.args.iter().map(Into::into).collect();
+                match (confined.launch)(Path::new(&command.program), &args) {
+                    Ok((program, args)) => {
+                        command.program = program.to_string_lossy().into_owned();
+                        command.args = args
+                            .iter()
+                            .map(|a| a.to_string_lossy().into_owned())
+                            .collect();
+                        if let Some((_, path)) = command.env.iter_mut().find(|(n, _)| n == "PATH")
+                            && !confined.path_first.is_empty()
+                        {
+                            *path = format!("{}:{path}", confined.path_first.join(":"));
+                        }
+                        command.env.extend(confined.env);
+                        (Some(confined.hold), None)
+                    }
+                    Err(why) => (None, Some(why)),
+                }
+            }
+            Err(why) => (None, Some(why)),
+        };
+        if problem.is_some() {
+            // Never started unconfined: a program that can't be found.
+            command.program = String::new();
+        }
         let label = format!("{}/{}", server.plugin, server.name);
         let made = Arc::new(Server {
             plugin: server.plugin.clone(),
@@ -136,7 +172,8 @@ impl Servers {
             hash: plugin.install.hash.clone(),
             client: McpClient::new(McpConfig::stdio(&label, command, CALL_TIMEOUT)),
             tools: Mutex::new(None),
-            problem: Mutex::new(None),
+            problem: Mutex::new(problem),
+            _hold: hold,
         });
         if let Some(old) = map.insert(key, made.clone()) {
             old.client.close();
@@ -206,10 +243,14 @@ impl super::Plugins {
         let mut servers = Vec::new();
         for plugin in &plugins {
             for local in super::view::usable(plugin, false).local {
-                servers.push(
-                    self.servers
-                        .server(agent, plugin, &local, &dir, env.clone()),
-                );
+                servers.push(self.servers.server(
+                    agent,
+                    plugin,
+                    &local,
+                    &dir,
+                    env.clone(),
+                    &self.shell,
+                ));
             }
         }
         futures_util::future::join_all(servers.iter().map(Servers::start)).await;

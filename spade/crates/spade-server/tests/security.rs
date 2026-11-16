@@ -1,0 +1,402 @@
+//! Spade's security boundaries through the server (ADR 0167): a bot's shell commands in the
+//! macOS sandbox run without a review and can't reach outside it; without the sandbox, or for
+//! what could leave through it, they are reviewed as before; grants and network policies set
+//! over the API take effect on the next command. Process tests: each starts real shells.
+#![cfg(target_os = "macos")]
+
+mod support;
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+
+use serde_json::{Value, json};
+use spade_server::clock::{CountingIds, SystemClock};
+use spade_server::security::{Security, Setup};
+use spade_server::tools::{EngineHandle, Tool};
+use spade_server::workspace::shell::{Confine, Confined, Kind, Shell};
+use spade_server::workspace::{Workspaces, workspace_tools};
+use spade_store::Store;
+use spade_testkit::Script;
+use support::{Result, Spade, types};
+
+/// The security service, set once the server (and its database) exists.
+#[derive(Default)]
+struct Late(OnceLock<Arc<Security>>);
+
+impl Confine for Late {
+    fn confine(&self, home: &Path, kind: &Kind) -> std::result::Result<Option<Confined>, String> {
+        match self.0.get() {
+            Some(security) => security.confine(home, kind),
+            None => Err("the security service isn't set".to_owned()),
+        }
+    }
+
+    fn contains(&self, home: &Path) -> bool {
+        self.0
+            .get()
+            .is_some_and(|security| Confine::contains(security.as_ref(), home))
+    }
+}
+
+struct World {
+    spade: Spade,
+    _dir: tempfile::TempDir,
+    home: PathBuf,
+    conversation: String,
+    bot: String,
+}
+
+/// Where a world's files are, for the scripts that name them.
+struct Places {
+    root: PathBuf,
+    home: PathBuf,
+}
+
+/// A server whose bots' shell runs through the sandbox (or with `sandboxed: false`, none), a fake
+/// home folder holding the person's files, and one bot running `scripts`.
+async fn world(
+    sandboxed: bool,
+    extra: Vec<Arc<dyn Tool>>,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    let dir = tempfile::tempdir()?;
+    let root = std::fs::canonicalize(dir.path())?;
+    let home = root.join("home");
+    let data = root.join("data");
+    std::fs::create_dir_all(home.join("Documents"))?;
+    std::fs::create_dir_all(home.join("code/app"))?;
+    std::fs::write(home.join("Documents/tax.txt"), "TAX-SECRET")?;
+    let workspaces = Workspaces::new(data.join("workspace"));
+    let late = Arc::new(Late::default());
+    let bots = EngineHandle::default();
+    let mut tools: Vec<Arc<dyn Tool>> = workspace_tools(
+        workspaces.clone(),
+        bots.clone(),
+        Shell::system().confined(late.clone()),
+    );
+    tools.extend(extra);
+    let scripts = scripts(&Places {
+        root: root.clone(),
+        home: home.clone(),
+    });
+    let spade = Spade::start_with(scripts, tools, support::Options::default()).await?;
+    bots.set(&spade.engine);
+    let runner = if sandboxed {
+        spade_sandbox::Runner::probe(None)
+    } else {
+        spade_sandbox::Runner::unavailable("no sandbox in this test")
+    };
+    let security = Security::start(Setup {
+        runner,
+        store: Store::open(&spade.database())?,
+        home: home.clone(),
+        spade_data: data.clone(),
+        ace_data: None,
+        workspaces: data.join("workspace"),
+        log_dir: data.join("egress"),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(CountingIds::default()),
+        bots,
+    })
+    .await;
+    let _ = late.0.set(security.clone());
+    spade.engine.set_security(security);
+    let agent = spade.new_agent("Builder", "").await?;
+    let field = |name: &str| agent[name].as_str().unwrap_or_default().to_owned();
+    Ok(World {
+        bot: field("id"),
+        conversation: field("conversation"),
+        spade,
+        _dir: dir,
+        home,
+    })
+}
+
+fn quoted(path: &Path) -> String {
+    format!("'{}'", path.display())
+}
+
+fn asked(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .map(|e| e["call_id"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+fn output<'a>(events: &'a [Value], call: &str) -> &'a str {
+    events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == call)
+        .and_then(|e| e["content"].as_str())
+        .unwrap_or_default()
+}
+
+fn shell(id: &str, command: String) -> Script {
+    Script::reply("").call(id, "shell", json!({ "command": command }))
+}
+
+#[tokio::test]
+async fn a_sandboxed_command_runs_without_a_review_and_cannot_reach_outside_its_folder() -> Result {
+    let w = world(true, vec![], |at| {
+        vec![
+            shell(
+                "c1",
+                format!(
+                    "echo built > out.txt && cat out.txt; echo x > {}; cat {}; echo end",
+                    quoted(&at.root.join("planted.txt")),
+                    quoted(&at.home.join("Documents/tax.txt")),
+                ),
+            ),
+            Script::reply("Done."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Build it").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    // The reviewer can't be reached in these tests: a reviewed call would have gone to the person.
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    let text = output(&events, "c1");
+    assert!(text.contains("built") && text.contains("end"), "{text}");
+    assert!(text.contains("Operation not permitted"), "{text}");
+    assert!(!text.contains("TAX-SECRET"), "{text}");
+    assert_eq!(text.matches("Operation not permitted").count(), 2, "{text}");
+    assert!(
+        !w.home
+            .parent()
+            .is_none_or(|root| root.join("planted.txt").exists())
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn without_the_sandbox_the_same_command_is_reviewed_as_before() -> Result {
+    let w = world(false, vec![], |_| {
+        vec![
+            shell("c1", "echo built > out.txt".to_owned()),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Build it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), vec!["c1"]);
+    let (_, status) = w.spade.get("/v1/security").await?;
+    assert_eq!(status["contained"], json!(false));
+    assert_eq!(status["sandbox"]["mechanism"], json!("none"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn publishing_from_the_sandbox_is_still_reviewed() -> Result {
+    let w = world(true, vec![], |_| {
+        vec![
+            shell("c1", "git push origin main".to_owned()),
+            Script::reply("Okay."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Ship it").await?;
+    let events = w
+        .spade
+        .wait_for(&w.conversation, "approval_requested")
+        .await?;
+    assert_eq!(asked(&events), vec!["c1"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_folder_the_person_grants_is_writable_until_the_grant_is_taken_back() -> Result {
+    let w = world(true, vec![], |at| {
+        let app = at.home.join("code/app");
+        vec![
+            shell(
+                "c1",
+                format!("echo one > {}; echo rc=$?", quoted(&app.join("a.txt"))),
+            ),
+            Script::reply("Wrote it."),
+            Script::reply("").plain(r#"{"title":"App"}"#),
+            shell(
+                "c2",
+                format!("echo two > {}; echo rc=$?", quoted(&app.join("b.txt"))),
+            ),
+            Script::reply("Tried."),
+        ]
+    })
+    .await?;
+    let app = w.home.join("code/app");
+    let (status, granted) = w
+        .spade
+        .post(
+            &format!("/v1/agents/{}/grants", w.bot),
+            json!({"kind": "folder", "path": app, "write": true}),
+        )
+        .await?;
+    assert_eq!(status, 201, "{granted}");
+    let grant = granted["grant"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (_, view) = w
+        .spade
+        .get(&format!("/v1/agents/{}/security", w.bot))
+        .await?;
+    assert_eq!(view["folders"][0]["path"], json!(app));
+    assert_eq!(view["contained"], json!(true));
+
+    w.spade.say(&w.conversation, "Write a file").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    assert!(
+        output(&events, "c1").contains("rc=0"),
+        "{}",
+        output(&events, "c1")
+    );
+    assert_eq!(std::fs::read_to_string(app.join("a.txt"))?, "one\n");
+
+    let (status, _) = w
+        .spade
+        .delete(&format!("/v1/agents/{}/grants/{grant}", w.bot))
+        .await?;
+    assert_eq!(status, 204);
+    w.spade.wait_for(&w.conversation, "renamed").await?;
+    w.spade.say(&w.conversation, "Write another").await?;
+    let events = w
+        .spade
+        .wait_for_count(&w.conversation, "reply_finished", 2)
+        .await?;
+    assert!(
+        output(&events, "c2").contains("rc=1"),
+        "{}",
+        output(&events, "c2")
+    );
+    assert!(!app.join("b.txt").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_command_reaches_a_host_only_once_the_person_allows_it_and_each_try_is_logged() -> Result
+{
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    tokio::spawn(async move {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let mut buffer = [0u8; 1024];
+            let _ = stream.read(&mut buffer).await;
+            let _ = stream
+                .write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+                .await;
+        }
+    });
+    let url = format!("http://localhost:{port}/");
+    let w = world(true, vec![], |_| {
+        vec![
+            shell("c1", format!("curl -sS -m 5 {url}; echo")),
+            Script::reply("Tried."),
+            Script::reply("").plain(r#"{"title":"Net"}"#),
+            shell("c2", format!("curl -sS -m 5 {url}; echo")),
+            Script::reply("Got it."),
+        ]
+    })
+    .await?;
+    w.spade.say(&w.conversation, "Fetch it").await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    assert!(
+        output(&events, "c1").contains("refused"),
+        "{}",
+        output(&events, "c1")
+    );
+
+    let path = format!("/v1/agents/{}/security/network", w.bot);
+    let (status, _) = w
+        .spade
+        .put(
+            &path,
+            json!({"mode": "allow_list", "allow": ["https://bad/"]}),
+        )
+        .await?;
+    assert_eq!(status, 400);
+    let (status, view) = w
+        .spade
+        .put(
+            &path,
+            json!({"mode": "allow_list", "allow": [format!("localhost:{port}")]}),
+        )
+        .await?;
+    assert_eq!(status, 200, "{view}");
+    w.spade.wait_for(&w.conversation, "renamed").await?;
+    w.spade.say(&w.conversation, "Again").await?;
+    let events = w
+        .spade
+        .wait_for_count(&w.conversation, "reply_finished", 2)
+        .await?;
+    assert!(
+        output(&events, "c2").contains("hello"),
+        "{}",
+        output(&events, "c2")
+    );
+
+    let (_, log) = w
+        .spade
+        .get(&format!("/v1/agents/{}/security/egress", w.bot))
+        .await?;
+    let allowed: Vec<bool> = log["entries"]
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|e| e["allowed"] == json!(true))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(allowed, vec![false, true], "{log}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tool_the_person_granted_runs_unreviewed_and_payments_cannot_be_granted() -> Result {
+    let deploy =
+        support::FakeTool::new("preview_deploy", spade_core::tools::Risk::Write, "deployed")
+            .app("Deploys a preview build");
+    let calls = deploy.calls();
+    let w = world(true, vec![Arc::new(deploy)], |_| {
+        vec![
+            Script::reply("").call("c1", "preview_deploy", json!({"site": "spade-docs"})),
+            Script::reply("Deployed."),
+        ]
+    })
+    .await?;
+    let grants = format!("/v1/agents/{}/grants", w.bot);
+    let (status, refused) = w
+        .spade
+        .post(
+            &grants,
+            json!({"kind": "tool", "tool": "stripe_create_payment"}),
+        )
+        .await?;
+    assert_eq!(status, 400);
+    assert!(
+        refused.to_string().contains("always goes to the person"),
+        "{refused}"
+    );
+    let (status, _) = w
+        .spade
+        .post(
+            &grants,
+            json!({"kind": "tool", "tool": "preview_deploy", "arguments": {"site": "spade-*"}}),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    w.spade
+        .say(&w.conversation, "Deploy the docs preview")
+        .await?;
+    let events = w.spade.wait_for(&w.conversation, "reply_finished").await?;
+    assert!(asked(&events).is_empty(), "{:?}", types(&events));
+    assert_eq!(calls.lock().map(|c| c.len()).unwrap_or(0), 1);
+    Ok(())
+}

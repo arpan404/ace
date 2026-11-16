@@ -504,6 +504,9 @@ fn a_credential_read_in_a_makefile_is_refused_whatever_else_fails_to_read() {
         credentials: classed.credentials,
         standing: false,
         fits: true,
+        // A credential read is refused even in the sandbox.
+        contained: true,
+        granted: false,
     });
     assert!(matches!(route, super::super::Route::Refuse(_)), "{route:?}");
 }

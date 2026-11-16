@@ -20,8 +20,16 @@ pub struct Policy {
     /// Hidden unless one of the above opens a place inside: the person's home folder.
     pub hide: Vec<PathBuf>,
     /// Never readable or writable, whatever else allows it: the credential deny-list and the data
-    /// folders of ace and Spade. Only the workspace, inside Spade's, is opened after it.
+    /// folders of ace and Spade. Only the workspace, inside Spade's, and [`Policy::reopen`] are
+    /// opened after it.
     pub deny: Vec<PathBuf>,
+    /// The credential deny-list alone: closed again after [`Policy::reopen`], so nothing opens it.
+    pub secrets: Vec<PathBuf>,
+    /// Read-only places inside ace's data opened after the deny-list: a plugin's own folder.
+    pub reopen: Vec<PathBuf>,
+    /// Spade's own per-run folders, read-write after the deny-list like the workspace: a
+    /// terminal's state files, which a command writes as it exits.
+    pub scratch: Vec<PathBuf>,
     /// The egress proxy's loopback port: the only connection a run may make. `None`: no network.
     pub proxy_port: Option<u16>,
 }
@@ -39,8 +47,11 @@ pub struct Facts {
     /// `(path, write)` for each consented folder.
     pub folders: Vec<(PathBuf, bool)>,
     pub toolchains: Vec<PathBuf>,
-    /// Other read-only places (a plugin's folder).
+    /// Read-only places that may be inside ace's data (a plugin's folder), never inside a
+    /// credential place.
     pub also_read: Vec<PathBuf>,
+    /// Spade's own folders a run writes (inside Spade's data, never a credential place).
+    pub scratch: Vec<PathBuf>,
     pub proxy_port: Option<u16>,
 }
 
@@ -57,14 +68,16 @@ impl Policy {
             .ace_data
             .clone()
             .unwrap_or_else(|| facts.home.join(".ace"));
-        let mut deny: Vec<PathBuf> = credentials::places(&facts.home)
+        let secrets: Vec<PathBuf> = credentials::places(&facts.home)
             .iter()
             .map(|p| real(p))
             .collect();
+        let mut deny = secrets.clone();
         // ace's data, and Spade's: the database, tokens, keys and every other bot's workspace.
         // The bot's own workspace is opened again after the deny-list (it is inside).
+        let spade_data = real(&facts.spade_data);
         deny.push(real(&ace));
-        deny.push(real(&facts.spade_data));
+        deny.push(spade_data.clone());
         let mut write = Vec::new();
         let mut read = Vec::new();
         for (path, writable) in &facts.folders {
@@ -76,13 +89,26 @@ impl Policy {
             }
         }
         read.extend(facts.toolchains.iter().map(|p| real(p)));
-        read.extend(facts.also_read.iter().map(|p| real(p)));
         // Nothing granted may open a place on the deny-list.
         let blocked = |p: &PathBuf| deny.iter().any(|d| p.starts_with(d));
         write.retain(|p| !blocked(p));
         read.retain(|p| !blocked(p));
+        let mut reopen: Vec<PathBuf> = facts
+            .also_read
+            .iter()
+            .map(|p| real(p))
+            .filter(|p| !secrets.iter().any(|s| p.starts_with(s)) && !p.starts_with(&spade_data))
+            .collect();
+        let mut scratch: Vec<PathBuf> = facts
+            .scratch
+            .iter()
+            .map(|p| real(p))
+            .filter(|p| !secrets.iter().any(|s| p.starts_with(s)))
+            .collect();
         dedup(&mut write);
         dedup(&mut read);
+        dedup(&mut reopen);
+        dedup(&mut scratch);
         Self {
             temp: workspace.join(TEMP),
             workspace,
@@ -90,6 +116,9 @@ impl Policy {
             read,
             hide: vec![home],
             deny,
+            secrets,
+            reopen,
+            scratch,
             proxy_port: facts.proxy_port,
         }
     }
@@ -99,6 +128,7 @@ impl Policy {
         std::iter::once(&self.workspace)
             .chain(self.write.iter())
             .chain(self.read.iter())
+            .chain(self.reopen.iter())
     }
 }
 
@@ -167,6 +197,7 @@ mod tests {
             ],
             toolchains: vec![home.join(".cargo/bin")],
             also_read: vec![],
+            scratch: vec![],
             proxy_port: Some(9),
         }
     }
@@ -203,6 +234,19 @@ mod tests {
         let policy = Policy::build(&facts);
         assert!(policy.write.is_empty());
         assert!(policy.read.iter().all(|p| p.ends_with(".cargo/bin")));
+    }
+
+    #[test]
+    fn a_plugins_folder_inside_aces_data_is_reopened_but_never_a_credential_place() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let mut facts = facts(dir.path());
+        let home = facts.home.clone();
+        facts.also_read = vec![home.join(".ace/plugins/p1"), home.join(".ssh/p2")];
+        let policy = Policy::build(&facts);
+        let home = real(&home);
+        assert_eq!(policy.reopen, vec![home.join(".ace/plugins/p1")]);
+        assert!(policy.deny.contains(&home.join(".ace")));
+        assert!(!policy.secrets.contains(&home.join(".ace")));
     }
 
     #[test]

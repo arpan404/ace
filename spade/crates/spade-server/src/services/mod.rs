@@ -132,6 +132,7 @@ impl Services {
                             tee: Some(tee),
                             cleanup: None,
                             stdin: None,
+                            kind: crate::workspace::shell::Kind::Command,
                         },
                     )
                     .await;

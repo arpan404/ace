@@ -53,6 +53,9 @@ pub fn plan(policy: &Policy, list: &dyn Fn(&Path) -> Vec<PathBuf>) -> Plan {
     for path in &policy.write {
         add(carve(path, &policy.deny, list), true);
     }
+    for path in &policy.reopen {
+        add(carve(path, &policy.secrets, list), false);
+    }
     // The workspace is inside Spade's data folder, which is denied: only the denied places
     // inside the workspace (none, unless the person made one) are carved around.
     let inside: Vec<PathBuf> = policy
@@ -62,6 +65,7 @@ pub fn plan(policy: &Policy, list: &dyn Fn(&Path) -> Vec<PathBuf>) -> Plan {
         .cloned()
         .collect();
     add(carve(&policy.workspace, &inside, list), true);
+    add(policy.scratch.clone(), true);
     for device in DEVICES {
         add(vec![PathBuf::from(device)], true);
     }
@@ -198,6 +202,9 @@ mod tests {
             read: vec!["/h/.cargo".into()],
             hide: vec!["/h".into()],
             deny: vec!["/h/.cargo/credentials.toml".into(), "/h/spade".into()],
+            secrets: vec!["/h/.cargo/credentials.toml".into()],
+            reopen: vec![],
+            scratch: vec![],
             proxy_port: Some(4100),
         };
         let plan = plan(&policy, &list);
