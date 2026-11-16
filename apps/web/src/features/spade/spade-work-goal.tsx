@@ -330,9 +330,9 @@ export function WorkPlan(props: {
                 {row.note.text}
               </p>
             )}
-            {row.item.evidence.map((evidence, index) => (
+            {row.item.evidence.map((evidence) => (
               <button
-                key={index}
+                key={JSON.stringify(evidence)}
                 type="button"
                 onClick={() => props.onEvidence(evidence)}
                 className="w-fit max-w-full truncate rounded-xs text-left font-mono text-xs leading-4 text-muted-foreground underline decoration-border underline-offset-2 focus-ring hover:text-foreground hover:decoration-current"

@@ -101,10 +101,11 @@ const taskBody = (fields: Record<string, unknown> = {}) =>
     },
   });
 
+const line = (state: string, missing?: string) =>
+  spadeGoalLine(parseSpadeGoalProgress({ task_progress: progress(state) }), missing);
+
 describe("goal progress words", () => {
   test("the row says only what the check derived, never the bot's own done", () => {
-    const line = (state: string, missing?: string) =>
-      spadeGoalLine(parseSpadeGoalProgress({ task_progress: progress(state) }), missing);
     expect(line("working")).toBe("4 of 6 verified");
     expect(line("checking")).toBe("Checking");
     expect(line("not_yet", "Linux CI still fails")).toBe("Not yet: Linux CI still fails");
