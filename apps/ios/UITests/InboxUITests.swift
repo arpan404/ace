@@ -92,8 +92,8 @@ import XCTest
     }
 
     /// A waiting approval answers from the inbox without opening: the trailing swipe's Allow once
-    /// sends it, and the long-press menu's Deny another. Each row stops waiting once the machine
-    /// closes its request. Both threads are seeded for this test alone.
+    /// allows it, and the long-press menu's Deny denies another, as the machine records them. Each
+    /// row stops waiting once its request closes. Both threads are seeded for this test alone.
     func testSwipeAllowsAWaitingApprovalAndTheMenuDeniesOne() throws {
         let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
         let allowed = try fresh("approval", port: port)
@@ -115,6 +115,7 @@ import XCTest
         XCTAssertTrue(allow.waitForExistence(timeout: 5))
         screenshot("inbox-swipe-allow")
         allow.tap()
+        XCTAssertEqual(decision(allowed, port: port), "allow_once", "the swipe's Allow once allowed this request")
         wait(for: [expectation(for: NSPredicate(format: "NOT (label CONTAINS %@)", command), evaluatedWith: row)], timeout: 15)
 
         let other = app.revealRow("thread.\(denied)")
@@ -124,7 +125,33 @@ import XCTest
         XCTAssertTrue(deny.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Allow once"].exists, "the menu offers both answers")
         deny.tap()
+        XCTAssertEqual(decision(denied, port: port), "deny", "the menu's Deny denied this request")
         wait(for: [expectation(for: NSPredicate(format: "NOT (label CONTAINS %@)", command), evaluatedWith: other)], timeout: 15)
+    }
+
+    /// How the machine answered the thread's approval, as the kind of the option it recorded
+    /// ("allow_once", "deny"), read from the fixture's thread state (`GET /state`) until the
+    /// request closes; nil if it never does within 15 s.
+    private func decision(_ threadId: String, port: String) -> String? {
+        for _ in 0..<30 {
+            if let kind = recorded(threadId, port: port) { return kind }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return nil
+    }
+    private func recorded(_ threadId: String, port: String) -> String? {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/state?thread=\(threadId)"),
+              let data = fetch(URLRequest(url: url)),
+              let view = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let interactions = view["interactions"] as? [String: Any] else { return nil }
+        for case let interaction as [String: Any] in interactions.values {
+            guard let request = interaction["request"] as? [String: Any], request["kind"] as? String == "approval",
+                  interaction["state"] as? String != "pending",
+                  let chosen = (interaction["resolution"] as? [String: Any])?["optionId"] as? String,
+                  let options = request["options"] as? [[String: Any]] else { continue }
+            return options.first { $0["id"] as? String == chosen }?["kind"] as? String
+        }
+        return nil
     }
 
     /// A new thread from the fixture for one test, so answering it never changes another's.
@@ -132,14 +159,19 @@ import XCTest
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/fresh")))
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(["scenario": scenario])
-        let done = expectation(description: "fixture thread")
-        let answer = FreshThread()
+        let body = fetch(request).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
+        return try XCTUnwrap(body?["threadId"], "the fixture made no \(scenario) thread")
+    }
+    /// One request to the fixture, waited for; nil when it fails.
+    private func fetch(_ request: URLRequest) -> Data? {
+        let done = expectation(description: "fixture reply")
+        let reply = FixtureReply()
         URLSession.shared.dataTask(with: request) { data, _, _ in
-            if let data, let body = try? JSONDecoder().decode([String: String].self, from: data) { answer.id = body["threadId"] }
+            reply.data = data
             done.fulfill()
         }.resume()
         wait(for: [done], timeout: 10)
-        return try XCTUnwrap(answer.id, "the fixture made no \(scenario) thread")
+        return reply.data
     }
 
     private func screenshot(_ name: String) {
@@ -150,5 +182,5 @@ import XCTest
     }
 }
 
-/// The fixture's answer, written once by the request's callback before the test reads it.
-private final class FreshThread: @unchecked Sendable { var id: String? }
+/// The fixture's reply, written once by the request's callback before the test reads it.
+private final class FixtureReply: @unchecked Sendable { var data: Data? }
