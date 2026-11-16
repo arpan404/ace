@@ -31,7 +31,6 @@ fn main() {
     std::process::exit(run());
 }
 
-#[cfg(unix)]
 fn run() -> i32 {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -41,11 +40,4 @@ fn run() -> i32 {
         Ok(runtime) => runtime.block_on(ace_media::shell::run(VERSION)),
         Err(_) => 1,
     }
-}
-
-/// The Windows lanes (named pipes with a current-user ACL) are not built yet.
-#[cfg(not(unix))]
-fn run() -> i32 {
-    eprintln!("ace-media: this platform is not supported yet");
-    1
 }

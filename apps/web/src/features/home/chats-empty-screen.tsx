@@ -1,6 +1,6 @@
 import { useSidebarLoaded } from "@ace/client-react";
 import { homeRowThread } from "@ace/ui-core";
-import { ChatsCircleIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon } from "@ace/icons";
 import { Navigate } from "@tanstack/react-router";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -20,7 +20,7 @@ export function ChatsEmptyScreen() {
   if (top) return <Navigate to="/t/$threadId" params={{ threadId: top }} replace />;
   if (!loaded)
     return (
-      <Screen title="Chats" namedByPanel>
+      <Screen page="chats" title="Chats" namedByPanel>
         <LoadingRegion
           label="Chats"
           className="flex h-full flex-col items-center justify-center gap-2 px-5 py-6"
@@ -30,7 +30,7 @@ export function ChatsEmptyScreen() {
       </Screen>
     );
   return (
-    <Screen title="Chats" namedByPanel>
+    <Screen page="chats" title="Chats" namedByPanel>
       <EmptyState
         icon={ChatsCircleIcon}
         heading

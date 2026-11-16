@@ -97,6 +97,11 @@ export function isolatedTestEnvironment(
     ...(process.platform === "win32" && ambient.ACE_WINDOWS_SCREEN_HELPER !== undefined
       ? { ACE_WINDOWS_SCREEN_HELPER: ambient.ACE_WINDOWS_SCREEN_HELPER }
       : {}),
+    // A built ace-media for its process tests (`bun run check:media`, the Windows VM); without
+    // it they drive the TypeScript stand-in or skip.
+    ...(ambient.ACE_MEDIA_TEST_BINARY !== undefined
+      ? { ACE_MEDIA_TEST_BINARY: ambient.ACE_MEDIA_TEST_BINARY }
+      : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
   };
 }

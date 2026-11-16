@@ -1,12 +1,26 @@
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useRouterState } from "@tanstack/react-router";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { NoMachineSidebar, SidebarFrame } from "@/features/shell/index.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 
-/** The app's frame with no machine: the sidebar beside the current place. */
+/**
+ * The app's frame with no machine: Settings (Profile, Fleet) with the sidebar beside it;
+ * anywhere else is the connect page, which takes the whole window as first-run setup does.
+ */
 export function NoMachineShell() {
   // Nothing to load first: the startup screen gives way at once.
   useDismissBootSplash();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const settings = pathname.startsWith("/settings") || pathname === "/pair";
+  if (!settings)
+    return (
+      <div
+        data-no-machine=""
+        className="relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-background"
+      >
+        <Outlet />
+      </div>
+    );
   return (
     <div
       data-no-machine=""

@@ -274,6 +274,17 @@ export class FakeScreen {
     session.state = { ...session.state, ...activity };
     return this.publish(session);
   }
+  /** What a session's live video runs on (ADR 0148), as the daemon reports it; `undefined` clears it. */
+  setAcceleration(
+    sessionId: string,
+    acceleration: ScreenState["acceleration"],
+  ): ScreenState | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    const { acceleration: _, ...rest } = session.state;
+    session.state = acceleration ? { ...rest, acceleration } : rest;
+    return this.publish(session);
+  }
   /** The person at the machine answers its sharing dialog: what they picked, or declined. */
   answerSharingDialog(answer: ScreenChooserPick | "declined"): void {
     for (const session of this.sessions.values()) session.answer?.(answer);

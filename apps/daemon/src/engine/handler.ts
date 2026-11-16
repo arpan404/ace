@@ -13,7 +13,7 @@ import { validateCreation } from "./creation-validation.ts";
 import type { CreationAdmissions } from "./creation-admissions.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
+import { admitSteer, fenceSteer, queueSteerSelection } from "./steer-selection.ts";
 import { baseBranchLabel, requestedBase, requestedBaseKey } from "../worktree-base.ts";
 import {
   ExecutionOptions,
@@ -27,6 +27,8 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
 import { retireUncertainInputs } from "./stale-inputs.ts";
+import { workChangedSince } from "../thread-fence.ts";
+import { threadTree } from "./thread-liveness.ts";
 import { guestRefusal, hostRefusal } from "./guest-admission.ts";
 
 export function engineHandler(
@@ -363,8 +365,19 @@ export function engineHandler(
           threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
             if (!repo.store.getThread(threadId)) return fail("thread_not_found");
-            const at = now();
-            repo.store.appendEvents(threadId, [{ type: "thread.updated", archivedAt: at }], at);
+            const archived = threadId;
+            // One transaction: nothing can start in the tree between the check and the archive.
+            const changed = repo.store.atomic(() => {
+              if (
+                p.beforeSeq !== undefined &&
+                workChangedSince(repo.store, threadTree(repo, archived), p.beforeSeq)
+              )
+                return true;
+              const at = now();
+              repo.store.appendEvents(archived, [{ type: "thread.updated", archivedAt: at }], at);
+              return false;
+            });
+            if (changed) return fail("thread_changed");
             return { commandId: command.id, ok: true };
           }
           if (repo.store.getThread(threadId)?.deletedAt !== undefined)
@@ -463,8 +476,10 @@ export function engineHandler(
           if (!repo.inputCapacity(threadId, limits.maxPendingInputs))
             return fail("provider_input_queue_full");
         }
-        const resolved = recovery.admit(deliveryCommand, threadId);
-        if (!resolved) return fail("queue_capacity_exceeded");
+        const admittedSend = recovery.admit(deliveryCommand, threadId);
+        if (!admittedSend) return fail("queue_capacity_exceeded");
+        // After the default delivery is resolved: an omitted one may have become a steer.
+        const resolved = fenceSteer(repo, admittedSend, threadId);
         const steer = admitSteer(repo, resolved, threadId);
         const admitted = steer.send;
         // Any new message, the person's or a parent agent's, is how a stopped or interrupted turn

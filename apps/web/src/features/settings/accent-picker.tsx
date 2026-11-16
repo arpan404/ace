@@ -13,6 +13,7 @@ import {
   themes,
 } from "@ace/themes";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 const swatch =
   "relative size-7 shrink-0 rounded-full outline-none transition-[box-shadow,translate] duration-(--motion-fast) motion-safe:hover:-translate-y-px shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12),inset_0_1px_0_rgb(255_255_255/0.25)] aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)] focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)]";
@@ -47,6 +48,7 @@ export function AccentPicker() {
     <div className="flex flex-col items-start gap-3">
       <div
         role="radiogroup"
+        {...part("list", undefined, "accent")}
         aria-label="Accent"
         onKeyDown={onRadioKeys}
         className="flex flex-wrap items-center gap-2.5 px-0.5"
@@ -58,6 +60,7 @@ export function AccentPicker() {
             return (
               <Tip key={id} label={`Custom (${appearance.customAccent})`}>
                 <label
+                  {...part("card", checked && "checked", "accent")}
                   className={cn(
                     swatch,
                     "overflow-hidden bg-[conic-gradient(#E5484D,#E8A33D,#46A758,#3E9BD6,#8E4EC6,#E5484D)] has-focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--focus)]",
@@ -87,6 +90,7 @@ export function AccentPicker() {
                 aria-checked={checked}
                 tabIndex={checked ? 0 : -1}
                 onClick={() => update({ accent: id })}
+                {...part("card", checked && "checked", "accent")}
                 className={swatch}
                 style={{ backgroundColor: fitted(id), backgroundImage: gloss }}
               >

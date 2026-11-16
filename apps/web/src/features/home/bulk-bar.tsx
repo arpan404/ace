@@ -6,7 +6,7 @@ import {
   PushPinSlashIcon,
   TrashIcon,
   XIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";

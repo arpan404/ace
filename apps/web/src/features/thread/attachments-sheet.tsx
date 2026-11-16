@@ -1,4 +1,4 @@
-import { TrashIcon } from "@phosphor-icons/react";
+import { TrashIcon } from "@ace/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";

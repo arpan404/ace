@@ -1,7 +1,7 @@
 import { DiffCounts } from "@/components/diff-stat.tsx";
 import type { ForgePrDetail, LinkedPullRequest } from "@ace/protocol";
 import { summaryPrLine, summaryPrRows, prStateWords } from "@ace/ui-core";
-import { GitPullRequestIcon, XIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon, XIcon } from "@ace/icons";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";

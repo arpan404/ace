@@ -45,7 +45,7 @@ struct NeedsRequestSheet: View {
     @State private var draft = QuestionDraftState()
     var body: some View {
         if request.kind == "plan_review" {
-            PlanReviewSheet(plan: request.plan, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
+            PlanReviewSheet(plan: request.plan, summarized: request.summarized ?? "", submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
                 close()
                 model.answerNeed(request, in: threadId, answer: answer)
             }

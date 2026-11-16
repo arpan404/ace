@@ -15,9 +15,11 @@ import { applePlatform } from "@/lib/keymap.ts";
 import { keyOwner, lineEditBytes } from "./keys.ts";
 import type { Row, Style } from "./screen.ts";
 import type { TerminalSessions } from "./sessions.ts";
-import { terminalText, type TerminalSurface } from "./surface.ts";
+import type { TerminalSurface } from "./surface.ts";
 import { canUseXterm, XtermView } from "./xterm-view.tsx";
-import { terminalFont } from "./fonts.ts";
+import { defaultTerminalLook, type TerminalLook } from "./suit-terminal.ts";
+import { lookFont, screenStyle, useTerminalLook, cellWidth } from "./terminal-look.ts";
+import { themeFor } from "./xterm-theme.ts";
 
 /** Bytes a key press sends to a PTY, or undefined when the key is not the terminal's. */
 export function keyBytes(
@@ -31,13 +33,14 @@ export function keyBytes(
   );
 }
 
+// Under a Suit's terminal the screen sets `--term-<hue>` (`screenStyle`); else the theme's hues.
 const tones: Record<NonNullable<Style["tone"]>, string> = {
-  red: "text-status-failed",
-  green: "text-status-done",
-  yellow: "text-status-needs-you",
-  blue: "text-status-working",
-  magenta: "text-status-waiting",
-  cyan: "text-[var(--syn-type)]",
+  red: "text-[var(--term-red,var(--status-failed))]",
+  green: "text-[var(--term-green,var(--status-done))]",
+  yellow: "text-[var(--term-yellow,var(--status-needs-you))]",
+  blue: "text-[var(--term-blue,var(--status-working))]",
+  magenta: "text-[var(--term-magenta,var(--status-waiting))]",
+  cyan: "text-[var(--term-cyan,var(--syn-type))]",
 };
 
 /** Above this many rows a screen mounts only the rows near the viewport. */
@@ -51,7 +54,8 @@ export interface ScreenMark {
   end: number;
 }
 
-const markClass = "rounded-[2px] bg-ring/38 text-foreground";
+const markClass =
+  "rounded-[2px] bg-[var(--term-mark,color-mix(in_oklab,var(--ring)_38%,transparent))] text-[var(--term-ink,var(--foreground))]";
 
 function ScreenRow(props: { row: Row; mark?: ScreenMark | undefined }) {
   const { mark, row } = props;
@@ -63,13 +67,13 @@ function ScreenRow(props: { row: Row; mark?: ScreenMark | undefined }) {
     total += segment.text.length;
   }
   return (
-    <div className="min-h-5 break-all">
+    <div className="min-h-(--term-row,1.25rem) break-all">
       {row.segments.map((segment, index) => {
         const from = starts[index] ?? 0;
         const to = from + segment.text.length;
         const style = cn(
-          segment.style.bold && "font-medium text-foreground",
-          segment.style.dim && "text-subtle-foreground",
+          segment.style.bold && "font-medium text-[var(--term-ink,var(--foreground))]",
+          segment.style.dim && "text-[var(--term-dim,var(--subtle-foreground))]",
           segment.style.tone && tones[segment.style.tone],
         );
         const marked = mark && mark.end > from && mark.start < to;
@@ -99,23 +103,36 @@ export const rowText = (row: Row) => row.segments.map((segment) => segment.text)
 
 /**
  * The rows of a screen, monospace, following output to the bottom unless scrolled up. `mark`
- * highlights a found match and scrolls it into view.
+ * highlights a found match and scrolls it into view. Under a Suit's terminal (`look`) it takes
+ * the font, row height and colours xterm would draw with.
  */
 export function ScreenRows(props: {
   rows: readonly Row[];
   label: string;
   className?: string;
   mark?: ScreenMark | undefined;
+  look?: TerminalLook | undefined;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const virtual = useRef<VirtualRowsHandle>(null);
   const stick = useRef(true);
   const { rows, mark } = props;
-  // The resolved monospace stack plus the symbol faces, read once from the font-mono class.
+  const look = props.look ?? defaultTerminalLook;
+  // The resolved monospace stack plus the symbol faces, from the font-mono class; with a Suit's
+  // terminal, its face, size and colours (resolved against what the box sits on) too.
   useLayoutEffect(() => {
     const element = box.current;
-    if (element) element.style.fontFamily = terminalFont(element);
-  }, []);
+    if (!element) return;
+    const own = look === defaultTerminalLook;
+    // Measured bare: the previous Suit's background must not count as what the box sits on.
+    element.removeAttribute("style");
+    const style = screenStyle(
+      look,
+      lookFont(element, look),
+      own ? undefined : themeFor(element, look),
+    );
+    for (const [name, value] of Object.entries(style)) element.style.setProperty(name, value);
+  }, [look]);
   useLayoutEffect(() => {
     const element = box.current;
     // Scroll this box only (never its ancestors), once per redraw.
@@ -134,6 +151,7 @@ export function ScreenRows(props: {
       ref={box}
       role="log"
       aria-label={props.label}
+      data-part="terminal"
       aria-live="off"
       onScroll={(event) => {
         const element = event.currentTarget;
@@ -148,7 +166,7 @@ export function ScreenRows(props: {
         items={rows}
         virtualAbove={virtualAbove}
         rowKey={rowKey}
-        estimate={terminalText.row}
+        estimate={look.row}
         handle={virtual}
         render={(row, index) => (
           <div data-screen-row={index}>
@@ -227,13 +245,14 @@ function DomTerminalView(props: TerminalViewProps) {
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [mark, setMark] = useState<ScreenMark>();
+  const look = useTerminalLook();
   const focus = useCallback(() => input.current?.focus(), []);
   const paste = useCallback(
     (text: string) => sessions.write(id, text.replace(/\r?\n/g, "\r")),
     [sessions, id],
   );
   useScreenSurface(props.onSurface, rows, setMark, { focus, paste });
-  useResize(box, (cols, height) => sessions.resize(id, cols, height));
+  useResize(box, look, (cols, height) => sessions.resize(id, cols, height));
   const autoFocus = useEffectEvent(() => props.autoFocus);
   useEffect(() => {
     if (autoFocus()) focus();
@@ -273,7 +292,7 @@ function DomTerminalView(props: TerminalViewProps) {
         if (!window.getSelection()?.toString()) focus();
       }}
     >
-      <ScreenRows rows={rows} label={`${props.name} output`} mark={mark} />
+      <ScreenRows rows={rows} label={`${props.name} output`} mark={mark} look={look} />
       <textarea
         ref={input}
         aria-label={`${props.name} input`}
@@ -291,20 +310,23 @@ function DomTerminalView(props: TerminalViewProps) {
   );
 }
 
-/** Report the cell grid the element fits (13px mono on 20px rows), as it changes. */
+/** Report the cell grid the element fits (13px mono on 20px rows, or the Suit's), as it changes. */
 function useResize(
   box: React.RefObject<HTMLDivElement | null>,
+  look: TerminalLook,
   onResize: (cols: number, rows: number) => void,
 ) {
   const report = useEffectEvent(onResize);
+  const cell = useEffectEvent(() => ({ width: cellWidth(look), row: look.row }));
   useEffect(() => {
     const element = box.current;
     if (!element || typeof ResizeObserver === "undefined") return;
     let last = "";
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      const cols = Math.max(20, Math.floor((entry.contentRect.width - 24) / 7.8));
-      const rows = Math.max(4, Math.floor(entry.contentRect.height / terminalText.row));
+      const { width, row } = cell();
+      const cols = Math.max(20, Math.floor((entry.contentRect.width - 24) / width));
+      const rows = Math.max(4, Math.floor(entry.contentRect.height / row));
       const size = `${cols}x${rows}`;
       if (size === last) return;
       last = size;

@@ -28,6 +28,7 @@ export { restartedSubagents, summaryFleet } from "./scenarios/summary-fleet.ts";
 export { childActions, childActionsIds, sessionLimitText } from "./scenarios/child-actions.ts";
 export { refusedDelegation } from "./scenarios/refused-delegation.ts";
 export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-turn.ts";
+export { restartedTurn, seedRestartedTurn } from "./scenarios/restarted-turn.ts";
 export { limitPausedTurn, seedTurnEndings, stoppedByYou } from "./scenarios/turn-endings.ts";
 export { leftRunning, seedLeftRunning } from "./scenarios/left-running.ts";
 export { seedSettledHeld } from "./scenarios/settled-held.ts";
@@ -133,6 +134,8 @@ export { startedConversation, startedConversationIds } from "./scenarios/started
 export { seedRealCatalogs } from "./scenarios/real-catalogs.ts";
 
 export { seedColdStartState, coldTdd } from "./cold-start-state.ts";
+/** Payloads per `item.raw` page the fake answers with. */
+export { rawPageSize } from "./long-thread-wire.ts";
 export { workCardScenario, type WorkCardState } from "./scenarios/work-card.ts";
 export type { SkillSeed } from "./skill-library.ts";
 export {
@@ -156,3 +159,4 @@ export type { FakeSpadeNote } from "./spade-notes.ts";
 export type { FakeSpadeSpending } from "./spade-oversight.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";

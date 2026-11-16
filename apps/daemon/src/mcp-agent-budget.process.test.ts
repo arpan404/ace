@@ -58,7 +58,8 @@ const reloading = new Set<ProviderKind>(["opencode", "pi"]);
  */
 const budgets: Record<ProviderKind, number> = {
   // Lowered from 2_650 when schemas were compacted and Claude preloaded only context and delegate.
-  claude: 1_550,
+  // Raised from 1_550 (measured 1_575): the make-a-suit skill line and suit_apply's deferred name.
+  claude: 1_600,
   codex: 1_150,
   // Raised from 2_650 (measured 2_661 with the wording trimmed): html_render says what its 360 px
   // layout check refuses, wait names the usage-limit hold, delegate takes another machine's
@@ -250,12 +251,22 @@ it("every shipped guide is reachable from the always-on guidance and serves thro
   for (const topic of guideTopics) expect(aceInstructions).toContain(topic);
   // The guide tool's topic enum names every guide once; the shared text names the families.
   const pointers = `${aceInstructions}\n${JSON.stringify(guide.inputSchema)}`;
-  for (const { name, body } of await builtinGuides()) {
+  for (const { name, body, files } of await builtinGuides()) {
     expect(pointers, name).toContain(name);
     const served = await full.call("guide", { topic: name });
     expect(served.failed, name).toBe(false);
     expect(z.object({ guide: z.string() }).parse(served.data).guide).toBe(body);
+    // Providers without native skills read a guide's reference files through guide too.
+    for (const [file, content] of Object.entries(files)) {
+      const reference = await full.call("guide", { topic: name, file });
+      expect(reference.failed, file).toBe(false);
+      expect(z.object({ guide: z.string() }).parse(reference.data).guide).toBe(content);
+    }
   }
+  const missing = await full.call("guide", { topic: "make-a-suit", file: "references/nope.md" });
+  expect(missing.failed).toBe(true);
+  expect(missing.text).toContain("invalid_arguments");
+  expect(missing.text).toContain("references/suit-json.md");
 });
 
 it("a wrong guide topic or an unavailable tool tells the agent what to call next", async () => {
@@ -335,7 +346,7 @@ it(`a Codex session without tool search pays at most ${codexWithoutToolSearchCap
   await codex.close();
 });
 
-it("Claude's per-request ace context stays under 1,550 tokens", async () => {
+it("Claude's per-request ace context stays under 1,600 tokens", async () => {
   const agents = await session();
   const text = guidance("claude", agents.facts);
   // Guidance with the brief, the two always-loaded schemas, every deferred name and the skills.

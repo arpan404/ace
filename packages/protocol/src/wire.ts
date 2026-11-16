@@ -2,6 +2,7 @@ import { CliRequest, CliResult } from "./cli-control.ts";
 import { MachineCodeRequest, MachineCodeResult } from "./machine-access.ts";
 import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
+import { MediaConnectRequest, MediaConnectResult } from "./media-connection.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
 import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
 import {
@@ -89,6 +90,7 @@ import {
 } from "./terminal-client.ts";
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
+import { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "./suits.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
 import { ComputerUsing, ComputerUsingWatch } from "./computer-using.ts";
@@ -264,6 +266,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TerminalRequest,
   TerminalCredit,
   PluginClientMessage,
+  SuitClientMessage,
+  SuitReportMessage,
   DiagnosticsHealthRequest,
   DiagnosticsRequest,
   PermissionCapabilitiesRequest,
@@ -300,6 +304,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...CursorAuthRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
+  MediaConnectRequest,
   ScreenClientMessage,
   ScreenAck,
   DeviceClientMessage,
@@ -382,6 +387,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TerminalResult,
   TerminalOutput,
   PluginServerMessage,
+  ...SuitServerMessage.options,
   DiagnosticsHealthResult,
   DiagnosticsResult,
   PermissionCapabilitiesResult,
@@ -417,6 +423,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SearchQueryResponse,
   SearchStatusResponse,
   SearchErrorResponse,
+  MediaConnectResult,
   ...ScreenServerMessage.options,
   ...DeviceServerMessage.options,
   ...BrowserServerMessage.options,

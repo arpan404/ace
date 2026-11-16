@@ -10,7 +10,7 @@ import XCTest
     func testRightSwipeOnTheDeviceScreenGoesToTheDeviceNotBack() async throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         app.openBrowseDestination("library.devices")
         let row = app.buttons["devices.row"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20))

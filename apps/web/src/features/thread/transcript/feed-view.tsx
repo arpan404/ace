@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import type { HistoryPager } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -364,6 +365,7 @@ export function FeedView(props: FeedViewProps) {
           <div
             ref={viewport}
             data-virtual-viewport=""
+            data-part="transcript"
             // A classic scrollbar reserves the same room on both edges, so the column stays centred
             // on the composer's axis; `useGutter` gives the composer the same inset.
             // Once scrolled, the top 16px fade, so nothing reads as cut under the header.
@@ -401,6 +403,7 @@ export function FeedView(props: FeedViewProps) {
                   </Button>
                 </p>
               )}
+              {!hasOlder && <SuitOrnament slot="transcript-top" className="mb-4 max-h-32" />}
               <div
                 ref={feed}
                 role="feed"

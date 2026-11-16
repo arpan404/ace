@@ -35,6 +35,7 @@ export const CallMethod = z.enum([
   "markThreadRead",
   "loadOlder",
   "outputRead",
+  "readInteraction",
   "networkOnline",
   "reconnectNow",
   "request",

@@ -102,6 +102,20 @@ export function restoredUnconfirmed(queries: QueryClient, shown: ShownQuery): bo
   return query === undefined || query.state.dataUpdatedAt === restored.at;
 }
 
+/**
+ * `restoredUnconfirmed` for a sender deciding as it sends: whether `data` (the value a view
+ * shows) is a copy read back from disk whose query the daemon has not answered since, read from
+ * the cache now, never from a render. Its own query or the one it was carried over from:
+ * either way, the one it was restored under.
+ */
+export function restoredUnconfirmedNow(queries: QueryClient, data: unknown): boolean {
+  if (typeof data !== "object" || data === null) return false;
+  const restored = restoredAt.get(queries)?.get(data);
+  if (!restored) return false;
+  const query = queries.getQueryCache().get(restored.hash);
+  return query === undefined || query.state.dataUpdatedAt === restored.at;
+}
+
 /** Whether `key` names a PR panel read that is kept between sessions. */
 export function keptForgeQuery(key: QueryKey): boolean {
   return key[0] === "forge" && typeof key[3] === "string" && keptForgeKinds.has(key[3]);

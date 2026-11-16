@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { matchingServices, serviceLabel } from "@ace/ui-core";
 import type { ProviderLoginProgress } from "@ace/protocol";
 import { ProviderTile, StatusLine } from "@/components/provider-tile.tsx";
 import { useModelInstances } from "@/lib/model-catalog.ts";
+import { part } from "@/lib/suit-part.ts";
 import { StepTitle, useFocusOnShow } from "./login-parts.tsx";
 
 /** Past this many choices the list gets a search field and scrolls (OpenCode offers ~240). */
@@ -47,7 +48,10 @@ export function Choices(props: {
     <>
       <StepTitle title={title} line={props.upstreams ? "You can add more later." : undefined} />
       {long && (
-        <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] has-focus-visible:shadow-[0_0_0_1px_color-mix(in_oklab,var(--ring)_50%,transparent)]">
+        <label
+          {...part("search-field")}
+          className="flex h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] has-focus-visible:shadow-[0_0_0_1px_color-mix(in_oklab,var(--ring)_50%,transparent)]"
+        >
           <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
           <input
             ref={search}
@@ -73,11 +77,17 @@ export function Choices(props: {
       <ul
         role="group"
         aria-label={title}
+        {...part("list", undefined, "sign-in-choices")}
         className={long ? "flex max-h-[min(50vh,26rem)] flex-col overflow-y-auto" : "flex flex-col"}
       >
         {shown.map((choice, at) => (
           <li key={choice.id}>
             <button
+              {...part(
+                "list-row",
+                connected.has(choice.id) ? "done" : props.disabled && "disabled",
+                "sign-in-choice",
+              )}
               ref={at === 0 && !long ? firstChoice : undefined}
               type="button"
               aria-label={choice.label}

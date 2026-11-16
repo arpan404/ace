@@ -16,6 +16,9 @@ final class MachineSession: Identifiable {
 @MainActor @Observable final class MachineInbox {
     private(set) var sessions: [MachineSession] = []
     private(set) var names: [String: String] = [:]
+    /// The worktree start whose card is asked to show (its machine and command id): New thread's
+    /// wait sets it after Send, and a start's Unsent row sets it again to reopen the card.
+    var startCard: InboxKey?
     private var seen: [String: Double]
     /// Each machine's mark as last seen, so an offline machine's rows keep it.
     private var glyphs: [String: String]

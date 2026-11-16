@@ -1,7 +1,8 @@
-import { ClockIcon, HandIcon, QuestionIcon } from "@phosphor-icons/react";
+import { ClockIcon, HandIcon, QuestionIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * The chat's surfaces (docs/design/spade.md, "Conversation"): the bot's words in a soft fill with
@@ -21,14 +22,22 @@ export const quietBubble =
 export const personBubble =
   "min-w-0 max-w-[80%] rounded-lg bg-chat-mine px-3 text-chat-mine-foreground py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
 
-/** A card that waits on the person: raised, its parts 16px apart, its actions in a footer. */
+/**
+ * A card that waits on the person: raised, its parts 16px apart, its actions in a footer. A Suit
+ * reaches it as `card` `waiting`, by what it asks: `spade-question` or `spade-request`.
+ */
 export function RaisedCard(
-  props: React.ComponentProps<"div"> & { children: ReactNode; className?: string },
+  props: React.ComponentProps<"div"> & {
+    asks: "question" | "request";
+    children: ReactNode;
+    className?: string;
+  },
 ) {
-  const { className, children, ...rest } = props;
+  const { asks, className, children, ...rest } = props;
   return (
     <div
       {...rest}
+      {...part("card", "waiting", `spade-${asks}`)}
       className={cn(
         "@container/card my-2 flex w-full max-w-150 min-w-0 flex-col gap-4 rounded-(--chat-bubble-radius) bg-chat-raised p-5 shadow-chat-raised focus-ring pointer-coarse:p-4",
         className,

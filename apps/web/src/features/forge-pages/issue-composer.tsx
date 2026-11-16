@@ -2,6 +2,7 @@ import type { ForgeIssueDetail } from "@ace/protocol";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import type { IssueWrites } from "./issue-writes.ts";
 
 /**
@@ -46,6 +47,7 @@ export function IssueComposer(props: {
   };
   return (
     <form
+      {...part("page-section", undefined, "composer")}
       aria-label="Add a comment"
       className="mt-4 flex flex-col gap-2 border-t border-border pt-4"
       onSubmit={(event) => {

@@ -9,37 +9,26 @@ import {
 } from "@ace/ui-core";
 import { annotationCount } from "@/features/annotations/index.ts";
 import { useClient, useThread } from "@ace/client-react";
-import {
-  CommandId,
-  ThreadId,
-  type CommandPayload,
-  type QueuePage,
-  type QueuedMessage,
-} from "@ace/protocol";
-import { queueActionPayload, type QueueAction } from "@ace/ui-core";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type QueuePage, type QueuedMessage } from "@ace/protocol";
+import type { QueueAction } from "@ace/ui-core";
+import { useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { changeQueue, queueAction, type QueueChange } from "@/lib/live-actions.ts";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { dismissSend } from "./dismissed-sends.ts";
 
 /**
- * One queue-wide action as its daemon command, fenced to the queue revision read just before;
- * rejects when the daemon refuses it.
+ * One queue-wide action as its daemon command, fenced to the queue revision read just before
+ * and sent only while the thread's copy is current (`queueAction`); rejects when refused.
  */
-export async function sendQueueAction(
+export function sendQueueAction(
   client: ReturnType<typeof useClient>,
   threadId: string,
   action: QueueAction,
 ): Promise<void> {
-  const { queue } = await client.request({
-    type: "queue.get",
-    threadId: ThreadId.parse(threadId),
-    limit: 1,
-  });
-  const payload = queueActionPayload(action, ThreadId.parse(threadId), queue);
-  if (payload) await runCommand(client, payload, crypto.randomUUID());
+  return queueAction(client, threadId, action);
 }
 
 /** The text of a queued message, as the person wrote it. */
@@ -150,30 +139,24 @@ export interface QueueControls {
  * on its own pill, with that pill waiting for its command; the others stay usable. Commands are
  * durable and carry the revision they were decided on: when another device got there first the
  * daemon answers `queue_conflict`, the change is taken back, the toast says so, and the page is
- * read again.
+ * read again. While the thread's copy isn't confirmed no change goes at all: the page may be one
+ * kept from before, and a queue-wide action is refused the same way (it reads the queue first).
  */
 export function useQueue(threadId: string): QueueControls {
   const client = useClient();
   const canSteer = useThread(threadId, ["thread"], readCanSteer) === true;
   const toast = useToast();
   const { storage } = useLayout();
-  const { page, retained, failed, refresh, loadingMore, loadMore, unconfirmed } =
+  // `unconfirmed`: the page shown is one kept from an earlier session that the daemon hasn't
+  // answered since. It only disables and words the pills (`busy`); `changeQueue` is what refuses
+  // a change decided on such a page, checking `copy` as it sends.
+  const { page, retained, failed, refresh, loadingMore, loadMore, unconfirmed, copy } =
     useServerQueue(threadId);
-  // A page kept from an earlier session that the daemon has not answered since: nothing is
-  // built from it. Held for the handlers too, so one that runs after a render re-checks.
-  // (When every live action moves behind one gated sender, this check moves there.)
-  const confirmed = useRef(!unconfirmed);
-  useLayoutEffect(() => {
-    confirmed.current = !unconfirmed;
-  }, [unconfirmed]);
   const [edits, setEdits] = useState<ReadonlyMap<string, QueueEdit>>(new Map());
   const [acting, setActing] = useState(false);
   const inFlight = useRef(new Set<string>());
   const revision = page?.revision ?? 0;
-  const target = page && {
-    threadId: ThreadId.parse(threadId),
-    expectedRevision: page.revision,
-  };
+
   const put = (id: string, edit: QueueEdit | undefined) =>
     setEdits((all) => {
       const next = new Map(all);
@@ -181,19 +164,41 @@ export function useQueue(threadId: string): QueueControls {
       else next.delete(id);
       return next;
     });
-  /** Show `edit` on the message now; settle it on the receipt, take it back on a refusal. */
+  /**
+   * Show `edit` on the message now; settle it on the receipt, take it back on a refusal. Sent
+   * through `changeQueue`, which refuses it while the thread's copy isn't current or the page is
+   * an unconfirmed kept copy, fenced to the page's revision (or `read`, the revision the person's
+   * edit was read at).
+   */
   const change = async (
     id: string,
     edit: QueueEdit,
-    payload: CommandPayload | undefined,
+    queued: QueueChange,
     failure: string,
     /** A refusal the caller says itself, with no toast. */
     quiet: (error: unknown) => boolean = () => false,
+    read?: number,
   ) => {
-    if (!payload || !confirmed.current || inFlight.current.has(id)) return false;
+    if (!page || inFlight.current.has(id)) return false;
+    const live = changeQueue(
+      client,
+      { threadId, expectedRevision: read ?? page.revision, copy },
+      queued,
+      (payload) => runCommand(client, payload, crypto.randomUUID()),
+    );
+    if (!live.ok) {
+      toast.add({
+        title: `Couldn't ${failure}`,
+        description:
+          live.refused === "unconfirmed_queue"
+            ? "The queue shown is from before. Try again once it's loaded."
+            : "The queue may have changed. Try again once it's confirmed.",
+      });
+      return false;
+    }
     inFlight.current.add(id);
     put(id, edit);
-    return runCommand(client, payload, crypto.randomUUID())
+    return live.sent
       .then(() => {
         // Shown until a page read after this revision lists the result.
         put(id, { ...edit, revision: edit.revision + 1, settled: true });
@@ -227,12 +232,7 @@ export function useQueue(threadId: string): QueueControls {
     void change(
       message.id,
       { kind: "order", order, revision, settled: false },
-      target && {
-        type: "queue.move",
-        ...target,
-        messageId: message.id,
-        after: after === undefined ? null : CommandId.parse(after),
-      },
+      { kind: "move", messageId: message.id, after: after ?? null },
       "move the message",
     );
   };
@@ -257,14 +257,14 @@ export function useQueue(threadId: string): QueueControls {
       void change(
         message.id,
         { kind: "gone", revision, settled: false },
-        target && { type: "queue.resend", ...target, messageId: message.id },
+        { kind: "resend", messageId: message.id },
         "send the message again",
       ).then(() => refresh()),
     remove: (message) =>
       void change(
         message.id,
         { kind: "gone", revision, settled: false },
-        target && { type: "queue.remove", ...target, messageId: message.id },
+        { kind: "remove", messageId: message.id },
         "remove the message",
       ).then((removed) => {
         // Removed by the person: its message never shows as a bubble either. Only once the
@@ -277,14 +277,7 @@ export function useQueue(threadId: string): QueueControls {
       void change(
         message.id,
         { kind: "delivering", revision, settled: false },
-        target && {
-          type: "queue.edit",
-          ...target,
-          messageId: message.id,
-          input: message.input,
-          ...(message.context ? { context: message.context } : {}),
-          delivery: "steer",
-        },
+        { kind: "send-now", messageId: message.id, input: message.input, context: message.context },
         "send it now",
       );
     },
@@ -293,22 +286,14 @@ export function useQueue(threadId: string): QueueControls {
       const saved = await change(
         message.id,
         { kind: "text", text, revision, settled: false },
-        target && {
-          type: "queue.edit",
-          ...target,
-          ...(read === undefined ? {} : { expectedRevision: read }),
+        {
+          kind: "edit",
           messageId: message.id,
           input: inputWithText(message.input, text),
           // Its files stay by the same words.
-          ...(message.context
-            ? {
-                context: contextAfterEdit(
-                  message.context,
-                  message.input,
-                  inputWithText(message.input, text),
-                ),
-              }
-            : {}),
+          context:
+            message.context &&
+            contextAfterEdit(message.context, message.input, inputWithText(message.input, text)),
         },
         "save the message",
         (error) =>
@@ -316,6 +301,7 @@ export function useQueue(threadId: string): QueueControls {
             read !== undefined &&
             error instanceof CommandRefused &&
             error.code === "queue_conflict"),
+        read,
       );
       return saved ? "saved" : conflict ? "conflict" : "failed";
     },

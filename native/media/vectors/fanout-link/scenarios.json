@@ -1,0 +1,783 @@
+[
+  {
+    "name": "acks stop: the chunks are lost and the link's rate is cut",
+    "steps": [
+      {
+        "op": {
+          "time": 0
+        },
+        "output": {
+          "rate": 1500000,
+          "events": ["keyframe"]
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 0,
+            "key": true,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 40
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 0
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 66
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 1,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 106
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 1
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 132
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 2,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 172
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 2
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 198
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 3,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 238
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 3
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 264
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 4,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 304
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 4
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 330
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 5,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 370
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 5
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 396
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 6,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 436
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 6
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 462
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 7,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 502
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 7
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 528
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 8,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 568
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 8
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 594
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 9,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 634
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 9
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 660
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 10,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 700
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 10
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 726
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 11,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 766
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 11
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 792
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 12,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 832
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 12
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 858
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 13,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 898
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 13
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 924
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 14,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 964
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "ack": 14
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 1000
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 15,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 1066
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 16,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 1132
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 17,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 1198
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 18,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 1264
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 19,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 1330
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 20,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "time": 2600
+        },
+        "output": {
+          "rate": 1500000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 21,
+            "key": true,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 750000,
+          "events": ["lost", "keyframe"]
+        }
+      },
+      {
+        "op": {
+          "time": 2700
+        },
+        "output": {
+          "rate": 750000,
+          "events": []
+        }
+      },
+      {
+        "op": {
+          "publish": {
+            "sequence": 22,
+            "key": false,
+            "bytes": 2000
+          }
+        },
+        "output": {
+          "rate": 750000,
+          "events": []
+        }
+      }
+    ]
+  }
+]

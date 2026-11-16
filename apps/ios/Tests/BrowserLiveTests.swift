@@ -86,6 +86,21 @@ import Testing
         #expect(model.browser.pageSize == nil)
     }
 
+    @Test func brokenHEVCRequestsH264AndThenDecodesItsKeyframe() async throws {
+        let (model, session) = try await connected()
+        model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
+        let broken = BrowserVideoChunk(threadId: "thread", sequence: 1, timestamp: 0, width: 400, height: 300,
+                                       codedWidth: 320, codedHeight: 240, codec: "hvc1.1.6.L153.B0", key: true,
+                                       description: Data([1, 2]), tabId: nil, bytes: Data([1]))
+        session.hub.deliver(broken)
+        try await until { session.acks.count == 1 }
+        #expect(session.acks[0]["fallback"] as? Bool == true)
+        for chunk in try realVideo(threadId: "thread", from: 2, frames: 1) { session.hub.deliver(chunk) }
+        try await until { session.acks.count == 2 }
+        #expect(session.acks[1]["fallback"] == nil)
+        #expect(model.browser.nextPicture() != nil)
+    }
+
     @Test func everyDecodedChunkIsAcknowledgedAndTheScreenDrawsOnlyTheNewest() async throws {
         let (model, session) = try await connected()
         model.openBrowser(size: CGSize(width: 390, height: 700), scale: 3)
@@ -310,6 +325,16 @@ import Testing
         acks.acknowledge(BrowserAck(sequence: 4))
         acks.setVisible(true)
         #expect(log.count == 0)
+    }
+
+    @Test func anAckOwedFromAnEarlierDecoderIsReplacedNotMergedWithANewerOnes() {
+        let log = AckLog()
+        let acks = BrowserAcks(visible: false, send: { log.record($0) })
+        acks.acknowledge(BrowserAck(sequence: 40, generation: 1, keyframe: true))
+        // The view's video started again (a new subscribe): its sequences start over.
+        acks.acknowledge(BrowserAck(sequence: 2, generation: 2))
+        acks.setVisible(true)
+        #expect(log.values == [BrowserAck(sequence: 2, generation: 2)])
     }
 
     @Test func aKeyframeRequestOwedFromTheBackgroundIsStillMadeOnReturn() {

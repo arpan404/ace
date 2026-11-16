@@ -2,7 +2,7 @@ import type { ForgeKind } from "@ace/protocol/forge";
 import type { SourceControlPreferences } from "@ace/protocol";
 import { forgeNames, forgeOrder, hostForge } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import { ForgeIcon } from "@/components/ui/forge-icon.tsx";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
@@ -120,10 +120,7 @@ function AddHostMenu(props: {
 }) {
   return (
     <Menu>
-      <MenuTrigger
-        disabled={props.disabled}
-        className={buttonVariants({ size: "sm", variant: "secondary" })}
-      >
+      <MenuTrigger disabled={props.disabled} {...buttonLook({ size: "sm", variant: "secondary" })}>
         Add host
       </MenuTrigger>
       <MenuContent align="end">

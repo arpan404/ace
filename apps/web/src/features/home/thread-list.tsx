@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { homeRowKey, homeRowThread, listOrderOf, type HomeRow, type RowBox } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
@@ -106,7 +107,7 @@ export function ThreadList(props: {
   /** Where the list starts scrolled to, and where it tells its scroll as it moves. */
   scrollTop?: number | undefined;
   onScroll?: ((top: number) => void) | undefined;
-  /** The list's name for assistive tech: Threads, or Chats. */
+  /** The list's name for assistive tech: Projects, or Chats. */
   label?: string | undefined;
   /** Told whether the last few rows are in view, so older rows can page in as it scrolls. */
   onNearEnd?: ((near: boolean) => void) | undefined;
@@ -437,6 +438,7 @@ export function ThreadList(props: {
         onPointerEnter={() => void loadDrag()}
         onScroll={(event) => props.onScroll?.(event.currentTarget.scrollTop)}
         data-virtual-viewport=""
+        data-part="thread-list"
         style={{
           maskImage:
             "linear-gradient(to bottom, transparent, black 8px, black calc(100% - 8px), transparent)",
@@ -446,7 +448,7 @@ export function ThreadList(props: {
         <div
           ref={listRef}
           role="list"
-          aria-label={props.label ?? "Threads"}
+          aria-label={props.label ?? "Projects"}
           // Its letters jump between rows, so the composer's type-to-focus leaves them alone.
           data-type-ahead=""
           onKeyDownCapture={onKeyDownCapture}
@@ -492,7 +494,9 @@ export function ThreadList(props: {
                   isTask(row) ? "pb-1" : "id" in row ? "pb-0.5" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
-                  sliding && "bg-sidebar",
+                  // Over a Suit's scene the sidebar colour would black the list out for the
+                  // slide, so the rows stay clear there and the scene shows through.
+                  sliding && cn("bg-sidebar", sceneThrough),
                   sliding && entry.rising && "z-[1]",
                 )}
                 style={{

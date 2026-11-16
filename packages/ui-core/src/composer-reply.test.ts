@@ -37,7 +37,7 @@ const strict = Question.parse({
   ],
 });
 
-type Asked = Pick<Interaction, "state" | "blocking" | "request">;
+type Asked = Pick<Interaction, "state" | "blocking" | "request" | "truncated">;
 const asking = (questions: Question[], extra: Partial<Asked> = {}): Asked => ({
   state: "pending",
   blocking: true,
@@ -95,4 +95,10 @@ test("only a question the agent waits on is answered, and only with words", () =
   ).toBeUndefined();
   expect(composerReply(asking([indent]), emptyDraft, "   ")).toBeUndefined();
   expect(composerReply(undefined, emptyDraft, "Tabs")).toBeUndefined();
+});
+
+test("words to a question too large to send whole stay a message: its card answers it", () => {
+  expect(
+    composerReply(asking([indent], { truncated: { chars: 900_000 } }), emptyDraft, "Spaces"),
+  ).toBeUndefined();
 });

@@ -25,7 +25,7 @@ enum MediaFrameKind {
     static let end: UInt8 = 4
     static let hello: UInt8 = 5
 }
-enum MediaFrameCodec { static let h264AnnexB: UInt8 = 1 }
+enum MediaFrameCodec { static let h264AnnexB: UInt8 = 1; static let hevcAnnexB: UInt8 = 3 }
 let mediaFrameKeyframe: UInt32 = 1
 
 /// The header of one MediaFrame, with room reserved for its payload. Nil when it can't be framed.
@@ -64,7 +64,7 @@ func ingestFrame(_ unit: EncodedVideo, now: UInt64) -> Data? {
     let fields = MediaFrameFields(kind: MediaFrameKind.video, flags: unit.keyframe ? mediaFrameKeyframe : 0,
         ageUs: UInt32(min(UInt64(UInt32.max), now > unit.capturedAt ? (now - unit.capturedAt) / 1_000 : 0)),
         width: UInt16(unit.width), height: UInt16(unit.height), displayWidth: display(unit.width), displayHeight: display(unit.height),
-        scale: UInt16(min(65_535, max(1, (unit.scale * 1000).rounded()))), codec: MediaFrameCodec.h264AnnexB, epoch: unit.epoch,
+        scale: UInt16(min(65_535, max(1, (unit.scale * 1000).rounded()))), codec: unit.format.mediaFrameCodec, epoch: unit.epoch,
         codecString: Array((unit.codec ?? "").utf8), extensionBytes: producerStamp(sequence: unit.sequence, timestamp: unit.timestamp, scale: unit.scale))
     guard let header = mediaFrameHeader(fields, payloadBytes: unit.payloadBytes) else { return nil }
     return unit.packet(header)
@@ -293,6 +293,8 @@ final class IngestRoute {
             guard let frame = ingestFrame(unit, now: now()), writer.write(frame, keyframe: unit.keyframe) else { return }
             lastIngest = unit.sequence
         } else {
+            // An HEVC unit never reaches the daemon's socket, so it is no boundary there either.
+            guard unit.format == .h264 else { return }
             legacy(unit); lastLegacy = unit.sequence
         }
     }

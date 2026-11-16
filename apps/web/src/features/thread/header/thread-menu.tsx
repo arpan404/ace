@@ -6,7 +6,7 @@ import {
   TreeStructureIcon,
   PaperclipIcon,
   ArrowSquareOutIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { threadRowFlags } from "@ace/ui-core";
 import {

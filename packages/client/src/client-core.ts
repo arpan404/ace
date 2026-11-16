@@ -39,6 +39,12 @@ import {
   type CommandPayload,
 } from "@ace/protocol";
 import { RecentIds } from "./recent-ids.ts";
+import {
+  checkedPage,
+  readWholeRequest,
+  type InteractionData,
+  type WholeRequestInput,
+} from "./whole-request.ts";
 import type {
   ClientCoreApi,
   ConnectionControl,
@@ -240,6 +246,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
             this.#hostId = message.hostId;
             this.#subscriptions.database(message.databaseId);
             this.#snapshots?.identify(message.hostId);
+            this.#welcomed.resolve();
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
                 () => this.#replay(),
@@ -260,6 +267,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
           case "cursor.auth.error":
           case "registry.result":
           case "output.data":
+          case "interaction.data":
           case "command.status":
             // Resolved above with every other correlated reply.
             break;
@@ -598,8 +606,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   #persistence() {
     const storage = this.#snapshots;
-    return storage ? { storage, scheduler: this.options.scheduler } : undefined;
+    return storage
+      ? { storage, scheduler: this.options.scheduler, welcomed: () => this.#welcomed.promise }
+      : undefined;
   }
+  /** Settles at this client's first welcome: kept records are waited for until then. */
+  #welcomed = Promise.withResolvers<void>();
   /** Settles once durable intents and every view's last read snapshot are written. */
   close(): Promise<void> {
     this.closed = true;
@@ -990,6 +1002,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number }
+      | { type: "interaction.read"; threadId: string; interactionId: string; offset: number }
       | {
           type: "threads.page";
           subscriptionId: string;
@@ -1167,6 +1180,20 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         return { ...result, bytes };
       },
       options,
+    );
+  }
+  /** A summarized request whole (ADR 0157), read in pages of its JSON. */
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return readWholeRequest((offset) =>
+      this.#readCore(
+        { type: "interaction.read", ...input, offset },
+        (value) => {
+          const page = CoreServerMessage.parse(value);
+          if (page.type !== "interaction.data") throw new ClientError("protocol");
+          return checkedPage(input, offset, page satisfies InteractionData);
+        },
+        options,
+      ),
     );
   }
   /** Read a descriptor's text, optionally resuming at a byte offset, in bounded decoded chunks. */

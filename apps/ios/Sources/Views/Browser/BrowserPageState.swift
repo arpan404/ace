@@ -51,7 +51,8 @@ struct BrowserPageState: View {
                 if model.canOperate { Button("Open a page", action: openAddress).buttonStyle(.textAction()).frame(maxWidth: AceDesign.Size.loneAction) }
             })
         }
-        if browser.pageSize == nil { return AnyView(SkeletonPage(label: "Opening the page")) }
+        // The subscribe's poster stands in for the page until its first live picture.
+        if browser.pageSize == nil, !browser.posterShown { return AnyView(SkeletonPage(label: "Opening the page")) }
         return nil
     }
 

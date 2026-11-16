@@ -1,6 +1,7 @@
 /** Settings: every page, its navigation and the theme editor. */
 export {
   AdvancedSettingsScreen,
+  BetaSettingsScreen,
   AgentsSettingsScreen,
   StorageSettingsScreen,
   BrowserSettingsScreen,
@@ -45,6 +46,7 @@ export {
   NoMachineProfileScreen,
   NoMachineSettingsNav,
 } from "./no-machine-settings.tsx";
+export { AccountMachines, AddMachineDialog, type MachineWay } from "./no-machine-fleet.tsx";
 
 /** A Settings page's frame: its title, lede and actions around the body (other slices' pages use it). */
 export { SettingsBody } from "./settings-body.tsx";

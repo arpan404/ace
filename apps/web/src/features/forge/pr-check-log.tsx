@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon } from "@ace/icons";
 import type { ForgeCheckLog } from "@ace/protocol";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";

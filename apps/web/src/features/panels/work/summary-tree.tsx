@@ -164,6 +164,8 @@ export function SummaryTree(props: {
       ref={tree}
       role="tree"
       aria-label="Agent tree"
+      data-part="list"
+      data-variant="agents"
       onKeyDown={treeKeys(setActive, context.fold)}
       onFocus={onFocus}
       onBlur={onBlur}

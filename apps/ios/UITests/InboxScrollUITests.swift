@@ -8,7 +8,7 @@ import XCTest
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         let busy = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.ios-busy-")).firstMatch
         XCTAssertTrue(busy.waitForExistence(timeout: 30), "Start the fixture with ACE_IOS_SPIKE_INBOX=300")
         let list = app.collectionViews.firstMatch

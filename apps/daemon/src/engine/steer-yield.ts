@@ -1,5 +1,6 @@
 import { hasRunningForegroundCommand, type Fact, type ThreadState } from "@ace/core";
 import type { Capabilities } from "@ace/protocol";
+import type { InputSource } from "@ace/engine-api";
 import type { IntentHeader } from "./repository.ts";
 
 /**
@@ -21,6 +22,28 @@ export type SteerRoute = "native" | "yield" | undefined;
  */
 export function isPersonSteer(intent: IntentHeader, personChose: boolean): boolean {
   return personChose || intent.trigger === undefined || intent.trigger === "user";
+}
+
+/**
+ * Whose input a send is, as the provider is told: ace's own for a child's result, the person's
+ * (undefined) for their own or a waiting message they chose to steer in, else an agent's. Only
+ * the person's steer may cut into the running turn.
+ */
+export function inputSource(
+  intent: IntentHeader,
+  personChose: boolean,
+  originKind: string | undefined,
+): InputSource | undefined {
+  if (originKind === "subagent_result") return "ace";
+  return isPersonSteer(intent, personChose) ? undefined : "agent";
+}
+
+/**
+ * The provider's steer cancels the running turn and starts it again with the input (Cursor):
+ * it can't join a turn without stopping it.
+ */
+export function steerRestartsTurn(capabilities: Capabilities): boolean {
+  return capabilities.steeringMode === "interrupt-restart";
 }
 
 /** The provider's native steer reaches the model only once the running tool returns. */
@@ -45,8 +68,10 @@ export function yieldInFlight(state: ThreadState, yielded: SteerYield | undefine
  * steer goes in at once; a person's steer also gets the command out of the way, by moving it to
  * the background where the session can (`backgrounds`), else by interrupting the turn (`yield`)
  * and going in as its next input. Where the provider's steer would cut into the command, only a
- * person's steer goes in; anything else waits for the command to end. While an interrupt winds
- * down, every steer waits for that turn to end.
+ * person's steer goes in; anything else waits for the command to end. Where the provider's
+ * steer restarts the turn (Cursor), anything but a person's steer waits for the turn to end, so
+ * another agent's message never stops the work. While an interrupt winds down, every steer waits
+ * for that turn to end.
  */
 export function steerRoute(
   steer: { person: boolean },
@@ -56,6 +81,8 @@ export function steerRoute(
   backgrounds: boolean,
 ): SteerRoute {
   if (yieldInFlight(state, yielded)) return undefined;
+  if (!steer.person && steerRestartsTurn(capabilities) && rootRun(state) !== undefined)
+    return undefined;
   if (!hasRunningForegroundCommand(state)) return "native";
   if (!steerWaitsForTools(capabilities)) return steer.person ? "native" : undefined;
   if (!steer.person || backgrounds) return "native";

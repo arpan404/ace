@@ -31,7 +31,7 @@ async function turnEndedLeaving(left: readonly Fact[]) {
   app.play(scenario).runUntilBlocked();
   await app.open(`/t/${id}`);
   act(() => app.daemon.apply(id, [facts.endTurn("root")]));
-  const row = await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole(
+  const row = await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole(
     "link",
     { name: new RegExp(`^${title}`) },
   );

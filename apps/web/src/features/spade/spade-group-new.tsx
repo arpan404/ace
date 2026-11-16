@@ -44,7 +44,7 @@ export function SpadeNewGroupScreen() {
   const choices = choicesOf(roster.bots, machines);
   const primary = machines.find((machine) => machine.primary)?.id ?? "";
   return (
-    <Screen title="New group" namedByPanel>
+    <Screen page="spade" title="New group" namedByPanel>
       <div className="h-full overflow-y-auto">
         <div className={cn(readingColumn, "max-w-120 pt-10 pb-16")}>
           {!line.ready ? (

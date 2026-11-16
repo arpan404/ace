@@ -329,16 +329,6 @@ fn work_this_binary_does_not_do_yet_fails_at_once_so_the_daemon_falls_back() {
         still.as_slice(),
         [Effect::Normal(FromMedia::StillFailed { .. })]
     ));
-    let dial = send(
-        &mut engine,
-        json!({ "type": "relay.dial", "stream": "st", "url": "wss://relay/join" }),
-        &[],
-        NOW,
-    );
-    assert!(matches!(
-        dial.as_slice(),
-        [Effect::Normal(FromMedia::RelayFailed { .. })]
-    ));
 }
 
 #[test]

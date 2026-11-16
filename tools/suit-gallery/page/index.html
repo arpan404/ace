@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Suit scene gallery</title>
+    <link rel="stylesheet" href="gallery.css" />
+  </head>
+  <body>
+    <header class="bar" aria-label="Gallery controls">
+      <span class="bar-title">Scenes</span>
+      <nav class="group" id="scenes" aria-label="Scene"></nav>
+      <span class="sep"></span>
+      <div class="group" id="signals" aria-label="Signals">
+        <button type="button" data-signal="working">working</button>
+        <button type="button" data-signal="waiting">waiting</button>
+        <button type="button" data-signal="done">done</button>
+        <button type="button" data-signal="failed">failed</button>
+        <button type="button" data-signal="pr-merged">pr-merged</button>
+      </div>
+      <span class="sep"></span>
+      <div class="group">
+        <button type="button" id="reduce" aria-pressed="false">Reduce motion</button>
+        <button type="button" id="hide" aria-pressed="false">Hide UI</button>
+      </div>
+      <span class="status" id="status" aria-live="polite"></span>
+    </header>
+
+    <main class="window" id="window">
+      <iframe id="scene" title="Scene" sandbox="allow-scripts" tabindex="-1"></iframe>
+
+      <div class="app" id="app">
+        <aside class="side glass">
+          <div class="rail">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <span class="rail-icon on" title="Threads">
+              <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
+            </span>
+            <span class="rail-icon" title="Pull requests">
+              <svg viewBox="0 0 24 24">
+                <circle cx="6" cy="5" r="2" />
+                <circle cx="6" cy="19" r="2" />
+                <circle cx="18" cy="19" r="2" />
+                <path d="M6 7v10M18 17V10a3 3 0 0 0-3-3h-4" />
+              </svg>
+            </span>
+            <span class="rail-icon" title="Automations">
+              <svg viewBox="0 0 24 24"><path d="M13 3 5 14h6l-1 7 8-11h-6z" /></svg>
+            </span>
+            <span class="rail-icon" title="Skills">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3l2.6 5.6L20 9.3l-4 4 1 5.7-5-2.8-5 2.8 1-5.7-4-4 5.4-.7z" />
+              </svg>
+            </span>
+            <span class="rail-fill"></span>
+            <span class="rail-icon" title="Settings">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" />
+                <path
+                  d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"
+                />
+              </svg>
+            </span>
+          </div>
+          <div class="threads">
+            <div class="threads-head">
+              <span class="tab on">Inbox</span><span class="tab">Snoozed</span
+              ><span class="tab">Settled</span>
+            </div>
+            <ul class="rows">
+              <li class="row on">
+                <div class="meta">ace <i class="st working"></i><span>4m</span></div>
+                <div class="title">Scene gallery for Suits</div>
+                <div class="meta">ace/suits-scenes · #2081</div>
+              </li>
+              <li class="row">
+                <div class="meta">ace <i class="st needs"></i></div>
+                <div class="title strong">Approve a lint run in the web app</div>
+                <div class="meta">ace/suits-adr</div>
+              </li>
+              <li class="row">
+                <div class="meta">spade <i class="st done"></i><span>12m</span></div>
+                <div class="title">Keychain endpoint check</div>
+                <div class="meta">spade/keychain · #2074</div>
+              </li>
+              <li class="row">
+                <div class="meta">ace <i class="st failed"></i><span>31m</span></div>
+                <div class="title">Snapshot diff on the phone build</div>
+                <div class="meta">ace/ios-snap</div>
+              </li>
+              <li class="row">
+                <div class="meta">site <span>2h</span></div>
+                <div class="title">Pricing page copy</div>
+                <div class="meta">site/pricing</div>
+              </li>
+              <li class="row">
+                <div class="meta">ace <span>5h</span></div>
+                <div class="title">Relay reconnect backoff</div>
+                <div class="meta">ace/relay-backoff · #2052</div>
+              </li>
+            </ul>
+          </div>
+        </aside>
+
+        <section class="main">
+          <div class="head glass">
+            <div class="head-title">Scene gallery for Suits</div>
+            <div class="head-meta">ace · Opus 5.5 · Med</div>
+          </div>
+          <div class="transcript glass">
+            <div class="column">
+              <div class="you">
+                Give the backdrop a moment of light when a PR merges, and keep it calm the rest of
+                the time.
+              </div>
+              <div class="agent">
+                <p>
+                  I'll keep the motion slow and let <code>pr-merged</code> lift the light for a few
+                  seconds. The other signals stay quiet.
+                </p>
+              </div>
+              <div class="log">
+                <div class="log-head">Worked for 3m 12s</div>
+                <div class="log-row"><span class="verb">Read</span> scene.js</div>
+                <div class="log-row">
+                  <span class="verb">Edited</span> scene.js <span class="add">+38</span>
+                  <span class="del">−6</span>
+                </div>
+                <div class="log-row"><span class="verb">Ran</span> <code>bun run lint</code></div>
+              </div>
+              <div class="agent">
+                <p>
+                  Done. When a pull request merges, the scene brightens for about four seconds, then
+                  settles. Nothing moves faster than it did before.
+                </p>
+                <p>Under Reduce motion it draws one still frame, the scene at its best moment.</p>
+              </div>
+            </div>
+          </div>
+          <div class="foot">
+            <div class="pills">
+              <span class="pill glass"><i class="st working"></i>Working · 4m 12s</span>
+            </div>
+            <div class="composer glass">
+              <span class="plus">+</span>
+              <span class="field">Ask for follow-up changes</span>
+              <span class="send"
+                ><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7" /></svg
+              ></span>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="contrast.js"></script>
+    <script src="gallery.js"></script>
+  </body>
+</html>

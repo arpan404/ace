@@ -18,7 +18,9 @@ export class MessageSenders {
       db.exec(`CREATE TABLE IF NOT EXISTS agent_message_senders (
       command_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, sender_thread TEXT NOT NULL,
       created_at INTEGER NOT NULL
-    ); CREATE INDEX IF NOT EXISTS agent_message_senders_age ON agent_message_senders(created_at);`),
+    ); CREATE INDEX IF NOT EXISTS agent_message_senders_age ON agent_message_senders(created_at);
+    CREATE INDEX IF NOT EXISTS agent_message_senders_pair
+      ON agent_message_senders(thread_id, sender_thread);`),
     );
   }
   /** Records the sender before the message is sent; a retry of the same command keeps the first. */
@@ -35,6 +37,17 @@ export class MessageSenders {
         FROM agent_message_senders ORDER BY created_at DESC LIMIT -1 OFFSET ?)`,
       ).run(capacity);
     });
+  }
+  /** Whether `sender`'s agent has sent `thread` a message that is still on record. */
+  hasMessaged(sender: ThreadId, thread: ThreadId): boolean {
+    return this.store.atomic(
+      (db) =>
+        db
+          .prepare(
+            "SELECT 1 FROM agent_message_senders WHERE thread_id=? AND sender_thread=? LIMIT 1",
+          )
+          .get(thread, sender) !== undefined,
+    );
   }
   /** The thread that sent `command` to `thread`, if an agent did. */
   sender(command: string, thread: ThreadId): ThreadId | undefined {

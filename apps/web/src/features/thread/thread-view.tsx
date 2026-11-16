@@ -1,3 +1,5 @@
+import { isChatEntry } from "@ace/ui-core";
+import { useIsChat } from "@/lib/projects.ts";
 import { startedByWords } from "@ace/ui-core/outside-clients";
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
@@ -119,7 +121,7 @@ export function ThreadView(props: {
     <ThreadNavProvider threadId={props.threadId}>
       <Suspense
         fallback={
-          <Screen title="">
+          <Screen page="thread" title="">
             <ThreadLoading />
           </Screen>
         }
@@ -147,6 +149,7 @@ const screenFacts = (thread: ThreadRecord) => ({
   lineage: thread.lineage,
   startedByClient: thread.startedByClient,
   queuedLaunch: thread.queuedLaunch,
+  chat: isChatEntry(thread),
 });
 
 function ThreadScreen(props: {
@@ -161,6 +164,8 @@ function ThreadScreen(props: {
   // Requests are part of opening the thread, never deferred until browser idle time.
   if (requests?.length) use(DeferredComposerStrip.preload());
   const error = useThreadError(props.threadId);
+  // A chat (ADR 0099) is its own Suit page (`data-page=chat`).
+  const isChatProject = useIsChat();
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -222,6 +227,7 @@ function ThreadScreen(props: {
     <ThreadPartsProvider value={parts}>
       <WorkCardContext value={workCard}>
         <Screen
+          page={meta && (meta.chat || isChatProject(meta.workspaceId)) ? "chat" : "thread"}
           crumb={meta && (props.crumb ?? (parented ? <ThreadCrumb threadId={id} /> : undefined))}
           mark={meta && !props.crumb && !parented && <ThreadGlyph threadId={id} />}
           title={
@@ -272,6 +278,7 @@ function ThreadScreen(props: {
                 {drop.overlay}
                 {meta.queuedLaunch ? (
                   <QueuedLaunch
+                    threadId={id}
                     text={meta.queuedLaunch.text}
                     parentThreadId={parentThreadId}
                     slotLimit={meta.queuedLaunch.slotLimit}

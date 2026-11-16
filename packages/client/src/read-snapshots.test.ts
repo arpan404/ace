@@ -556,6 +556,13 @@ test("a late cached sidebar cannot replace a live window", async () => {
   });
   const lease = f.client.threads();
   await f.start();
+  // The disk has not answered: the list's first subscribe waits its 250 ms for the kept list.
+  f.elapse(250);
+  await expect
+    .poll(() =>
+      f.sent.some((message) => message.type === "subscribe" && message.scope.kind === "threads"),
+    )
+    .toBe(true);
   f.deliver({
     type: "snapshot",
     subscriptionId: f.wire("threads").subscriptionId,

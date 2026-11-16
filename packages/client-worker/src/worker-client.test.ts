@@ -490,6 +490,29 @@ test("a tab holding its liveness lock is never dropped for silence, and is relea
   expect(host.clients).toBe(0);
 });
 
+test("a window that opens a thread while hidden is sent it the moment it is shown", async () => {
+  const { daemon, tab } = world();
+  const script = new ScenarioPlayer(daemon, flakyCheckout());
+  script.runUntilBlocked();
+  // The app opens behind another window or on another Space: its page starts hidden.
+  const remote = tab();
+  remote.show(false);
+  await remote.start();
+  await settled(remote);
+  const lease = remote.thread(script.threadId);
+  // The worker's client has the thread (another holder reads it), but a hidden page is sent
+  // nothing (ADR 0056); a round trip to the worker shows nothing was on its way.
+  const reference = (await inProcess(daemon)).thread(script.threadId);
+  await vi.waitFor(() => expect(reference.store.thread).toBeDefined());
+  await remote.itemsPage({ threadId: script.threadId, limit: 1 });
+  expect(lease.store.thread).toBeUndefined();
+
+  remote.show(true);
+  await vi.waitFor(() => expect(transcript(lease.store)).toEqual(transcript(reference.store)));
+  lease.release();
+  reference.release();
+});
+
 test("a tab hidden through a long stream catches up exactly when shown", async () => {
   const { daemon, tab } = world();
   const script = new ScenarioPlayer(daemon, longHistory(700));

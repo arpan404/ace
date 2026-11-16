@@ -12,6 +12,7 @@ import { followDevicesSetting } from "../devices-setting.ts";
 import { LazyDevices, lazyDevices } from "../lazy-devices.ts";
 import { screenHelperExecutable } from "../screen-helper-path.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
+import { mediaOwner } from "./media-connect.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { writeDeviceMessage } from "./device-write.ts";
 import { startMedia } from "./media.ts";
@@ -233,6 +234,8 @@ export function createDevicesSession(context: SocketContext): SocketService {
         context.options.store.getMcpAgent(ThreadId.parse(threadId), AgentId.parse(agentId)) !==
         undefined,
       send: delivery.send,
+      // Subscribes naming a media connection go to ace-media (D1) while it serves devices.
+      delivery: { owner: () => mediaOwner(context), port: () => context.options.mediaDelivery?.() },
       media: {
         bufferedBytes: () => context.socket.bufferedAmount,
         write: (piece) =>

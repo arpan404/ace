@@ -79,7 +79,7 @@ async function setup() {
   app.play(finished("thread-done", "Ship the release notes", "completed")).runUntilBlocked();
   app.play(finished("thread-failed", "Migrate the billing table", "failed")).runUntilBlocked();
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   await list.findByRole("link", { name: /^Rewrite the install page/ });
   /** A thread's row in the list. */
   const link = (title: string) => list.getByRole("link", named(title));
@@ -164,7 +164,8 @@ test("a working row shows its time with the working icon and no animated element
   const { row, link, open } = await setup();
   const title = "Rewrite the install page for the daemon";
   const icon = () => link(title).querySelector('[data-icon="working"]');
-  const animated = () => link(title).querySelector("[data-live], .fx-live-dot, [data-state]");
+  const animated = () =>
+    link(title).querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph]");
   expect(row(title)).toEqual({ level: "active", muted: true });
   expect(icon()).toBeTruthy();
   expect(animated()).toBeNull();
@@ -183,7 +184,7 @@ test("a waiting approval draws its amber icon with no word, on its row only, and
   ] as const)
     createIdleTask(app.daemon, { id, title, workspaceId: "ace", provider: "codex" });
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   await list.findByRole("link", { name: /^Publish the release/ });
   act(() =>
     app.daemon.apply("thread-asks", [
@@ -236,7 +237,7 @@ test("an unsent thread draws its amber icon named Not sent and a stopped one res
   const app = harness();
   seedRealThreadState(app.daemon);
   await app.open("/new");
-  const list = within(await screen.findByRole("navigation", { name: "Threads" }));
+  const list = within(await screen.findByRole("navigation", { name: "Projects" }));
   const stopped = await list.findByRole("link", { name: /^Finish the background build/ });
   const unsent = await list.findByRole("link", { name: /^Check the saved message/ });
   expect(unsent.getAttribute("aria-label")).toContain("Not sent");
@@ -246,5 +247,5 @@ test("an unsent thread draws its amber icon named Not sent and a stopped one res
   expect(within(stopped).queryByText(/Stopped|Agent stopped/)).toBeNull();
   // Queue paused is waiting, muted and still: its hourglass, no animation.
   expect(stopped.querySelector('[data-icon="waiting"]')).toBeTruthy();
-  expect(stopped.querySelector("[data-live], .fx-live-dot, [data-state]")).toBeNull();
+  expect(stopped.querySelector("[data-live], .fx-live-dot, [data-slot=status-glyph]")).toBeNull();
 });

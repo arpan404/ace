@@ -3,6 +3,7 @@ import type { ForgeIssueDetail } from "@ace/protocol";
 import { ForgeProse, useTaskSave } from "@/features/forge/index.ts";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import type { IssueWrites } from "./issue-writes.ts";
 
 /**
@@ -29,7 +30,11 @@ export function IssueDescription(props: { issue: ForgeIssueDetail; writes: Issue
     `${issue.ref.number}:${issue.updatedAt}`,
   );
   return (
-    <section aria-labelledby="issue-description" className="mt-6 border-t border-border pt-4">
+    <section
+      {...part("page-section", undefined, "description")}
+      aria-labelledby="issue-description"
+      className="mt-6 border-t border-border pt-4"
+    >
       <div className="mb-1 flex items-center justify-between gap-2">
         <h3 id="issue-description" className="text-ui font-medium text-muted-foreground">
           Description

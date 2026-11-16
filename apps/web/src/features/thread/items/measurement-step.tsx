@@ -4,8 +4,8 @@ import {
   QuestionIcon,
   WarningCircleIcon,
   WarningIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import type { Attachment, InteractionMeasurement } from "@ace/protocol";
 import {
   confidenceText,
@@ -33,7 +33,7 @@ import type { useStepDisplay } from "./use-step-display.ts";
  * going or a result the payloads no longer hold, the step reads as an ordinary row (`plain`).
  */
 
-const icons: Record<InteractionMeasurement["verdict"], PhosphorIcon> = {
+const icons: Record<InteractionMeasurement["verdict"], GlyphIcon> = {
   smooth: CheckCircleIcon,
   minor_hitches: WarningCircleIcon,
   janky: WarningIcon,

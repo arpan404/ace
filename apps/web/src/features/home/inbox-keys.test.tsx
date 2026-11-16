@@ -9,7 +9,7 @@ import { createIdleTask } from "@/test/tasks.ts";
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const row = (title: string) =>
   within(threads()).queryByRole("link", { name: new RegExp(`^${title}`) });
 const tab = (name: "Inbox" | "Snoozed" | "Settled") =>
@@ -28,7 +28,7 @@ async function openHome() {
     provider: "codex",
   });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole("link", {
     name: /^Tidy the README/,
   });
   return app;

@@ -41,11 +41,12 @@ test("a refused step the bot tried again comes to the person with the reason, an
       { allowed: true, always: false },
     ]),
   );
-  // It stays in the chat, answered: one line that says how.
-  const answered = within(
-    await screen.findByRole("group", { name: "Scout asks again to use book flight. Allowed" }),
+  // Answered, it leaves the chat: nothing of a finished step stays.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("group", { name: /^Scout asks again to use book flight/ }),
+    ).toBeNull(),
   );
-  expect(answered.queryByRole("button", { name: "Allow" })).toBeNull();
 });
 
 test("the activity log lists the reviewer's verdicts with their reasons, and how the task went on", async () => {

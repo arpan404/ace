@@ -5,7 +5,7 @@ import { createIdleTask } from "@/test/tasks.ts";
 
 /** The pencil at the end of the filter row under the Threads title row. */
 async function newThreadButton() {
-  const panel = await screen.findByRole("complementary", { name: "Threads" });
+  const panel = await screen.findByRole("complementary", { name: "Projects" });
   return within(panel).findByRole("link", { name: "New thread" });
 }
 

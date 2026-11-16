@@ -5,7 +5,7 @@ import {
   projectNameProblem,
   savedProjectNotes,
 } from "@ace/ui-core";
-import { TrashIcon } from "@phosphor-icons/react";
+import { TrashIcon } from "@ace/icons";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";

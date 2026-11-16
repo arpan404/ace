@@ -8,6 +8,7 @@ import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.t
 import { useOrganizerState, useWindowThreads } from "@/features/organize/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useHeld } from "@/lib/held.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
@@ -97,11 +98,16 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
     return () => observer.disconnect();
   }, [foot, more]);
   return (
-    <Screen title="History">
-      <div className={cn("h-full overflow-y-auto", gutter)}>
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-(--forge-gutter) pt-6 pb-10">
+    <Screen page="history" title="History">
+      <div {...part("scrollbar")} className={cn("h-full overflow-y-auto", gutter)}>
+        <div
+          {...part("page-body")}
+          className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-(--forge-gutter) pt-6 pb-10"
+        >
           {/* The header names the page (h1); this is its title over the list. */}
-          <h2 className="text-xl font-semibold text-foreground">History</h2>
+          <h2 {...part("page-title")} className="text-xl font-semibold text-foreground">
+            History
+          </h2>
           <SearchField
             label="Search history"
             placeholder="Search settled threads, PRs, branches"
@@ -120,7 +126,7 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
                   : "No settled threads yet."}
             </p>
           ) : (
-            <div {...keys}>
+            <div {...part("list")} {...keys}>
               <VirtualList
                 label="Settled threads"
                 items={entries}
@@ -186,9 +192,15 @@ function ProjectChips(props: { project: string | undefined; onProject(id?: strin
   const ids = projects.map((each) => each.id);
   if (props.project !== undefined && !ids.includes(props.project)) ids.push(props.project);
   return (
-    <div role="group" aria-label="Project" className="-mx-3 flex flex-wrap gap-1">
+    <div
+      {...part("filter-bar")}
+      role="group"
+      aria-label="Project"
+      className="-mx-3 flex flex-wrap gap-1"
+    >
       <button
         type="button"
+        {...part("label-chip", props.project === undefined && "selected")}
         aria-pressed={props.project === undefined}
         onClick={() => props.onProject(undefined)}
         className={chip(props.project === undefined)}
@@ -199,6 +211,7 @@ function ProjectChips(props: { project: string | undefined; onProject(id?: strin
         <button
           key={id}
           type="button"
+          {...part("label-chip", props.project === id && "selected")}
           aria-pressed={props.project === id}
           onClick={() => props.onProject(id)}
           className={chip(props.project === id)}

@@ -5,7 +5,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import { formatElapsed } from "@ace/ui-core/time";
-import { CheckIcon, CopyIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@phosphor-icons/react";
+import { CheckIcon, CopyIcon, SpeakerHighIcon, SpeakerSlashIcon } from "@ace/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

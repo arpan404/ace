@@ -1,5 +1,5 @@
 import { spadeSetupSentence, spadeStateLine } from "@ace/ui-core/spade-chat";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";

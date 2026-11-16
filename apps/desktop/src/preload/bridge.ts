@@ -85,6 +85,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     },
     daemon: {
       connection: () => call("daemon.connection"),
+      /** The connection this page will most likely get, without waiting for the daemon. */
+      expected: (remembered?: string) => call("daemon.expected", remembered ?? null),
       authorize: (url: string) => call("daemon.authorize", url),
       status: () => call("daemon.status"),
       restart: () => call("daemon.restart"),
@@ -152,6 +154,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       toggleFullScreen: () => call("window.action", "fullscreen"),
       close: () => call("window.action", "close"),
       state: () => call("window.state"),
+      /** This window's page as a JPEG, for a Suit's live check. */
+      capture: (request: RequestOf<"window.capture">) => call("window.capture", request),
       onChange: (listener: (value: EventOf<"window.changed">) => void) =>
         subscribe("window.changed", listener),
     },

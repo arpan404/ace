@@ -53,6 +53,8 @@ struct ConversationFeed: View {
     @Binding var behind: Bool
     /// Bumped by each Scroll to end the person taps.
     var jumps = 0
+    /// Where the turn rail beside the feed learns the reader's turn and the keyboard; nil has no rail.
+    var railPlace: TurnRailPlace? = nil
     /// Words taken back from a message that wasn't sent go into the composer.
     @State private var reading = TranscriptReading()
     @State private var initialScroll = false
@@ -60,12 +62,10 @@ struct ConversationFeed: View {
     @State private var intent = TranscriptScrollIntent()
     @State private var settle = TranscriptEndSettle()
     @State private var anchor = TranscriptReadingAnchor()
+    /// Bumped when the rows move to the other stack (`restack`).
+    @State private var stackSwitches = 0
     @State private var extent = TranscriptExtent()
     @State private var viewport = TranscriptViewportController()
-    /// Set when a gesture ends while reading: the next measured layout
-    /// refreshes the capture, since frames at idle may predate the final
-    /// layout pass. Cleared on first use; session restores own their target.
-    @State private var needsPostGestureCapture = false
     /// Previous resident block-to-items snapshot, for classifying missing
     /// blocks on streaming changes without a fresh service reply.
     @State private var lastBlockItems: [String: [String]] = [:]
@@ -88,9 +88,7 @@ struct ConversationFeed: View {
         if value {
             viewport.goLive()
         } else {
-            if let top = currentTopRow() {
-                viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
-            }
+            captureTop()
             viewport.userLeftEnd()
         }
     }
@@ -107,9 +105,20 @@ struct ConversationFeed: View {
         ScrollViewReader { proxy in feed(proxy) }
     }
 
+    /// The scroll view's own frame, header and home indicator included.
+    nonisolated private static let viewportSpace = "transcript.viewport"
+    /// The scrolling content: rows keep their frames in it while the feed scrolls.
+    nonisolated private static let contentSpace = "transcript.content"
+
     private func feed(_ proxy: ScrollViewProxy) -> some View {
+        // The stack for these rows (ADR 0157): chosen before they first lay out, switched only by
+        // `restack`, which bumps `stackSwitches` to lay them out again in the other one.
+        let _ = stackSwitches
+        let rowCount = TranscriptFeedRow.rows(shown).count
+        let stack: TranscriptStackChoice.Stack = ready && rowCount > 0 ? anchor.stack.opened(rows: rowCount) : .lazy
+        PerfCounters.bump("feed.body")
         let scroller = ScrollView {
-            LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            TranscriptRowsStack(stack: stack) {
                 if let problem = reading.problem {
                     ServiceProblem(message: problem)
                     Button("Retry loading messages") { reading.retry(model: model, live: thread) }
@@ -138,34 +147,15 @@ struct ConversationFeed: View {
                     }
                     Color.clear.frame(height: extent.before).accessibilityHidden(true)
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
-                        TranscriptFeedRowView(row: row, thread: shown, links: links).id(row.id)
+                        TranscriptFeedRowView(row: row, thread: shown, links: links).equatable().id(row.id)
                             .disabled(historyStale)
-                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1) }
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("transcript.viewport")) } action: { frame in
-                                let returning = anchor.frames[row.id] == nil
-                                anchor.frames[row.id] = frame
-                                anchor.measured(row.id, height: frame.height, returning: returning)
-                                extent.measure(row.id, height: Double(frame.height))
-                                // Post-gesture shell: refresh the capture from settled
-                                // frames before any drift correction, so a stale
-                                // pre-gesture target can never pull the reader back.
-                                // Post-geometry shell: a pending session restore
-                                // re-runs after the row actually measures, since
-                                // revision events land before lazy remeasurement.
-                                if needsPostGestureCapture, viewport.mode == .reading,
-                                    !viewport.isAiming, viewport.sessionAnchor == nil {
-                                    needsPostGestureCapture = false
-                                    if let top = currentTopRow() {
-                                        viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
-                                    }
-                                }
-                                if viewport.sessionAnchor?.rowID == row.id {
-                                    applySessionRestore(proxy: proxy)
-                                } else {
-                                    correctHeldRowDrift(rowID: row.id, proxy: proxy)
-                                }
+                            .onAppear { ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear") }
+                            // The row's frame in the content, not on screen: a scroll leaves it
+                            // alone, so this runs when rows change height, never per scroll frame.
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { frame in
+                                rowLaidOut(row.id, frame: frame, proxy: proxy)
                             }
-                            .onDisappear { anchor.frames[row.id] = nil }
+                            .onDisappear { keep(.gone(row.id), proxy: proxy); PerfCounters.bump("row.disappear") }
                     }
                     Color.clear.frame(height: extent.after).accessibilityHidden(true)
                 } else { ConversationSkeleton().padding(AceDesign.Space.margin) }
@@ -196,9 +186,14 @@ struct ConversationFeed: View {
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
+            .coordinateSpace(name: Self.contentSpace)
+            // Where the content's top is on screen: the one number a scroll changes.
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.viewportSpace)).minY } action: { origin in
+                contentScrolled(to: origin, proxy: proxy)
+            }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0; feedBottom = $0.maxY }
-        .coordinateSpace(name: "transcript.viewport")
+        .coordinateSpace(name: Self.viewportSpace)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.bottom, for: .alignment)
@@ -222,15 +217,21 @@ struct ConversationFeed: View {
             case .tracking:
                 settle.cancel()
                 viewport.cancelPending()
+                readerTookOver(proxy)
                 model.beginReadingScroll()
                 intent.begin()
+                keep(.phase(.gesture), proxy: proxy)
             // A quick drag can skip tracking: a new gesture is one that starts from rest.
             case .interacting where old == .idle || old == .decelerating || old == .animating:
                 settle.cancel()
                 viewport.cancelPending()
+                readerTookOver(proxy)
                 model.beginReadingScroll()
                 intent.begin(); intent.active = true
-            case .interacting, .decelerating: intent.active = true
+                keep(.phase(.gesture), proxy: proxy)
+            case .interacting, .decelerating:
+                intent.active = true
+                keep(.phase(.gesture), proxy: proxy)
             case .idle:
                 // Only the person's own scroll decides whether the feed follows the end; the
                 // feed's animated scrolls (the keyboard, the composer) settle while text streams.
@@ -241,10 +242,6 @@ struct ConversationFeed: View {
                     let atEnd = intent.metrics.bottom <= AceDesign.Space.group
                     let live = reading.thread == nil || reading.joined
                     setFollowing(atEnd && live)
-                    // The idle-time capture may predate the final layout pass;
-                    // refresh it on the next measured geometry so a stale
-                    // pre-gesture target can never pull the reader back.
-                    needsPostGestureCapture = viewport.mode != .following
                     endRead(moving: false)
                 } else if TranscriptEndButton.leftByOtherScroll(following: pinned, fromEnd: Double(intent.metrics.bottom),
                                                                 viewport: Double(intent.metrics.viewport),
@@ -253,9 +250,26 @@ struct ConversationFeed: View {
                     // VoiceOver) left the end far behind: stop following, as a drag would.
                     setFollowing(false)
                 }
+                // An assistive scroll (VoiceOver's three-finger swipe, Switch Control) is the
+                // reader's own though no finger tracked it; the feed's own scrolls are excluded.
+                if !touched, old == .animating || old == .decelerating, !settle.isRunning, !keyboardMoving,
+                   UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning {
+                    readerTookOver(proxy)
+                }
+                // After the follow mode above: where the scroll came to rest is held, and a
+                // correction owed while it ran is made (`TranscriptPlaceKeeper`).
+                keep(.phase(.idle), proxy: proxy)
+                restack(rows: TranscriptFeedRow.rows(shown).count, moving: false, replaced: false, proxy: proxy)
                 updateBehind()
                 pageIfNeeded(proxy)
-            case .animating: break
+                if let railPlace, behind { railPlace.settle(currentReaderPlace()) }
+            case .animating:
+                keep(.phase(.animating), proxy: proxy)
+                // A scroll that never reports its end still lets an owed correction run.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(Int(TranscriptPlaceKeeper.animationLimit)))
+                    keep(.tick, proxy: proxy)
+                }
             @unknown default: break
             }
             intent.animating = phase == .animating
@@ -271,6 +285,7 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            if new.height != old.height { PerfCounters.bump("content.height") }
             let opened = intent.opened
             if intent.opened, new.height != old.height {
                 // What opened grows under the row the person tapped, which stays put; the feed
@@ -311,198 +326,263 @@ struct ConversationFeed: View {
         return observeReading(scroller, proxy: proxy)
     }
 
+    /// What the feed does when what it reads changes, in five chains short enough to type-check
+    /// quickly (a single chain took the CI compiler too long).
     private func observeReading<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
-        content.onChange(of: acceptedSend) { _, _ in
-            reading.toEnd(model: model, thread: thread)
-            setFollowing(true)
-            toEnd(proxy)
-        }
-        .onChange(of: shown.disclosures.opens) { _, _ in
-            intent.opened = true
-            // Anchor the disclosure while reading history; the live end keeps following.
-            if !following || reading.thread != nil, let top = currentTopRow() {
-                viewport.toggle(rowID: top.rowID, itemID: top.itemID, top: top.top)
+        let rows = observeRows(content, proxy: proxy)
+        let layout = observeLayout(rows)
+        let room = observeRoom(layout, proxy: proxy)
+        let landing = observeLanding(room, proxy: proxy)
+        return observeLifecycle(landing, proxy: proxy)
+    }
+    /// A focus landing (`TranscriptFocusLanding`): its target named, and its deadline.
+    private func observeLanding<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            // A turn's reply names its focus after its rows may have landed: aim at it now.
+            .onChange(of: reading.landing.target) { _, _ in place(.targetNamed, proxy: proxy) }
+            // Ticked when nothing else lays out: a row that never lands or a scroll that changes
+            // nothing must not hold paging and the end's reads for good.
+            .task(id: reading.landing.deadline) {
+                guard let deadline = reading.landing.deadline else { return }
+                try? await Task.sleep(for: .milliseconds(max(0, deadline - model.now())))
+                guard !Task.isCancelled else { return }
+                place(.deadline, proxy: proxy)
             }
-            applyLayoutRevision()
-        }
-        .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
-        .onChange(of: reading.thread?.epoch) { _, _ in
-            extent.update(change: TranscriptExtent.WindowChange(
-                ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
-            lastBlockItems = Dictionary(uniqueKeysWithValues:
-                TranscriptFeedRow.rows(shown).map { ($0.id, $0.block.row.items) })
-        }
-        .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
-        .onChange(of: reading.revision) { _, _ in
-            guard reading.thread != nil else { return }
-            if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
-            updateExtent()
-            let rows = TranscriptFeedRow.rows(shown)
-                if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
-                    // Session restore owns this pass: a center jump would lose
-                    // the saved pixel offset. Coarse-scroll until the row
-                    // measures, then refine to the exact offset below.
-                    reading.focus = nil
-                    if anchor.frames[session.rowID] == nil {
-                        if viewport.correctionFrames == 0 {
-                            proxy.scrollTo(session.rowID, anchor: .center)
-                        }
-                        viewport.noteCorrectionApplied()
-                    } else {
-                        applySessionRestore(proxy: proxy)
-                    }
-                } else if let focus = reading.focus, let row = reading.thread?.screen.blockOrder.first(where: { reading.thread?.screen.blocks[$0]?.row.items.contains(focus) == true }) {
-                reading.focus = nil
-                proxy.scrollTo("block:\(row)", anchor: .center)
-            } else {
-                // Post-measurement layout event: apply the pending semantic
-                // anchor correction, if the viewport still owes one. Gestures
-                // cancel what is owed, so a drag never fights a restore.
-                let locate: (String) -> (key: String, index: Int, top: Double)? = { key in
-                    if let index = rows.firstIndex(where: { $0.id == key }) {
-                        return (key: key, index: index, top: rowTop(key))
-                    }
-                    if let index = rows.firstIndex(where: { $0.block.row.items.contains(key) }) {
-                        return (key: rows[index].id, index: index, top: rowTop(rows[index].id))
-                    }
-                    return nil
-                }
-                let correction = viewport.residentChanged(
-                    newKeys: rows.map(\.id),
-                    locate: locate,
-                    successorOf: { self.itemSuccessor(for: $0, rows: rows) },
-                    now: model.now())
-                switch correction {
-                case .shift:
-                    if let held = viewport.held,
-                        placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
-                        viewport.noteCorrectionApplied()
-                    }
-                case .aim(let index):
-                    if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
-                case .end, .none: break
-                }
+    }
+    /// Sends, disclosures, the window's rows and paging, focus requests and the thread loading.
+    private func observeRows<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .onChange(of: acceptedSend) { _, _ in returnToEnd(proxy: proxy) }
+            .onChange(of: shown.disclosures.opens) { _, _ in disclosuresChanged() }
+            .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
+            .modifier(SpacerCounts(before: extent.before, after: extent.after))
+            .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
+            .onChange(of: reading.loading) { _, loading in if !loading { pageIfNeeded(proxy) } }
+            .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
+                restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
             }
-            pageIfNeeded(proxy)
-        }
-        .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
-        .onChange(of: thread.loaded) { _, loaded in
-            guard loaded else { focusRequested(); return }
-            restoreSessionIfReady()
-            if !initialScroll {
-                if following { toEnd(proxy) }
-                initialScroll = true
-            }
-            focusRequested()
-        }
-        .onChange(of: typeSize) { _, _ in applyLayoutRevision() }
-        .onChange(of: densityId) { _, _ in applyLayoutRevision() }
-        .onChange(of: feedFrame.size) { _, _ in
+            .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
+            .onChange(of: model.focusOnOpen, initial: true) { _, _ in focusRequested() }
+            // Only the rail's pick is read here, so its other state never re-renders the feed.
+            .onChange(of: railPlace?.request) { _, request in if let request { railJump(request, proxy: proxy) } }
+            // A scrub on the rail is the reader taking the feed, as a drag is (`TranscriptFeedPlace`).
+            .onChange(of: railPlace?.takeovers) { _, _ in readerTookOver(proxy) }
+            .onChange(of: thread.loaded) { _, loaded in threadLoaded(loaded, proxy: proxy) }
+    }
+    /// Type size, density, the feed's size and the connection.
+    private func observeLayout<Content: View>(_ content: Content) -> some View {
+        content
+            .onChange(of: typeSize) { _, _ in applyLayoutRevision() }
+            .onChange(of: densityId) { _, _ in applyLayoutRevision() }
             // Rotation and split-view width changes invalidate measurements
             // automatically: only geometry (not paging or streaming) does.
-            applyLayoutRevision()
-        }
-        .onChange(of: model.connection) { _, connection in
-            // A fresh complete window on reconnect before clearing stale: the
-            // bridge resets its stale window and loads around the anchor item,
-            // so never merge old cached chunks with new authoritative rows.
-            if connection == "ready", reading.thread != nil, !reading.loading {
-                reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
+            .onChange(of: feedFrame.size) { _, _ in applyLayoutRevision() }
+            .onChange(of: model.connection) { _, connection in connectionChanged(connection) }
+    }
+    /// The keyboard and the composer: the room under the last row.
+    private func observeRoom<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                keyboardWillMove(note, proxy: proxy)
             }
+            .onChange(of: barHeight) { old, new in
+                // The composer opening as it takes the keyboard moves on the keyboard's spring.
+                let motion: Animation = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
+                roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
+                keyboardMoving = false
+                // Text that streamed in while the keyboard moved.
+                if pinned && !intent.active { toEnd(proxy) }
+            }
+    }
+    /// Appearing and leaving, and Scroll to end.
+    private func observeLifecycle<Content: View>(_ content: Content, proxy: ScrollViewProxy) -> some View {
+        content
+            .task { appeared(proxy: proxy) }
+            .onDisappear { disappeared() }
+            // Away from the end, or reading a window apart from it: following a joined window is at
+            // the end, so Scroll to end isn't offered there.
+            .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
+            // A history window that catches up with the live end while the reader sits at its end
+            // follows it again, so Scroll to end goes.
+            .onChange(of: reading.joined) { _, joined in windowJoined(joined) }
+            .onChange(of: jumps) { _, _ in returnToEnd(proxy: proxy) }
+            .modifier(TranscriptTopEdge())
+    }
+    /// A sent message or a Scroll to end tap: back to the live end, following it.
+    private func returnToEnd(proxy: ScrollViewProxy) {
+        readerTookOver(proxy)
+        reading.toEnd(model: model, thread: thread)
+        setFollowing(true)
+        toEnd(proxy)
+    }
+    private func disclosuresChanged() {
+        intent.opened = true
+        // Anchor the disclosure while reading history; the live end keeps following.
+        if !following || reading.thread != nil, let top = currentTopRow() {
+            viewport.toggle(rowID: top.rowID, itemID: top.itemID, top: top.top)
         }
-        .task {
-            model.readingWillMove = {
-                if let top = currentTopRow() {
-                    viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
+        applyLayoutRevision()
+    }
+    /// A new history window: its rows replace the extent's.
+    private func windowReplaced(proxy: ScrollViewProxy) {
+        extent.update(change: TranscriptExtent.WindowChange(
+            ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
+        let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
+        lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+        restack(rows: rows.count, moving: intent.active || intent.animating, replaced: true, proxy: proxy)
+    }
+    /// The rows' count changed, their window was replaced, or the feed came to rest: move the rows
+    /// to the other stack if `TranscriptStackChoice` says so. A switch lays every row out again,
+    /// so the reader's place is installed as a session anchor, restored once the rows measure, and
+    /// a feed following the end goes back to it.
+    private func restack(rows: Int, moving: Bool, replaced: Bool, proxy: ScrollViewProxy) {
+        guard ready, anchor.stack.update(rows: rows, moving: moving, replaced: replaced) != nil else { return }
+        if !following, let top = currentTopRow() {
+            viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
+        }
+        stackSwitches += 1
+        PerfProbe.add("feed.restacks", 1)
+        if following { toEnd(proxy) }
+    }
+    /// The history window's rows changed: restore, focus or hold the reader's place.
+    private func readingRevised(proxy: ScrollViewProxy) {
+        guard reading.thread != nil else { return }
+        if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
+        updateExtent()
+        let rows = TranscriptFeedRow.rows(shown)
+        if reading.landing.holdsPlace {
+            // A focus still landing owns the place until its row has been shown: no saved
+            // session or held row takes it over, whatever row is on top as pages land.
+            viewport.clearSessionAnchor()
+            place(.revised, proxy: proxy)
+        } else if let session = viewport.sessionAnchor, rows.contains(where: { $0.id == session.rowID }) {
+                // Session restore owns this pass: a center jump would lose
+                // the saved pixel offset. Coarse-scroll until the row
+                // measures, then refine to the exact offset below.
+                if anchor.keeper.frames.frame(session.rowID) == nil {
+                    if viewport.correctionFrames == 0 {
+                        proxy.scrollTo(session.rowID, anchor: .center)
+                    }
+                    viewport.noteCorrectionApplied()
+                } else {
+                    applySessionRestore(proxy: proxy)
                 }
-            }
-            model.readingMoved = { reading.moved() }
-            // Overflow recovery hook: fired once after the gesture ends (or the
-            // page settles) when the held queue discarded rows with no fresh
-            // reset yet. Rebuilds authoritatively around the saved item anchor;
-            // old rows stay readable until the replacement publishes, and the
-            // hold clears `needsFresh` only on that fresh flush. Captures only
-            // class-backed state so the closure never goes stale.
-            model.onReadingNeedsFresh = { [anchor, intent, reading, thread, model] in
-                guard reading.thread != nil, !reading.loading else { return }
-                let shown = reading.shown ?? thread
-                let rows = TranscriptFeedRow.rows(shown)
-                let top = intent.metrics.topInset
-                let frames: [String: CGRect] = anchor.frames
-                let visible = rows.filter { row in (frames[row.id]?.maxY ?? -.infinity) > top + 1 }
-                let first = visible.min { a, b in
-                    let aTop: CGFloat = frames[a.id]?.minY ?? .infinity
-                    let bTop: CGFloat = frames[b.id]?.minY ?? .infinity
-                    return aTop < bTop
+        } else {
+            // Post-measurement layout event: apply the pending semantic
+            // anchor correction, if the viewport still owes one. Gestures
+            // cancel what is owed, so a drag never fights a restore.
+            let locate: (String) -> (key: String, index: Int, top: Double)? = { key in
+                if let index = rows.firstIndex(where: { $0.id == key }) {
+                    return (key: key, index: index, top: rowTop(key))
                 }
-                let item = first?.block.row.items.first ?? reading.lastAnchorItemId
-                if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
+                if let index = rows.firstIndex(where: { $0.block.row.items.contains(key) }) {
+                    return (key: rows[index].id, index: index, top: rowTop(rows[index].id))
+                }
+                return nil
             }
-            restoreSessionIfReady()
-            applyLayoutRevision()
-            if thread.loaded, !initialScroll {
-                if following { toEnd(proxy) }
-                initialScroll = true
+            let correction = viewport.residentChanged(
+                newKeys: rows.map(\.id),
+                locate: locate,
+                successorOf: { self.itemSuccessor(for: $0, rows: rows) },
+                now: model.now())
+            switch correction {
+            case .shift:
+                if let held = viewport.held,
+                    placeRowAtTop(held.rowID, top: held.top, proxy: proxy) {
+                    viewport.noteCorrectionApplied()
+                    keep(.placedHeldRow, proxy: proxy)
+                }
+            case .aim(let index):
+                if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
+            case .end, .none: break
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
-            guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-            // Intersection, not just vertical overlap: a floating keyboard
-            // beside the reading column reserves no space over it.
-            let lift: CGFloat
-            if feedFrame == .zero {
-                lift = max(0, feedBottom - end.minY)
-            } else {
-                lift = CGFloat(TranscriptKeyboardLift.overlap(
-                    feedMinX: Double(feedFrame.minX), feedMaxX: Double(feedFrame.maxX), feedBottom: Double(feedBottom),
-                    keyboardMinX: Double(end.minX), keyboardMaxX: Double(end.maxX), keyboardMinY: Double(end.minY)))
-            }
-            if duration > 0 { keyboardDuration = duration }
-            guard lift != keyboardLift else { return }
-            let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
-            let growth = lift - keyboardLift
-            keyboardMoving = true
-            // The room is empty space: it changes at once, and only the scroll animates, so the
-            // two never drift apart on different curves.
-            var instant = Transaction()
-            instant.disablesAnimations = true
-            withTransaction(instant) { keyboardLift = lift }
-            roomChanged(by: growth, motion: motion, proxy: proxy)
+        pageIfNeeded(proxy)
+    }
+    private func threadLoaded(_ loaded: Bool, proxy: ScrollViewProxy) {
+        guard loaded else { focusRequested(); return }
+        restoreSessionIfReady()
+        if !initialScroll {
+            if following { toEnd(proxy) }
+            initialScroll = true
         }
-        .onChange(of: barHeight) { old, new in
-            // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
-            roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
+        focusRequested()
+    }
+    /// A fresh complete window on reconnect before clearing stale: the bridge resets its stale
+    /// window and loads around the anchor item, so never merge old cached chunks with new
+    /// authoritative rows.
+    private func connectionChanged(_ connection: String) {
+        if connection == "ready", reading.thread != nil, !reading.loading {
+            reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
-            keyboardMoving = false
-            // Text that streamed in while the keyboard moved.
-            if pinned && !intent.active { toEnd(proxy) }
+    }
+    private func keyboardWillMove(_ note: Notification, proxy: ScrollViewProxy) {
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        // Intersection, not just vertical overlap: a floating keyboard
+        // beside the reading column reserves no space over it.
+        let lift: CGFloat
+        if feedFrame == .zero {
+            lift = max(0, feedBottom - end.minY)
+        } else {
+            lift = CGFloat(TranscriptKeyboardLift.overlap(
+                feedMinX: Double(feedFrame.minX), feedMaxX: Double(feedFrame.maxX), feedBottom: Double(feedBottom),
+                keyboardMinX: Double(end.minX), keyboardMaxX: Double(end.maxX), keyboardMinY: Double(end.minY)))
         }
-        .onDisappear {
-            settle.cancel()
-            saveSession()
-            reading.cancel(model: model)
-            model.readingWillMove = nil
-            model.readingMoved = nil
-            model.onReadingNeedsFresh = nil
+        if duration > 0 { keyboardDuration = duration }
+        guard lift != keyboardLift else { return }
+        let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
+        let growth = lift - keyboardLift
+        keyboardMoving = true
+        // The room is empty space: it changes at once, and only the scroll animates, so the
+        // two never drift apart on different curves.
+        var instant = Transaction()
+        instant.disablesAnimations = true
+        withTransaction(instant) { keyboardLift = lift }
+        railPlace?.keyboard(up: lift > 0)
+        roomChanged(by: growth, motion: motion, proxy: proxy)
+    }
+    private func appeared(proxy: ScrollViewProxy) {
+        model.readingWillMove = { captureTop() }
+        model.readingMoved = { reading.moved() }
+        model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
+        restoreSessionIfReady()
+        applyLayoutRevision()
+        if thread.loaded, !initialScroll {
+            if following { toEnd(proxy) }
+            initialScroll = true
         }
-        // Away from the end, or reading a window apart from it: following a joined window is at
-        // the end, so Scroll to end isn't offered there.
-        .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
-        // A history window that catches up with the live end while the reader sits at its end
-        // follows it again, so Scroll to end goes.
-        .onChange(of: reading.joined) { _, joined in
-            if joined, reading.thread != nil, !intent.active, intent.metrics.bottom <= AceDesign.Space.group { setFollowing(true) }
-            updateBehind()
+    }
+    /// Overflow recovery hook: fired once after the gesture ends (or the page settles) when the
+    /// held queue discarded rows with no fresh reset yet. Rebuilds authoritatively around the
+    /// saved item anchor; old rows stay readable until the replacement publishes, and the hold
+    /// clears `needsFresh` only on that fresh flush. Captures only class-backed state so the
+    /// closure never goes stale.
+    private static func rebuildOnOverflow(anchor: TranscriptReadingAnchor, intent: TranscriptScrollIntent,
+                                          reading: TranscriptReading, thread: ThreadModel, model: ClientModel) -> () -> Void {
+        return {
+            guard reading.thread != nil, !reading.loading else { return }
+            let shown: ThreadModel = reading.shown ?? thread
+            let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
+            let topID: String? = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: intent.metrics.topInset)
+            let first: TranscriptFeedRow? = rows.first { $0.id == topID }
+            let item: String? = first?.block.row.items.first ?? reading.lastAnchorItemId
+            if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
         }
-        .onChange(of: jumps) { _, _ in
-            reading.toEnd(model: model, thread: thread)
-            setFollowing(true)
-            toEnd(proxy)
-        }
-        .modifier(TranscriptTopEdge())
+    }
+    private func disappeared() {
+        settle.cancel()
+        saveSession()
+        reading.cancel(model: model)
+        model.readingWillMove = nil
+        model.readingMoved = nil
+        model.onReadingNeedsFresh = nil
+    }
+    private func windowJoined(_ joined: Bool) {
+        if joined, reading.thread != nil, !intent.active, intent.metrics.bottom <= AceDesign.Space.group { setFollowing(true) }
+        updateBehind()
     }
     /// Shows or hides Scroll to end by where the end is now (`TranscriptEndButton`); writes only
     /// on a change, so a scroll's frames don't re-evaluate the thread.
@@ -541,21 +621,54 @@ struct ConversationFeed: View {
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
     private func stepTurn(_ direction: Int, proxy: ScrollViewProxy) {
+        readerTookOver(proxy)
         let rows = TranscriptFeedRow.rows(shown)
         let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
         let top = intent.metrics.topInset
-        let first = rows.firstIndex { (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
+        let first = rows.firstIndex { (anchor.keeper.frames.frame($0.id)?.maxY ?? -.infinity) > top + 1 } ?? rows.count - 1
         setFollowing(false)
         if direction > 0 {
-            if let next = starts.first(where: { $0 > first }) { withAnimation { proxy.scrollTo(rows[next].id, anchor: .top) }; return }
+            if let next = starts.first(where: { $0 > first }) { jump(to: rows[next], proxy: proxy); return }
             reading.toEnd(model: model, thread: thread); setFollowing(true); toEnd(proxy)
             return
         }
         let here = starts.last { $0 <= first }
-        let sitsBelow = here.map { (anchor.frames[rows[$0].id]?.minY ?? top) < top - AceDesign.Space.related } ?? false
-        if let here, here < first || sitsBelow { withAnimation { proxy.scrollTo(rows[here].id, anchor: .top) }; return }
-        if let previous = starts.last(where: { $0 < (here ?? first) }) { withAnimation { proxy.scrollTo(rows[previous].id, anchor: .top) }; return }
+        let sitsBelow = here.map { (anchor.keeper.frames.frame(rows[$0].id)?.minY ?? top) < top - AceDesign.Space.related } ?? false
+        if let here, here < first || sitsBelow { jump(to: rows[here], proxy: proxy); return }
+        if let previous = starts.last(where: { $0 < (here ?? first) }) { jump(to: rows[previous], proxy: proxy); return }
         if reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder { reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID()) }
+    }
+    /// The turn the top row is in, for the turn rail. Only when a scroll settles: it walks the rows held.
+    private func currentReaderPlace() -> TurnRail.Place? {
+        guard let top = currentTopRow() else { return nil }
+        let rows = TranscriptFeedRow.rows(shown)
+        guard let index = rows.firstIndex(where: { $0.id == top.rowID }) else { return nil }
+        return TurnRail.readerPlace(rows.map(Self.mark), top: index)
+    }
+    /// Scrolls the turn's ask to the top and holds it, never the turn the reader left, refreshed
+    /// to where it lands (`TranscriptPlaceKeeper`).
+    private func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
+        keep(.jumped(row.id), proxy: proxy)
+        withAnimation { proxy.scrollTo(row.id, anchor: .top) }
+    }
+    /// A turn picked on the rail, routed as the turn keys' are (`TranscriptFeedPlace`): a takeover,
+    /// then, held already, its ask scrolls to the top (`jump(to:proxy:)`, `.jumped`); otherwise the
+    /// history window opens at it and its landing brings the ask into view, as the Turns list's does.
+    private func railJump(_ request: TurnRail.JumpRequest, proxy: ScrollViewProxy) {
+        // The reader's own pick, as a turn key's is: a focus still landing stops pulling them
+        // back, then the jump goes through the place keeper or the window's landing.
+        readerTookOver(proxy)
+        setFollowing(false)
+        let rows = TranscriptFeedRow.rows(shown)
+        if let index = TurnRail.askIndex(of: request.turn, in: rows.map(Self.mark), count: request.count) {
+            jump(to: rows[index], proxy: proxy)
+        } else {
+            reading.jump(toTurn: request.turn, model: model, live: thread)
+        }
+    }
+    private static func mark(_ row: TranscriptFeedRow) -> TurnRail.Mark {
+        if row.block.row.kind == "user" { return .ask }
+        return row.block.row.ordinal.map(TurnRail.Mark.head) ?? .answer
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     private func focusRequested() {
@@ -564,6 +677,15 @@ struct ConversationFeed: View {
         setFollowing(false)
         if let turn = focus.turn { reading.jump(toTurn: turn, model: model, live: thread) }
         else { reading.jump(to: focus.item, model: model, live: thread) }
+    }
+    /// The reader took the feed somewhere themselves (a drag, a turn key, Scroll to end, a
+    /// send, VoiceOver): a focus still landing or still awaited stops pulling them back.
+    private func readerTookOver(_ proxy: ScrollViewProxy) {
+        place(.takeover, proxy: proxy)
+    }
+    /// The row showing `item` in the history window, for a landing focus.
+    private func rowShowing(_ item: String) -> String? {
+        reading.shown.flatMap { TranscriptFeedRow.rows($0).first { $0.block.row.items.contains(item) }?.id }
     }
     /// Retry stale history: re-ask the bridge around the reader's anchor item
     /// so the rebuild loads fresh rows instead of merging cached chunks.
@@ -581,10 +703,10 @@ struct ConversationFeed: View {
     /// viewport budget (or a gesture) cancels a restore that never settles.
     private func applySessionRestore(proxy: ScrollViewProxy) {
         guard let session = viewport.sessionAnchor,
-            let frame = anchor.frames[session.rowID] else { return }
+            let frame = anchor.keeper.frames.frame(session.rowID) else { return }
         let metrics = intent.metrics
         let top = Double(frame.minY) - Double(metrics.topInset)
-        if abs(top - session.top) <= 2 {
+        if TranscriptRowPlacement.settled(top: top, target: session.top) {
             viewport.clearSessionAnchor()
             return
         }
@@ -606,16 +728,83 @@ struct ConversationFeed: View {
     /// The topmost visible row with its first item and pixel top, for anchor
     /// capture, successor search and session restore.
     private func currentTopRow() -> (rowID: String, itemID: String?, top: Double)? {
-        let top = intent.metrics.topInset
+        let inset = intent.metrics.topInset
         let rows = TranscriptFeedRow.rows(shown)
-        guard let first = rows.filter({ (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 })
-            .min(by: { (anchor.frames[$0.id]?.minY ?? .infinity) < (anchor.frames[$1.id]?.minY ?? .infinity) }) else { return nil }
-        return (rowID: first.id, itemID: first.block.row.items.first,
-                top: Double((anchor.frames[first.id]?.minY ?? top) - top))
+        guard let id = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: inset),
+            let first = rows.first(where: { $0.id == id }) else { return nil }
+        return (rowID: first.id, itemID: first.block.row.items.first, top: anchor.keeper.frames.top(first.id, inset: inset) ?? 0)
+    }
+    /// Takes the row at the top as the one to hold.
+    private func captureTop() {
+        guard let top = currentTopRow() else { return }
+        viewport.noteCaptured(rowID: top.rowID, itemID: top.itemID, top: top.top)
     }
     /// A row's pixel top in viewport coordinates, for the viewport controller.
     private func rowTop(_ rowID: String) -> Double {
-        Double((anchor.frames[rowID]?.minY ?? intent.metrics.topInset) - intent.metrics.topInset)
+        anchor.keeper.frames.top(rowID, inset: intent.metrics.topInset) ?? 0
+    }
+    /// A row was laid out at `frame` in the content: on coming on screen, or when it or a row
+    /// above it changed height. Heights feed the extent; the place keeper puts a held row back.
+    private func rowLaidOut(_ id: String, frame: CGRect, proxy: ScrollViewProxy) {
+        keep(.laidOut(id, frame), proxy: proxy)
+        let change = anchor.keeper.lastLayout
+        if change == .unchanged { return }
+        PerfCounters.bump("row.layout.\(change)")
+        if change != .moved {
+            anchor.measured(id, height: frame.height, returning: change == .appeared)
+            extent.measure(id, height: Double(frame.height))
+        }
+        // A pending session restore re-runs after the row actually measures, since revision
+        // events land before lazy remeasurement. A landing focus re-aims in `place`.
+        if !reading.landing.holdsPlace, viewport.sessionAnchor?.rowID == id { applySessionRestore(proxy: proxy) }
+    }
+    /// The feed scrolled: the content's top is at `origin` on screen. No row is touched.
+    private func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
+        let before = anchor.keeper.frames.origin
+        keep(.origin(origin), proxy: proxy)
+        if anchor.keeper.frames.origin != before, viewport.sessionAnchor != nil { applySessionRestore(proxy: proxy) }
+    }
+    /// What the feed allows the place keeper now.
+    private func placeFacts() -> TranscriptPlaceKeeper.Facts {
+        let restoring = viewport.sessionAnchor != nil
+        return TranscriptPlaceKeeper.Facts(held: viewport.held, inset: intent.metrics.topInset,
+            mayCapture: viewport.mode == .reading && !viewport.isAiming && !restoring,
+            mayCorrect: viewport.canCorrect && !viewport.isAiming && !restoring && viewport.mode != .following
+                && !UIAccessibility.isVoiceOverRunning)
+    }
+    /// Hands `event` to the place keeper and does what it decides: hold a row, or scroll one back.
+    /// Pure-geometry drift (async Markdown and media sizing) is corrected there, bounded by the
+    /// viewport's budget and never during a gesture, a jump re-aiming, VoiceOver or following.
+    private func keep(_ event: TranscriptPlaceKeeper.Event, proxy: ScrollViewProxy) {
+        place(.keeper(event), proxy: proxy)
+    }
+    /// Routes `event` between the place keeper and a landing focus (`TranscriptFeedPlace`) and
+    /// does what they decide. The landing is written back only when it changed, so a scroll
+    /// with no focus landing writes nothing the feed observes.
+    private func place(_ event: TranscriptFeedPlace.Event, proxy: ScrollViewProxy) {
+        let metrics = intent.metrics
+        // The composer and keyboard float over the feed's bottom edge, inside its insets.
+        let geometry = TranscriptFocusLanding.Geometry(viewport: Double(metrics.viewport),
+            topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
+            covered: Double(barHeight + keyboardLift))
+        let facts = TranscriptFeedPlace.Facts(keeper: placeFacts(), geometry: geometry, rowShowing: rowShowing)
+        var landing = reading.landing
+        let actions = TranscriptFeedPlace.next(event, keeper: &anchor.keeper, landing: &landing, facts: facts, now: model.now())
+        if landing != reading.landing { reading.landing = landing }
+        for action in actions {
+            switch action {
+            case .hold(let id, let top):
+                let item = viewport.held?.rowID == id ? viewport.held?.itemID
+                    : TranscriptFeedRow.rows(shown).first { $0.id == id }?.block.row.items.first
+                viewport.noteCaptured(rowID: id, itemID: item, top: top)
+            case .place(let id, let top):
+                if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .top) }
+                viewport.noteCorrectionApplied()
+            case .aim(let id, let fraction):
+                proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
+            case .released: pageIfNeeded(proxy)
+            }
+        }
     }
     /// Scroll so `rowID` sits `top` points below the viewport top. Returns
     /// false when the row fills the viewport (caller falls back to top
@@ -623,31 +812,13 @@ struct ConversationFeed: View {
     /// ones, like the capture/restore fraction.
     @discardableResult
     private func placeRowAtTop(_ rowID: String, top: Double, proxy: ScrollViewProxy) -> Bool {
-        guard let frame = anchor.frames[rowID] else { return false }
+        guard let frame = anchor.keeper.frames.frame(rowID) else { return false }
         let metrics = intent.metrics
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
             bottomInset: Double(metrics.bottomInset), rowHeight: Double(frame.height)) else { return false }
         proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: fraction))
         return true
-    }
-    /// Pure-geometry drift of the ordinary held row: async Markdown/media
-    /// sizing can move it with no bridge patch and no revision event. Bounded
-    /// by the viewport budget, cancelled by gestures, and never fights an
-    /// active drag, a landing jump, VoiceOver, or the live end.
-    private func correctHeldRowDrift(rowID: String, proxy: ScrollViewProxy) {
-        guard !intent.active, !viewport.isAiming, viewport.canCorrect,
-            !UIAccessibility.isVoiceOverRunning,
-            viewport.mode != .following,
-            let held = viewport.held, held.rowID == rowID,
-            anchor.frames[rowID] != nil else { return }
-        let frame = anchor.frames[rowID]!
-        let drift = Double(frame.minY) - Double(intent.metrics.topInset) - held.top
-        guard abs(drift) > 2 else { return }
-        if !placeRowAtTop(rowID, top: held.top, proxy: proxy) {
-            proxy.scrollTo(rowID, anchor: .top)
-        }
-        viewport.noteCorrectionApplied()
     }
     /// Item-level successor for a gone held row: the row holding the smallest
     /// creation sequence past the removed item's, from the bounded removal log.
@@ -684,8 +855,12 @@ struct ConversationFeed: View {
     }
     private func applyLayoutRevision() {
         let next = currentRevision()
-        if next != extent.revision { anchor.layoutChanged() }
+        let changed = next != extent.revision
+        if changed { anchor.layoutChanged() }
         extent.applyRevision(next)
+        // Rows measure again only when their height changes, so the ones on screen carry what
+        // they measured into the new layout; a row the change resizes reports its new height.
+        if changed { for (id, height) in anchor.keeper.frames.heights { extent.measure(id, height: Double(height)) } }
         if viewport.layoutChanged(to: next), pinned, !intent.active {
             // Following stays pinned through rotation/split/text-size changes.
         }
@@ -730,13 +905,13 @@ struct ConversationFeed: View {
             // this fresh feed has none yet.
             if reading.thread == nil {
                 if let item = anchor.itemID ?? rows.first(where: { $0.id == anchor.rowID })?.block.row.items.first {
-                    reading.jump(to: item, model: model, live: thread)
+                    reading.reopen(around: item, model: model, live: thread)
                 }
             }
         } else if let item = anchor.itemID {
             // Saved row outside the live tail (paged history, or the tail moved
             // on): rebuild the window around the saved item identity.
-            reading.jump(to: item, model: model, live: thread)
+            reading.reopen(around: item, model: model, live: thread)
         } else if reading.thread == nil {
             reading.retry(model: model, live: thread)
         }
@@ -793,6 +968,8 @@ struct ConversationFeed: View {
     /// Tells the bridge the reader left the end or came back to it, when that changed
     /// (`TranscriptEndRead`), never on each turn of a gesture near the end.
     private func endRead(moving: Bool) {
+        // Wherever a landing focus's scroll passes, the reader isn't there yet.
+        guard !reading.landing.holdsPlace else { return }
         let facts = TranscriptEndRead.Facts(
             fromEnd: Double(intent.metrics.bottom), viewport: Double(intent.metrics.viewport),
             moving: moving, windowOpen: reading.thread != nil, joined: reading.joined,
@@ -808,7 +985,8 @@ struct ConversationFeed: View {
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
     private func pageIfNeeded(_ proxy: ScrollViewProxy) {
-        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil else { return }
+        guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
+            !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
         let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)
@@ -839,6 +1017,21 @@ private struct TapPutsKeyboardAway: ViewModifier {
             .highPriorityGesture(TapGesture().onEnded {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }, including: up ? .all : .subviews)
+    }
+}
+
+/// Fixture builds count the spacers' changes (`PerfCounters`); elsewhere it adds nothing.
+private struct SpacerCounts: ViewModifier {
+    let before: Double
+    let after: Double
+    func body(content: Content) -> some View {
+        #if ACE_FIXTURE
+        content
+            .onChange(of: before) { _, _ in PerfCounters.bump("extent.spacers") }
+            .onChange(of: after) { _, _ in PerfCounters.bump("extent.spacers") }
+        #else
+        content
+        #endif
     }
 }
 

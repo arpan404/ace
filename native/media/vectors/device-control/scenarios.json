@@ -299,17 +299,17 @@
       },
       "device": {
         "codec": "h264",
-        "maxWidth": 1080,
-        "maxHeight": 2160,
+        "maxWidth": 1440,
+        "maxHeight": 2880,
         "fps": 60,
-        "bitrate": 5000000
+        "bitrate": 8000000
       },
       "screen": {
         "codec": "h264",
-        "maxWidth": 1920,
-        "maxHeight": 1920,
+        "maxWidth": 2048,
+        "maxHeight": 2560,
         "fps": 60,
-        "bitrate": 6000000
+        "bitrate": 10000000
       }
     },
     {
@@ -323,17 +323,17 @@
       },
       "device": {
         "codec": "h264",
-        "maxWidth": 1080,
-        "maxHeight": 2160,
+        "maxWidth": 1440,
+        "maxHeight": 2880,
         "fps": 60,
-        "bitrate": 5000000
+        "bitrate": 8000000
       },
       "screen": {
         "codec": "h264",
-        "maxWidth": 1920,
-        "maxHeight": 1920,
+        "maxWidth": 2048,
+        "maxHeight": 2560,
         "fps": 60,
-        "bitrate": 6000000
+        "bitrate": 10000000
       }
     },
     {
@@ -347,17 +347,17 @@
       },
       "device": {
         "codec": "h264",
-        "maxWidth": 1080,
-        "maxHeight": 2160,
+        "maxWidth": 1440,
+        "maxHeight": 2880,
         "fps": 60,
-        "bitrate": 3333333
+        "bitrate": 5333333
       },
       "screen": {
         "codec": "h264",
-        "maxWidth": 1920,
-        "maxHeight": 1920,
+        "maxWidth": 2048,
+        "maxHeight": 2560,
         "fps": 60,
-        "bitrate": 4000000
+        "bitrate": 6666667
       }
     },
     {
@@ -371,17 +371,17 @@
       },
       "device": {
         "codec": "h264",
-        "maxWidth": 1080,
-        "maxHeight": 2160,
+        "maxWidth": 1440,
+        "maxHeight": 2880,
         "fps": 60,
-        "bitrate": 2500000
+        "bitrate": 4000000
       },
       "screen": {
         "codec": "h264",
-        "maxWidth": 1920,
-        "maxHeight": 1920,
+        "maxWidth": 2048,
+        "maxHeight": 2560,
         "fps": 60,
-        "bitrate": 3000000
+        "bitrate": 5000000
       }
     },
     {
@@ -395,17 +395,17 @@
       },
       "device": {
         "codec": "h264",
-        "maxWidth": 832,
-        "maxHeight": 1664,
+        "maxWidth": 1088,
+        "maxHeight": 2176,
         "fps": 60,
-        "bitrate": 2000000
+        "bitrate": 3200000
       },
       "screen": {
         "codec": "h264",
-        "maxWidth": 1472,
-        "maxHeight": 1472,
+        "maxWidth": 1536,
+        "maxHeight": 1920,
         "fps": 60,
-        "bitrate": 2400000
+        "bitrate": 4000000
       }
     },
     {
@@ -419,17 +419,17 @@
       },
       "device": {
         "codec": "h264",
-        "maxWidth": 832,
-        "maxHeight": 1664,
+        "maxWidth": 1088,
+        "maxHeight": 2176,
         "fps": 60,
-        "bitrate": 2000000
+        "bitrate": 3200000
       },
       "screen": {
         "codec": "h264",
-        "maxWidth": 1472,
-        "maxHeight": 1472,
+        "maxWidth": 1536,
+        "maxHeight": 1920,
         "fps": 60,
-        "bitrate": 2400000
+        "bitrate": 4000000
       }
     }
   ],

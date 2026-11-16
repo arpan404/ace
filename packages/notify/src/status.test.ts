@@ -95,6 +95,27 @@ it("needs-you links to an approval without leaking its description or provider d
   });
   expect(JSON.stringify(f.deliveries)).not.toContain("private");
 });
+it("an approval too large to send whole offers only Deny: Approve needs the whole request shown", async () => {
+  const f = fixture();
+  f.start();
+  f.fact({
+    type: "interaction.opened",
+    agent: "root",
+    interaction: "approval",
+    blocking: true,
+    request: {
+      kind: "approval",
+      title: "Apply the edit",
+      description: "d".repeat(70 * 1024),
+      options: [
+        { id: "yes", label: "Allow once", kind: "allow_once" },
+        { id: "no", label: "Deny", kind: "deny" },
+      ],
+    },
+  });
+  await f.flush();
+  expect(f.deliveries[0]?.notification.actions).toEqual([{ action: "deny", optionId: "no" }]);
+});
 it("questions produce needs-you with no approval actions", async () => {
   const f = fixture();
   f.start();

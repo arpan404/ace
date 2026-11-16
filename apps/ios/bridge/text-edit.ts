@@ -41,28 +41,41 @@ export function textEdit(before: string, after: string): TextEdit | undefined {
 const isHigh = (code: number) => code >= 0xd800 && code <= 0xdbff;
 const isLow = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
+/** What native last confirmed of a streaming item's row: its text, and the rest as JSON. */
+export interface HeldRow {
+  text: string;
+  rest: string;
+}
+
+/** A row's fields apart from its text, as JSON, to tell whether only the text changed. */
+export function restOf(row: Record<string, unknown>): string {
+  const { text: _text, ...rest } = row;
+  return JSON.stringify(rest);
+}
+
 /**
- * The patch to send for a thread item, given the row text native last confirmed for it (`held`):
- * an edit of its text when that is smaller, else the patch itself. Every other row field travels
- * whole.
+ * The patch to send for a thread item, given the row native last confirmed for it (`held`): an
+ * edit of its text when that is smaller, else the patch itself. The edit carries the row only
+ * when another of its fields changed too; without one, native edits the row it shows.
  */
 export function itemPatch(
   patch: Record<string, unknown>,
-  held: string | undefined,
+  held: HeldRow | undefined,
   utf8Length: (text: string) => number,
 ): Record<string, unknown> {
   if (patch.type !== "thread.item" || held === undefined) return patch;
-  const row = textOf(patch.row);
-  if (row === undefined) return patch;
-  const edit = textEdit(held, row);
+  const text = textOf(patch.row);
+  if (text === undefined) return patch;
+  const edit = textEdit(held.text, text);
   if (!edit) return patch;
-  const { text: _text, ...rest } = patch.row as Record<string, unknown>;
-  const base = utf8Length(held);
-  const cut = edit.cut && utf8Length(held.slice(0, edit.cut));
+  const { row, ...scope } = patch;
+  const rest = restOf(row as Record<string, unknown>);
+  const base = utf8Length(held.text);
+  const cut = edit.cut && utf8Length(held.text.slice(0, edit.cut));
   return {
-    ...patch,
+    ...scope,
     type: "thread.item.text",
-    row: { ...rest, text: "" },
+    ...(rest === held.rest ? {} : { row: { ...(row as object), text: "" } }),
     base,
     cut,
     append: edit.append,

@@ -1,3 +1,4 @@
+import type { SuitPage } from "@ace/protocol/suit-parts";
 import { createPortal } from "react-dom";
 import {
   createContext,
@@ -70,7 +71,7 @@ export function ViewFrame(props: {
  * tapping Home (or Skills…) shows its list, and a row opens the item. On a wide window
  * the list is already on screen, so `fallback` shows (usually a redirect to the first item).
  */
-export function ViewListPage(props: { title: string; fallback: ReactNode }) {
+export function ViewListPage(props: { title: string; page?: SuitPage; fallback: ReactNode }) {
   const wide = useSidebarInline();
   const list = useContext(ViewListContext);
   const setInPage = list?.setInPage;
@@ -81,7 +82,7 @@ export function ViewListPage(props: { title: string; fallback: ReactNode }) {
   }, [wide, setInPage]);
   if (wide || !list) return props.fallback;
   return (
-    <Screen title={props.title}>
+    <Screen title={props.title} page={props.page}>
       <aside
         aria-label={list.label}
         className="mx-auto flex h-full w-full max-w-(--column) min-h-0 flex-col"

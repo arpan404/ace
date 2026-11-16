@@ -1,9 +1,10 @@
 import { UploadPublication } from "./upload-publication.ts";
 import type { ExclusiveRename } from "./exclusive-rename.ts";
-import { lstat, open, rename, rm } from "node:fs/promises";
+import { lstat, open, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { posix } from "node:path";
 import { windowsReplace } from "./filesystem.ts";
+import { publishReplacement } from "./replacement.ts";
 import { GitIgnore, SafeRoot, walkWorkspace } from "@ace/workspace";
 import { Catalog, UploadRecord, UploadReceipt } from "./catalog.ts";
 import {
@@ -203,8 +204,17 @@ export class Uploads {
         await this.publication.finishPermissions(completed);
         return record.path;
       }
+      // An outside save that lands after the check above is kept, and the commit refused.
       if (record.expected === null) await this.exclusive.move(temp, target.path);
-      else await rename(temp, target.path);
+      else
+        await publishReplacement({
+          exclusive: this.exclusive,
+          temp,
+          identity: record.identity,
+          destination: target.path,
+          expected: record.expected,
+          id: record.id,
+        });
       await target.verify();
       const completed = this.publication.complete(publishing, sha256);
       await this.publication.finishPermissions(completed);

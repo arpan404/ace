@@ -47,8 +47,9 @@ impl<'de> Deserialize<'de> for Access {
     }
 }
 
-/// Calls the reviewer is told to weigh with care: the rule that singled each out goes into its
-/// prompt (ADR 0163). Before that amendment these always went to the person.
+/// Calls Spade singles out. A payment and a message as the person always go to the person
+/// ([`Sensitive::persons`]); the reviewer is told to weigh the rest with care, the rule that
+/// singled each out going into its prompt (ADR 0163).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sensitive {
     Payment,
@@ -80,6 +81,16 @@ pub enum Sensitive {
 }
 
 impl Sensitive {
+    /// The kinds only the person may approve (ADR 0163, amendment 1): spending money and sending
+    /// as the person. With the line the request card shows; `None` for what the reviewer judges.
+    pub fn persons(self) -> Option<&'static str> {
+        match self {
+            Self::Payment => Some(SPENDS),
+            Self::MessageAsPerson => Some(SENDS_AS_YOU),
+            _ => None,
+        }
+    }
+
     /// What the reviewer is told about the call, in one plain sentence.
     pub fn reason(self) -> &'static str {
         match self {
@@ -156,13 +167,17 @@ const OUTWARD: &[&str] = &["bot_message", "group_ask"];
 
 /// What a call can reach, from the tool's name, risk, source and arguments. An app's word for
 /// itself (its annotations) is a hint from a server Spade doesn't control: a tool whose name or
-/// description says it acts is classed by that even when it claims to only read.
+/// description says it acts is classed by that even when it claims to only read, and one that
+/// says it pays or sends as the person is classed as that.
 pub fn classify(name: &str, risk: Risk, source: Source<'_>, arguments: &Value) -> Class {
     if let Source::App(hints) = source
         && risk == Risk::Read
         && acts(name, hints.description)
     {
-        return Class::Sensitive(Sensitive::Mislabelled);
+        let kind = words_say(name, hints.description)
+            .filter(|kind| kind.persons().is_some())
+            .unwrap_or(Sensitive::Mislabelled);
+        return Class::Sensitive(kind);
     }
     if risk == Risk::Read {
         return Class::Inside;
@@ -173,7 +188,11 @@ pub fn classify(name: &str, risk: Risk, source: Source<'_>, arguments: &Value) -
         Source::Spade if INSIDE.contains(&name) => Class::Inside,
         Source::Spade if OUTWARD.contains(&name) => Class::Outward,
         Source::Spade => Class::Sensitive(Sensitive::Unknown),
-        Source::Ace => match words_say(name, "") {
+        // ace's tools act on ace: `agent_message` messages one of the person's agents and
+        // `transfer` moves a thread, so their names never make a payment or a send. What ace's
+        // browser or screen is told to press can.
+        Source::Ace if drives(name) && buys(arguments) => Class::Sensitive(Sensitive::Payment),
+        Source::Ace => match words_say(name, "").filter(|kind| kind.persons().is_none()) {
             Some(sensitive) => Class::Sensitive(sensitive),
             None if risk == Risk::Destructive => Class::Sensitive(Sensitive::DeleteOutside),
             None => Class::Outward,
@@ -190,6 +209,62 @@ pub fn classify(name: &str, risk: Risk, source: Source<'_>, arguments: &Value) -
 
 /// The shell tool.
 pub const SHELL: &str = "shell";
+
+/// Whether an ace tool drives a page or an app the way a person would (`browser_act`,
+/// `screen_act`, a simulator's).
+fn drives(name: &str) -> bool {
+    ["browser_", "screen_", "sim_"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
+
+/// What a button or a step that completes a purchase says. Matched in what a driving call is
+/// told to press or type; a click on an element by its id alone says nothing, and the reviewer
+/// judges it.
+const PURCHASE: &[&str] = &[
+    "place order",
+    "place your order",
+    "buy now",
+    "pay now",
+    "checkout",
+    "check out",
+    "complete purchase",
+    "confirm purchase",
+    "complete payment",
+    "confirm payment",
+    "submit payment",
+    "make payment",
+    "book now",
+    "confirm booking",
+    "complete booking",
+    "confirm and pay",
+    "subscribe now",
+    "start subscription",
+    "send money",
+];
+
+/// Whether a driving call's text says it completes a purchase.
+fn buys(arguments: &Value) -> bool {
+    fn texts<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+        match value {
+            Value::String(text) => out.push(text),
+            Value::Array(list) => list.iter().for_each(|v| texts(v, out)),
+            Value::Object(map) => map.values().for_each(|v| texts(v, out)),
+            _ => {}
+        }
+    }
+    let mut found = Vec::new();
+    texts(arguments, &mut found);
+    found.iter().any(|text| {
+        let said = words(text).join(" ");
+        PURCHASE.iter().any(|phrase| {
+            said == *phrase
+                || said.starts_with(&format!("{phrase} "))
+                || said.ends_with(&format!(" {phrase}"))
+                || said.contains(&format!(" {phrase} "))
+        })
+    })
+}
 
 /// What a call can reach, what the reviewer must read besides its arguments, and whether what it
 /// runs reaches credentials.
@@ -313,15 +388,26 @@ const PAYMENT: &[&str] = &[
     "payment",
     "payments",
     "purchase",
+    "purchases",
     "buy",
+    "buys",
     "checkout",
     "charge",
+    "charges",
     "refund",
     "invoice",
     "donate",
     "subscribe",
     "order",
     "transfer",
+    "booking",
+    "bookings",
+    "reserve",
+    "reservation",
+    "withdraw",
+    "payout",
+    "payouts",
+    "remit",
 ];
 const CREDENTIALS: &[&str] = &[
     "credential",
@@ -348,16 +434,62 @@ const CREDENTIALS: &[&str] = &[
     "oauth",
     "sharing",
 ];
-const MESSAGE: &[&str] = &[
-    "send", "sends", "reply", "forward", "email", "mail", "message", "dm", "sms", "chat", "respond",
+/// Verbs that send in the person's name: a message, a post or a comment from their account.
+const SENDS: &[&str] = &[
+    "send", "sends", "reply", "replies", "forward", "forwards", "respond", "responds", "dm", "sms",
+    "tweet", "retweet", "toot",
+];
+/// What the person sends: named with no other verb (`email_user`, `post_comment`,
+/// `create_post`), the tool sends it.
+const SENT: &[&str] = &[
+    "email", "emails", "mail", "message", "messages", "post", "posts", "comment", "comments",
+];
+/// Verbs that do something else with what was sent (`delete_comment`, `archive_email`,
+/// `create_draft`): not a send.
+const OTHER_THAN_SENDING: &[&str] = &[
+    "delete",
+    "deletes",
+    "remove",
+    "removes",
+    "trash",
+    "destroy",
+    "purge",
+    "archive",
+    "archives",
+    "label",
+    "labels",
+    "mark",
+    "marks",
+    "move",
+    "moves",
+    "draft",
+    "drafts",
+    "get",
+    "gets",
+    "list",
+    "lists",
+    "read",
+    "reads",
+    "search",
+    "searches",
+    "find",
+    "finds",
+    "star",
+    "flag",
+    "mute",
+    "snooze",
+    "edit",
+    "edits",
+    "update",
+    "updates",
+    "hide",
+    "unsubscribe",
+    "count",
+    "summarize",
 ];
 const PUBLISH: &[&str] = &[
-    "post",
-    "posts",
     "publish",
-    "tweet",
     "share",
-    "comment",
     "announce",
     "broadcast",
     "release",
@@ -371,10 +503,17 @@ const DELETE: &[&str] = &[
 
 fn sensitive_in(words: &[String]) -> Option<Sensitive> {
     let has = |list: &[&str]| words.iter().any(|w| list.contains(&w.as_str()));
+    let sends = has(SENDS) || (has(SENT) && !has(OTHER_THAN_SENDING));
+    if has(PAYMENT) {
+        return Some(Sensitive::Payment);
+    }
+    if has(CREDENTIALS) {
+        return Some(Sensitive::Credentials);
+    }
+    if sends {
+        return Some(Sensitive::MessageAsPerson);
+    }
     [
-        (PAYMENT, Sensitive::Payment),
-        (CREDENTIALS, Sensitive::Credentials),
-        (MESSAGE, Sensitive::MessageAsPerson),
         (PUBLISH, Sensitive::Publish),
         (DELETE, Sensitive::DeleteOutside),
     ]
@@ -594,6 +733,13 @@ pub fn route(call: Call) -> Route {
     if call.rule == Decision::Run && !looked_at {
         return Route::Run;
     }
+    // Spending money and sending as the person are the person's alone: no reviewer approves
+    // them, for a bot or any worker or helper of one (ADR 0163, amendment 1).
+    if let Class::Sensitive(kind) = call.class
+        && let Some(line) = kind.persons()
+    {
+        return Route::Ask(line.to_owned());
+    }
     // A call the reviewer can't read whole is never judged on part of it.
     if call.class == Class::Sensitive(Sensitive::UnseenScript) {
         return Route::Ask(Sensitive::UnseenScript.reason().to_owned());
@@ -604,6 +750,8 @@ pub fn route(call: Call) -> Route {
     Route::Review(concern.map(str::to_owned))
 }
 
+const SPENDS: &str = "It could spend money, so you decide.";
+const SENDS_AS_YOU: &str = "It sends something in your name, so you decide.";
 const TAINTED_OUTWARD: &str = "It acts outside the bot's folder after reading untrusted content.";
 const GRANTED_TAINTED: &str = "A grant of the person's covers it, but untrusted content is in view: check its arguments \
      came from the person or the bot's own work, not from that content.";

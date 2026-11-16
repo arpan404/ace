@@ -638,7 +638,7 @@ describe("the conversation as a chat", () => {
     ]);
   });
 
-  test("an approval is the bot's bubble after the words that asked, and stays once answered until its reply ends", () => {
+  test("an approval is the bot's bubble after the words that asked, and leaves the chat once answered", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
@@ -655,21 +655,18 @@ describe("the conversation as a chat", () => {
     expect(asked()).toEqual(["Drafted it.", "ask open"]);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
     c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
-    expect(asked()).toEqual(["Drafted it.", "ask allowed", "Sent."]);
-    // Once the reply ends the answered request goes with the work; each step's words stays.
+    expect(asked()).toEqual(["Drafted it.", "Sent."]);
     c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
     expect(asked()).toEqual(["Drafted it.", "Sent."]);
   });
 
-  test("a request its reply ended before the person answered stays, closed", () => {
+  test("a request its reply ended before the person answered leaves nothing", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "approval_requested", reply: "r1", call_id: "k1", name: "shell" });
     c.stored({ type: "stop_requested", reply: "r1", jobs: [] });
     c.stored({ type: "reply_stopped", reply: "r1", text: "" });
-    expect(spadeBubbles(c.view()).find((bubble) => bubble.kind === "ask")).toMatchObject({
-      state: "closed",
-    });
+    expect(spadeBubbles(c.view()).find((bubble) => bubble.kind === "ask")).toBeUndefined();
     expect(c.view().approvals).toEqual([]);
   });
 

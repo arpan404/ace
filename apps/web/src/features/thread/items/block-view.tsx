@@ -15,6 +15,7 @@ import { StartedThreadCard } from "./started-thread-card.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { Subagents } from "./subagents.tsx";
 import { LiveHead } from "./live-head.tsx";
+import { MomentRow } from "./moment-row.tsx";
 import { WorkLog } from "./work-log.tsx";
 
 const EventView = DeferredEvent.Component;
@@ -61,6 +62,15 @@ const BlockContent = memo(function BlockContent(props: {
       );
     case "event":
       return <Event threadId={threadId} itemId={block.itemId} />;
+    case "moment":
+      return (
+        <MomentRow
+          threadId={threadId}
+          moment={block.moment}
+          itemIds={block.itemIds}
+          since={block.since}
+        />
+      );
     case "end":
       return <TurnEnd threadId={threadId} block={block} />;
   }

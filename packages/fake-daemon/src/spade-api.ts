@@ -148,8 +148,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
   readonly wakes: FakeSpadeWakes;
   private readonly events = new Map<string, Stored[]>();
-  /** Each bot conversation's helpers (ADR 0152), whose own conversations are in `events`. */
-  private readonly helpers = new Map<string, Json[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
   private readonly now: () => number;
@@ -240,17 +238,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.agents.push(agent);
     this.events.set(agent.conversation, []);
     return agent;
-  }
-
-  /**
-   * A helper the bot of `conversation` started as job `job` (ADR 0152), with a hidden
-   * conversation of its own (`helper`) whose events tests `store`.
-   */
-  addHelper(conversation: string, helper: { job: string; conversation: string; task: string }) {
-    this.events.set(helper.conversation, this.events.get(helper.conversation) ?? []);
-    const rows = this.helpers.get(conversation) ?? [];
-    rows.push({ ...helper, profile: "general", state: "working", cost_micros: 0 });
-    this.helpers.set(conversation, rows);
   }
 
   /** Stores an event in a conversation and sends it to its live streams. */
@@ -874,7 +861,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const after = Number(new URLSearchParams(query).get("after") ?? 0);
       return reply(list.filter((stored) => stored.seq > after));
     }
-    if (sub === "helpers") return reply({ helpers: this.helpers.get(id) ?? [] });
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
       this.takeMessage(id, agent, body);

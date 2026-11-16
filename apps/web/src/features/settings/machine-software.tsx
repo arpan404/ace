@@ -9,6 +9,7 @@ import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx"
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import type { Fleet } from "./data/use-fleet.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * A machine page's Software: what ace version it runs, the release on offer and the update's
@@ -59,6 +60,7 @@ export function MachineSoftware(props: { machine: Machine; fleet: Fleet }) {
                   href={view.link.url}
                   target="_blank"
                   rel="noreferrer"
+                  {...part("link")}
                   className="relative z-1 block w-fit rounded-xs text-foreground underline-offset-2 focus-ring hover:underline"
                 >
                   {view.link.words}

@@ -28,6 +28,10 @@ impl EncodePacer {
             skipped: false,
         }
     }
+    /// A new frame rate from the next slot: the link stepped it.
+    pub fn retime(&mut self, fps: f64) {
+        self.fps = fps;
+    }
     pub fn request_keyframe(&mut self) {
         self.owed = true;
     }

@@ -41,6 +41,7 @@ import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
+import { createSuitsSession } from "./suits.ts";
 import { createBrowserSession } from "./browser.ts";
 import { createBrowsingSession } from "./browsing.ts";
 import { createComputerUsingSession } from "./computer-using.ts";
@@ -62,6 +63,7 @@ import { createMachineUpdateSession } from "./machine-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
+import { createMediaConnectSession } from "./media-connect.ts";
 import type { SocketContext } from "./socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
@@ -80,6 +82,7 @@ export const socketServiceFactories = [
   createActivityReadsSession,
   createVerifySession,
   createIconsSession,
+  createMediaConnectSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createProjectsSession,
@@ -104,6 +107,7 @@ export const socketServiceFactories = [
   createFilesSession,
   createNotificationsSession,
   createPluginsSession,
+  createSuitsSession,
   createBrowsingSession,
   createComputerUsingSession,
   createUserBrowserSession,

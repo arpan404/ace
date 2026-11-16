@@ -15,7 +15,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         // A fresh simulator asks once for notifications, after the first rows show; answer it so
         // it never covers the list.
         _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.'")).firstMatch.waitForExistence(timeout: 30)
@@ -72,7 +72,7 @@ import XCTest
     func testTheOpenThreadsMenuOffersTheSameActions() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-open", "ios-done"]
-        app.launch()
+        app.launchWithArguments()
         let menu = app.buttons["thread.menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 30))
         menu.tap()

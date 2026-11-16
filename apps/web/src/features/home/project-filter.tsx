@@ -1,5 +1,5 @@
 import { ProjectMark } from "@/components/project-mark.tsx";
-import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, FolderSimpleIcon, DotsThreeIcon } from "@ace/icons";
 import { projectBadge, projectTint } from "@ace/ui-core";
 import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";

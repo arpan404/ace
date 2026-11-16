@@ -6,7 +6,7 @@ import {
   type AnsweredMeta,
   type AnsweredQuestion,
 } from "@ace/ui-core";
-import { CheckIcon, QuotesIcon } from "@phosphor-icons/react";
+import { CheckIcon, QuotesIcon } from "@ace/icons";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -58,6 +58,9 @@ export function AnsweredQuestionCard(props: {
     <article
       tabIndex={-1}
       aria-label={`Question: ${title ?? ""}`}
+      data-part="question-card"
+      data-variant="question"
+      data-state="done"
       className={props.className ?? `rounded-lg px-4 py-3 ${cardEdge}`}
     >
       <p className="text-xs text-subtle-foreground">{props.asker} asked</p>

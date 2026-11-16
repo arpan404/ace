@@ -1,3 +1,4 @@
+import { unreadAnswer } from "../unread-answers.ts";
 import { Command, type DeviceId, type CommandResult, type ServerMessage } from "@ace/protocol";
 import { isMutationUnavailable } from "@ace/git";
 import { commandContext } from "../commands.ts";
@@ -144,12 +145,16 @@ export function createEngineSession(context: SocketContext): SocketService {
       }
       await preparation?.verify?.();
       if (!authority()) return;
-      result = options.store.recordCommand(command.id, device, () =>
-        options.handler.handle(accepted, {
-          ...commandContext(options.store),
-          ...(admission ? { creationOwner: admission.owner } : {}),
-          ...(preparation ? { preparedWorkspace: preparation.workspace } : {}),
-        }),
+      result = options.store.recordCommand(
+        command.id,
+        device,
+        () =>
+          unreadAnswer(accepted, options.store) ??
+          options.handler.handle(accepted, {
+            ...commandContext(options.store),
+            ...(admission ? { creationOwner: admission.owner } : {}),
+            ...(preparation ? { preparedWorkspace: preparation.workspace } : {}),
+          }),
       );
     } catch (error) {
       const cleanupFailed =

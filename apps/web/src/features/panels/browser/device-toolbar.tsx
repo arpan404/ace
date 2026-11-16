@@ -1,4 +1,4 @@
-import { DeviceRotateIcon, XIcon } from "@phosphor-icons/react";
+import { DeviceRotateIcon, XIcon } from "@ace/icons";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -71,6 +71,8 @@ export function DeviceToolbar(props: { tools: PageTools }) {
     <div
       role="toolbar"
       aria-label="Device toolbar"
+      data-part="panel-toolbar"
+      data-variant="device"
       className={cn("flex h-9 shrink-0 items-center gap-1.5 px-2", toolbarEdge)}
     >
       <Select

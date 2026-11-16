@@ -910,6 +910,8 @@ fn gh(words: &[String]) -> Option<Sensitive> {
         .find(|w| !w.starts_with('-'))
         .map(String::as_str);
     match (sub, action) {
+        // A comment goes out from the person's account, in their name.
+        ("pr" | "issue", Some("comment")) => Some(Sensitive::MessageAsPerson),
         (
             "pr" | "issue" | "release" | "repo" | "gist" | "label" | "project" | "variable",
             Some(

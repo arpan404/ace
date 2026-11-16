@@ -36,11 +36,9 @@ const lines = (c: ReturnType<typeof conversation>) =>
   spadeBubbles(c.view()).map((bubble) =>
     bubble.kind === "quiet"
       ? spadeQuietLine(bubble.quiet).label
-      : bubble.kind === "steps"
-        ? `[${bubble.label}] ${bubble.steps.map((step) => step.text).join(" / ")}`
-        : bubble.kind === "bot"
-          ? `bot: ${bubble.text}`
-          : bubble.kind,
+      : bubble.kind === "bot"
+        ? `bot: ${bubble.text}`
+        : bubble.kind,
   );
 
 const names: SpadeRestNames = {
@@ -174,7 +172,7 @@ describe("quiet lines", () => {
 });
 
 describe("asked again", () => {
-  test("a refused step folds into its reply as Not run, with the review's reason", () => {
+  test("a step the review refused leaves nothing in the chat, only the bot's words", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
@@ -206,13 +204,10 @@ describe("asked again", () => {
     });
     c.stored({ type: "step_finished", reply: "r1", text: "The review stopped me." });
     c.stored({ type: "reply_finished", reply: "r1", text: "The review stopped me." });
-    expect(lines(c)).toEqual([
-      "bot: The review stopped me.",
-      "[1 step, 1 not run] Ran a command / Not run: run a command · you asked about #2081, not #2076",
-    ]);
+    expect(lines(c)).toEqual(["bot: The review stopped me."]);
   });
 
-  test("a reply with nothing refused shows no steps", () => {
+  test("a step the review allowed leaves nothing in the chat", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "step_finished", reply: "r1", text: "", calls: [{ id: "a", name: "shell" }] });

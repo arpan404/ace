@@ -108,7 +108,7 @@ test("touching a thread in the list starts following it before it is opened", as
   const { id, title } = scenario.thread;
   // New thread: the list shows, and no thread is open (Home may reopen the last one).
   await app.open("/new");
-  const list = await screen.findByRole("navigation", { name: "Threads" });
+  const list = await screen.findByRole("navigation", { name: "Projects" });
   const row = await within(list).findByRole("link", { name: new RegExp(`^${title}`) });
   expect(app.client.cachedThread?.(id)?.thread).toBeUndefined();
   // A phone has no hover card: the touch that starts a tap is the first sign of intent.

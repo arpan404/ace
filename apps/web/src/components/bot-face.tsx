@@ -43,7 +43,9 @@ export function BotFace(props: {
     ? (event: MouseEvent<SVGSVGElement>) => {
         const part =
           event.target instanceof Element ? event.target.closest("[data-part]") : undefined;
-        const name = part?.getAttribute("data-part");
+        // Only the face's own parts: the page around it names its parts the same way (Suits).
+        const name =
+          part && event.currentTarget.contains(part) ? part.getAttribute("data-part") : null;
         if (name) props.onPart?.(name);
       }
     : undefined;

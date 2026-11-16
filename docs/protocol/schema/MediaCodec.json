@@ -1,0 +1,5 @@
+{
+  "$id": "https://ace.local/protocol/v1/MediaCodec.json",
+  "$ref": "https://ace.local/protocol/v1/BrowserVideoCodec.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

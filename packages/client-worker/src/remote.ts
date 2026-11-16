@@ -31,6 +31,8 @@ import {
   type Lease,
   type OneWayMessage,
   type OutputData,
+  type ReadRequest,
+  type WholeRequestInput,
   type RegistryQuery,
   type RequestOptions,
   type TextReadOptions,
@@ -670,6 +672,9 @@ export class RemoteClient implements ClientApi {
     options: RequestOptions = {},
   ) {
     return this.invoke<OutputData>("outputRead", [payload, timeout(options)], options.signal);
+  }
+  readInteraction(input: WholeRequestInput, options: RequestOptions = {}) {
+    return this.invoke<ReadRequest>("readInteraction", [input, timeout(options)], options.signal);
   }
   text(source: TextSource, options: TextReadOptions = {}): AsyncGenerator<string> {
     return this.stream<string>(

@@ -7,6 +7,12 @@ export type { ReadSnapshotStorage } from "./read-snapshot-storage.ts";
 export interface Persistence {
   storage: ReadSnapshotStorage;
   scheduler: Scheduler;
+  /**
+   * Settles once the client has had a daemon's welcome (and stays settled). Until then nothing
+   * a subscription asks for can be answered, so a kept record still being read is waited for
+   * until it. None: the wait is `firstReadMs` from the binding's start.
+   */
+  welcomed?(): Promise<void>;
 }
 
 /** A store's changes are written at most once per this many milliseconds. */
@@ -20,8 +26,15 @@ export const snapshotWriteMs = 1_000;
  * and checkpoints what is still unwritten after any write in flight, so the newest copy lands
  * last.
  */
-/** How long a new subscription waits for its kept record before it goes without one. */
-const firstReadMs = 250;
+/**
+ * How long a new subscription waits for its kept record before it goes without one, unless the
+ * client has not had its first welcome by then: it then waits until the welcome, and no longer.
+ * A record read before the welcome costs nothing (the subscribe still goes ahead of it, with
+ * its cursor); one still unread at the welcome goes without it, as a subscribe after the
+ * welcome always went. A relaunch reads a cold store, and opening without what it kept costs a
+ * full snapshot.
+ */
+export const firstReadMs = 250;
 
 export class SnapshotBinding {
   #persistence: Persistence;
@@ -37,9 +50,12 @@ export class SnapshotBinding {
   #written: Promise<void> = Promise.resolve();
   /**
    * Settles once the first read of the kept record has been tried (restored, missed or failed),
-   * or after `firstReadMs` at most, so a subscription can resume from what it held (ADR 0128).
+   * or at the later of `firstReadMs` after this start and the client's first welcome, so a
+   * subscription can resume from what it held (ADR 0128).
    */
   readonly loaded: Promise<void>;
+  /** Settles once the first read of the kept record has been tried, however long it takes. */
+  readonly read: Promise<void>;
 
   constructor(
     persistence: Persistence,
@@ -71,12 +87,30 @@ export class SnapshotBinding {
       },
       () => {},
     );
+    this.read = tried;
     this.loaded = new Promise((resolve) => {
-      const cancel = persistence.scheduler.set(firstReadMs, resolve);
-      void tried.then(() => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
         cancel();
         resolve();
+      };
+      // Gives up at the later of `firstReadMs` after this start and the client's first welcome.
+      let waited = false;
+      let welcomed = persistence.welcomed === undefined;
+      const giveUp = () => {
+        if (waited && welcomed) finish();
+      };
+      const cancel = persistence.scheduler.set(firstReadMs, () => {
+        waited = true;
+        giveUp();
       });
+      void persistence.welcomed?.().then(() => {
+        welcomed = true;
+        giveUp();
+      });
+      void tried.then(finish);
     });
   }
 

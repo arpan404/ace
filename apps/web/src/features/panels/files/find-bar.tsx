@@ -1,4 +1,4 @@
-import { ArrowClockwiseIcon, CaretDownIcon, CaretUpIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CaretDownIcon, CaretUpIcon, XIcon } from "@ace/icons";
 import { useEffect, useRef } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { FindStatus } from "./use-find-hits.ts";

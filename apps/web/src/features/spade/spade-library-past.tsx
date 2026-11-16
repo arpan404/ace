@@ -1,6 +1,6 @@
 import { formatClock } from "@ace/ui-core/time";
 import { spadeMoney, type SpadeEpisode } from "@ace/ui-core/spade-chat";
-import { CheckIcon, XIcon } from "@phosphor-icons/react";
+import { CheckIcon, XIcon } from "@ace/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";

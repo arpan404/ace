@@ -1,5 +1,5 @@
 import { prUrl } from "@ace/forge/pr-reference";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon } from "@ace/icons";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

@@ -1,6 +1,6 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { McpSources, ProviderKind } from "@ace/protocol";
-import { ArrowsClockwiseIcon, PowerIcon } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, PowerIcon } from "@ace/icons";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   SettingAddRow,

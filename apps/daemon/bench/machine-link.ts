@@ -127,6 +127,8 @@ async function measure(profileName: string) {
               upBytes: Math.round(delta.upBytes / made.length),
             }
           : null,
+        /** New TCP connections per minute: zero once machine links stay open (#2045). */
+        connectionsPerMinute: Number((delta.connections / elapsedMinutes).toFixed(1)),
         link: link(delta),
       };
     };
@@ -182,7 +184,8 @@ const perCall = (call: Run["running"]["perCall"]) =>
     : "none";
 const phase = (label: string, value: Run["running"]) =>
   `  ${label.padEnd(16)} ${String(value.statusPerMinute).padStart(5)} status/min ` +
-  `${String(value.callsPerMinute).padStart(5)} calls/min, per call ${perCall(value.perCall)}`;
+  `${String(value.callsPerMinute).padStart(5)} calls/min ${String(value.connectionsPerMinute).padStart(5)} conn/min, ` +
+  `per call ${perCall(value.perCall)}`;
 
 function summary(run: Run): string {
   return [

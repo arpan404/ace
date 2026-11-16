@@ -86,6 +86,19 @@ export function directTarget(endpoint: DaemonEndpoint | undefined): DaemonTarget
     : undefined;
 }
 
+/** The daemon's HTTP origin for its WebSocket address: same host and port, http(s). */
+export function accessOrigin(socketUrl: string): string {
+  const url = new URL(socketUrl);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return `${url.origin}/`;
+}
+
+/** The HTTP origin of a main machine this window may dial itself (`directTarget`). */
+export function directOrigin(endpoint: DaemonEndpoint | undefined): string | undefined {
+  const target = directTarget(endpoint);
+  return target ? accessOrigin(target.url) : undefined;
+}
+
 /** The main machine's files are on this computer: a daemon dialled at a loopback address. */
 export function onThisComputer(connection: Pick<DaemonConnection, "mode" | "endpoint">): boolean {
   const target = connection.mode === "daemon" ? directTarget(connection.endpoint) : undefined;

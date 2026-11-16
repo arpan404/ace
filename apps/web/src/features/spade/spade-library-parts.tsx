@@ -1,5 +1,5 @@
 import { formatAge } from "@ace/ui-core/time";
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 

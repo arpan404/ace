@@ -120,7 +120,7 @@ test("while a bot works its face, status and time show under its last bubble, wi
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
 
-test("a request waits in the chat as the bot's bubble, and Allow answers it in place", async () => {
+test("a request waits in the chat as the bot's bubble, and Allow answers it and clears it", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -137,11 +137,10 @@ test("a request waits in the chat as the bot's bubble, and Allow answers it in p
       { allowed: true, always: false },
     ]),
   );
-  // Answered, it stays where it was asked as one line saying so, with nothing left to press.
-  const answered = await screen.findByRole("group", {
-    name: "Inbox wants to send an email. Allowed",
-  });
-  expect(within(answered).queryByRole("button", { name: "Allow" })).toBeNull();
+  // Answered, it leaves the chat: no settled line stays.
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: /^Inbox wants to send an email/ })).toBeNull(),
+  );
 });
 
 test("with focus on a waiting request, Escape denies it and Enter allows the next", async () => {
@@ -159,8 +158,9 @@ test("with focus on a waiting request, Escape denies it and Enter allows the nex
       { allowed: false, always: false },
     ]),
   );
-  const denied = await screen.findByRole("group", { name: "Inbox wants to run a command. Denied" });
-  expect(within(denied).queryByRole("button", { name: "Allow" })).toBeNull();
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: /^Inbox wants to run a command/ })).toBeNull(),
+  );
   const inbox = spade.agents.find((agent) => agent.id === "inbox");
   if (!inbox) throw new Error("no Inbox");
   spade.ask(inbox, "k2", "workspace_write", { path: "notes.md", content: "hi" });

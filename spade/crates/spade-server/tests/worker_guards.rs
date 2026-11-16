@@ -220,6 +220,70 @@ async fn a_refused_call_handed_down_to_a_worker_is_refused_again_then_reaches_th
     Ok(())
 }
 
+#[tokio::test]
+async fn a_workers_payment_reaches_the_person_and_no_reviewer_approves_it() -> Result {
+    let pay = FakeTool::new("pay_invoice", Risk::Write, "paid").app("Billing: Pays an invoice");
+    let paid = pay.calls();
+    let mut scripts = warm_up();
+    scripts.extend([
+        Script::reply("")
+            .call(
+                "m1",
+                "bot_create",
+                json!({ "name": "Payer", "task": "Settle invoices.", "brief": "Pay invoice 7." }),
+            )
+            .call("p1", "pause", json!({})),
+        // The maker's bot_create is reviewed.
+        approve(),
+        Script::reply("").call("w1", "pay_invoice", json!({ "invoice": 7 })),
+        // Only reached if the worker's payment were put to a reviewer: it would approve.
+        approve(),
+        Script::reply("Paid."),
+        Script::reply("Payer is on it."),
+    ]);
+    let spade = Spade::start_with(
+        scripts,
+        boxed(vec![pause(800), pay]),
+        reviewed(Options::default()),
+    )
+    .await?;
+    let (_, lead_chat) = lead(&spade).await?;
+    spade.say(&lead_chat, "Pay invoice 7").await?;
+    until("the worker exists", || async {
+        Ok(named(&spade, "Payer").await.is_ok())
+    })
+    .await?;
+    let payer_chat = conversation_of(&named(&spade, "Payer").await?);
+    let events = spade.wait_for(&payer_chat, "approval_requested").await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(asked["call_id"], "w1", "{asked}");
+    assert_eq!(
+        asked["reviewer_reason"],
+        "It could spend money, so you decide."
+    );
+    let reviewed_payments = spade
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| {
+            s.body
+                .to_string()
+                .contains(r#"<step tool=\"pay_invoice\">"#)
+        })
+        .count();
+    assert_eq!(reviewed_payments, 0, "no reviewer saw the payment");
+    assert_eq!(
+        paid.lock().map(|c| c.len()).unwrap_or(9),
+        0,
+        "nothing was paid"
+    );
+    Ok(())
+}
+
 /// Holds each worker `bot_create` is about to admit until the test lets it go.
 fn hold_workers(spade: &Spade) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
     let reached = Arc::new(tokio::sync::Notify::new());

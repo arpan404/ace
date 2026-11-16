@@ -13,7 +13,12 @@ export const defaultTicketLimits: Readonly<TicketLimits> = {
 
 /** Pure allocation policy. Its owner supplies time, identity and hashed ticket keys. */
 export class TicketPool {
-  private tickets = new ExpiryMap<{ deviceId: string; generation: string; expiresAt: number }>();
+  private tickets = new ExpiryMap<{
+    deviceId: string;
+    generation: string;
+    expiresAt: number;
+    epoch: string;
+  }>();
   private owned = new Map<string, Set<string>>();
   private rates = new ExpiryMap<{ count: number; resetsAt: number }>();
   private limits: TicketLimits;
@@ -25,6 +30,8 @@ export class TicketPool {
     deviceId: string,
     generation: string,
     now: number,
+    /** The host key that issued it (ADR 0155): a ticket opens nothing under another key. */
+    epoch = "",
   ): { expiresAt: number } | { error: string } {
     this.evict(now);
     if (this.tickets.size >= this.limits.global) return { error: "Too many pending tickets" };
@@ -39,19 +46,27 @@ export class TicketPool {
     rate.count++;
     this.rates.set(deviceId, rate, rate.resetsAt);
     const expiresAt = now + 60_000;
-    this.tickets.set(key, { deviceId, generation, expiresAt }, expiresAt);
+    this.tickets.set(key, { deviceId, generation, expiresAt, epoch }, expiresAt);
     const keys = this.owned.get(deviceId) ?? new Set<string>();
     keys.add(key);
     this.owned.set(deviceId, keys);
     return { expiresAt };
   }
   /** The device a ticket was issued to, and the credential generation that asked for it. */
-  consume(key: string, now: number): { deviceId: string; generation: string } | undefined {
+  consume(
+    key: string,
+    now: number,
+    /** Taken only when it matches: a ticket offered under another key or device stays. */
+    bound?: { epoch: string; deviceId: string },
+  ): { deviceId: string; generation: string; epoch: string } | undefined {
     this.evict(now);
+    const held = this.tickets.get(key);
+    if (bound && (held?.epoch !== bound.epoch || held.deviceId !== bound.deviceId))
+      return undefined;
     const entry = this.tickets.delete(key);
     if (!entry) return undefined;
     this.disown(entry.deviceId, key);
-    return { deviceId: entry.deviceId, generation: entry.generation };
+    return { deviceId: entry.deviceId, generation: entry.generation, epoch: entry.epoch };
   }
   revoke(deviceId: string): void {
     const keys = this.owned.get(deviceId);

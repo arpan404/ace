@@ -1,10 +1,11 @@
 import { useSidebarThread } from "@ace/client-react";
 import { historyDate, projectBadge } from "@ace/ui-core";
-import { GitMergeIcon, GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitMergeIcon, GitPullRequestIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { ProjectMark } from "./row-parts.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 import type { SearchHit } from "./use-panel-search.ts";
@@ -23,7 +24,7 @@ function Row(props: {
 }) {
   const now = useNow();
   return (
-    <div className="border-b border-border">
+    <div {...part("list-row")} className="border-b border-border">
       <Link
         to="/t/$threadId"
         params={{ threadId: props.threadId }}

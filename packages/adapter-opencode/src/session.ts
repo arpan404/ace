@@ -8,7 +8,7 @@ import { opencodePolicy, withSpadeBot } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution, ExecutionSelection } from "@ace/protocol";
-import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
+import type { Frame, InputSource, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { OpenCodeClient } from "@opencode/client";
 import { NativeEvent, SessionInfo, eventSession } from "./boundaries.ts";
 import { object, string } from "./data.ts";
@@ -375,8 +375,14 @@ export class OpenCodeSession implements ProviderSession {
     await this.client.session.switchModel({ sessionID: this.nativeSessionId, model });
     this.ctx = { ...this.ctx, model: selection.model, options: selection.options };
   }
-  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
-    return this.prompts.send(input, delivery, commandId);
+  send(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+    _origin?: InputSource,
+    fence?: import("@ace/engine-api").SteerFence,
+  ): Promise<void> {
+    return this.prompts.send(input, delivery, commandId, fence);
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
     await this.barrier();

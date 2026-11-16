@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
+import { part } from "@/lib/suit-part.ts";
 import {
   initialSkillAgents,
   isSkillAgent,
@@ -38,10 +39,15 @@ export function NewSkillPage() {
       ? skillAgents
       : undefined;
   return (
-    <Screen title="Skills" namedByPanel>
+    <Screen page="skill" title="Skills" namedByPanel>
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11">
-          <h2 className="text-2xl font-semibold tracking-title">New skill</h2>
+        <div
+          {...part("page-body")}
+          className="mx-auto max-w-(--column) px-4 pt-6 pb-20 sm:px-8 sm:pt-11"
+        >
+          <h2 {...part("page-title")} className="text-2xl font-semibold tracking-title">
+            New skill
+          </h2>
           {!installed ? (
             <SkillPageSkeleton />
           ) : (

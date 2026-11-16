@@ -16,6 +16,8 @@ import { loadThreadSnapshot } from "./thread-snapshot.ts";
 import type { FrozenThread } from "./thread-cache.ts";
 import { readHistoryBlob } from "./history-storage.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
+import { entityPageBytes } from "./entity-window.ts";
+import { InteractionReads } from "./interaction-reads.ts";
 
 /** How much transcript a thread snapshot carries: its newest items, by count and bytes. */
 export interface SnapshotTail {
@@ -44,8 +46,13 @@ interface ThreadReadSource {
 export class ThreadReads {
   private readonly source: ThreadReadSource;
   private readonly caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
+  private readonly requests: InteractionReads;
   constructor(source: ThreadReadSource) {
     this.source = source;
+    this.requests = new InteractionReads({
+      writes: () => source.status.interactionWrites(),
+      request: (threadId, id) => source.status.interactionRequest(threadId, id),
+    });
   }
   invalidateViews(): void {
     for (const { view } of this.caches.values()) this.source.status.invalidateCache(view);
@@ -186,6 +193,7 @@ export class ThreadReads {
     collection: EntityCollection,
     before: number,
     limit: number,
+    maxBytes = entityPageBytes,
   ): EntitiesPage {
     this.source.flush();
     const thread = this.source.readThread(threadId);
@@ -194,9 +202,9 @@ export class ThreadReads {
     return this.current(
       this.source.cache.read(
         threadId,
-        JSON.stringify(["entities", collection, before, limit]),
+        JSON.stringify(["entities", collection, before, limit, maxBytes]),
         (): EntitiesPage => ({
-          ...this.source.status.page(thread, collection, before, limit),
+          ...this.source.status.page(thread, collection, before, limit, maxBytes),
           seq: this.source.headSeq(),
         }),
       ),
@@ -204,6 +212,17 @@ export class ThreadReads {
   }
   getInteraction(id: string) {
     return this.source.status.interaction(id);
+  }
+  /** A page of a thread's request, read whole (`interaction.read`, ADR 0157). */
+  readInteractionRequest(threadId: ThreadId, interactionId: string, offset: number) {
+    this.source.flush();
+    if (!this.source.readThread(threadId)) return "interaction_not_found";
+    return this.requests.read(threadId, interactionId, offset);
+  }
+  /** The version a request reads under now (`interaction.data`), to check an answer against. */
+  interactionRequestVersion(threadId: ThreadId, interactionId: string) {
+    this.source.flush();
+    return this.requests.version(threadId, interactionId);
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
     this.source.flush();

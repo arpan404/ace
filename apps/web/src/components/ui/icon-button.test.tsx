@@ -1,4 +1,4 @@
-import { DownloadSimpleIcon } from "@phosphor-icons/react";
+import { DownloadSimpleIcon } from "@ace/icons";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";

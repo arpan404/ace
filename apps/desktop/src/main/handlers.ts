@@ -148,6 +148,7 @@ export function createHandlers(options: {
       return undefined;
     },
     "daemon.connection": () => options.connection(),
+    "daemon.expected": (remembered) => runtime.expected(remembered ?? undefined),
     "daemon.authorize": (url) => {
       options.authorizeDaemon(url);
       return undefined;
@@ -220,6 +221,18 @@ export function createHandlers(options: {
       return windowState(window);
     },
     "window.state": () => windowState(requireWindow()),
+    "window.capture": async ({ maxWidth, quality }) => {
+      const captured = await requireWindow().webContents.capturePage();
+      const size = captured.getSize();
+      const image = size.width > maxWidth ? captured.resize({ width: maxWidth }) : captured;
+      const { width, height } = image.getSize();
+      return {
+        mimeType: "image/jpeg" as const,
+        data: image.toJPEG(quality).toString("base64"),
+        width,
+        height,
+      };
+    },
     "theme.appearance": () => appearance(),
     "theme.setSource": (source) => {
       nativeTheme.themeSource = source;

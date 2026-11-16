@@ -251,12 +251,12 @@ import XCTest
         var arguments = app.launchArguments
         if let at = arguments.firstIndex(of: "--spike-open"), at + 1 < arguments.count { arguments.removeSubrange(at...at + 1) }
         app.launchArguments = arguments + ["--spike-open", id]
-        app.launch()
+        app.launchWithArguments()
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {

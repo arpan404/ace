@@ -43,6 +43,9 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "threadFiles",
     "handler",
     "plugins",
+    "suits",
+    "suitLooks",
+    "suitChecks",
     "browser",
     "context",
     "settings",
@@ -89,6 +92,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "spade",
     "spadeRemote",
     "spadeComputers",
+    "mediaDelivery",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,

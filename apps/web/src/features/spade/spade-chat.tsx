@@ -9,7 +9,6 @@ import {
   withProposals,
   type SpadeAvatar,
   type SpadeChatItem,
-  type SpadeHelperStep,
   type SpadeProposal,
   type SpadeView,
   spadeQuietLine,
@@ -21,6 +20,7 @@ import {
 import { memo, useMemo } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
@@ -31,7 +31,7 @@ import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.t
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
-import { QuietLine, RestingLine, StepsFold } from "./spade-quiet-line.tsx";
+import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
@@ -85,8 +85,6 @@ export function SpadeChat(props: {
   endpointName?(id: string): string | undefined;
   /** Try again on a failed reply: sends the person's last message again. */
   onRetry?(text: string): Promise<boolean>;
-  /** A helper's own steps, by its job (ADR 0152), for its line to expand to. */
-  onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
   /** Its digests (ADR 0165), oldest first: messages of its own where each was made. */
   digests?: readonly SpadeDigest[] | undefined;
   /** The resting line's actions on its wake; resolves false when it didn't go through. */
@@ -149,7 +147,6 @@ export function SpadeChat(props: {
     onQuestion: props.onQuestion,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
-    onHelperSteps: props.onHelperSteps,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
@@ -224,7 +221,6 @@ interface Handlers {
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
-  onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
@@ -247,7 +243,7 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         : "mt-(--chat-turn-gap)";
     case "helper":
     case "quiet":
-      // A helper line reads under the reply that started it, as its steps do; quiet lines
+      // A helper line reads under the reply that started it; quiet lines
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
@@ -312,6 +308,9 @@ const Row = memo(function Row(props: {
   return <Single item={row.item} when={row.when} space={space} handlers={props.handlers} />;
 });
 
+/** Who wrote a bubble of the bot's, for its `spade-message` variant: Spade itself or a bot. */
+const sender = (bot: ChatBot) => (bot.avatar.kind === "spade" ? "spade" : "bot");
+
 /** One of a run's bubbles: the bot's words, its files, a card, a request, a skill or its steps. */
 function RunItem(props: {
   item: SpadeChatItem;
@@ -340,7 +339,14 @@ function RunItem(props: {
               copy={said && spadePlainText(said)}
               speak={said}
             >
-              <div className={cn(chatBubble, framed)}>
+              <div
+                {...part(
+                  "spade-message",
+                  item.live ? "working" : item.end === "failed" && "failed",
+                  sender(bot),
+                )}
+                className={cn(chatBubble, framed)}
+              >
                 {item.text && <SpadeBubbleText text={item.text} />}
                 {item.end === "failed" && item.failure ? (
                   <Failure
@@ -381,14 +387,14 @@ function RunItem(props: {
           copy={spadePlainText(item.text)}
           speak={item.text}
         >
-          <div className={cn(chatBubble, framed)}>
+          <div {...part("spade-message", undefined, "other")} className={cn(chatBubble, framed)}>
             <SpadeBubbleText text={item.text} />
           </div>
         </BubbleFrame>
       );
     case "files":
       return (
-        <div className={chatBubble}>
+        <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>
           <FileChips paths={item.paths} onOpen={handlers.onOpenFile} first />
         </div>
       );
@@ -404,8 +410,6 @@ function RunItem(props: {
           onAnswer={handlers.onAnswer}
         />
       );
-    case "steps":
-      return <StepsFold label={item.label} steps={item.steps} />;
     case "digest":
       return <SpadeDigestBubble digest={item.digest} when={props.when} face={handlers.face} />;
     case "skill": {
@@ -454,7 +458,7 @@ function Single(props: {
               copy={spadePlainText(item.text)}
               speak={undefined}
             >
-              <div className={cn(mineBubble, framed)}>
+              <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
                 <SpadeBubbleText text={item.text} side="mine" />
                 {/* A voice message: its transcript, and the recording to play. */}
                 {item.voice && (
@@ -537,15 +541,9 @@ function Single(props: {
       );
     }
     case "helper": {
-      const read = props.handlers.onHelperSteps;
       return (
         <div className={space}>
-          <SpadeHelperLine
-            text={item.text}
-            open={item.open}
-            since={item.at}
-            readSteps={read ? () => read(item.job) : undefined}
-          />
+          <SpadeHelperLine text={item.text} open={item.open} since={item.at} />
         </div>
       );
     }

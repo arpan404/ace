@@ -1,6 +1,7 @@
 import { spadeUsedSurfaces, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { SpadeActivity } from "../spade-activity.tsx";
 import { SpadeFace } from "../spade-face.tsx";
@@ -103,6 +104,7 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
       <div
         role="tablist"
         aria-label="Computer"
+        {...part("tabs", undefined, "computer")}
         className="no-scrollbar mb-3 flex gap-0.5 overflow-x-auto"
         onKeyDown={(event) => {
           if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
@@ -124,6 +126,7 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
               role="tab"
               data-view={kind}
               aria-selected={selected}
+              {...part("tab", selected && "selected", kind)}
               tabIndex={selected ? 0 : -1}
               onClick={() => place.onView(kind)}
               className={cn(

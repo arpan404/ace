@@ -21,7 +21,7 @@ import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { AlarmIcon, ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { AlarmIcon, ClockIcon, TreeStructureIcon } from "@ace/icons";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 

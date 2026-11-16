@@ -1,6 +1,6 @@
 import { DiffCode, DiffCodeScope } from "./diff-code.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { CaretDownIcon, CodeIcon, DotsThreeIcon, PlusIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CodeIcon, DotsThreeIcon, PlusIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { lazy, Suspense, useMemo, useState, type PointerEvent } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -168,7 +168,14 @@ export function FileDiffBlock(props: {
   const canOpen = (row: DiffRow) => row.kind === "fold" && (!!row.lines || !!props.onOpenFold);
   return (
     <DiffCodeScope path={file.path} rows={rows} whitespace={props.whitespace}>
-      <section id={props.id} aria-label={file.path} className="min-w-0">
+      <section
+        id={props.id}
+        aria-label={file.path}
+        data-part="diff-file"
+        data-state={open ? "open" : "closed"}
+        data-variant={file.status}
+        className="min-w-0"
+      >
         <div className="sticky top-0 z-[1] flex h-8 items-center gap-1 bg-panel pr-2 shadow-[0_1px_0_var(--border)]">
           <button
             type="button"
@@ -307,6 +314,8 @@ function Unified(props: RowsProps) {
           <>
             <div
               data-diff-row
+              data-part="diff-line"
+              data-variant={row.kind}
               className={cn(
                 "group/line relative grid min-w-max grid-cols-[44px_44px_minmax(0,1fr)]",
                 props.wrap && "min-w-0",
@@ -377,6 +386,8 @@ function SplitSideRow(props: RowsProps & { pair: SplitRow; side: "old" | "new" }
   return (
     <>
       <div
+        data-part="diff-line"
+        data-variant={line ? line.kind : "empty"}
         className={cn(
           "group/line relative grid min-h-5 min-w-full w-max grid-cols-[40px_max-content]",
           props.wrap && "w-full min-w-0 grid-cols-[40px_minmax(0,1fr)]",

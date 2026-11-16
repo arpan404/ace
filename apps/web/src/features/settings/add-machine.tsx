@@ -5,7 +5,7 @@ import { useEnsureMachinePool, useMachinePool } from "@/lib/machine-pool.ts";
 import { readPairedMachine } from "@/boot/pair-machine.ts";
 import { PairingForm } from "@/features/connect/index.ts";
 import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonLook } from "@/components/ui/button.tsx";
 import {
   Dialog,
   DialogContent,
@@ -114,7 +114,7 @@ function SignInThere(props: { email: string | undefined; onDone(): void; onBack(
             Done
           </Button>
         ) : (
-          <Link to="/settings/profile" className={buttonVariants({ variant: "primary" })}>
+          <Link to="/settings/profile" {...buttonLook({ variant: "primary" })}>
             Open Profile
           </Link>
         )}

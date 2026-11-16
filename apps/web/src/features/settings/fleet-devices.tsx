@@ -1,9 +1,4 @@
-import {
-  BrowserIcon,
-  DeviceMobileIcon,
-  DeviceTabletIcon,
-  LinkSimpleIcon,
-} from "@phosphor-icons/react";
+import { BrowserIcon, DeviceMobileIcon, DeviceTabletIcon, LinkSimpleIcon } from "@ace/icons";
 import { formatAgo, formatCountdown, listNames } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
