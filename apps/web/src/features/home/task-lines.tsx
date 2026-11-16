@@ -57,7 +57,8 @@ export function TaskLines(props: {
             aria-hidden={props.actions ? true : undefined}
             className={cn(
               "flex shrink-0 items-center gap-1.5",
-              props.actions ? "invisible" : "group-has-[[data-popup-open]]/row:invisible",
+              // Remove the slot: a Suit's status guard restores descendant visibility.
+              props.actions ? "hidden" : "group-has-[[data-popup-open]]/row:hidden",
             )}
           >
             {/* What an agent is using, just before the status; hidden with it under the actions. */}
