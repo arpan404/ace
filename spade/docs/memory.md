@@ -1,6 +1,7 @@
 # Memory, recall and asking the person
 
-How Spade's bots remember ([ADR 0128](../../docs/adr/0128-spade-memory.md)). Agents and their
+How Spade's bots remember ([ADR 0128](../../docs/adr/0128-spade-memory.md)). Knowledge bases,
+episodes of past tasks and history over weeks are in [knowledge.md](knowledge.md) (ADR 0164). Agents and their
 conversations are in [agents.md](agents.md); the prompt rules this keeps are in
 [design.md](design.md) (Caching, Compaction).
 
@@ -47,15 +48,15 @@ changing callers.
 
 ## Tools
 
-| Tool             | Arguments                            | Does                                                                           |
-| ---------------- | ------------------------------------ | ------------------------------------------------------------------------------ |
-| `memory_save`    | `text`, `about_person` (bool)        | Saves a note: shared when `about_person`, else the bot's                       |
-| `memory_update`  | `id`, `text`                         | Rewrites one of the bot's or the shared notes                                  |
-| `memory_forget`  | `id`                                 | Deletes one                                                                    |
-| `memory_search`  | `query`                              | Ranked notes the bot can see                                                   |
-| `history_search` | `query`                              | Matches in the bot's own stored conversation, by position                      |
-| `history_read`   | `from` (position), `count` (≤ 20)    | Those events word for word                                                     |
-| `ask_user`       | `questions`, `wait?` (or `question`) | Asks the person one to five questions as a card ([questions.md](questions.md)) |
+| Tool             | Arguments                                    | Does                                                                                              |
+| ---------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `memory_save`    | `text`, `about_person` (bool)                | Saves a note: shared when `about_person`, else the bot's                                          |
+| `memory_update`  | `id`, `text`                                 | Rewrites one of the bot's or the shared notes                                                     |
+| `memory_forget`  | `id`                                         | Deletes one                                                                                       |
+| `memory_search`  | `query`                                      | Ranked notes the bot can see                                                                      |
+| `history_search` | `query`, `since?`, `until?`, `oldest_first?` | Matches in the bot's own stored conversation, by position and date ([knowledge.md](knowledge.md)) |
+| `history_read`   | `from` (position), `count` (≤ 20)            | Those events word for word                                                                        |
+| `ask_user`       | `questions`, `wait?` (or `question`)         | Asks the person one to five questions as a card ([questions.md](questions.md))                    |
 
 The memory tools run without asking, except while the prompt shows an untrusted event: any
 since the last compaction, from this turn or an earlier one (the same events the workspace's
@@ -87,7 +88,7 @@ A save that matched an existing note answers `{ "exists": { … } }` instead.
 
 The search index (`history_search` table) is filled from the event log as it is searched, so it
 covers every event, including spans compaction summarised. It indexes the person's messages, the
-bot's step text, tool results and background job results. A position is the event's `seq`, the
+bot's step text, tool results, background job results and each compaction's summary (ADR 0164). A position is the event's `seq`, the
 same number `GET /v1/conversations/{id}/events` reports.
 
 ### Asking the person

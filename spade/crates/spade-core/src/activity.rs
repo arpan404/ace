@@ -393,12 +393,13 @@ impl Log {
                     Fields::named(name, &redact::one_line(title)),
                 );
             }
-            Known::GoalCleared { .. } => {
-                self.push(
-                    stored,
-                    Kind::Task,
-                    Fields::named("goal ended", "ended by the person"),
-                );
+            Known::GoalCleared { failed, .. } => {
+                let words = if *failed {
+                    "ended by the person as failed"
+                } else {
+                    "ended by the person"
+                };
+                self.push(stored, Kind::Task, Fields::named("goal ended", words));
             }
             Known::PlanCheckpoint {
                 item, done, total, ..

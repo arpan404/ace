@@ -272,6 +272,8 @@ pub fn searchable(event: &Event) -> Option<String> {
         Known::ToolFinished { name, content, .. } => format!("{name} result: {content}"),
         Known::JobFinished { name, content, .. } => format!("{name} job result: {content}"),
         Known::QuestionAsked { question, .. } => format!("you asked: {question}"),
+        // Past compactions (ADR 0164): what a summary kept is found again by its words.
+        Known::ContextCompacted { summary, .. } => format!("summary of earlier turns: {summary}"),
         Known::QuestionAnswered { answers, .. } => {
             let said: Vec<String> = answers
                 .iter()

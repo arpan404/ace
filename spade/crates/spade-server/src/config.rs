@@ -26,6 +26,9 @@ pub struct Config {
     /// `SPADE_CONTEXT_TOKENS`: compact before this many prompt tokens even when the model's own
     /// window is larger (a cost choice); unset uses each model's window.
     pub context_tokens: Option<u32>,
+    /// `SPADE_KNOWLEDGE_BYTES`: the size of each bot's knowledge base when the person set none
+    /// (ADR 0164); unset is the engine's default.
+    pub knowledge_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +97,7 @@ impl Config {
         let workers_at_once = count("SPADE_WORKERS_AT_ONCE")?.map(|n| n as usize);
         let context_tokens =
             count("SPADE_CONTEXT_TOKENS")?.map(|n| u32::try_from(n).unwrap_or(u32::MAX));
+        let knowledge_bytes = count("SPADE_KNOWLEDGE_BYTES")?;
         Ok(Self {
             listen,
             data_dir,
@@ -102,6 +106,7 @@ impl Config {
             helpers_at_once,
             workers_at_once,
             context_tokens,
+            knowledge_bytes,
         })
     }
 }

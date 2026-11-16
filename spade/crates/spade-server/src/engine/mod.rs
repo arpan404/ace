@@ -14,6 +14,7 @@ mod continuation;
 mod control;
 mod digests;
 mod endpoints;
+mod episodes;
 mod goals;
 mod group_run;
 mod groups;
@@ -21,6 +22,8 @@ mod helpers;
 mod inbox;
 mod index;
 mod jobs;
+mod knowledge;
+mod knowledge_api;
 mod ledger;
 pub(crate) use ledger::{Admission, Hint};
 mod maintenance;
@@ -52,12 +55,15 @@ pub use brain::BrainSource;
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
+pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
     GROUP_NAME_CHARS, GroupError, GroupFile, GroupInput, GroupLast, GroupView, MemberRef,
 };
 pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
+pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
+pub use knowledge_api::KnowledgeInput;
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
@@ -130,6 +136,8 @@ pub struct Engine {
     daily_cap_micros: u64,
     /// Model calls admitted and not yet paid for (ADR 0135, `ledger`).
     in_flight: Mutex<ledger::InFlight>,
+    /// Conversations checked since start for a closed goal with no episode (ADR 0164).
+    episodes_checked: Mutex<std::collections::HashSet<String>>,
     /// Woken each time an admitted call settles, for calls waiting on its estimate.
     released: Notify,
     limits: Limits,
@@ -246,6 +254,10 @@ impl Engine {
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
+        // A bot's knowledge base and its past episodes (ADR 0164).
+        for tool in crate::tools::KnowledgeTool::all(&handle) {
+            tools = tools.with_tool(tool);
+        }
         let tools = crate::routines::with_tools(tools, &handle);
         // `sleep_until`, `wait_for` and `wake_cancel` (ADR 0160).
         let tools = crate::tools::with_wake_tools(tools, &handle);
@@ -262,6 +274,7 @@ impl Engine {
             ids: setup.ids,
             daily_cap_micros: setup.daily_cap_micros,
             in_flight: Mutex::default(),
+            episodes_checked: Mutex::default(),
             released: Notify::new(),
             limits: setup.limits,
             skills: setup.skills,

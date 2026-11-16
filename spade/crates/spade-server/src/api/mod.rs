@@ -10,6 +10,7 @@ mod digests;
 mod endpoints;
 mod files;
 mod goals;
+mod knowledge;
 mod media;
 mod memory;
 mod oversight;
@@ -153,6 +154,7 @@ pub fn router(state: AppState) -> Router {
         .merge(plugins::routes())
         .merge(brains::routes())
         .merge(memory::routes())
+        .merge(knowledge::routes())
         .merge(oversight::routes())
         .merge(routing::routes())
         .merge(workspace::routes())

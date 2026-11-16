@@ -288,6 +288,10 @@ pub fn instructions(system: &str, events: &[Event]) -> String {
     if let Some(notes) = crate::memory::latest_index(events).filter(|n| !n.is_empty()) {
         system.push_str(&format!("\n\n{notes}"));
     }
+    // The topics of the bot's knowledge, frozen the same way (ADR 0164).
+    if let Some(topics) = crate::knowledge::latest_index(events).filter(|t| !t.is_empty()) {
+        system.push_str(&format!("\n\n{topics}"));
+    }
     // The task's goal and plan as of the latest compaction (ADR 0159).
     if let Some(plan) = crate::goal::view::pinned(events) {
         system.push_str(&format!("\n\n{plan}"));

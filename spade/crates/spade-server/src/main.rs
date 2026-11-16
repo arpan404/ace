@@ -509,6 +509,7 @@ fn limits(config: &Config) -> Limits {
         helpers_at_once: config.helpers_at_once.unwrap_or(defaults.helpers_at_once),
         workers_at_once: config.workers_at_once.unwrap_or(defaults.workers_at_once),
         context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
+        knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
         ..defaults
     }
 }
