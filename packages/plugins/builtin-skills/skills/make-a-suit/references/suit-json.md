@@ -176,6 +176,34 @@ Regions are `app`, `rail`, `sidebar`, `header`, `transcript`, `composer`, `right
 
 `regions` values are checked by suit.css's rules and become `--suit-<region>-background`, `-border`, `-shadow` and `-backdrop-filter`. A region's text must stay readable, so `reveal` is held under what the region's text allows over the scene; asking for more shows less. Without `reveal`, regions show: `app`, `rail`, `header` 0.65; `transcript`, `page` 0.3; `sidebar`, `composer`, `right-panel` 0 (solid). A `scene.js` at the root with no `scenes` means `{ "app": "scene.js" }`.
 
+## Video
+
+A Suit may play a video behind the app instead of an app scene (`scene.js` or `scenes.app`; region scenes still run). ace plays it in its own element: no Suit code runs for it.
+
+| Field                  | Takes                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `video.sources`        | One to three `.mp4`, `.m4v`, `.mov` or `.webm` files in `assets/`: renditions of one video. ace plays the smallest that shows sharp.    |
+| `video.poster`         | A `.webp`, `.jpg`, `.png` or `.avif` still in `assets/`: shown before the first frame and whenever the video can't play.                |
+| `video.fit`            | `cover` (default) or `contain`.                                                                                                         |
+| `video.audio.muted`    | `true` or `false` (default): the Suit's own mute. ace has no sound control in its UI.                                                   |
+| `video.audio.volume`   | 0–1, default 0.6: the loudest it plays.                                                                                                 |
+| `video.palette.accent` | `true` (default) or `false`: the accent follows the picture's strongest colour, fitted so labels read and it never passes for a status. |
+| `video.palette.tint`   | 0–0.25, default 0.12: how much of that colour the veil over the video takes, less wherever text would read worse.                       |
+
+```json
+"video": {
+  "sources": ["assets/clip-2160.mp4", "assets/clip-1080.mp4"],
+  "poster": "assets/clip-still.webp",
+  "audio": { "muted": false, "volume": 0.5 },
+  "palette": { "accent": true, "tint": 0.12 }
+}
+```
+
+- **Only media the person gives you.** Use a file they supplied or made themselves. Never download a video from a streaming site, record a stream, or work around a site's protections; if they only have a link, ask them for the file.
+- **4K is what the file holds.** ace reads each file's real size and Settings shows it ("4K (3840 × 2160)" only for a 4K file). Don't upscale a video and call it 4K; ship a 1080p rendition beside a 4K one so smaller windows decode less.
+- **A Suit made from someone's footage stays private.** Don't commit it to a repository, upload it or share it unless the person says the footage is theirs to share.
+- The veil (`reveal.app`) and the palette checks keep text readable over any frame, so pick the palette for the picture's quiet moments and let the accent follow.
+
 ## Terminal
 
 The terminal draws on a canvas, so CSS can't reach its text. Unset colours derive from the palette; ANSI colours are lifted until they read at 3:1, so pick hues, not exact contrast.
@@ -196,4 +224,4 @@ The terminal draws on a canvas, so CSS can't reach its text. Unset colours deriv
 
 ## Folder limits
 
-`suit.json` up to 64 KB, each scene up to 512 KB, `suit.css` up to 256 KB, everything else together up to 20 MB, at most 512 files and 8 folders deep. Larger files are refused unread.
+`suit.json` up to 64 KB, each scene up to 512 KB, `suit.css` up to 256 KB, everything else together up to 20 MB, at most 512 files and 8 folders deep. Videos don't count toward the 20 MB: each may be up to 8 GiB, three at most, and they are streamed, never read whole. Larger files are refused unread.

@@ -73,7 +73,15 @@ export function contentSecurityPolicy(options: {
       ...(options.dynamicDaemons ? ["https:", "wss:"] : []),
       ...(dev && devSocket ? [dev, devSocket] : []),
     ],
-    "media-src": ["'self'", "blob:", "data:"],
+    // A Suit's video streams from the loopback daemon by its URL grant (ADR 0169).
+    "media-src": [
+      "'self'",
+      "blob:",
+      "data:",
+      "http://127.0.0.1:*",
+      "http://localhost:*",
+      "http://[::1]:*",
+    ],
     // `blob:` holds typed attachment previews. Chat visualizations are `<webview>` guests, never
     // frames under this policy.
     "frame-src": ["http://127.0.0.1:*", "http://localhost:*", previews, "blob:"],

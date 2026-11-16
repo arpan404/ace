@@ -9,3 +9,5 @@ export * from "./limits.ts";
 export * from "./reveal.ts";
 export { ornamentByteLimit, sanitiseOrnament } from "./ornaments.ts";
 export { isSceneFile, regionOrnaments, regionScenes, scenePageFor } from "./regions.ts";
+export { easeColour, strongestColour, tintedVeil, videoAccent } from "./video-palette.ts";
+export { pickVideoSource, showsSharp, videoSizeLabel, type ProbedVideo } from "./video-source.ts";

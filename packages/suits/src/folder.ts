@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import type { SuitManifest, SuitProblem, SuitSummary } from "@ace/protocol/suits";
+import {
+  isSuitVideoPath,
+  type SuitManifest,
+  type SuitProblem,
+  type SuitSummary,
+} from "@ace/protocol/suits";
 import {
   fontProblems,
   parseManifest,
@@ -12,6 +17,7 @@ import { regionCss } from "./css/regions.ts";
 import { sanitiseSuitCss } from "./css/sanitise.ts";
 import { suitSchemes } from "./palette.ts";
 import { isSceneFile, regionOrnaments, regionScenes } from "./regions.ts";
+import { videoProblems } from "./video.ts";
 
 export { problem };
 
@@ -26,6 +32,15 @@ export interface SuitEntry {
   path: string;
   kind: "file" | "directory" | "symlink" | "other";
   size: number;
+  /** Last modification, ms since the epoch; frames a streamed video in the hash. */
+  mtimeMs?: number;
+}
+
+/** A video the reader never reads: served from disk by range (ADR 0169). */
+export interface StreamedFile {
+  path: string;
+  size: number;
+  mtimeMs: number;
 }
 
 export interface SuitPlan {
@@ -33,6 +48,8 @@ export interface SuitPlan {
   read: string[];
   /** Files refused for their size, kept in the hash by path and size. */
   skipped: { path: string; size: number }[];
+  /** Videos, in path order: hashed by path, size and modification time, streamed when served. */
+  stream: StreamedFile[];
   problems: SuitProblem[];
 }
 
@@ -58,7 +75,7 @@ const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** What a reader may read of `entries`, and the problems the walk itself found. */
 export function plan(entries: readonly SuitEntry[]): SuitPlan {
-  const result: SuitPlan = { read: [], skipped: [], problems: [] };
+  const result: SuitPlan = { read: [], skipped: [], stream: [], problems: [] };
   const sorted = entries.toSorted((a, b) => byPath(a.path, b.path));
   let assetBytes = 0;
   let files = 0;
@@ -89,6 +106,26 @@ export function plan(entries: readonly SuitEntry[]): SuitPlan {
         result.problems.push(
           problem("asset", `a Suit holds at most ${suitLimits.files} files`, null),
         );
+      result.skipped.push({ path, size: entry.size });
+      continue;
+    }
+    if (isSuitVideoPath(path)) {
+      if (entry.size > suitLimits.videoBytes)
+        result.problems.push(
+          problem(
+            "video",
+            `${path} is ${entry.size} bytes; a video may be ${suitLimits.videoBytes}`,
+            path,
+          ),
+        );
+      else if (result.stream.length >= suitLimits.videos)
+        result.problems.push(
+          problem("video", `a Suit holds at most ${suitLimits.videos} video files`, path),
+        );
+      else {
+        result.stream.push({ path, size: entry.size, mtimeMs: entry.mtimeMs ?? 0 });
+        continue;
+      }
       result.skipped.push({ path, size: entry.size });
       continue;
     }
@@ -129,16 +166,30 @@ function length(value: number): Buffer {
 /**
  * sha256 over the folder's files in path order. Each file is framed as a tag, its path's length
  * and bytes, then its content's length and bytes (lengths as 8-byte big-endian), so no two
- * different folders frame to the same stream. A file refused for size is framed by its size.
+ * different folders frame to the same stream. A file refused for size is framed by its size; a
+ * streamed video by its size and modification time in microseconds, so saving a new cut of it
+ * makes a new version without hashing gigabytes on every edit.
  */
 export function contentHash(
   files: ReadonlyMap<string, Uint8Array>,
   skipped: readonly { path: string; size: number }[] = [],
+  streamed: readonly StreamedFile[] = [],
 ): string {
   const hash = createHash("sha256").update("ace-suit\u00001\u0000");
   const entries = [
-    ...[...files].map(([path, bytes]) => ({ path, tag: "F", bytes, size: bytes.byteLength })),
+    ...[...files].map(([path, bytes]) => ({
+      path,
+      tag: "F",
+      bytes: bytes as Uint8Array | undefined,
+      size: bytes.byteLength,
+    })),
     ...skipped.map(({ path, size }) => ({ path, tag: "S", bytes: undefined, size })),
+    ...streamed.map(({ path, size, mtimeMs }) => ({
+      path,
+      tag: "V",
+      bytes: length(Math.max(0, Math.round(mtimeMs * 1000))),
+      size,
+    })),
   ].toSorted((a, b) => byPath(a.path, b.path));
   for (const entry of entries) {
     const path = Buffer.from(entry.path, "utf8");
@@ -189,8 +240,9 @@ export function suitCss(
 export function inspectSuit(
   id: string,
   files: ReadonlyMap<string, Uint8Array>,
-  walk: Pick<SuitPlan, "problems" | "skipped">,
+  walk: Pick<SuitPlan, "problems" | "skipped"> & Partial<Pick<SuitPlan, "stream">>,
 ): InspectedSuit {
+  const streamed = walk.stream ?? [];
   const problems = [...walk.problems];
   const text = files.get("suit.json");
   const parsed = text ? parseManifest(id, Buffer.from(text).toString("utf8")) : undefined;
@@ -208,6 +260,9 @@ export function inspectSuit(
       ...regionCss({ id, manifest, assets: assetPaths(present), url: (path) => path }).problems,
     );
     problems.push(...regionScenes(manifest, present).problems);
+    problems.push(
+      ...videoProblems(manifest, present, new Set(streamed.map((video) => video.path))),
+    );
     // Only whether each reference lands matters here; the reader serves the real URLs.
     problems.push(
       ...regionOrnaments(manifest, files, (path) => (present.has(path) ? path : undefined))
@@ -241,7 +296,7 @@ export function inspectSuit(
       description: manifest?.description ?? "",
       schemes: manifest ? suitSchemes(manifest) : [],
       scene: hasScene,
-      contentHash: contentHash(files, walk.skipped),
+      contentHash: contentHash(files, walk.skipped, streamed),
       problems,
     },
   };

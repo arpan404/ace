@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { SuitVideoBackdrop } from "../video/suit-video.tsx";
 import { SceneBackdrop } from "./scene-backdrop.tsx";
 import { useRegionScene } from "./suit-scenes.tsx";
 
@@ -8,18 +9,81 @@ import { useRegionScene } from "./suit-scenes.tsx";
  * that version of the Suit, which carries on with its colours; an edit to the Suit (a new
  * content hash) gets its scene back. A reconnect reads the same version again: a running scene
  * carries on in its frame, and one that never loaded gets another go (`scene-stops.ts`).
+ *
+ * A Suit with a video (ADR 0169) shows that instead, in ace's own element; one that fails for good
+ * is dropped for that version, the same way, and its still image (`video.poster`) takes its place.
  */
 export function AppliedSuitBackdrop(props: {
   /** Whether a scene draws now, so the shell can let it show through. */
   onShowing(showing: boolean): void;
 }) {
   const { scenes, suit, resolved, url, frame } = useRegionScene("app");
+  const shown = suit;
+  const [videoStopped, setVideoStopped] = useState<string | null>(null);
+  const video = shown?.manifest.video;
+  const videoVersion = shown ? `${shown.summary.id}\u0000${shown.summary.contentHash}` : null;
+  const videoShows =
+    shown !== null &&
+    video !== undefined &&
+    videoStopped !== videoVersion &&
+    video.sources.some((path) => shown.assets[path] !== undefined);
+  // A video that can't play (dropped after failures, or out of this page's reach) leaves its
+  // still image in its place.
+  const posterUrl = shown && video?.poster && !videoShows ? shown.assets[video.poster] : undefined;
   const { onShowing } = props;
-  const showing = url !== null;
+  const showing = videoShows || posterUrl !== undefined || url !== null;
   useEffect(() => {
     onShowing(showing);
   }, [onShowing, showing]);
 
+  if (videoShows && shown && video) {
+    return (
+      <>
+        <SuitVideoBackdrop
+          suit={shown}
+          video={video}
+          scheme={resolved.scheme}
+          still={resolved.backdropMotion === "still"}
+          onStopped={() => {
+            console.warn(`[suits] ${shown.summary.id}'s video was stopped after repeated failures`);
+            setVideoStopped(videoVersion);
+          }}
+        />
+        {/* The veil, tinted by the picture's colour within what keeps the frame's text readable. */}
+        <div
+          aria-hidden="true"
+          data-suit-veil=""
+          className="pointer-events-none fixed inset-0 -z-10"
+          style={{
+            background: "var(--suit-video-veil, var(--sidebar))",
+            opacity: "calc(1 - var(--suit-app-reveal, 0.65))",
+          }}
+        />
+      </>
+    );
+  }
+  if (posterUrl && video) {
+    return (
+      <>
+        <img
+          src={posterUrl}
+          alt=""
+          aria-hidden="true"
+          crossOrigin="anonymous"
+          data-suit-poster=""
+          data-fit={video.fit}
+          className="pointer-events-none fixed inset-0 -z-10 size-full"
+          style={{ objectFit: video.fit }}
+        />
+        <div
+          aria-hidden="true"
+          data-suit-veil=""
+          className="pointer-events-none fixed inset-0 -z-10 bg-sidebar"
+          style={{ opacity: "calc(1 - var(--suit-app-reveal, 0.65))" }}
+        />
+      </>
+    );
+  }
   if (!scenes || !suit || !url || !frame) return null;
   return (
     <>

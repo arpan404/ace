@@ -28,7 +28,7 @@ Read a reference when its step needs it. With native skills it is the file besid
   suit.json     required: colours, fonts, shape, motion, layout, labels, ornaments, scenes, reveal, regions, terminal
   suit.css      optional: styles for the published parts
   scene.js      optional: the app's backdrop; other regions name their own .js files
-  assets/       optional: fonts, images, ornament .svg/.html
+  assets/       optional: fonts, images, ornament .svg/.html, a video and its poster
 ```
 
 The id is lower-case words joined by dashes, at most 48 characters, and equals the folder name. To start from an existing look, copy any folder in `~/.ace/suits` to the new id and change `id` and `name`.
@@ -50,4 +50,5 @@ The id is lower-case words joined by dashes, at most 48 characters, and equals t
 - **Own variables are `--suit-*`.** Set ace's colour tokens in `suit.json`; suit.css defines only `--suit-` custom properties and reads ace's (`var(--color-foreground)`).
 - **Files stay in the folder.** Every `url()` points into `assets/` (small raster `data:` images up to 8 KB excepted). No `@import`, no remote fonts, no `attr()`.
 - **Normal declarations only.** `!important` is refused; a Suit's layer already wins over ace's own styles.
+- **Media is the person's.** A video or image comes from the person or is made by you; never fetch footage from a streaming site or around its protections, and never publish a Suit built on someone else's footage (`references/suit-json.md`, "Video").
 - **Motion yields.** Suit animations stop under Reduce motion automatically; design the still state as the real look, and give scenes a calm still frame.

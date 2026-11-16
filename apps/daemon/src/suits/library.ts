@@ -39,6 +39,15 @@ export interface SuitFile {
   path: string;
 }
 
+/** A video of one version of a Suit, served from disk by range (ADR 0169). */
+export interface SuitVideoFile {
+  /** Relative to the Suit's folder. */
+  path: string;
+  folder: string;
+  size: number;
+  mtimeMs: number;
+}
+
 const largest = Math.max(suitLimits.manifestBytes, suitLimits.sceneBytes, suitLimits.assetBytes);
 
 export class SuitLibrary {
@@ -138,6 +147,7 @@ export class SuitLibrary {
     const assets: SuitDetail["assets"] = {};
     for (const path of read.plan.read)
       if (path.startsWith("assets/")) assets[path] = base + encodeSuitPath(path);
+    for (const { path } of read.plan.stream) assets[path] = base + encodeSuitPath(path);
     const files = new Set(read.plan.read);
     const sceneUrls: SuitDetail["sceneUrls"] = {};
     for (const [region, file] of Object.entries(regionScenes(manifest, files).scenes))
@@ -220,6 +230,17 @@ export class SuitLibrary {
     if (!read || read.inspected.summary.contentHash !== hash) return undefined;
     const path = read.plan.read.find(isSceneFile);
     return path ? this.file(id, hash, path) : undefined;
+  }
+
+  /**
+   * A video of one version of a Suit, while the Suit still has `hash`: only a file the plan
+   * streams. The caller opens it without following a link and checks its size and time again.
+   */
+  async video(id: string, hash: string, path: string): Promise<SuitVideoFile | undefined> {
+    const read = await this.#read(id, true);
+    if (!read || read.inspected.summary.contentHash !== hash) return undefined;
+    const video = read.plan.stream.find((entry) => entry.path === path);
+    return video ? { ...video, folder: join(this.#options.root, id) } : undefined;
   }
 
   /**
