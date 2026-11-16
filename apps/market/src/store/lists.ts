@@ -1,3 +1,4 @@
+import { canonicalJson } from "@ace/marketplace";
 import type { MarketOfficialList, MarketVerifiedList, Signed } from "@ace/protocol/marketplace";
 import { refreshEntry } from "./entries.ts";
 import { signedOf } from "./rows.ts";
@@ -20,6 +21,12 @@ export async function signedList(
     .first<{ issued: number; signed: string }>();
   return row ? { issued: row.issued, signed: signedOf(row.signed) as Signed } : undefined;
 }
+
+/**
+ * The text a signed list is stored and compared as: its canonical JSON (keys sorted, no spaces),
+ * so the same list sent again with its properties in another order is the same list.
+ */
+export const signedText = (signed: Signed): string => canonicalJson(signed);
 
 /** Where a signed list is kept: one row, id 1. */
 export type SignedTable = ListTable | "withdrawn";
@@ -74,9 +81,11 @@ export async function setBlocklist(
 
 /**
  * Stores the verified list and marks publishers by it in the same batch: those on it verified,
- * with their proofs; those who were verified and aren't any more revoked, with the reason a
- * maintainer gave. Every entry whose verified mark differs from its publisher's is brought in
- * step after, so sending the same list again finishes an upload cut off part way.
+ * with their proofs as both the approved ones and the application's; those who were verified and aren't any more revoked, with the reason a
+ * maintainer gave. The entries of every publisher whose mark changes move their generation in
+ * the same batch, so a refresh that read the old mark can't write it back. Every entry whose
+ * verified mark differs from its publisher's is brought in step after, so sending the same list
+ * again finishes an upload cut off part way.
  */
 export async function setVerified(
   db: D1Database,
@@ -93,8 +102,16 @@ export async function setVerified(
     upsertSigned(db, "verified", stored),
     db
       .prepare(
+        `UPDATE entries SET generation = generation + 1 WHERE ${g} AND publisher IN (
+          SELECT id FROM publishers WHERE (verified = 0) = (id IN (SELECT value FROM json_each(?3))))`,
+      )
+      .bind(list.body.issued, list.signed, ids),
+    db
+      .prepare(
         `UPDATE publishers SET verified = 1, verification = 'verified',
             proofs = (SELECT json_extract(value, '$.proofs') FROM json_each(?3)
+              WHERE json_extract(value, '$.id') = publishers.id),
+            approved_proofs = (SELECT json_extract(value, '$.proofs') FROM json_each(?3)
               WHERE json_extract(value, '$.id') = publishers.id),
             verification_at = (SELECT json_extract(value, '$.at') FROM json_each(?3)
               WHERE json_extract(value, '$.id') = publishers.id),
@@ -104,7 +121,7 @@ export async function setVerified(
       .bind(list.body.issued, list.signed, on),
     db
       .prepare(
-        `UPDATE publishers SET verified = 0, verification = 'revoked',
+        `UPDATE publishers SET verified = 0, verification = 'revoked', approved_proofs = '[]',
             verification_reason = COALESCE((SELECT json_extract(value, '$.reason')
               FROM json_each(?3) WHERE json_extract(value, '$.handle') = publishers.name),
               verification_reason)

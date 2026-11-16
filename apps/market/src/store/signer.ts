@@ -100,36 +100,42 @@ type Key = { type: string; name: string; version: string };
  * Lists a signed version. The first time it goes live its publisher's count of live versions
  * moves (ADR 0173 §9) and its entry's first listing is set, in the same batch. Every statement
  * re-checks that the version is still pending (or already listed, for a signature sent again),
- * so a hold or block a maintainer made after the route read it stands. False when it no longer
- * waits for the signer.
+ * so a hold or block a maintainer made after the route read it stands, and that the version
+ * still names the bytes and publisher the manifest was checked against: a version blocked and
+ * submitted again with other bytes after the route read it never takes the old manifest. False
+ * when it no longer waits for the signer or names other bytes.
  */
 export async function listVersion(
   db: D1Database,
   key: Key,
-  manifest: string,
+  signed: { manifest: string; hash: string; size: number; publisher: string },
   now: number,
 ): Promise<boolean> {
+  const same = `hash = ?5 AND size = ?6
+    AND (SELECT publisher FROM entries WHERE type = ?1 AND name = ?2) = ?7`;
   const unlisted = `EXISTS (SELECT 1 FROM versions WHERE type = ?1 AND name = ?2 AND version = ?3
-    AND listed = 0 AND state = 'pending')`;
+    AND listed = 0 AND state = 'pending' AND ${same})`;
+  const bound = [signed.manifest, signed.hash, signed.size, signed.publisher] as const;
   const results = await db.batch([
     db
       .prepare(
         `UPDATE publishers SET live_versions = live_versions + 1
           WHERE id = (SELECT publisher FROM entries WHERE type = ?1 AND name = ?2) AND ${unlisted}`,
       )
-      .bind(key.type, key.name, key.version),
+      .bind(key.type, key.name, key.version, ...bound),
     db
       .prepare(
-        `UPDATE entries SET first_listed = COALESCE(first_listed, ?4)
+        `UPDATE entries SET first_listed = COALESCE(first_listed, ?8)
           WHERE type = ?1 AND name = ?2 AND ${unlisted}`,
       )
-      .bind(key.type, key.name, key.version, now),
+      .bind(key.type, key.name, key.version, ...bound, now),
     db
       .prepare(
         `UPDATE versions SET listed = 1, state = 'listed', manifest = ?4
-          WHERE type = ?1 AND name = ?2 AND version = ?3 AND state IN ('pending', 'listed')`,
+          WHERE type = ?1 AND name = ?2 AND version = ?3 AND state IN ('pending', 'listed')
+          AND ${same}`,
       )
-      .bind(key.type, key.name, key.version, manifest),
+      .bind(key.type, key.name, key.version, ...bound),
     bumpGeneration(db, key.type, key.name),
   ]);
   if ((results[2]?.meta.changes ?? 0) === 0) return false;

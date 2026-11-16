@@ -24,7 +24,7 @@ import {
   publishLive,
   verifiedBy,
 } from "./testing/discover-harness.ts";
-import { listVersion } from "./store/signer.ts";
+import { listVersion, versionForSigning } from "./store/signer.ts";
 
 /*
  * The maintainers' routes (ADR 0173 §7, §9, §10, §13, §14) through the Worker: the signer's token
@@ -147,7 +147,15 @@ it("a signature racing a maintainer's hold or block never lists the version", as
         .first();
     const before = await live();
     const key = { type: "spade-skill", name, version: "1.0.0" };
-    expect(await listVersion(market.db, key, "{}", Date.now())).toBe(false);
+    const read = await versionForSigning(market.db, key);
+    if (!read) throw new Error("no version");
+    const checked = {
+      manifest: "{}",
+      hash: read.hash,
+      size: read.size,
+      publisher: read.publisher.id,
+    };
+    expect(await listVersion(market.db, key, checked, Date.now())).toBe(false);
     expect(await live()).toEqual(before);
     expect(before).toMatchObject({ listed: 0 });
     // And through the route, a signature for it is refused.

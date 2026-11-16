@@ -16,7 +16,7 @@ import { objectKey, type Context } from "./context.ts";
 import { bearer, failure, json, notFound, readJson, refused, sameSecret } from "./http.ts";
 import type { Route, VersionKey } from "./routes.ts";
 import { withdrawnList } from "./store/read.ts";
-import { signedList, type ListStored } from "./store/lists.ts";
+import { signedList, signedText, type ListStored } from "./store/lists.ts";
 import {
   hashIsStored,
   listVersion,
@@ -165,9 +165,23 @@ async function signVersion(request: Request, key: VersionKey, context: Context) 
   if (!matches)
     return refused([{ message: "The manifest names another version, publisher or files" }]);
   if (
-    !(await listVersion(context.env.MARKET, key, JSON.stringify(upload.data.manifest), context.now))
+    !(await listVersion(
+      context.env.MARKET,
+      key,
+      {
+        manifest: JSON.stringify(upload.data.manifest),
+        hash: stored.hash,
+        size: stored.size,
+        publisher: stored.publisher.id,
+      },
+      context.now,
+    ))
   )
-    return failure(409, "conflict", "That version was held or blocked; a maintainer decides it.");
+    return failure(
+      409,
+      "conflict",
+      "That version was held, blocked or submitted again; a maintainer decides it.",
+    );
   return json({ status: "listed", ...key, hash: stored.hash });
 }
 
@@ -210,7 +224,7 @@ async function withdrawn(request: Request, context: Context) {
     context.env.MARKET,
     {
       issued: list.issued,
-      signed: JSON.stringify(upload.data.withdrawn),
+      signed: signedText(upload.data.withdrawn),
       withdrawn: list.withdrawn,
       basedOn: upload.data.basedOn,
     },

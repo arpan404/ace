@@ -34,7 +34,7 @@ import {
   setPublisherState,
   type Decided,
 } from "./store/maintainers.ts";
-import { setBlocklist, setOfficial, setVerified } from "./store/lists.ts";
+import { setBlocklist, setOfficial, setVerified, signedText } from "./store/lists.ts";
 import { listReports, resolveReport } from "./store/reports.ts";
 
 /*
@@ -160,7 +160,7 @@ async function blocklist(request: Request, context: Context) {
   }
   const stored = await setBlocklist(context.env.MARKET, {
     issued: list.issued,
-    signed: JSON.stringify(upload.data.blocklist),
+    signed: signedText(upload.data.blocklist),
     basedOn: upload.data.basedOn,
   });
   return listAnswer(stored, list.issued);
@@ -195,7 +195,7 @@ async function verified(request: Request, context: Context) {
     );
   const stored = await setVerified(
     db,
-    { body: list, signed: JSON.stringify(upload.data.verified), basedOn: upload.data.basedOn },
+    { body: list, signed: signedText(upload.data.verified), basedOn: upload.data.basedOn },
     upload.data.revoked,
     context.now,
   );
@@ -217,7 +217,7 @@ async function official(request: Request, context: Context) {
     return refused([{ message: "The official list names the ace publisher only" }]);
   const stored = await setOfficial(
     context.env.MARKET,
-    { body: list, signed: JSON.stringify(upload.data.official), basedOn: upload.data.basedOn },
+    { body: list, signed: signedText(upload.data.official), basedOn: upload.data.basedOn },
     context.now,
   );
   if (stored === "publisher-taken")
