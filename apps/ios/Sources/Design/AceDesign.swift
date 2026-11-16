@@ -492,12 +492,9 @@ extension AceDesign.Ink {
 }
 
 extension AceDesign.Motion {
-    /// The keyboard's own motion, for what moves with it beside the system's keyboard avoidance
-    /// (the transcript's end, #2170). The notification names curve 7 and a duration (0.383 s on
-    /// iOS 26.1); drawn frame by frame there, the keyboard and the avoidance both move as a
-    /// critically damped spring whose response is 0.7 of that duration. A spring of the full
-    /// duration lagged the composer by up to 130 pt.
-    static func keyboard(_ duration: Double) -> Animation { .spring(response: duration * 0.7, dampingFraction: 1) }
+    /// The keyboard's own motion (`KeyboardCurve`), for what animates with it: the composer opening
+    /// as it takes the keyboard.
+    static func keyboard(_ duration: Double) -> Animation { .spring(response: KeyboardCurve.response(duration), dampingFraction: 1) }
 }
 
 // MARK: - Pull requests, files and tools: the values these places name

@@ -75,7 +75,7 @@ struct ConversationFeed: View {
     private var keyboardLift: CGFloat { CGFloat(keyboardRoom.kept) }
     /// How far the rows are drawn from where the scroll puts them while they ride the keyboard
     /// (`keyboardWillMove`). Only drawing moves: rows measure and the scroll reads as if it were 0.
-    @State private var keyboardShift: CGFloat = 0
+    @State private var ride = KeyboardRide()
     /// Bumped by each keyboard move, so an older move's end doesn't settle a newer one.
     @State private var keyboardMoves = 0
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
@@ -197,7 +197,7 @@ struct ConversationFeed: View {
             .frame(maxWidth: .infinity)
             .coordinateSpace(name: Self.contentSpace)
             // Outside the rows' space and inside the reader below, so neither sees it.
-            .offset(y: keyboardShift)
+            .modifier(KeyboardRideOffset(ride: ride))
             // Where the content's top is on screen: the one number a scroll changes.
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.viewportSpace)).minY } action: { origin in
                 contentScrolled(to: origin, proxy: proxy)
@@ -527,13 +527,14 @@ struct ConversationFeed: View {
             reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
         }
     }
-    /// The keyboard is about to move. `FloatingBar` lifts the composer by the same amount from the
-    /// same notification on the same curve; the rows following the end move with it as one drawn
-    /// offset in step with the composer's (#2170). An animated scroll can't: it runs on the scroll
-    /// view's own curve, whatever the transaction says. The room changes at once, the scroll
-    /// jumps once while the offset holds the rows still, and the only part of the feed the offset
-    /// ever brings into view is the empty room under the last row.
+    /// The keyboard is about to move, and the system's keyboard avoidance moves the composer with
+    /// it (`FloatingBar`). The rows following the end move by the same lift as one drawn offset on
+    /// the keyboard's own curve (`KeyboardRide`, #2170); an animated scroll can't, as it runs on the
+    /// scroll view's own curve and starts frames late. The room changes at once, the scroll jumps
+    /// once while the offset holds the rows still, and the only part of the feed the offset ever
+    /// brings into view is the empty room under the last row.
     private func keyboardWillMove(_ note: Notification, proxy: ScrollViewProxy) {
+        let start = CACurrentMediaTime()
         guard let move = KeyboardMove(note) else { return }
         let lift = CGFloat(TranscriptKeyboardLift.docked(column: feedFrame, keyboard: move.end))
         if move.duration > 0 { keyboardDuration = move.duration }
@@ -541,9 +542,7 @@ struct ConversationFeed: View {
         let growth = lift - keyboardLift
         let follows = !intent.active && (pinned || intent.metrics.bottom + growth < 0)
         keyboardMoving = true
-        keyboardMoves += 1
-        let run = keyboardMoves
-        // A move still rising hands its offset to the scroll first.
+        // A ride still going hands its offset to the scroll first.
         handShiftToScroll(proxy: proxy)
         var instant = Transaction()
         instant.disablesAnimations = true
@@ -551,42 +550,40 @@ struct ConversationFeed: View {
         railPlace?.keyboard(up: lift > 0)
         guard follows else { return }
         settle.cancel()
+        let landed = { handShiftToScroll(proxy: proxy); keyboardSettled(proxy: proxy) }
         if reduceMotion {
             proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         } else if growth > 0 {
             // Opening: the rows rise into the new room below the end, then the scroll takes over.
-            withAnimation(AceDesign.Motion.keyboard(move.duration), completionCriteria: .removed) { keyboardShift = -growth } completion: {
-                guard run == keyboardMoves else { return }
-                handShiftToScroll(proxy: proxy)
-                keyboardSettled(proxy: proxy)
-            }
+            ride.ride(from: 0, to: -growth, start: start, duration: move.duration, done: landed)
         } else {
             // Closing: the scroll is at the new end at once and the rows are drawn where they
             // were, then come down with the composer over the room that is leaving.
             withTransaction(instant) {
-                keyboardShift = growth
+                ride.hold(at: growth)
                 proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
             }
-            withAnimation(AceDesign.Motion.keyboard(move.duration)) { keyboardShift = 0 }
+            ride.ride(from: growth, to: 0, start: start, duration: move.duration, done: landed)
         }
     }
     /// The rows drawn off where the scroll puts them go back to it, in one frame that moves nothing.
     private func handShiftToScroll(proxy: ScrollViewProxy) {
-        guard keyboardShift != 0 else { return }
+        ride.stop()
+        guard ride.shift != 0 else { return }
         var instant = Transaction()
         instant.disablesAnimations = true
         withTransaction(instant) {
-            keyboardShift = 0
+            ride.hold(at: 0)
             proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
         }
     }
     /// The keyboard has stopped, and the rows with it.
     private func keyboardSettled(proxy: ScrollViewProxy) {
-        // Still rising: the opening's own end settles it.
-        guard keyboardShift == 0 else { return }
+        // Still riding: the ride's own end settles it.
+        guard !ride.running else { return }
         keyboardMoving = false
         // The closing keyboard's room below the end: the scroll's target is above it, so it goes
-        // without moving the rows, even if they are still coming down.
+        // without moving the rows.
         if keyboardRoom.leaving > 0 {
             var instant = Transaction()
             instant.disablesAnimations = true
@@ -646,8 +643,8 @@ struct ConversationFeed: View {
     /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and
     /// are covered, unless the smaller room would park the view past the end.
     private func roomChanged(by growth: CGFloat, motion: Animation?, proxy: ScrollViewProxy) {
-        // Rows riding the keyboard (`keyboardShift`) catch up with the end when they land.
-        guard !intent.active, growth != 0, keyboardShift == 0, pinned || intent.metrics.bottom + growth < 0 else { return }
+        // Rows riding the keyboard (`KeyboardRide`) catch up with the end when they land.
+        guard !intent.active, growth != 0, !ride.running, pinned || intent.metrics.bottom + growth < 0 else { return }
         // The room has its new height in this same update, so the end is where the scroll lands,
         // starting in the same frame as the keyboard.
         settle.cancel()
