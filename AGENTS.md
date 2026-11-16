@@ -43,6 +43,7 @@ When these conflict, choose in that order.
 - **Explicit types at boundaries, and only there.** Data from outside the process (provider frames, wire messages, files, env) is parsed with a schema before use. Data ace produced (values built with the right type, messages between its own threads, rows this build wrote) is not validated again ([ADR 0125](docs/adr/0125-validate-at-trust-boundaries.md)); trusted casts of stored rows live in `apps/daemon/src/stored-decode.ts`. No `any`, no unchecked `as` casts on external data, no non-null assertions to silence the compiler.
 - **Small, composable units over options-heavy functions.** If a function needs a boolean flag that changes what it does, split it in two.
 - **Performance is designed in.** Hot paths (deltas, frame translation, event fan-out) do work proportional to the change, not to history. Anything slower needs a benchmark and a reason.
+- **The daemon stays responsive ([ADR 0170](docs/adr/0170-daemon-never-blocks-on-history-sized-work.md)).** Startup, migrations and the main thread never do work that grows with stored history: no `CREATE INDEX` or full-table rewrite at open. Such work runs in idle, bounded batches, and anything that adds open-time work is timed on a large home with a cold cache.
 
 ## Tests
 
