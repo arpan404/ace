@@ -293,3 +293,85 @@ describe("the daemon's marketplace", () => {
     expect((await readFile(pinned)).byteLength).toBeGreaterThan(0);
   });
 });
+
+const install = (review: { id: string; hash: string }) =>
+  harness.service.request({
+    op: "install",
+    id: review.id,
+    hash: review.hash,
+    choices: { bots: [], needs: {}, startRoutines: false },
+  });
+
+/** A promise and the call that settles it, for holding a step until the test lets it go. */
+function gate() {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  return { shut: promise, open: () => resolve() };
+}
+
+describe("the marketplace turned off in Settings › Beta", () => {
+  it("undoes an install it was turned off during, leaving nothing installed", async () => {
+    publish({ type: "suit", name: "harbour-dusk", files: sampleSuit(), reviewed: true });
+    await harness.ask({ op: "refresh" }, "sources");
+    const { review } = await harness.ask(
+      { op: "prepare", source: "market", type: "suit", name: "harbour-dusk" },
+      "review",
+    );
+    harness.hooks.beforeSuitInstall = async () => {
+      harness.hooks.on = false;
+    };
+    expect(await install(review)).toMatchObject({
+      op: "error",
+      code: "unavailable",
+      message: expect.stringContaining("turned off"),
+    });
+    expect((await harness.suits.list()).map((suit) => suit.id)).not.toContain("harbour-dusk");
+    harness.hooks.on = true;
+    expect((await harness.ask({ op: "installed" }, "installed")).installed).toEqual([]);
+  });
+
+  it("doesn't start work that was queued before it was turned off", async () => {
+    publish({ type: "suit", name: "harbour-dusk", files: sampleSuit(), reviewed: true });
+    await harness.ask({ op: "refresh" }, "sources");
+    const { review } = await harness.ask(
+      { op: "prepare", source: "market", type: "suit", name: "harbour-dusk" },
+      "review",
+    );
+    // An install holds the queue; a refresh waits behind it.
+    const held = gate();
+    const landed = gate();
+    harness.hooks.beforeSuitInstall = async () => {
+      landed.open();
+      await held.shut;
+    };
+    const first = install(review);
+    await landed.shut;
+    const queued = harness.service.request({ op: "refresh" });
+    harness.hooks.on = false;
+    const fetched: string[] = [];
+    harness.hooks.onFetch = (url) => fetched.push(url);
+    held.open();
+    await first;
+    expect(await queued).toMatchObject({ op: "error", code: "unavailable" });
+    expect(fetched).toEqual([]);
+  });
+
+  it("stops a refresh that is reading when it is turned off", async () => {
+    publish({ type: "spade-skill", name: "triage-mail", files: sampleSkill() });
+    publish({ type: "suit", name: "harbour-dusk", files: sampleSuit(), reviewed: true });
+    const fetched: string[] = [];
+    harness.hooks.onFetch = (url) => {
+      fetched.push(url);
+      harness.hooks.on = false;
+    };
+    expect(await harness.service.request({ op: "refresh" })).toMatchObject({
+      op: "error",
+      code: "unavailable",
+    });
+    expect(fetched).toHaveLength(1);
+    // Turned off isn't the source's problem: it reads again once turned on.
+    harness.hooks.on = true;
+    harness.hooks.onFetch = undefined;
+    const { sources } = await harness.ask({ op: "sources" }, "sources");
+    expect(sources.find((source) => source.id === "market")?.problem).toBeUndefined();
+  });
+});

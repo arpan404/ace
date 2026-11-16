@@ -64,7 +64,7 @@ const defaultPoll = { waiting: 1000, ready: 5000, idle: 60_000 };
 const hiddenStatus: SpadeStatus = {
   state: "off",
   hidden: true,
-  reason: "Spade is hidden on this machine.",
+  reason: "Spade is turned off in Settings › Beta.",
 };
 
 export class SpadeLink {
@@ -100,7 +100,7 @@ export class SpadeLink {
     };
   }
   /**
-   * Spade hidden on this machine (`features.json`, ADR 0139): the status says only that, and
+   * Spade turned off in Settings › Beta (`beta.spade`, ADR 0139): the status says only that, and
    * nothing is forwarded, whatever Spade's own state.
    */
   setHidden(hidden: boolean): void {

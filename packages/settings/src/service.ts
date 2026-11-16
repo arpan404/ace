@@ -25,6 +25,8 @@ const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
   "media.encode",
   "media.delivery",
   "spade.enabled",
+  "beta.spade",
+  "beta.marketplace",
   // Which programs a provider may start (ADR 0138): a repository can't point them elsewhere.
   "providers.codex.toolSource",
   "providers.claude.chrome",
@@ -200,6 +202,23 @@ export class SettingsService {
     }
   }
   /**
+   * Sets `key` on `layer` only when that layer's file doesn't already hold it, checked and
+   * written as one step in the file's write queue. Returns whether it wrote.
+   */
+  async setIfAbsent<K extends SettingsKey>(
+    key: K,
+    value: SettingsValues[K],
+    layer: Layer,
+  ): Promise<boolean> {
+    const parsed = this.assignment(key, value, layer);
+    const lease = await this.file(layer);
+    try {
+      return await lease.file.setIfAbsent(key, parsed);
+    } finally {
+      lease.release();
+    }
+  }
+  /**
    * Several settings on one layer, all or none: every entry is checked first, then one file
    * commit writes them, so subscribers see them change together.
    */
@@ -235,6 +254,8 @@ export class SettingsService {
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
     if (key === "spade.enabled" && layer.kind !== "global")
       throw new SettingsError("validation", "Running Spade is a global setting");
+    if (key.startsWith("beta.") && layer.kind !== "global")
+      throw new SettingsError("validation", "Beta features are a global setting");
     if (globalOnlyKeys.has(key) && layer.kind !== "global")
       throw new SettingsError("validation", "Working while this Mac is locked is a global setting");
     if (roleSettingKeys.includes(key) && layer.kind !== "global")

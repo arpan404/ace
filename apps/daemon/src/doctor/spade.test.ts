@@ -1,4 +1,4 @@
-import { rm, symlink, writeFile } from "node:fs/promises";
+import { readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
@@ -95,15 +95,26 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
-it("Spade hidden by features.json with no service reports it hidden", async () => {
+it("Spade turned off in Beta with no service reports it turned off", async () => {
   const { context } = await setup();
   const verdict = await run(context, ports("absent"), "spade.service");
-  expect(verdict).toMatchObject({ status: "ok", message: expect.stringMatching(/hidden/) });
+  expect(verdict).toMatchObject({ status: "ok", message: expect.stringMatching(/turned off/) });
 });
 
-it("Spade shown by features.json checks its service", async () => {
+it("Spade turned on in Beta checks its service", async () => {
+  const { context, dataDir } = await setup();
+  await writeFile(
+    join(dataDir, "settings.json"),
+    JSON.stringify({ version: 2, settings: { "beta.spade": true } }),
+  );
+  const verdict = await run(context, ports("absent"), "spade.service");
+  expect(verdict.message).not.toMatch(/turned off/);
+});
+
+it("an old features.json not yet moved to Beta still counts, and doctor leaves it in place", async () => {
   const { context, dataDir } = await setup();
   await writeFile(join(dataDir, "features.json"), '{"spade": true}');
   const verdict = await run(context, ports("absent"), "spade.service");
-  expect(verdict.message).not.toMatch(/hidden/);
+  expect(verdict.message).not.toMatch(/turned off/);
+  expect(await readFile(join(dataDir, "features.json"), "utf8")).toBe('{"spade": true}');
 });

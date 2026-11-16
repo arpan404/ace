@@ -37,6 +37,7 @@ import { ProviderMarks } from "./provider-marks.tsx";
 import { useRemovalReconciler } from "./remove-plugin.tsx";
 import { skillTitle, type Skill, type SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
   { kind: "skill", label: "Skills", icon: StackIcon },
@@ -185,6 +186,7 @@ function SkillRow({ skill }: { skill: Skill }) {
 function AddMenu() {
   const navigate = useNavigate();
   const install = useInstallDialog();
+  const marketplace = useBetaEnabled("marketplace") === true;
   return (
     <Menu>
       <MenuTrigger render={<IconButton icon={PlusIcon} label="Add a skill" size="panel" />} />
@@ -198,12 +200,14 @@ function AddMenu() {
         <MenuItem icon={<Icon icon={PlugIcon} />} onClick={install.install}>
           Install a plugin…
         </MenuItem>
-        <MenuItem
-          icon={<Icon icon={StorefrontIcon} />}
-          onClick={() => void navigate({ to: "/marketplace", search: { type: "spade-skill" } })}
-        >
-          From the marketplace
-        </MenuItem>
+        {marketplace && (
+          <MenuItem
+            icon={<Icon icon={StorefrontIcon} />}
+            onClick={() => void navigate({ to: "/marketplace", search: { type: "spade-skill" } })}
+          >
+            From the marketplace
+          </MenuItem>
+        )}
       </MenuContent>
     </Menu>
   );

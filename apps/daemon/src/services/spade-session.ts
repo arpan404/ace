@@ -25,7 +25,7 @@ function unavailable(host: SpadeAccess | undefined): {
   message: string;
 } {
   const status = host?.status();
-  if (status?.hidden) return { code: "hidden", message: "Spade is hidden on this machine." };
+  if (status?.hidden) return { code: "hidden", message: "Spade is turned off in Settings › Beta." };
   return { code: "unavailable", message: unavailableWords(status) };
 }
 

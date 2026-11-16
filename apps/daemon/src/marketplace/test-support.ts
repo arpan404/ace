@@ -317,16 +317,35 @@ export async function marketplaceHarness(options: {
   const manager = await PluginManager.open({ root: join(root, "plugins"), now: () => clock, id });
   const plugins = new PluginService(manager);
   const key = testKey();
+  /**
+   * Settings › Beta's switch as the service reads it, and points a test can act at: before a
+   * Suit lands in the library, and on every network fetch.
+   */
+  const hooks: {
+    on: boolean;
+    beforeSuitInstall?: (() => Promise<void>) | undefined;
+    onFetch?: ((url: string) => void) | undefined;
+  } = { on: true };
   const open = () =>
     MarketplaceService.open({
       root: join(root, "marketplace"),
       now: () => clock,
       id,
-      fetch: (url, init) => fetch(url, init),
+      fetch: (url, init) => {
+        hooks.onFetch?.(String(url));
+        return fetch(url, init);
+      },
+      enabled: async () => hooks.on,
       origin: options.origin,
       keys: keySetOf(key),
       git: gitRuntime(),
-      suits: () => suits,
+      suits: () => ({
+        install: async (...args: Parameters<SuitLibrary["install"]>) => {
+          await hooks.beforeSuitInstall?.();
+          return suits.install(...args);
+        },
+        remove: (suit: string) => suits.remove(suit),
+      }),
       plugins: () => pluginPort(() => plugins),
       spade: spadePort(options.spade.connection),
       schedule: () => () => {},
@@ -344,6 +363,7 @@ export async function marketplaceHarness(options: {
   };
   return {
     root,
+    hooks,
     get service() {
       return service;
     },

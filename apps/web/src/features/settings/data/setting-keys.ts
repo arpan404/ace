@@ -58,6 +58,8 @@ export const settingKeys = {
   automations: setting("automations.enabled", z.boolean(), false),
   mediaEncode: setting("media.encode", SettingsValues.shape["media.encode"], "legacy"),
   mediaDelivery: setting("media.delivery", SettingsValues.shape["media.delivery"], "legacy"),
+  betaSpade: setting("beta.spade", z.boolean(), false),
+  betaMarketplace: setting("beta.marketplace", z.boolean(), false),
   maxRunningChildren: setting(
     "agents.maxRunningChildren",
     SettingsValues.shape["agents.maxRunningChildren"],

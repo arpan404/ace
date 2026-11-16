@@ -42,8 +42,8 @@ export type SpadeState = z.infer<typeof SpadeState>;
 export const SpadeStatus = z.object({
   state: SpadeState,
   /**
-   * True while Spade is hidden on this machine (ADR 0139): `features.json` in the daemon's home
-   * doesn't turn it on. Clients show only Spade's mark, as coming soon, and the daemon refuses
+   * True while Spade is hidden on this machine (ADR 0139): Settings › Beta's `beta.spade` is
+   * off. Clients show only Spade's mark, as coming soon, and the daemon refuses
    * `spade.*` with `hidden`. Absent means shown.
    */
   hidden: z.boolean().optional(),
@@ -177,7 +177,7 @@ export const SpadeErrorCode = z.enum([
   "invalid_path",
   /** Spade is off, starting or failed. */
   "unavailable",
-  /** Spade is hidden on this machine (`features.json`); nothing is forwarded. */
+  /** Spade is hidden on this machine (`beta.spade` off); nothing is forwarded. */
   "hidden",
   /** The request or Spade's answer was larger than the daemon forwards for that route. */
   "too_large",

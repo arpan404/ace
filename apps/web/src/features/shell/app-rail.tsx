@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useSpadeShown } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
@@ -98,6 +99,9 @@ export function AppRail(props: {
   const spade = useLastPlace(current === "spade", "/spade");
   // Until the daemon says, the mark stays as coming soon: Spade is hidden by default.
   const spadeShown = useSpadeShown() === true;
+  // Off in Settings › Beta (the default), the Marketplace has no place in the rail.
+  const marketplace = useBetaEnabled("marketplace") === true;
+  const places = railViews.filter((view) => view.id !== "marketplace" || marketplace);
   return (
     <nav
       aria-label="App"
@@ -141,7 +145,7 @@ export function AppRail(props: {
           }
         />
         {props.forge?.(current === "forge")}
-        {railViews.map((view) => (
+        {places.map((view) => (
           <Tip key={view.id} label={view.label} {...(view.shortcut && { shortcut: view.shortcut })}>
             <Link
               to={view.to}

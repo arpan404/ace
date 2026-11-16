@@ -1,23 +1,17 @@
-import { readFile } from "node:fs/promises";
-import { connect } from "node:net";
-import { join } from "node:path";
-import { SettingsService } from "@ace/settings";
-import { readConfig } from "../config.ts";
-import { loadFeatures } from "../spade/features-file.ts";
+import { betaOnAtRest } from "@ace/settings/beta";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
 import { option, validateArgs, type Args } from "./args.ts";
-import { connectCli } from "./connection.ts";
+import { saveGlobalSetting } from "./global-setting.ts";
 import { print } from "./io.ts";
 import { CliFailure } from "./output.ts";
 
 /**
  * `ace spade on|off` (ADR 0123): the same switch as Settings. A running daemon applies it at
  * once: it registers or removes Spade's service and makes or retires Spade's grant. With no
- * daemon running (no `daemon-endpoint`, or nothing listening at it) the CLI registers or removes
- * the service itself and saves the setting; the daemon makes or retires the grant when it next
- * starts. A daemon that runs but doesn't answer (starting, busy) is never worked around: the
- * setting saved beside it would go unseen until its next restart.
+ * daemon running the CLI registers or removes the service itself and saves the setting; the
+ * daemon makes or retires the grant when it next starts (`saveGlobalSetting`). Refused while
+ * Spade is turned off in Settings › Beta.
  */
 export async function spadeCommand(
   args: Args,
@@ -33,50 +27,19 @@ export async function spadeCommand(
   if (verb !== "on" && verb !== "off") throw new CliFailure("refused", "Use ace spade on|off");
   validateArgs(args, [], 2, 2);
   const enabled = verb === "on";
-  if (enabled && !(await loadFeatures(home)).flags.spade)
+  if (enabled && !(await betaOnAtRest(home, "spade")))
     throw new CliFailure(
       "refused",
-      "Spade is hidden on this machine. Show it first with ace features show spade.",
+      "Spade is turned off in Settings › Beta. Turn it on there or with ace features on spade.",
     );
-  if (option(args, "remote") || (await daemonRuns(home))) {
-    let session: Awaited<ReturnType<typeof connectCli>>;
-    try {
-      session = await connectCli(home, args);
-    } catch (error) {
-      if (option(args, "remote")) throw error;
-      throw new CliFailure(
-        "uncertain",
-        "ace's daemon is running but didn't answer, so Spade wasn't changed. Try again once it's up (ace status).",
-      );
+  const live = await saveGlobalSetting(args, home, "spade.enabled", enabled, "Spade", async () => {
+    if (enabled && (await service.state()) !== "running") {
+      await service.installBinary();
+      await service.register();
     }
-    try {
-      const result = await session.client.request(
-        { type: "settings.set", key: "spade.enabled", value: enabled, layer: { kind: "global" } },
-        { signal: session.signal },
-      );
-      if (!result.ok)
-        throw new CliFailure(
-          "refused",
-          result.diagnostics[0]?.message ?? "Host administrator access is required",
-        );
-    } finally {
-      await session.close();
-    }
-    return report(args, enabled, true);
-  }
-  if (enabled && (await service.state()) !== "running") {
-    await service.installBinary();
-    await service.register();
-  }
-  const overrides = readConfig().settingsOverrides;
-  const settings = new SettingsService({ dataDir: home, ...(overrides ? { overrides } : {}) });
-  try {
-    await settings.set("spade.enabled", enabled, { kind: "global" });
-  } finally {
-    await settings.close();
-  }
-  if (!enabled && (await service.state()) !== "absent") await service.remove();
-  return report(args, enabled, false);
+  });
+  if (!live && !enabled && (await service.state()) !== "absent") await service.remove();
+  return report(args, enabled, live);
 }
 
 async function report(args: Args, enabled: boolean, live: boolean): Promise<void> {
@@ -86,33 +49,4 @@ async function report(args: Args, enabled: boolean, live: boolean): Promise<void
       : "Spade is on. Its ace tools start working once the ace daemon runs."
     : "Spade is off.";
   await print(args, args.flags.json || option(args, "jq") ? { enabled, live } : words);
-}
-
-/**
- * Whether a daemon runs for this home: its `daemon-endpoint` names a port something listens on.
- * Only a missing file or a refused connection says none does; anything else counts as running.
- */
-async function daemonRuns(home: string): Promise<boolean> {
-  let endpoint: URL;
-  try {
-    endpoint = new URL((await readFile(join(home, "daemon-endpoint"), "utf8")).trim());
-  } catch (error) {
-    return !(error instanceof Error && Reflect.get(error, "code") === "ENOENT");
-  }
-  return new Promise((resolve) => {
-    const socket = connect({ host: endpoint.hostname, port: Number(endpoint.port) });
-    socket.setTimeout(2000);
-    socket.once("connect", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("timeout", () => {
-      socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", (error) => {
-      socket.destroy();
-      resolve(Reflect.get(error, "code") !== "ECONNREFUSED");
-    });
-  });
 }

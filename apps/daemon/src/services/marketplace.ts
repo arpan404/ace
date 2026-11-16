@@ -7,6 +7,8 @@ import {
   type MarketResult,
   type MarketServerMessage,
 } from "@ace/protocol/marketplace";
+import type { SettingsService } from "@ace/settings";
+import { betaKeys } from "@ace/settings/beta";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
@@ -28,6 +30,8 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     suits: () => services.suits,
     plugins: () => (services.plugins ? plugins : undefined),
     spade: spadePort(() => services.spade?.ready()?.connection),
+    // Settings › Beta: off, the service refuses requests, queued work, fetches and install steps.
+    enabled: () => marketplaceTurnedOn(services.settings),
     schedule: (run, ms) => {
       const timer = setTimeout(run, ms);
       timer.unref?.();
@@ -36,6 +40,19 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
   });
   resources.own(() => marketplace.close());
   services.marketplace = marketplace;
+}
+
+/**
+ * Settings › Beta's marketplace switch (`beta.marketplace`), read wherever the service starts
+ * work so a change applies at once. Off with no settings to read. What was installed from the marketplace is never gated
+ * here: suits, skills and plugins run from their own services.
+ */
+export async function marketplaceTurnedOn(settings: SettingsService | undefined): Promise<boolean> {
+  try {
+    return (await settings?.get(betaKeys.marketplace))?.value === true;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -31,13 +31,14 @@ daemon is away.
 - **On and off.** `spade.enabled` is the one switch. Turning it on (Settings or `ace spade on`)
   installs the binary copy if missing, registers and starts the service, then makes Spade's grant
   (below). Turning it off revokes the grant and removes the service.
-- **Shown or hidden** (ADR 0139). Every release carries Spade. `<ACE_HOME>/features.json` decides
-  whether a machine shows it: hidden unless it says `{"spade": true}`, and hidden with one warning
-  while the file isn't valid JSON. The daemon watches the file. While Spade is hidden it never
+- **Shown or hidden** (ADR 0139, amended). Every release carries Spade. Settings › Beta's
+  `beta.spade` setting decides whether a machine shows it: off by default, and an old
+  `features.json` with `{"spade": true}` is folded into it once. The daemon follows the setting
+  live. While Spade is hidden it never
   registers the service, stops one that runs and retires the grant (as turning off does), keeps
   Spade's data and the `spade.enabled` setting, reports `hidden: true` in `spade.status` and
-  refuses `spade.*` with `hidden`; showing it again applies `spade.enabled` as at start. `ace
-features show spade` / `ace features hide spade` write the file; `ace spade on` is refused
+  refuses `spade.*` with `hidden`; showing it again applies `spade.enabled` as at start.
+  `ace features on spade` / `ace features off spade` save the setting; `ace spade on` is refused
   while Spade is hidden.
 - **One instance.** Spade holds `<SPADE_DATA_DIR>/lock`; a second instance exits with code 3, and
   the service manager does not restart a code-3 exit in a tight loop (its throttle applies).

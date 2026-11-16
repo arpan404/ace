@@ -350,6 +350,17 @@ export class FakeDaemon implements Host {
       // Settings › Devices turns devices on or off for the whole machine, as the daemon does.
       if (keys.includes("devices.enabled"))
         this.appDevices.setEnabled(this.services.settings.get("devices.enabled") !== false);
+      // Settings › Beta shows or hides Spade, as the daemon does.
+      if (keys.includes("beta.spade")) {
+        const on = this.services.settings.get("beta.spade") === true;
+        if (on && this.spade.status.hidden) this.spade.setStatus({ state: "off" });
+        if (!on)
+          this.spade.setStatus({
+            state: "off",
+            hidden: true,
+            reason: "Spade is turned off in Settings › Beta.",
+          });
+      }
     });
     this.appDevices.onEnabled = (enabled) => {
       if ((this.services.settings.get("devices.enabled") !== false) !== enabled)
