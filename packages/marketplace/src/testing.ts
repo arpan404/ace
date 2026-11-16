@@ -1,0 +1,201 @@
+import type { MarketEntryType, MarketPublisher } from "@ace/protocol/marketplace";
+import { writeArchive, type ArchiveFile } from "./archive.ts";
+import { contentHash, hashFiles } from "./hash.ts";
+import {
+  marketPublicKey,
+  signManifest,
+  signReviewMark,
+  signWithdrawn,
+  type MarketKeySet,
+  type MarketSigningKey,
+  type Signed,
+} from "./signing.ts";
+
+/*
+ * Fixtures for tests of the market, the signer and the daemon's client: folders, signed
+ * versions and keys, built with the same code the real signer uses.
+ */
+
+/** A signing key from a fixed byte, so a test's key is the same every run. */
+export function testKey(id = "test", fill = 7): MarketSigningKey {
+  return { id, privateKey: new Uint8Array(32).fill(fill) };
+}
+export const keySetOf = (...keys: MarketSigningKey[]): MarketKeySet => ({
+  keys: keys.map(marketPublicKey),
+});
+
+const encoder = new TextEncoder();
+/** Files from text; a path ending in `*` is executable (the star is dropped). */
+export function folder(files: Record<string, string | Uint8Array>): ArchiveFile[] {
+  return Object.entries(files).map(([path, content]) => ({
+    path: path.endsWith("*") ? path.slice(0, -1) : path,
+    executable: path.endsWith("*"),
+    content: typeof content === "string" ? encoder.encode(content) : content,
+  }));
+}
+
+export const testPublisher: MarketPublisher = { id: "pub_test", name: "tester" };
+
+export function sampleSuit(id = "harbour-dusk"): ArchiveFile[] {
+  return folder({
+    "suit.json": JSON.stringify({
+      format: 1,
+      id,
+      name: "Harbour dusk",
+      description: "Slate panels and a warm lamp.",
+      version: "1",
+      base: "ace",
+      light: {},
+      dark: {},
+    }),
+    "market.json": JSON.stringify({
+      line: "Slate panels and a warm lamp.",
+      categories: ["calm"],
+      keywords: ["slate"],
+    }),
+  });
+}
+
+export function sampleSkill(
+  name = "triage-mail",
+  extra: Record<string, string> = {},
+): ArchiveFile[] {
+  return folder({
+    "SKILL.md": `---\nname: ${name}\ndescription: Sorts a mail inbox into what needs a reply today.\n---\n# Triage mail\n\nRead the newest mail first.\n`,
+    ...extra,
+  });
+}
+
+export function samplePlugin(name = "mail-tools"): ArchiveFile[] {
+  return folder({
+    "ace-plugin.json": JSON.stringify({
+      schemaVersion: 1,
+      name,
+      version: "1.0.0",
+      description: "Mail helpers.",
+      skills: [{ name: "draft", path: "skills/draft" }],
+      mcpServers: {
+        mail: { type: "stdio", command: "${PLUGIN_ROOT}/bin/mail", args: ["--serve"] },
+      },
+      hooks: [{ event: "PreToolUse", command: "${PLUGIN_ROOT}/bin/guard" }],
+    }),
+    "skills/draft/SKILL.md": "---\nname: draft\ndescription: Drafts a reply.\n---\nDraft it.\n",
+    "bin/mail*": "#!/bin/sh\necho mail\n",
+    "bin/guard*": "#!/bin/sh\nexit 0\n",
+  });
+}
+
+export function sampleRecipe(
+  recipe: Record<string, unknown> = {},
+  extra: Record<string, string> = {},
+): ArchiveFile[] {
+  return folder({
+    "bot.json": JSON.stringify({
+      format: "spade-bot",
+      version: 2,
+      name: "Inbox",
+      blurb: "Sorts your mail each morning.",
+      task: "You look after the person's inbox.",
+      face: { kind: "character", body: "fox", pair: "ember" },
+      model: "fast",
+      routines: [
+        { name: "Morning sort", instruction: "Sort the inbox.", schedule: "weekdays at 8:00" },
+      ],
+      skills: ["spade-skill/triage-mail"],
+      plugins: ["spade-plugin/mail-tools"],
+      needs: {
+        connectors: [
+          { id: "gmail", why: "Reads and drafts mail.", required: true },
+          { url: "https://mcp.example.com/mcp", why: "Files receipts.", required: false },
+        ],
+      },
+      notes: ["Never send a reply without the person's word."],
+      ...recipe,
+    }),
+    ...extra,
+  });
+}
+
+export interface SignedVersion {
+  type: MarketEntryType;
+  name: string;
+  version: string;
+  archive: Uint8Array;
+  hash: string;
+  manifest: Signed;
+  review?: Signed | undefined;
+}
+
+/** A version as the signer would leave it: archive, signed manifest and, if asked, a review mark. */
+export function signedVersion(input: {
+  type: MarketEntryType;
+  name: string;
+  version?: string;
+  files: ArchiveFile[];
+  key?: MarketSigningKey;
+  reviewed?: boolean;
+  byAce?: boolean;
+  published?: number;
+}): SignedVersion {
+  const key = input.key ?? testKey();
+  const hashed = hashFiles(input.files);
+  const hash = contentHash(hashed);
+  const version = input.version ?? "1.0.0";
+  const manifest = signManifest(
+    {
+      format: "ace-market-manifest",
+      type: input.type,
+      name: input.name,
+      version,
+      publisher: testPublisher,
+      hash,
+      files: hashed,
+      size: hashed.reduce((sum, file) => sum + file.bytes, 0),
+      published: input.published ?? 1_700_000_000_000,
+      key: key.id,
+    },
+    key,
+  );
+  const review =
+    input.reviewed === undefined
+      ? undefined
+      : signReviewMark(
+          {
+            format: "ace-market-review",
+            type: input.type,
+            name: input.name,
+            hash,
+            reviewed: input.reviewed,
+            byAce: input.byAce ?? false,
+            at: input.published ?? 1_700_000_000_000,
+            key: key.id,
+          },
+          key,
+        );
+  return {
+    type: input.type,
+    name: input.name,
+    version,
+    archive: writeArchive(input.files),
+    hash,
+    manifest,
+    review,
+  };
+}
+
+export function signedWithdrawn(
+  withdrawn: { hash: string; reason: string }[],
+  options: { key?: MarketSigningKey; issued?: number } = {},
+): Signed {
+  const key = options.key ?? testKey();
+  const issued = options.issued ?? 1_700_000_000_000;
+  return signWithdrawn(
+    {
+      format: "ace-market-withdrawn",
+      issued,
+      withdrawn: withdrawn.map((entry) => ({ ...entry, at: issued })),
+      key: key.id,
+    },
+    key,
+  );
+}
