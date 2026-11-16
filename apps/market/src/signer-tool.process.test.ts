@@ -19,6 +19,7 @@ import {
   startMarket,
   type Market,
 } from "./testing/harness.ts";
+import { approve } from "./testing/discover-harness.ts";
 
 /*
  * `ace market sign`'s core against the real Worker: what it signs is listed and verifies on a
@@ -59,6 +60,8 @@ it("signs what passed, lists it, and a device verifies the bytes it fetches", as
       })
     ).status,
   ).toBe(201);
+  // A new publisher's first version is held for a maintainer (ADR 0173 §9).
+  await approve(market, { type: "spade-skill", name: "signed-skill", files: [] });
   const report = await signPending(io, marketKey, now, keySetOf(marketKey));
   expect(report.signed).toContain("spade-skill/signed-skill@1.0.0");
   const body = VersionBody.parse(
@@ -99,6 +102,7 @@ it("signs a publisher's withdrawal into the withdrawn list", async () => {
     name: "gone-skill",
     files: sampleSkill("gone-skill"),
   });
+  await approve(market, { type: "spade-skill", name: "gone-skill", files: [] });
   await signPending(io, marketKey, now, keySetOf(marketKey));
   const withdraw = await market.fetch(
     "/v1/publish/spade-skill/gone-skill/versions/1.0.0/withdraw",
