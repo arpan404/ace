@@ -1,5 +1,5 @@
 import type { ClientCore, ThreadSource } from "@ace/client";
-import type { CommandPayload, ProviderKind, ThreadId } from "@ace/protocol";
+import type { CommandPayload, ExecutionOptions, ProviderKind, ThreadId } from "@ace/protocol";
 import {
   catalogModelIds,
   choiceSelection,
@@ -22,11 +22,13 @@ import { ModelFavorites, starProblem } from "./model-favorites.ts";
 import { pickerRows } from "./new-thread-agents.ts";
 import {
   shapeScene,
+  switchOptions,
   switchPayload,
   switchPlan,
   switchRows,
   type ShapedScene,
   type SwitchTarget,
+  type SwitchTune,
 } from "./thread-switch.ts";
 
 /*
@@ -71,6 +73,8 @@ export class ThreadModelSheet {
   /** A switch sent from here, and how the thread stood when it was sent. */
   #chosen: { choice: ModelChoice; stood: string } | undefined;
   #continued: ModelChoice | undefined;
+  /** The effort and speed picked with the continued model, for the new thread's selection. */
+  #continuedOptions: ExecutionOptions = {};
   #sending = false;
   readonly #files: () => readonly { name: string; mimeType?: string | undefined }[];
   /** What the rows were last worked out for (`#shape`). */
@@ -122,6 +126,11 @@ export class ThreadModelSheet {
   /** The model the next message continues on in a new thread, if one was picked. */
   get continued(): ModelChoice | undefined {
     return this.#continued;
+  }
+
+  /** The session options the new thread starts with, picked with its model. */
+  get continuedOptions(): ExecutionOptions {
+    return this.#continuedOptions;
   }
 
   /** A message is on its way to start the new thread: nothing else starts one meanwhile. */
@@ -220,11 +229,13 @@ export class ThreadModelSheet {
 
   /**
    * The person picked `target` and pressed Done, having answered the row's question when it
-   * asked one (`confirmed`). Refused when the row asks and wasn't confirmed.
+   * asked one (`confirmed`), with the effort and speed picked for it (`tune`). Refused when the
+   * row asks and wasn't confirmed, or the model doesn't offer what `tune` names.
    */
   pick(
     target: SwitchTarget,
     confirmed: boolean,
+    tune: SwitchTune,
     requestId: string,
     send: Dispatch,
     admit: Admission,
@@ -235,6 +246,11 @@ export class ThreadModelSheet {
     if (this.#sending)
       return admit(requestId, false, "Still starting the new thread. Wait for it to open.");
     const plan = switchPlan(scene, target);
+    const tuned =
+      plan.kind === "switch" || plan.kind === "continue"
+        ? switchOptions(plan.choice, tune)
+        : { options: {} };
+    if ("refused" in tuned) return admit(requestId, false, tuned.refused);
     // Rows the person saw may be older than the thread: ask now in the current words.
     const unasked = (ask: SwitchQuestion) => {
       this.#publish();
@@ -252,13 +268,14 @@ export class ThreadModelSheet {
       case "continue":
         if (!confirmed) return unasked(plan.ask);
         this.#continued = plan.choice;
+        this.#continuedOptions = tuned.options;
         break;
       case "switch": {
         if (plan.ask && !confirmed) return unasked(plan.ask);
         const chosen = { choice: plan.choice, stood: this.#stood() };
         this.#continued = undefined;
         this.#chosen = chosen;
-        send(switchPayload(this.#threadId, plan.choice), requestId, () => {
+        send(switchPayload(this.#threadId, plan.choice, tuned.options), requestId, () => {
           if (this.#chosen !== chosen) return;
           this.#chosen = undefined;
           this.#changed();

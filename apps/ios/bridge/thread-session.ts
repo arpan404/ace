@@ -383,6 +383,7 @@ export class ThreadSession {
         this.#sheet.pick(
           { key: action.key, account: action.account },
           action.confirmed,
+          { effort: action.effort, speed: action.speed },
           action.requestId,
           (payload, id, refused) =>
             void dispatchCommand(this.#client, payload, id, this.#pump, {
@@ -648,6 +649,7 @@ export class ThreadSession {
             reader: this.#store,
             threadId: this.#threadId,
             choice,
+            options: this.#sheet.continuedOptions,
             text: quoted ? `${quoteText(quoted)}${text}` : text,
             files: this.#tray.files(),
             modalities: this.#sheet.modalities(choice),

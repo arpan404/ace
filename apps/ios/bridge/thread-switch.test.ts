@@ -121,6 +121,46 @@ test("another account of the same provider switches at once", async () => {
   await until(() => sheet()?.current?.account === "codex-team", "the new account checked");
 });
 
+test("a switch carries the effort and speed picked for the model it moves to", async () => {
+  const { thread } = await openSheet(connect(codexThread()));
+  thread.handle({
+    type: "switchModel",
+    key: gpt,
+    account: "codex-team",
+    confirmed: false,
+    effort: "high",
+    speed: "fast",
+    requestId: "team",
+  });
+  await until(() => commands("thread.switch").length === 1, "the switch on the wire");
+  expect(commands("thread.switch")[0]?.selection).toMatchObject({
+    instanceId: "codex-team",
+    options: { effort: "high", serviceTier: "priority" },
+  });
+});
+
+test("an effort or speed the new model doesn't offer is refused and nothing moves", async () => {
+  const { thread } = await openSheet(connect(codexThread()));
+  const pick = (requestId: string, tune: Record<string, string>) =>
+    thread.handle({
+      type: "switchModel",
+      key: opus,
+      account: "claude-personal",
+      confirmed: true,
+      ...tune,
+      requestId,
+    });
+  pick("effort", { effort: "minimal" });
+  pick("speed", { speed: "fast" });
+  await until(() => latest("admission", "speed"), "the refusals");
+  expect(admission("effort")).toMatchObject({
+    ok: false,
+    message: expect.stringMatching(/effort/),
+  });
+  expect(admission("speed")).toMatchObject({ ok: false, message: expect.stringMatching(/speed/) });
+  expect(commands("thread.switch")).toHaveLength(0);
+});
+
 test("a switch made while the agent works reads as pending until its next turn", async () => {
   const { thread } = await openSheet(connect(codexThread("gpt-6", true)));
   thread.handle({
@@ -169,7 +209,7 @@ test("another provider asks first, and nothing is sent until the person confirms
   await until(() => controls()?.provider === "claude", "the composer on Claude");
 });
 
-test("with fork on switch, another provider continues in a new thread with the next message", async () => {
+test("with fork on switch, another provider continues in a new thread, at the effort picked with it", async () => {
   const { thread, ready } = await openSheet(connect(codexThread()), { fork: true });
   const ask = ready.asks[ready.rows[row("claude-personal", opus)]?.ask ?? -1];
   expect(ask?.title).toBe("Continue in a new thread?");
@@ -178,6 +218,7 @@ test("with fork on switch, another provider continues in a new thread with the n
     key: opus,
     account: "claude-personal",
     confirmed: true,
+    effort: "high",
     requestId: "pick",
   });
   await until(() => controls()?.provider === "claude", "the composer naming Claude");
@@ -199,7 +240,8 @@ test("with fork on switch, another provider continues in a new thread with the n
     threadId: "sw",
     input: "Carry on there.",
     point: { type: "turn" },
-    selection: { provider: "claude", instanceId: "claude-personal" },
+    // The effort picked with the model starts the new thread.
+    selection: { provider: "claude", instanceId: "claude-personal", options: { effort: "high" } },
   });
   expect(continued.opened).toMatch(/^sw-fork-/);
   expect(commands("thread.send")).toHaveLength(0);
