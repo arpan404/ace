@@ -7,8 +7,8 @@ import SwiftUI
 /// project's name is cut first, never below its first letters; then it goes, its mark staying;
 /// only then are the model's words cut. No piece is ever a bare "…". A chat has no project and
 /// shows the model alone; without a model to change (view only, archived) it reads "project ·
-/// branch". The menu: the project's mark, name and branch first (opening Work), then Model (the
-/// picker sheet), Effort and Access as submenus, then the thread's own actions.
+/// branch". The menu: the project's mark, name and branch first (opening Work), then Model,
+/// effort and speed (one sheet for all three) and Access as a submenu, then the thread's own actions.
 ///
 /// It redraws only when what it shows changes (`==`): a menu rebuilt while open drops the item
 /// under the finger, and the thread's row changes many times a second while it works.
@@ -44,15 +44,11 @@ struct ThreadTitleMenu: View, Equatable {
     var leading = false
     /// Nil where the model can't be changed here.
     var model: ModelLine? = nil
-    var tune: TuneRow? = nil
     var access: ThreadAccessRow? = nil
     var canRename = false
     var canRetitle = false
     var actions = ThreadTitleActions()
     var openModel: () -> Void = {}
-    var openTune: () -> Void = {}
-    var setEffort: (String?) -> Void = { _ in }
-    var setSpeed: (String) -> Void = { _ in }
     var setAccess: (String) -> Void = { _ in }
     var rename: () -> Void = {}
     var retitle: () -> Void = {}
@@ -193,12 +189,11 @@ struct ThreadTitleMenu: View, Equatable {
         }
         if let model {
             Section {
-                // A menu row's title, subtitle and icon: the model in effect under "Model".
+                // A menu row's title, subtitle and icon: the model and its tuning in effect.
                 Button(action: openModel) {
-                    Text("Model"); Text(model.note ?? model.name); Image(ace: .cpu)
+                    Text("Model, effort and speed…"); Text(model.note ?? Self.modelWords(model)); Image(ace: .cpu)
                 }
                 .accessibilityIdentifier("thread.title.model")
-                if let tune, !tune.efforts.isEmpty || tune.speeds.count > 1 { effortMenu(tune) }
                 if let access, access.state != "none", !access.choices.isEmpty { accessMenu(access) }
             } header: {
                 if openWork == nil, !place.isEmpty { Text(place) }
@@ -245,40 +240,6 @@ struct ThreadTitleMenu: View, Equatable {
         return Image(ace: .folderSimple)
     }
 
-    /// Effort and speed as the system's own pickers; a level the provider can't change now is
-    /// shown, dimmed, with why in its subtitle.
-    private func effortMenu(_ tune: TuneRow) -> some View {
-        Menu {
-            if !tune.efforts.isEmpty {
-                Picker("Effort", selection: Binding(get: { tune.effort }, set: { setEffort($0) })) {
-                    ForEach(tune.efforts) { Text($0.label).tag($0.id) }
-                }
-                .pickerStyle(.inline)
-                .disabled(!tune.effortReason.isEmpty)
-                .accessibilityIdentifier("thread.title.effort.levels")
-            }
-            if tune.speeds.count > 1 {
-                Picker("Speed", selection: Binding(get: { tune.speed }, set: { setSpeed($0) })) {
-                    ForEach(tune.speeds) { Text($0.label).tag($0.speed) }
-                }
-                .pickerStyle(.inline)
-                .disabled(!tune.speedReason.isEmpty)
-            }
-            if tune.canReset {
-                Button("Use the model's default") { setEffort(nil) }
-            }
-        } label: {
-            Text("Effort"); Text(effortSubtitle(tune)); Image(ace: .gauge)
-        }
-        .accessibilityIdentifier("thread.title.effort")
-    }
-
-    private func effortSubtitle(_ tune: TuneRow) -> String {
-        if tune.pending { return "Applies with your next message" }
-        let reason = [tune.effortReason, tune.speedReason].first { !$0.isEmpty }
-        return model?.tune ?? reason ?? ""
-    }
-
     private func accessMenu(_ access: ThreadAccessRow) -> some View {
         Menu {
             Picker("Access", selection: Binding(get: { access.selected ?? "" }, set: { mode in if mode != access.selected { setAccess(mode) } })) {
@@ -316,7 +277,7 @@ struct ThreadTitleMenu: View, Equatable {
             && lhs.projectInitials == rhs.projectInitials && lhs.projectTint == rhs.projectTint
             && lhs.provider == rhs.provider && lhs.providerAccount == rhs.providerAccount
             && lhs.startedBy == rhs.startedBy && lhs.status == rhs.status && lhs.width == rhs.width && lhs.leading == rhs.leading
-            && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
+            && lhs.model == rhs.model && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
             && (lhs.openWork == nil) == (rhs.openWork == nil)
     }

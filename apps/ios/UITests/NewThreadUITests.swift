@@ -180,16 +180,19 @@ import XCTest
         let tuned = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS[c] %@", "model.codex.", "ultra")).firstMatch
         for _ in 0..<25 where !tuned.isHittable { app.swipeUp() }
         tuned.tap()
+        // The same sheet's top rows follow the picked model: it offers faster tiers.
+        for _ in 0..<25 where !element(app, "tune.speed").isHittable { app.swipeDown() }
+        let fast = app.buttons["tune.speed.fast"]
+        XCTAssertTrue(fast.waitForExistence(timeout: 10))
+        fast.tap()
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: fast)
+        waitForExpectations(timeout: 10)
+        screenshot("newthread-tuning")
         app.buttons["modelSheet.done"].tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
-        // Effort and speed have their own panel from the model pill's long press, as in a thread.
-        XCTAssertTrue(app.buttons["newThread.agent"].waitForExistence(timeout: 10))
-        app.buttons["newThread.agent"].press(forDuration: 1)
-        app.buttons["Effort and speed"].firstMatch.tap()
-        XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
-        screenshot("newthread-tuning")
-        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
-        XCTAssertTrue(element(app, "newThread.speed").waitForNonExistence(timeout: 10))
+        // The pill names the pick with the model.
+        expectation(for: NSPredicate(format: "value CONTAINS 'Fast'"), evaluatedWith: app.buttons["newThread.agent"])
+        waitForExpectations(timeout: 10)
         // Access sits beside +: its menu lists each mode with what it does.
         let access = app.buttons["newThread.access"]
         XCTAssertTrue(access.waitForExistence(timeout: 15))

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Plan review and form cards, the effort and speed chip, the attach menu, a finished turn's full
+/// Plan review and form cards, effort in the model sheet, the attach menu, a finished turn's full
 /// steps and going back from a child, against the spike fixture, with screenshots. Run on a fresh
 /// fixture; `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class ThreadGapsUITests: XCTestCase, @unchecked Sendable {
@@ -20,16 +20,21 @@ import XCTest
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
         app.buttons["plan.close"].tap()
-        // The title's menu offers effort as a submenu, the levels in words; the line under the
-        // title follows the pick.
+        // The title's menu has one entry for model, effort and speed: its sheet leads with Effort,
+        // the levels in words and one tap each; the line under the title follows the pick.
         app.threadTitle(timeout: 25).tap()
-        let effort = app.titleMenuItem("thread.title.effort", label: "Effort")
-        XCTAssertTrue(effort.waitForExistence(timeout: 10))
-        effort.tap()
-        let high = app.buttons["High"].firstMatch
-        XCTAssertTrue(high.waitForExistence(timeout: 10))
+        let model = app.titleMenuItem("thread.title.model", label: "Model, effort and speed")
+        XCTAssertTrue(model.waitForExistence(timeout: 10))
+        model.tap()
+        let high = app.buttons["tune.effort.high"]
+        XCTAssertTrue(high.waitForExistence(timeout: 15))
+        XCTAssertEqual(high.label, "Effort, High")
         screenshot("tune-effort")
         high.tap()
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: high)
+        waitForExpectations(timeout: 10)
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         expectation(for: NSPredicate(format: "value CONTAINS 'High'"), evaluatedWith: app.threadTitle())
         waitForExpectations(timeout: 10)
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))

@@ -26,7 +26,6 @@ struct NewThreadSheet: View {
     @State private var failure: String?
     @State private var browsing = false
     @State private var choosingModel = false
-    @State private var choosingTune = false
     @State private var choosingProject = false
     @State private var attachProblem: String?
     @State private var profiles: [TaskProfile] = []
@@ -162,13 +161,12 @@ struct NewThreadSheet: View {
                                     star: { client.composeAction(["kind": "favorite", "key": $0]) })
             }
         }
-        .sheet(isPresented: $choosingTune) { NewThreadTunePanel(drafts: drafts, choice: choice) }
     }
 
     /// The start's choices, under the title.
     private var pills: some View {
         NewThreadPills(model: pillsModel, chooseProject: { choosingProject = true }, chooseMachine: chooseMachine,
-                       chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true },
+                       chooseModel: { choosingModel = true },
                        chooseWorktree: { on in drafts.edit { $0.worktree = on } },
                        chooseBase: { base in drafts.edit { $0.base = base } },
                        chooseAccess: { mode in drafts.edit { $0.access = mode } },
@@ -191,7 +189,7 @@ struct NewThreadSheet: View {
             project: projectName,
             machines: inbox.sessions.map { .init(id: $0.hostId, name: inbox.name($0.hostId), canOperate: $0.client.canOperate) },
             machineId: machineId, provider: choice.agent?.provider, model: modelName, loadingModel: loading,
-            tune: tune, tunable: (choice.model?.efforts.count ?? 0) > 1 || (choice.model?.speeds ?? []).count > 1,
+            tune: tune,
             place: place, access: access)
     }
     /// That machine's last project and model come back, as the web's do.

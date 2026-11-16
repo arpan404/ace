@@ -18,7 +18,6 @@ struct ThreadView: View {
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showModels = false
-    @State private var showTune = false
     @State private var lane: BlockRow.Agents.Entry?
     /// The page showing on a phone (`ThreadPager`), and the one last asked for, which keeps its
     /// bar button while it shows even before the thread has something for it.
@@ -257,9 +256,6 @@ struct ThreadView: View {
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
-            .sheet(isPresented: $showTune) {
-                if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
-            }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
             .sheet(item: $goalSheet) { opened in
@@ -348,11 +344,9 @@ struct ThreadView: View {
                                status: model.headerStatus(of: thread)?.label,
                                width: 0,
                                model: changesModel ? ThreadModelWords.line(screen) : nil,
-                               tune: changesModel ? screen.tune : nil, access: changesModel ? screen.access : nil,
+                               access: changesModel ? screen.access : nil,
                                canRename: operable, canRetitle: operable, actions: titleActions,
-                               openModel: { showModels = true }, openTune: { showTune = true },
-                               setEffort: { effort in Task { _ = await model.setEffort(effort) } },
-                               setSpeed: { speed in Task { _ = await model.setSpeed(speed) } },
+                               openModel: { showModels = true },
                                setAccess: { mode in Task { _ = await model.setAccess(mode) } },
                                rename: { renaming = true },
                                retitle: { [thread] in Task { _ = await model.retitle(thread.id) } },
