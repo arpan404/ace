@@ -652,6 +652,7 @@ private struct FloatingBar<Bar: View>: ViewModifier {
     let ride: KeyboardRide
     @ViewBuilder let bar: () -> Bar
     @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     /// The area the bar rests at the foot of, keyboard ignored, in screen points.
     @State private var column: CGRect = .zero
     func body(content: Content) -> some View {
@@ -678,9 +679,15 @@ private struct FloatingBar<Bar: View>: ViewModifier {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             let start = CACurrentMediaTime()
             guard let move = KeyboardMove(note) else { return }
-            let lift = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboard: move.end))
+            // The notification's frame is in screen points, the column in the window's.
+            let window = ride.edges.windowOnScreen ?? CGRect(origin: .zero, size: column.size)
+            let lift = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboardOnScreen: move.end, windowOnScreen: window))
             ride.move(to: lift, foot: column.maxY, start: start, duration: move.duration, animated: !reduceMotion)
         }
+        // A move never outlives the thread on screen or the app in the foreground: it lands where
+        // it was going and its frames stop.
+        .onDisappear { ride.finish() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { ride.finish() } }
     }
 }
 

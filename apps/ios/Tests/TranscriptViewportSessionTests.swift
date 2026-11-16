@@ -452,6 +452,20 @@ import Testing
         #expect(TranscriptKeyboardLift.docked(column: column, keyboard: beside) == 0)
     }
 
+    @Test func aWindowMovedDownTheScreenSeesTheKeyboardThatMuchHigher() {
+        // A Stage Manager window 100 pt down a 1,000 pt screen; the keyboard's top at 650 on the
+        // screen is at 550 in the window, 250 pt above the column's foot at 800.
+        let window = CGRect(x: 40, y: 100, width: 400, height: 860)
+        let keyboard = CGRect(x: 0, y: 650, width: 1_200, height: 350)
+        #expect(TranscriptKeyboardLift.docked(column: column, keyboardOnScreen: keyboard, windowOnScreen: window) == 250)
+    }
+
+    @Test func aWindowAtTheScreensOriginTakesTheKeyboardAsGiven() {
+        let keyboard = CGRect(x: 0, y: 500, width: 400, height: 334)
+        let window = CGRect(x: 0, y: 0, width: 400, height: 834)
+        #expect(TranscriptKeyboardLift.docked(column: column, keyboardOnScreen: keyboard, windowOnScreen: window) == 300)
+    }
+
     @Test func roomForAnOpeningKeyboardIsAboveTheEndAtOnce() {
         var room = TranscriptKeyboardRoom()
         room.moved(to: 300)
@@ -481,5 +495,37 @@ import Testing
         room.moved(to: 340)
         #expect(room.kept == 340)
         #expect(room.leaving == 0)
+    }
+
+    @Test func rowsAtTheEndRideAnOpeningKeyboardAndTheScrollTakesOverWhenItLands() {
+        var follow = TranscriptKeyboardFollow()
+        follow.moveStarted(lift: 0, follows: true)
+        #expect(follow.riding)
+        #expect(follow.base == 0)
+        #expect(follow.landed(lift: 300), "the scroll goes to the end to take the rows' offset over")
+        #expect(!follow.riding)
+        #expect(follow.base == 300)
+    }
+
+    @Test func aReaderScrollingUpWhileTheKeyboardOpensIsNotPulledBackToTheEnd() {
+        var follow = TranscriptKeyboardFollow()
+        follow.moveStarted(lift: 0, follows: true)
+        follow.readerTookOver()
+        #expect(!follow.riding, "the rows stay where the reader's scroll has them")
+        #expect(!follow.landed(lift: 300), "landing leaves the reader where they are")
+    }
+
+    @Test func rowsAwayFromTheEndDontRide() {
+        var follow = TranscriptKeyboardFollow()
+        follow.moveStarted(lift: 0, follows: false)
+        #expect(!follow.riding)
+        #expect(!follow.landed(lift: 300))
+    }
+
+    @Test func aMoveStartingMidRideKeepsTheLiftTheScrollAllowsFor() {
+        var follow = TranscriptKeyboardFollow()
+        follow.moveStarted(lift: 0, follows: true)
+        follow.moveStarted(lift: 180, follows: true)
+        #expect(follow.base == 0)
     }
 }

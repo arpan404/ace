@@ -76,12 +76,9 @@ struct ConversationFeed: View {
     /// How far the keyboard reaches above the feed's bottom edge.
     private var keyboardLift: CGFloat { CGFloat(keyboardRoom.kept) }
     /// The rows follow the end on the keyboard's ride (`keyboardWillMove`), drawn up by its lift
-    /// beyond `keyboardBase`, the lift the scroll already allows for. Only drawing moves: rows
-    /// measure and the scroll reads as if they didn't.
-    @State private var keyboardRiding = false
-    @State private var keyboardBase: CGFloat = 0
-    /// Bumped by each keyboard move, so an older move's end doesn't settle a newer one.
-    @State private var keyboardMoves = 0
+    /// beyond the lift the scroll already allows for (`TranscriptKeyboardFollow`). Only drawing
+    /// moves: rows measure and the scroll reads as if they didn't.
+    @State private var keyboardFollow = TranscriptKeyboardFollow()
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
     /// keyboard's ride carries the rows there.
     @State private var keyboardMoving = false
@@ -199,7 +196,7 @@ struct ConversationFeed: View {
             .frame(maxWidth: .infinity)
             .coordinateSpace(name: Self.contentSpace)
             // Outside the rows' space and inside the reader below, so neither sees it.
-            .modifier(KeyboardRideOffset(ride: keyboard, base: keyboardBase, riding: keyboardRiding))
+            .modifier(KeyboardRideOffset(ride: keyboard, base: CGFloat(keyboardFollow.base), riding: keyboardFollow.riding))
             // Where the content's top is on screen: the one number a scroll changes.
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.viewportSpace)).minY } action: { origin in
                 contentScrolled(to: origin, proxy: proxy)
@@ -539,11 +536,8 @@ struct ConversationFeed: View {
         var instant = Transaction()
         instant.disablesAnimations = true
         withTransaction(instant) {
-            // The scroll allows for the lift it last landed on; a ride under way keeps its base.
-            if !keyboardRiding, follows {
-                keyboardBase = keyboardLift
-                keyboardRiding = true
-            }
+            // The scroll allows for the lift it last landed on.
+            keyboardFollow.moveStarted(lift: Double(keyboardLift), follows: follows)
             keyboardRoom.moved(to: Double(lift))
         }
         railPlace?.keyboard(up: lift > 0)
@@ -556,12 +550,8 @@ struct ConversationFeed: View {
     private func keyboardLanded(proxy: ScrollViewProxy) {
         var instant = Transaction()
         instant.disablesAnimations = true
-        if keyboardRiding {
-            withTransaction(instant) {
-                keyboardRiding = false
-                keyboardBase = keyboardLift
-                proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
-            }
+        withTransaction(instant) {
+            if keyboardFollow.landed(lift: Double(keyboardLift)) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
         }
         keyboardMoving = false
         // The scroll's target is above it, so it goes without moving the rows.
@@ -621,7 +611,7 @@ struct ConversationFeed: View {
     /// are covered, unless the smaller room would park the view past the end.
     private func roomChanged(by growth: CGFloat, motion: Animation?, proxy: ScrollViewProxy) {
         // Rows riding the keyboard (`KeyboardRide`) catch up with the end when they land.
-        guard !intent.active, growth != 0, !keyboardRiding, pinned || intent.metrics.bottom + growth < 0 else { return }
+        guard !intent.active, growth != 0, !keyboardFollow.riding, pinned || intent.metrics.bottom + growth < 0 else { return }
         // The room has its new height in this same update, so the end is where the scroll lands,
         // starting in the same frame as the keyboard.
         settle.cancel()
@@ -708,6 +698,13 @@ struct ConversationFeed: View {
     /// send, VoiceOver): a focus still landing or still awaited stops pulling them back.
     private func readerTookOver(_ proxy: ScrollViewProxy) {
         place(.takeover, proxy: proxy)
+        // Rows riding the keyboard stay where the scroll has them, and its landing leaves them
+        // there instead of going to the end under the reader's finger.
+        if keyboardFollow.riding {
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { keyboardFollow.readerTookOver() }
+        }
     }
     /// The row showing `item` in the history window, for a landing focus.
     private func rowShowing(_ item: String) -> String? {

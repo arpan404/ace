@@ -21,6 +21,13 @@ import UIKit
 
     fileprivate weak var edge: UIView?
 
+    /// The window the keyboard is read in, in screen points; nil before it's in one. Keyboard
+    /// notifications give screen points, the column is in the window's.
+    var windowOnScreen: CGRect? {
+        guard let window = edge?.window else { return nil }
+        return window.convert(window.bounds, to: window.screen.coordinateSpace)
+    }
+
     /// Where the keyboard's edge is drawn on the frame shown at `time` (`CACurrentMediaTime`
     /// clock), for a move whose notification came at `notified`; nil while there is no edge in a
     /// window to read.
