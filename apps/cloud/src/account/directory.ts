@@ -1,5 +1,5 @@
 import { AceGrantRequest } from "@ace/protocol/ace-account";
-import { GRANT_LIFETIME_MS, signCloudGrant, signGrant } from "@ace/account-grant";
+import { GRANT_LIFETIME_MS, signCloudGrant, signGrant, signMarketGrant } from "@ace/account-grant";
 import type { GrantKeySet, GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
 import type { machineStore } from "./machines.ts";
@@ -41,13 +41,16 @@ export function directoryRoutes(deps: {
         const { kind, subject, purpose } = parsed.data;
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
-        if (purpose && kind !== "machine") return fail(400, "invalid_request");
+        if (purpose === "spade-cloud" && kind !== "machine") return fail(400, "invalid_request");
         const iat = now();
         const exp = iat + GRANT_LIFETIME_MS;
-        const token = (purpose ? signCloudGrant : signGrant)(
-          { kind, account: account.id, subject, iat, exp },
-          signingKey,
-        );
+        const sign =
+          purpose === "spade-cloud"
+            ? signCloudGrant
+            : purpose === "market-publish"
+              ? signMarketGrant
+              : signGrant;
+        const token = sign({ kind, account: account.id, subject, iat, exp }, signingKey);
         return json(200, { token, expiresAt: exp });
       }),
 
