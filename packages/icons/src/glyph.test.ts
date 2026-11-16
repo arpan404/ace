@@ -8,6 +8,7 @@ import type { Icon, IconWeight } from "./glyph.ts";
 const html = (icon: Icon, props: Record<string, unknown> = {}) =>
   renderToStaticMarkup(createElement(icon, props));
 const doc = (markup: string) => new DOMParser().parseFromString(markup, "image/svg+xml");
+const lens = (page: Document) => page.querySelector("circle")?.outerHTML;
 const caretStroke = (weight: IconWeight) =>
   Number(
     doc(html(icons.CaretDownIcon, { weight })).querySelector("path")?.getAttribute("stroke-width"),
@@ -93,6 +94,28 @@ describe("ace icons", () => {
     const filled = doc(html(icons.DotsThreeIcon, { weight: "fill" }));
     expect(filled.querySelector("mask")).toBeNull();
     expect(filled.querySelectorAll("circle[fill='currentColor']")).toHaveLength(3);
+  });
+
+  it("stacks the picker's two chevrons as mirror images across the middle", () => {
+    const [up, down] = [...doc(html(icons.CaretUpDownIcon)).querySelectorAll("path")].map((p) =>
+      (p.getAttribute("d")?.match(/-?\d*\.?\d+/g) ?? []).map(Number),
+    );
+    expect(up?.length).toBeGreaterThan(0);
+    expect(down).toHaveLength(up?.length ?? 0);
+    for (const [i, value] of (up ?? []).entries()) {
+      const mirrored = i % 2 === 0 ? value : 24 - value;
+      expect(down?.[i], `coordinate ${i}`).toBeCloseTo(mirrored);
+    }
+    expect(Math.max(...(up ?? []).filter((_, i) => i % 2 === 1))).toBeLessThan(12);
+  });
+
+  it("draws zoom out as zoom in's lens and handle with only the level bar inside", () => {
+    const zoomIn = doc(html(icons.MagnifyingGlassPlusIcon));
+    const zoomOut = doc(html(icons.MagnifyingGlassMinusIcon));
+    expect(lens(zoomOut)).toBe(lens(zoomIn));
+    const ds = [...zoomOut.querySelectorAll("path")].map((p) => p.getAttribute("d"));
+    expect(ds).toContain([...zoomIn.querySelectorAll("path")].at(-1)?.getAttribute("d"));
+    expect(ds.filter((d) => /v/i.test(d ?? ""))).toEqual([]);
   });
 
   it("draws a heavier stroke at bold", () => {

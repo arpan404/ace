@@ -148,6 +148,7 @@ export function createHandlers(options: {
       return undefined;
     },
     "daemon.connection": () => options.connection(),
+    "daemon.expected": (remembered) => runtime.expected(remembered ?? undefined),
     "daemon.authorize": (url) => {
       options.authorizeDaemon(url);
       return undefined;

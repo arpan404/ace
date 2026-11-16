@@ -49,5 +49,8 @@ consistent, rather than the old designs adapted.
   (`apps/ios/scripts/generate-icons.ts`). It moves to ace's set as a follow-up, by generating those
   assets from `@ace/icons` instead; the geometry is platform-neutral. Until then the iPhone and the
   web draw different icons.
+  Done (2026-11-15): #2135 moved the iPhone to `@ace/icons`, and the two names the set lacked
+  (`caret-up-down`, `magnifying-glass-minus`) are now ace's own drawings, so the iPhone no longer
+  bundles Phosphor or its licence.
 - Fixing the drifted meanings (one drawing per idea where it matters) is follow-up work, done
   screen by screen once the set is in.

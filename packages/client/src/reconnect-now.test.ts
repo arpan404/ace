@@ -137,3 +137,18 @@ test("Retry now does not abandon an attempt that is already under way", async ()
   client.reconnectNow();
   expect(sockets).toHaveLength(1);
 });
+
+test("Retry now during an attempt retries at once if that attempt fails, then backs off again", async () => {
+  const { client, sockets, refuse } = harness();
+  await client.start();
+  // The desktop says its daemon now runs while the first attempt is still under way.
+  client.reconnectNow();
+  expect(sockets).toHaveLength(1);
+
+  const nudged = refuse();
+  expect(nudged.delay).toBe(0);
+  nudged.run();
+  expect(sockets).toHaveLength(2);
+  // Only that one failure: the next waits out its backoff.
+  expect(refuse().delay).toBeGreaterThan(0);
+});

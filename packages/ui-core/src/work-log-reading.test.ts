@@ -108,9 +108,12 @@ test("a thought in flight with no words leaves the steps' rows as they were and 
   ]);
 });
 
-test("a thought joins the steps once it has words", () => {
+test("a thought with words is its own row while it streams and joins the steps once done", () => {
   const read = call("a", { kind: "file.read", path: "src/a.ts" }, "succeeded");
   const reading = readWorkLog([read, thinking("t", "Check the caller", false)], new Set());
   expect(reading.thinking).toBeUndefined();
-  expect(groupSteps(reading.facts).groups.map((group) => group.ids)).toEqual([["a", "t"]]);
+  const during = groupSteps(reading.facts);
+  expect(during.groups.map((group) => group.ids)).toEqual([["a"], ["t"]]);
+  const done = readWorkLog([read, thinking("t", "Check the caller", true)], new Set());
+  expect(groupSteps(done.facts, during).groups.map((group) => group.ids)).toEqual([["a", "t"]]);
 });

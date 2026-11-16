@@ -44,6 +44,27 @@ export async function desktopConnection(scope: object = globalThis): Promise<Des
   return parsed.success ? { kind: "target", target: parsed.data } : { kind: "none" };
 }
 
+/**
+ * The target the desktop expects its daemon to have, at once, without waiting for it to answer
+ * (its home's token and identity, at the address it runs on or was last at). The page can open on
+ * what it kept for that daemon while it starts; the hand-off (`desktopConnection`) still decides.
+ * Undefined in a browser, on a desktop build without it, or when there's no telling.
+ */
+export async function desktopExpected(
+  /** The address this window was last handed, if it kept one. */
+  remembered: string | undefined,
+  scope: object = globalThis,
+): Promise<DaemonTarget | undefined> {
+  const daemon = daemonBridge(scope);
+  if (!daemon || typeof daemon.expected !== "function") return undefined;
+  try {
+    const parsed = DaemonTarget.safeParse(await daemon.expected(remembered));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The desktop's view of its daemon (`DaemonStatus` in apps/desktop), as far as the web uses it. */
 export interface DesktopDaemonStatus {
   state: string;

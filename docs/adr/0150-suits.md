@@ -83,8 +83,8 @@ A scene is the animated backdrop behind the transcript and sidebar.
   is. A project may name a default Suit that devices without a choice follow.
 - The boot appearance cache (`ace.boot-appearance`) stores the applied Suit's resolved tokens,
   so first paint is right. The scene starts after first paint.
-- iPhone and Android apply colours, fonts and shape through `@ace/design-tokens`; scenes show as
-  a still frame.
+- Suits are for web and desktop only. The iPhone and Android apps keep ace's own themes and don't
+  read the Suit library; the owner decided on 2026-11-15 that Suits don't fit the phone apps.
 
 ### How an agent makes one
 

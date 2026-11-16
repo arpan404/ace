@@ -184,19 +184,21 @@ export function ConnectionGate(props: {
   });
   // Only the app-managed handoff follows the supervisor. Manual selection owns its target.
   const managed = useRef(props.handed !== undefined);
+  // The client in use and its target, so the desktop saying its daemon answers can cut a
+  // reconnect's wait.
+  const inUse = useRef<{ client: ClientApi; target: DaemonTarget | undefined } | undefined>(
+    undefined,
+  );
   const adoptDesktop = useCallback(
     (target: DaemonTarget) => {
       if (!managed.current) return;
       saveTarget(stores, target, false);
+      // The same daemon, now answering (it was opened on before it started): connect now, not
+      // after the backoff its refused attempts built up. A no-op unless a retry waits.
+      const using = inUse.current;
+      if (using && sameTarget(using.target, target)) using.client.reconnectNow();
       setState((previous) => {
-        const current = previous.target;
-        if (
-          current?.url === target.url &&
-          current.token === target.token &&
-          current.pairedDeviceId === target.pairedDeviceId &&
-          current.localHostId === target.localHostId
-        )
-          return previous;
+        if (sameTarget(previous.target, target)) return previous;
         return {
           ...previous,
           target,
@@ -267,6 +269,12 @@ export function ConnectionGate(props: {
     [active, attempt, routing],
   );
   const client = installed && installed.request === request ? installed : undefined;
+  useEffect(() => {
+    inUse.current = client && {
+      client: client.client,
+      target: client.request.machine.kind === "address" ? client.request.machine.target : undefined,
+    };
+  }, [client]);
   useEffect(() => {
     // The client is an external resource with a start/close lifecycle. Creating it here (not
     // in render) keeps StrictMode's mount-unmount-mount from starting a closed client.
@@ -649,6 +657,15 @@ export function ConnectionGate(props: {
         <ConnectionScreen />
       )}
     </DaemonConnectionContext.Provider>
+  );
+}
+
+function sameTarget(current: DaemonTarget | undefined, target: DaemonTarget): boolean {
+  return (
+    current?.url === target.url &&
+    current.token === target.token &&
+    current.pairedDeviceId === target.pairedDeviceId &&
+    current.localHostId === target.localHostId
   );
 }
 

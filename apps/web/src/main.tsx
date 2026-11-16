@@ -23,6 +23,7 @@ import { loadKeptQueries, useKeptQueries } from "./boot/kept-queries.ts";
 import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
 import {
   desktopConnection,
+  desktopExpected,
   desktopDaemon,
   hasDesktopBridge,
   setDesktopWindowBackground,
@@ -290,6 +291,10 @@ async function content(): Promise<ReactNode> {
       );
     return gate();
   }
+  // A daemon this window has had before opens the app at once, on what the window kept for
+  // it, while it starts; the gate adopts the desktop's hand-off when it answers.
+  const expected = await desktopExpected(loadTarget(stores, "").url || undefined);
+  if (expected) return gate({ handed: expected, desktop: true });
   const desktop = await desktopConnection();
   if (desktop.kind === "target") return gate({ handed: desktop.target, desktop: true });
   // A computer that runs no daemon connects to one elsewhere, by address.
