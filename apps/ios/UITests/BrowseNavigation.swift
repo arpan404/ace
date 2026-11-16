@@ -32,11 +32,26 @@ extension XCUIApplication {
             XCTAssertGreaterThanOrEqual(apart, 7.5, "\(one.identifier) sits against \(next.identifier)", file: file, line: line)
         }
     }
-    /// The thread's title, which opens its menu: model, effort and access, then the thread's actions.
+    /// The thread's title, which opens its menu: model, effort and access, then the thread's
+    /// actions. It is the system's title, which has no identifier of ours: the bar's button that
+    /// opens the title's menu.
     @MainActor @discardableResult func threadTitle(timeout: TimeInterval = 15) -> XCUIElement {
-        let title = buttons["thread.title"]
+        let title = threadTitle(named: "")
         XCTAssertTrue(title.waitForExistence(timeout: timeout), "the thread's title never showed")
         return title
+    }
+    /// The thread's title when it starts with `text`: the bar's one button without an identifier
+    /// (back, ⋯ and the panel toggle have theirs). Its label ends ", Actions Menu" only when the
+    /// thread opened at launch, so the label isn't matched on that.
+    @MainActor func threadTitle(named text: String) -> XCUIElement {
+        let titled = "identifier == '' AND label != ''"
+        // `BEGINSWITH ''` never matches, so no name asks for the title alone.
+        let predicate = text.isEmpty ? NSPredicate(format: titled) : NSPredicate(format: "\(titled) AND label BEGINSWITH %@", text)
+        return navigationBars.buttons.matching(predicate).firstMatch
+    }
+    /// The line under the thread's title: the project, the model and its effort.
+    @MainActor func threadSubtitle(containing text: String) -> XCUIElement {
+        navigationBars.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS ' · '", text)).firstMatch
     }
     /// An item of the title's menu, by identifier or (iOS 27 drops a menu item's identifier) by
     /// the start of its label.
@@ -57,39 +72,36 @@ extension XCUIApplication {
         XCTAssertTrue(item.waitForExistence(timeout: 10), "the title's menu has no Model")
         item.tap()
     }
-    /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
-    /// so the item is found by either. Secondary actions are grouped in native menus.
+    /// An item of the thread's ⋯ menu, one system menu. iOS 27 drops a menu item's identifier
+    /// and keeps its label, so the item is found by either; the menu scrolls to items below its fold.
     @MainActor func threadMenuItem(_ identifier: String) -> XCUIElement {
-        let labels = ["thread.changes": "Changes", "thread.agents": "Agent tree", "thread.search": "Find in thread",
+        let labels = ["thread.changes": "Changes", "thread.chat": "Chat", "thread.agents": "Agents", "thread.search": "Find in thread",
                       "thread.files": "Files", "thread.browser": "Browser", "thread.devices": "Devices",
                       "thread.terminal": "Terminal", "thread.tools": "Skills and tools",
                       "thread.reload": "Reload from machine", "thread.scripts": "Run and preview",
-                      "thread.work": "Work", "thread.attachments": "Attachments",
+                      "thread.work": "Work", "thread.attachments": "Attachments", "thread.summary": "Summary",
                       "thread.computer": "Computer use", "thread.openIn": "Open in",
                       "thread.turns": "Turns", "thread.logs": "Logs",
                       "thread.menu.rename": "Rename…", "thread.forkLast": "Fork from the last turn",
                       "thread.merge": "Bring back to parent…", "thread.continueOn": "Continue on"]
-        // A menu item with a second line reads both in its label: match its first words.
-        let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
-                                                labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
-        if item.waitForExistence(timeout: 2) && item.isHittable { return item }
-        // On a phone Changes is a page beside Chat in the bar, not a ⋯ entry: close the panel
-        // and hand back the bar's button.
-        let page = buttons["thread.page.changes"]
-        if identifier == "thread.changes", page.exists {
-            if buttons["thread.options.tools"].exists { coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap() }
-            _ = page.waitForExistence(timeout: 3)
-            return page
-        }
-        let conversation: Set<String> = ["thread.search", "thread.turns", "thread.attachments", "thread.menu.rename", "thread.forkLast", "thread.merge"]
-        let group = identifier == "thread.continueOn" || identifier.hasPrefix("thread.action.") ? "organize"
-            : conversation.contains(identifier) ? "conversation" : "tools"
-        let category = buttons["thread.options.\(group)"]
-        if category.waitForExistence(timeout: 2) { category.tap() }
+        let label = labels[identifier] ?? identifier
+        // A menu item with a second line reads both in its label: match its first words. Beside
+        // the iPad's panel the agent tree is "Agent tree".
+        let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@ OR (%@ == 'thread.agents' AND label == 'Agent tree')",
+                                                identifier, label, "\(label),", identifier)).firstMatch
         _ = item.waitForExistence(timeout: 3)
         let menu = collectionViews.firstMatch
         for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
         return item
+    }
+    /// Shows the thread's Chat or Changes page from ⋯, where a phone keeps them.
+    @MainActor func showThreadPage(_ page: String) {
+        let menu = buttons["thread.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        menu.tap()
+        let item = threadMenuItem("thread.\(page)")
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "⋯ offers \(page)")
+        item.tap()
     }
     /// The Search tab, before a query: its places and the latest threads.
     @MainActor func openSearch() {

@@ -27,7 +27,7 @@ struct ThreadHeaderBar<Bar: View>: ViewModifier {
 /// screen it is an empty page, so its diff isn't followed while nobody reads it.
 struct ThreadPager<Page: View>: View {
     let pages: ThreadPages
-    /// The page showing once a swipe settles; a bar button or a command sets it too.
+    /// The page showing once a swipe settles; ⋯ or a command sets it too.
     @Binding var shown: ThreadPageKind
     @ViewBuilder let page: (ThreadPageKind) -> Page
     @State private var position: ThreadPageKind?
@@ -74,7 +74,7 @@ struct ThreadPager<Page: View>: View {
         }
         .onChange(of: shown) { _, page in
             guard position != page else { return }
-            // A bar button or a command shows its page at once, as a segmented control swaps what it
+            // ⋯ or a command shows its page at once, as a segmented control swaps what it
             // shows: never a slide through the pages between. A swipe stays the finger's.
             position = page
         }

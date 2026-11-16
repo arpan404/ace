@@ -38,8 +38,7 @@ import XCTest
         XCTAssertFalse(app.buttons["modelSheet.close"].exists)
         app.buttons["modelSheet.done"].tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
-        expectation(for: NSPredicate(format: "value CONTAINS 'High'"), evaluatedWith: app.threadTitle())
-        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.threadSubtitle(containing: "High").waitForExistence(timeout: 10), "the line under the title shows the new effort")
         // Another model: the sheet stays open, the row is checked and Effort shows its levels.
         app.threadTitle().tap()
         app.titleMenuItem("thread.title.model", label: "Model, effort and speed").tap()

@@ -147,8 +147,16 @@ private struct RenameSheet: View {
             // The whole name selected once the field has the keyboard: typing replaces it, as the
             // system's own rename does.
             try? await Task.sleep(for: .milliseconds(80))
-            selection = TextSelection(range: name.startIndex..<name.endIndex)
+            selectAll()
         }
+        // Opened from the title's menu the sheet arrives after the menu has gone, later than the
+        // delay above: a selection made before the field has the keyboard is dropped, so it is
+        // made again once the keyboard is up. (A hardware keyboard shows none; the delay serves.)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in selectAll() }
+    }
+    private func selectAll() {
+        guard focused, !sending, name == title else { return }
+        selection = TextSelection(range: name.startIndex..<name.endIndex)
     }
     private func run(_ action: @escaping () async -> String?) {
         guard !sending else { return }

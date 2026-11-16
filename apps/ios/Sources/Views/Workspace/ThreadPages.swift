@@ -12,6 +12,14 @@ enum ThreadPageKind: String, CaseIterable, Identifiable, Sendable {
         case .changes: "Changes"
         }
     }
+
+    /// The page's glyph in ⋯.
+    var icon: AceIcon.Name {
+        switch self {
+        case .chat: .chatCircle
+        case .changes: .plusMinus
+        }
+    }
 }
 
 /// What a thread has right now, as the daemon reports it: which pages it gets.
@@ -20,12 +28,12 @@ struct ThreadPageFacts: Equatable, Sendable {
     var chat = false
     /// Files changed in its checkout, when the daemon counted them.
     var changedFiles = 0
-    /// The page the person asked for (a command, a deep link, a bar button): it stays while it
+    /// The page the person asked for (a command, a deep link, ⋯): it stays while it
     /// shows, so committing the last change doesn't bounce the person back to Chat mid-read.
     var requested: ThreadPageKind?
 }
 
-/// The pages a thread offers, in the bar's order, and where the person is among them. Changes
+/// The pages a thread offers, in ⋯'s order, and where the person is among them. Changes
 /// shows only when the thread has changes; Chat is always first.
 struct ThreadPages: Equatable, Sendable {
     let kinds: [ThreadPageKind]
@@ -84,5 +92,28 @@ extension ThreadDestination {
         case .summary: .summary
         default: nil
         }
+    }
+}
+
+extension ThreadDestination {
+    /// The page ⋯ leads with on a phone: the one not showing, while the thread has two.
+    static func menuPage(pages: ThreadPages?, shown: ThreadPageKind) -> ThreadDestination? {
+        guard let pages, pages.kinds.count > 1 else { return nil }
+        return shown == .chat ? .changes : .chat
+    }
+
+    /// The screens in ⋯'s row, in order. Beside the iPad's side panel: Changes, Files, Terminal
+    /// and Browser, opening as its tabs. On a phone: Files, Terminal and Browser for a thread with
+    /// a checkout, three across as the system fills a menu's row; a chat has no row.
+    static func menuScreens(pages: ThreadPages?) -> [ThreadDestination] {
+        guard let pages else { return [.changes, .files, .terminal, .browser] }
+        return pages.checkout ? [.files, .terminal, .browser] : []
+    }
+
+    /// The screens that lead the section under the row on a phone: Agents, then a chat's Browser.
+    /// Beside the iPad's panel the agent tree is with the tools.
+    static func menuLeads(pages: ThreadPages?) -> [ThreadDestination] {
+        guard let pages else { return [] }
+        return pages.checkout ? [.agents] : [.agents, .browser]
     }
 }

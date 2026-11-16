@@ -90,9 +90,7 @@ import XCTest
     /// The open page is one thread throughout: its title and its transcript.
     private func expectOpen(_ app: XCUIApplication, title: String, says: String, never: String,
                             file: StaticString = #filePath, line: UInt = #line) {
-        let heading = app.buttons["thread.title"]
-        let titled = NSPredicate(format: "label BEGINSWITH %@", title)
-        wait(for: [expectation(for: titled, evaluatedWith: heading)], timeout: 30)
+        XCTAssertTrue(app.threadTitle(named: title).waitForExistence(timeout: 30), "the open thread is \(title)", file: file, line: line)
         let text = { (words: String) in app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", words)).firstMatch }
         XCTAssertTrue(text(says).waitForExistence(timeout: 20), "\(title) shows its own answer", file: file, line: line)
         XCTAssertFalse(text(never).exists, "\(title) shows no other thread's answer", file: file, line: line)

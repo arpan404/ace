@@ -57,8 +57,7 @@ import XCTest
         let app = launch()
         open("ios-turns", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.", in: app))
-        let title = app.buttons["thread.title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 20))
+        let title = app.threadTitle(timeout: 20)
         title.tap()
         XCTAssertTrue(app.buttons["Rename…"].waitForExistence(timeout: 10))
         screenshot("title-menu")
@@ -71,7 +70,7 @@ import XCTest
         app.buttons["rename.save"].tap()
         sleep(2)
         screenshot("renamed")
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Fake the queue clock'")).firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.navigationBars["Fake the queue clock"].waitForExistence(timeout: 15), "the bar's title is the new name")
         app.buttons["thread.menu"].tap()
         // Turns and Attachments sit in the ⋯ panel's Conversation menu.
         let turns = app.threadMenuItem("thread.turns")
@@ -166,7 +165,7 @@ import XCTest
         XCTAssertEqual(fold.value as? String, "Collapsed")
         screenshot("sent-by")
         line.tap()
-        let sender = app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Keep the retry budget'")).firstMatch
+        let sender = app.threadTitle(named: "Keep the retry budget")
         XCTAssertTrue(sender.waitForExistence(timeout: 20), "the sender's thread opens")
         screenshot("sent-by-opened")
     }
