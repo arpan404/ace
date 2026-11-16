@@ -1,10 +1,12 @@
+import type { MediaLinkHint } from "@ace/protocol";
 import { encodePicture, type PictureKind } from "./stream-picture.ts";
 import { PictureViewer, type CapturedPicture } from "./picture-viewer.ts";
 import type { VideoWindow } from "./video-fanout.ts";
 import type { LinkRateLimits } from "./link-rate.ts";
+import type { FollowedLink } from "./link-follow.ts";
 
 export { PictureViewer, pictureKeyframeGapMs, type CapturedPicture } from "./picture-viewer.ts";
-export { LinkFollow, linkCapped, pictureLinkLimits } from "./link-follow.ts";
+export { LinkFollow, linkCapped, pictureLinkLimits, type FollowedLink } from "./link-follow.ts";
 
 /**
  * A screenshot is refused rather than queued while the transport holds more than this: control
@@ -42,6 +44,8 @@ export interface PictureView {
   push(picture: CapturedPicture): void;
   /** Bits per second this viewer's link carries now, when the view follows it (`link`). */
   rate(): number | undefined;
+  /** That rate, and whether it is still probing up from its start. */
+  link(): FollowedLink | undefined;
   close(): void;
 }
 
@@ -71,7 +75,7 @@ export class PictureChannel {
    */
   open(
     sourceId: string,
-    options: { keyframe(): void; guard(): void; link?: LinkRateLimits },
+    options: { keyframe(): void; guard(): void; link?: LinkRateLimits; hint?: MediaLinkHint },
   ): PictureView {
     if (this.#closed) throw new Error("Picture channel closed");
     this.#viewers.get(sourceId)?.close();
@@ -82,12 +86,17 @@ export class PictureChannel {
       keyframe: options.keyframe,
       ...(this.#ports.window ? { window: this.#ports.window } : {}),
       ...(options.link ? { link: options.link } : {}),
+      ...(options.hint ? { hint: options.hint } : {}),
       write: (pieces) => this.#writeLive(pieces, options.guard),
     });
     this.#viewers.set(sourceId, viewer);
     return {
       push: (picture) => viewer.push(picture),
       rate: () => viewer.rate,
+      link: () => {
+        const rate = viewer.rate;
+        return rate === undefined ? undefined : { rate, probing: viewer.probing };
+      },
       close: () => {
         viewer.close();
         if (this.#viewers.get(sourceId) === viewer) this.#viewers.delete(sourceId);

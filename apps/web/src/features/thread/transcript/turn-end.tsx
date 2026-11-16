@@ -2,7 +2,7 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import type { Run } from "@ace/protocol";
 import { formatElapsed } from "@ace/ui-core";
 import { Suspense, useCallback, useMemo } from "react";
-import { StopCircleIcon } from "@phosphor-icons/react";
+import { StopCircleIcon } from "@ace/icons";
 import { SystemRow } from "../items/system-row.tsx";
 import { DeferredFailedTurn } from "../items/deferred-review.ts";
 import type { Block } from "./blocks.ts";
@@ -90,6 +90,8 @@ export function TurnEnd(props: { threadId: string; block: EndBlock }) {
       <div
         role="note"
         aria-label="Interrupted by you"
+        data-part="turn-divider"
+        data-variant="interrupted"
         className="flex items-center justify-center gap-2 text-meta leading-4 text-subtle-foreground"
       >
         <span aria-hidden className="h-px w-6 bg-border" />

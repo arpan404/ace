@@ -1,6 +1,6 @@
 import type { WorktreeBase } from "@ace/protocol";
 import { baseName } from "@ace/ui-core";
-import { CaretDownIcon, GitBranchIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, GitBranchIcon } from "@ace/icons";
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";

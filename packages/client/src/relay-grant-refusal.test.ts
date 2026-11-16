@@ -37,8 +37,11 @@ function attempt(relay: ReturnType<typeof relayRoute>): Promise<number> {
   );
 }
 
-/** A relay route whose attempts fail as `upgrades` says, one per entry, each offering `grants`. */
-function refusingRoute(grants: string[], upgrades: boolean[] = []) {
+/**
+ * A relay route whose attempts fail as `upgrades` says, one per entry, each offering `grants`.
+ * Without `inUpgrade` each attempt is one dial (no step 3 retry without the upgrade message).
+ */
+function refusingRoute(grants: string[], upgrades: boolean[] = [], inUpgrade = false) {
   const refused: string[] = [];
   const relay = relayRoute({
     relayUrl: "wss://relay.invalid",
@@ -53,6 +56,7 @@ function refusingRoute(grants: string[], upgrades: boolean[] = []) {
       refused.push(grant);
       return false;
     },
+    inUpgrade,
   });
   return { relay, refused };
 }
@@ -93,6 +97,15 @@ test("an attempt that got past the upgrade resets the count of failed upgrades",
   await attempt(relay);
   expect(refused).toEqual([]);
   // Two failed upgrades in a row again: now it is named.
+  await attempt(relay);
+  expect(refused).toEqual(["grant-1"]);
+});
+
+test("with the first message in the upgrade, an attempt's retry without it is one attempt: the grant is named on the second", async () => {
+  // Every dial fails before opening: each attempt is the message's dial and its one retry.
+  const { relay, refused } = refusingRoute(["grant-1", "grant-1"], [], true);
+  await attempt(relay);
+  expect(refused).toEqual([]);
   await attempt(relay);
   expect(refused).toEqual(["grant-1"]);
 });

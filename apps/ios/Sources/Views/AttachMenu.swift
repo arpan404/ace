@@ -122,7 +122,7 @@ private struct AttachmentMenuButton: UIViewRepresentable {
     func makeUIView(context: Context) -> Anchor {
         let button = Anchor(type: .custom)
         var appearance = UIButton.Configuration.plain()
-        appearance.image = UIImage(named: "ph-plus").map { Self.drawn($0, side: AceDesign.Size.plusGlyph) }
+        appearance.image = UIImage(ace: .plus).map { Self.drawn($0, side: AceDesign.Size.plusGlyph) }
         appearance.contentInsets = .zero
         button.configuration = appearance
         button.showsMenuAsPrimaryAction = true
@@ -140,7 +140,7 @@ private struct AttachmentMenuButton: UIViewRepresentable {
             owner.signature = signature
             let groups = [0, 1].compactMap { group -> UIMenu? in
                 let rows = actions.filter { $0.group == group }.map { choice in
-                    UIAction(title: choice.title, image: UIImage(named: "ph-\(choice.icon.rawValue)"), identifier: UIAction.Identifier(choice.id)) { [weak owner] _ in
+                    UIAction(title: choice.title, image: UIImage(ace: choice.icon), identifier: UIAction.Identifier(choice.id)) { [weak owner] _ in
                         owner?.actions[choice.id]?()
                     }
                 }
@@ -185,6 +185,10 @@ private struct AttachmentMenuButton: UIViewRepresentable {
 struct AttachmentChip: View {
     let file: AttachmentFile
     let remove: () -> Void
+    /// Puts a pasted file's words back in the message instead; nil where that can't happen.
+    var asText: (() -> Void)? = nil
+    /// Why a paste can't go back as text (it is too long); shown where Paste as Text would be.
+    var staysAttached: String? = nil
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
             AceIcon(file.state == "failed" ? .warning : file.kind == "image" ? .image : file.kind == "video" ? .playCircle : .file, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
@@ -206,6 +210,20 @@ struct AttachmentChip: View {
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("composer.attachment")
+        .contextMenu {
+            if let asText {
+                Button("Paste as Text", ace: .textAlignLeft, action: asText)
+            } else if let staysAttached {
+                Text(staysAttached)
+            }
+            if asText != nil || staysAttached != nil {
+                Button("Remove", ace: .x, role: .destructive, action: remove)
+            }
+        }
+        .accessibilityHint(staysAttached ?? "")
+        .accessibilityActions {
+            if let asText { Button("Paste as Text", action: asText) }
+        }
     }
 }
 

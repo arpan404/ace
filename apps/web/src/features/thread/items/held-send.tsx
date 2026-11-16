@@ -2,7 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import { useThreadField } from "@ace/client-react/thread-field";
 import { threadStatus } from "@/lib/thread-fields.ts";
-import { ArrowClockwiseIcon, PencilSimpleIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, PencilSimpleIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
@@ -78,7 +78,7 @@ export function HeldSend(props: { threadId: string }) {
         />
       )}
       {message && (text || shown?.quotes) && (
-        <div className={userBubble}>
+        <div data-part="message-user" className={userBubble}>
           {shown?.quotes && (
             <div className={text ? "mb-2" : undefined}>
               <QuotesCard quotes={shown.quotes} />

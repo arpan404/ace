@@ -1,26 +1,12 @@
-import {
-  subagentGroupCounts,
-  subagentGroupStatus,
-  subagentGroupTitle,
-  subagentSpan,
-  subagentTerminal,
-  type SubagentGroupStatus,
-  type SubagentState,
-} from "@ace/ui-core";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { subagentSpan, subagentTerminal, type SubagentState } from "@ace/ui-core";
+import { CaretRightIcon } from "@ace/icons";
 import { useId, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { SubagentEntry } from "../lib/subagent-group.ts";
 import { ProvidersLead } from "./agent-lead.tsx";
-import { subagentTones } from "./agent-row.tsx";
+import { useLive } from "@/lib/live-connection.ts";
+import { subagentGroupLine } from "./live-words.ts";
 import { SubagentElapsed } from "./subagent-row.tsx";
-
-const groupTones: Record<SubagentGroupStatus, string> = {
-  human: "needs-you",
-  failed: "failed",
-  working: "working",
-  done: "done",
-};
 
 /** The group header's parts, in one place, so its look changes here alone. */
 export const groupStyles = {
@@ -39,14 +25,14 @@ export const groupStyles = {
  */
 export function SubagentSection(props: {
   states: readonly SubagentState[];
+  /** The facts are current: the section is named and toned by them, else only by its count. */
+  fresh: boolean;
   folded: boolean;
   children: ReactNode;
 }) {
+  const { title, status } = subagentGroupLine(useLive(props.fresh), props.states);
   return (
-    <section
-      aria-label={subagentGroupTitle(props.states)}
-      data-group-status={props.folded ? subagentGroupStatus(props.states) : undefined}
-    >
+    <section aria-label={title} data-group-status={props.folded ? status : undefined}>
       {props.children}
     </section>
   );
@@ -73,9 +59,10 @@ export function SubagentFold(props: {
   const body = useId();
   const states = entries.map((entry) => entry.state);
   const running = states.some((state) => !subagentTerminal(state));
-  const title = subagentGroupTitle(states);
+  const live = useLive(props.fresh);
+  // A stale group claims no state, not even that they all ran: just how many and the stale words.
+  const { title, tone, word, counts } = subagentGroupLine(live, states);
   const { startedAt, endedAt } = subagentSpan(entries);
-  const status = subagentGroupStatus(states);
   return (
     <>
       <button
@@ -93,17 +80,12 @@ export function SubagentFold(props: {
         </span>
         <span className="min-w-0 truncate">
           <span className={groupStyles.title}>{title}</span>
-          <span
-            id={`${body}-status`}
-            role="status"
-            data-tone={groupTones[status]}
-            className={groupStyles.counts}
-          >
-            {!props.fresh && running && "Last seen: "}
-            {subagentGroupCounts(states).map((part, index) => (
+          <span id={`${body}-status`} role="status" data-tone={tone} className={groupStyles.counts}>
+            {word}
+            {counts.map((part, index) => (
               <span key={part.state}>
                 {index > 0 && <span className={groupStyles.separator}> · </span>}
-                <span data-tone={subagentTones[part.state]} className="text-(--tone-text)">
+                <span data-tone={part.tone} className="text-(--tone-text)">
                   {part.count} {part.word}
                 </span>
               </span>
@@ -111,7 +93,7 @@ export function SubagentFold(props: {
           </span>
         </span>
         <span className={groupStyles.time}>
-          {startedAt > 0 && (
+          {startedAt > 0 && live.current && (
             <SubagentElapsed
               startedAt={startedAt}
               endedAt={endedAt}

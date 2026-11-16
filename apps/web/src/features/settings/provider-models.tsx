@@ -13,7 +13,7 @@ import {
   providerModelProblems,
   type PickerModel,
 } from "@ace/ui-core";
-import { EyeIcon, EyeSlashIcon, StarIcon } from "@phosphor-icons/react";
+import { EyeIcon, EyeSlashIcon, StarIcon } from "@ace/icons";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.tsx";
 import { useState } from "react";
 import { SettingList, SettingListItem, SettingRow } from "@/components/setting-row.tsx";

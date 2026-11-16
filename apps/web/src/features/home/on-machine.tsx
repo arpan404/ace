@@ -1,3 +1,4 @@
+import type { SuitPage } from "@ace/protocol/suit-parts";
 import type { ReactNode } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
@@ -20,6 +21,8 @@ export function machineAwayText(machine: Machine): string {
 export function OnMachine(props: {
   machine: string | undefined;
   title: string;
+  /** The Suit page the view is (`data-page`), for the line shown in its place. */
+  page?: SuitPage;
   children: ReactNode;
 }) {
   const machines = useMachines();
@@ -28,7 +31,7 @@ export function OnMachine(props: {
   if (!props.machine || !own || own.id === props.machine) return props.children;
   const machine = machines.find((each) => each.id === props.machine);
   const away = (text: string) => (
-    <Screen title={props.title}>
+    <Screen title={props.title} page={props.page}>
       <p role="status" className="px-5 py-6 text-ui text-muted-foreground">
         {text}
       </p>

@@ -1,4 +1,4 @@
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { useImperativeHandle, useRef, type Ref } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 export interface AddHandle {

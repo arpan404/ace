@@ -1,4 +1,5 @@
-import { GithubLogoIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { LockSimpleIcon } from "@ace/icons";
+import { GithubGlyph } from "@/components/ui/forge-icon.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import type { ClientApi } from "@ace/client";
@@ -289,7 +290,7 @@ function RepositoryBrowser(props: {
               onPoint={() => list.point(at)}
               onPick={() => props.onSelect(row)}
             >
-              <Icon icon={row.visibility === "private" ? LockSimpleIcon : GithubLogoIcon} />
+              <Icon icon={row.visibility === "private" ? LockSimpleIcon : GithubGlyph} />
               <span className="min-w-0 shrink-0 truncate">
                 {row.repository.owner}/{row.repository.name}
               </span>

@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
-const threads = () => within(screen.getByRole("navigation", { name: "Threads" }));
+const threads = () => within(screen.getByRole("navigation", { name: "Projects" }));
 
 async function chooseDevice(name: string) {
   await userEvent.click(await screen.findByRole("button", { name: /^Project filter:/ }));
@@ -71,7 +71,7 @@ test("a single device has no device filter and ignores a saved filter for a remo
   expect(screen.queryByRole("menuitem", { name: /^Device filter:/ })).toBeNull();
   await userEvent.keyboard("{Escape}");
   expect(
-    within(screen.getByRole("navigation", { name: "Threads" })).getAllByRole("link").length,
+    within(screen.getByRole("navigation", { name: "Projects" })).getAllByRole("link").length,
   ).toBeGreaterThan(0);
 });
 
@@ -82,8 +82,8 @@ test("the filter button shows a shortened selected device name and reveals its f
   await made.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
   // Row 1 is the title row again: Threads, then Search.
-  const panel = screen.getByRole("complementary", { name: "Threads" });
-  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  const panel = screen.getByRole("complementary", { name: "Projects" });
+  expect(within(panel).getByRole("heading", { level: 2, name: "Projects" })).toBeTruthy();
   expect(within(panel).getByRole("button", { name: "Search threads" })).toBeTruthy();
   await chooseDevice(name);
   const control = await screen.findByRole("button", {
@@ -116,8 +116,8 @@ test("choosing a device shows its name in the filter", async () => {
   await made.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
   // Row 1 is the title row again: Threads, then Search.
-  const panel = screen.getByRole("complementary", { name: "Threads" });
-  expect(within(panel).getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  const panel = screen.getByRole("complementary", { name: "Projects" });
+  expect(within(panel).getByRole("heading", { level: 2, name: "Projects" })).toBeTruthy();
   expect(within(panel).getByRole("button", { name: "Search threads" })).toBeTruthy();
   await chooseDevice("Build server");
   const control = await screen.findByRole("button", {
@@ -177,7 +177,7 @@ test("choosing a device narrows the Inbox, Snoozed and Settled tabs to its threa
     expect(listed()).toEqual(expect.arrayContaining(["Local inbox", "Remote inbox"])),
   );
   // Row 1 is the title row again: Threads, then Search; the filter sits below it.
-  expect(screen.getByRole("heading", { level: 2, name: "Threads" })).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 2, name: "Projects" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Search threads" })).toBeTruthy();
 
   await chooseDevice("Build server");

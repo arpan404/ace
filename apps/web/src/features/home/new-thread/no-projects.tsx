@@ -1,4 +1,4 @@
-import { FolderSimpleIcon } from "@phosphor-icons/react";
+import { FolderSimpleIcon } from "@ace/icons";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ProjectsEmptyState, useProjectDialogs } from "@/features/projects/index.ts";
 import { Screen } from "@/features/shell/index.ts";
@@ -14,14 +14,14 @@ export function NoProjects() {
   const own = choice?.machines.find((machine) => machine.primary);
   if (!choice || choice.current.primary || !own)
     return (
-      <Screen title="New thread">
+      <Screen page="new-thread" title="New thread">
         <ProjectsEmptyState />
       </Screen>
     );
   const link =
     "text-ui font-medium text-foreground underline-offset-4 hover:underline focus-ring rounded-sm";
   return (
-    <Screen title="New thread">
+    <Screen page="new-thread" title="New thread">
       <EmptyState
         icon={FolderSimpleIcon}
         title={`No projects on ${choice.current.name}`}

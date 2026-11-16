@@ -65,6 +65,7 @@ function setup(options: { refuse?: () => boolean } = {}) {
     viewer,
     received,
     keyframes: () => keyframes,
+    pending: () => timers.length,
     advance(ms: number) {
       now += ms;
       for (const timer of timers.filter((candidate) => candidate.at <= now)) {
@@ -160,5 +161,121 @@ describe("a source's pictures on the shared media stream", () => {
     refuse = false;
     view.viewer.flush();
     expect(view.received.map((picture) => picture.sequence)).toEqual([1]);
+  });
+});
+
+describe("a source whose capture restarts", () => {
+  it("keeps the old capture's pictures in the window until they are acked", () => {
+    const { viewer, received } = setup();
+    // Eight pictures fill the window, none acked yet.
+    for (let sequence = 1; sequence <= 8; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 1 }));
+    // A new capture: its keyframe waits, as the old pictures are still on the wire.
+    viewer.push(frame(1, { key: true, stream: "capture-2" }));
+    expect(received.map((picture) => picture.stream)).toEqual(Array(8).fill("capture-1"));
+    // The old capture's ack, named by its stream, releases them.
+    viewer.ack("capture-1", 8);
+    expect(received.at(-1)).toMatchObject({ stream: "capture-2", sequence: 1, key: true });
+  });
+
+  it("follows the link on the new capture's acks, whatever the old one left unacked", () => {
+    let now = 0;
+    const link = { min: 150_000, max: 20_000_000, initial: 4_000_000 };
+    const viewer = new PictureViewer(streamKinds.deviceFrame, deviceId, {
+      messageId: () => 1,
+      now: () => now,
+      after: () => () => {},
+      keyframe: () => {},
+      link,
+      write: () => true,
+    });
+    for (let sequence = 100; sequence <= 105; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 100, size: 40_000 }));
+    viewer.ack("capture-1", 102);
+    // The new capture starts over at 1. The old one's last pictures are acked by its stream,
+    // which frees the window but says nothing about the link now.
+    viewer.push(frame(1, { key: true, stream: "capture-2", size: 40_000 }));
+    viewer.ack("capture-1", 105);
+    // 40 KB pictures acked as they go, for a second.
+    for (let sequence = 1; sequence <= 60; sequence++) {
+      if (sequence > 1) viewer.push(frame(sequence, { stream: "capture-2", size: 40_000 }));
+      now += 1000 / 60;
+      viewer.ack("capture-2", sequence);
+    }
+    expect(viewer.rate).toBeGreaterThan(link.initial);
+  });
+});
+
+describe("a source whose captures restart many times", () => {
+  it("still frees the first capture's window on its late ack, after more than four captures", () => {
+    const { viewer, received } = setup();
+    for (let sequence = 1; sequence <= 8; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 1 }));
+    // Four more captures while the first one's eight pictures are still on the wire.
+    for (const stream of ["capture-2", "capture-3", "capture-4", "capture-5"])
+      viewer.push(frame(1, { key: true, stream }));
+    expect(received).toHaveLength(8);
+    viewer.ack("capture-1", 8);
+    expect(received.at(-1)).toMatchObject({ stream: "capture-5", sequence: 1, key: true });
+  });
+});
+
+describe("a source whose capture goes idle", () => {
+  it("still lets a keyframe through once the unacked pictures ahead of it are due", () => {
+    const { viewer, received, advance } = setup();
+    for (let sequence = 1; sequence <= 8; sequence++)
+      viewer.push(frame(sequence, { key: sequence === 1 }));
+    viewer.push(frame(9, { key: true }));
+    expect(received).toHaveLength(8);
+    // Nothing more comes: no picture, ack or drain. The viewer wakes itself at the deadline.
+    advance(3_000);
+    expect(received).toHaveLength(8);
+    advance(1_000);
+    expect(received.at(-1)).toMatchObject({ sequence: 9, key: true });
+  });
+
+  it("cancels its wake-up when it closes", () => {
+    const { viewer, advance, pending } = setup();
+    viewer.push(frame(1, { key: true }));
+    expect(pending()).toBe(1);
+    viewer.close();
+    expect(pending()).toBe(0);
+    advance(10_000);
+  });
+});
+
+describe("a viewer that learns its round trip mid-window", () => {
+  it("wakes once at the head's deadline, not every millisecond", () => {
+    let now = 0;
+    const scheduled: number[] = [];
+    const timers: { at: number; run: () => void }[] = [];
+    const viewer = new PictureViewer(streamKinds.deviceFrame, deviceId, {
+      messageId: () => 1,
+      now: () => now,
+      after(ms, run) {
+        scheduled.push(now + ms);
+        const timer = { at: now + ms, run };
+        timers.push(timer);
+        return () => timers.splice(timers.indexOf(timer), 1);
+      },
+      keyframe: () => {},
+      link: { min: 150_000, max: 20_000_000, initial: 4_000_000 },
+      write: () => true,
+    });
+    viewer.push(frame(1, { key: true }));
+    viewer.push(frame(2));
+    viewer.push(frame(3));
+    // At 100 ms an ack of the first teaches a 100 ms round trip; the fourth is sent after it.
+    now = 100;
+    viewer.ack("capture-1", 1);
+    viewer.push(frame(4));
+    // Run the clock to 3.1 s, firing whatever is due.
+    const fired = scheduled.length;
+    for (now = 100; now <= 3_100; now++)
+      for (const timer of timers.filter((candidate) => candidate.at <= now)) {
+        timers.splice(timers.indexOf(timer), 1);
+        timer.run();
+      }
+    expect(scheduled.length - fired).toBeLessThanOrEqual(3);
   });
 });

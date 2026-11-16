@@ -1,9 +1,10 @@
-import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon, ArrowUpIcon, StopIcon, QueueIcon } from "@ace/icons";
 import { memo } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { formatKeys } from "@/lib/keymap.ts";
+import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { iconControl } from "./composer-styles.ts";
 
 export type PrimaryMode = "send" | "queue" | "steer";
@@ -64,16 +65,22 @@ export const PrimaryAction = memo(function PrimaryAction(props: {
 }) {
   const { mode, blocked } = props;
   const Glyph = icons[mode];
+  // A Suit may name Send its own way; Queue and Steer stay ace's (`suitLabel`).
+  const name = useSuitLabel("send", labels[mode]);
+  const tip = blocked ?? hint(mode, props.canSteer !== false, props.otherKeys, props.otherHint);
   return (
     <Tip
-      label={blocked ?? hint(mode, props.canSteer !== false, props.otherKeys, props.otherHint)}
+      label={tip === labels.send ? name : tip}
       {...(blocked ? {} : { keys: "enter" })}
       side="top"
     >
       <button
         type="button"
-        aria-label={labels[mode]}
+        aria-label={name}
         aria-disabled={blocked ? true : undefined}
+        data-part="composer-send"
+        data-variant={mode}
+        data-state={blocked || props.off ? "disabled" : undefined}
         aria-describedby={props.off ? props.describedBy : undefined}
         onClick={() => {
           if (!blocked) props.onSend();
@@ -103,6 +110,9 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
         type="button"
         aria-label="Stopping…"
         aria-disabled
+        data-part="composer-send"
+        data-variant="stopping"
+        data-state="disabled"
         className={cn(iconControl, "cursor-default bg-foreground/10 text-muted-foreground")}
       >
         <Spinner />
@@ -113,6 +123,8 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
       <button
         type="button"
         aria-label="Stop the agent"
+        data-part="composer-send"
+        data-variant="stop"
         onClick={props.onStop}
         className={cn(
           iconControl,

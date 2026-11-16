@@ -76,6 +76,27 @@ export function loadToken(dataDir: string): { token: string; tokenPath: string }
   if (!/^[0-9a-f]{64}$/.test(token)) throw new Error("Invalid daemon token file");
   return { token, tokenPath };
 }
+/**
+ * The key a Suit's served URLs are signed with (ADR 0150), kept across daemon runs: a version of
+ * a Suit then keeps one URL, so a client that reconnects or reloads keeps its running scene and
+ * its cached files, and only an edit (a new content hash) gives it a new one. A missing or
+ * damaged file gets a new key; the only cost is that clients load the Suit's files once more.
+ */
+export function loadSuitUrlKey(dataDir: string): Uint8Array {
+  const path = join(dataDir, "suit-url-key");
+  try {
+    writeFileSync(path, freshKey(), { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (!isExists(error)) throw error;
+  }
+  chmodSync(path, 0o600);
+  let key = readFileSync(path, "utf8");
+  if (!/^[0-9a-f]{64}$/.test(key)) {
+    key = freshKey();
+    writeFileSync(path, key, { mode: 0o600 });
+  }
+  return Buffer.from(key, "hex");
+}
 export function loadHostId(dataDir: string): string {
   const path = join(dataDir, "host-id");
   try {
@@ -112,6 +133,7 @@ export function loadPushKey(dataDir: string): string {
     throw new Error("Invalid push signing key file");
   return pem;
 }
+const freshKey = () => randomBytes(32).toString("hex");
 function isExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST";
 }

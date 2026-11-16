@@ -1,3 +1,4 @@
+import { SuitOrnament } from "@/theme/suits/suit-ornament.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { type IconGlyph } from "@/components/icon.tsx";
@@ -20,6 +21,7 @@ function EmptyState(props: {
     return (
       <div
         data-slot="empty"
+        data-part="empty-state"
         data-variant="inline"
         className={cn(
           "flex flex-col items-start gap-1 px-4 pt-3 text-ui leading-normal text-muted-foreground",
@@ -35,11 +37,13 @@ function EmptyState(props: {
   return (
     <div
       data-slot="empty"
+      data-part="empty-state"
       className={cn(
         "flex h-full min-h-0 flex-col items-center justify-center gap-1 px-5 py-6 text-center",
         props.className,
       )}
     >
+      <SuitOrnament slot="empty-state" className="mb-3 max-h-32" />
       <Title className="text-ui font-medium text-foreground">{props.title}</Title>
       {props.description && (
         <p className="max-w-[44ch] text-ui leading-normal text-muted-foreground">

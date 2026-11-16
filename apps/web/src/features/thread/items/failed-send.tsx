@@ -2,10 +2,10 @@ import { useContext, useRef, useState, useSyncExternalStore } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
 import { baseName, sendBusyReason } from "@ace/ui-core";
-import { retrySend, type SendOp } from "@ace/client";
+import type { SendOp } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { shallowEqual, useThreadField, type ThreadRecord } from "@ace/client-react/thread-field";
-import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -45,6 +45,7 @@ import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { dismissWorktreeStart } from "../worktree/use-worktree-creation.ts";
 import { useDiscardSend } from "./use-discard-send.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { retryFailedSend } from "@/lib/live-actions.ts";
 import { EditSendDialog } from "./edit-send-dialog.tsx";
 
 type CreatePayload = Extract<SendPayload, { type: "thread.create" }>;
@@ -175,7 +176,11 @@ export function useSendActions() {
       setPending(new Set(inFlight.current));
       void client.sendOps
         .run(commandId, "retrying", () =>
-          retrySend(client, commandId, () => client.pendingSend(commandId)?.payload ?? payload),
+          retryFailedSend(
+            client,
+            commandId,
+            () => client.pendingSend(commandId)?.payload ?? payload,
+          ),
         )
         .then((ran) => {
           if (ran.ran) return ran.value;

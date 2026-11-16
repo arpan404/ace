@@ -2,8 +2,16 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import type { Answer } from "./answer.ts";
 
-/** A plan to approve as is, or send back with feedback. */
-export function PlanReview(props: { disabled: boolean; onAnswer: Answer; children: ReactNode }) {
+/**
+ * A plan to approve as is, or send back with feedback. `declinesOnly`: it can be sent back but
+ * not approved yet (it hasn't been read whole).
+ */
+export function PlanReview(props: {
+  disabled: boolean;
+  declinesOnly?: boolean | undefined;
+  onAnswer: Answer;
+  children: ReactNode;
+}) {
   const [feedback, setFeedback] = useState("");
   const [revising, setRevising] = useState(false);
   return (
@@ -37,7 +45,7 @@ export function PlanReview(props: { disabled: boolean; onAnswer: Answer; childre
           <Button
             size="sm"
             variant="primary"
-            disabled={props.disabled}
+            disabled={props.disabled || props.declinesOnly}
             onClick={() => props.onAnswer({ kind: "plan_review", decision: "approve" })}
           >
             Approve plan

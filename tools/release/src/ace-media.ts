@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { ReleaseTarget } from "@ace/protocol";
 import type { z } from "zod";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
-import { collectMediaLicenses } from "./licenses.ts";
+import { collectMediaLicenses } from "./media-licenses.ts";
 
 type Target = z.infer<typeof ReleaseTarget>;
 const triples: Record<Target, string> = {
@@ -81,6 +81,6 @@ export async function stageAceMedia(options: {
   await copyFile(source, destination);
   await chmod(destination, 0o755);
   if (target.startsWith("linux-")) await checkLinuxMedia(destination);
-  await collectMediaLicenses(repo, join(root, "media"));
+  await collectMediaLicenses(repo, triple, join(root, "media"));
   return env.ACE_MEDIA_BIN ? "prebuilt" : "built";
 }

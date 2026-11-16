@@ -104,6 +104,9 @@ export {
   type HtmlPreviewResult,
 } from "./html-tools.ts";
 export { imageToolkit, imageToolCatalog, type ImagePublicationPort } from "./image-tools.ts";
+export { suitToolkit, suitToolCatalog } from "./suit-tools.ts";
+export { SuitPreviews, type SuitApplyOutcome, type SuitApplyStatus } from "./suit-previews.ts";
+export type { SuitPort } from "./suit-port.ts";
 
 export {
   renderBrief,

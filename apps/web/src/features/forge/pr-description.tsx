@@ -2,6 +2,7 @@ import { can } from "@ace/ui-core";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
@@ -42,7 +43,7 @@ export function PrDescription(props: {
   const { detail } = props.context;
   const at = detail.createdAt ?? detail.updatedAt;
   return (
-    <section aria-label="Description" className={prBox}>
+    <section {...part("card", undefined, "description")} aria-label="Description" className={prBox}>
       <PrBoxHead
         actions={
           <>

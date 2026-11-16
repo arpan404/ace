@@ -1,6 +1,6 @@
 import { useConnectionState } from "@ace/client-react";
 import { choiceForModel, pickerModelsFromChoices, pickerProviders } from "@ace/ui-core";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
@@ -15,6 +15,7 @@ import { useUtilityModel } from "@/lib/utility-model.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * Titles and commit/PR drafts: the model they're written with. Drafting commit messages on open
@@ -58,6 +59,7 @@ function UtilityModelRow() {
           <PopoverTrigger
             // Drawn as a Select, so it lines up with the selects on the page.
             data-slot="select"
+            {...part("select", offline && "disabled", "model")}
             disabled={offline}
             className={cn(selectTrigger, "min-w-36")}
             aria-label={`${row.title}: ${label}`}
@@ -79,6 +81,7 @@ function UtilityModelRow() {
             <button
               type="button"
               aria-pressed={!choice}
+              {...part("menu-item", !choice && "checked")}
               className="flex h-8 w-full items-center gap-2 border-b border-border px-3 text-left text-ui hover:bg-accent focus-ring-inset"
               onClick={() => pick(null)}
             >

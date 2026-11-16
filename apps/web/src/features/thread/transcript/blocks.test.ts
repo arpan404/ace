@@ -423,7 +423,7 @@ const aceInput = (id: string, kind: string, text: string, at: number) =>
     parts: [{ type: "text", text }],
   });
 
-test("Continue after a restart or a limit reads as the person's message; ace's other inputs stay events", () => {
+test("Continue after a restart or a limit is no message of the person's: it reads as its turn's restart or wait row", () => {
   const items = new Map<string, Item>([
     ["resume", aceInput("resume", "limit_resume", "Continue where you left off.", 0)],
     ["restart", aceInput("restart", "restart", "Continue where you left off.", 1)],
@@ -451,9 +451,16 @@ test("Continue after a restart or a limit reads as the person's message; ace's o
   const kinds = new Map(
     blocks.flatMap((block) => ("itemId" in block ? [[block.itemId, block.kind]] : [])),
   );
-  expect(kinds.get("resume")).toBe("user");
-  expect(kinds.get("restart")).toBe("user");
-  expect(kinds.get("legacy")).toBe("event");
+  const moments = blocks.flatMap((block) =>
+    block.kind === "moment" ? [[block.moment, block.itemIds] as const] : [],
+  );
+  // Each run here is its own turn, so each input is its own row.
+  expect(moments).toEqual([
+    ["limit", ["resume"]],
+    ["restart", ["restart"]],
+    ["restart", ["legacy"]],
+  ]);
+  expect(blocks.some((block) => block.kind === "user")).toBe(false);
   expect(kinds.get("done")).toBe("event");
 });
 

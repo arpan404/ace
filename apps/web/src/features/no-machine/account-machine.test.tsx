@@ -123,7 +123,7 @@ test("opening an account machine from the app with no machine makes it this wind
   openWindow({ daemon, stores: windowStores(), session, signedIn: true, at: "/settings/remote" });
   await openFromFleet("Travel laptop");
   expect(await screen.findByText(`Working on ${daemon.hostId} via account`)).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Connect to a machine")).toBeNull();
 });
 
 test("a reload opens the account machine again through the relay, keeping no grant or token", async () => {
@@ -291,5 +291,5 @@ test("a window without ace accounts ignores a stored account machine and opens e
       </ConnectionGate>
     </AppFrame>,
   );
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Connect to a machine")).toBeTruthy();
 });

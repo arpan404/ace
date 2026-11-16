@@ -1,4 +1,4 @@
-import { CaretLeftIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon } from "@ace/icons";
 import { Link } from "@tanstack/react-router";
 import type { ReadinessView } from "@ace/ui-core";
 import { Suspense, useRef } from "react";
@@ -18,6 +18,7 @@ import {
 } from "./provider-entries.ts";
 import { ProviderProblemLine } from "./provider-problem-line.tsx";
 import { SettingsBody } from "./settings-body.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /** The models section loads with the page, apart from the overview. */
 const DeferredProviderModels = deferredComponent(() =>
@@ -56,6 +57,7 @@ const back = (
   <Link
     to="/settings/providers"
     aria-label="Back to Providers"
+    {...part("link", undefined, "back")}
     className="inline-flex items-center gap-1 rounded-xs text-muted-foreground focus-ring hover:text-foreground"
   >
     <CaretLeftIcon aria-hidden size={12} />

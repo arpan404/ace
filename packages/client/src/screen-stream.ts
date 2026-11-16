@@ -8,13 +8,24 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
-import { PictureQueue, SharedStreams, type SourcePicture } from "@ace/browser/live-view";
+import {
+  channelPath,
+  MediaSubscriptions,
+  PictureQueue,
+  SharedStreams,
+  type DeliveryState,
+  type MediaRoute,
+  type Settled,
+  type SourcePicture,
+} from "@ace/browser/live-view";
+import type { MediaPoster } from "@ace/protocol";
+import type { PictureChunk, StreamMessage } from "@ace/browser/stream";
 import { authenticatedChannel, type AuthenticatedChannelOptions } from "./device-transport.ts";
 import { ScreenClientError } from "./screen.ts";
 
 export { ScreenClientError } from "./screen.ts";
 export type { AuthenticatedChannelOptions } from "./device-transport.ts";
-export type { SourcePicture } from "@ace/browser/live-view";
+export type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
 export { browserDeviceSocket as browserScreenSocket } from "./device-transport.ts";
 
 export interface ScreenTransport {
@@ -42,6 +53,8 @@ export interface ScreenStreamClientOptions {
   schedule(callback: () => void, delayMs: number): () => void;
 }
 type Pending = {
+  /** The session and generation a `subscribe` opened, matched by its reply (`MediaSubscriptions`). */
+  subscribe?: { sessionId: string; generation: number };
   resolve(data: unknown): void;
   reject(error: Error): void;
   cancel(): void;
@@ -71,8 +84,53 @@ export class ScreenStreamClient {
   /** Stream kind messages (`@ace/browser/stream`) being put back together. */
   private readonly assembler = new StreamAssembler();
   private readonly pictures = new PictureQueue(8);
+  /** Which sessions' pictures come by the media connection (ADR 0147 §4). */
+  private readonly media = new MediaSubscriptions();
+  private stopMedia: (() => void) | undefined;
   constructor(options: ScreenStreamClientOptions) {
     this.options = options;
+  }
+  /**
+   * Take live pictures by this media connection when it has a binding: each held stream
+   * subscribes again whenever the binding changes, acks follow the pictures, and requests and
+   * state stay on this channel. `undefined` goes back to the channel alone.
+   */
+  /**
+   * Hears each session's delivery as it changes (`MediaSubscriptions.watchDeliveries`): for a
+   * viewer whose pictures arrive outside this client, which stamps and gates them itself.
+   */
+  watchDeliveries(listener: (state: DeliveryState) => void): () => void {
+    return this.media.watchDeliveries(listener);
+  }
+  useMedia(route: MediaRoute | undefined): void {
+    this.stopMedia?.();
+    this.stopMedia = undefined;
+    this.media.use(route);
+    if (!route) return;
+    const stops = [
+      route.watch(() => {
+        if (!this.snapshot.connected) return;
+        for (const sessionId of this.streams.held()) this.subscribe(sessionId);
+      }),
+      route.onStream((message) => this.receiveMedia(message)),
+    ];
+    this.stopMedia = () => {
+      for (const stop of stops) stop();
+    };
+  }
+  /**
+   * The view of `sessionId` couldn't decode `codec` (HEVC, say): that one stream subscribes again
+   * without it, while every other source keeps the codecs it plays. False when nothing is left
+   * to fall back to (H.264 itself failed).
+   */
+  fallBack(sessionId: string, codec: string): boolean {
+    if (!this.media.fallBack(sessionId, codec)) return false;
+    if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+    return true;
+  }
+  /** The still the session's subscribe brought back, to show until its first live picture. */
+  poster(sessionId: string): MediaPoster | undefined {
+    return this.media.poster(sessionId);
   }
   getSnapshot(): ScreenStreamSnapshot {
     return this.snapshot;
@@ -119,6 +177,9 @@ export class ScreenStreamClient {
     this.assembler.reset();
     this.states.clear();
     this.streams.reset();
+    this.media.reset();
+    for (const cancel of this.retries.values()) cancel();
+    this.retries.clear();
     this.pictures.discard();
     for (const request of this.pending.values()) {
       request.cancel();
@@ -130,6 +191,13 @@ export class ScreenStreamClient {
   request(
     operation: ScreenOperation,
     options: { timeoutMs?: number; signal?: AbortSignal } = {},
+  ): Promise<unknown> {
+    return this.send(operation, options, undefined);
+  }
+  private send(
+    operation: ScreenOperation,
+    options: { timeoutMs?: number; signal?: AbortSignal },
+    generation: number | undefined,
   ): Promise<unknown> {
     if (!this.snapshot.connected || !this.transport)
       return Promise.reject(failure("internal", "Screen connection is not ready"));
@@ -153,10 +221,21 @@ export class ScreenStreamClient {
       };
       const abort = () => finish(failure("internal", "Screen request aborted"));
       const cancelTimer = this.options.schedule(
-        () => finish(failure("timeout", "Screen request timed out")),
+        () => {
+          if (
+            generation !== undefined &&
+            operation.op === "subscribe" &&
+            this.pending.has(requestId)
+          )
+            this.timedOut(requestId, operation.sessionId, generation);
+          finish(failure("timeout", "Screen request timed out"));
+        },
         options.timeoutMs ?? defaultTimeoutMs(operation),
       );
       this.pending.set(requestId, {
+        ...(operation.op === "subscribe" && generation !== undefined
+          ? { subscribe: { sessionId: operation.sessionId, generation } }
+          : {}),
         resolve,
         reject,
         cancel: () => {
@@ -209,6 +288,10 @@ export class ScreenStreamClient {
       sequence: picture.sequence,
       ...(keyframe ? { keyframe: true as const } : {}),
     };
+    const way = this.media.way(picture.sourceId, picture.generation);
+    // A picture of an earlier subscribe: its ack belongs to a delivery that is gone.
+    if (way === "stale") return;
+    if (way === "media") return void this.media.route?.ack(message);
     try {
       void Promise.resolve(transport.send(message)).catch(() => {});
     } catch {
@@ -216,6 +299,48 @@ export class ScreenStreamClient {
     }
   }
   private readonly streams = new SharedStreams();
+  /** Whether `picture` is of its source's current subscribe: an older one is never drawn. */
+  current(picture: SourcePicture): boolean {
+    return this.media.current(picture.sourceId, picture.generation);
+  }
+  /**
+   * A subscribe of `sessionId` failed: try again after the bounded backoff, unless the channel
+   * closed, nothing holds the stream any more or another subscribe went out meanwhile.
+   */
+  private retryLater(sessionId: string): void {
+    const delay = this.media.retryDelay(sessionId);
+    if (delay === undefined) return;
+    const epoch = this.epoch;
+    const generation = this.media.generation(sessionId);
+    this.cancelRetry(sessionId);
+    const cancel = this.options.schedule(() => {
+      this.retries.delete(sessionId);
+      if (this.epoch !== epoch || this.media.generation(sessionId) !== generation) return;
+      if (this.streams.held().includes(sessionId)) this.subscribe(sessionId);
+    }, delay);
+    this.retries.set(sessionId, cancel);
+  }
+  /** Retries waiting on the clock, by source: cancelled when they no longer apply. */
+  private readonly retries = new Map<string, () => void>();
+  private cancelRetry(sessionId: string): void {
+    this.retries.get(sessionId)?.();
+    this.retries.delete(sessionId);
+  }
+  private subscribe(sessionId: string): void {
+    // This subscribe supersedes any retry still waiting.
+    this.cancelRetry(sessionId);
+    const { generation, fields } = this.media.begin(sessionId);
+    // What the earlier subscribe delivered and nobody drew yet is stale now.
+    this.pictures.discardSource(sessionId);
+    void this.send({ op: "subscribe", sessionId, ...fields }, {}, generation).catch(
+      (error: unknown) => {
+        const next = this.media.failed(sessionId, generation, error);
+        // A connection the daemon won't bind here: the stream goes on this channel instead.
+        if (next === "resubscribe") return this.subscribe(sessionId);
+        if (next === "retry") this.retryLater(sessionId);
+      },
+    );
+  }
   /**
    * Keep `sessionId`'s live stream open for one view. Views of the same session share one
    * daemon subscription: the first view subscribes, the last to release unsubscribes.
@@ -223,21 +348,59 @@ export class ScreenStreamClient {
   retainStream(sessionId: string): () => void {
     return this.streams.retain(
       sessionId,
-      () => void this.request({ op: "subscribe", sessionId }).catch(() => {}),
-      () => void this.request({ op: "unsubscribe", sessionId }).catch(() => {}),
+      () => this.subscribe(sessionId),
+      () => {
+        this.media.forget(sessionId);
+        this.cancelRetry(sessionId);
+        void this.request({ op: "unsubscribe", sessionId }).catch(() => {});
+      },
     );
   }
+  private receiveMedia(message: StreamMessage): void {
+    const connection = this.media.route?.binding()?.connection;
+    if (message.kind === "screen.frame" && connection && this.snapshot.connected)
+      this.publishPicture(message.sourceId, message.frame, connection);
+  }
+  /** A live picture that came by `path`, stamped with its delivery's generation, else dropped. */
+  private publishPicture(sourceId: string, frame: PictureChunk, path: string): void {
+    if (this.states.get(sourceId)?.lifecycle !== "live") return;
+    const stamped = this.media.arrive(sourceId, path, frame);
+    if (stamped)
+      this.pictures.publish({ ...stamped.frame, sourceId, generation: stamped.generation });
+  }
+  /**
+   * What a subscribe's reply released: the pictures that came its settled way while it was on its
+   * way, shown now; past the buffer's bounds, the delivery is asked for a fresh keyframe.
+   */
+  private release(sourceId: string, settled: Settled): void {
+    for (const { frame, generation } of settled.pictures)
+      this.pictures.publish({ ...frame, sourceId, generation });
+    const ask = settled.ask;
+    if (ask) this.ack({ ...ask.frame, sourceId, generation: ask.generation }, true);
+  }
+  /**
+   * A subscribe got no answer in time: its source stops waiting (delivery falls back to the
+   * channel), and its reply, should it still come, is kept for (`late`), bounded.
+   */
+  private timedOut(requestId: string, sourceId: string, generation: number): void {
+    this.media.abandon(sourceId, generation);
+    this.late.set(requestId, { sourceId, generation });
+    for (const oldest of this.late.keys()) {
+      if (this.late.size <= 32) break;
+      this.late.delete(oldest);
+    }
+  }
+  /** Subscribes that timed out, by request id, whose late reply still settles their delivery. */
+  private readonly late = new Map<string, { sourceId: string; generation: number }>();
+
   private receive(message: ServerMessage | Uint8Array): void {
     if (message instanceof Uint8Array) {
       if (!isStreamPiece(message)) throw failure("internal", "Invalid screen frame");
       const envelope = this.assembler.push(message);
       // Kinds this client doesn't draw are skipped, never fatal.
       const decoded = envelope && decodeStreamMessage(envelope);
-      if (
-        decoded?.kind === "screen.frame" &&
-        this.states.get(decoded.sourceId)?.lifecycle === "live"
-      )
-        this.pictures.publish({ ...decoded.frame, sourceId: decoded.sourceId });
+      if (decoded?.kind === "screen.frame")
+        this.publishPicture(decoded.sourceId, decoded.frame, channelPath);
       return;
     }
     const decoded = ScreenServerMessage.safeParse(message);
@@ -247,11 +410,29 @@ export class ScreenStreamClient {
     else if (frame.type === "screen.state") this.putState(frame.state);
     else {
       const request = this.pending.get(frame.requestId);
+      const late = request ? undefined : this.late.get(frame.requestId);
+      if (late) {
+        this.late.delete(frame.requestId);
+        if (frame.ok)
+          this.release(
+            late.sourceId,
+            this.media.subscribed(late.sourceId, late.generation, frame.media),
+          );
+        return;
+      }
       if (!request) return;
       this.pending.delete(frame.requestId);
       request.cancel();
       if (!frame.ok) request.reject(new ScreenClientError(frame));
       else {
+        const opened = request.subscribe;
+        if (opened) {
+          this.release(
+            opened.sessionId,
+            this.media.subscribed(opened.sessionId, opened.generation, frame.media),
+          );
+          if (this.media.poster(opened.sessionId)) this.publish({ ...this.snapshot });
+        }
         try {
           const state = ScreenState.safeParse(frame.data);
           if (state.success) this.putState(state.data);

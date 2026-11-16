@@ -10,7 +10,7 @@ import {
   type ChangesByAgent,
   type CheckRun,
 } from "@ace/ui-core";
-import { ListChecksIcon, NotePencilIcon, TerminalIcon } from "@phosphor-icons/react";
+import { ListChecksIcon, NotePencilIcon, TerminalIcon } from "@ace/icons";
 import { Fragment, useState } from "react";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useAgentIdentity } from "../agents/agent-identity.ts";

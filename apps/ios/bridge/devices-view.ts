@@ -1,5 +1,6 @@
 import type { DeviceClientSnapshot } from "@ace/client/devices";
 import type { AppDevice, DeviceState } from "@ace/protocol";
+import { degradedSentence } from "./video-degraded.ts";
 import {
   activityCaption,
   deviceButtons,
@@ -117,6 +118,8 @@ export interface DeviceScreenView {
   chrome: string | null;
   activity: { sequence: number; caption: string; provider: string; x?: number; y?: number } | null;
   problem: DeviceProblem | null;
+  /** One sentence while the picture runs degraded on the processor; empty otherwise. */
+  degraded: string;
   touch: string;
   /** A foldable device's posture (closed, partiallyOpen or open); null when it doesn't fold. */
   posture: string | null;
@@ -258,6 +261,8 @@ function screen(
         }
       : null,
     problem: controls.error ?? null,
+    /** One sentence while the device's picture runs degraded on the processor; empty otherwise. */
+    degraded: degradedSentence(state?.acceleration),
     touch: state?.touch ?? "gestures",
     posture: state?.posture ?? null,
     framed: controls.framed,

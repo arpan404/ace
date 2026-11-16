@@ -37,7 +37,9 @@ extension ClientModel {
         // Acknowledgements skip the main thread: the daemon's window frees as chunks decode.
         browser.open(threadId: threadId, streams: session.browserStreams) { ack in
             var value: [String: Any] = ["kind": "ack", "sequence": ack.sequence]
+            if let generation = ack.generation { value["generation"] = generation }
             if ack.keyframe { value["keyframe"] = true }
+            if ack.fallback { value["fallback"] = true }
             Self.action(["type": "browser", "action": value], to: session)
         }
         browserAction(["kind": "open", "threadId": threadId, "viewport": Self.viewport(size, scale)])

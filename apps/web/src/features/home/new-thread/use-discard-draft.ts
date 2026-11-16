@@ -27,28 +27,31 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
   const directory = useProjectDirectory();
   // Another machine's draft (under its MachineScope) reopens on that machine.
   const machine = useMachineSearch();
+  // Remount an open preparation so its in-memory content cannot recreate the discarded row,
+  // or, after Undo, so it shows the content put back.
+  const remount = (project: string, source: Pick<Preparation, "skill" | "issue" | "pullRequest">) =>
+    void navigate({
+      to: "/new",
+      search: (previous) => ({
+        ...machine,
+        project,
+        skill: source.skill,
+        issue: source.issue,
+        pullRequest: source.pullRequest,
+        discard: (previous.discard ?? 0) + 1,
+      }),
+    });
   return (key: string, row: Preparation): string | undefined => {
     const content = readDraft(storage, key);
     if (!discardPreparation(storage, host, key)) return refused;
-    // Remount an open preparation so its in-memory content cannot recreate the discarded row,
-    // or, after Undo, so it shows the content put back.
-    const remount = (project: string) =>
-      void navigate({
-        to: "/new",
-        search: (previous) => ({
-          ...machine,
-          project,
-          skill: row.skill,
-          issue: row.issue,
-          pullRequest: row.pullRequest,
-          discard: (previous.discard ?? 0) + 1,
-        }),
-      });
-    // Discarding the saved work also leaves a removed project's recovery page.
+    // Discarding the saved work also leaves a removed project's recovery page. The page left
+    // behind starts empty: reopening the draft's skill, issue or pull request would prefill
+    // its words again and bring the discarded row straight back.
     remount(
       !directory.loaded || directory.projects.some((project) => project.id === row.project)
         ? row.project
         : chatChoice,
+      {},
     );
     let undone = false;
     const release = () => {
@@ -71,7 +74,7 @@ export function useDiscardDraft(storage: KeyValueStorage | undefined, host: stri
           writeDraft(storage, key, content) &&
           savePreparation(storage, host, key, { ...row, discardRecovery: undefined });
         if (!restored) toast.error({ title: "Couldn't bring the draft back" });
-        else if (router.state.location.pathname === "/new") remount(row.project);
+        else if (router.state.location.pathname === "/new") remount(row.project, row);
       },
       // Undo runs before its toast closes, so a used Undo never releases.
       onClose: release,

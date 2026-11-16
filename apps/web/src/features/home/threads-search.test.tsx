@@ -6,20 +6,20 @@ import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const rows = () =>
   [...threads().querySelectorAll<HTMLElement>("[data-row-focus]")].map(
     (row) => row.getAttribute("aria-label")?.split(". ")[0] ?? "",
   );
 /** The panel's title, which steps aside (hidden with its row) while the search is open. */
-const heading = () => screen.getByText("Threads", { selector: "h2" });
+const heading = () => screen.getByText("Projects", { selector: "h2" });
 const titleHidden = () => heading().closest("[aria-hidden=true]") !== null;
 
 async function openHome() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   await waitFor(() => expect(rows().length).toBeGreaterThan(1));
 }
 

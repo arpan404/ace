@@ -6,6 +6,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { randomUUID } from "node:crypto";
 import {
+  assertSteerTarget,
   InputRejected,
   type Frame,
   type ProviderSession,
@@ -380,7 +381,7 @@ export async function openSession(
         await q.setPermissionMode(ClaudePermissionMode.parse(ctx.permissionMode));
       await q.applyFlagSettings(claudeSelectionFlags(executionOptions));
     },
-    async send(parts, delivery, commandId, origin) {
+    async send(parts, delivery, commandId, origin, fence) {
       // Nothing reaches the CLI before the first push to the SDK's input stream, so a send that
       // fails earlier (closed session, invalid input, full stream) provably took none of it.
       let pushed = 0;
@@ -397,15 +398,20 @@ export async function openSession(
             session_id: sessionId,
             parent_tool_use_id: null,
             message: { role: "user", content: body },
-            // A `now` message joins the running turn, but the CLI holds it until the running
-            // foreground tool returns. The engine calls backgroundTools for a person's steer.
-            priority: delivery === "steer" ? "now" : "next",
+            // Both `now` and `next` join the running turn at its next tool boundary. `now` also
+            // preempts: it aborts the reply being written and moves running calls to the
+            // background, or interrupts the turn for a call that can't move. Only the person's
+            // steer does that; another agent's or ace's waits for the running tool.
+            priority: delivery === "steer" && origin === undefined ? "now" : "next",
           };
           if (origin === "ace") message.isSynthetic = true;
           return message;
         });
         // Encode every frame first: once a message reaches the harness, recording it cannot fail.
         const frames = messages.map((message) => ({ message, payload: encode(message) }));
+        // After the last await (the listing settle) and before the first push: a fenced steer
+        // whose turn ended meanwhile goes no further.
+        assertSteerTarget(delivery, fence);
         for (const { message, payload } of frames) {
           if (commandId) ctx.onInputMessage?.({ commandId, nativeId: message.uuid });
           input.push(message);
@@ -413,7 +419,7 @@ export async function openSession(
           record("send", "sdk", payload);
         }
       } catch (error) {
-        if (pushed > 0) throw error;
+        if (pushed > 0 || error instanceof InputRejected) throw error;
         throw new InputRejected(error instanceof Error ? error.message : String(error), {
           cause: error,
         });

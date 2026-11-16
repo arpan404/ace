@@ -49,13 +49,13 @@ export interface ChildRecord {
   lastAnsweredAt?: number;
   /** When it was last asked. */
   lastAskedAt?: number;
-  /** Reads of it alone that failed in a row. */
+  /** Its own reads, alone, that failed in a row; failures that were its machine's never count. */
   failures: number;
   /** Not asked again before this, after a failure. */
   retryAt?: number;
   /**
-   * Its last failure came while nothing else on its machine answered either: the machine's, not
-   * its own, so the machine answering again ends the wait.
+   * The wait to `retryAt` is its machine's, not its own: its read failed while the machine was
+   * down. It is paced by the machine's failures in that outage, and ends when the machine is back.
    */
   machineWide?: boolean;
   /** It was in a call that failed or was refused with others: alone until it answers alone. */
@@ -105,6 +105,11 @@ export function restored(): ChildRecord {
   return { ...blank(), suspect: true };
 }
 
+/** Whether the child waits after a failure, its own or its machine's, until `retryAt`. */
+function waiting(rec: ChildRecord): rec is ChildRecord & { retryAt: number } {
+  return rec.retryAt !== undefined && (rec.failures > 0 || rec.machineWide === true);
+}
+
 /** Whether `record`'s child goes in a call of its own at `now`. */
 export function asksAlone(record: ChildRecord | undefined, now: number): boolean {
   if (!record) return false;
@@ -124,8 +129,8 @@ export function dueAt(
 ): number | undefined {
   if (!child.paired || record?.inFlight) return undefined;
   const rec = record ?? blank();
-  // A failed read is not a read: asked again when its own wait is over.
-  if (rec.failures > 0 && rec.retryAt !== undefined) return rec.retryAt;
+  // A failed read is not a read: asked again when its wait, its own or its machine's, is over.
+  if (waiting(rec)) return rec.retryAt;
   // Implicated and not answered since: asked again, alone, at once.
   if (
     rec.suspect &&
@@ -178,11 +183,11 @@ export function planTurn(
   const due = children
     .map((child) => {
       const record = records.get(child.id);
-      const waiting = record !== undefined && record.failures > 0 && record.retryAt !== undefined;
+      const waits = record !== undefined && waiting(record);
       return {
         child,
         at: dueAt(child, record, by, config),
-        limit: waiting ? now : by,
+        limit: waits ? now : by,
         asked: record?.lastAskedAt ?? Number.NEGATIVE_INFINITY,
         first: child.stopping === true ? 0 : 1,
       };
@@ -268,9 +273,16 @@ export type CallOutcome =
   | { kind: "not_found" }
   /**
    * No answer: unreachable, lost, timed out, or refused for any other reason. `machineWide` when
-   * nothing else on the machine answered around it either.
+   * nothing else on the machine answered around it either; `machineBack` when, besides, the
+   * machine has been back since (the read was sent during an outage that is over).
    */
-  | { kind: "failed"; machineWide?: boolean }
+  | {
+      kind: "failed";
+      machineWide?: boolean;
+      machineBack?: boolean;
+      /** While the machine is down: its failures in this outage so far, which pace its wait. */
+      machineFailures?: number | undefined;
+    }
   /** An answer came that could not be applied here (a busy store): as if it was never asked. */
   | { kind: "unapplied" };
 
@@ -320,6 +332,7 @@ export function foldCall(
       next.set(id, {
         ...rest,
         failures: 0,
+        machineWide: false,
         lastAnsweredAt: sent,
         suspect: ids.length > 1 && rec.suspect,
       });
@@ -341,6 +354,21 @@ export function foldCall(
             RECHECK_POLLS * config.pollMs * 2 ** Math.min(implicated - 1, 30),
           ),
       });
+    } else if (outcome.kind === "failed" && outcome.machineBack === true) {
+      // Failed while its machine was down, which it no longer is: no wait starts, nothing counts
+      // against it, and a wait the machine's recovery already ended stays ended.
+      next.set(id, {
+        ...rec,
+        ...(rec.retryAt === undefined ? {} : { retryAt: Math.min(rec.retryAt, now) }),
+      });
+    } else if (outcome.kind === "failed" && outcome.machineWide === true) {
+      // Failed while its machine is down: it waits the machine's wait, paced by the machine's
+      // failures in this outage, and its own count is untouched.
+      next.set(id, {
+        ...rec,
+        retryAt: now + backoff(Math.max(1, outcome.machineFailures ?? 1), config),
+        machineWide: true,
+      });
     } else {
       // Its own read failed, or the machine doesn't hold it: asked again later each time.
       const failures = rec.failures + 1;
@@ -348,7 +376,7 @@ export function foldCall(
         ...rec,
         failures,
         retryAt: now + backoff(failures, config),
-        machineWide: outcome.kind === "failed" && outcome.machineWide === true,
+        machineWide: false,
         ...(outcome.kind === "not_found" ? { lastAnsweredAt: sent } : {}),
       });
       // The machine saying it doesn't hold the child is its answer for it.
@@ -366,25 +394,88 @@ export function foldCall(
 export function machineBack(records: Records, now: number): Map<string, ChildRecord> {
   const next = new Map(records);
   for (const [id, rec] of records)
-    if (rec.machineWide && rec.failures > 0 && rec.retryAt !== undefined && rec.retryAt > now)
+    if (rec.machineWide && rec.retryAt !== undefined && rec.retryAt > now)
       next.set(id, { ...rec, retryAt: now });
   return next;
 }
 
 /**
- * The machine's reachability evidence after a call that got through: when it was last known up.
- * Like every answer, a reply proves the machine up only as of when its call went out; a reply to
- * a call sent before an outage, arriving during it, says nothing of the outage.
+ * What is known of whether a machine is up, every time as of when a call was sent: a reply or a
+ * failure proves something only of the moment its call went out, whenever it arrives.
  */
-export function heardFrom(heard: number | undefined, at: { sent: number; now: number }): number {
-  return Math.max(heard ?? Number.NEGATIVE_INFINITY, at.sent);
+export interface Reachability {
+  /** When the latest call that got through was sent. */
+  heard?: number;
+  /** While the machine is down: when the first read that found it so was sent. */
+  downSince?: number;
+  /** While the machine is down: its reads that failed so in this outage. */
+  downFailures?: number;
+  /** How many outages have been established on this machine, ever. */
+  outages?: number;
 }
 
-/** Whether the machine counts as down for a read sent at `sentAt`: nothing heard around it. */
-export function machineDown(
-  heard: number | undefined,
-  sentAt: number,
-  config: ScheduleConfig,
-): boolean {
-  return (heard ?? Number.NEGATIVE_INFINITY) < sentAt - 2 * config.pollMs;
+/**
+ * A call sent at `at.sent` got through. The machine is back when it was down and the call went
+ * out once it was; a call sent before the outage proves nothing of now.
+ */
+export function heardFrom(
+  state: Reachability,
+  at: { sent: number; now: number },
+): { state: Reachability; back: boolean } {
+  const heard = Math.max(state.heard ?? Number.NEGATIVE_INFINITY, at.sent);
+  if (state.downSince === undefined || at.sent < state.downSince)
+    return { state: { ...state, heard }, back: false };
+  return { state: { heard, outages: state.outages ?? 0 }, back: true };
+}
+
+/**
+ * A read sent at `sentAt` failed as the machine's while it is down: an outage is established
+ * from then if none is, and the outage's failures go up by one.
+ */
+export function wentDown(state: Reachability, sentAt: number): Reachability {
+  const fresh = state.downSince === undefined;
+  return {
+    ...state,
+    downSince: state.downSince ?? sentAt,
+    downFailures: (fresh ? 0 : (state.downFailures ?? 0)) + 1,
+    outages: (state.outages ?? 0) + (fresh ? 1 : 0),
+  };
+}
+
+/**
+ * What a read carries from the moment it is sent: whether its machine was down then (known down,
+ * or nothing heard from it within two polls before), and how many outages had been established.
+ * An outage established after it went out is one it was in flight through: its failure is the
+ * machine's too. So every read in flight is marked by an outage beginning, with no list kept.
+ */
+export interface ReadStamp {
+  sent: number;
+  downAtSend: boolean;
+  outages: number;
+}
+
+export function stampRead(state: Reachability, sentAt: number, config: ScheduleConfig): ReadStamp {
+  const known = state.downSince !== undefined && sentAt >= state.downSince;
+  const silent = (state.heard ?? Number.NEGATIVE_INFINITY) < sentAt - 2 * config.pollMs;
+  return { sent: sentAt, downAtSend: known || silent, outages: state.outages ?? 0 };
+}
+
+/** Whose failure a failed read was. */
+export type FailureOf =
+  /** The child's own: sent while the machine was up, and no outage began before it failed. */
+  | "own"
+  /** The machine's, and the machine is still down (or nothing since says otherwise). */
+  | "machine"
+  /** The machine's, and the machine is back: it starts no wait. */
+  | "machine_back";
+
+/**
+ * A failed read is the machine's if the machine was down at any point while it was in flight:
+ * when it was sent, or an outage established before its failure arrived.
+ */
+export function failureOf(state: Reachability, read: ReadStamp): FailureOf {
+  const overlapped = read.downAtSend || (state.outages ?? 0) > read.outages;
+  if (!overlapped) return "own";
+  if (state.downSince !== undefined) return "machine";
+  return (state.heard ?? Number.NEGATIVE_INFINITY) >= read.sent ? "machine_back" : "machine";
 }

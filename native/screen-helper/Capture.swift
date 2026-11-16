@@ -27,6 +27,8 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
     private lazy var pendingVideo: LatestVideoFrames<ChangedImage> = LatestVideoFrames<ChangedImage> { [weak self] changed in
         guard let self else { return .unavailable }
+        // HEVC only while video goes to ace-media's ingest; the daemon's socket is H.264 only.
+        if !self.video.busyNow { self.video.use(encodedCodec(configured: self.codec, ingesting: self.ingest.ingesting)) }
         let result = self.video.encode(changed.image, sequence: self.nextSequence, timestamp: changed.timestamp, scale: changed.scale, at: self.runtime.nanos(), quality: changed.quality, epoch: changed.epoch, capturedAt: changed.capturedAt)
         if result == .submitted { self.lock.lock(); self.sequence += 1; self.initial = false; self.lock.unlock() }
         if result == .unavailable { self.codec = "jpeg"; self.publishImage(changed) }
@@ -101,7 +103,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard refine.due(at: runtime.nanos()) else { armRefine(); return }
         guard var still = images.latest else { refine.sent(); return }
         still.quality = .refine
-        if codec == "h264" { pendingVideo.offer(still) }
+        if codec != "jpeg" { pendingVideo.offer(still) }
         else { publishImage(still); refine.sent() }
     }
     /// The latest picture as a keyframe or screenshot asks for it: refined while it holds still.
@@ -125,7 +127,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
     }
     func requestKeyframe() { queue.async {
         self.video.requestKeyframe(); self.markInitial()
-        if self.codec == "h264", let image = self.latestImage() { self.pendingVideo.offer(image) }
+        if self.codec != "jpeg", let image = self.latestImage() { self.pendingVideo.offer(image) }
     } }
     func requestImage() { queue.async {
         guard var image = self.images.request() else { self.markInitial(); return }
@@ -178,7 +180,7 @@ final class CaptureOutput: NSObject, SCStreamOutput, SCStreamDelegate, @unchecke
         guard nextChanges.changed(initial: first, dirtyRects: damage, fingerprint: { pixelFingerprint(image) }) else { return }
         changes = nextChanges
         refine.changed(at: runtime.nanos())
-        if codec == "h264" { pendingVideo.offer(changed) }
+        if codec != "jpeg" { pendingVideo.offer(changed) }
         else { publishImage(changed) }
         armRefine()
     }
@@ -313,8 +315,10 @@ struct ShareableContent {
     /// Applies `stream.configure`: settings, then where video goes and the epoch. Each request is
     /// the whole state, so an absent `ingest` means the daemon's socket. The reply says where
     /// video now goes and, after a switch, the last sequence the previous path took.
-    func configureStream(_ settings: StreamSettings, ingest address: StreamIngest?, epoch: UInt32?) async throws -> [String: Any] {
-        guard ["jpeg", "h264"].contains(settings.codec), (64...3840).contains(settings.maxWidth), (64...3840).contains(settings.maxHeight),
+    func configureStream(_ requested: StreamSettings, ingest address: StreamIngest?, epoch: UInt32?) async throws -> [String: Any] {
+        // HEVC without a hardware HEVC encoder runs as H.264.
+        let settings = requested.coded(streamCodec(requested: requested.codec, hardwareHEVC: EncodeTrial.hevc))
+        guard ["jpeg", "h264", "hevc"].contains(settings.codec), (64...3840).contains(settings.maxWidth), (64...3840).contains(settings.maxHeight),
               (1...60).contains(settings.fps), (128000...20000000).contains(settings.bitrate), configuration != nil, let output else {
             throw HelperError("Invalid stream settings", code: "bounds")
         }
@@ -324,16 +328,17 @@ struct ShareableContent {
         }
         if let epoch { await output.setEpoch(epoch) }
         try await applyStreamSettings(settings)
-        var data: [String: Any] = ["codec": settings.codec]
         let target = address.flatMap { address in token.map { (socket: address.socket, token: $0) } }
         let moved = try output.routeVideo(to: target)
+        // The codec video goes out in: HEVC only on ace-media's ingest.
+        var data: [String: Any] = ["codec": settings.codec == "jpeg" ? "jpeg" : encodedCodec(configured: settings.codec, ingesting: output.ingesting) == .hevc ? "hevc" : "h264"]
         if moved.switched { data["switched"] = true; data["boundary"] = moved.boundary as Any? ?? NSNull() }
         data["ingest"] = output.ingesting ? "on" : "off"
         return data
     }
     private func applyStreamSettings(_ settings: StreamSettings) async throws {
         guard let configuration, let output else { throw HelperError("Invalid stream settings", code: "bounds") }
-        if let previous = self.settings, previous.codec == "h264", settings.codec == "h264",
+        if let previous = self.settings, previous.codec == settings.codec, settings.codec != "jpeg",
            previous.maxWidth == settings.maxWidth, previous.maxHeight == settings.maxHeight, previous.fps == settings.fps {
             // A link-driven rate change: same picture, same encoder, no keyframe.
             self.settings = settings
@@ -345,7 +350,7 @@ struct ShareableContent {
         (config.width, config.height) = streamCaptureSize(points: shownFrame.size, density: density, maxWidth: settings.maxWidth, maxHeight: settings.maxHeight)
         // Live video asks ScreenCaptureKit for NV12 at the encode size: it scales and converts on
         // the GPU, and its IOSurfaces go to VideoToolbox untouched. Stills keep BGRA.
-        config.pixelFormat = settings.codec == "h264" ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_32BGRA
+        config.pixelFormat = settings.codec != "jpeg" ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange : kCVPixelFormatType_32BGRA
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.fps))
         await output.configure(settings, targetWidth: frame.width)
         try await stream?.updateConfiguration(config)

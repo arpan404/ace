@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/HelloConfirm.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "installId": {
+      "$ref": "https://ace.local/protocol/v1/InstallId.json"
+    },
+    "link": {
+      "$ref": "https://ace.local/protocol/v1/PairingLinkProof.json"
+    },
+    "machineCode": {
+      "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+    },
+    "nextTicket": {
+      "const": true,
+      "type": "boolean"
+    },
+    "type": {
+      "const": "hello.confirm",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Sent once, as the first message after an NK answer."
+}

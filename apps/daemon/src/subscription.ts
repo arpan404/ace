@@ -7,6 +7,7 @@ import { sidebarSubscription, type DeviceReads } from "./sidebar-subscription.ts
 import { SidebarPlacement } from "./sidebar-placement.ts";
 import { routeThread } from "./thread-routes.ts";
 import type { SnapshotTail } from "./thread-reads.ts";
+import { wireEvent, wireThreadView } from "./wire-interactions.ts";
 const windows = new WeakMap<() => void, ReturnType<typeof sidebarSubscription>>();
 export function pageSubscription(
   stop: () => void,
@@ -177,9 +178,9 @@ export function subscribe(
   };
   const deliver = (events: Event[], head = events.at(-1)?.seq ?? cursor, replay = false) => {
     if (head <= cursor) return;
-    const selected = events.filter(
-      (event) => event.seq > cursor && event.seq <= head && matches(event),
-    );
+    const selected = events
+      .filter((event) => event.seq > cursor && event.seq <= head && matches(event))
+      .map(wireEvent);
     progressHead = Math.max(progressHead, head);
     if (selected.length) {
       cancelProgress();
@@ -252,12 +253,14 @@ export function subscribe(
       // A thread's snapshot is shared and frozen: send a copy of its top level with the head.
       const snapshotView =
         scope.kind === "thread"
-          ? store.snapshotThread(
-              scope.threadId,
-              // Only a first open is cut to a tail. A client resuming from a cursor holds a copy:
-              // it gets the full snapshot, so what it keeps of that copy is what a full one
-              // answers (ADR 0062), never items a tail and its fill would leave stale.
-              afterSeq === undefined ? tail : undefined,
+          ? wireThreadView(
+              store.snapshotThread(
+                scope.threadId,
+                // Only a first open is cut to a tail. A client resuming from a cursor holds a
+                // copy: it gets the full snapshot, so what it keeps of that copy is what a full
+                // one answers (ADR 0062), never items a tail and its fill would leave stale.
+                afterSeq === undefined ? tail : undefined,
+              ),
             )
           : structuredClone(view);
       const head = store.headSeq();
@@ -290,12 +293,13 @@ export function subscribe(
                 byteLimit: replayFrameBytes * 2,
                 ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
               })
-              .filter((event) => event.seq <= head);
+              .filter((event) => event.seq <= head)
+              .map(wireEvent);
         const bytes = events.reduce((total, event) => total + encoder.eventBytes(event), 0);
         const snapshot = (): ServerMessage => {
           const view =
             scope.kind === "thread"
-              ? store.snapshotThread(scope.threadId)
+              ? wireThreadView(store.snapshotThread(scope.threadId))
               : createThreadListView(store.listThreads());
           return { type: "snapshot", subscriptionId: id, seq: head, view: { ...view, seq: head } };
         };

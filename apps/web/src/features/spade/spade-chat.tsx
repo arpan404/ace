@@ -21,6 +21,7 @@ import {
 import { memo, useMemo } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
@@ -312,6 +313,9 @@ const Row = memo(function Row(props: {
   return <Single item={row.item} when={row.when} space={space} handlers={props.handlers} />;
 });
 
+/** Who wrote a bubble of the bot's, for its `spade-message` variant: Spade itself or a bot. */
+const sender = (bot: ChatBot) => (bot.avatar.kind === "spade" ? "spade" : "bot");
+
 /** One of a run's bubbles: the bot's words, its files, a card, a request, a skill or its steps. */
 function RunItem(props: {
   item: SpadeChatItem;
@@ -340,7 +344,14 @@ function RunItem(props: {
               copy={said && spadePlainText(said)}
               speak={said}
             >
-              <div className={cn(chatBubble, framed)}>
+              <div
+                {...part(
+                  "spade-message",
+                  item.live ? "working" : item.end === "failed" && "failed",
+                  sender(bot),
+                )}
+                className={cn(chatBubble, framed)}
+              >
                 {item.text && <SpadeBubbleText text={item.text} />}
                 {item.end === "failed" && item.failure ? (
                   <Failure
@@ -381,14 +392,14 @@ function RunItem(props: {
           copy={spadePlainText(item.text)}
           speak={item.text}
         >
-          <div className={cn(chatBubble, framed)}>
+          <div {...part("spade-message", undefined, "other")} className={cn(chatBubble, framed)}>
             <SpadeBubbleText text={item.text} />
           </div>
         </BubbleFrame>
       );
     case "files":
       return (
-        <div className={chatBubble}>
+        <div {...part("spade-message", undefined, sender(bot))} className={chatBubble}>
           <FileChips paths={item.paths} onOpen={handlers.onOpenFile} first />
         </div>
       );
@@ -454,7 +465,7 @@ function Single(props: {
               copy={spadePlainText(item.text)}
               speak={undefined}
             >
-              <div className={cn(mineBubble, framed)}>
+              <div {...part("spade-message", undefined, "user")} className={cn(mineBubble, framed)}>
                 <SpadeBubbleText text={item.text} side="mine" />
                 {/* A voice message: its transcript, and the recording to play. */}
                 {item.voice && (

@@ -273,6 +273,7 @@ struct Coordinator {
     recovery: Recovery,
     #[cfg(target_os = "macos")]
     transcode: Option<super::sim_transcode::Transcode>,
+    #[cfg(target_os = "macos")]
     reported: Option<media_wire::capability::Acceleration>,
     started: Instant,
 }
@@ -292,6 +293,7 @@ impl Coordinator {
             recovery: Recovery::default(),
             #[cfg(target_os = "macos")]
             transcode: None,
+            #[cfg(target_os = "macos")]
             reported: None,
             started: Instant::now(),
         }

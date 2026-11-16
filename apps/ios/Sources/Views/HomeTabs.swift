@@ -25,7 +25,7 @@ enum HomeTabs {
         }
     }
 
-    /// The tab bar's SF Symbol, matched to the web rail's Phosphor glyph (Folders for Threads,
+    /// The tab bar's SF Symbol, matched to the web rail's glyph (Folders for Threads,
     /// ChatsCircle for Chats).
     static func symbol(_ tab: InboxTab) -> String {
         switch tab {

@@ -45,13 +45,38 @@ export function terminalFont(element: Element): string {
  * monospace faces lack come from the symbol faces.
  */
 export function terminalFontFamily(monospace: string): string {
+  // A Suit's family ahead of a stack that already starts with it would repeat faces: keep the first.
+  const seen = new Set<string>();
   const faces = monospace
     .split(",")
     .map((face) => face.trim())
-    .filter(Boolean);
+    .filter((face) => {
+      const key = unquote(face);
+      if (!face || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   const named = faces.filter((face) => !generic.has(unquote(face)));
   const generics = faces.filter((face) => generic.has(unquote(face)));
   const have = new Set(named.map(unquote));
   const symbols = symbolFaces.filter((face) => !have.has(face)).map((face) => `"${face}"`);
   return [...named, ...symbols, ...(generics.length ? generics : ["monospace"])].join(", ");
+}
+
+/**
+ * Waits for a Suit's bundled faces (`TerminalLook.faces`) before xterm measures its cell, so the
+ * grid is sized to the face it will draw with, never a fallback's. Bounded: a face that never
+ * loads leaves the terminal on the next face in its stack after `timeoutMs`.
+ */
+export async function loadFaces(
+  faces: readonly string[],
+  fonts: Pick<FontFaceSet, "load"> | undefined,
+  timeoutMs = 2000,
+): Promise<void> {
+  if (!fonts || faces.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<void>((settle) => (timer = setTimeout(settle, timeoutMs)));
+  const loaded = Promise.all(faces.map((face) => fonts.load(face).catch(() => []))).then(() => {});
+  await Promise.race([loaded, late]);
+  clearTimeout(timer);
 }

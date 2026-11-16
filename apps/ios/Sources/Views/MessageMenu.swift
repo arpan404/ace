@@ -171,7 +171,7 @@ private struct SelectableText: UIViewRepresentable {
         }
         func textView(_ view: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
             guard let reply = parent.reply, range.length > 0 else { return nil }
-            let action = UIAction(title: "Reply", image: UIImage(named: "ph-\(AceIcon.Name.arrowBendUpLeft.rawValue)")) { _ in reply(range) }
+            let action = UIAction(title: "Reply", image: UIImage(ace: .arrowBendUpLeft)) { _ in reply(range) }
             return UIMenu(children: [action] + suggestedActions)
         }
     }

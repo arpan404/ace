@@ -4,6 +4,7 @@ import { formatBytes } from "@ace/ui-core/byte-size";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { usageBars, type UsageEntry } from "./storage-usage-bars.ts";
 
 type UsageKey = StorageKind | "database";
@@ -73,6 +74,7 @@ function UsageSize(props: { bytes: number | undefined; share: number | undefined
     <span className="flex items-center gap-3">
       <span
         aria-hidden
+        {...part("progress", undefined, "storage")}
         className="h-1 w-[110px] overflow-hidden rounded-full bg-fill @max-[440px]:hidden"
       >
         <span

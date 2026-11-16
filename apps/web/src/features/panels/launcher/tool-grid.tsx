@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon, DotsThreeIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, DotsThreeIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -101,6 +101,8 @@ export function ToolGrid(props: {
   return (
     <ul
       aria-label="Tools"
+      data-part="list"
+      data-variant="tools"
       onKeyDown={grid.onKeyDown}
       className="mt-3 grid grid-cols-2 gap-2 @max-[30rem]:grid-cols-1"
     >
@@ -113,7 +115,12 @@ export function ToolGrid(props: {
           label: keys ? keymap[keys].label : undefined,
         });
         return (
-          <li key={kind.kind} className="relative min-w-0">
+          <li
+            key={kind.kind}
+            data-part="card"
+            data-variant={kind.kind}
+            className="relative min-w-0"
+          >
             <button
               type="button"
               data-tool

@@ -75,6 +75,7 @@ export class StatusStore {
   private retention = new WeakMap<ThreadView, EntityRetention>();
   private invalidated = new WeakSet<ThreadView>();
   private readonly trust: EntityTrust;
+  private writtenInteractions = 0;
   constructor(
     db: DatabaseSync,
     statement: (sql: string) => StatementSync = (sql) => db.prepare(sql),
@@ -189,7 +190,21 @@ export class StatusStore {
         "INSERT INTO view_entities VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, collection, id) DO UPDATE SET value = excluded.value",
       ).run(thread.id, collection, id, JSON.stringify(value));
       this.window?.capture(thread.id, collection, id, event.seq);
+      if (collection === "interactions") this.writtenInteractions++;
     }
+  }
+  /** How many interaction writes there have been, so a held copy of one can tell it may be stale. */
+  interactionWrites(): number {
+    return this.writtenInteractions;
+  }
+  /** An interaction's request as stored JSON, and whether the stored copy is itself a summary. */
+  interactionRequest(threadId: string, id: string) {
+    const row = this.statement(
+      "SELECT json_extract(value,'$.request') AS request, json_type(value,'$.truncated') IS NOT NULL AS summary FROM view_entities WHERE thread_id=? AND collection='interactions' AND id=?",
+    ).get(threadId, id);
+    return typeof row?.request === "string"
+      ? { text: row.request, summary: row.summary === 1 }
+      : undefined;
   }
   interaction(id: string): Interaction | undefined {
     this.interactionRead ??= this.statement(
@@ -203,9 +218,10 @@ export class StatusStore {
     collection: import("@ace/protocol").EntityCollection,
     before: number,
     limit: number,
+    maxBytes: number,
   ) {
     if (!this.window) throw new Error("Entity windows not initialized");
-    return this.window.page(thread, collection, before, limit);
+    return this.window.page(thread, collection, before, limit, maxBytes);
   }
   retainItemAgents(view: ThreadView): void {
     this.window?.retainAgents(view);

@@ -11,13 +11,13 @@ async function openApp(path = "/") {
   const app = harness();
   for (const scenario of [...workbench(), flakyCheckout()]) app.play(scenario).runUntilBlocked();
   await app.open(path);
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
 /** The sidebar's thread rows, top to bottom. */
 const rows = () =>
-  within(screen.getByRole("list", { name: "Threads" })).getAllByRole("link", { hidden: true });
+  within(screen.getByRole("list", { name: "Projects" })).getAllByRole("link", { hidden: true });
 const titleOf = (row: HTMLElement) => row.getAttribute("aria-label")?.split(/[.,]/)[0] ?? "";
 const heading = () => screen.findByRole("heading", { level: 1 });
 
@@ -44,7 +44,7 @@ test("⌥⌘J moves to the next thread that needs you", async () => {
 
 test("the thread list is one Tab stop, and ↑ ↓ move between its rows", async () => {
   await openApp();
-  const list = screen.getByRole("list", { name: "Threads" });
+  const list = screen.getByRole("list", { name: "Projects" });
   /** Every stop the arrows reach: Unsent links and rows. */
   const stops = () => [
     ...list.querySelectorAll<HTMLElement>("[data-row-focus], [data-section-toggle]"),

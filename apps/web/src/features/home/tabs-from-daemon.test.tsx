@@ -17,7 +17,7 @@ afterEach(() => localStorage.clear());
  * its own while the other rows stay as they are.
  */
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const titles = () =>
   within(threads())
     .queryAllByRole("link")
@@ -50,14 +50,14 @@ test("the Inbox shows the daemon's order even where this window's own rule would
   // Working would lift First to the top by activity; by creation the newer Second leads.
   app.daemon.apply("first", works);
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await waitFor(() => expect(titles()).toEqual(["Second", "First"]));
 });
 
 test("settling a thread moves it to Settled on its own; the row that stays is the same row", async () => {
   const app = await openHome();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await waitFor(() => expect(titles()).toEqual(["Second", "First"]));
   const kept = link(/^First/);
   app.daemon.command({

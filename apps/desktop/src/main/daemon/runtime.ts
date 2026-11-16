@@ -17,6 +17,7 @@ import {
   setUpdateHold,
   type LocalDaemon,
 } from "./probe.ts";
+import { expectedLocalDaemon } from "./expected.ts";
 import { loginService } from "./service.ts";
 import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions } from "./spawn.ts";
 import type { DaemonProcess } from "./supervisor.ts";
@@ -238,6 +239,27 @@ export class DaemonRuntime {
       token: daemon.token,
       ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
     };
+  }
+
+  /**
+   * The connection the renderer will most likely get, without waiting for the daemon: a remote
+   * target as configured, or the local daemon its home's files name, or at the address the page
+   * was last handed (`remembered`; `expectedLocalDaemon`).
+   * The page opens on what it kept for that daemon while it starts; `connection()` still says
+   * which one it is. Null when there's no telling.
+   */
+  async expected(remembered?: string): Promise<DaemonConnection | null> {
+    if (this.target.kind === "remote") return this.connection();
+    if (this.target.kind !== "managed" && this.target.kind !== "attach") return null;
+    const daemon = await expectedLocalDaemon(this.target.home, remembered);
+    return daemon
+      ? {
+          mode: "daemon",
+          url: daemon.url,
+          token: daemon.token,
+          ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
+        }
+      : null;
   }
 
   /** The local daemon's address, once running (managed or dev). */

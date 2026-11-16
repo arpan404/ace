@@ -311,7 +311,7 @@ extension AceDesign.Size {
     static let rowLastLineGap: CGFloat = 3
     /// A row's status icon (line 1), pin and pull request glyphs, and the provider mark.
     static let rowStatus: CGFloat = 14
-    /// The same status icon as SF Symbols draw it: they fill more of their size than Phosphor.
+    /// The same status icon as SF Symbols draw it: they fill more of their size than ace's icons.
     static let rowStatusSymbol: CGFloat = 12
     static let rowPin: CGFloat = 11
     static let rowGlyph11: CGFloat = 11

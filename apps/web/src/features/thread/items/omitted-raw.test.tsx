@@ -1,4 +1,4 @@
-import { facts, type Scenario } from "@ace/fake-daemon";
+import { facts, rawPageSize, type Scenario } from "@ace/fake-daemon";
 import { ThreadId } from "@ace/protocol";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,6 +6,10 @@ import { expect, test, vi } from "vitest";
 import { componentClient } from "@/test/component-client.tsx";
 import { ToolStep } from "./work-log-steps.tsx";
 import { runningRefreshMs } from "./omitted-raw.tsx";
+import { autoPages } from "./raw-reads.ts";
+
+/** Payloads in one batch of pages the Raw view reads by itself, at the fake's page size. */
+const batchPayloads = autoPages * rawPageSize;
 
 /** One finished browser step whose provider payloads only its Raw view shows. */
 const scenario: Scenario = {
@@ -28,8 +32,8 @@ const scenario: Scenario = {
               kind: "browser",
               title: "Opened the pricing page",
               detail: { kind: "browser" },
-              // More than one page of the fake's `item.raw` (50 payloads).
-              raw: Array.from({ length: 60 }, (_, index) => ({
+              // More than one batch of the fake's `item.raw` pages (16 pages of 50 payloads).
+              raw: Array.from({ length: batchPayloads + 10 }, (_, index) => ({
                 type: "browser_frame",
                 data: { marker: index === 0 ? "frame-from-the-provider" : `frame-${index}` },
               })),
@@ -42,7 +46,7 @@ const scenario: Scenario = {
   ],
 };
 
-test("a step's raw payloads left out of the transcript load when its Raw view opens, page by page", async () => {
+test("Raw reads its pages on by itself, a batch at a time, and Show more reads the next", async () => {
   const app = await componentClient(scenario);
   const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-raw") });
   const itemId =
@@ -61,10 +65,13 @@ test("a step's raw payloads left out of the transcript load when its Raw view op
   expect(log.queryByText(/frame-from-the-provider/)).toBeNull();
   await userEvent.click(await log.findByRole("button", { name: "Raw" }));
   expect(await log.findByText(/frame-from-the-provider/)).toBeTruthy();
-  // The rest loads on asking, after what was read.
-  expect(log.queryByText(/frame-59/)).toBeNull();
-  await userEvent.click(log.getByRole("button", { name: "Show more" }));
-  expect(await log.findByText(/frame-59/)).toBeTruthy();
+  // A whole batch of pages arrives without asking; the rest waits for Show more.
+  expect(await log.findByText(new RegExp(`frame-${batchPayloads - 1}\\b`))).toBeTruthy();
+  expect(log.queryByText(new RegExp(`frame-${batchPayloads + 9}\\b`))).toBeNull();
+  const more = await log.findByRole("button", { name: "Show more" });
+  await vi.waitFor(() => expect(more.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(more);
+  expect(await log.findByText(new RegExp(`frame-${batchPayloads + 9}\\b`))).toBeTruthy();
   expect(log.getByText(/frame-from-the-provider/)).toBeTruthy();
   expect(log.queryByRole("button", { name: "Show more" })).toBeNull();
 });
@@ -266,22 +273,24 @@ test("a burst of updates during a slow read makes one follow-up, never a queue o
 });
 
 test("Show more waits while a refresh is out: never two reads, and the refresh lands whole", async () => {
-  const raw = await heldRawView("thread-more", 60);
+  const raw = await heldRawView("thread-more", batchPayloads + 10);
   raw.release();
   const more = await raw.log.findByRole("button", { name: "Show more" });
-  expect(raw.reads.sent).toBe(1);
+  // The first batch reads on by itself, one page after another; then Show more is offered.
+  await vi.waitFor(() => expect(more.hasAttribute("disabled")).toBe(false));
+  expect(raw.reads).toMatchObject({ sent: autoPages, most: 1 });
   // The step finishes; its refresh is out on a slow link.
   raw.hold();
   raw.app.daemon.apply("thread-more", [progress("final-frame", true)]);
   await vi.waitFor(() => expect(raw.held).toHaveLength(1));
   expect(more.hasAttribute("disabled")).toBe(true);
   await userEvent.click(more);
-  expect(raw.reads).toMatchObject({ sent: 2, inFlight: 1, most: 1 });
+  expect(raw.reads).toMatchObject({ sent: autoPages + 1, inFlight: 1, most: 1 });
   raw.release();
   expect(await raw.log.findByText(/final-frame/)).toBeTruthy();
   // The refresh replaced the pages shown: the step's payloads are its two final ones.
   expect(raw.log.queryByText(/frame-49/)).toBeNull();
-  expect(raw.reads).toMatchObject({ sent: 2, most: 1 });
+  expect(raw.reads).toMatchObject({ sent: autoPages + 1, most: 1 });
 });
 
 test("a reply that lands after the view is gone starts nothing", async () => {

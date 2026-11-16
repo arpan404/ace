@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import { ClockCounterClockwiseIcon } from "@phosphor-icons/react";
+import { ClockCounterClockwiseIcon } from "@ace/icons";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -12,19 +12,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { failureMessage, useDaemonReady } from "@/lib/daemon-command.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useThreadSources } from "../sources/index.ts";
 
 export function RewindControl(props: { threadId: string; entryId: string }) {
   const meta = useThreadMeta(props.threadId);
   const sources = useThreadSources();
-  const ready = useDaemonReady();
+  const daemon = useDaemonReady();
+  // Idle as confirmed: a cached "done" may be working again.
+  const live = useThreadFreshness(props.threadId);
+  const ready = { ...daemon, ready: daemon.ready && live.fresh };
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   if (meta?.provider !== "pi") return null;
   const idle = meta.status.state === "done" || meta.status.state === "failed";
   const rewind = async () => {
-    if (sending || !idle || !ready.ready) return;
+    if (sending || !idle || !ready.ready || !live.isFresh()) return;
     setSending(true);
     setError(undefined);
     try {

@@ -1,0 +1,83 @@
+/*
+ * A Suit's layout (ADR 0150, "Layout"; theme/suits/suit-layout.ts). The shell carries one
+ * `data-layout-*` attribute per setting only while a Suit with a layout is on, so without one
+ * none of these rules match. In the utilities layer, after Tailwind's, so they win over the
+ * classes they change at equal or higher specificity; a Suit's own `@layer suit` comes later.
+ */
+
+@layer utilities {
+  /* Sidebar on the right: the macOS traffic lights now sit over the header, which clears them;
+     on Windows the caption buttons sit over the sidebar's top row, which clears them instead. */
+  :root[data-platform="darwin"]:not([data-fullscreen])
+    [data-layout-sidebar="right"]
+    [data-sidebar="shown"]
+    header[data-slot="app-header"] {
+    padding-left: 80px;
+  }
+  :root[data-platform="win32"] [data-layout-sidebar="right"] [data-slot="sidebar-top"] {
+    padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px);
+  }
+
+  /* Floating composer: lifted off the bottom on a narrower column, its own shadow, no fade. */
+  [data-layout-composer="floating"] [data-composer-dock] {
+    padding-bottom: 1.5rem;
+  }
+  [data-layout-composer="floating"] [data-composer-dock]::before {
+    display: none;
+  }
+  [data-layout-composer="floating"] [data-composer-area] {
+    max-width: min(var(--column), 40rem);
+  }
+  [data-layout-composer="floating"] [data-slot="composer"] {
+    box-shadow:
+      0 12px 32px -12px rgb(0 0 0 / 0.35),
+      0 2px 6px -2px rgb(0 0 0 / 0.2);
+  }
+
+  /* Minimal and hidden headers: no rule of their own, the bar's controls only. */
+  [data-layout-header="hidden"] header[data-slot="app-header"] {
+    background: transparent;
+  }
+
+  /* Messages. Flat: the person's words on the column like the agent's, marked by a rule. */
+  [data-layout-messages="flat"] [data-part="message-user"] {
+    max-width: 100%;
+    border-radius: 0;
+    background: transparent;
+    border-left: 2px solid var(--color-border);
+    padding-block: 0.125rem;
+  }
+  /* Cards: every message on a raised card. */
+  [data-layout-messages="cards"] [data-part="message-agent"],
+  [data-layout-messages="cards"] [data-part="message-user"] {
+    border: var(--border-weight, 1px) solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-card);
+    padding: 0.75rem 1rem;
+  }
+  [data-layout-messages="cards"] [data-part="message-user"] {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* Tool rows. Detailed: roomier rows, each on its own hairline. */
+  [data-layout-tool-rows="detailed"] :is([data-part="tool-row"], [data-step-group]) {
+    min-height: 2.5rem;
+    padding-block: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+  }
+  /* Terminal: monospace, each row a prompt line. */
+  [data-layout-tool-rows="terminal"] :is([data-part="tool-row"], [data-step-group]) {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  [data-layout-tool-rows="terminal"] [data-part="tool-row"]::before {
+    content: "$";
+    flex-shrink: 0;
+    color: var(--color-subtle-foreground);
+  }
+  [data-layout-tool-rows="terminal"] [data-part="tool-output"] {
+    font-family: var(--font-mono);
+  }
+}

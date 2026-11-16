@@ -13,7 +13,7 @@ import XCTest
         let ports = ProcessInfo.processInfo.environment["ACE_IOS_AGENTS_PORTS"] ?? "9886,9896"
         // The app's own appearance preference wins over the simulator's; another test may leave it light.
         app.launchArguments = ["--spike", "--spike-machines", ports, "-ace.appearance", "dark"]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         app.openBrowseDestination("library.agents")

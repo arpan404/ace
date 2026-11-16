@@ -47,7 +47,7 @@ async function connected() {
   return { daemon, owner, frames };
 }
 
-test("a pending approval's entity page over the phone's frame cap arrives whole, in frames the phone accepts", async () => {
+test("a pending approval of three hundred actions arrives whole in its entity page, in frames the phone accepts", async () => {
   const { daemon, owner, frames } = await connected();
   manyActions(daemon, "ios-many-frames");
   frames.length = 0;

@@ -55,6 +55,14 @@ export interface ChildLivenessDeps {
    * lease check finds settled, lost or stopping are dropped.
    */
   unanswered: Map<string, Unanswered>;
+  /**
+   * Its machine stopped answering for a lease: the parent keeps holding it and asks the person
+   * (LostChildren.openSilent), in the transaction that marks it silent; throws when a write
+   * fails. `since` is when its first unanswered read went out.
+   */
+  silent(row: ChildRow, since: number): void;
+  /** It reported again, or a stop began: the question about lost contact closes. */
+  heard(row: ChildRow): void;
   /** Whether a read of the child that started at or after `at` has come back, answered or not. */
   readSince(id: string, at: number): boolean;
   /** Overrides for tests; the defaults are the ADR's. */
@@ -68,7 +76,8 @@ export interface ChildLivenessDeps {
  * the I/O around the pure rules in `liveness/`. A Stop sends the cancel, sends it again with
  * backoff while the child's machine hasn't reported it ended, and then settles it here as
  * stopped, saying its machine didn't confirm. A child its machine stops reporting for a lease is
- * lost contact: its parent's hold ends, and it resumes if it reports again.
+ * lost contact: not knowing, so its parent keeps holding it and asks the person (ADR 0153); it
+ * resumes when it reports again.
  */
 export class ChildLiveness {
   private deps: ChildLivenessDeps;
@@ -92,7 +101,14 @@ export class ChildLiveness {
   stop(id: ThreadId): boolean {
     const row = this.deps.ledger.row(id);
     if (!row || row.settled === 1) return false;
-    if (!this.deps.ledger.startStop(id, this.deps.now())) return true;
+    // The stop and the closing of a question about lost contact commit together; the poll's
+    // reconciliation closes any question a failure here still left open.
+    const started = this.deps.store.atomic(() => {
+      if (!this.deps.ledger.startStop(id, this.deps.now())) return false;
+      this.deps.heard(row);
+      return true;
+    });
+    if (!started) return true;
     // Requests it had open there are no longer the person's to answer.
     this.deps.mirror.release(`child:${id}`);
     this.deps.emit([id]);
@@ -179,8 +195,9 @@ export class ChildLiveness {
   }
   /**
    * The lease check: every unsettled child asked about again and again for a whole lease without
-   * its machine reporting it is lost contact, and its parent's hold on it ends. A child the poll
-   * has not reached yet, or not reached again, is never lost for that.
+   * its machine reporting it is lost contact. Its parent keeps holding it, since nothing says it
+   * ended, and asks the person (ADR 0153). A child the poll has not reached yet, or not reached
+   * again, is never lost for that.
    */
   lapse(): void {
     if (this.closed) return;
@@ -206,13 +223,23 @@ export class ChildLiveness {
         this.deps.unanswered.delete(id);
         continue;
       }
+      try {
+        // Silent since its first unanswered read: what the person is told it last answered
+        // before. Marked silent and asked about in one transaction, or neither: a failed write
+        // leaves it as it was, and the next poll's lease check does it again.
+        this.deps.store.atomic(() => {
+          this.deps.ledger.markSilent(row.id, reads.since);
+          this.deps.silent({ ...row, silent_since: reads.since }, reads.since);
+        });
+      } catch (error) {
+        this.deps.log("Machine child lost contact not recorded yet", {
+          id: row.id,
+          error: String(error),
+        });
+        continue;
+      }
       marked++;
       this.deps.unanswered.delete(id);
-      const name = this.deps.label(row.machine);
-      this.deps.store.atomic(() => {
-        this.deps.ledger.markSilent(row.id, at.since);
-        this.parentRow(row, name, "lost", "lost");
-      });
       this.deps.mirror.release(`child:${row.id}`);
       this.deps.emit([row.id]);
       this.deps.log("Machine child lost contact", { id: row.id, machine: row.machine });
@@ -221,7 +248,7 @@ export class ChildLiveness {
   /**
    * Its machine reported it in answer to a read sent at `sentAt`: the lease renews as of then
    * (what the answer proves holds from when it was asked), and a child that had lost contact
-   * resumes, its parent holding it again until it ends.
+   * resumes: the question about it closes, and its parent holds it until it ends.
    */
   seen(row: ChildRow, sentAt: number): ChildRow {
     if (row.silent_since === null) {
@@ -232,10 +259,18 @@ export class ChildLiveness {
     const name = this.deps.label(row.machine);
     this.deps.store.atomic(() => {
       this.deps.ledger.seen(row.id, sentAt);
+      // Closed first, so the row it writes no longer counts the question.
+      this.deps.heard(row);
       this.parentRow(row, name, undefined, "start");
     });
     this.deps.emit([row.id]);
-    return { ...row, seen_at: Math.max(row.seen_at ?? 0, sentAt), silent_since: null };
+    return {
+      ...row,
+      seen_at: Math.max(row.seen_at ?? 0, sentAt),
+      silent_since: null,
+      lost_key: null,
+      lost_ask: null,
+    };
   }
   /**
    * A settled child stopped here without confirmation, read again: how it really ended there is
@@ -295,7 +330,7 @@ export class ChildLiveness {
     row: ChildRow,
     name: string,
     contact: RemoteContact | undefined,
-    hold: "start" | "end" | "lost" | undefined,
+    hold: "start" | "end" | undefined,
     ended?: MachineThreadView,
   ): void {
     const saved = savedView(row);

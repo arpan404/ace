@@ -1,5 +1,5 @@
 import type { ForgeIssueRow } from "@ace/protocol";
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon } from "@ace/icons";
 import { StateBadge } from "@/components/forge-marks.tsx";
 import { PersonAvatar } from "@/components/person-avatar.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";

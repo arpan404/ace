@@ -149,10 +149,199 @@ test("an answer streams while its turn runs and stops when the turn ends", async
     facts.message("root", "reply", "assistant", "Working", false),
   ]);
   open(connect(fake), "answer");
-  expect((await until(answerBlock, "the answer block")).streaming).toBe(true);
+  const streaming = await until(answerBlock, "the answer block");
+  expect(streaming.streaming).toBe(true);
+  // What VoiceOver hears on the row while it arrives, in ui-core's words.
+  expect(streaming.writing).toBe("Writing");
   fake.apply("answer", [facts.endTurn("root")]);
-  await until(() => answerBlock()?.streaming === false, "the answer settled");
+  const settled = await until(
+    () => (answerBlock()?.streaming === false ? answerBlock() : undefined),
+    "the answer settled",
+  );
+  expect(settled.writing).toBeUndefined();
 });
+
+const idle = () => {};
+/** A block frame's row, or nothing when the frame removes the block. */
+const blockRow = (frame: Record<string, unknown> | undefined) =>
+  frame?.row as Record<string, unknown> | null | undefined;
+/** The row the phone last got for block `id`. */
+const shown = (id: string) => blockRow(latest("thread.block", id));
+/** Whether any answer the phone shows says Writing. */
+const writing = () =>
+  rows("thread.block").some((row) => row.kind === "message" && row.writing === "Writing");
+/**
+ * Whether, since frame `from`, a streaming answer was redrawn without Writing. The phone may
+ * reconnect on its own at once, so the quiet row can already be replaced when the test looks.
+ */
+const wentQuiet = (from: number) =>
+  native.frames.slice(from).some((frame) => {
+    const row =
+      frame.type === "thread.block" ? (frame.row as Record<string, unknown> | null) : null;
+    return row?.kind === "message" && row.streaming === true && row.writing === undefined;
+  });
+
+/** A thread whose answer is still arriving, open on a fresh phone. */
+async function streamingAnswer(id: string) {
+  const fake = start(id);
+  fake.apply(id, [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, id);
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  return { fake, client };
+}
+
+test("a streaming answer stops saying Writing while the phone is disconnected and says it again once back", async () => {
+  const { fake, client } = await streamingAnswer("away");
+  const from = native.frames.length;
+  fake.disconnectAll();
+  // Behind the daemon, the phone can't tell the answer is still arriving.
+  await until(() => wentQuiet(from), "Writing gone while away");
+  client.reconnectNow();
+  await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
+});
+
+test("an answer whose turn finished while the phone was away no longer says Writing once back", async () => {
+  const { fake, client } = await streamingAnswer("ended");
+  const from = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(from), "Writing gone while away");
+  fake.apply("ended", [facts.endTurn("root")]);
+  client.reconnectNow();
+  await until(() => answerBlock()?.streaming === false, "the answer settled after reconnect");
+  expect(answerBlock()?.writing).toBeUndefined();
+});
+
+test("an answer that finishes before its turn ends stops saying Writing then, and its deltas never redraw it", async () => {
+  const fake = start("early");
+  fake.apply("early", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  open(connect(fake), "early");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  const from = native.frames.length;
+  fake.apply("early", [facts.stream("root", "reply", " on it")]);
+  await until(
+    () => rows("thread.item").some((row) => row.text === "Working on it"),
+    "the delta shown",
+  );
+  expect(native.frames.slice(from).filter((frame) => frame.type === "thread.block")).toEqual([]);
+  // The turn goes on; the answer itself is done.
+  fake.apply("early", [facts.finish("root", "reply")]);
+  await until(
+    () => answerBlock()?.streaming === false && answerBlock()?.writing === undefined,
+    "the answer settled while its turn runs",
+  );
+});
+
+test("an answer the provider reopens says Writing again until it finishes again", async () => {
+  const fake = start("reopened");
+  fake.apply("reopened", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, "reopened");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  fake.apply("reopened", [facts.finish("root", "reply")]);
+  await until(() => answerBlock()?.streaming === false, "the answer finished");
+  // The same item opens again while its turn runs (`item.upsert` may set complete back to false).
+  fake.apply("reopened", [facts.message("root", "reply", "assistant", "Working again", false)]);
+  await until(() => answerBlock()?.writing === "Writing", "Writing again once reopened");
+  const from = native.frames.length;
+  fake.apply("reopened", [facts.stream("root", "reply", " and on")]);
+  await until(
+    () => rows("thread.item").some((row) => row.text === "Working again and on"),
+    "the delta shown",
+  );
+  expect(native.frames.slice(from).filter((frame) => frame.type === "thread.block")).toEqual([]);
+  // Still tracked: a reconnect takes Writing away and brings it back.
+  const away = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(away), "Writing gone while away");
+  client.reconnectNow();
+  await until(() => answerBlock()?.writing === "Writing", "Writing back once current");
+  fake.apply("reopened", [facts.finish("root", "reply")]);
+  await until(
+    () => answerBlock()?.streaming === false && answerBlock()?.writing === undefined,
+    "finished again",
+  );
+}, 20_000);
+
+test("a reconnect redraws only the answer still arriving, never the settled ones", async () => {
+  const fake = start("settled-away");
+  fake.apply("settled-away", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "first", "assistant", "Working", false),
+  ]);
+  const client = connect(fake);
+  open(client, "settled-away");
+  await until(() => answerBlock()?.writing === "Writing", "the first answer writing");
+  const first = native.frames
+    .toReversed()
+    .find((frame) => frame.type === "thread.block" && blockRow(frame)?.kind === "message")?.id;
+  if (typeof first !== "string") throw new Error("no first answer block");
+  // The first answer finishes; the turn goes on into a second.
+  fake.apply("settled-away", [
+    facts.finish("root", "first"),
+    facts.message("root", "second", "assistant", "Still", false),
+  ]);
+  // Both answers as the phone shows them before the disconnect: the first one's own last patch
+  // is in, so nothing after `from` is it settling.
+  await until(
+    () => shown(first)?.streaming === false && shown(first)?.writing === undefined,
+    "the first answer settled",
+  );
+  await until(
+    () =>
+      native.frames.some(
+        (frame) =>
+          frame.type === "thread.block" &&
+          frame.id !== first &&
+          blockRow(frame)?.kind === "message" &&
+          blockRow(frame)?.writing === "Writing",
+      ),
+    "the second answer writing",
+  );
+  const from = native.frames.length;
+  fake.disconnectAll();
+  await until(() => wentQuiet(from), "Writing gone while away");
+  client.reconnectNow();
+  await until(writing, "Writing back once current");
+  const redrawn = native.frames
+    .slice(from)
+    .filter((frame) => frame.type === "thread.block" && frame.id === first);
+  expect(redrawn).toEqual([]);
+}, 20_000);
+
+test("an answer restored from the last launch says Writing only once the daemon confirms it", async () => {
+  const kept = new Map<string, unknown>();
+  const storage = {
+    get: async (key: string) => kept.get(key),
+    set: async (key: string, value: unknown) => void kept.set(key, value),
+  };
+  const fake = start("kept");
+  fake.apply("kept", [
+    facts.message("root", "ask", "user", "Go"),
+    facts.message("root", "reply", "assistant", "Working", false),
+  ]);
+  open(connect(fake, { readSnapshots: storage }), "kept");
+  await until(() => answerBlock()?.writing === "Writing", "the answer writing");
+  await until(() => kept.size > 0, "a kept snapshot");
+  await reset();
+  let release = idle;
+  const network = new Promise<void>((resolve) => (release = resolve));
+  open(connect(fake, { readSnapshots: storage, held: network }), "kept");
+  const restored = await until(answerBlock, "the restored answer");
+  expect(restored.streaming).toBe(true);
+  expect(restored.writing).toBeUndefined();
+  release();
+  await until(() => answerBlock()?.writing === "Writing", "Writing once confirmed");
+}, 20_000);
 
 test("a settled turn's opened log times its thought by the step after it", async () => {
   const fake = start("settled");

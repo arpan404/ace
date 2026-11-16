@@ -1,6 +1,6 @@
 import type { RowAttention, ThreadCard } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import { PushPinIcon } from "@phosphor-icons/react";
+import { PushPinIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { BrowsingMark, ComputerUseMark, RowContext, RowStatus, titleTone } from "./row-parts.tsx";
@@ -36,6 +36,7 @@ export function TaskLines(props: {
   return (
     <div className="flex w-full min-w-0 flex-col">
       <div
+        data-part="thread-meta"
         className={cn(
           "flex min-w-0 items-center gap-1.5 text-meta leading-4 text-muted-foreground",
           props.actions ? "pr-28" : "group-has-[[data-popup-open]]/row:pr-28",
@@ -56,7 +57,8 @@ export function TaskLines(props: {
             aria-hidden={props.actions ? true : undefined}
             className={cn(
               "flex shrink-0 items-center gap-1.5",
-              props.actions ? "invisible" : "group-has-[[data-popup-open]]/row:invisible",
+              // Remove the slot: a Suit's status guard restores descendant visibility.
+              props.actions ? "hidden" : "group-has-[[data-popup-open]]/row:hidden",
             )}
           >
             {/* What an agent is using, just before the status; hidden with it under the actions. */}
@@ -67,6 +69,7 @@ export function TaskLines(props: {
         </span>
       </div>
       <div
+        data-part="thread-title"
         className={cn(
           "mt-1 min-w-0 truncate text-md leading-5",
           props.dimmed ? "text-muted-foreground" : titleTone(attention),

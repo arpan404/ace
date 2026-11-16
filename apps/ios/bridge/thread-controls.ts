@@ -18,6 +18,7 @@ import {
 } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { preview } from "./presentation.ts";
+import { phoneAnswer } from "./summarized-requests.ts";
 
 /*
  * The composer's decisions, made here over the SDK reader so Swift never derives them: how a
@@ -119,7 +120,8 @@ export function stopPayload(reader: ThreadReader, threadId: ThreadId): CommandPa
 /**
  * The canonical resolution for a question, or undefined when the answers don't fit what was
  * asked: every value an offered option id or, where the question allows it, the person's own
- * words; one value unless it is multiple choice. Skipping sends no answers.
+ * words; one value unless it is multiple choice. Skipping sends no answers, and is all a
+ * summarized question takes (ADR 0157).
  */
 export function answerResolution(
   interaction: Interaction | undefined,
@@ -140,5 +142,5 @@ export function answerResolution(
     resolved[question.id] = values;
   }
   for (const id of Object.keys(answers)) if (!(id in resolved)) return undefined;
-  return { kind: "question", answers: resolved };
+  return phoneAnswer(interaction, { kind: "question", answers: resolved });
 }

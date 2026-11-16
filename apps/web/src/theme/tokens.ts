@@ -1,6 +1,6 @@
 import {
   chartSeries,
-  oklchToHex,
+  projectTints,
   rampSteps,
   rowStatusColours,
   sharedStatus,
@@ -27,24 +27,11 @@ const rgbTriple = (hex: string) =>
 const wash = (colour: string, percent: number) =>
   `color-mix(in srgb, ${colour} ${percent}%, transparent)`;
 
-/**
- * Project badge tints: twelve hues around the wheel at one perceptual lightness per scheme, so
- * no project looks louder than another. Each reads as text on the theme's surfaces (AA).
- */
-const projectHues = [25, 55, 85, 125, 150, 178, 205, 240, 268, 295, 325, 355] as const;
-const projectLightness: Record<Scheme, { l: number; c: number }> = {
-  dark: { l: 0.85, c: 0.12 },
-  light: { l: 0.41, c: 0.14 },
-};
-const projectTints = (scheme: Scheme): Record<`--project-${number}`, string> => {
-  const { l, c } = projectLightness[scheme];
-  return Object.fromEntries(
-    projectHues.map((hue, index) => [`--project-${index + 1}`, oklchToHex(l, c, hue)]),
-  );
-};
+const projectVariables = (scheme: Scheme): Record<`--project-${number}`, string> =>
+  Object.fromEntries(projectTints(scheme).map((tint, index) => [`--project-${index + 1}`, tint]));
 const projectSets: Record<Scheme, Record<`--project-${number}`, string>> = {
-  light: projectTints("light"),
-  dark: projectTints("dark"),
+  light: projectVariables("light"),
+  dark: projectVariables("dark"),
 };
 
 const chartSets: Record<Scheme, Record<string, string>> = {
@@ -264,5 +251,4 @@ export function themeTokens(p: Palette, scheme: Scheme, translucency = defaultTr
 
 export type ThemeTokens = ReturnType<typeof themeTokens>;
 
-/** How many project tints a theme has; `--project-1` to `--project-${projectTintCount}`. */
-export const projectTintCount = projectHues.length;
+export { projectTintCount } from "@ace/themes";

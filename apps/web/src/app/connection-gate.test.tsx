@@ -223,7 +223,7 @@ test("a daemon this device met before opens the app at once, before it answers",
     createClient: silentClient,
   });
   expect(openedFor()).toBe(hostId);
-  await screen.findByRole("navigation", { name: "Threads" });
+  await screen.findByRole("navigation", { name: "Projects" });
   // Still unreachable: the shell stays, on what this device kept, rather than the form.
   runOutFirstAttempt();
   expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();

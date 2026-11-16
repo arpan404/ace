@@ -3,10 +3,11 @@ import { NoMachineFleetPage } from "./no-machine-fleet.tsx";
 import { NoMachineProfilePage } from "./profile/no-machine-page.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { SettingsPageLinks } from "./settings-nav.tsx";
-import type { SettingsPath } from "./settings-pages.ts";
+import { settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /** With no machine only Profile and Fleet have anything to show. */
-const pages: readonly SettingsPath[] = ["/settings/profile", "/settings/remote"];
+const paths = new Set<SettingsPath>(["/settings/profile", "/settings/remote"]);
+const pages = settingsPages.filter((page) => paths.has(page.to));
 
 /** Settings' list in the sidebar of a window with no machine. */
 export function NoMachineSettingsNav() {

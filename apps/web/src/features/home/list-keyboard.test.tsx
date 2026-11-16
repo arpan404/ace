@@ -12,13 +12,13 @@ async function openApp(path = "/") {
   const app = harness();
   for (const scenario of [...workbench(), flakyCheckout()]) app.play(scenario).runUntilBlocked();
   await app.open(path);
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
 /** The sidebar's thread rows, top to bottom. */
 const rows = () =>
-  within(screen.getByRole("list", { name: "Threads" }))
+  within(screen.getByRole("list", { name: "Projects" }))
     .getAllByRole("link", { hidden: true })
     .filter((link) => link.hasAttribute("data-row-focus") && !link.closest("[inert]"));
 const titleOf = (row: Element) => row.getAttribute("aria-label")?.split(/[.,]/)[0] ?? "";
@@ -32,7 +32,7 @@ test("Home and End move to the first and last row of the list", async () => {
   // The list's first and last stops: rows, or group headings.
   const stops = [
     ...screen
-      .getByRole("list", { name: "Threads" })
+      .getByRole("list", { name: "Projects" })
       .querySelectorAll("[data-row-focus], [data-section-toggle]"),
   ];
   const first = stops[0];
@@ -74,7 +74,7 @@ test("when the focused row is settled, focus moves to the next row rather than t
   // A thread waiting on the person or still running stays in the list once settled, so the row
   // settled here is one whose work has stopped: its name leads with that meaning.
   const stopped = /^[^.]*\. (?:Failed|Finished|Done)\b/;
-  const settle = within(screen.getByRole("list", { name: "Threads" }))
+  const settle = within(screen.getByRole("list", { name: "Projects" }))
     .getAllByRole("button", { name: /^Settle /, hidden: true })
     .find((button) => {
       const title = button.getAttribute("aria-label")?.replace(/^Settle /, "");
@@ -92,7 +92,7 @@ test("when the focused row is settled, focus moves to the next row rather than t
   expect(document.activeElement).toBe(settle);
   await userEvent.keyboard("{Enter}");
   // Focus lands on the next stop in the list (a row, or its project's next heading).
-  const list = screen.getByRole("list", { name: "Threads" });
+  const list = screen.getByRole("list", { name: "Projects" });
   await waitFor(() => expect(focusedTitle()).not.toBe(title));
   await waitFor(() => expect(list.contains(document.activeElement)).toBe(true));
   expect(document.activeElement?.matches("[data-row-focus], [data-section-toggle]")).toBe(true);

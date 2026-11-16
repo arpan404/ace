@@ -8,7 +8,8 @@ import SwiftUI
 /// only when the daemon closes the request. Fixed height, on the row's one left edge.
 struct InboxNeedLine: View {
     let requests: [ApprovalRow]
-    let total: Int
+    /// What waits: here, in delegated work, and whether the read found it all.
+    let tally: NeedTally
     let model: ClientModel
     let threadId: String
     /// Opens the thread, for what the phone answers there (browser help, long questions).
@@ -20,20 +21,19 @@ struct InboxNeedLine: View {
     var spoken: String? {
         guard let request = requests.first else { return nil }
         let subject = request.kind == "approval" && !request.command.isEmpty ? request.command : NeedWords.subject(request)
-        let count = total > 1 ? "1 of \(total) requests" : nil
-        return [NeedWords.sentence(request), subject, count].compactMap { $0 }.joined(separator: ", ")
+        return [NeedWords.sentence(request), subject, NeedWords.spokenPosition(tally)].compactMap { $0 }.joined(separator: ", ")
     }
 
     var body: some View {
         if let request = requests.first {
             HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 NeedSubject(request: request)
-                if total > 1 {
-                    Text("1 of \(total)")
+                if let position = NeedWords.position(tally) {
+                    Text(position)
                         .aceFont(AceDesign.TextRole.time, relativeTo: .caption).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                         .fixedSize()
-                        .accessibilityLabel("1 of \(total) requests")
+                        .accessibilityLabel(NeedWords.spokenPosition(tally) ?? position)
                 }
                 // The words' own inset sits outside the row's trailing edge, so they end with it.
                 words(request).fixedSize().padding(.trailing, -AceDesign.Space.stripWord)

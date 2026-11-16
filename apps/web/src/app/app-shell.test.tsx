@@ -105,7 +105,7 @@ test("a working row's icon dims while the daemon is unreachable and comes back a
     const app = harness();
     for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
     await app.open("/new");
-    const nav = await screen.findByRole("navigation", { name: "Threads" });
+    const nav = await screen.findByRole("navigation", { name: "Projects" });
     const row = await within(nav).findByRole("link", {
       name: /^Rewrite the install page for the daemon\. Working/,
     });

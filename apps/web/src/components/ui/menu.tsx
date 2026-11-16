@@ -1,5 +1,5 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, CheckIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { resolveKeys, useResolvedKeymap } from "@/lib/keybindings.ts";
@@ -45,6 +45,8 @@ function MenuContent({
       >
         <MenuPopup
           data-slot="menu-content"
+          data-part="menu"
+          data-state="open"
           className={cn(material, popupFrame, popupBounds, "min-w-[220px]", className)}
           {...props}
         >
@@ -136,6 +138,11 @@ function MenuItem({
   // The visible glyphs are hidden from assistive tech; the chord itself is announced.
   const chord = shown && ariaChord(shown.keys);
   const announced = chord ? { "aria-keyshortcuts": chord } : {};
+  const named = {
+    "data-part": "menu-item",
+    ...(props.disabled ? { "data-state": "disabled" } : {}),
+    ...(danger ? { "data-variant": "danger" } : {}),
+  };
   if (reason)
     // Two lines: the row grows past 30px, and only the label and icon dim when disabled, so
     // the reason keeps its contrast.
@@ -147,6 +154,7 @@ function MenuItem({
           danger && menuDanger,
           className,
         )}
+        {...named}
         {...announced}
         {...props}
       >
@@ -167,6 +175,7 @@ function MenuItem({
   return (
     <MenuPrimitive.Item
       className={cn(menuItem, danger && menuDanger, className)}
+      {...named}
       {...announced}
       {...props}
     >
@@ -188,7 +197,12 @@ function MenuSubTrigger({
   ...props
 }: MenuPrimitive.SubmenuTrigger.Props & { icon?: ReactNode }) {
   return (
-    <MenuPrimitive.SubmenuTrigger className={cn(menuItem, className)} {...props}>
+    <MenuPrimitive.SubmenuTrigger
+      data-part="menu-item"
+      data-variant="submenu"
+      className={cn(menuItem, className)}
+      {...props}
+    >
       {icon}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       <CaretRightIcon aria-hidden size={12} className="ml-auto size-3!" />
@@ -198,7 +212,12 @@ function MenuSubTrigger({
 
 function MenuRadioItem({ className, children, ...props }: MenuPrimitive.RadioItem.Props) {
   return (
-    <MenuPrimitive.RadioItem className={cn(menuItem, className)} {...props}>
+    <MenuPrimitive.RadioItem
+      data-part="menu-item"
+      data-variant="radio"
+      className={cn(menuItem, className)}
+      {...props}
+    >
       <span className="min-w-0 flex-1 truncate">{children}</span>
       <MenuPrimitive.RadioItemIndicator className="ml-auto">
         <CheckIcon aria-hidden size={14} />
@@ -209,7 +228,13 @@ function MenuRadioItem({ className, children, ...props }: MenuPrimitive.RadioIte
 
 function MenuCheckboxItem({ className, children, ...props }: MenuPrimitive.CheckboxItem.Props) {
   return (
-    <MenuPrimitive.CheckboxItem className={cn(menuItem, className)} {...props}>
+    <MenuPrimitive.CheckboxItem
+      data-part="menu-item"
+      data-variant="checkbox"
+      data-state={props.checked ? "checked" : undefined}
+      className={cn(menuItem, className)}
+      {...props}
+    >
       <span className="min-w-0 flex-1 truncate">{children}</span>
       <MenuPrimitive.CheckboxItemIndicator className="ml-auto">
         <CheckIcon aria-hidden size={14} />
@@ -219,7 +244,13 @@ function MenuCheckboxItem({ className, children, ...props }: MenuPrimitive.Check
 }
 
 function MenuSeparator({ className, ...props }: MenuPrimitive.Separator.Props) {
-  return <MenuPrimitive.Separator className={cn(menuSeparator, className)} {...props} />;
+  return (
+    <MenuPrimitive.Separator
+      data-part="divider"
+      className={cn(menuSeparator, className)}
+      {...props}
+    />
+  );
 }
 
 function MenuLabel({ className, ...props }: MenuPrimitive.GroupLabel.Props) {

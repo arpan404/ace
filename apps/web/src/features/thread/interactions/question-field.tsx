@@ -1,6 +1,6 @@
 import type { Question } from "@ace/protocol";
 import { questionOptions } from "@ace/ui-core";
-import { LockSimpleIcon } from "@phosphor-icons/react";
+import { LockSimpleIcon } from "@ace/icons";
 import { useId, useRef, type ReactNode } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Icon } from "@/components/icon.tsx";
@@ -83,6 +83,8 @@ export function QuestionField(props: {
         type={question.secret ? "password" : "text"}
         autoComplete="off"
         aria-label={`Something else: your answer to ${question.text}`}
+        data-part="input"
+        data-variant="inline"
         value={props.text}
         disabled={props.disabled}
         placeholder="Something else…"

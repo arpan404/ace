@@ -1,8 +1,13 @@
-import { CheckIcon, MinusIcon, XIcon } from "@phosphor-icons/react";
+import { CheckIcon, MinusIcon, XIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 
 /** A check's (or step's) state as a disc: "failed", "done", "working", "idle" (stopped), "off". */
 export type DiscTone = "failed" | "done" | "working" | "idle" | "off";
+
+/** A disc's tone as a Suit `data-state`: what a check is doing, if anything. */
+export function discState(tone: DiscTone): "failed" | "done" | "working" | undefined {
+  return tone === "failed" || tone === "done" || tone === "working" ? tone : undefined;
+}
 
 /** Maps a status tone from ui-core ("failed", "done", "working", "idle") to its disc. */
 export function discTone(tone: string): DiscTone {

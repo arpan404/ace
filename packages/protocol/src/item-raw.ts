@@ -36,7 +36,7 @@ export const ItemRawResponse = z.object({
   from: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   /**
    * The item's `raw`, or a tool call's `call.raw`, as stored, oldest first, from `from` on: as
-   * many as fit one reply (1 MiB of JSON), never none while any remain. An entry too large for
+   * many as fit one reply (64 KiB of JSON, or one stored entry alone), never none while any remain. An entry too large for
    * a reply alone comes with its long fields cut, each ending `… [cut: <n> bytes]`; storage
    * keeps it whole.
    */

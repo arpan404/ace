@@ -31,6 +31,7 @@ import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAgentsRouteImport } from "./routes/settings.agents"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
+import { Route as SettingsBetaRouteImport } from "./routes/settings.beta"
 import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
@@ -176,6 +177,11 @@ const SettingsAgentsRoute = SettingsAgentsRouteImport.update({
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: "/appearance",
   path: "/appearance",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsBetaRoute = SettingsBetaRouteImport.update({
+  id: "/beta",
+  path: "/beta",
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsBrowserRoute = SettingsBrowserRouteImport.update({
@@ -388,6 +394,7 @@ export interface FileRoutesByFullPath {
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
@@ -443,6 +450,7 @@ export interface FileRoutesByTo {
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
@@ -505,6 +513,7 @@ export interface FileRoutesById {
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/beta": typeof SettingsBetaRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
   "/settings/general": typeof SettingsGeneralRoute
@@ -568,6 +577,7 @@ export interface FileRouteTypes {
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
+    | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
@@ -623,6 +633,7 @@ export interface FileRouteTypes {
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
+    | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
@@ -684,6 +695,7 @@ export interface FileRouteTypes {
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
+    | "/settings/beta"
     | "/settings/browser"
     | "/settings/computer-use"
     | "/settings/general"
@@ -891,6 +903,13 @@ declare module "@tanstack/react-router" {
       path: "/appearance"
       fullPath: "/settings/appearance"
       preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/beta": {
+      id: "/settings/beta"
+      path: "/beta"
+      fullPath: "/settings/beta"
+      preLoaderRoute: typeof SettingsBetaRouteImport
       parentRoute: typeof SettingsRoute
     }
     "/settings/browser": {
@@ -1215,6 +1234,7 @@ interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsBetaRoute: typeof SettingsBetaRoute
   SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
@@ -1242,6 +1262,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAdvancedRoute: SettingsAdvancedRoute,
   SettingsAgentsRoute: SettingsAgentsRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsBetaRoute: SettingsBetaRoute,
   SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,

@@ -1,0 +1,213 @@
+[
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {}
+    },
+    "output": {
+      "rate": 1500000,
+      "probing": true
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "effectiveType": "4g",
+        "downlinkKbps": 10000,
+        "rttMs": 50
+      }
+    },
+    "output": {
+      "rate": 1500000,
+      "probing": true
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "effectiveType": "3g"
+      }
+    },
+    "output": {
+      "rate": 500000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "effectiveType": "2g"
+      }
+    },
+    "output": {
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "effectiveType": "slow-2g",
+        "saveData": true
+      }
+    },
+    "output": {
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "downlinkKbps": 1600
+      }
+    },
+    "output": {
+      "rate": 800000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "downlinkKbps": 1
+      }
+    },
+    "output": {
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "downlinkKbps": 0,
+        "rttMs": 60000
+      }
+    },
+    "output": {
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "effectiveType": "3G"
+      }
+    },
+    "output": {
+      "rate": 500000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "rttMs": 450
+      }
+    },
+    "output": {
+      "rate": 500000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "saveData": true
+      }
+    },
+    "output": {
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "constrained": true,
+        "expensive": true
+      }
+    },
+    "output": {
+      "rate": 150000,
+      "probing": false
+    }
+  },
+  {
+    "input": {
+      "limits": {
+        "min": 150000,
+        "max": 16000000,
+        "initial": 1500000
+      },
+      "hint": {
+        "expensive": true
+      }
+    },
+    "output": {
+      "rate": 1000000,
+      "probing": false
+    }
+  }
+]

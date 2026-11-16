@@ -11,7 +11,7 @@ import UIKit
     func testAThemeRecoloursTheOpenSheetAndAceRestoresTheNeutralPage() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", port]
-        app.launch()
+        app.launchWithArguments()
         defer { app.terminate() }
         app.openBrowseDestination("settings.appearance")
         XCTAssertTrue(app.buttons["appearance.dark"].waitForExistence(timeout: 10))
@@ -50,7 +50,7 @@ import UIKit
 
         // Back to ace with its own accent: the neutral page returns.
         app.terminate()
-        app.launch()
+        app.launchWithArguments()
         app.openBrowseDestination("settings.appearance")
         XCTAssertTrue(app.buttons["appearance.theme.ace"].waitForExistence(timeout: 10))
         app.buttons["appearance.theme.ace"].tap()

@@ -19,6 +19,12 @@ struct ComposerView<Top: View, Leading: View>: View {
     var mention: ComposerMention? = nil
     /// Images, files and folders pasted or dropped onto the composer; nil takes only words.
     var intake: (([NSItemProvider]) -> Void)? = nil
+    /// A paste too long for the message, to go with it as a text file; nil pastes it as words.
+    var pasteLong: ((String) -> Void)? = nil
+    /// Long pastes still being staged for the next message: Send waits for them (`PasteIntake`).
+    var adding = 0
+    /// Words handed back to the field (a pasted file kept as text); each new value lands once.
+    var restore: ComposerRestore? = nil
     /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
     var recall: ((Int) async -> String?)? = nil
     /// Files on the next message: with any, the message can go without words.
@@ -59,7 +65,7 @@ struct ComposerView<Top: View, Leading: View>: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     private var words: Bool { !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var empty: Bool { files == 0 && chips == 0 && !words }
+    private var empty: Bool { files == 0 && chips == 0 && adding == 0 && !words }
     private var trailing: ComposerTrailing {
         ComposerTrailing.of(hasContent: !empty, busy: controls?.busy == true, canStop: controls?.canStop == true,
                             listening: dictation.listening)
@@ -95,6 +101,11 @@ struct ComposerView<Top: View, Leading: View>: View {
             }
             draft.text = Mention.insert(picked.written, into: draft.text)
             draft.add(.file(picked.path, lines: picked.lines, endingAt: draft.text))
+        }
+        .onChange(of: restore) { _, restored in
+            guard let restored else { return }
+            draft.text = restored.merged(into: draft.text)
+            place = CaretPlacement(offset: (draft.text as NSString).length, focus: true)
         }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: $draft.text, place: $place, keep: { draft.add($0) }))
@@ -168,7 +179,7 @@ struct ComposerView<Top: View, Leading: View>: View {
                             withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
-                        place: place, pasteFiles: intake, placeholder: shownPlaceholder)
+                        place: place, pasteFiles: intake, pasteLong: pasteLong, placeholder: shownPlaceholder)
             .accessibilityLabel(placeholder)
             .padding(.leading, ComposerCapsuleMetrics.fieldInset)
     }
@@ -182,12 +193,12 @@ struct ComposerView<Top: View, Leading: View>: View {
             }
         }
         .contextMenu {
-            if !empty, let alternate = controls?.alternate {
+            if !empty, adding == 0, let alternate = controls?.alternate {
                 Button(alternate == "steer" ? "Steer now" : "Queue for after this turn", ace: alternate == "steer" ? .arrowBendUpRight : .queue) { submit(alternate: true) }
             }
         }
         // ⌘↩ sends from a hardware keyboard; it never stops a running tree.
-        .phoneShortcut("send", enabled: trailing == .send)
+        .phoneShortcut("send", enabled: trailing == .send && !disabled)
         .accessibilityIdentifier(trailing == .send || trailing == .stop ? "composer.send" : "composer.dictate")
     }
     private func startDictation() {
@@ -200,12 +211,13 @@ struct ComposerView<Top: View, Leading: View>: View {
         if draft.saving { return true }
         switch trailing {
         case .stop: return stopping
-        case .send: return empty
+        case .send: return empty || adding > 0
         case .dictate, .listening: return false
         }
     }
     private var label: String {
         if draft.saving { return "Sending your message" }
+        if adding > 0, trailing == .send { return "Adding paste…" }
         switch trailing {
         case .dictate: return "Dictate"
         case .listening: return "Stop dictating"

@@ -1,4 +1,12 @@
+import { nativeVideoCodecs } from "./video-codecs.ts";
 import type { ClientCore } from "@ace/client";
+import {
+  MediaSubscriptions,
+  mediaSubscribeDeadlineMs,
+  SubscribeRetry,
+  type DeliveryState,
+  type MediaRoute,
+} from "@ace/browser/live-view";
 import {
   BrowserCaptureViewport,
   BrowserInput,
@@ -35,8 +43,6 @@ export type BrowserOwner = Pick<
   Partial<Pick<ClientCore, "onStream">>;
 export type Schedule = (delayMs: number, callback: () => void) => () => void;
 
-/** The codecs the native decoder plays (VideoToolbox H.264), best first. */
-export const nativeVideoCodecs = ["avc1.42E033"] as const;
 /** A watched thread whose browser isn't there yet asks again this often, as the web does. */
 const retryMs = 5_000;
 /** Tabs sent per page; each "show more" adds as many. */
@@ -68,6 +74,9 @@ const BrowserAction = z.discriminatedUnion("kind", [
     kind: z.literal("ack"),
     sequence: z.number().int().nonnegative(),
     keyframe: z.boolean().optional(),
+    fallback: z.boolean().optional(),
+    /** The delivery generation the picture came for (`media.delivery`), as Swift stamped it. */
+    generation: z.number().int().nonnegative().optional(),
   }),
 ]);
 export type BrowserAction = z.infer<typeof BrowserAction>;
@@ -134,6 +143,8 @@ interface Watch {
   picture: { width: number; height: number } | undefined;
   /** Bumped whenever the daemon starts this viewer's pictures again; Swift resets its decoder. */
   generation: number;
+  /** A failed subscribe's retry on the shared ladder and cooldown. */
+  ladder: SubscribeRetry;
   subscribed: boolean;
   subscribing: boolean;
   state: BrowserState | undefined;
@@ -143,6 +154,11 @@ interface Watch {
 }
 
 export class BrowserLive {
+  #h264Only = false;
+  /** Whether the view's pictures come by the media connection, and so where its acks go. */
+  readonly #media = new MediaSubscriptions();
+  #stopMedia: (() => void) | undefined;
+  #stopDeliveries: (() => void) | undefined;
   #owner: BrowserOwner;
   #sink: PatchSink;
   #preview: Preview;
@@ -270,7 +286,32 @@ export class BrowserLive {
       }),
     );
   }
+  /**
+   * Take the view's pictures by this media connection while it has a binding (ADR 0147 §4):
+   * whenever the binding changes, the view subscribes again and Swift starts a new decoder.
+   */
+  useMedia(
+    route: MediaRoute | undefined,
+    deliver?: (view: "browser", state: DeliveryState) => void,
+  ): void {
+    this.#stopMedia?.();
+    this.#stopDeliveries?.();
+    this.#media.use(route);
+    // Swift draws and acknowledges the thread's pictures by the delivery set here.
+    this.#stopDeliveries = deliver
+      ? this.#media.watchDeliveries((state) => deliver("browser", state))
+      : undefined;
+    this.#stopMedia = route?.watch(() => {
+      const watch = this.#watch;
+      if (!watch || !watch.subscribed) return;
+      watch.subscribed = false;
+      this.#restart(watch);
+      this.#subscribe(watch);
+    });
+  }
   dispose(): void {
+    this.#stopMedia?.();
+    this.#stopDeliveries?.();
     this.close();
     this.#endFollowing();
     for (const stop of this.#stops.splice(0)) stop();
@@ -368,6 +409,9 @@ export class BrowserLive {
         error: undefined,
         pages: new Map(),
         retry: undefined,
+        ladder: new SubscribeRetry(this.#media, action.threadId, (run, ms) =>
+          this.#schedule(ms, run),
+        ),
       };
       this.#watch = watch;
       // Each watch starts on the first page of tabs, whatever an earlier one had shown.
@@ -440,20 +484,35 @@ export class BrowserLive {
           .catch(() => {});
         return true;
       }
-      case "ack":
-        try {
-          this.#owner.send({
-            type: "browser.ack",
-            requestId: this.#requestId(),
-            threadId: watch.threadId,
-            sequence: action.sequence,
-            video: true,
-            ...(action.keyframe ? { keyframe: true } : {}),
-          });
-        } catch {
-          // Offline: the subscription ended with the connection.
+      case "ack": {
+        const ack = {
+          type: "browser.ack" as const,
+          threadId: watch.threadId,
+          sequence: action.sequence,
+          video: true as const,
+          ...(action.keyframe ? { keyframe: true as const } : {}),
+        };
+        // Each ack goes the way its picture's delivery came (Swift stamps the generation it was
+        // delivered for): the media connection, the main socket, or nowhere once it is stale.
+        const way = this.#media.way(watch.threadId, action.generation);
+        // A picture of an earlier subscribe (another thread's, or this one's before it subscribed
+        // again): neither its ack nor its decoder's failure says anything about this view now.
+        if (way === "stale") return true;
+        if (way === "media") this.#media.route?.ack(ack);
+        else if (way === "channel")
+          try {
+            this.#owner.send({ ...ack, requestId: this.#requestId() });
+          } catch {
+            // Offline: the subscription ended with the connection.
+          }
+        if (action.fallback && !this.#h264Only) {
+          this.#h264Only = true;
+          watch.subscribed = false;
+          this.#restart(watch);
+          this.#subscribe(watch);
         }
         return true;
+      }
     }
   }
   /** Stop watching: the daemon stops this viewer's pictures. */
@@ -462,6 +521,8 @@ export class BrowserLive {
     if (!watch) return;
     this.#watch = undefined;
     watch.retry?.();
+    watch.ladder.stop();
+    this.#media.forget(watch.threadId);
     this.#endFollowing();
     this.#annotate.close();
     this.#tools.close();
@@ -478,16 +539,47 @@ export class BrowserLive {
   #requestId(): string {
     return `ios-browser-${++this.#requests}`;
   }
-  #subscribe(watch: Watch): void {
+  /**
+   * Subscribes the view, unless it is subscribed or one is on its way. After a failed subscribe it
+   * waits on the shared ladder and cooldown (`SubscribeRetry`): the view's own poll waits with
+   * it, and an event (an engine opened, the state changed, a new session) may skip one step's
+   * wait, never the cooldown.
+   */
+  #subscribe(watch: Watch, cause: "event" | "poll" = "event"): void {
     if (this.#watch !== watch || watch.subscribed || watch.subscribing) return;
+    if (watch.ladder.waiting && (cause === "poll" || !watch.ladder.event())) return;
     watch.retry?.();
     watch.retry = this.#schedule(retryMs, () => {
       watch.retry = undefined;
-      this.#subscribe(watch);
+      this.#subscribe(watch, "poll");
     });
     if (this.#owner.state !== "ready") return;
     watch.subscribing = true;
     const generation = watch.generation;
+    const h264Only = this.#h264Only;
+    const binding = this.#media.route?.binding()?.connection;
+    const begun = this.#media.begin(watch.threadId);
+    const { media } = begun.fields;
+    let refused = false;
+    /** The request failed while it was still the view's latest, however its delivery settled. */
+    let lost = false;
+    const failed = (error: unknown) => {
+      const next = this.#media.failed(watch.threadId, begun.generation, error);
+      if (next === "resubscribe") refused = true;
+      // To be tried again (its delivery settled on the channel, or the one it replaced restored,
+      // whose generation is then the source's again): it climbs the ladder.
+      else if (next === "retry") lost = true;
+      // `ignore` after the deadline settled its delivery, while it is still the latest: the
+      // request failed all the same. One a later subscribe superseded leaves that one to it.
+      else if (this.#media.generation(watch.threadId) === begun.generation) lost = true;
+    };
+    // No answer in time: the thread stops waiting on the media connection (a late reply still
+    // settles it), so Swift stops holding its pictures.
+    const deadline = media
+      ? this.#schedule(mediaSubscribeDeadlineMs, () =>
+          this.#media.abandon(watch.threadId, begun.generation),
+        )
+      : undefined;
     void this.#owner
       .request({
         type: "browser.subscribe",
@@ -495,18 +587,25 @@ export class BrowserLive {
         subscriberId,
         binaryFrames: true,
         viewport: captureFor(watch),
-        video: { codecs: [...nativeVideoCodecs] },
+        video: { codecs: this.#h264Only ? ["avc1.42E033"] : nativeVideoCodecs() },
+        ...(media ? { media } : {}),
       })
       .then(
         (reply) => {
           if (this.#watch !== watch) return;
           if (!reply.ok) {
+            // A connection the daemon won't bind for this view goes on the main socket; any other
+            // failure falls back as the shared client says, and is asked again on its ladder.
+            failed(new Error(reply.error ?? ""));
+            if (refused) return;
             watch.error = reply.error ?? "browser_failed";
             this.#putView(watch);
             return;
           }
           watch.error = undefined;
           watch.subscribed = true;
+          // Delivery by the media connection only when the daemon's answer says so.
+          this.#media.subscribed(watch.threadId, begun.generation, reply.media);
           // The menu's note names the machine's default; read again on each new subscription.
           void this.#engine.readDefault();
           watch.retry?.();
@@ -514,10 +613,32 @@ export class BrowserLive {
           // A size reported while the subscribe was on its way.
           if (generation === watch.generation) this.#putView(watch);
         },
-        () => {},
+        // Lost on its way (offline, timed out): settled or restored as the shared client says.
+        (error: unknown) => {
+          if (this.#watch === watch) failed(error);
+        },
       )
       .finally(() => {
+        deadline?.();
         watch.subscribing = false;
+        // The binding moved while this subscribe was on its way, or the daemon refused it.
+        const moved = binding !== this.#media.route?.binding()?.connection;
+        if (h264Only !== this.#h264Only || ((moved || refused) && this.#watch === watch)) {
+          watch.subscribed = false;
+          this.#subscribe(watch);
+        } else if (this.#watch === watch && lost) {
+          // Asked again on the shared ladder; the view's own poll waits with it.
+          watch.retry?.();
+          watch.retry = undefined;
+          watch.ladder.failed(() => this.#subscribe(watch, "poll"));
+        } else if (this.#watch === watch && !watch.subscribed && !watch.retry) {
+          // Not subscribed and nothing else on its way (the view's own poll may have fired while
+          // this one was out): it asks again at its usual pace.
+          watch.retry = this.#schedule(retryMs, () => {
+            watch.retry = undefined;
+            this.#subscribe(watch, "poll");
+          });
+        }
       });
   }
   /** The daemon starts this viewer's pictures again (a new tab, backend or connection). */

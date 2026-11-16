@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -39,16 +39,19 @@ export async function builtinSkills(root = shippedRoot()): Promise<PluginSnapsho
   const files: PluginSnapshot["files"] = [];
   const text: Record<string, string> = {};
   for (const skill of manifest.skills) {
-    const path = `${skill.path}/SKILL.md`;
-    const content = await readFile(join(root, path), "utf8");
-    if (Buffer.byteLength(content) > 65536) throw new Error("Built-in skill exceeds limit");
-    text[path] = content;
-    files.push({
-      path,
-      bytes: Buffer.byteLength(content),
-      executable: false,
-      hash: createHash("sha256").update(content).digest("hex"),
-    });
+    // SKILL.md and the reference files beside it (`references/*.md`), so every projection
+    // carries the same folder the skill points into.
+    for (const path of [`${skill.path}/SKILL.md`, ...(await skillReferences(root, skill.path))]) {
+      const content = await readFile(join(root, path), "utf8");
+      if (Buffer.byteLength(content) > 65536) throw new Error("Built-in skill exceeds limit");
+      text[path] = content;
+      files.push({
+        path,
+        bytes: Buffer.byteLength(content),
+        executable: false,
+        hash: createHash("sha256").update(content).digest("hex"),
+      });
+    }
   }
   const hash = createHash("sha256").update(JSON.stringify({ manifest, files })).digest("hex");
   return [
@@ -68,6 +71,20 @@ export async function builtinSkills(root = shippedRoot()): Promise<PluginSnapsho
     },
   ];
 }
+/** A skill's reference files: Markdown under its `references/` folder, sorted, as bundle paths. */
+async function skillReferences(root: string, skill: string): Promise<string[]> {
+  const entries = await readdir(join(root, skill, "references"), { withFileTypes: true }).catch(
+    (error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+      throw error;
+    },
+  );
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => `${skill}/references/${entry.name}`)
+    .toSorted();
+}
+
 export async function prepareBuiltinSkills(provider: "claude" | "codex", root: string) {
   const projection = projectPlugins(provider, await builtinSkills(), { root });
   await materializeProjection(projection, { root });
@@ -81,23 +98,33 @@ export async function prepareBuiltinSkills(provider: "claude" | "codex", root: s
 
 /**
  * The shipped skills as guides for providers without native skills: name, the frontmatter's
- * one-line description and the body. Same files as the native projection, so one source.
+ * one-line description, the body and its reference files. Same files as the native projection, so one source.
  * Frontmatter is parsed as the YAML that provider skill loaders read, so a broken one fails here.
  */
 export async function builtinGuides(
   root = shippedRoot(),
-): Promise<{ name: string; description: string; body: string }[]> {
+): Promise<{ name: string; description: string; body: string; files: Record<string, string> }[]> {
   const [bundle] = await builtinSkills(root);
+  const bundled = bundle?.text ?? {};
   const sources = (bundle?.manifest.skills ?? []).map((skill) => ({
     name: skill.name,
-    text: bundle?.text[`${skill.path}/SKILL.md`] ?? "",
+    text: bundled[`${skill.path}/SKILL.md`] ?? "",
+    // Reference files by their path inside the skill (`references/suit-json.md`).
+    files: Object.fromEntries(
+      Object.entries(bundled).flatMap(([path, content]) =>
+        path.startsWith(`${skill.path}/references/`)
+          ? [[path.slice(skill.path.length + 1), content]]
+          : [],
+      ),
+    ),
   }));
-  return sources.map(({ name, text }) => {
+  return sources.map(({ name, text, files }) => {
     const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
     const meta = SkillFrontmatter.safeParse(parseYaml(match?.[1] ?? ""));
     if (!match || !meta.success || meta.data.name !== name)
       throw new Error(`Built-in skill ${name} has invalid frontmatter`);
-    return { name, description: meta.data.description, body: text.slice(match[0].length).trim() };
+    const body = text.slice(match[0].length).trim();
+    return { name, description: meta.data.description, body, files };
   });
 }
 const SkillFrontmatter = z.object({

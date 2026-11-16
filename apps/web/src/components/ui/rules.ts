@@ -27,6 +27,18 @@ export const controlDivider = "mx-1 h-4 w-px shrink-0 bg-border";
 export const railDivider = "my-1 h-px w-4 shrink-0 bg-border";
 
 /*
+ * Over a Suit's scene (ADR 0150) the canvas lets the scene through. A page that paints its own
+ * colour over the canvas would hide it, so:
+ *
+ * - `sceneThrough`: a page's own full-size fill steps aside while a scene shows.
+ * - `sceneBar`: a bar that sticks over scrolling content is tinted and blurred instead of solid,
+ *   so rows still pass under it unread and the scene still shows beside them.
+ */
+export const sceneThrough = "[[data-suit-scene]_&]:bg-transparent";
+export const sceneBar =
+  "[[data-suit-scene]_&]:bg-[color:color-mix(in_oklab,var(--panel)_72%,transparent)] [[data-suit-scene]_&]:backdrop-blur-md";
+
+/*
  * Containers:
  *
  * - `groupCard`: grouped, settings-like content (Settings, a skill's details, an automation's

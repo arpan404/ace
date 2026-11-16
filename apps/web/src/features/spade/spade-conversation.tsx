@@ -6,7 +6,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
+import { SidebarSimpleIcon } from "@ace/icons";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";

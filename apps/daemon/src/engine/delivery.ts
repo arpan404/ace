@@ -6,6 +6,9 @@ import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
+import { SteerTargetLost, type SteerFence } from "@ace/engine-api";
+import { steerLostRun } from "./steer-selection.ts";
+import { inputSource } from "./steer-yield.ts";
 
 export class InteractionUnavailable extends Error {
   readonly code: "interaction_expired" | "interaction_unavailable";
@@ -188,6 +191,21 @@ export async function executeIntent(
       await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd, actor.id);
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
+      // The last moment before the provider reads it: a steer aimed at a run that has since
+      // ended, while another runs, never joins that other run. Refused unread, it goes back in
+      // the queue as the next message, as a steer that lost its turn does.
+      // The adapter checks the same fence again after its own last await, right before writing.
+      let fence: SteerFence | undefined;
+      // A fence is never dropped: the run it names having ended is itself a lost turn, whether
+      // or not another runs now, and the message goes back to the queue as the next one.
+      if (steering && p.type === "thread.send" && p.runId !== undefined) {
+        const runId = p.runId;
+        if (steerLostRun(repo, actor.id, runId)) throw new SteerTargetLost();
+        fence = {
+          turn: runId === null ? undefined : repo.requireState(actor.id).runs[runId]?.nativeId,
+          current: () => !steerLostRun(repo, actor.id, runId),
+        };
+      }
       const input = [
         ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
         ...(prepared?.input ??
@@ -201,13 +219,17 @@ export async function executeIntent(
         generation,
       );
       repo.pending.submit(intent, generation);
+      // Whose input this is decides whether its steer may cut in: only the person's does.
       await session.send(
         input,
         steering ? "steer" : "queue",
         intent.command.id,
-        repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind === "subagent_result"
-          ? "ace"
-          : undefined,
+        inputSource(
+          intent,
+          repo.steerNotes.personChose(intent.id),
+          repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind,
+        ),
+        fence,
       );
       await repo.store.writable();
       transitions.delivered(actor.id);

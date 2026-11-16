@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { part } from "@/lib/suit-part.ts";
 import { StartupLayout, StartupStatus } from "./startup-layout.tsx";
 import type { DesktopDaemon } from "@/boot/desktop.ts";
 import { startupFailure } from "@/features/connect/index.ts";
@@ -78,7 +79,11 @@ export function StartupScreen(props: { daemon?: DesktopDaemon | undefined; reloa
       onLeft={() => startup.dispatch({ type: "left" })}
     >
       {view.failure !== undefined ? (
-        <div role="alert" className="fx-view-in flex max-w-[360px] flex-col gap-1.5">
+        <div
+          role="alert"
+          {...part("page-section", "failed", "failure")}
+          className="fx-view-in flex max-w-[360px] flex-col gap-1.5"
+        >
           <p className="text-ui font-semibold text-foreground">ace couldn't start</p>
           <p className="text-sm leading-normal text-muted-foreground">{view.failure}</p>
         </div>
@@ -86,7 +91,7 @@ export function StartupScreen(props: { daemon?: DesktopDaemon | undefined; reloa
         <StartupStatus message={view.message} />
       )}
       {view.actions.length > 0 && (
-        <div className="fx-view-in flex flex-wrap justify-center gap-2">
+        <div {...part("page-toolbar")} className="fx-view-in flex flex-wrap justify-center gap-2">
           {view.actions.map((action, index) => (
             <Button
               key={action}

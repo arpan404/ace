@@ -1,11 +1,17 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { hasGraphicalSession, noSessionMessage } from "./linux-session.ts";
 /** How a live-view helper starts in this Wayland session; throws when there is none. */
 export function linuxLaunch(env: NodeJS.ProcessEnv, artifactDirectory: string) {
   if (!hasGraphicalSession(env)) throw new Error(noSessionMessage(env));
   return {
     expectedPlatform: "linux-wayland" as const,
-    args: ["--restore-token", join(artifactDirectory, "portal", "restore-token")],
+    // The data directory holds ace's own Chrome, the last-resort video encoder's (ADR 0148).
+    args: [
+      "--restore-token",
+      join(artifactDirectory, "portal", "restore-token"),
+      "--data-dir",
+      dirname(artifactDirectory),
+    ],
     env,
   };
 }

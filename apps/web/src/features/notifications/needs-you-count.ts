@@ -2,7 +2,8 @@ import type { CatalogModel } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
 import { isRemoteChild, isSnoozedToTime } from "@ace/ui-core";
 import { useSidebar } from "@ace/client-react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
+import { useLiveList } from "@/lib/live-connection.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useNow } from "@/lib/time.ts";
 import { recoveryAttention, useFailedSendThreads } from "./recovery-attention.ts";
@@ -30,9 +31,12 @@ function waiting(
 const countKeys = ["ids", "threads", "unconfirmed"] as const;
 
 /**
- * Open requests across unsnoozed threads: the tab title's count. While the list is a copy the
- * daemon hasn't confirmed, only sends that failed on this device count: a saved request may
- * have been answered since.
+ * Open requests across unsnoozed threads: the tab title's count, from a current list only.
+ * While the list isn't current (offline, reconnecting, catching up, or read back from disk) it
+ * neither recounts from that copy nor drops: it holds the last count from a current list, and
+ * never less than this device's failed sends. So it errs high, never low: a request answered
+ * elsewhere meanwhile may still count until the list is current, but one that was waiting is
+ * never hidden. A first load from disk has no count to hold and shows only failed sends.
  */
 export function useNeedsYouCount(): number {
   const models = useModelCatalog();
@@ -50,5 +54,9 @@ export function useNeedsYouCount(): number {
       }, 0),
     [minute, models, failed],
   );
-  return useSidebar(countKeys, pendingTotal) ?? 0;
+  const total = useSidebar(countKeys, pendingTotal) ?? 0;
+  const live = useLiveList();
+  const [held, setHeld] = useState(0);
+  if (live && held !== total) setHeld(total);
+  return live ? total : Math.max(held, failed.size);
 }

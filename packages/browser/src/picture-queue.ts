@@ -6,6 +6,11 @@ import type { PictureChunk } from "./stream-picture.ts";
  */
 export interface SourcePicture extends PictureChunk {
   sourceId: string;
+  /**
+   * The subscribe of its source it was delivered for (`MediaSubscriptions`). A picture of an
+   * older generation is never drawn or acked; absent, it counts as current.
+   */
+  generation?: number;
 }
 
 /** A view's pictures waiting to be drawn, at most this many. */

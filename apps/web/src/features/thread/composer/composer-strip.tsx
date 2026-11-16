@@ -33,6 +33,7 @@ import { StoppedStrip, WaitingStrip } from "./waiting-strip.tsx";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { markQueueEditChanged, registerQueueEditSaver, useQueueEdit } from "./queue-edit.ts";
 import { useQueue } from "./use-queue.ts";
+import { useThreadLiveState } from "../lib/live-state.ts";
 
 const noRequests: readonly string[] = [];
 
@@ -69,6 +70,7 @@ export function ComposerStrip(props: {
   const descendant = useDescendantRequest(props.threadId);
   const requests = descendant ? [descendantKey(descendant), ...own] : own;
   const connection = useConnectionState();
+  const { fresh } = useThreadLiveState(props.threadId);
   const all = useQueue(props.threadId);
   // Agent results go straight to the conversation, never the strip: keep them out of its count.
   const noAgents = withoutAgentResults(all);
@@ -151,8 +153,9 @@ export function ComposerStrip(props: {
     target: props.requestTarget,
     sending: sending.length > 0,
     connection: offline || connection === "reconnecting",
-    held: !!heldTurn,
-    stopped: stopped.length > 0,
+    // A limit hold and commands left running are the copy's facts: only a current one says them.
+    held: fresh && !!heldTurn,
+    stopped: fresh && stopped.length > 0,
     waiting: wait !== undefined,
     queue: queued > 0 || queue.failed || !!held || !!editing,
     goal: !!goal,
@@ -279,7 +282,8 @@ export function ComposerStrip(props: {
             threadId={props.threadId}
             goal={goal}
             editable={!!thread?.capabilities?.goals}
-            working={props.status?.state === "working"}
+            // A cached "working" may be over: the goal sweeps only on a confirmed copy.
+            working={fresh && props.status?.state === "working"}
             indicators={indicators}
           />
         ) : slot.shown === "plan" && plan ? (

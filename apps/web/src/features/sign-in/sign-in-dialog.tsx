@@ -95,6 +95,8 @@ export function SignInDialog(props: {
       }}
     >
       <DialogContent
+        data-page="sign-in"
+        data-variant="provider"
         className="gap-5"
         aria-busy={running || view.kind === "requesting" || undefined}
       >

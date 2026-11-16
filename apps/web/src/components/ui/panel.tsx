@@ -1,4 +1,4 @@
-import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { SearchField } from "@/components/search-field.tsx";
@@ -26,6 +26,7 @@ export function PanelTitleRow(props: { children: ReactNode; className?: string |
   return (
     <div
       data-slot="panel-top"
+      data-part="sidebar-header"
       className={cn("flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-2", props.className)}
     >
       {props.children}
@@ -65,12 +66,26 @@ const panelRowClass = cn(
 );
 
 /**
- * A panel row's props for its link or button: the line, the hover fill and the current row's
- * fill, and `data-panel-row`, which marks it as one of the panel's rows.
+ * A panel row's props for its router link: the line, the hover fill and the current row's fill,
+ * and `data-panel-row`, which marks it as one of the panel's rows (its Suit part, `nav-item`).
+ * While the link points at the open page it is the `active` nav-item, as its `aria-current` says;
+ * a row that knows it is current some other way also sets `data-state` itself.
  */
-export function panelRow(className?: string): { "data-panel-row": ""; className: string } {
-  return { "data-panel-row": "", className: cn(panelRowClass, className) };
+export function panelRow(className?: string): {
+  "data-panel-row": "";
+  "data-part": "nav-item";
+  activeProps: { "data-state": "active" };
+  className: string;
+} {
+  return {
+    "data-panel-row": "",
+    "data-part": "nav-item",
+    activeProps: activeNavItem,
+    className: cn(panelRowClass, className),
+  };
 }
+
+const activeNavItem = { "data-state": "active" } as const;
 
 /** A panel row's inside: its glyph, its title (one line) and what trails it. */
 export function PanelRowBody(props: {

@@ -1,6 +1,6 @@
 import { useAgent, useAgentTree, type AgentTreeNode } from "@ace/client-react";
 import { agentName } from "@ace/ui-core";
-import { RobotIcon } from "@phosphor-icons/react";
+import { RobotIcon } from "@ace/icons";
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import {

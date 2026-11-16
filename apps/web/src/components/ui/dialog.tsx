@@ -1,5 +1,5 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { XIcon } from "@phosphor-icons/react";
+import { XIcon } from "@ace/icons";
 import {
   Children,
   cloneElement,
@@ -168,6 +168,8 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
+        data-part="dialog"
+        data-state="open"
         data-size={size}
         ref={popupRef}
         initialFocus={openFocus}

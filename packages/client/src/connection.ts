@@ -97,6 +97,8 @@ export class Connection {
   #cancel: (() => void) | undefined;
   /** A reconnect waiting on its backoff timer (`cancel`), and when it runs if there's a clock. */
   #retry: { at: number | undefined } | undefined;
+  /** Asked to retry now while an attempt was under way: if that attempt fails, retry at once. */
+  #nudged = false;
   #since: number | undefined;
   #lastReadyAt: number | undefined;
   #lastClose: ConnectionClose | undefined;
@@ -202,11 +204,15 @@ export class Connection {
 
   /**
    * Skip the backoff: run the scheduled reconnect now, keeping the attempt count (a failure
-   * still backs off further). Nothing happens unless a reconnect is waiting on its timer.
+   * still backs off further). While an attempt is under way, its retry (if it fails) runs at
+   * once instead. Nothing happens to a connection that is ready or stopped.
    */
   reconnectNow(): void {
-    if (!this.#active || !this.#retry) return;
-    this.#connect();
+    if (!this.#active) return;
+    if (this.#retry) this.#connect();
+    // An attempt under way may be the one that fails just before the daemon listens (a desktop
+    // saying its daemon now runs): its retry then doesn't wait out the backoff either.
+    else if (this.state === "connecting" || this.state === "reconnecting") this.#nudged = true;
   }
   /**
    * The person typed the machine code the daemon asked for: open again now, from a fresh
@@ -349,7 +355,9 @@ export class Connection {
     // A frame the client couldn't read (a server frame of another version) and 1009 come back
     // the same way on the next socket; backoff grows with every such failure until a
     // connection stays healthy, so they can't turn into a retry storm.
-    const wait = code === 4013 ? Math.max(5000, delay) : delay;
+    const backoff = code === 4013 ? Math.max(5000, delay) : delay;
+    const wait = this.#nudged && code !== 4013 ? 0 : backoff;
+    this.#nudged = false;
     this.#report("connection.closed", {
       ...closed,
       next: decision,
@@ -636,6 +644,7 @@ export class Connection {
         this.error = undefined;
         this.#since = this.#lastReadyAt = this.#options.now?.();
         this.state = "ready";
+        this.#nudged = false;
         if (this.#lastClose) {
           // A duration: on the monotonic clock, whatever the wall clock did meanwhile.
           const down = this.#lostAt === undefined ? undefined : this.#monotonic() - this.#lostAt;

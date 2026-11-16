@@ -186,3 +186,72 @@ test("a running desktop status connects the renderer to the replacement daemon's
   await screen.findByText("Replacement desktop thread");
   await waitFor(() => expect(screen.queryByText("Original desktop thread")).toBeNull());
 });
+
+test("a window opened on its daemon before it runs connects the moment the desktop says it runs", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token });
+  daemon.createThread({
+    id: "kept",
+    workspaceId: "ace",
+    title: "Started before quit",
+    provider: "codex",
+  });
+  let listening = false;
+  const createClient = (target: DaemonTarget) => {
+    const client = new Client({
+      deviceId: DeviceId.parse("desktop-test"),
+      // Refused at the socket until the daemon listens, as a starting daemon's port is.
+      transport: () => {
+        const live = fakeTransport(daemon);
+        return {
+          ...live,
+          open(events) {
+            if (listening) return live.open(events);
+            queueMicrotask(() => events.close(1006));
+          },
+        };
+      },
+      credential: async () => target.token,
+      storage: memoryStorage(),
+      // Backoff timers never fire here: only the desktop's word can bring the window in.
+      scheduler: { set: () => () => {} },
+      random: () => 0.5,
+      id: () => crypto.randomUUID(),
+    });
+    clients.push(client);
+    return client;
+  };
+  const statusListeners = new Set<(status: unknown) => void>();
+  Reflect.set(globalThis, "ace", {
+    platform: "darwin",
+    daemon: {
+      status: async () => ({ state: "starting" }),
+      connection: async () => ({ mode: "daemon", url, token }),
+      onStatus: (listener: (status: unknown) => void) => {
+        statusListeners.add(listener);
+        return () => {
+          statusListeners.delete(listener);
+        };
+      },
+    },
+  });
+  render(
+    <ConnectionGate
+      stores={{ local: memoryKeyValue(), session: memoryKeyValue() }}
+      defaultUrl={url}
+      handed={{ url, token }}
+      desktop
+      createClient={createClient}
+    >
+      {connected}
+    </ConnectionGate>,
+  );
+  // Its first attempt is refused while the daemon starts.
+  await act(async () => {});
+  expect(screen.queryByText("Started before quit")).toBeNull();
+
+  listening = true;
+  act(() => {
+    for (const listener of statusListeners) listener({ state: "running" });
+  });
+  await screen.findByText("Started before quit");
+});

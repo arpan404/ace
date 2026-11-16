@@ -1,6 +1,6 @@
 import "@/styles/model-control.css";
 import { effortLabel, speedLabel, type Speed } from "@ace/ui-core";
-import { ArrowCounterClockwiseIcon, CaretRightIcon } from "@phosphor-icons/react";
+import { ArrowCounterClockwiseIcon, CaretRightIcon } from "@ace/icons";
 import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 import { StepSlider } from "@/components/ui/step-slider.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

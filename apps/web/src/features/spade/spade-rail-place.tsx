@@ -27,6 +27,8 @@ export function SpadeRailPlace(props: { current: boolean; to: string; search: ob
         search={props.search}
         aria-label={asks ? `Spade, ${asks}` : "Spade"}
         aria-current={props.current ? "page" : undefined}
+        data-state={props.current ? "active" : undefined}
+        data-part="rail-item"
         className={railPlaceClass}
       >
         <SpadeMark size={20} />

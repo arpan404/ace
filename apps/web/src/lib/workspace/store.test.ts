@@ -1,4 +1,4 @@
-import { BrowserIcon, GitDiffIcon } from "@phosphor-icons/react";
+import { BrowserIcon, GitDiffIcon } from "@ace/icons";
 import { beforeAll, expect, test } from "vitest";
 import { workspaceActions } from "./actions.ts";
 import { shownTab } from "./model.ts";

@@ -10,6 +10,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { ActivityGrid } from "./activity-grid.tsx";
 import type { AccountShare, ProfileActivity } from "./use-stats.ts";
+import { part } from "@/lib/suit-part.ts";
 
 const shortDay = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -62,7 +63,11 @@ function Highlights(props: { activity: ProfileActivity }) {
       className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-x-4 gap-y-3 py-3"
     >
       {items.map((item) => (
-        <div key={item.label} className="flex min-w-0 flex-col-reverse gap-0.5">
+        <div
+          key={item.label}
+          {...part("stat", loading && "working", "highlight")}
+          className="flex min-w-0 flex-col-reverse gap-0.5"
+        >
           <dt className="truncate text-xs text-muted-foreground">{item.label}</dt>
           <dd className="text-md font-medium text-foreground tabular-nums">{item.value}</dd>
         </div>
@@ -87,6 +92,7 @@ export function ProvidersSection(props: { shares: readonly AccountShare[] }) {
           return (
             <SettingListItem
               key={share.key}
+              {...part("list-row", undefined, "provider-share")}
               aria-label={`${provider}${account ? `, ${account}` : ""}, ${share.percent}%`}
               className="gap-3 text-ui"
             >
@@ -129,6 +135,7 @@ export function InsightsSection(props: { activity: ProfileActivity }) {
         <dl
           key={row.label}
           data-setting-slot=""
+          {...part("stat", undefined, "insight")}
           className="flex min-h-(--row-height) items-baseline justify-between gap-6 py-2.5"
         >
           <dt className="text-ui text-muted-foreground">{row.label}</dt>

@@ -1,10 +1,4 @@
-import {
-  CaretRightIcon,
-  FolderIcon,
-  FolderOpenIcon,
-  MagnifyingGlassIcon,
-  XIcon,
-} from "@phosphor-icons/react";
+import { CaretRightIcon, FolderIcon, FolderOpenIcon, MagnifyingGlassIcon, XIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   ancestorFolders,
@@ -351,6 +345,8 @@ export function FileTree(props: {
           ref={list}
           role="tree"
           aria-label={searching ? "Matching files" : "Checkout files"}
+          data-part="file-tree"
+          data-variant="files"
           aria-busy={searching && search.pending}
           className={cn(
             "flex flex-col rounded-md",
@@ -382,6 +378,9 @@ export function FileTree(props: {
                   <button
                     type="button"
                     role="treeitem"
+                    data-part="list-row"
+                    data-state={row.node.path === props.current ? "selected" : undefined}
+                    data-variant={folder ? "folder" : "file"}
                     data-path={row.node.path}
                     aria-level={row.depth + 1}
                     aria-expanded={folder ? row.expanded : undefined}

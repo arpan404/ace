@@ -8,7 +8,7 @@ import {
   requestIdentity,
   type AnsweredMeta,
 } from "@ace/ui-core";
-import { ArrowRightIcon, ChatTeardropIcon, ChatTeardropTextIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, ChatTeardropIcon, ChatTeardropTextIcon } from "@ace/icons";
 import { useId, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";

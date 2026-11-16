@@ -8,7 +8,7 @@ import {
   FileIcon,
   FolderOpenIcon,
   WarningIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { downloadStateLabels } from "@ace/ui-core";
 import { useLocalReveal } from "@/lib/local-reveal.ts";
 import { formatBytes } from "@/components/format-bytes.ts";
@@ -39,7 +39,20 @@ function DownloadRow(props: {
   const save = download.state === "complete" ? props.save : undefined;
   const risky = download.flags.includes("executable");
   return (
-    <li className="flex min-h-12 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent">
+    <li
+      data-part="list-row"
+      data-state={
+        download.state === "complete"
+          ? "done"
+          : download.state === "pending"
+            ? "working"
+            : download.state === "failed"
+              ? "failed"
+              : undefined
+      }
+      data-variant="download"
+      className="flex min-h-12 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent"
+    >
       <span className="grid size-8 shrink-0 place-items-center rounded-md bg-foreground/5 text-muted-foreground">
         <Icon icon={download.flags.includes("archive") ? FileArchiveIcon : FileIcon} size={16} />
       </span>
@@ -177,7 +190,12 @@ export function DownloadsButton(props: {
         {downloads.length === 0 ? (
           <p className="px-2 pb-3 text-ui text-muted-foreground">Nothing downloaded yet</p>
         ) : (
-          <ul aria-label="Downloads" className="flex max-h-80 flex-col overflow-y-auto">
+          <ul
+            aria-label="Downloads"
+            data-part="list"
+            data-variant="downloads"
+            className="flex max-h-80 flex-col overflow-y-auto"
+          >
             {downloads.toReversed().map((download) => (
               <DownloadRow
                 key={download.downloadId}

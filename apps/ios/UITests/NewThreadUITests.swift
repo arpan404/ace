@@ -298,6 +298,89 @@ import XCTest
         screenshot("newthread-files-mentioned")
     }
 
+    // MARK: A worktree start that stops (fixture project `setup-script`: its setup script fails)
+
+    func testAWorktreeCardPutAwayOpensAgainFromItsUnsentRowAndContinueOpensTheThread() {
+        let app = launch()
+        let words = "Run the setup and start \(UUID().uuidString.prefix(4))"
+        sendInWorktree(app, project: "setup-script", text: words)
+        // Setup fails: the card stays with its way on.
+        let card = element(app, "worktree.card")
+        XCTAssertTrue(card.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 30))
+        screenshot("worktree-setup-failed")
+        // The card's own close, never New thread's.
+        app.buttons["worktree.close"].tap()
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForNonExistence(timeout: 10))
+        // The start waits in Unsent; its row opens the same card again.
+        // Picked by its words: earlier runs' starts may wait in Unsent too.
+        // Unsent sits under the fixture's pinned, needs-you and working rows: scroll to it.
+        let unsent = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "unsent.", words)).firstMatch
+        XCTAssertTrue(app.waitForInbox(timeout: 15))
+        app.bringToMiddle(unsent, attempts: 40)
+        XCTAssertTrue(unsent.isHittable, "the start's Unsent row never showed")
+        unsent.tap()
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 10))
+        screenshot("worktree-card-reopened")
+        app.buttons["worktree.continue"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        screenshot("worktree-continued")
+    }
+
+    func testRetryRunsTheWorktreeAgainAndDontUseWorktreeOpensTheThreadOnTheLocalCheckout() {
+        let app = launch()
+        sendInWorktree(app, project: "setup-script", text: "Retry the setup, then go local")
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 30))
+        app.buttons["worktree.retry"].tap()
+        // It runs again (the fixture paces each step), then stops at the same script again.
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["worktree.cancel"].exists)
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["worktree.local"].exists)
+        app.buttons["worktree.local"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
+        screenshot("worktree-local")
+    }
+
+    func testBackToNewThreadReopensNewThreadWithTheWords() {
+        let app = launch()
+        let words = "Give these words back \(UUID().uuidString.prefix(4))"
+        sendInWorktree(app, project: "setup-script", text: words)
+        let back = app.buttons["worktree.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 30))
+        back.tap()
+        let message = element(app, "newThread.message")
+        XCTAssertTrue(message.waitForExistence(timeout: 10))
+        XCTAssertEqual(message.value as? String, words)
+        screenshot("worktree-back")
+    }
+
+    /// Starts a thread in a worktree of `project` with `text`, from the inbox's New thread.
+    private func sendInWorktree(_ app: XCUIApplication, project: String, text: String) {
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
+        app.buttons["newThread.project"].tap()
+        let row = app.buttons["project.\(project)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        row.tap()
+        let worktree = app.buttons["newThread.worktree"]
+        XCTAssertTrue(worktree.waitForExistence(timeout: 10))
+        if (worktree.value as? String)?.hasPrefix("Worktree") != true {
+            worktree.tap()
+            let choice = app.buttons["New worktree"].firstMatch
+            XCTAssertTrue(choice.waitForExistence(timeout: 5))
+            choice.tap()
+        }
+        XCTAssertTrue((worktree.value as? String)?.hasPrefix("Worktree") == true)
+        let message = element(app, "newThread.message")
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        message.tap()
+        message.typeText(text)
+        XCTAssertTrue(app.buttons["newThread.start"].waitForExistence(timeout: 15))
+        app.buttons["newThread.start"].tap()
+    }
+
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
     /// The project pill once it shows `project`: its label stays "Project", the choice is its value.
     private func projectPill(_ app: XCUIApplication, _ project: String) -> XCUIElement {
@@ -306,7 +389,7 @@ import XCTest
     private func launch(extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"] + extra
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     private func screenshot(_ name: String) {

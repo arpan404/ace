@@ -484,7 +484,8 @@ export class AccountService {
                   session.configure?.(execution) ?? Promise.resolve(),
               }
             : {}),
-          send: (input, delivery, intent, origin) => session.send(input, delivery, intent, origin),
+          send: (input, delivery, intent, origin, fence) =>
+            session.send(input, delivery, intent, origin, fence),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),

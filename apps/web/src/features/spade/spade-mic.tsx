@@ -1,4 +1,4 @@
-import { MicrophoneIcon, WaveformIcon } from "@phosphor-icons/react";
+import { MicrophoneIcon, WaveformIcon } from "@ace/icons";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";

@@ -20,6 +20,11 @@ export interface LivePicture {
   codec: string;
   key: boolean;
   bytes: Uint8Array;
+  /**
+   * The source's subscribe it was delivered for. A new one (a media rebind) starts the stream
+   * over, so nothing the decoder still holds from the old one is drawn or acked.
+   */
+  generation?: number;
 }
 
 export interface PictureRendererPorts<P extends LivePicture> {
@@ -30,7 +35,7 @@ export interface PictureRendererPorts<P extends LivePicture> {
   /** Tell the daemon the view showed `picture`; `keyframe`: the decoder lost its place. */
   ack(picture: P, keyframe: boolean): void;
   /** This client can't decode the stream's video: the view says so. Live views are video only. */
-  fallback(): void;
+  fallback(picture?: P): void;
   /** The view fell behind or lost pictures: a lighter stream may keep up. */
   pressure(): void;
   /**
@@ -67,6 +72,7 @@ export const keyframeRetryMs = 1000;
 export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPorts<P>) {
   const ack = (picture: P, keyframe: boolean) => ports.ack(picture, keyframe);
   let stream: string | undefined;
+  let generation: number | undefined;
   let previous = -1;
   let video: VideoStream | undefined;
   /** The newest H.264 picture handed to the decoder: acks name its stream. */
@@ -118,6 +124,8 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   let unsupported = false;
   /** The platform said it can't decode this stream at all: no point asking for a keyframe. */
   let refused = false;
+  /** The codec this view gave up on: a stream in another codec (a fallback) starts afresh. */
+  let failedCodec: string | undefined;
   let closed = false;
   /** The newest decoded picture waiting for the display's next refresh. */
   let queued: { picture: DecodedPicture; shown: P } | undefined;
@@ -208,13 +216,14 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
     ack(picture, false);
     if (unsupported) return false;
     unsupported = true;
+    failedCodec = picture.codec;
     disarm();
     video?.close();
     video = undefined;
     return true;
   };
   const giveUp = (picture: P) => {
-    if (stop(picture)) ports.fallback();
+    if (stop(picture)) ports.fallback(picture);
   };
   const stall = (picture: P) => {
     if (stop(picture)) (ports.stalled ?? ports.fallback)();
@@ -233,12 +242,22 @@ export function pictureRenderer<P extends LivePicture>(ports: PictureRendererPor
   return {
     async render(picture: P): Promise<void> {
       if (closed) return;
-      if (picture.streamId !== stream) {
-        // A new capture: its sequence starts over, and its first picture to show is a keyframe.
+      if (picture.streamId !== stream || picture.generation !== generation) {
+        // A new capture, or a new delivery of it: its sequence starts over, and its first
+        // picture to show is a keyframe.
         stream = picture.streamId;
+        generation = picture.generation;
         reset();
         failures = 0;
         unsupported = false;
+      }
+      if (unsupported && picture.codec !== "jpeg" && picture.codec !== failedCodec) {
+        // The source fell back to a codec this view may play: its stream starts over.
+        reset();
+        failures = 0;
+        unsupported = false;
+        refused = false;
+        failedCodec = undefined;
       }
       if (picture.sequence <= previous) return;
       const gap = previous >= 0 && picture.sequence !== previous + 1;

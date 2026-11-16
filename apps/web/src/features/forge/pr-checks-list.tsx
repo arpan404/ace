@@ -2,8 +2,9 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { checkLook, formatElapsed } from "@ace/ui-core";
 import type { ForgeCheck } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { prBox } from "./pr-box.tsx";
-import { CheckDisc, discTone, type DiscTone } from "./pr-check-disc.tsx";
+import { CheckDisc, discState, discTone, type DiscTone } from "./pr-check-disc.tsx";
 
 /** Failures first, then what still runs, then the rest; passed last. */
 const order: Record<ForgeCheck["status"], number> = {
@@ -62,7 +63,7 @@ export function checkState(check: Pick<ForgeCheck, "status">): { tone: DiscTone;
 /** Where a set of checks ran: "Checks on a1c9e2f", "On this machine". */
 export function CheckGroup(props: { title: ReactNode; children: ReactNode }) {
   return (
-    <li className="border-t border-border-soft first:border-t-0">
+    <li {...part("list-group")} className="border-t border-border-soft first:border-t-0">
       <p className="px-3.5 pt-2 pb-1 text-xs font-semibold text-subtle-foreground">{props.title}</p>
       <ul>{props.children}</ul>
     </li>
@@ -85,6 +86,7 @@ export function CheckRow(props: {
 }) {
   return (
     <li
+      {...part("check-row", props.selected ? "selected" : discState(props.tone), props.tone)}
       className={cn(
         "flex items-center border-t border-border-soft transition-colors duration-(--motion-fast) first:border-t-0 hover:bg-hover",
         props.selected &&
@@ -128,7 +130,12 @@ function onListKey(event: KeyboardEvent<HTMLElement>) {
 /** The left pane: every check, grouped by where it ran. */
 export function ChecksListBox(props: { children: ReactNode }) {
   return (
-    <ul aria-label="Checks" onKeyDown={onListKey} className={cn(prBox, "overflow-hidden")}>
+    <ul
+      {...part("list", undefined, "checks")}
+      aria-label="Checks"
+      onKeyDown={onListKey}
+      className={cn(prBox, "overflow-hidden")}
+    >
       {props.children}
     </ul>
   );

@@ -1,5 +1,6 @@
 import { AgentId, ThreadId, type ScreenState } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { coworkLine } from "@ace/ui-core/cowork";
 import { phoneScreenSessions } from "./screen-view.ts";
 
 const state = (bundleId: string, extra: Partial<ScreenState> = {}): ScreenState => ({
@@ -26,7 +27,7 @@ test("apps an agent holds come first and name the agent; stopped ones leave the 
   );
 
   expect(sessions.map((session) => [session.app, session.status])).toEqual([
-    ["Safari", "Claude is in control"],
+    ["Safari", coworkLine("working", "Claude")],
     ["TextEdit", "Nobody is in control"],
   ]);
 });
@@ -36,7 +37,7 @@ test("an agent the phone can't name is said plainly", () => {
     [state("com.apple.Safari", { controller: "agent", holder })],
     () => undefined,
   );
-  expect(session?.status).toBe("An agent is in control");
+  expect(session?.status).toBe(coworkLine("working", "An agent"));
 });
 
 test("a window waiting in the machine's sharing dialog says where to choose it; a shared screen is the person's alone", () => {

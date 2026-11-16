@@ -1,7 +1,7 @@
 import { BadgeColor } from "@ace/protocol";
 import { projectBadge } from "@ace/ui-core";
 import { projectImageTypes } from "@ace/project-picker";
-import { UploadSimpleIcon } from "@phosphor-icons/react";
+import { UploadSimpleIcon } from "@ace/icons";
 import { useRef, useState } from "react";
 import { BadgeColourGroup } from "@/components/ui/account-badge-field.tsx";
 import { Button } from "@/components/ui/button.tsx";

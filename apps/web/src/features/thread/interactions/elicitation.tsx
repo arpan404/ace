@@ -9,8 +9,16 @@ import { WebLink } from "@/components/web-link.tsx";
 
 type Request = Extract<InteractionRequest, { kind: "elicitation" }>;
 
-/** Forms send typed values; URL requests require an explicit safe consent action. */
-export function Elicitation(props: { request: Request; disabled: boolean; onAnswer: Answer }) {
+/**
+ * Forms send typed values; URL requests require an explicit safe consent action.
+ * `declinesOnly`: it can be declined or cancelled but not accepted yet (not read whole).
+ */
+export function Elicitation(props: {
+  request: Request;
+  disabled: boolean;
+  declinesOnly?: boolean | undefined;
+  onAnswer: Answer;
+}) {
   const id = useId();
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set());
@@ -29,7 +37,7 @@ export function Elicitation(props: { request: Request; disabled: boolean; onAnsw
       className="mt-3.5 space-y-3"
       onSubmit={(event) => {
         event.preventDefault();
-        if (disabled || unsupported || (result && !result.valid)) return;
+        if (disabled || props.declinesOnly || unsupported || (result && !result.valid)) return;
         onAnswer({
           kind: "elicitation",
           action: "accept",
@@ -117,7 +125,9 @@ export function Elicitation(props: { request: Request; disabled: boolean; onAnsw
           type="submit"
           size="sm"
           variant="primary"
-          disabled={disabled || unsupported || (result !== undefined && !result.valid)}
+          disabled={
+            disabled || props.declinesOnly || unsupported || (result !== undefined && !result.valid)
+          }
         >
           Continue
         </Button>

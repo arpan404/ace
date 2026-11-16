@@ -427,10 +427,17 @@ const entries = [
     keywords: ["dark", "light", "system", "night"],
   },
   {
-    id: "appearance.theme",
+    id: "appearance.look",
     page: "/settings/appearance",
-    title: "Theme",
+    title: "Look",
     keywords: [
+      "theme",
+      "suit",
+      "custom theme",
+      "style",
+      "skin",
+      "fonts",
+      "scene",
       "colour",
       "color",
       "palette",
@@ -448,6 +455,12 @@ const entries = [
     page: "/settings/appearance",
     title: "Accent",
     keywords: ["colour", "color", "accent", "highlight", "ink", "mono", "custom"],
+  },
+  {
+    id: "appearance.backdropMotion",
+    page: "/settings/appearance",
+    title: "Backdrop motion",
+    keywords: ["scene", "backdrop", "animation", "motion", "still", "battery"],
   },
   {
     id: "appearance.translucency",
@@ -722,6 +735,13 @@ const entries = [
     page: "/settings/advanced",
     title: "Reset all settings",
     keywords: ["defaults", "restore"],
+  },
+  // Beta
+  {
+    id: "beta.mediaPipeline",
+    page: "/settings/beta",
+    title: "New media pipeline",
+    keywords: ["ace-media", "video", "encode", "stream", "delivery", "experimental", "preview"],
   },
 ] as const satisfies readonly SettingEntry[];
 

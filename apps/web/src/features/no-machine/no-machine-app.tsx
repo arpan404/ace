@@ -9,7 +9,7 @@ import { MachinePoolFactoryProvider, MachinePoolProvider } from "@/lib/machine-p
 import { createNoMachineRouter } from "./routes.tsx";
 
 /**
- * The app in a window with no machine (no daemon chosen yet): the same frame, with Threads
+ * The app in a window with no machine (no daemon chosen yet): the same frame, with Projects
  * saying to add a machine and Settings' Profile (sign in to an ace account) and Fleet (pair a
  * machine, connect by address, or open one on the account). Choosing a machine goes through
  * the connection gate, which then opens the full app for it.

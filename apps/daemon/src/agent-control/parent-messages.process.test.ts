@@ -62,11 +62,14 @@ test("a parent's message reaches its running child's turn now when the provider 
   expect(h.store.getThread(child)?.status.state).toBe("working");
 });
 
-test("on a provider whose steer restarts the turn, the parent is told the turn restarts", async () => {
+test("on a provider whose steer restarts the turn, a parent's message waits for the turn instead of stopping it", async () => {
   const { h, parent, child } = await runningChild(true, "interrupt-restart");
   const sent = await message(h, parent, child, "New repo rule");
-  expect(sent).toMatchObject({ ok: true, data: { arrival: "restarting" } });
+  expect(sent).toMatchObject({ ok: true, data: { arrival: "queued" } });
   await h.engine.flush();
+  expect(received(h, child)).not.toContain("New repo rule");
+  expect(h.interrupts).toEqual([]);
+  await h.complete(child, "first pass");
   expect(received(h, child)).toContain("New repo rule");
 });
 
@@ -180,25 +183,116 @@ test("a message the person removed from the child's queue is refused on retry, w
   expect(retried).toMatchObject({ ok: false, hint: expect.stringContaining("removed") });
 });
 
-test("a message to a thread that isn't the agent's child steers its running turn by default", async () => {
-  const { h, parent } = await runningChild(true);
+/** A running top-level thread in the parent's project, as the person would start one. */
+async function otherThread(h: Harness, parent: McpAttribution) {
   const workspaceId = h.store.getThread(parent.threadId)?.workspaceId;
   if (!workspaceId) throw new Error("No workspace");
   const other = h.service.command(randomUUID(), {
     type: "thread.create",
     workspaceId,
     provider: "claude",
+    access: "ask",
     input: [{ type: "text", text: "The person's own work" }],
   });
   if (!other.ok || !other.threadId) throw new Error("No thread");
   await h.engine.flush();
-  expect(await message(h, parent, other.threadId, "Pick this up")).toMatchObject({
+  return other.threadId;
+}
+/** What the agent of `id` received with ace's sender line, and the words after it. */
+const fromPeer = (h: Harness, id: ThreadId, sender: ThreadId) =>
+  received(h, id).filter(
+    (text) =>
+      text.startsWith("[ace-origin:agent.message from the thread") && text.includes(`(${sender})`),
+  );
+
+test("a message to a thread that isn't the agent's own steers its running turn, labelled as that agent's", async () => {
+  const { h, parent } = await runningChild(true);
+  const other = await otherThread(h, parent);
+  expect(await message(h, parent, other, "Pick this up")).toMatchObject({
     ok: true,
-    data: { arrival: "steering" },
+    data: { arrival: "steering", threadId: other, as: "peer" },
   });
   await h.engine.flush();
-  expect(received(h, other.threadId)).toContain("Pick this up");
-  expect(h.store.getThread(other.threadId)?.status.state).toBe("working");
+  // Its agent reads who sent it, not the person; the provider is told it isn't the person's.
+  const [text] = fromPeer(h, other, parent.threadId);
+  expect(text).toMatch(/not the person\. .*\]\nPick this up$/);
+  expect(h.inputMessages.get(other)?.at(-1)).toMatchObject({ delivery: "steer", origin: "agent" });
+  // The transcript names the sending thread.
+  const bubble = Object.values(h.store.snapshotThread(other).items).find(
+    (item) =>
+      item.type === "message" &&
+      item.role === "user" &&
+      "origin" in item &&
+      item.origin?.kind === "parent_agent",
+  );
+  expect(bubble && "origin" in bubble ? bubble.origin : undefined).toMatchObject({
+    parentThreadId: parent.threadId,
+  });
+  expect(h.store.getThread(other)?.status.state).toBe("working");
+});
+
+test("a thread another agent wrote to answers it in one call, though its access is narrower", async () => {
+  const { h, parent } = await runningChild(true);
+  const other = await otherThread(h, parent);
+  // Before the full-access thread writes, the "ask" thread can't reach it.
+  expect(await message(h, h.caller(other), parent.threadId, "Unasked")).toMatchObject({
+    ok: false,
+    code: "forbidden",
+    hint: expect.stringContaining("broader access"),
+  });
+  await message(h, parent, other, "Which port does the relay use?");
+  const reply = await message(h, h.caller(other), parent.threadId, "Port 8443");
+  expect(reply).toMatchObject({ ok: true, data: { threadId: parent.threadId, as: "peer" } });
+  await h.engine.flush();
+  expect(fromPeer(h, parent.threadId, other).at(-1)).toMatch(/\nPort 8443$/);
+});
+
+test("another agent's child takes a peer's steer but never its queue, restart or cancel", async () => {
+  const { h, parent, child } = await runningChild(true);
+  const peer = await h.parent();
+  for (const delivery of ["queue", "restart"] as const)
+    expect(await message(h, peer, child, "Start over", delivery)).toMatchObject({
+      ok: false,
+      code: "invalid",
+    });
+  const cancel = await createAgentControlPort(h.store, h.service).execute(
+    peer,
+    { op: "agent.cancel", threadId: child, requestId: "cancel-other" },
+    new AbortController().signal,
+  );
+  // The refusal names the thread that owns it.
+  expect(cancel).toMatchObject({
+    ok: false,
+    code: "forbidden",
+    hint: expect.stringContaining(parent.threadId),
+  });
+  await h.engine.flush();
+  expect(received(h, child)).not.toContain("Start over");
+  expect(h.interrupts).toEqual([]);
+  expect(await message(h, peer, child, "The schema moved to v2")).toMatchObject({
+    ok: true,
+    data: { arrival: "steering", threadId: child },
+  });
+  await h.engine.flush();
+  expect(fromPeer(h, child, peer.threadId).at(-1)).toContain("not the person or your parent");
+  expect(h.store.getThread(child)?.status.state).toBe("working");
+});
+
+test("a peer's message to another agent's finished child goes to its top-level thread, which the result names", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.complete(child, "first pass");
+  later(h, 1050);
+  await h.engine.flush();
+  expect(h.service.journal.get(child)?.phase).toBe("settled");
+  const peer = await h.parent();
+  expect(await message(h, peer, child, "Your tests broke main")).toMatchObject({
+    ok: true,
+    data: { threadId: parent.threadId, as: "peer" },
+  });
+  await h.engine.flush();
+  expect(fromPeer(h, parent.threadId, peer.threadId).at(-1)).toContain(`(${child}) under you`);
+  expect(received(h, child).join("\n")).not.toContain("Your tests broke main");
+  expect(h.service.journal.get(child)?.phase).toBe("settled");
 });
 
 test("a steer the provider refuses as the turn ends is kept for the next turn and the parent is told", async () => {

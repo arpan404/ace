@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { DialogOverlay } from "./dialog.tsx";
 import { FloatingContents } from "./floating-material.tsx";
@@ -35,6 +35,8 @@ function CommandDialog({
         <DialogOverlay className={overlayClassName} style={overlayStyle} />
         <Dialog.Popup
           aria-label={title}
+          data-part="command-palette"
+          data-state="open"
           className={cn(
             layers.modal,
             overlaySurface,
@@ -104,7 +106,10 @@ function CommandSearchRow(props: {
   leading?: React.ReactNode;
 }) {
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
+    <div
+      data-part="search-field"
+      className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4"
+    >
       {props.leading ?? (
         <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
       )}
@@ -130,6 +135,8 @@ function CommandInput({
     <CommandSearchRow closeLabel={closeLabel}>
       <Autocomplete.Input
         data-slot="command-input"
+        data-part="input"
+        data-variant="search"
         className={cn(commandField, className)}
         {...props}
       />
@@ -175,6 +182,8 @@ function CommandItem({ className, ...props }: Autocomplete.Item.Props) {
   return (
     <Autocomplete.Item
       data-slot="command-item"
+      data-part="menu-item"
+      data-variant="command"
       className={cn(
         "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui text-foreground outline-none select-none data-disabled:opacity-50 data-highlighted:bg-accent pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
         className,

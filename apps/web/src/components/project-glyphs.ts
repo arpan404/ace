@@ -20,10 +20,9 @@ import {
   StarIcon,
   TerminalWindowIcon,
   type Icon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 
-// Bold in a project's mark, regular in the chooser: all the build keeps of a glyph only this table
-// draws (`glyphTables` in `icon-weights.ts`).
+// Bold in a project's mark, regular in the chooser.
 const pinned = (icon: Icon) => pinnedGlyph(icon, ["regular", "bold"]);
 
 /** The curated project badge glyphs, in the order the chooser offers them. */

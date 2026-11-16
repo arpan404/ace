@@ -44,6 +44,8 @@ struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
     let watchOnlyReason: String?
     /// A screen shared in the machine's dialog: the person's to control, never an agent's.
     let personOnly: Bool?
+    /// One sentence while this app's video runs degraded on the processor; empty otherwise.
+    var degraded: String? = nil
     var id: String { sessionId }
     var waiting: Bool { awaitingChoice == true }
     var controllable: Bool { awaitingChoice != true && viewOnly != true }

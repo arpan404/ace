@@ -1,4 +1,4 @@
-import { FolderSimpleIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { FolderSimpleIcon, LockSimpleIcon } from "@ace/icons";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { desktopFolders } from "@/boot/desktop-folders.ts";
 import { useConnectionState } from "@ace/client-react";
@@ -64,7 +64,7 @@ export function OpenFolderScreen(props: { folder: string }) {
 
   const name = folderName(props.folder);
   return (
-    <Screen title="New thread" subtitle={name}>
+    <Screen page="new-thread" title="New thread" subtitle={name}>
       {failure ? (
         <EmptyState
           icon={failure.denied ? LockSimpleIcon : FolderSimpleIcon}

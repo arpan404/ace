@@ -9,14 +9,14 @@ import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
 
 async function openHome(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   return app;
 }
 
@@ -68,7 +68,7 @@ test("Mark unread and Pin are kept by the daemon, so the list shows them after a
 
   // Another window on the same daemon sees both.
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   await waitFor(() => expect(card(/Backpressure.*, unread.*Pinned/)).toBeTruthy());
   menu = await rightClick(/Backpressure/);
   expect(within(menu).getByRole("menuitem", { name: /^Unpin/ })).toBeTruthy();
