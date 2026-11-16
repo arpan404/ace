@@ -34,8 +34,19 @@ export function grantFor(account: string, options: GrantOptions = {}) {
   );
 }
 
+/**
+ * A fresh caller address for each request: the write rate limit counts per address, and these
+ * tests make far more writes a minute than one person would.
+ */
+let callers = 0;
+export const callerAddress = () => {
+  callers += 1;
+  return `198.51.${(callers >> 8) & 255}.${callers & 255}`;
+};
+
 export const bearerOf = (account: string, options?: GrantOptions) => ({
   authorization: `Bearer ${grantFor(account, options)}`,
+  "cf-connecting-ip": callerAddress(),
 });
 
 /** A request as `account` to a `/v1/me…` path; a JSON body unless it is bytes. */
@@ -61,7 +72,9 @@ export function asAccount(
   return market.fetch(path, init as Parameters<Market["fetch"]>[1]);
 }
 
-export async function jsonOf<T = Record<string, unknown>>(response: Response): Promise<T> {
+export async function jsonOf<T = Record<string, unknown>>(response: {
+  json(): Promise<unknown>;
+}): Promise<T> {
   return (await response.json()) as T;
 }
 
