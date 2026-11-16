@@ -3,27 +3,63 @@
 //! and policy. `CONNECT host:port` is tunnelled and absolute-form HTTP requests are forwarded,
 //! when the policy allows the host and the address it resolves to isn't private (unless the
 //! person named a local host). TLS passes through untouched: the proxy never sees or adds an
-//! `Authorization` header. Every connection is logged.
+//! `Authorization` header.
+//!
+//! Bounded ([`Limits`]): connections are admitted before any task is spawned for them, a client
+//! has a deadline for its request's head, a run has a cap of open tunnels, and a tunnel with no
+//! traffic either way is closed. Dropping a run's ticket cancels its session: tunnels it has open
+//! close, and connections still being made are abandoned. Every connection is logged when it is
+//! admitted, its bytes counted as they move and written at bounded intervals while it runs, and
+//! its end.
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::Engine as _;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Semaphore, watch};
 
+use super::head::{Target, forward_head, parse_head, target};
 use super::hosts::{NetworkPolicy, Verdict, private};
 use super::log::{EgressLog, Entry};
 
 /// The most a request's head may be.
 const MOST_HEAD: usize = 16 * 1024;
-/// How long a client has to send its request's head, and a host to accept a connection.
-const WAIT: Duration = Duration::from_secs(30);
+
+/// The proxy's bounds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Limits {
+    /// Connections open at once, across every run; past it a new one is closed unread.
+    pub connections: usize,
+    /// Tunnels (and forwarded requests) one run may have open at once; past it `429`.
+    pub per_session: usize,
+    /// How long a client has to send its request's head.
+    pub head: Duration,
+    /// How long a host has to resolve and accept the connection.
+    pub connect: Duration,
+    /// How long a tunnel may go with no bytes either way before it is closed.
+    pub idle: Duration,
+    /// How often an open tunnel's bytes so far are written to the log.
+    pub progress: Duration,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            connections: 512,
+            per_session: 64,
+            head: Duration::from_secs(10),
+            connect: Duration::from_secs(30),
+            idle: Duration::from_secs(300),
+            progress: Duration::from_secs(30),
+        }
+    }
+}
 
 /// Resolves a host's addresses; injected so tests can name their own.
 pub trait Resolve: Send + Sync {
@@ -50,7 +86,7 @@ impl Resolve for SystemResolver {
 /// The time now, in Unix milliseconds.
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
-/// What a run did through the proxy.
+/// What a run did through the proxy, bytes counted as they move.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Usage {
     pub connections: u64,
@@ -72,6 +108,26 @@ struct Session {
     run: String,
     policy: NetworkPolicy,
     usage: Counters,
+    /// Tunnels open now.
+    open: AtomicUsize,
+    /// Set when the ticket is dropped: everything of the session ends.
+    cancel: watch::Sender<bool>,
+}
+
+impl Session {
+    async fn cancelled(&self) {
+        let mut cancelled = self.cancel.subscribe();
+        let _ = cancelled.wait_for(|c| *c).await;
+    }
+}
+
+/// One of a session's open tunnels, counted while it lives.
+struct Slot(Arc<Session>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 struct Inner {
@@ -80,6 +136,8 @@ struct Inner {
     resolver: Arc<dyn Resolve>,
     clock: Clock,
     tokens: Arc<dyn Fn() -> String + Send + Sync>,
+    limits: Limits,
+    connections: AtomicU64,
 }
 
 impl Inner {
@@ -106,12 +164,24 @@ impl Drop for Proxy {
 }
 
 impl Proxy {
-    /// Listens on `127.0.0.1` at a free port. `tokens` makes each run's secret.
+    /// Listens on `127.0.0.1` at a free port with the default [`Limits`]. `tokens` makes each
+    /// run's secret.
     pub async fn start(
         log: Arc<EgressLog>,
         resolver: Arc<dyn Resolve>,
         clock: Clock,
         tokens: Arc<dyn Fn() -> String + Send + Sync>,
+    ) -> std::io::Result<Self> {
+        Self::start_with(log, resolver, clock, tokens, Limits::default()).await
+    }
+
+    /// [`Proxy::start`] with `limits`.
+    pub async fn start_with(
+        log: Arc<EgressLog>,
+        resolver: Arc<dyn Resolve>,
+        clock: Clock,
+        tokens: Arc<dyn Fn() -> String + Send + Sync>,
+        limits: Limits,
     ) -> std::io::Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let port = listener.local_addr()?.port();
@@ -121,14 +191,27 @@ impl Proxy {
             resolver,
             clock,
             tokens,
+            limits,
+            connections: AtomicU64::new(0),
         });
         let serving = inner.clone();
+        let admission = Arc::new(Semaphore::new(limits.connections.max(1)));
         let accept = tokio::spawn(async move {
             loop {
                 let Ok((client, _)) = listener.accept().await else {
                     continue;
                 };
-                tokio::spawn(serve(serving.clone(), client));
+                // Admitted before anything is spawned for it; past the bound it is closed unread.
+                match admission.clone().try_acquire_owned() {
+                    Ok(permit) => {
+                        let serving = serving.clone();
+                        tokio::spawn(async move {
+                            serve(serving, client).await;
+                            drop(permit);
+                        });
+                    }
+                    Err(_) => drop(client),
+                }
             }
         })
         .abort_handle();
@@ -151,6 +234,8 @@ impl Proxy {
             run: run.to_owned(),
             policy,
             usage: Counters::default(),
+            open: AtomicUsize::new(0),
+            cancel: watch::Sender::new(false),
         });
         self.inner
             .sessions
@@ -166,7 +251,8 @@ impl Proxy {
     }
 }
 
-/// One run's access to the proxy, ended when dropped.
+/// One run's access to the proxy, ended when dropped: no new request is accepted for it, and
+/// its open and pending connections end.
 pub struct Ticket {
     inner: Arc<Inner>,
     token: String,
@@ -181,6 +267,7 @@ impl Drop for Ticket {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&self.token);
+        self.session.cancel.send_replace(true);
     }
 }
 
@@ -223,111 +310,6 @@ impl Ticket {
     }
 }
 
-/// A request's head.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Head {
-    pub method: String,
-    pub target: String,
-    pub version: String,
-    pub headers: Vec<(String, String)>,
-}
-
-impl Head {
-    fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
-    }
-
-    /// The token of `Proxy-Authorization: Basic base64(user:token)`.
-    pub fn token(&self) -> Option<String> {
-        let value = self.header("proxy-authorization")?.trim();
-        let (scheme, encoded) = value.split_once(' ')?;
-        if !scheme.eq_ignore_ascii_case("basic") {
-            return None;
-        }
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded.trim())
-            .ok()?;
-        let text = String::from_utf8(decoded).ok()?;
-        text.split_once(':').map(|(_, token)| token.to_owned())
-    }
-}
-
-/// Parses a request's head (everything before the blank line).
-pub fn parse_head(raw: &[u8]) -> Option<Head> {
-    let text = std::str::from_utf8(raw).ok()?;
-    let mut lines = text.split("\r\n");
-    let mut first = lines.next()?.split(' ');
-    let (method, target, version) = (first.next()?, first.next()?, first.next()?);
-    if first.next().is_some() || !version.starts_with("HTTP/1.") {
-        return None;
-    }
-    let mut headers = Vec::new();
-    for line in lines.filter(|l| !l.is_empty()) {
-        let (name, value) = line.split_once(':')?;
-        headers.push((name.trim().to_owned(), value.trim().to_owned()));
-    }
-    Some(Head {
-        method: method.to_owned(),
-        target: target.to_owned(),
-        version: version.to_owned(),
-        headers,
-    })
-}
-
-/// Where a request goes: host, port, and for plain HTTP the path to send.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Target {
-    pub host: String,
-    pub port: u16,
-    /// `None` for `CONNECT`.
-    pub path: Option<String>,
-}
-
-pub fn target(head: &Head) -> Option<Target> {
-    if head.method.eq_ignore_ascii_case("CONNECT") {
-        let (host, port) = split_host_port(&head.target)?;
-        return Some(Target {
-            host,
-            port: port?,
-            path: None,
-        });
-    }
-    let rest = head.target.strip_prefix("http://")?;
-    let (authority, path) = match rest.find('/') {
-        Some(at) => (&rest[..at], &rest[at..]),
-        None => (rest, "/"),
-    };
-    if authority.contains('@') {
-        return None;
-    }
-    let (host, port) = split_host_port(authority)?;
-    Some(Target {
-        host,
-        port: port.unwrap_or(80),
-        path: Some(path.to_owned()),
-    })
-}
-
-fn split_host_port(authority: &str) -> Option<(String, Option<u16>)> {
-    if let Some(rest) = authority.strip_prefix('[') {
-        let (host, after) = rest.split_once(']')?;
-        let port = match after.strip_prefix(':') {
-            Some(port) => Some(port.parse().ok()?),
-            None if after.is_empty() => None,
-            None => return None,
-        };
-        return Some((host.to_owned(), port));
-    }
-    match authority.rsplit_once(':') {
-        Some((host, port)) => Some((host.to_owned(), Some(port.parse().ok()?))),
-        None => Some((authority.to_owned(), None)),
-    }
-    .filter(|(host, _)| !host.is_empty())
-}
-
 /// Reads up to the end of the head; answers the head and whatever came after it.
 async fn read_head(client: &mut TcpStream) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut buffer = Vec::with_capacity(1024);
@@ -359,7 +341,9 @@ async fn answer(client: &mut TcpStream, status: &str, extra: &str, body: &str) {
 }
 
 async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
-    let Ok(Some((raw, rest))) = tokio::time::timeout(WAIT, read_head(&mut client)).await else {
+    let Ok(Some((raw, rest))) =
+        tokio::time::timeout(inner.limits.head, read_head(&mut client)).await
+    else {
         return;
     };
     let Some(head) = parse_head(&raw) else {
@@ -386,8 +370,23 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
         .await;
         return;
     };
+    // The run's cap of open tunnels, counted before any work for this one.
+    if session.open.fetch_add(1, Ordering::SeqCst) >= inner.limits.per_session {
+        session.open.fetch_sub(1, Ordering::SeqCst);
+        answer(
+            &mut client,
+            "429 Too Many Requests",
+            "",
+            "This run has as many connections open as Spade allows.\n",
+        )
+        .await;
+        return;
+    }
+    let _slot = Slot(session.clone());
     let mut entry = Entry {
         at: (inner.clock)(),
+        connection: inner.connections.fetch_add(1, Ordering::Relaxed) + 1,
+        phase: String::new(),
         bot: session.bot.clone(),
         run: session.run.clone(),
         host: target.host.to_ascii_lowercase(),
@@ -398,11 +397,17 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
         sent: 0,
         received: 0,
     };
-    let upstream = match reach(&inner, &session.policy, &target).await {
+    // A ticket dropped while the host is being reached abandons it.
+    let reached = tokio::select! {
+        reached = reach(&inner, &session.policy, &target) => reached,
+        () = session.cancelled() => return,
+    };
+    let mut upstream = match reached {
         Ok(upstream) => upstream,
         Err(Refusal::Policy(reason)) => {
             session.usage.refused.fetch_add(1, Ordering::Relaxed);
             let body = format!("Spade's network policy for this bot refused it: {reason}.\n");
+            entry.phase = "refused".to_owned();
             entry.reason = Some(reason);
             inner.log.append(&entry);
             answer(&mut client, "403 Forbidden", "", &body).await;
@@ -410,6 +415,7 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
         }
         Err(Refusal::Failed(reason)) => {
             entry.allowed = true;
+            entry.phase = "failed".to_owned();
             entry.reason = Some(reason.clone());
             inner.log.append(&entry);
             answer(&mut client, "502 Bad Gateway", "", &format!("{reason}\n")).await;
@@ -417,56 +423,133 @@ async fn serve(inner: Arc<Inner>, mut client: TcpStream) {
         }
     };
     entry.allowed = true;
+    entry.phase = "opened".to_owned();
+    inner.log.append(&entry);
     session.usage.connections.fetch_add(1, Ordering::Relaxed);
-    let mut upstream = upstream;
-    let mut sent = 0u64;
-    let opened = match &target.path {
-        None => client
-            .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-            .await
-            .is_ok(),
-        Some(path) => {
-            let forwarded = forward_head(&head, path);
-            sent += (forwarded.len() + rest.len()) as u64;
-            upstream.write_all(&forwarded).await.is_ok() && upstream.write_all(&rest).await.is_ok()
+    let moved = Moved::default();
+    let ahead = match &target.path {
+        None => {
+            let shown = client
+                .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
+                .await
+                .is_ok();
+            shown.then(|| rest.clone())
         }
+        Some(path) => Some([forward_head(&head, path), rest.clone()].concat()),
     };
-    if target.path.is_none() && !rest.is_empty() {
-        sent += rest.len() as u64;
-        let _ = upstream.write_all(&rest).await;
-    }
-    let mut received = 0u64;
+    let opened = match ahead {
+        Some(bytes) => {
+            let written = upstream.write_all(&bytes).await.is_ok();
+            moved.sent.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            session
+                .usage
+                .sent
+                .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            written
+        }
+        None => false,
+    };
     if opened {
-        let (up, down) = relay(&mut client, &mut upstream).await;
-        sent += up;
-        received += down;
+        relay(
+            &inner,
+            &session,
+            &mut entry,
+            &moved,
+            &mut client,
+            &mut upstream,
+        )
+        .await;
     }
-    session.usage.sent.fetch_add(sent, Ordering::Relaxed);
-    session
-        .usage
-        .received
-        .fetch_add(received, Ordering::Relaxed);
-    entry.sent = sent;
-    entry.received = received;
+    entry.phase = "closed".to_owned();
+    entry.at = (inner.clock)();
+    entry.sent = moved.sent.load(Ordering::Relaxed);
+    entry.received = moved.received.load(Ordering::Relaxed);
     inner.log.append(&entry);
 }
 
-/// Copies both ways until both sides are done; answers the bytes each way, counted as they go
-/// so a side that resets instead of closing still has what it moved logged.
-async fn relay(client: &mut TcpStream, upstream: &mut TcpStream) -> (u64, u64) {
-    let (mut client_read, mut client_write) = client.split();
-    let (mut upstream_read, mut upstream_write) = upstream.split();
-    let up = pipe(&mut client_read, &mut upstream_write);
-    let down = pipe(&mut upstream_read, &mut client_write);
-    tokio::join!(up, down)
+/// One connection's bytes each way, and when it last moved any.
+#[derive(Default)]
+struct Moved {
+    sent: AtomicU64,
+    received: AtomicU64,
+    /// Milliseconds since the relay began.
+    last: AtomicU64,
 }
 
+/// Copies both ways until both sides are done, the session is cancelled or the tunnel goes idle,
+/// counting bytes as they move and logging them at bounded intervals.
+async fn relay(
+    inner: &Inner,
+    session: &Session,
+    entry: &mut Entry,
+    moved: &Moved,
+    client: &mut TcpStream,
+    upstream: &mut TcpStream,
+) {
+    let began = tokio::time::Instant::now();
+    let (mut client_read, mut client_write) = client.split();
+    let (mut upstream_read, mut upstream_write) = upstream.split();
+    let up = pipe(
+        &mut client_read,
+        &mut upstream_write,
+        [&moved.sent, &session.usage.sent],
+        &moved.last,
+        began,
+    );
+    let down = pipe(
+        &mut upstream_read,
+        &mut client_write,
+        [&moved.received, &session.usage.received],
+        &moved.last,
+        began,
+    );
+    let both = async { tokio::join!(up, down) };
+    tokio::pin!(both);
+    let limits = inner.limits;
+    let tick = limits
+        .progress
+        .min(limits.idle)
+        .min(Duration::from_secs(1))
+        .max(Duration::from_millis(10));
+    let mut ticker = tokio::time::interval(tick);
+    ticker.tick().await;
+    let mut logged_at = tokio::time::Instant::now();
+    let mut logged = (0, 0);
+    loop {
+        tokio::select! {
+            _ = &mut both => return,
+            () = session.cancelled() => return,
+            _ = ticker.tick() => {
+                let now = tokio::time::Instant::now();
+                let moved_at = began + Duration::from_millis(moved.last.load(Ordering::Relaxed));
+                if now.duration_since(moved_at) >= limits.idle {
+                    return;
+                }
+                let so_far = (
+                    moved.sent.load(Ordering::Relaxed),
+                    moved.received.load(Ordering::Relaxed),
+                );
+                if now.duration_since(logged_at) >= limits.progress && so_far != logged {
+                    entry.phase = "progress".to_owned();
+                    entry.at = (inner.clock)();
+                    (entry.sent, entry.received) = so_far;
+                    inner.log.append(entry);
+                    (logged_at, logged) = (now, so_far);
+                }
+            }
+        }
+    }
+}
+
+/// Copies `from` to `to` until either ends, adding each chunk to `counts` and noting when.
 async fn pipe(
     from: &mut (impl tokio::io::AsyncRead + Unpin),
     to: &mut (impl tokio::io::AsyncWrite + Unpin),
-) -> u64 {
+    counts: [&AtomicU64; 2],
+    last: &AtomicU64,
+    began: tokio::time::Instant,
+) {
     let mut buffer = vec![0u8; 16 * 1024];
-    let mut moved = 0u64;
     loop {
         match from.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
@@ -474,12 +557,15 @@ async fn pipe(
                 if to.write_all(&buffer[..read]).await.is_err() {
                     break;
                 }
-                moved += read as u64;
+                for count in counts {
+                    count.fetch_add(read as u64, Ordering::Relaxed);
+                }
+                let since = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX);
+                last.store(since, Ordering::Relaxed);
             }
         }
     }
     let _ = to.shutdown().await;
-    moved
 }
 
 enum Refusal {
@@ -494,11 +580,12 @@ async fn reach(
     policy: &NetworkPolicy,
     target: &Target,
 ) -> Result<TcpStream, Refusal> {
+    let wait = inner.limits.connect;
     let local = match policy.verdict(&target.host, target.port) {
         Verdict::Allowed { local } => local,
         Verdict::Refused(reason) => return Err(Refusal::Policy(reason)),
     };
-    let addresses = tokio::time::timeout(WAIT, inner.resolver.resolve(&target.host, target.port))
+    let addresses = tokio::time::timeout(wait, inner.resolver.resolve(&target.host, target.port))
         .await
         .map_err(|_| Refusal::Failed(format!("{} could not be resolved in time", target.host)))?
         .map_err(|error| {
@@ -516,7 +603,7 @@ async fn reach(
     }
     let mut last = String::from("no address answered");
     for address in addresses {
-        match tokio::time::timeout(WAIT, TcpStream::connect(address)).await {
+        match tokio::time::timeout(wait, TcpStream::connect(address)).await {
             Ok(Ok(stream)) => return Ok(stream),
             Ok(Err(error)) => last = error.to_string(),
             Err(_) => last = "timed out".to_owned(),
@@ -526,83 +613,4 @@ async fn reach(
         "{}:{} could not be reached: {last}",
         target.host, target.port
     )))
-}
-
-/// The head sent on for a plain HTTP request: origin-form, without the proxy's headers, closed
-/// after one exchange.
-fn forward_head(head: &Head, path: &str) -> Vec<u8> {
-    let mut out = format!("{} {} {}\r\n", head.method, path, head.version);
-    for (name, value) in &head.headers {
-        let lower = name.to_ascii_lowercase();
-        if matches!(
-            lower.as_str(),
-            "proxy-authorization" | "proxy-connection" | "connection" | "keep-alive"
-        ) {
-            continue;
-        }
-        out.push_str(&format!("{name}: {value}\r\n"));
-    }
-    out.push_str("Connection: close\r\n\r\n");
-    out.into_bytes()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_connect_head_names_its_host_port_and_the_runs_token() {
-        let head = parse_head(
-            b"CONNECT github.com:443 HTTP/1.1\r\nHost: github.com:443\r\nProxy-Authorization: Basic c3BhZGU6dG9rMQ==",
-        )
-        .unwrap_or_else(|| std::process::abort());
-        assert_eq!(head.token().as_deref(), Some("tok1"));
-        assert_eq!(
-            target(&head),
-            Some(Target {
-                host: "github.com".into(),
-                port: 443,
-                path: None
-            })
-        );
-    }
-
-    #[test]
-    fn a_plain_request_is_sent_on_in_origin_form_without_the_proxys_headers() {
-        let head = parse_head(
-            b"GET http://example.org:8080/a?b=1 HTTP/1.1\r\nHost: example.org\r\nProxy-Authorization: Basic eA==\r\nProxy-Connection: keep-alive",
-        )
-        .unwrap_or_else(|| std::process::abort());
-        let to = target(&head).unwrap_or_else(|| std::process::abort());
-        assert_eq!((to.host.as_str(), to.port), ("example.org", 8080));
-        let sent = String::from_utf8(forward_head(&head, to.path.as_deref().unwrap_or("/")))
-            .unwrap_or_default();
-        assert_eq!(
-            sent,
-            "GET /a?b=1 HTTP/1.1\r\nHost: example.org\r\nConnection: close\r\n\r\n"
-        );
-    }
-
-    #[test]
-    fn heads_spade_does_not_forward_are_refused() {
-        for raw in [
-            &b"GET https://example.org/ HTTP/1.1"[..],
-            b"GET http://user@example.org/ HTTP/1.1",
-            b"CONNECT example.org HTTP/1.1",
-            b"GET / HTTP/1.1",
-        ] {
-            let head = parse_head(raw);
-            assert!(head.as_ref().and_then(target).is_none(), "{raw:?}");
-        }
-        assert!(parse_head(b"GARBAGE").is_none());
-    }
-
-    #[test]
-    fn an_ipv6_literal_keeps_its_port() {
-        assert_eq!(
-            split_host_port("[::1]:3000"),
-            Some(("::1".to_owned(), Some(3000)))
-        );
-        assert_eq!(split_host_port(":80"), None);
-    }
 }

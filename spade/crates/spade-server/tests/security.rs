@@ -377,8 +377,10 @@ async fn a_command_reaches_a_host_only_once_the_person_allows_it_and_each_try_is
     let allowed: Vec<bool> = log["entries"]
         .as_array()
         .map(|entries| {
+            // Each connection's last line: `refused`, or `closed` after its `opened`.
             entries
                 .iter()
+                .filter(|e| e["phase"] == json!("refused") || e["phase"] == json!("closed"))
                 .map(|e| e["allowed"] == json!(true))
                 .collect()
         })

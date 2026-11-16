@@ -11,11 +11,18 @@ use serde::{Deserialize, Serialize};
 /// The size at which a bot's log rolls over.
 pub const MOST_BYTES: u64 = 1024 * 1024;
 
-/// One connection.
+/// One line about a connection: `refused` (by policy), `failed` (allowed, but the host couldn't
+/// be reached), `opened` (admitted, written at once), `progress` (its bytes so far, at bounded
+/// intervals while it runs) and `closed` (its final bytes). A line from before phases has `""`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
-    /// When it was asked for, in Unix milliseconds.
+    /// When this line was written, in Unix milliseconds.
     pub at: i64,
+    /// The proxy's number for the connection, the same on all its lines.
+    #[serde(default)]
+    pub connection: u64,
+    #[serde(default)]
+    pub phase: String,
     pub bot: String,
     /// The sandboxed run that asked.
     pub run: String,
@@ -124,6 +131,8 @@ mod tests {
     fn entry(bot: &str, at: i64, host: &str) -> Entry {
         Entry {
             at,
+            connection: 1,
+            phase: "closed".to_owned(),
             bot: bot.to_owned(),
             run: "r1".to_owned(),
             host: host.to_owned(),

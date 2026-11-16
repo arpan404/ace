@@ -27,18 +27,25 @@ shell in the bot's terminal is not sandboxed. A run is confined when its home is
 started: the shell answers `the sandbox could not start: …`, and a plugin server keeps that as its
 problem.
 
-| Place                                                                    | Access                        |
-| ------------------------------------------------------------------------ | ----------------------------- |
-| The bot's workspace, `.spade/tmp` in it (`TMPDIR`)                       | read-write                    |
-| Folders granted with `write: true`                                       | read-write                    |
-| A terminal's state files (Spade's `terminal/<bot>`)                      | read-write                    |
-| The system                                                               | read-only                     |
-| Confirmed toolchains, folders granted for reading                        | read-only                     |
-| A plugin's own folder (its hooks and servers only)                       | read-only                     |
-| The rest of the home folder                                              | none (ancestors: `stat` only) |
-| Spade's data (other bots' workspaces, database, keys), ace's data        | none                          |
-| The credential deny-list                                                 | none, whatever else allows it |
-| `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom`, ttys, `/dev/fd` | read-write                    |
+| Place                                                                                                                               | Access                                           |
+| ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| The bot's workspace, `.spade/tmp` in it (`TMPDIR`)                                                                                  | read-write                                       |
+| Folders granted with `write: true`                                                                                                  | read-write                                       |
+| A terminal's state files (Spade's `terminal/<bot>`)                                                                                 | read-write                                       |
+| The system's folders (below)                                                                                                        | read-only                                        |
+| Confirmed toolchains, folders granted for reading                                                                                   | read-only                                        |
+| A plugin's own folder (its hooks and servers only)                                                                                  | read-only                                        |
+| Everything else: home folders, `/Users/Shared`, `/Volumes`, the person's temporary storage (`/private/var/folders`, `/private/tmp`) | none (ancestors of an opened place: `stat` only) |
+| Spade's data (other bots' workspaces, database, keys), ace's data                                                                   | none                                             |
+| The credential deny-list                                                                                                            | none, whatever else allows it                    |
+| `/dev/null`, `/dev/zero`, `/dev/random`, `/dev/urandom`, ttys, `/dev/fd`                                                            | read-write                                       |
+
+The system's folders on macOS: `/System`, `/usr`, `/bin`, `/sbin`, `/Library`, `/opt`, `/nix`,
+`/private/etc`, `/private/var/db/timezone`, `/private/var/select`,
+`/private/var/db/xcode_select_link`, `/Applications/Xcode.app`, and the listing of `/` (the loader
+reads it). On Linux: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/etc`, `/opt`, `/nix`,
+`/snap`, `/var/lib`, `/proc`, `/sys`, `/dev`. Nothing is readable by default and then hidden: every
+read rule names what it opens.
 
 Network: TCP to the egress proxy on `127.0.0.1` and nothing else, no DNS. Listening on loopback
 is allowed, so a dev server can start. On macOS there are no Apple Events and no LaunchServices
@@ -61,7 +68,11 @@ the proxy variables below, and for confirmed toolchains their `bin` folders firs
 `/Library/Keychains`. Spade's and ace's data folders are closed the same way. In the Seatbelt
 profile it comes after every grant, so nothing opens it again; a plugin folder reopened inside
 ace's data is followed by the credential places closed once more. Landlock has no deny rule, so a
-readable folder holding a listed place is opened child by child around it. The word list in
+readable folder holding a listed place is opened child by child around it, by the launcher
+itself and on opened objects: each child is opened with `openat` and `O_PATH | O_NOFOLLOW`
+beside its opened folder, a link met while carving is skipped (never followed or granted), an
+object that is a denied one (same device and inode, a hard link included) is left out, and the
+descriptors carving opened are the ones the rules are installed on. The word list in
 `spade_core::autonomy::secrets` still refuses a call naming these places before anything runs.
 
 ## The egress proxy
@@ -78,7 +89,14 @@ forwarded in origin form without `Proxy-Authorization`, `Proxy-Connection`, `Con
 | `407`  | No `Proxy-Authorization: Basic`, or a token of no live run                   |
 | `400`  | A head that doesn't parse, `https://` absolute form, credentials in the URL  |
 | `403`  | The policy refuses the host, or a public name resolves to a private address  |
+| `429`  | The run already has its cap of connections open (64)                         |
 | `502`  | Allowed, but the name didn't resolve or the host didn't answer (within 30 s) |
+
+**Bounds** (`egress::Limits`): at most 512 connections at once across every run, admitted before
+any task is spawned (past it a new connection is closed unread); 10 s for a client to send its
+request's head; 64 open per run; a tunnel with no bytes either way for 5 minutes is closed (a side
+that half-closes keeps the other direction open until then). Dropping a run's ticket cancels its
+session: its open tunnels close and connections still being made are abandoned.
 
 **Network policy** `{mode, allow, dropped}`:
 
@@ -96,9 +114,11 @@ forwarded in origin form without `Proxy-Authorization`, `Proxy-Connection`, `Con
   `open` mode too and when a public name resolves to one. An entry that names a local host
   literally (`localhost:3000`, `10.0.0.5:5432`) is the only way in.
 
-**Log.** Every request is one JSON line in `<data>/egress/<bot>.jsonl`, written when the
-connection ends (a refusal at once): `{at, bot, run, host, port, method, allowed, reason?, sent,
-received}`. Past 1 MiB the file becomes `<bot>.1.jsonl` and a new one starts.
+**Log.** JSON lines in `<data>/egress/<bot>.jsonl`, `{at, connection, phase, bot, run, host, port,
+method, allowed, reason?, sent, received}`. `phase`: `refused` or `failed` (at once), `opened` (at
+admission, before any bytes), `progress` (the bytes so far, every 30 s while they change) and
+`closed` (the final bytes). Bytes are counted as they move, so a run's usage is current while its
+tunnels are open. `connection` ties a connection's lines together. Past 1 MiB the file becomes `<bot>.1.jsonl` and a new one starts.
 
 ## Grants
 
@@ -118,6 +138,10 @@ as the concern. Refused at creation: a `tool` grant whose name says a payment, s
 person, or changing sign-ins, keys or access (`autonomy::never_granted`: those always go to the
 person); a push grant for every branch (`*`, `**`); a folder that is relative, `/`, uses `..`,
 isn't a folder, or is or holds a credential place or Spade's or ace's data.
+
+A folder grant is stored as the folder it names (links resolved), and every folder grant up the
+tree is resolved again each time grants are used, so a folder that later becomes a link out of
+its parent's is dropped; each launch resolves once more when it builds the policy.
 
 **Down the tree.** A bot's effective grants are its own for a top-level bot; for a worker, those
 of its own that one of its parent's effective grants covers (`grant::within`, conservative: a
@@ -149,13 +173,21 @@ whole. A folder without a record is an unfinished copy and is removed when the l
 `.spade/tmp` isn't kept. Taken:
 
 - `auto`: before a sandboxed bot command, terminal command or service, or a contained file write,
-  at most once a minute per bot (in memory, so a restart may take one sooner);
+  at most once a minute per bot (only one that was taken counts; in memory, so a restart may take
+  one sooner). When it can't be taken, the command or write goes to the review instead, and a
+  service doesn't start;
 - `person`: on `POST /agents/{id}/checkpoints`;
 - `before_restore`: just before a restore.
 
-Kept: the newest 20, none older than 7 days. A restore moves the workspace aside, copies the
-checkpoint in its place, and puts the old one back if the copy fails; it is refused (`409`) while
-the bot is working. Consented folders aren't copied. Files a restore brings back are trusted only
+Operations on one bot's checkpoints run one at a time; a copy is made as `.stage-<id>` and
+published by a rename, its record after it, so a listing never meets one in progress. Kept: the
+newest 20, none older than 7 days.
+
+A restore first reserves the bot's workspace: until it is released no turn of the bot or its
+helpers starts (they wait), no contained command or file write runs, and another restore answers
+`409`. Then it is refused (`409`) while the bot is working or its services run. It takes a
+`before_restore` checkpoint, moves the workspace aside, copies the checkpoint in its place, and
+puts the old one back if the copy fails. Consented folders aren't copied. Files a restore brings back are trusted only
 where their content still matches the trust record.
 
 ## API
