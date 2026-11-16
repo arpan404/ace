@@ -1,6 +1,6 @@
 import XCTest
 
-/// Plan review and form cards, the effort and speed chip, the attach menu, a finished turn's full
+/// Plan review and form cards, effort in the model sheet, the attach menu, a finished turn's full
 /// steps and going back from a child, against the spike fixture, with screenshots. Run on a fresh
 /// fixture; `TEST_RUNNER_ACE_IOS_SPIKE_PORT` selects its port.
 @MainActor final class ThreadGapsUITests: XCTestCase, @unchecked Sendable {
@@ -20,21 +20,49 @@ import XCTest
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
         app.buttons["plan.close"].tap()
-        // The title's menu offers effort as a submenu, the levels in words; the line under the
-        // title follows the pick.
+        // The title's menu has one entry for model, effort and speed: its sheet leads with Effort,
+        // the levels in words and one tap each; the line under the title follows the pick.
         app.threadTitle(timeout: 25).tap()
-        let effort = app.titleMenuItem("thread.title.effort", label: "Effort")
-        XCTAssertTrue(effort.waitForExistence(timeout: 10))
-        effort.tap()
-        let high = app.buttons["High"].firstMatch
-        XCTAssertTrue(high.waitForExistence(timeout: 10))
+        let model = app.titleMenuItem("thread.title.model", label: "Model, effort and speed")
+        XCTAssertTrue(model.waitForExistence(timeout: 10))
+        screenshot("title-menu")
+        model.tap()
+        let high = app.buttons["tune.effort.high"]
+        XCTAssertTrue(high.waitForExistence(timeout: 15))
+        XCTAssertEqual(high.label, "Effort, High")
         screenshot("tune-effort")
         high.tap()
+        expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: high)
+        waitForExpectations(timeout: 10)
+        // Done is the sheet's only bar button.
+        XCTAssertFalse(app.buttons["modelSheet.close"].exists)
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         expectation(for: NSPredicate(format: "value CONTAINS 'High'"), evaluatedWith: app.threadTitle())
         waitForExpectations(timeout: 10)
+        // Another model: the sheet stays open, the row is checked and Effort shows its levels.
+        app.threadTitle().tap()
+        app.titleMenuItem("thread.title.model", label: "Model, effort and speed").tap()
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "threadModel."))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15))
+        let other = (0..<min(rows.count, 20)).map { rows.element(boundBy: $0) }.first { $0.isHittable && !$0.isSelected && $0.isEnabled }
+        XCTAssertNotNil(other)
+        other?.tap()
+        // A move that asks is confirmed on the tap and sent when the sheet closes.
+        let ask = app.alerts.firstMatch
+        if ask.waitForExistence(timeout: 3) {
+            ask.buttons.matching(NSPredicate(format: "label != %@", "Cancel")).firstMatch.tap()
+        }
+        XCTAssertTrue(app.buttons["modelSheet.done"].exists)
+        if let other { expectation(for: NSPredicate(format: "selected == true"), evaluatedWith: other) }
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tune.")).firstMatch.waitForExistence(timeout: 10))
+        screenshot("thread-model-picked")
+        app.buttons["modelSheet.done"].tap()
+        XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
-        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Photo library"].waitForExistence(timeout: 10))
         screenshot("attach-menu")
     }
     func testFormCard() {

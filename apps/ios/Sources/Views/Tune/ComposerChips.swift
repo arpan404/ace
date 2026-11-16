@@ -11,60 +11,13 @@ enum ComposerControlRow {
     static let height: CGFloat = 36
 }
 
-/// The composer's model controls, two taps: the model's name opens the model sheet; the effort
-/// ("Med", "Med · Fast") opens effort and speed. The effort shows only when the model has levels or speeds.
-struct ModelEffortChip: View {
-    let provider: String?
-    let model: String
-    /// "Med", "Med · Fast"; nil when the model has nothing to tune.
-    let effort: String?
-    var loading = false
-    var queued = false
-    /// Why the model named isn't in effect yet, read out with it.
-    var note: String? = nil
-    let modelID: String
-    let effortID: String
-    let openModel: () -> Void
-    let openEffort: () -> Void
-
-    var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
-            Button(action: openModel) {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    if let provider, !provider.isEmpty { ProviderMark(provider: provider, size: AceDesign.Size.metaIcon) }
-                    if loading { ProgressView().controlSize(.mini) }
-                    Text(model).lineLimit(1).truncationMode(.tail)
-                        .frame(maxWidth: AceDesign.Size.chipMaxWidth, alignment: .leading)
-                    caret
-                }
-                .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: ComposerControlRow.height)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Model").accessibilityValue(model).accessibilityHint(note ?? "")
-            .accessibilityIdentifier(modelID)
-            if let effort {
-                Button(action: openEffort) {
-                    HStack(spacing: AceTheme.Spacing.xs) {
-                        Text(effort).lineLimit(1).truncationMode(.tail)
-                        caret
-                    }
-                    .padding(.horizontal, AceTheme.Spacing.sm)
-                    .frame(minHeight: ComposerControlRow.height)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Effort and speed").accessibilityValue(effort)
-                .accessibilityIdentifier(effortID)
-            }
-        }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .subheadline)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-    }
-    private var caret: some View {
-        AceIcon(queued ? .clock : .caretDown, size: AceDesign.Size.caret, relativeTo: .caption)
-            .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
+/// The model's tuning in brief for the title's line: the level, and the speed when it isn't the
+/// standard one ("Med · Fast"); nil when the model has nothing to tune.
+enum TuneSummary {
+    static func text(effort: String?, speed: String?, hasLevels: Bool, hasSpeeds: Bool) -> String? {
+        guard hasLevels || hasSpeeds else { return nil }
+        let parts = [effort ?? (hasLevels ? "Default" : nil), speed].compactMap { $0 }
+        return parts.isEmpty ? "Standard" : parts.joined(separator: " · ")
     }
 }
 

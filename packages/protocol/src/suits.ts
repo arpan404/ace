@@ -31,13 +31,17 @@ export type SuitId = z.infer<typeof SuitId>;
 
 const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
+const insideAssets = (path: string) => !path.split("/").includes("..");
+const insideAssetsRule = "No `..` path segment: the path stays inside assets/.";
+
 /** A path inside the Suit's `assets/` folder, never outside it. */
 export const SuitAssetPath = z
   .string()
   .min(1)
   .max(200)
   .regex(/^assets\/[A-Za-z0-9._/-]+$/)
-  .refine((path) => !path.split("/").includes(".."), "must stay inside assets/");
+  .refine(insideAssets, "must stay inside assets/")
+  .meta({ "x-ace-constraint": insideAssetsRule });
 
 /** Built-in themes a Suit may start from (`themeIds` in @ace/themes); unset palette fields come from it. */
 export const SuitBase = z.enum(["ace", "paper", "midnight", "grove", "harbor", "dusk"]);
@@ -101,10 +105,14 @@ export const isSuitVideoPath = (path: string) =>
   path.startsWith("assets/") &&
   suitVideoExtensions.some((extension) => path.toLowerCase().endsWith(extension));
 
-export const SuitVideoPath = SuitAssetPath.refine(
-  isSuitVideoPath,
-  "must be an .mp4, .m4v, .mov or .webm file in assets/",
-);
+/** The extension is in the pattern, any case, so the JSON Schema states the rule too. */
+export const SuitVideoPath = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^assets\/[A-Za-z0-9._/-]*\.(?:[mM][pP]4|[mM]4[vV]|[mM][oO][vV]|[wW][eE][bB][mM])$/)
+  .refine(insideAssets, "must stay inside assets/")
+  .meta({ "x-ace-constraint": insideAssetsRule });
 
 /**
  * A video behind the shell (ADR 0169). ace plays it in its own element; no Suit code runs for it.

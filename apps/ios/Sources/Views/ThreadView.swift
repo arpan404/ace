@@ -18,7 +18,6 @@ struct ThreadView: View {
     @State private var acceptedSend = 0
     @State private var attachProblem: String?
     @State private var showModels = false
-    @State private var showTune = false
     @State private var lane: BlockRow.Agents.Entry?
     /// The page showing on a phone (`ThreadPager`), and the one last asked for, which keeps its
     /// bar button while it shows even before the thread has something for it.
@@ -64,6 +63,8 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The strip over the capsule: the `@` and `/` list opens above it, never over it.
+    @State private var stripHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     /// A pasted file's words going back into the message as text.
@@ -257,9 +258,6 @@ struct ThreadView: View {
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
-            .sheet(isPresented: $showTune) {
-                if let tune = screen.tune { ThreadTunePanel(tune: tune, model: model) }
-            }
             .sheet(item: $lane) { entry in AgentLaneSheet(entry: entry, model: model, thread: thread, openThread: openThread) }
             .transferSheet(model: model, kind: "thread")
             .sheet(item: $goalSheet) { opened in
@@ -348,11 +346,9 @@ struct ThreadView: View {
                                status: model.headerStatus(of: thread)?.label,
                                width: 0,
                                model: changesModel ? ThreadModelWords.line(screen) : nil,
-                               tune: changesModel ? screen.tune : nil, access: changesModel ? screen.access : nil,
+                               access: changesModel ? screen.access : nil,
                                canRename: operable, canRetitle: operable, actions: titleActions,
-                               openModel: { showModels = true }, openTune: { showTune = true },
-                               setEffort: { effort in Task { _ = await model.setEffort(effort) } },
-                               setSpeed: { speed in Task { _ = await model.setSpeed(speed) } },
+                               openModel: { showModels = true },
                                setAccess: { mode in Task { _ = await model.setAccess(mode) } },
                                rename: { renaming = true },
                                retitle: { [thread] in Task { _ = await model.retitle(thread.id) } },
@@ -378,9 +374,11 @@ struct ThreadView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if hasStrip {
                 strip
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
                     // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            } else if let pill = screen.pill {
+            } else if let pill = screen.pill, suggester.trigger == nil {
+                // The `@` and `/` list takes the pills' place over the transcript while it's open.
                 ComposerLivePills(pill: pill, open: openPill)
                     .transition(.opacity)
             }
@@ -389,7 +387,7 @@ struct ThreadView: View {
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
-            ComposerFloaters(behind: behind && shownPage == .chat) { jumps += 1 }
+            ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
         }
         // Only a strip, the pills or the fork strip arriving or leaving animates, with the
@@ -398,6 +396,7 @@ struct ThreadView: View {
         .animation(.default, value: request?.id)
         .animation(.default, value: hasStrip)
         .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: suggester.trigger == nil)
         .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
@@ -489,6 +488,7 @@ struct ThreadView: View {
                          files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
+                         listAbove: hasStrip ? stripHeight : 0,
                          run: runComposerAction, focusRequest: composerFocus) {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }

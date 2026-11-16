@@ -43,6 +43,9 @@ export async function reset(): Promise<void> {
   stop?.();
   lease?.release();
   await client?.close();
+  // What the ended test queued still flushes on the pump's timer: let it land before clearing,
+  // so none of it arrives as the next test's patches.
+  await pump.drained();
   native.frames.length = 0;
   slowSettings.ms = 0;
   refuseOnce.text = "Refuse this once";

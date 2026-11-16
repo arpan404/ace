@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitLabelKey.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "composer-placeholder",
+    "empty-transcript",
+    "empty-sidebar",
+    "working-word",
+    "send"
+  ],
+  "type": "string"
+}

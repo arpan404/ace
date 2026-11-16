@@ -6,12 +6,15 @@ struct GlassChoiceItem: Identifiable, Equatable {
     let id: String
     let label: String
     var glyph: Glyph? = nil
+    /// What VoiceOver reads instead of `label` ("Effort, Medium"), and after it ("default").
+    var spoken: String? = nil
+    var spokenValue: String? = nil
 }
 
 /// Exclusive choices in words on one glass capsule (system glass on iOS 26, the regular material
 /// on iOS 18): the chosen one sits on a flat thumb that springs across as the choice moves, as
 /// DESIGN.md's segmented control does. It scrolls sideways when the words don't fit. The model
-/// sheet's tabs and its Effort, Speed and Access use it.
+/// sheet's Effort and Speed and the skill editors use it.
 struct GlassChoice: View {
     let items: [GlassChoiceItem]
     let selection: String?
@@ -73,7 +76,8 @@ struct GlassChoice: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .accessibilityLabel(item.label)
+        .accessibilityLabel(item.spoken ?? item.label)
+        .accessibilityValue(item.spokenValue ?? "")
         .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("\(idPrefix).\(item.id)")
         .sensoryFeedback(.selection, trigger: on)

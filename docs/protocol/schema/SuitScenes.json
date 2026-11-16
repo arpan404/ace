@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitScenes.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "pattern": "^[A-Za-z0-9-]+\\.js$",
+    "type": "string"
+  },
+  "propertyNames": {
+    "$ref": "https://ace.local/protocol/v1/SuitSceneRegion.json"
+  },
+  "type": "object"
+}

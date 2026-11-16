@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitOrnament.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "asset": {
+      "pattern": "^assets\\/[A-Za-z0-9._/-]+\\.(svg|html)$",
+      "type": "string",
+      "x-ace-constraint": "No `..` path segment: the path stays inside assets/."
+    },
+    "slot": {
+      "$ref": "https://ace.local/protocol/v1/SuitOrnamentSlot.json"
+    }
+  },
+  "required": [
+    "slot",
+    "asset"
+  ],
+  "type": "object"
+}

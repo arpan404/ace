@@ -74,3 +74,14 @@ test("an Android run that boots an AVD reaches the runner's AVD folder and its g
     HOME: home,
   });
 });
+
+test("a test run finds the person's Rust toolchains, unless the runner names its own", () => {
+  // rustup reads its default toolchain from RUSTUP_HOME, which falls back to $HOME/.rustup.
+  expect(isolatedTestEnvironment(desktop, home, "/home/person").RUSTUP_HOME).toBe(
+    join("/home/person", ".rustup"),
+  );
+  expect(
+    isolatedTestEnvironment({ ...desktop, RUSTUP_HOME: "/opt/rustup" }, home, "/home/person")
+      .RUSTUP_HOME,
+  ).toBe("/opt/rustup");
+});

@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitReportMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "report": {
+      "$ref": "https://ace.local/protocol/v1/SuitLiveReport.json"
+    },
+    "type": {
+      "const": "suitReport",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "report"
+  ],
+  "type": "object"
+}

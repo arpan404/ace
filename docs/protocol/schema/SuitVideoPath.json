@@ -1,0 +1,9 @@
+{
+  "$id": "https://ace.local/protocol/v1/SuitVideoPath.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 200,
+  "minLength": 1,
+  "pattern": "^assets\\/[A-Za-z0-9._/-]*\\.(?:[mM][pP]4|[mM]4[vV]|[mM][oO][vV]|[wW][eE][bB][mM])$",
+  "type": "string",
+  "x-ace-constraint": "No `..` path segment: the path stays inside assets/."
+}

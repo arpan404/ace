@@ -22,7 +22,9 @@ import {
   type Speed,
 } from "@ace/ui-core";
 import { runsOn, selectionIdentity, type PendingTurn } from "@ace/ui-core/thread-execution";
+import { choiceSelection } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
+import { forkTuneRow, type ForkTune } from "./fork-tune.ts";
 
 /*
  * Effort and speed for the open thread's next message, as the web's model control offers them:
@@ -33,6 +35,8 @@ import { preview } from "./presentation.ts";
  */
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+/** A fork being written: its model (undefined: the thread's) and what was picked for it. */
+type Forking = () => { choice: ModelChoice | undefined; tune: ForkTune } | undefined;
 const accountOf = (selection: { provider: string; instanceId?: string | undefined }) =>
   JSON.stringify([selection.provider, selection.instanceId ?? ""]);
 
@@ -42,6 +46,7 @@ export class TuneFollower {
   readonly #signal: AbortSignal;
   readonly #put: Put;
   readonly #now: () => number;
+  readonly #forking: Forking;
   #catalog: CatalogModel[] = [];
   #choices: ModelChoice[] = [];
   /** The provider and account the catalog was last asked for; cleared when that read fails. */
@@ -49,6 +54,8 @@ export class TuneFollower {
   /** The newest catalog read: an older one answering late is dropped. */
   #reading = 0;
   #pending: PendingTurn | undefined;
+  /** Effort and speed picked for a model the thread is moving to, applied once it runs there. */
+  #ahead: { identity: string; tune: ForkTune } | undefined;
   #notice = "";
 
   constructor(
@@ -57,12 +64,38 @@ export class TuneFollower {
     signal: AbortSignal,
     put: Put,
     now: () => number,
+    forking: Forking = () => undefined,
   ) {
     this.#client = client;
     this.#store = store;
     this.#signal = signal;
     this.#put = put;
     this.#now = now;
+    this.#forking = forking;
+  }
+
+  /** The catalog's choice for what the thread runs on, which a fork on its own model runs on. */
+  model(): ModelChoice | undefined {
+    return this.#current();
+  }
+
+  /**
+   * The thread moved to `choice` with `tune` picked for it after the switch went out: it goes
+   * with the next message once the model's levels are read, as a pick made there would.
+   */
+  hold(choice: ModelChoice, tune: ForkTune): void {
+    if (tune.effort === undefined && tune.speed === undefined) return;
+    this.#ahead = {
+      identity: selectionIdentity({ ...choiceSelection(choice), options: {} }),
+      tune,
+    };
+    this.#reconcile();
+    this.#emit();
+  }
+
+  /** The fork was opened, closed or tuned: the rows show its tuning, or the thread's again. */
+  redraw(): void {
+    this.#emit();
   }
 
   /** The thread changed: read the catalog for a new provider or account, re-check a pick, redraw. */
@@ -165,8 +198,37 @@ export class TuneFollower {
     this.#notice = "";
     this.#emit();
   }
-  /** The thread moved since the pick: keep what its model still takes, and say what went. */
   #reconcile(): void {
+    this.#carryOver();
+    this.#applyAhead();
+  }
+  /** A pick held for the model the thread now runs, once its levels are known. */
+  #applyAhead(): void {
+    const ahead = this.#ahead;
+    const identity = selectionIdentity(runsOn(this.#store.thread));
+    if (!ahead || ahead.identity !== identity || !this.#current()) return;
+    this.#ahead = undefined;
+    const { effort, speed } = ahead.tune;
+    const set = (options: PendingTurn["options"] | undefined) => {
+      this.#pending = options && { identity, options };
+    };
+    const tuning = this.#tuning();
+    if (
+      effort !== undefined &&
+      tuning.effort.reason === undefined &&
+      tuning.effort.efforts.includes(effort)
+    )
+      set(pickEffort(tuning, effort));
+    const after = this.#tuning();
+    if (
+      speed !== undefined &&
+      after.speed.reason === undefined &&
+      after.speed.tiers.some((tier) => tier.speed === speed)
+    )
+      set(pickSpeed(after, speed));
+  }
+  /** The thread moved since the pick: keep what its model still takes, and say what went. */
+  #carryOver(): void {
     const pending = this.#pending;
     const identity = selectionIdentity(runsOn(this.#store.thread));
     const shown = this.#current();
@@ -189,6 +251,21 @@ export class TuneFollower {
   }
   #emit(): void {
     this.#put("tune", () => {
+      // While a fork is written the sheet tunes the fork, never this thread's next message.
+      const fork = this.#forking();
+      if (fork) {
+        if (fork.choice) return forkTuneRow(fork.choice, fork.tune);
+        // A fork on this thread's model starts as the thread runs, before any pick of its own.
+        const own = threadTuning({
+          thread: this.#store.thread,
+          choice: this.#shown(),
+          pending: undefined,
+        });
+        return forkTuneRow(this.#current(), fork.tune, {
+          effort: own.effort.current,
+          speed: own.speed.speed,
+        });
+      }
       const tuning = this.#tuning();
       const { effort, speed, preset, options } = tuning;
       const picked = optionEffort(options);
@@ -203,11 +280,15 @@ export class TuneFollower {
         effort: effort.current ?? "",
         effortDefault: !effort.reported,
         effortReason: preview(effort.reason ?? "", 256),
+        /** The model's own default level, which the sheet marks; empty when it has none. */
+        effortPreset: tuning.preset ?? "",
         speeds:
           speed.tiers.length > 1
             ? speed.tiers.map((tier) => ({ speed: tier.speed, label: speedLabel(tier.speed) }))
             : [],
         speed: speed.speed,
+        /** The speed the model runs at unless asked otherwise. */
+        speedPreset: this.#shown()?.defaultSpeed ?? "standard",
         speedReason: preview(speed.reason ?? "", 256),
         pending:
           this.#pending !== undefined &&

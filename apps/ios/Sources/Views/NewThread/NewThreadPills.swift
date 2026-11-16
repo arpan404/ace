@@ -32,8 +32,6 @@ struct NewThreadPillsModel {
     var loadingModel: Bool
     /// "High", "Med · Fast"; nil when the model has nothing to tune or no level is known yet.
     var tune: String?
-    /// The model has levels or speeds to choose, whether or not one is known yet.
-    var tunable = false
     /// Where it runs, when the project is a folder with branches; nil for a chat or a PR's worktree.
     var place: Place?
     var access: ComposeAccess?
@@ -57,7 +55,6 @@ struct NewThreadPills: View {
     let chooseProject: () -> Void
     let chooseMachine: (String) -> Void
     let chooseModel: () -> Void
-    let chooseTune: () -> Void
     let chooseWorktree: (Bool) -> Void
     let chooseBase: (ComposeBaseRef) -> Void
     let chooseAccess: (String) -> Void
@@ -95,8 +92,8 @@ struct NewThreadPills: View {
         }
     }
 
-    /// "Opus 5.5 · Med": the model and its effort as one fact, as the thread's composer shows
-    /// them. A tap opens the model picker; a long press offers effort and speed too.
+    /// "Opus 5.5 · Med": the model and its effort as one fact, as the thread's title shows them.
+    /// A tap opens the one sheet for model, effort and speed.
     private var modelPill: some View {
         let label = model.tune.map { "\(model.model) · \($0)" } ?? model.model
         return Button(action: chooseModel) {
@@ -110,12 +107,7 @@ struct NewThreadPills: View {
             }
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            Button("Choose model", ace: .sparkle, action: chooseModel)
-            if model.tunable { Button("Effort and speed", ace: .slidersHorizontal, action: chooseTune) }
-        }
-        .accessibilityLabel("Model").accessibilityValue(label.replacingOccurrences(of: " · ", with: ", "))
-        .accessibilityAction(named: "Effort and speed") { if model.tunable { chooseTune() } }
+        .accessibilityLabel("Model, effort and speed").accessibilityValue(label.replacingOccurrences(of: " · ", with: ", "))
         .accessibilityIdentifier("newThread.agent")
     }
 

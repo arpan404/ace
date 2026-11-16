@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { dismissOnboarding } from "@/lib/provider-readiness.ts";
 import { newThreadIn } from "@/features/projects/index.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
+import { part } from "@/lib/suit-part.ts";
 import { AgentsStep } from "./agents-step.tsx";
 import { DoneStep } from "./done-step.tsx";
 import { ProjectStep } from "./project-step.tsx";
@@ -69,7 +70,11 @@ export function SetupScreen(props: {
       page="setup"
       variant={step}
       corner={
-        <span role="status" aria-label={`Step ${index + 1} of ${setupSteps.length}`}>
+        <span
+          role="status"
+          aria-label={`Step ${index + 1} of ${setupSteps.length}`}
+          {...part("progress", undefined, "steps")}
+        >
           {index + 1} of {setupSteps.length}
         </span>
       }

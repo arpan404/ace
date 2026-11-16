@@ -34,39 +34,3 @@ struct NeedsRequestCard: View {
         }
     }
 }
-
-/// A row's Answer or Review: the request in a native sheet, a plan as the thread's plan review.
-struct NeedsRequestSheet: View {
-    let request: ApprovalRow
-    let model: ClientModel
-    let threadId: String
-    let open: () -> Void
-    let close: () -> Void
-    @State private var draft = QuestionDraftState()
-    var body: some View {
-        if request.kind == "plan_review" {
-            PlanReviewSheet(plan: request.plan, summarized: request.summarized ?? "", submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
-                close()
-                model.answerNeed(request, in: threadId, answer: answer)
-            }
-        } else {
-            NavigationStack {
-                ScrollView {
-                    NeedsRequestCard(request: request, model: model, threadId: threadId, open: { close(); open() }, draft: $draft)
-                        .padding(.horizontal, AceDesign.Space.margin)
-                        .padding(.vertical, AceDesign.Space.row)
-                }
-                .navigationTitle(request.kind == "question" ? "Question" : request.kind == "elicitation" ? "Details" : "Approval")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(action: close) { Image(systemName: "xmark") }
-                            .accessibilityLabel("Close").accessibilityIdentifier("need.close")
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-    }
-}

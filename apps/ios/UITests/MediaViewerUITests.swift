@@ -20,9 +20,9 @@ import XCTest
         XCTAssertLessThan(add.frame.maxX, field.frame.minX)
         screenshot("composer-two-line-height")
         add.tap()
-        XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Choose File"].exists)
-        XCTAssertTrue(app.buttons["Choose Folder"].exists)
+        XCTAssertTrue(app.buttons["Photo library"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Choose file"].exists)
+        XCTAssertTrue(app.buttons["Choose folder"].exists)
         screenshot("composer-separate-add-menu")
     }
 
@@ -47,7 +47,7 @@ import XCTest
     func testTheAddMenuClosesCleanlyAndCanBeOpenedAgain() {
         let app = launchIntoThread()
         let add = app.buttons["composer.attach"]
-        let library = app.buttons["Photo Library"]
+        let library = app.buttons["Photo library"]
         for _ in 0..<3 {
             add.tap()
             XCTAssertTrue(library.waitForExistence(timeout: 5))
@@ -63,18 +63,18 @@ import XCTest
         app.textViews["composer.input"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         app.buttons["composer.attach"].tap()
-        let library = app.buttons["Photo Library"]
+        let library = app.buttons["Photo library"]
         XCTAssertTrue(library.waitForExistence(timeout: 5))
         library.tap()
         let presented = app.buttons["Cancel"].waitForExistence(timeout: 10)
         screenshot("photo-picker-first-open")
-        XCTAssertTrue(presented, "Selecting Photo Library once must present the picker even as the keyboard closes")
+        XCTAssertTrue(presented, "Selecting Photo library once must present the picker even as the keyboard closes")
     }
 
     func testAPickedPhotoShowsAsAThumbnailAndOpensFittedAndZoomable() {
         let app = launchIntoThread()
         app.buttons["composer.attach"].tap()
-        let library = app.buttons["Photo Library"]
+        let library = app.buttons["Photo library"]
         XCTAssertTrue(library.waitForExistence(timeout: 10))
         library.tap()
         // The system picker draws out of process; its photos are images in its grid.
@@ -101,7 +101,7 @@ import XCTest
     func testAPickedVideoShowsItsLengthAndPlaysFullScreen() {
         let app = launchIntoThread()
         app.buttons["composer.attach"].tap()
-        let library = app.buttons["Photo Library"]
+        let library = app.buttons["Photo library"]
         XCTAssertTrue(library.waitForExistence(timeout: 10))
         library.tap()
         let clip = app.images.matching(NSPredicate(format: "label BEGINSWITH 'Video'")).firstMatch
