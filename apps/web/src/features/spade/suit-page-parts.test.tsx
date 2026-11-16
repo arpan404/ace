@@ -6,7 +6,7 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 /*
  * Spade's screens name their parts for Suits (ADR 0150, docs/design/suit-parts.md): each bubble
  * says who wrote it and whether it is still being written or failed, faces are avatars, and a
- * bot's page and activity name their header, body and rows.
+ * bot's profile names its panel, head, segments and rows.
  */
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -100,19 +100,25 @@ test("Spade's own replies are Spade's, not a bot's", async () => {
   });
 });
 
-test("a bot's page names its header, title, toolbar, body and face", async () => {
-  await spadeApp("/spade/garden?view=bot", seed);
-  const title = await screen.findByRole("heading", { name: "Garden" });
-  expect(partOf(title).part).toBe("page-title");
+test("a bot's profile names its panel, head, title, segments and face", async () => {
+  await spadeApp("/spade/garden?profile=details", seed);
+  const profile = await screen.findByRole("region", { name: "Garden's profile" });
+  expect(profile.getAttribute("data-part")).toBe("right-panel");
+  expect(partOf(within(profile).getByRole("button", { name: "Rename Garden" })).part).toBe(
+    "page-title",
+  );
+  expect(partOf(within(profile).getByRole("tab", { name: "Details" }))).toEqual({
+    part: "segment",
+    state: "selected",
+    variant: "details",
+  });
   await waitFor(() =>
-    expect(missing(["page-header", "page-title", "page-toolbar", "page-body", "avatar"])).toEqual(
-      [],
-    ),
+    expect(missing(["page-header", "page-title", "segmented", "panel-body", "avatar"])).toEqual([]),
   );
 });
 
-test("a bot's activity names its filters, and each row's state follows how the step went", async () => {
-  await spadeApp("/spade/garden?view=activity", (spade) => {
+test("a bot's activity rows say how each step went", async () => {
+  await spadeApp("/spade/garden?profile=computer&computer=activity", (spade) => {
     seed(spade);
     const at = Date.UTC(2026, 10, 12, 9, 30);
     const entry = (seq: number, fields: Record<string, unknown>) => ({
@@ -142,5 +148,4 @@ test("a bot's activity names its filters, and each row's state follows how the s
       ["list-row", "done"],
     ]),
   );
-  expect(missing(["filter-bar", "page-body"])).toEqual([]);
 });

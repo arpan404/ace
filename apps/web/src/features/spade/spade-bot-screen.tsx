@@ -73,6 +73,7 @@ export function BotScreen(props: { bot: RosterBot; children: ReactNode }) {
   const headState = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
   return (
     <Screen
+      page="spade"
       title={
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-ui leading-4 font-medium">{bot.name}</span>

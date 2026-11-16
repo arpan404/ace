@@ -136,6 +136,7 @@ function NameField(props: { bot: RosterBot }) {
       <button
         type="button"
         aria-label={`Rename ${bot.name}`}
+        {...part("page-title")}
         onClick={() => {
           dropped.current = false;
           setText(bot.name);

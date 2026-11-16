@@ -222,7 +222,7 @@ export function NewBotStart() {
     (chosen ? undefined : roster.hosts[0]);
   if (!host)
     return (
-      <Screen title="">
+      <Screen page="spade" title="">
         <h1 className="sr-only">New bot</h1>
         <div className={`${readingColumn} pt-6`}>
           {!line.ready ? (
@@ -243,7 +243,7 @@ export function NewBotStart() {
     <SpadeMachineScope
       machine={host.machine}
       unavailable={
-        <Screen title="">
+        <Screen page="spade" title="">
           <p className={`${readingColumn} pt-6 text-ui text-muted-foreground`}>
             {`${host.machine.name} is offline.`}
           </p>
@@ -318,7 +318,7 @@ function NewBotConversation(props: {
   };
   const shown = name.trim() || suggested;
   return (
-    <Screen title="">
+    <Screen page="spade" title="">
       <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
         <h1 className="sr-only">New bot</h1>
         <Scroller>
