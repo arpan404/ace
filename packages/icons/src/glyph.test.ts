@@ -109,6 +109,17 @@ describe("ace icons", () => {
     expect(Math.max(...(up ?? []).filter((_, i) => i % 2 === 1))).toBeLessThan(12);
   });
 
+  it("draws each of the picker's chevrons as wide as the single caret", () => {
+    const xs = (icon: Parameters<typeof html>[0]) =>
+      [...doc(html(icon)).querySelectorAll("path")].flatMap((p) =>
+        (p.getAttribute("d")?.match(/-?\d*\.?\d+/g) ?? [])
+          .map(Number)
+          .filter((_, i) => i % 2 === 0),
+      );
+    const width = (values: number[]) => Math.max(...values) - Math.min(...values);
+    expect(width(xs(icons.CaretUpDownIcon))).toBeCloseTo(width(xs(icons.CaretUpIcon)));
+  });
+
   it("draws zoom out as zoom in's lens and handle with only the level bar inside", () => {
     const zoomIn = doc(html(icons.MagnifyingGlassPlusIcon));
     const zoomOut = doc(html(icons.MagnifyingGlassMinusIcon));
