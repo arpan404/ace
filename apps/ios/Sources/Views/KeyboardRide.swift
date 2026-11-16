@@ -61,11 +61,13 @@ import UIKit
         // composer a frame ahead of the keyboard, under it as it closed.
         let elapsed = link.timestamp - move.start
         let distance = Double(target - move.from)
-        if KeyboardCurve.settled(elapsed, duration: move.duration, distance: distance) {
+        // A rising lift is the keyboard opening.
+        let delay = distance > 0 ? KeyboardCurve.openingDelay : KeyboardCurve.closingDelay
+        if KeyboardCurve.settled(elapsed, duration: move.duration, delay: delay, distance: distance) {
             land()
             return
         }
-        lift = move.from + CGFloat(distance * KeyboardCurve.progress(elapsed, duration: move.duration))
+        lift = move.from + CGFloat(distance * KeyboardCurve.progress(elapsed, duration: move.duration, delay: delay))
     }
 }
 
