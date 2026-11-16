@@ -6,6 +6,7 @@ import {
   MarketMe,
   MarketOwnEntry,
   MarketProfile,
+  MarketScanReport,
   MarketSignals,
   MarketVerificationStatus,
   PublishAccepted,
@@ -40,6 +41,12 @@ const entryPath = (action: { type: string; name: string }) =>
 const versionPath = (action: { type: string; name: string; version: string }) =>
   `${entryPath(action)}/versions/${segment(action.version)}`;
 
+/** The Worker's 202 for what it took and holds: a listing edit for review, a withdrawal. */
+const PendingAnswer = z.object({
+  status: z.literal("pending"),
+  scan: MarketScanReport.optional(),
+});
+
 /** One Worker request an action makes, and the answer kind its body reads as. */
 interface Call {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -47,11 +54,23 @@ interface Call {
   json?: unknown;
   bytes?: { body: Uint8Array; type: string };
   answer: MarketPublishAnswer["kind"];
+  /** What a `{status: "pending"}` answer means for this call. */
+  pending?: "listing" | "withdrawal";
 }
 
 /** The Worker's body as the answer kind; `{status: "done"}` reads as done for any write. */
-function readAnswer(kind: Call["answer"], body: unknown): MarketPublishAnswer | undefined {
+function readAnswer(call: Call, body: unknown): MarketPublishAnswer | undefined {
+  const kind = call.answer;
   if (MarketDone.safeParse(body).success) return { kind: "done" };
+  if (call.pending) {
+    const pending = PendingAnswer.safeParse(body);
+    if (pending.success)
+      return {
+        kind: "pending",
+        what: call.pending,
+        ...(pending.data.scan ? { scan: pending.data.scan } : {}),
+      };
+  }
   const read = <T>(schema: z.ZodType<T>) => {
     const parsed = schema.safeParse(body);
     return parsed.success ? parsed.data : undefined;
@@ -232,7 +251,8 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
           method: "PUT",
           path: `${entryPath(action)}/listing`,
           json: action.listing,
-          answer: "entry",
+          answer: "done",
+          pending: "listing",
         },
       ];
     case "preview": {
@@ -284,7 +304,8 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
               ? `${entryPath(action)}/withdraw`
               : `${versionPath({ ...action, version: action.version })}/withdraw`,
           json: { reason: action.reason },
-          answer: "entry",
+          answer: "done",
+          pending: "withdrawal",
         },
       ];
     case "deleteEntry":
@@ -313,7 +334,8 @@ async function callsOf(action: MarketPublishAction): Promise<Call[]> {
           method: "POST",
           path: `${entryPath(action)}/transfer`,
           json: { to: action.to },
-          answer: "entry",
+          // The Worker answers the offer it made; the app reads the transfer from `me`.
+          answer: "done",
         },
       ];
     case "transferAnswer":
@@ -401,7 +423,7 @@ export async function publishAction(
       throw error;
     }
     if (reply.status < 200 || reply.status >= 300) return workerError(reply.status, reply.body);
-    answer = readAnswer(call.answer, reply.body);
+    answer = readAnswer(call, reply.body);
     if (!answer) return failure("failed", "The market's answer isn't in a form this build reads");
     if (answer.kind === "draft") draftId = answer.draft.id;
   }

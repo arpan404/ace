@@ -30,6 +30,7 @@ import {
   MarketVisibility,
   MarketEntryRef,
 } from "./marketplace-publisher.ts";
+import { MarketScanReport } from "./marketplace-scan.ts";
 
 /*
  * Publishing and Discover through the daemon (ADR 0173 §2, §11): what `marketplace.request`
@@ -136,6 +137,15 @@ export const MarketPublishAnswer = z.discriminatedUnion("kind", [
     kind: z.literal("published"),
     ...versionKey,
     held: z.boolean(),
+  }),
+  /**
+   * Taken, and waiting: a listing edit held for a maintainer (with its scan), or a withdrawal the
+   * signer signs into the withdrawn list next.
+   */
+  z.strictObject({
+    kind: z.literal("pending"),
+    what: z.enum(["listing", "withdrawal"]),
+    scan: MarketScanReport.optional(),
   }),
   z.strictObject({ kind: z.literal("done") }),
 ]);

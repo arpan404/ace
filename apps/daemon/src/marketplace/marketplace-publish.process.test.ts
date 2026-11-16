@@ -4,7 +4,12 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { contentHash, hashFiles, readArchive, typeLimits, writeArchive } from "@ace/marketplace";
 import { sampleSkill } from "@ace/marketplace/testing";
-import type { MarketDraft, MarketMe, MarketPublishAction } from "@ace/protocol/marketplace";
+import type {
+  MarketDraft,
+  MarketMe,
+  MarketPublishAction,
+  MarketScanReport,
+} from "@ace/protocol/marketplace";
 import { fakeMarket, fakeSpade, marketplaceHarness, type Seen } from "./test-support.ts";
 
 /*
@@ -67,6 +72,24 @@ const discoverBody = {
   rankedAt: 5,
 };
 
+/** A listing edit's scan as the Worker reports one it holds. */
+const heldScan: MarketScanReport = {
+  format: "ace-market-scan",
+  scanner: 1,
+  verdict: "warn",
+  checks: [],
+  findings: [
+    {
+      check: "hidden",
+      rule: "typosquat",
+      level: "warn",
+      message: "Its title reads like another entry's.",
+    },
+  ],
+  truncated: false,
+  read: { files: 0, textBytes: 0 },
+};
+
 beforeEach(async () => {
   market = await fakeMarket();
   spade = await fakeSpade();
@@ -80,6 +103,13 @@ beforeEach(async () => {
       answer(201, draft(contentHash(hashFiles(files))));
     } else if (seen.method === "PUT" && seen.path === "/v1/me/handle")
       answer(401, { error: "reauth", message: "The sign-in is too old." });
+    // The Worker's answers for writes it took and holds, and for an offer it made.
+    else if (seen.method === "PUT" && seen.path.endsWith("/listing"))
+      answer(202, { status: "pending", scan: heldScan });
+    else if (seen.method === "POST" && seen.path.endsWith("/withdraw"))
+      answer(202, { status: "pending", versions: ["1.0.0"] });
+    else if (seen.method === "POST" && seen.path.endsWith("/transfer"))
+      answer(201, { id: "trf_abcdefgh12", type: "spade-skill", name: "triage-mail", to: "other" });
     else if (seen.path === "/v1/discover") answer(200, discoverBody);
     else return false;
     return true;
@@ -139,6 +169,37 @@ describe("the market grant", () => {
       op: "error",
       code: "reauth",
       message: "Sign in again to do this.",
+    });
+  });
+});
+
+describe("the market's answers", () => {
+  const key = { type: "spade-skill" as const, name: "triage-mail" };
+  const listing = {
+    title: "Triage mail",
+    line: "Sorts mail.",
+    description: "",
+    categories: [],
+    keywords: [],
+    links: [],
+    previews: [],
+  };
+
+  it("says a listing edit held for review is pending, with its scan", async () => {
+    expect(await publish({ action: "listing", ...key, listing }, grant)).toEqual({
+      op: "publish",
+      answer: { kind: "pending", what: "listing", scan: heldScan },
+    });
+  });
+
+  it("says a withdrawal waits for the signer, and an offer was made", async () => {
+    expect(await publish({ action: "withdraw", ...key, reason: "Replaced." }, grant)).toEqual({
+      op: "publish",
+      answer: { kind: "pending", what: "withdrawal" },
+    });
+    expect(await publish({ action: "transfer", ...key, to: "other" }, grant)).toEqual({
+      op: "publish",
+      answer: { kind: "done" },
     });
   });
 });
