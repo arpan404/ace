@@ -24,6 +24,7 @@ import {
   draftBody,
   patchDraft,
   readDraft,
+  removeDraftRevisions,
   scanJob,
   writeDraft,
   type DraftTable,
@@ -240,7 +241,7 @@ export async function publish(
       caps,
     );
     if (!written) return quota(quotaRace);
-    await context.env.OBJECTS.put(draftKey(id), body);
+    await context.env.OBJECTS.put(draftKey(id, checked.hash), body);
     return json({ status: "scanning", ...versionKey, draft: id }, 202);
   }
   const scan = { ...scanned.report, hash: checked.hash };
@@ -321,7 +322,7 @@ const noDraft = () => failure(404, "not_found", "No such draft.");
 
 /** The draft's archive read and checked again from R2. */
 async function draftChecked(context: Context, draft: DraftTable) {
-  const stored = await context.env.OBJECTS.get(draftKey(draft.id));
+  const stored = await context.env.OBJECTS.get(draftKey(draft.id, draft.hash));
   if (!stored) return undefined;
   return readChecked(draft.type, draft.name, new Uint8Array(await stored.arrayBuffer()));
 }
@@ -341,7 +342,7 @@ export async function continueDraftScan(
   if (draft.scan_state === "done") return true;
   const db = env.MARKET;
   const job = await scanJob(db, draft.id);
-  const stored = await env.OBJECTS.get(draftKey(draft.id));
+  const stored = await env.OBJECTS.get(draftKey(draft.id, draft.hash));
   if (!job || !stored) return false;
   const checked = readChecked(draft.type, draft.name, new Uint8Array(await stored.arrayBuffer()));
   if (checked.hash !== draft.hash) {
@@ -368,14 +369,15 @@ export async function continueDraftScan(
   const report = { ...step.report, hash: checked.hash };
   if (!(await advanceJob(db, draft.id, draft.hash, { done: true, verdict: report.verdict }, now)))
     return false;
-  await putReport(env.OBJECTS, draftReportKey(draft.id), report);
+  await putReport(env.OBJECTS, draftReportKey(draft.id, draft.hash), report);
   return true;
 }
 
 /**
  * Reads, checks, scans and stores a draft's archive, new or over an existing draft. The upload
  * is counted and the draft written only if each fits the limits in its own statement; the row
- * goes first, so bytes in R2 that the row doesn't name are never published or scanned as its.
+ * goes first, and the bytes and report are keyed by the hash it names, so a replace racing
+ * another never leaves the row naming one revision while its key holds the other's bytes.
  */
 async function storeDraft(
   request: Request,
@@ -432,9 +434,10 @@ async function storeDraft(
     }
   }
   if (!written) return quota(quotaRace);
-  await context.env.OBJECTS.put(draftKey(id), body);
-  if (report) await putReport(context.env.OBJECTS, draftReportKey(id), report);
-  else await context.env.OBJECTS.delete(draftReportKey(id));
+  await context.env.OBJECTS.put(draftKey(id, checked.hash), body);
+  if (report) await putReport(context.env.OBJECTS, draftReportKey(id, checked.hash), report);
+  // The revision the row named before is deleted only now that the row has moved on from it.
+  if (existing) await removeDraftRevisions(db, context.env.OBJECTS, id);
   const row = await readDraft(db, id);
   return row
     ? json(await draftBody(context.env.OBJECTS, db, row), existing ? 200 : 201)
@@ -535,7 +538,7 @@ async function publishDraft(
   if (draft.scan_state !== "done") return changed();
   const problems = JSON.parse(draft.problems) as { message: string }[];
   if (problems.length > 0) return refused(problems);
-  const scan = await getReport(context.env.OBJECTS, draftReportKey(draft.id));
+  const scan = await getReport(context.env.OBJECTS, draftReportKey(draft.id, draft.hash));
   if (!scan) return failure(409, "conflict", "The draft's scan is missing; upload it again.");
   if (scan.hash !== draft.hash) return changed();
   if (scan.verdict === "block") return blocked(scan);

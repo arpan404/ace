@@ -22,13 +22,19 @@ export type IdPrefix = "pub" | "drf" | "trf" | "apl" | "rpt";
 
 /** An archive's place in R2. */
 export const objectKey = (hash: string) => `objects/${hash}`;
-/** A draft's archive. */
-export const draftKey = (id: string) => `drafts/${id}`;
+/**
+ * A draft's archive, one object per revision: keyed by the content hash the draft's row names,
+ * so the row always points at the bytes it describes, whatever order two replaces land in.
+ */
+export const draftKey = (id: string, hash: string) => `${draftPrefix(id)}${hash || "none"}`;
+export const draftPrefix = (id: string) => `drafts/${id}/`;
 /** Pictures, by the sha256 of their stripped bytes. */
 export const avatarKey = (sha256: string) => `avatars/${sha256}`;
 export const previewKey = (sha256: string) => `previews/${sha256}`;
 /** Scan reports (ADR 0173 §8). */
-export const draftReportKey = (id: string) => `reports/drafts/${id}.json`;
+export const draftReportKey = (id: string, hash: string) =>
+  `${draftReportPrefix(id)}${hash || "none"}.json`;
+export const draftReportPrefix = (id: string) => `reports/drafts/${id}/`;
 export const versionReportKey = (key: { type: string; name: string; version: string }) =>
   `reports/versions/${key.type}/${key.name}/${key.version}.json`;
 export const listingReportKey = (key: { type: string; name: string }) =>

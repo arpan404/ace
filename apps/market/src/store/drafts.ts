@@ -5,13 +5,14 @@ import type {
   MarketProblem,
   MarketScanReport,
 } from "@ace/protocol/marketplace";
-import { draftKey, draftReportKey } from "../context.ts";
+import { draftKey, draftPrefix, draftReportKey, draftReportPrefix } from "../context.ts";
 import { storedBytesSql } from "./me-limits.ts";
 import { getReport } from "./me-scan.ts";
 
 /*
- * Drafts (ADR 0173 §5): the archive at `drafts/<id>`, its scan report at
- * `reports/drafts/<id>.json`, and a scan that didn't fit one request in `scan_jobs`.
+ * Drafts (ADR 0173 §5): the archive at `drafts/<id>/<hash>`, its scan report at
+ * `reports/drafts/<id>/<hash>.json`, and a scan that didn't fit one request in `scan_jobs`. The
+ * bytes are keyed by the hash the row names, so the row never points at another revision's.
  */
 
 export interface DraftTable {
@@ -211,7 +212,32 @@ export async function deletePublishedDraft(
       .bind(id, hash),
     db.prepare("DELETE FROM drafts WHERE id = ?1 AND hash = ?2").bind(id, hash),
   ]);
-  if ((gone?.meta.changes ?? 0) === 1) await bucket.delete([draftKey(id), draftReportKey(id)]);
+  if ((gone?.meta.changes ?? 0) === 1) await removeDraftRevisions(db, bucket, id);
+}
+
+/**
+ * Deletes a draft's revisions in R2 that its row doesn't name (all of them once the row is
+ * gone). The keys are listed before the row is read: a revision put after the listing isn't
+ * touched, and one listed was put after its row was written, so a row read later that names
+ * another hash has moved on from it.
+ */
+export async function removeDraftRevisions(
+  db: D1Database,
+  bucket: R2Bucket,
+  id: string,
+): Promise<void> {
+  const listed = await Promise.all(
+    [draftPrefix(id), draftReportPrefix(id)].map((prefix) => bucket.list({ prefix })),
+  );
+  const row = await db
+    .prepare("SELECT hash FROM drafts WHERE id = ?1")
+    .bind(id)
+    .first<{ hash: string }>();
+  const keep = row ? new Set([draftKey(id, row.hash), draftReportKey(id, row.hash)]) : new Set();
+  const stale = listed
+    .flatMap((list) => list.objects.map((object) => object.key))
+    .filter((key) => !keep.has(key));
+  if (stale.length > 0) await bucket.delete(stale);
 }
 
 /** The draft, its job, its bytes and its report, gone. */
@@ -220,7 +246,7 @@ export async function deleteDraft(db: D1Database, bucket: R2Bucket, id: string):
     db.prepare("DELETE FROM scan_jobs WHERE draft = ?1").bind(id),
     db.prepare("DELETE FROM drafts WHERE id = ?1").bind(id),
   ]);
-  await bucket.delete([draftKey(id), draftReportKey(id)]);
+  await removeDraftRevisions(db, bucket, id);
 }
 
 /** The draft as its publisher sees it, with its scan's report when done. */
@@ -231,7 +257,9 @@ export async function draftBody(
 ): Promise<MarketDraft> {
   let scan: MarketDraft["scan"];
   const report: MarketScanReport | undefined =
-    row.scan_state === "done" ? await getReport(bucket, draftReportKey(row.id)) : undefined;
+    row.scan_state === "done"
+      ? await getReport(bucket, draftReportKey(row.id, row.hash))
+      : undefined;
   if (report) scan = { state: "done", report };
   else {
     const job = await scanJob(db, row.id);
