@@ -90,7 +90,7 @@ test("at its limit, the thread says when its account resets; Switch to an accoun
   expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
 });
 
-test("on a limited thread, the model chip opens on the list and another provider carries on with the usual handoff row", async () => {
+test("on a limited thread, the model chip opens on the list and another provider carries the turn on after a handoff row", async () => {
   const app = harness();
   report(app, "codex-team", { five_hour: [100, 87 * minute] });
   app.play(accountLimit("thread-capped", "Split the CI matrix by package")).runThrough("limited");
@@ -121,9 +121,12 @@ test("on a limited thread, the model chip opens on the list and another provider
   await waitFor(() => expect(sent).toEqual(["limit:switch:claude"]));
   const feed = screen.getByRole("feed", { name: "Transcript" });
   const handoff = await within(feed).findByRole("note", { name: /^Context handoff: .+ → / });
-  // The handoff opens the resumed turn: its working line reads under it.
-  const working = await within(feed).findByText(/^Working/);
-  expect(handoff.compareDocumentPosition(working) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // The other provider carries the same turn on (ADR 0053, 2026-11-15): one working line for
+  // the turn, and the handoff inside it after the work that ran.
+  const [working, ...more] = await within(feed).findAllByText(/^Working/);
+  expect(more).toEqual([]);
+  if (!working) throw new Error("No working line");
+  expect(handoff.compareDocumentPosition(working) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
 });
 
 test("Resume at reset says when it resumes with Cancel, and Cancel goes back to the limit", async () => {
