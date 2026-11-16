@@ -82,8 +82,14 @@ describe("MediaSupervisor", () => {
     const child = h.host.last;
     const secret = child.initSecret;
     expect(secret).toHaveLength(32);
-    expect(child.lane("priority").hello?.subarray(5)).toEqual(secret);
-    expect(child.lane("egress").hello?.subarray(5)).toEqual(secret);
+    // Each lane's hello carries a nonce, never the secret; the fake accepts a lane only once
+    // the daemon's proof, made with init's secret, checks out.
+    const priority = child.lane("priority").hello;
+    const egress = child.lane("egress").hello;
+    expect(priority?.subarray(5)).toHaveLength(32);
+    expect(priority?.subarray(5)).not.toEqual(secret);
+    expect(egress?.subarray(5)).not.toEqual(secret);
+    expect(egress?.subarray(5)).not.toEqual(priority?.subarray(5));
     // The secret travelled only in init's payload, which is wiped once written.
     expect(child.stdin.chunks[1]?.every((byte) => byte === 0)).toBe(true);
     expect(child.stdin.types("normal")).toEqual(["init", "listen"]);
