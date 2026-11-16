@@ -27,6 +27,19 @@ export {
 } from "./catalog.ts";
 export { distance, search, words, type Searchable, type SearchQuery } from "./search.ts";
 export { rankingTiers, tiered, tierOf, type RankingTier } from "./ranking.ts";
+export {
+  cappedWeek,
+  freshOrder,
+  rankScores,
+  rankTrending,
+  topPublishers,
+  trendRules,
+  trendScore,
+  type DayCount,
+  type HourCount,
+  type ScoredEntry,
+  type TrendRow,
+} from "./trending.ts";
 export { grantedNeeds, readRecipe, recipeEntries, recipeNeeds, type ReadRecipe } from "./recipe.ts";
 export { secretFieldNames, secretFileProblem, secretName, secretValueProblems } from "./secrets.ts";
 export {
