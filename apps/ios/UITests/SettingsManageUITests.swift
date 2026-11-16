@@ -108,7 +108,7 @@ import XCTest
         let codex = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Codex'")).firstMatch
         XCTAssertTrue(codex.waitForExistence(timeout: 20))
         codex.tap()
-        // The provider's rows run past the screen at body size: scroll to the MCP servers row.
+        // The provider's rows run past the screen (on main as well): scroll to the MCP servers row.
         let servers = app.buttons["MCP servers"].firstMatch
         for _ in 0..<4 where !(servers.exists && servers.isHittable) { app.swipeUp() }
         servers.tap()
