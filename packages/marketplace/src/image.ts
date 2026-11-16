@@ -122,7 +122,7 @@ function crc32(bytes: Uint8Array): number {
 
 function stripPng(bytes: Uint8Array): StrippedImage {
   const kept: Uint8Array[] = [Uint8Array.from(pngSignature)];
-  let at = pngSignature.length;
+  let at: number = pngSignature.length;
   let width = 0;
   let height = 0;
   let sawIdat = false;

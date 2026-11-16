@@ -147,7 +147,11 @@ export async function createProfile(db: D1Database, input: NewProfile): Promise<
 export async function updateProfile(
   db: D1Database,
   id: string,
-  fields: { displayName?: string; bio?: string; links?: readonly MarketLink[] },
+  fields: {
+    displayName?: string | undefined;
+    bio?: string | undefined;
+    links?: readonly MarketLink[] | undefined;
+  },
 ): Promise<void> {
   await db
     .prepare(
