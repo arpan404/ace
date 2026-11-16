@@ -39,6 +39,9 @@ struct ComposerView<Top: View, Leading: View>: View {
     var suggester: ComposerSuggester? = nil
     /// The most the `@` and `/` list may take, so the message stays above the keyboard.
     var suggestionHeight: CGFloat? = nil
+    /// How far above the composer's top the `@` and `/` list's foot sits: clear of a strip over
+    /// the capsule (a request, what holds the queue), which the list must never cover.
+    var listAbove: CGFloat = 0
     /// A builtin picked from `/` or + that the screen runs (attach, plan, model, review).
     var run: (String) -> Void = { _ in }
     /// Each new value brings the keyboard up with the caret at the end of the words.
@@ -86,7 +89,7 @@ struct ComposerView<Top: View, Leading: View>: View {
         // The `@` and `/` list draws over the transcript, its foot on the composer's top, so
         // opening it never changes the foot's height or moves what is above the capsule.
         .overlay(alignment: .top) {
-            // A line along the composer's top: the list hangs up from it.
+            // A line along the composer's top, or along a strip's above it: the list hangs up from it.
             Color.clear.frame(height: AceTheme.Spacing.none)
                 .overlay(alignment: .bottom) {
                     if let suggester, suggester.trigger != nil {
@@ -95,6 +98,7 @@ struct ComposerView<Top: View, Leading: View>: View {
                             .transition(.opacity)
                     }
                 }
+                .offset(y: -listAbove)
         }
         .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass)).padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
         .animation(.default, value: wraps)

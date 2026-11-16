@@ -116,3 +116,8 @@ import XCTest
         add(attachment)
     }
 }
+
+private final class FixtureReply: @unchecked Sendable {
+    var status: Int?
+    var body: [String: String] = [:]
+}
