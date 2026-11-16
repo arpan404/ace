@@ -639,3 +639,32 @@ async fn a_send_as_the_person_from_the_sandbox_goes_to_the_person() -> Result {
     assert!(reason.contains("in your name"), "{reason}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_folder_granted_through_a_link_is_kept_as_the_folder_it_names() -> Result {
+    let w = world(true, vec![], |_| vec![]).await?;
+    let app = w.home.join("code/app");
+    let link = w.home.join("code/shortcut");
+    std::os::unix::fs::symlink(&app, &link)?;
+    let (status, granted) = w
+        .spade
+        .post(
+            &format!("/v1/agents/{}/grants", w.bot),
+            json!({"kind": "folder", "path": link, "write": true}),
+        )
+        .await?;
+    assert_eq!(status, 201, "{granted}");
+    assert_eq!(granted["grant"]["path"], json!(app), "{granted}");
+    // A link into a credential place is refused, whatever it is called.
+    std::fs::create_dir_all(w.home.join(".ssh"))?;
+    std::os::unix::fs::symlink(w.home.join(".ssh"), w.home.join("code/keys"))?;
+    let (status, _) = w
+        .spade
+        .post(
+            &format!("/v1/agents/{}/grants", w.bot),
+            json!({"kind": "folder", "path": w.home.join("code/keys"), "write": false}),
+        )
+        .await?;
+    assert_eq!(status, 400);
+    Ok(())
+}

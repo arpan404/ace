@@ -5,6 +5,7 @@
 
 pub mod checkpoints;
 mod confine;
+pub mod grants;
 pub mod settings;
 pub mod toolchains;
 
@@ -245,7 +246,8 @@ impl Security {
 
     /// A folder the person may consent to: absolute, a real folder, not a credential place and
     /// not inside Spade's or ace's data.
-    fn check_folder(&self, path: &str) -> Result<(), SecurityError> {
+    /// Answers the folder as it really is (links resolved): what is stored and compared.
+    fn check_folder(&self, path: &str) -> Result<String, SecurityError> {
         let given = Path::new(path);
         if !given.is_absolute() {
             return Err(SecurityError::Invalid(format!(
@@ -270,7 +272,7 @@ impl Security {
                 "{path} holds sign-ins or Spade's or ace's data, so it can't be granted"
             )));
         }
-        Ok(())
+        Ok(real.to_string_lossy().into_owned())
     }
 
     /// The bots above `bot`, nearest first.
@@ -286,9 +288,14 @@ impl Security {
     pub fn add_grant(&self, bot: &str, scope: Scope, by: &str) -> Result<Grant, SecurityError> {
         grant::check(&scope, &spade_core::autonomy::never_granted)
             .map_err(SecurityError::Invalid)?;
-        if let Scope::Folder { path, .. } = &scope {
-            self.check_folder(path)?;
-        }
+        // A folder is kept as the folder it names, never as a link to it.
+        let scope = match scope {
+            Scope::Folder { path, write } => Scope::Folder {
+                path: self.check_folder(&path)?,
+                write,
+            },
+            other => other,
+        };
         if let Some(parent) = self.ancestors(bot).first() {
             let above = self.effective_grants(parent);
             if !above.iter().any(|g| grant::within(&scope, &g.scope)) {
@@ -330,12 +337,13 @@ impl Security {
         let mut chain = self.ancestors(bot);
         chain.reverse();
         chain.push(bot.to_owned());
-        let mut above: Option<Vec<Grant>> = None;
-        for member in chain {
-            let own = self.bot(&member).grants;
-            above = Some(grant::effective(&own, above.as_deref()));
-        }
-        above.unwrap_or_default()
+        let owns: Vec<Vec<Grant>> = chain.iter().map(|m| self.bot(m).grants).collect();
+        // Folders are compared as they resolve now, so one that became a link out is dropped.
+        grants::narrowed(&owns, &|path: &str| {
+            spade_sandbox::policy::real(Path::new(path))
+                .to_string_lossy()
+                .into_owned()
+        })
     }
 
     /// The bot's newest `limit` egress log entries, oldest first.
