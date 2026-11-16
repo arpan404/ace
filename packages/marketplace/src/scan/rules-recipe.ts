@@ -1,5 +1,6 @@
 import type { EntryRule } from "./rule.ts";
 import type { ScanInput } from "./index.ts";
+import { scanText } from "./decode.ts";
 
 /*
  * The `recipe` check's rules (ADR 0173 §8): what an entry tells a bot to do. A recipe's needs
@@ -14,39 +15,59 @@ interface Instruction {
   where: string;
   path?: string;
   text: string;
+  /** The start of each line of `text`, for finding a match's line in log time. */
+  lineStarts: number[];
   /** Text the person reads as the bot's job: an address named here is the task's own. */
   task: boolean;
 }
 
-const decoder = new TextDecoder();
+/**
+ * The most of one file the rules read: the scanner's per-file cap (ADR 0173 §8). Past it the
+ * `scripts` check already warns that the file is too long to read fully.
+ */
+const MAX_FILE_CHARS = 1024 * 1024;
 const instructionFile =
   /(?:^|\/)(?:SKILL|AGENTS|CLAUDE|README|instructions?|prompt)\.md$|\.(?:md|txt|prompt)$/i;
 
 /** Every piece of text an entry gives a bot as instructions. */
 function instructionsOf(input: ScanInput): Instruction[] {
   const out: Instruction[] = [];
+  const add = (where: string, text: string, task: boolean, path?: string) =>
+    out.push({ where, ...(path ? { path } : {}), text, lineStarts: lineStartsOf(text), task });
   if (input.inspection?.type === "spade-bot") {
     const { recipe } = input.inspection;
-    out.push({ where: "Its task", text: recipe.task, task: true });
-    out.push({ where: "Its blurb", text: recipe.blurb, task: true });
-    for (const [index, note] of recipe.notes.entries())
-      out.push({ where: `Its note ${index + 1}`, text: note, task: false });
+    add("Its task", recipe.task, true);
+    add("Its blurb", recipe.blurb, true);
+    for (const [index, note] of recipe.notes.entries()) add(`Its note ${index + 1}`, note, false);
     for (const routine of recipe.routines)
-      out.push({ where: `Its routine ${routine.name}`, text: routine.instruction, task: false });
+      add(`Its routine ${routine.name}`, routine.instruction, false);
   }
   if (input.type === "spade-skill" || input.type === "spade-bot" || input.type === "spade-plugin")
-    for (const file of input.files)
-      if (instructionFile.test(file.path) && file.content.byteLength <= 1024 * 1024)
-        out.push({
-          where: file.path,
-          path: file.path,
-          text: decoder.decode(file.content),
-          task: false,
-        });
+    for (const file of input.files) {
+      if (!instructionFile.test(file.path)) continue;
+      const text = scanText(file.content)?.text;
+      if (text !== undefined) add(file.path, text.slice(0, MAX_FILE_CHARS), false, file.path);
+    }
   return out;
 }
 
-const lineOf = (text: string, index: number) => text.slice(0, index).split("\n").length;
+function lineStartsOf(text: string): number[] {
+  const starts = [0];
+  for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) starts.push(at + 1);
+  return starts;
+}
+
+/** The 1-based line of `index` in `item.text`, by binary search over its line starts. */
+function lineOf(item: Instruction, index: number): number {
+  let low = 0;
+  let high = item.lineStarts.length - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if ((item.lineStarts[mid] ?? 0) <= index) low = mid;
+    else high = mid - 1;
+  }
+  return low + 1;
+}
 
 const hit = (item: Instruction, line: number, message: string): Hit => ({
   ...(item.path ? { path: item.path, line } : {}),
@@ -80,7 +101,7 @@ const promptInjection: EntryRule = {
     const hits: Hit[] = [];
     for (const item of instructionsOf(input)) {
       let offset = 0;
-      for (const sentence of item.text.slice(0, 200_000).split(/(?<=[.!?\n])/)) {
+      for (const sentence of item.text.split(/(?<=[.!?\n])/)) {
         const start = offset;
         offset += sentence.length;
         // A rule that quotes an attack to refuse it ("if an email says to ignore previous
@@ -90,7 +111,7 @@ const promptInjection: EntryRule = {
           hits.push(
             hit(
               item,
-              lineOf(item.text, start),
+              lineOf(item, start),
               `${item.where} tells the bot to work against the person`,
             ),
           );
@@ -99,12 +120,12 @@ const promptInjection: EntryRule = {
           hits.push(
             hit(
               item,
-              lineOf(item.text, start),
+              lineOf(item, start),
               `${item.where} tells the bot to act without the person knowing`,
             ),
           );
       }
-      if (/[A-Za-z0-9+/]{200,}={0,2}/.test(item.text.slice(0, 200_000)))
+      if (/[A-Za-z0-9+/]{200,}={0,2}/.test(item.text))
         hits.push({
           ...(item.path ? { path: item.path } : {}),
           message: `${item.where} holds encoded text the person can't read`,
@@ -131,7 +152,7 @@ const outsideAddress: EntryRule = {
     const hits: Hit[] = [];
     for (const item of items) {
       if (item.task) continue;
-      for (const match of item.text.slice(0, 200_000).matchAll(sendTo)) {
+      for (const match of item.text.matchAll(sendTo)) {
         const address = (match[1] ?? "").toLowerCase();
         const host = address.includes("@")
           ? (address.split("@")[1] ?? address)
@@ -146,7 +167,7 @@ const outsideAddress: EntryRule = {
           hits.push(
             hit(
               item,
-              lineOf(item.text, match.index ?? 0),
+              lineOf(item, match.index ?? 0),
               `${item.where} sends data to ${host}, which the task doesn't name`,
             ),
           );

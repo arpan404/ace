@@ -48,6 +48,16 @@ past its depth) sets `unreadable`, itself a finding, and the reader still return
 could read. Other languages are read by token patterns over NFKC-normalised text with zero-width
 characters removed.
 
+Every text file in a skill, a plugin or a recipe's bundled skills is read, not only files with a
+script's extension or shebang. A file of no known language is a `text` view: the shell reader and
+every language's token patterns read it, and its `unreadable` stays false, as prose is full of
+lone quotes. A file a plugin hook or server command names is a script whatever its name, read in
+the language of the interpreter that command runs it with, else as shell.
+
+Bytes become text in `decode.ts`: UTF-8, then UTF-16 by its byte-order mark, then, for any file
+with no NUL byte, one code point per byte, so Latin-1 or Windows-1252 source can't escape the
+rules by failing UTF-8. A script-like file that isn't UTF-8 is a `warn` ("isn't UTF-8 text").
+
 ### The rule framework
 
 The `scripts`, `plugin` and `recipe` rule tables plug into one framework so each table is edited on
@@ -55,8 +65,8 @@ its own (`rule.ts`, `script-view.ts`):
 
 - `ScriptView` (`script-view.ts`) — one script the scanner reads: `path`, `language`, NFKC `text`,
   `lines`, shell `commands` (each `{ words, piped, pipedInto?, writesTo, readsFrom, line }`), and
-  `unreadable`. `viewsOf(input)` yields a view for every skill script, plugin script file, hook and
-  stdio command, and recipe-bundled skill script.
+  `unreadable`. `viewsOf(input)` yields a view for every text file in a skill or plugin, every hook
+  and stdio command, and every text file in a recipe's bundled skills.
 - `ScriptRule` (`rule.ts`) — `{ kind: "script", id, check, level, strict?, find(view) }`, run over
   every script view.
 - `EntryRule` (`rule.ts`) — `{ kind: "entry", id, check, level, strict?, find(input, facts) }`, run
