@@ -3,8 +3,8 @@ import UIKit
 
 extension AceDesign {
     /// A text role: one of the system's text styles at that style's own default size, with ace's
-    /// weight and line height. Scaled against its own style, so Dynamic Type grows it exactly as it
-    /// grows the system's text.
+    /// weight and line height. Drawn at the system's own size for that style, so Dynamic Type grows
+    /// it exactly as it grows the system's text.
     struct Role: Sendable {
         let textStyle: Font.TextStyle
         let uiTextStyle: UIFont.TextStyle
@@ -57,20 +57,66 @@ extension AceDesign {
 }
 
 extension AceDesign.Role {
-    /// The role's font for UIKit text, scaled for `traits`.
+    /// The role's size at `category`: the system's own point size for its text style, read from
+    /// UIKit rather than scaled from the default size, since `UIFontMetrics` and `@ScaledMetric`
+    /// only approximate the system's table (13pt footnote reaches 17 at XXXL where iOS draws 19).
+    @MainActor func pointSize(at category: UIContentSizeCategory) -> CGFloat {
+        AceRoleSizes.pointSize(uiTextStyle, category)
+    }
+    /// The role's line height at `category`, grown in step with its size.
+    @MainActor func lineHeight(at category: UIContentSizeCategory) -> CGFloat {
+        lineHeight * pointSize(at: category) / size
+    }
+    /// The role's font for UIKit text, at the size category in `traits`.
     @MainActor func uiFont(traits: UITraitCollection) -> UIFont {
-        AceTheme.uiFont(style, relativeTo: uiTextStyle, traits: traits)
+        let weight: UIFont.Weight = self.weight >= 600 ? .semibold : .regular
+        return .systemFont(ofSize: pointSize(at: traits.preferredContentSizeCategory), weight: weight)
+    }
+}
+
+/// The system's point size for each text style and size category, read once from UIKit: roles
+/// ask for it on every redraw of every row.
+@MainActor private enum AceRoleSizes {
+    private struct Key: Hashable { let style: UIFont.TextStyle; let category: UIContentSizeCategory }
+    private static var sizes: [Key: CGFloat] = [:]
+
+    static func pointSize(_ style: UIFont.TextStyle, _ category: UIContentSizeCategory) -> CGFloat {
+        // An unspecified category (a trait collection with none set) reads as the default size.
+        let category = category == .unspecified ? .large : category
+        let key = Key(style: style, category: category)
+        if let size = sizes[key] { return size }
+        let traits = UITraitCollection(preferredContentSizeCategory: category)
+        let size = UIFont.preferredFont(forTextStyle: style, compatibleWith: traits).pointSize
+        sizes[key] = size
+        return size
+    }
+}
+
+/// Draws text in a role at the system's size for the current Dynamic Type size, times the
+/// transcript's own scale where Settings › Appearance sets one.
+@MainActor private struct AceRoleFont: ViewModifier {
+    let role: AceDesign.Role
+    let design: Font.Design
+    @Environment(\.dynamicTypeSize) private var dynamicType
+    @Environment(\.transcriptScale) private var scale
+
+    func body(content: Content) -> some View {
+        let category = UIContentSizeCategory(dynamicType)
+        let size = role.pointSize(at: category) * scale
+        let line = role.lineHeight(at: category) * scale
+        return content.font(.system(size: size, weight: AceTheme.fontWeight(role.weight), design: design))
+            .lineSpacing(max(AceTheme.Spacing.none, line - UIFont.systemFont(ofSize: size).lineHeight))
     }
 }
 
 extension View {
-    /// Text in `role`, scaled with Dynamic Type along the role's own text style.
+    /// Text in `role`, at the system's size for its text style at the current Dynamic Type size.
     @MainActor func aceFont(_ role: AceDesign.Role) -> some View {
-        aceFont(role.style, relativeTo: role.textStyle)
+        modifier(AceRoleFont(role: role, design: .default))
     }
     /// Code, commands, paths and branches in `role`, in mono.
     @MainActor func aceMonospace(_ role: AceDesign.Role) -> some View {
-        aceMonospace(role.style, relativeTo: role.textStyle)
+        modifier(AceRoleFont(role: role, design: .monospaced))
     }
     /// The role's own text style always wins: `relativeTo` is ignored. Kept only for the views
     /// that still pass one; new code names the role alone.

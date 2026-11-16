@@ -81,7 +81,7 @@ struct NativeTextInput: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
         if fills, let height = proposal.height, height.isFinite { return CGSize(width: width, height: max(height, AceDesign.Size.tap)) }
-        let line = UIFontMetrics(forTextStyle: AceDesign.TextRole.rowTitle.uiTextStyle).scaledValue(for: AceDesign.TextRole.rowTitle.lineHeight, compatibleWith: uiView.traitCollection)
+        let line = AceDesign.TextRole.rowTitle.lineHeight(at: uiView.traitCollection.preferredContentSizeCategory)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)
         return CGSize(width: width, height: fit.height(content: content, focused: focused && !holdsOneLine))

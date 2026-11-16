@@ -25,6 +25,28 @@ import UIKit
         }
     }
 
+    /// iOS's published Dynamic Type sizes, which a role scaled from its default size misses: a
+    /// footnote role scaled by `UIFontMetrics` reaches 17 at XXXL where the system draws 19.
+    @Test func rolesFollowTheSystemsTableNotAScaleFromTheirDefaultSize() {
+        let table: [(AceDesign.Role, UIContentSizeCategory, CGFloat)] = [
+            (AceDesign.TextRole.rowTitle, .extraSmall, 14), (AceDesign.TextRole.rowTitle, .large, 17),
+            (AceDesign.TextRole.rowTitle, .extraExtraExtraLarge, 23), (AceDesign.TextRole.header, .extraExtraExtraLarge, 23),
+            (AceDesign.TextRole.segment, .extraExtraExtraLarge, 21), (AceDesign.TextRole.meta, .extraExtraExtraLarge, 19),
+            (AceDesign.TextRole.time, .extraExtraExtraLarge, 18), (AceDesign.TextRole.branch, .extraExtraExtraLarge, 17),
+            (AceDesign.TextRole.time, .extraSmall, 11),
+        ]
+        for (role, category, expected) in table {
+            #expect(role.pointSize(at: category) == expected, "\(role.uiTextStyle.rawValue) at \(category.rawValue)")
+        }
+    }
+
+    @Test func aRolesLinesGrowInStepWithItsSize() {
+        let role = AceDesign.TextRole.meta
+        #expect(role.lineHeight(at: .large) == role.lineHeight)
+        #expect(role.lineHeight(at: .extraExtraExtraLarge) > role.lineHeight(at: .large))
+        #expect(abs(role.lineHeight(at: .extraExtraExtraLarge) / role.pointSize(at: .extraExtraExtraLarge) - role.lineHeight / role.size) < 0.001)
+    }
+
     @Test func theComposerTypesAtTheRowTitlesSize() {
         let traits = UITraitCollection(preferredContentSizeCategory: .large)
         let font = AceDesign.inputAttributes(traits: traits)[.font] as? UIFont

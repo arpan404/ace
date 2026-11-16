@@ -368,7 +368,7 @@ extension AceDesign {
         let role = TextRole.rowTitle
         let font = role.uiFont(traits: traits)
         let paragraph = NSMutableParagraphStyle()
-        paragraph.minimumLineHeight = UIFontMetrics(forTextStyle: role.uiTextStyle).scaledValue(for: role.lineHeight, compatibleWith: traits)
+        paragraph.minimumLineHeight = role.lineHeight(at: traits.preferredContentSizeCategory)
         paragraph.maximumLineHeight = paragraph.minimumLineHeight
         return [.font: font, .foregroundColor: UIColor(AceTheme.Colours.foreground), .paragraphStyle: paragraph]
     }
