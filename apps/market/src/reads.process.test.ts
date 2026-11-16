@@ -62,12 +62,14 @@ describe("reading the catalog", () => {
   });
 
   it("a download raises only that version's total", async () => {
-    const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`);
+    // Each caller counts once a minute per hash (ADR 0173 §6), so each fetch is another caller.
+    const from = (address: string) => ({ headers: { "cf-connecting-ip": address } });
+    const response = await market.fetch(`/v1/objects/${hashes["1.0.0"]}`, from("192.0.2.1"));
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
     await response.arrayBuffer();
     // The read-route test above fetched it once too; its count lands after the response.
     await expect.poll(() => downloads("1.0.0")).toBe(2);
-    await (await market.fetch(`/v1/objects/${hashes["1.0.0"]}`)).arrayBuffer();
+    await (await market.fetch(`/v1/objects/${hashes["1.0.0"]}`, from("192.0.2.2"))).arrayBuffer();
     await expect.poll(() => downloads("1.0.0")).toBe(3);
     expect(await downloads("1.1.0")).toBe(0);
   });
