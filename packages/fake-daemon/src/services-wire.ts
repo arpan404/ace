@@ -111,7 +111,7 @@ export class FakeServicesWire {
   readonly files: FakeFilesWire;
   private automations: FakeAutomationWire;
   private plugins = new FakePluginsWire();
-  private marketplace = new FakeMarketplaceWire(() => this.host.now());
+  readonly marketplace = new FakeMarketplaceWire(() => this.host.now());
   private connectionSequence = 0;
   private host: FakeServiceContext;
   private settings: FakeSettings;

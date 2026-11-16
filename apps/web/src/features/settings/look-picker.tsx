@@ -160,6 +160,14 @@ export function LookPicker() {
             ))}
         <MakeYourOwn />
       </div>
+      <Link
+        to="/marketplace"
+        search={{ type: "suit" }}
+        {...part("link")}
+        className="self-start rounded-sm text-ui text-foreground hover:underline focus-ring"
+      >
+        More Suits
+      </Link>
       {look.note && <p className="text-xs text-muted-foreground">{look.note}</p>}
       {summaries?.length === 0 && failed && (
         <p className="text-xs text-muted-foreground">Your own looks couldn't be read.</p>

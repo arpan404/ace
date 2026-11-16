@@ -1,13 +1,13 @@
-import { StackIcon, TimerIcon } from "@ace/icons";
+import { StackIcon, StorefrontIcon, TimerIcon } from "@ace/icons";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "chats" | "spade" | "automations" | "skills" | "forge";
+  id: "home" | "chats" | "spade" | "automations" | "skills" | "marketplace" | "forge";
   label: string;
-  to: "/" | "/chats" | "/spade" | "/automations" | "/skills" | "/pulls";
+  to: "/" | "/chats" | "/spade" | "/automations" | "/skills" | "/marketplace" | "/pulls";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -35,6 +35,13 @@ export const railViews: readonly RailView[] = [
     to: "/skills",
     matches: ["/skills"],
     shortcut: "goSkills",
+  },
+  {
+    id: "marketplace",
+    label: "Marketplace",
+    icon: StorefrontIcon,
+    to: "/marketplace",
+    matches: ["/marketplace"],
   },
 ];
 

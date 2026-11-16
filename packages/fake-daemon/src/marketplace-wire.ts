@@ -2,6 +2,7 @@ import type {
   MarketCategory,
   MarketClientMessage,
   MarketEntrySummary,
+  MarketInstallChoices,
   MarketInstalled,
   MarketOperation,
   MarketResult,
@@ -24,6 +25,14 @@ export interface FakeMarketEntry {
   /** The review `prepare` answers with; a plain one per type when absent. */
   review?: Partial<MarketReview>;
   items?: MarketReviewItem[];
+  /** Its listed version was withdrawn, for this reason; `prepare` refuses it. */
+  withdrawn?: string;
+}
+
+/** An install the person accepted: the review's bytes and the choices sent with Install. */
+export interface FakeMarketAcceptance {
+  review: MarketReview;
+  choices: MarketInstallChoices;
 }
 
 export interface MarketplaceSeed {
@@ -125,6 +134,10 @@ export class FakeMarketplaceWire {
   #counter = 0;
   readonly #now: () => number;
   readonly #listeners = new Set<(message: MarketServerMessage) => void>();
+  /** Every install the person accepted, oldest first. */
+  readonly accepted: FakeMarketAcceptance[] = [];
+  /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
+  makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
   constructor(now: () => number = () => 1_700_000_000_000) {
     this.#now = now;
@@ -271,6 +284,7 @@ export class FakeMarketplaceWire {
                 size: 2048,
                 published: now,
                 downloads: entry.summary.downloads,
+                ...(entry.withdrawn ? { withdrawn: entry.withdrawn } : {}),
               },
             ],
             ...(installed ? { installed } : {}),
@@ -292,7 +306,15 @@ export class FakeMarketplaceWire {
             code: "not_found",
             message: `${operation.type}/${operation.name} isn't listed`,
           };
-        const review = plainReview(entry, `review-${++this.#counter}`, now);
+        if (entry.withdrawn) return { op: "error", code: "refused", message: entry.withdrawn };
+        const replaces =
+          operation.op === "prepareUpdate"
+            ? this.#installed.get(key(operation.type, operation.name))?.version
+            : undefined;
+        const review = {
+          ...plainReview(entry, `review-${++this.#counter}`, now),
+          ...(replaces ? { updates: replaces } : {}),
+        };
         const items = entry.items ?? [];
         this.#reviews.set(review.id, { review: { ...review, items: items.length }, items });
         return { op: "review", review: { ...review, items: items.length } };
@@ -328,6 +350,9 @@ export class FakeMarketplaceWire {
         if (stored.review.blocked)
           return { op: "error", code: "refused", message: stored.review.blocked };
         const { review } = stored;
+        const acceptance = { review, choices: operation.choices };
+        this.accepted.push(acceptance);
+        const bot = review.type === "spade-bot" ? this.makeBot?.(acceptance) : undefined;
         const installed: MarketInstalled = {
           source: review.source,
           type: review.type,
@@ -337,7 +362,7 @@ export class FakeMarketplaceWire {
           hash: review.hash,
           acceptedAt: now,
           state: "on",
-          target: review.type === "spade-bot" ? `bot_${this.#counter}` : review.name,
+          target: review.type === "spade-bot" ? (bot ?? `bot_${this.#counter}`) : review.name,
         };
         this.#installed.set(key(review.type, review.name), installed);
         this.#reviews.delete(operation.id);

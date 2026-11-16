@@ -375,6 +375,10 @@ export class FakeDaemon implements Host {
   get outside(): import("./outside-wire.ts").FakeOutside {
     return this.servicesWire.outside;
   }
+  /** ace's marketplace behind `marketplace.request`: what was accepted, and the recipe's bot. */
+  get marketplace(): import("./marketplace-wire.ts").FakeMarketplaceWire {
+    return this.servicesWire.marketplace;
+  }
   /** This machine's own update, behind `machineUpdate.request`. */
   get machineUpdate(): FakeMachineUpdate {
     return this.servicesWire.machineUpdate;

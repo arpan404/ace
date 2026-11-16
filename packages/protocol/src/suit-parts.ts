@@ -186,6 +186,8 @@ export const suitPages = [
   "automation",
   "skills",
   "skill",
+  "marketplace",
+  "market-entry",
   "usage",
   "spade",
   "history",

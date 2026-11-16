@@ -50,3 +50,5 @@ export { AccountMachines, AddMachineDialog, type MachineWay } from "./no-machine
 
 /** A Settings page's frame: its title, lede and actions around the body (other slices' pages use it). */
 export { SettingsBody } from "./settings-body.tsx";
+/** The ace window in miniature in a look, for previews outside Settings (a Suit in the marketplace). */
+export { AppPreview } from "./app-preview.tsx";

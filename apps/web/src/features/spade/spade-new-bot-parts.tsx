@@ -1,6 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { SpadeTemplate } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { BotFace } from "@/components/bot-face.tsx";
 import {
   Menu,
@@ -10,6 +11,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { readTemplates } from "./spade-teams-api.ts";
 import type { SpadeHost } from "./use-spade-roster.ts";
@@ -132,6 +134,14 @@ export function TemplateRows(props: {
           );
         })}
       </ul>
+      <Link
+        to="/marketplace"
+        search={{ type: "spade-bot" }}
+        {...part("link")}
+        className="mt-2 self-start rounded-sm px-3 text-ui text-foreground hover:underline focus-ring"
+      >
+        From the marketplace
+      </Link>
     </section>
   );
 }

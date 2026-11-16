@@ -47,26 +47,26 @@ layer keeps them visible, unanimated and in ace's colours whatever `suit.css` sa
 
 ## Window and regions
 
-| Part             | What and where                                                                                                 | States                                         | Variants          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------- |
-| `app`            | The window's outer frame, behind the sidebar and the canvas. A region.                                         |                                                |                   |
-| `rail`           | The narrow column of place glyphs at the sidebar's left. A region.                                             |                                                |                   |
-| `rail-item`      | One place in the rail (Threads, Chats, Spade, Code review, Automations, Skills, Usage, Settings, the profile). | `active` (the open place)                      |                   |
-| `sidebar`        | The panel beside the rail: the thread list, Settings' pages, Code review's lists. A region.                    |                                                |                   |
-| `sidebar-header` | The sidebar panel's title row (its title and search).                                                          |                                                |                   |
-| `sidebar-footer` | An empty band along the sidebar panel's bottom edge, for decoration.                                           |                                                |                   |
-| `sidebar-tabs`   | The Inbox, Snoozed and Settled pill at the thread list's foot.                                                 |                                                |                   |
-| `thread-list`    | The thread list's scrolling area.                                                                              |                                                |                   |
-| `thread-row`     | One thread in the list, the filled row itself.                                                                 | `active` (open), `selected` (picked), `unread` |                   |
-| `thread-title`   | A thread row's title text.                                                                                     |                                                |                   |
-| `thread-meta`    | A thread row's trailing status, PR or line counts (a task row's top line).                                     |                                                |                   |
-| `project-header` | The row under the sidebar title with the project filter and New thread.                                        |                                                |                   |
-| `header`         | The top bar over the main column. A region.                                                                    |                                                |                   |
-| `header-title`   | The top bar's title (the thread's name).                                                                       |                                                |                   |
-| `main`           | The main column's content area, under the header.                                                              |                                                |                   |
-| `transcript`     | A thread's scrolling transcript. A region.                                                                     |                                                |                   |
-| `right-panel`    | The thread's side or bottom panel (Changes, Files, Terminal, Browser).                                         |                                                | `right`, `bottom` |
-| `panel-header`   | The side or bottom panel's tab strip row.                                                                      |                                                |                   |
+| Part             | What and where                                                                                                              | States                                         | Variants          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------- |
+| `app`            | The window's outer frame, behind the sidebar and the canvas. A region.                                                      |                                                |                   |
+| `rail`           | The narrow column of place glyphs at the sidebar's left. A region.                                                          |                                                |                   |
+| `rail-item`      | One place in the rail (Threads, Chats, Spade, Code review, Automations, Skills, Marketplace, Usage, Settings, the profile). | `active` (the open place)                      |                   |
+| `sidebar`        | The panel beside the rail: the thread list, Settings' pages, Code review's lists. A region.                                 |                                                |                   |
+| `sidebar-header` | The sidebar panel's title row (its title and search).                                                                       |                                                |                   |
+| `sidebar-footer` | An empty band along the sidebar panel's bottom edge, for decoration.                                                        |                                                |                   |
+| `sidebar-tabs`   | The Inbox, Snoozed and Settled pill at the thread list's foot.                                                              |                                                |                   |
+| `thread-list`    | The thread list's scrolling area.                                                                                           |                                                |                   |
+| `thread-row`     | One thread in the list, the filled row itself.                                                                              | `active` (open), `selected` (picked), `unread` |                   |
+| `thread-title`   | A thread row's title text.                                                                                                  |                                                |                   |
+| `thread-meta`    | A thread row's trailing status, PR or line counts (a task row's top line).                                                  |                                                |                   |
+| `project-header` | The row under the sidebar title with the project filter and New thread.                                                     |                                                |                   |
+| `header`         | The top bar over the main column. A region.                                                                                 |                                                |                   |
+| `header-title`   | The top bar's title (the thread's name).                                                                                    |                                                |                   |
+| `main`           | The main column's content area, under the header.                                                                           |                                                |                   |
+| `transcript`     | A thread's scrolling transcript. A region.                                                                                  |                                                |                   |
+| `right-panel`    | The thread's side or bottom panel (Changes, Files, Terminal, Browser).                                                      |                                                | `right`, `bottom` |
+| `panel-header`   | The side or bottom panel's tab strip row.                                                                                   |                                                |                   |
 
 ## Transcript
 
@@ -191,23 +191,25 @@ canvas is a `page` as well (`thread` or `chat`).
 
 `data-page` takes one value from `suitPages`:
 
-| `data-page`                   | Where                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------ |
-| `thread`                      | A thread (and Home, which opens one), a subagent.                                          |
-| `chat`                        | A thread that is a chat.                                                                   |
-| `new-thread`                  | New thread, a fork being started, opening a folder.                                        |
-| `chats`                       | The Chats place with none open.                                                            |
-| `history`                     | History and Archived.                                                                      |
-| `inbox`                       | Code review's Inbox.                                                                       |
-| `pulls`, `pull`               | The pull request list; one pull request or a new one.                                      |
-| `issues`, `issue`             | The issue list; one issue or a new one.                                                    |
-| `review`                      | A pull request's Code tab (the review of its changes).                                     |
-| `automations`, `automation`   | Automations with none open; one automation or a new one.                                   |
-| `skills`, `skill`             | Skills' landing page; one skill or a new one.                                              |
-| `usage`                       | Usage.                                                                                     |
-| `spade`                       | Spade, a bot or a group's conversation, and their pages.                                   |
-| `settings`                    | Every Settings page.                                                                       |
-| `setup`, `sign-in`, `connect` | Provider setup; signing in and connecting to a machine (outside the main window's routes). |
+| `data-page`                   | Where                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `thread`                      | A thread (and Home, which opens one), a subagent.                                            |
+| `chat`                        | A thread that is a chat.                                                                     |
+| `new-thread`                  | New thread, a fork being started, opening a folder.                                          |
+| `chats`                       | The Chats place with none open.                                                              |
+| `history`                     | History and Archived.                                                                        |
+| `inbox`                       | Code review's Inbox.                                                                         |
+| `pulls`, `pull`               | The pull request list; one pull request or a new one.                                        |
+| `issues`, `issue`             | The issue list; one issue or a new one.                                                      |
+| `review`                      | A pull request's Code tab (the review of its changes).                                       |
+| `automations`, `automation`   | Automations with none open; one automation or a new one.                                     |
+| `skills`, `skill`             | Skills' landing page; one skill or a new one.                                                |
+| `marketplace`                 | The Marketplace's lists: Featured, a category, search results, Installed, Updates, Catalogs. |
+| `market-entry`                | One marketplace entry's page, and its review before install (`data-variant` `review`).       |
+| `usage`                       | Usage.                                                                                       |
+| `spade`                       | Spade, a bot or a group's conversation, and their pages.                                     |
+| `settings`                    | Every Settings page.                                                                         |
+| `setup`, `sign-in`, `connect` | Provider setup; signing in and connecting to a machine (outside the main window's routes).   |
 
 The route each address shows is listed in `apps/web/src/app/route-page.ts`;
 `apps/web/src/features/suits/suit-pages-drift.test.tsx` walks every route and fails when its
@@ -392,3 +394,6 @@ reduce-motion frame.
   `header-title` `spade-pill`, raised cards are `card` `waiting` (`spade-question`,
   `spade-request`), and a bot's profile is `right-panel` `spade-profile` with its head, segments,
   sections and rows.
+- Version 1, 2026-11-15: the Marketplace's pages, `marketplace` (its lists) and `market-entry`
+  (an entry and its review, `data-variant` `review`). Its panel rows are `nav-item`s, its entry
+  rows `list-row`s in a `list` `market`, and a review's switches are `settings-row`s.

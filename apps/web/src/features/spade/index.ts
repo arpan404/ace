@@ -11,3 +11,5 @@ export { NewBotStart } from "./spade-bot-start.tsx";
 export { SpadeSettingsScreen, type SpadeSettingsPage } from "./spade-settings-screen.tsx";
 /** The live pictures of the bots' browsers and screens, as the app supplies them. */
 export { BotStreamsContext, type BotStreams } from "./computer/bot-streams.ts";
+/** This machine's bots, as Spade lists them (a plugin's review picks which get it). */
+export { readAgents } from "./spade-api.ts";

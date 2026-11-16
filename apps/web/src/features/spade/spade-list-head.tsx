@@ -44,7 +44,8 @@ export function SpadeListTop(props: {
         className={roundButton}
       />
       <Link
-        to="/settings/spade/apps"
+        to="/marketplace"
+        search={{ type: "spade" }}
         aria-label="Apps, plugins and skills"
         title="Apps, plugins and skills"
         className={cn(
