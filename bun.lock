@@ -161,7 +161,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.22",
+      "version": "0.0.23",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
