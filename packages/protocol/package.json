@@ -41,6 +41,7 @@
     "./entities": "./src/entities.ts",
     "./ace-account": "./src/ace-account.ts",
     "./suits": "./src/suits.ts",
+    "./marketplace": "./src/marketplace.ts",
     "./suit-parts": "./src/suit-parts.ts"
   },
   "scripts": {

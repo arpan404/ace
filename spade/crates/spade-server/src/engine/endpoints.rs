@@ -11,6 +11,8 @@ use spade_store::{StoreError, StoredEndpoint, StoredModel};
 use super::Engine;
 
 const FAST_MODEL: &str = "fast_model";
+/// The model new bots start on, when the person chose one (Settings › Spade › Models).
+const NEW_BOT_MODEL: &str = "new_bot_model";
 /// The person's own SearXNG address, for `web_search`.
 const SEARXNG_URL: &str = "searxng_url";
 const NAME_CHARS: usize = 60;
@@ -533,7 +535,7 @@ impl Engine {
                 continue;
             }
             let events = self.load(&agent.conversation)?;
-            let open = spade_core::Transcript::fold(&events)
+            let open = spade_core::Transcript::fold(events.iter())
                 .open_reply()
                 .and_then(|m| m.reply.clone());
             let pinned = events.iter().any(|event| {
@@ -673,6 +675,29 @@ impl Engine {
     /// Keeps the person's own SearXNG address (`None` forgets it). The caller checks it first.
     pub fn set_searxng_url(&self, url: Option<&str>) -> Result<(), StoreError> {
         self.store.set_setting(SEARXNG_URL, url)
+    }
+
+    /// The model the person chose for new bots, if any.
+    pub fn new_bot_model(&self) -> Result<Option<String>, StoreError> {
+        self.store.setting(NEW_BOT_MODEL)
+    }
+
+    /// The model a new bot starts on when its request names none: the person's choice for new
+    /// bots, else [`Self::default_model`].
+    pub fn new_bot_default(&self) -> String {
+        match self.new_bot_model() {
+            Ok(Some(model)) if !model.is_empty() => model,
+            _ => self.default_model(),
+        }
+    }
+
+    /// Keeps the model for new bots (`None` goes back to the first usable model).
+    pub fn set_new_bot_model(&self, model: Option<&str>) -> Result<(), EndpointError> {
+        let model = model
+            .map(|m| self.check_model(m))
+            .transpose()
+            .map_err(|e| invalid(e.to_string()))?;
+        Ok(self.store.set_setting(NEW_BOT_MODEL, model.as_deref())?)
     }
 
     pub fn set_fast_model(&self, model: Option<&str>) -> Result<(), EndpointError> {

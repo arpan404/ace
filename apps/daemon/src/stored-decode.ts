@@ -233,3 +233,15 @@ export function storedTakeover(json: string): import("./spade/computer-drivers.t
   // Trusted: written by `storedTakeovers` from a Takeover this daemon built.
   return JSON.parse(json) as import("./spade/computer-drivers.ts").Takeover;
 }
+
+/* The marketplace registry's own rows (ADR 0168), written by this build: trusted (ADR 0125). */
+export const storedMarketSource = (text: string) =>
+  JSON.parse(text) as import("./marketplace/store.ts").StoredSource;
+export const storedMarketInstall = (text: string) =>
+  JSON.parse(text) as import("./marketplace/store.ts").StoredInstall;
+export const storedMarketListing = (text: string) =>
+  JSON.parse(text) as import("./marketplace/store.ts").StoredListing;
+export const storedMarketWithdrawn = (text: string) =>
+  JSON.parse(text) as import("./marketplace/listings.ts").WithdrawnState;
+export const storedMarketJournal = (text: string) =>
+  JSON.parse(text) as import("./marketplace/journal.ts").Journal;

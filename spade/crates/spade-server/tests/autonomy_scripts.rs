@@ -17,8 +17,7 @@ use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_testkit::Script;
 use support::{Options, Result, Spade};
 
-const APPROVE: &str =
-    r#"{"verdict":"approve","reason":"It builds the project.","outward_or_irreversible":false}"#;
+const APPROVE: &str = r#"{"verdict":"approve","reason":"It builds the project."}"#;
 
 struct Setup {
     spade: Spade,
@@ -37,6 +36,8 @@ async fn start(scripts: Vec<Script>) -> Result<Setup> {
         tools,
         Options {
             workspaces: Some(workspaces.clone()),
+            // The fake reviews, in script order.
+            reviewer: None,
             ..Options::default()
         },
     )
@@ -49,13 +50,12 @@ async fn start(scripts: Vec<Script>) -> Result<Setup> {
     })
 }
 
-/// A bot on `auto_review`: its id and conversation.
+/// A bot: its id and conversation.
 async fn bot(spade: &Spade) -> Result<(String, String)> {
     let (status, body) = spade
         .post(
             "/v1/agents",
-            json!({ "name": "Builder", "task": "Build the project", "model": "fake/m",
-                    "access": "auto_review" }),
+            json!({ "name": "Builder", "task": "Build the project", "model": "fake/m" }),
         )
         .await?;
     assert_eq!(status, 201, "{body}");

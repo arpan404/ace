@@ -5,6 +5,7 @@ import { deleteAgent } from "./spade-api.ts";
 import { saveAs } from "./save-as.ts";
 import { duplicateAgent, exportAgent } from "./spade-teams-api.ts";
 import { agentsKey } from "./use-spade-roster.ts";
+import { deleteMaker } from "./spade-work-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
 /** Deletes a bot on the machine in scope; resolves whether it went, and says why it didn't. */
@@ -12,9 +13,14 @@ export function useDeleteBot() {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
-  return async (bot: { id: string; name: string }): Promise<boolean> => {
+  return async (
+    bot: { id: string; name: string },
+    /** For a bot that made workers: stop them, or keep them going (ADR 0161). */
+    workers?: "stop" | "keep",
+  ): Promise<boolean> => {
     try {
-      await deleteAgent(client, bot.id);
+      if (workers) await deleteMaker(client, bot.id, workers);
+      else await deleteAgent(client, bot.id);
       await cache.invalidateQueries({ queryKey: agentsKey });
       return true;
     } catch (error) {

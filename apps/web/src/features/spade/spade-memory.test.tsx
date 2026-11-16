@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -23,7 +23,7 @@ test("a bot's Memory adds, edits in place and deletes its notes through Spade", 
     api.notes.add({ text: "Lives in Leeds" });
   });
   await screen.findByRole("feed", { name: "Conversation with Travel" });
-  // The bot's name opens its page, where Memory is a section edited in place.
+  // The pill opens its profile, where its notes are in Library, edited in place.
   const dialog = await openMemory();
   // Its own notes only: the shared ones live in About you.
   const list = within(await dialog.findByRole("list", { name: "Travel's memory" }));
@@ -31,10 +31,7 @@ test("a bot's Memory adds, edits in place and deletes its notes through Spade", 
     "Prefers window seatsDelete",
   ]);
 
-  await userEvent.type(
-    dialog.getByRole("textbox", { name: "Add something for Travel to remember" }),
-    "Flies from Manchester{Enter}",
-  );
+  await userEvent.type(await addField(dialog), "Flies from Manchester{Enter}");
   await waitFor(() =>
     expect(texts(spade, "travel")).toEqual(["Prefers window seats", "Flies from Manchester"]),
   );
@@ -59,24 +56,6 @@ test("a bot's Memory adds, edits in place and deletes its notes through Spade", 
     expect(dialog.queryByRole("button", { name: "Edit: Flies from Manchester" })).toBeNull(),
   );
   expect(texts(spade, null)).toEqual(["Lives in Leeds"]);
-});
-
-test("Settings › Spade › About you lists and adds the notes every bot sees", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
-    withTravel(api);
-    api.notes.add({ text: "Lives in Leeds" });
-    api.notes.add({ text: "Prefers window seats", agent: "travel" });
-  });
-  const list = within(await screen.findByRole("list", { name: "About you" }));
-  expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-    "Lives in LeedsDelete",
-  ]);
-  await userEvent.type(
-    screen.getByRole("textbox", { name: "Add something about you" }),
-    "Vegetarian{Enter}",
-  );
-  await waitFor(() => expect(texts(spade, null)).toEqual(["Lives in Leeds", "Vegetarian"]));
-  expect(spade.sent("POST", "/v1/notes")).toEqual([{ text: "Vegetarian" }]);
 });
 
 /** Travel's chat with one finished reply whose memory_save remembered `note`. */
@@ -104,41 +83,31 @@ const rememberedChat = (api: FakeSpadeApi) => {
   api.store(c, { type: "reply_finished", reply: "r1", text: "Got it." });
 };
 
+/** Travel's notes: its profile's Library. */
 const openMemory = async () => {
-  await userEvent.click(await screen.findByRole("link", { name: /^Travel on .*open its page$/ }));
-  return within(await screen.findByRole("region", { name: "Memory" }));
+  await openProfile("Travel");
+  const profile = within(await screen.findByRole("region", { name: "Travel's profile" }));
+  await userEvent.click(profile.getByRole("tab", { name: "Library" }));
+  const heading = await profile.findByRole("heading", { name: "Notes" });
+  return within(heading.closest("section") ?? document.body);
 };
 
-test("a note the bot saved reads as one Remembered line that opens it for editing", async () => {
+/** Add a note opens its field, which stays open for the next one. */
+const addField = async (notes: ReturnType<typeof within>) => {
+  const open = notes.queryByRole("button", { name: "Add a note" });
+  if (open) await userEvent.click(open);
+  return notes.getByRole("textbox", { name: "Add something for Travel to remember" });
+};
+
+test("a note the bot saved stays out of the chat and is in its memory", async () => {
   await spadeApp("/spade/travel", rememberedChat);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
   await chat.findByText("Got it.");
-  // One line for the save, nothing else of the tool.
-  expect(chat.queryByText(/memory/i)).toBeNull();
-  await userEvent.click(chat.getByRole("button", { name: "Remembered: Prefers window seats" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Travel's memory" }));
-  expect((await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" })).value).toBe(
-    "Prefers window seats",
-  );
-});
-
-test("a Remembered line opens the note as Spade has it now, not as last read", async () => {
-  const { spade } = await spadeApp("/spade/travel", rememberedChat);
-  await screen.findByRole("feed", { name: "Conversation with Travel" });
-  // Read the notes once on the bot's page, so the old text is cached, then back to the chat.
-  const first = await openMemory();
-  await first.findByRole("button", { name: "Edit: Prefers window seats" });
-  await userEvent.click(screen.getByRole("button", { name: "Chat" }));
-  const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
-  await chat.findByText("Got it.");
-  spade.notes.rewrite("n_1", "Prefers aisle seats");
-
-  await userEvent.click(chat.getByRole("button", { name: "Remembered: Prefers window seats" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Travel's memory" }));
-  // The field's first text is the fresh one: it never shows the cached note.
-  expect((await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" })).value).toBe(
-    "Prefers aisle seats",
-  );
+  expect(chat.queryByText(/window seats/i)).toBeNull();
+  expect(chat.queryByText(/memory|remembered/i)).toBeNull();
+  // Its notes are in its profile's Library.
+  const dialog = await openMemory();
+  expect(await dialog.findByRole("button", { name: "Edit: Prefers window seats" })).toBeTruthy();
 });
 
 test("an open note follows the bot's changes until typed in, then Save won't overwrite them", async () => {
@@ -154,10 +123,7 @@ test("an open note follows the bot's changes until typed in, then Save won't ove
 
   // Untouched: the bot's newer text replaces it when the list is read again.
   const aisleAt = spade.notes.rewrite("n_1", "Prefers aisle seats").updated_at;
-  await userEvent.type(
-    dialog.getByRole("textbox", { name: "Add something for Travel to remember" }),
-    "Flies from Manchester{Enter}",
-  );
+  await userEvent.type(await addField(dialog), "Flies from Manchester{Enter}");
   await dialog.findByRole("button", { name: "Edit: Flies from Manchester" });
   await waitFor(() => expect(field.value).toBe("Prefers aisle seats"));
 
@@ -216,7 +182,7 @@ test("suggested notes wait under Suggested: Keep moves one into the notes, Dismi
       .getAllByRole("listitem")
       .map((row) => row.textContent)
       .toSorted(),
-  ).toEqual(["Flies from LeedsKeepDismiss", "Likes trainsKeepDismiss"]);
+  ).toEqual(["Flies from LeedsDismissKeep", "Likes trainsDismissKeep"]);
   const kept = within(dialog.getByRole("list", { name: "Travel's memory" }));
   expect(kept.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
     "Prefers window seatsDelete",

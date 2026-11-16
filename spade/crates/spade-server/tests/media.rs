@@ -267,15 +267,8 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
     assert!(media.seen().is_empty());
 
     media_endpoint(spade, &media).await?;
+    // Making an image changes only the bot's own things (ADR 0171): no question, no review.
     spade.say(&conversation, "Try again").await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c2"),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert!(status < 300);
     let events = spade
         .wait_for_count(&conversation, "reply_finished", 3)
         .await?;
@@ -307,8 +300,8 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
 }
 
 #[tokio::test]
-async fn a_slow_image_outlives_the_tool_deadline_and_its_cost_counts_against_the_cap() -> Result {
-    // The image takes longer than a turn waits for a tool, and costs more than today's cap.
+async fn a_slow_image_outlives_the_foreground_window_and_its_cost_is_recorded() -> Result {
+    // The image takes longer than a turn holds a call.
     let media = FakeMedia::slow(PNG, "", std::time::Duration::from_millis(900)).await?;
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path().join("workspace"));
@@ -323,9 +316,8 @@ async fn a_slow_image_outlives_the_tool_deadline_and_its_cost_counts_against_the
         Toolbox::new(media_tools::all(workspaces.clone(), bots.clone()))
             .with_source(media_tools::images(&bots)),
         Options {
-            cap_usd: 1.0,
             limits: spade_server::engine::Limits {
-                tool_timeout: std::time::Duration::from_millis(300),
+                foreground: std::time::Duration::from_millis(300),
                 ..spade_server::engine::Limits::default()
             },
             workspaces: Some(workspaces),
@@ -337,22 +329,17 @@ async fn a_slow_image_outlives_the_tool_deadline_and_its_cost_counts_against_the
     media_endpoint(&spade, &media).await?;
     let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Draw a kite").await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c1"),
-            json!({ "allowed": true }),
-        )
-        .await?;
     let events = spade.wait_for(&conversation, "shared").await?;
     assert_eq!(
         of_type(&events, "shared")[0]["images"][0]["sha256"],
         sha256(PNG)
     );
     spade.wait_for(&conversation, "job_finished").await?;
-    // $1.50 for the image is past the $1 cap: the next message is refused.
+    // $1.50 for the image is in the ledger; nothing stops on it (ADR 0166).
+    let spent = spade_store::Store::open(&spade.database())?.spent_by(&conversation, 0)?;
+    assert!(spent >= 1_500_000, "{spent}");
     let (status, body) = send(&spade, &conversation, json!({ "text": "Another" })).await?;
-    assert_eq!(status, 402, "{body}");
+    assert!((200..300).contains(&status), "{status} {body}");
     Ok(())
 }
 
@@ -438,10 +425,7 @@ async fn transcription_uses_the_model_the_person_picked_and_counts_what_it_costs
     let spade = Spade::start_with(
         vec![Script::reply("unused")],
         Vec::new(),
-        Options {
-            cap_usd: 1.0,
-            ..Options::default()
-        },
+        Options::default(),
     )
     .await?;
     let audio =
@@ -463,10 +447,12 @@ async fn transcription_uses_the_model_the_person_picked_and_counts_what_it_costs
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["text"], "lights off please");
     assert_eq!(media.seen()[0].path, "/audio/transcriptions");
-    // It cost $1.50, past the $1 cap: the next one is refused before it reaches the endpoint.
+    // Each costs $1.50, recorded in the ledger; nothing refuses the next (ADR 0166).
     let (status, _) = spade.post("/v1/transcriptions", audio).await?;
-    assert_eq!(status, 402);
-    assert_eq!(media.seen().len(), 1);
+    assert_eq!(status, 200);
+    assert_eq!(media.seen().len(), 2);
+    let spent = spade_store::Store::open(&spade.database())?.spent_since(0)?;
+    assert_eq!(spent, 3_000_000);
     Ok(())
 }
 
@@ -516,8 +502,7 @@ async fn any_model_the_person_picks_transcribes_whatever_its_saved_capabilities(
 
 #[tokio::test]
 async fn the_server_binary_reads_documents_in_a_child_process() -> Result {
-    let reader =
-        spade_docs::Extractor::child(env!("CARGO_BIN_EXE_spade-server").into(), Vec::new());
+    let reader = spade_docs::Extractor::child(env!("CARGO_BIN_EXE_spade").into(), Vec::new());
     let read = reader.read(b"a,b\n1,2\n".to_vec(), "t.csv").await?;
     assert_eq!(read.text, "a\tb\n1\t2");
     assert_eq!(
@@ -529,7 +514,7 @@ async fn the_server_binary_reads_documents_in_a_child_process() -> Result {
 
 #[tokio::test]
 async fn a_reader_child_past_its_memory_cap_fails_instead_of_growing() -> Result {
-    let program: std::path::PathBuf = env!("CARGO_BIN_EXE_spade-server").into();
+    let program: std::path::PathBuf = env!("CARGO_BIN_EXE_spade").into();
     let big = "word ".repeat(4 * 1024 * 1024).into_bytes();
     let capped =
         spade_docs::Extractor::child(program.clone(), Vec::new()).with_memory(8 * 1024 * 1024);
@@ -608,7 +593,7 @@ async fn the_reader_child_reads_without_ever_building_a_runtime() -> Result {
         "/usr/bin/env".into(),
         vec![
             "TOKIO_WORKER_THREADS=0".into(),
-            env!("CARGO_BIN_EXE_spade-server").into(),
+            env!("CARGO_BIN_EXE_spade").into(),
         ],
     );
     let read = reader.read(b"plain words".to_vec(), "a.txt").await?;

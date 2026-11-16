@@ -1,5 +1,6 @@
 export * from "./extension-catalog.ts";
 export * from "./skill-library.ts";
+export * from "./contained-path.ts";
 export * from "./spade.ts";
 export * from "./spade-brains.ts";
 export * from "./spade-remote.ts";

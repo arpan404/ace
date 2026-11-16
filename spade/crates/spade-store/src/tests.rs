@@ -211,6 +211,54 @@ fn bot<'a>(id: &'a str, conversation: &'a str, model: &'a str) -> NewAgent<'a> {
 }
 
 #[test]
+fn a_helpers_conversation_is_hidden_belongs_to_its_bot_and_goes_with_it() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
+    let helper = StoredHelper {
+        conversation: "h1".into(),
+        parent: "c1".into(),
+        job: "call_1".into(),
+        reply: "r1".into(),
+        profile: "explore".into(),
+        system: "Read only.".into(),
+        reads_only: true,
+        tools: Some(vec!["web_fetch".into()]),
+        model: "e/m".into(),
+        created_ms: 0,
+    };
+    let first = [Event::user_message("Read the logs")];
+    assert!(store.create_helper(&helper, &first, 6)?);
+    // Starting the same job's helper again (a restart) makes no second one.
+    let again = StoredHelper {
+        conversation: "h2".into(),
+        ..helper.clone()
+    };
+    assert!(!store.create_helper(&again, &first, 7)?);
+    assert!(store.conversation("h2")?.is_none());
+
+    let listed: Vec<String> = store.conversations()?.into_iter().map(|c| c.id).collect();
+    assert_eq!(listed, vec!["c1".to_owned()]);
+    assert_eq!(store.events("h1", 0)?.len(), 1);
+    assert_eq!(
+        store.agent_for_conversation("h1")?.map(|a| a.id),
+        Some("a1".into())
+    );
+    let found = store.helper_for_job("c1", "call_1")?;
+    assert_eq!(
+        found.as_ref().map(|h| h.tools.clone()),
+        Some(helper.tools.clone())
+    );
+    assert_eq!(store.helpers_of("c1")?.len(), 1);
+
+    store.delete_agent("a1")?;
+    assert!(store.conversation("h1")?.is_none());
+    assert!(store.events("h1", 0)?.is_empty());
+    assert!(store.helpers()?.is_empty());
+    Ok(())
+}
+
+#[test]
 fn an_agent_and_its_one_conversation_are_created_together() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
@@ -242,11 +290,7 @@ fn deleting_an_agent_deletes_its_conversation_and_events() -> Result<()> {
     assert!(store.agent("a1")?.is_none());
     assert!(store.conversation("c1")?.is_none());
     assert!(store.events("c1", 0)?.is_empty());
-    assert_eq!(
-        store.spent_since(0)?,
-        300,
-        "spending still counts toward the cap"
-    );
+    assert_eq!(store.spent_since(0)?, 300, "spending stays in the ledger");
     assert!(!store.delete_agent("a1")?);
     Ok(())
 }
@@ -425,13 +469,21 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
             "UPDATE agents SET avatar = ?1 WHERE id = 'a_two'",
             [&picture],
         )?;
-        // Back to before the faces migration; the one after it (routines' `untrusted`) is
-        // undone so it can run again.
+        // Back to before the faces migration; the ones after it (routines' `untrusted`, the
+        // skill store, helpers, seen cursors) are undone so they can run again.
+        connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
+        connection.execute_batch(
+            "ALTER TABLE agents DROP COLUMN pinned_ms; ALTER TABLE groups DROP COLUMN pinned_ms;
+                 DROP TABLE seen; DROP TABLE skill_uses; DROP TABLE skills;
+                 ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
+                 DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
+                 DROP TABLE episodes_search; DROP TABLE episodes;",
+        )?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 2,
+            crate::schema::current_version() as i64 - 10,
         )?;
     }
     let store = Store::open(&path)?;
@@ -450,6 +502,113 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
     assert_eq!(
         store.agent("a_one")?.map(|a| a.avatar).unwrap_or_default(),
         one
+    );
+    Ok(())
+}
+
+fn stored_skill(id: &str, origin: SkillOrigin, name: &str) -> StoredSkill {
+    StoredSkill {
+        id: id.into(),
+        origin,
+        name: name.into(),
+        description: format!("The {name} skill"),
+        manual: false,
+        body: "Do it.\n".into(),
+        hash: "a".repeat(64),
+        files: "[]".into(),
+        source: None,
+        updated_ms: 5,
+    }
+}
+
+#[test]
+fn stored_skills_survive_reopening_and_a_replaced_one_is_kept_once() -> Result<()> {
+    let (_dir, path) = temp();
+    {
+        let store = Store::open(&path)?;
+        store.put_skill(&stored_skill("skl_1", SkillOrigin::Ace, "review"))?;
+        store.put_skill(&stored_skill("sks_1", SkillOrigin::Spade, "notes"))?;
+        let mut changed = stored_skill("skl_1", SkillOrigin::Ace, "review");
+        changed.description = "Review, tests first".into();
+        store.put_skill(&changed)?;
+    }
+    let store = Store::open(&path)?;
+    let all = store.skills()?;
+    let names: Vec<(&str, SkillOrigin)> = all.iter().map(|s| (s.name.as_str(), s.origin)).collect();
+    assert_eq!(
+        names,
+        [("notes", SkillOrigin::Spade), ("review", SkillOrigin::Ace)]
+    );
+    assert_eq!(
+        store.skill("skl_1")?.map(|s| s.description),
+        Some("Review, tests first".into())
+    );
+    assert!(store.remove_skill("sks_1")?);
+    assert!(!store.remove_skill("sks_1")?);
+    Ok(())
+}
+
+#[test]
+fn each_bot_keeps_its_own_skill_use_and_loses_it_with_the_bot() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
+    store.create_agent(bot("a2", "c2", "e/m"), &[], 5)?;
+    store.record_skill_load("a1", "review")?;
+    store.record_skill_load("a1", "review")?;
+    store.record_skill_verdict("a1", "review", true)?;
+    store.record_skill_verdict("a2", "deploy", false)?;
+    assert_eq!(
+        store.skill_uses("a1")?.get("review"),
+        Some(&SkillUse {
+            loads: 2,
+            helpful: true
+        })
+    );
+    assert_eq!(
+        store.skill_uses("a2")?.get("deploy"),
+        Some(&SkillUse {
+            loads: 0,
+            helpful: false
+        })
+    );
+    assert!(store.delete_agent("a1")?);
+    assert!(store.skill_uses("a1")?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let (_dir, path) = temp();
+    {
+        let store = Store::open(&path)?;
+        store.set_setting(
+            "oversight:a1",
+            Some(r#"{"daily_cap_micros":1000000,"monthly_cap_micros":null,"review":true}"#),
+        )?;
+        store.set_setting("oversight:a2", Some(r#"{"daily_cap_micros":5}"#))?;
+        store.set_setting("oversight", Some(r#"{"review_default":true}"#))?;
+    }
+    rusqlite::Connection::open(&path)?.pragma_update(
+        None,
+        "user_version",
+        crate::schema::current_version() as i64 - 1,
+    )?;
+    let store = Store::open(&path)?;
+    let one: Option<serde_json::Value> = store
+        .setting("oversight:a1")?
+        .and_then(|raw| serde_json::from_str(&raw).ok());
+    assert_eq!(one, Some(serde_json::json!({ "review": true })));
+    assert_eq!(
+        store.setting("oversight:a2")?,
+        None,
+        "a row of caps alone goes"
+    );
+    assert_eq!(
+        store.setting("oversight")?.as_deref(),
+        Some(r#"{"review_default":true}"#),
+        "the service's settings are untouched"
     );
     Ok(())
 }

@@ -309,7 +309,11 @@ async fn nothing_the_person_types_reaches_the_note_the_store_or_the_model() -> R
             .any(|s| s.body.to_string().contains(secret));
         assert!(!seen, "{secret} reached the model");
     }
-    let record = std::fs::read_dir(machine.root.path().join("computer"))?.count();
+    // Only the take-over record goes; `used/` (the surfaces a bot has had) stays by design.
+    let record = std::fs::read_dir(machine.root.path().join("computer"))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name() != "used")
+        .count();
     assert_eq!(
         record, 0,
         "the take-over record is gone after the hand-back"
@@ -399,6 +403,42 @@ async fn the_terminal_keeps_its_folder_and_variables_between_commands() -> Resul
     assert!(slow.timed_out);
     let after = terminal.run("echo still here", long).await?;
     assert_eq!(after.stdout.trim(), "still here");
+    machine.terminals.end_all();
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_helpers_commands_run_beside_the_bots_each_session_with_its_own_folder() -> Result {
+    let machine = Machine::new()?;
+    let terminal = machine.terminals.of("a_1")?;
+    let long = Duration::from_secs(10);
+    // The bot's session starts a slow build and moves into its folder.
+    let build = {
+        let terminal = terminal.clone();
+        tokio::spawn(async move {
+            terminal
+                .run("mkdir -p build && cd build && sleep 1 && echo built", long)
+                .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(terminal.bot_running());
+    // A helper's session runs meanwhile, from the workspace, not the bot's folder.
+    let started = std::time::Instant::now();
+    let helper = terminal
+        .run_in_state("c_helper", "pwd", long, None, false)
+        .await?;
+    assert!(
+        started.elapsed() < Duration::from_millis(700),
+        "it waited for the bot's build: {:?}",
+        started.elapsed()
+    );
+    assert!(!helper.stdout.trim().ends_with("/build"), "{helper:?}");
+    let built = build.await??;
+    assert_eq!(built.stdout.trim(), "built");
+    let bot = terminal.run("pwd", long).await?;
+    assert!(bot.stdout.trim().ends_with("/build"), "{bot:?}");
+    assert!(!terminal.bot_running());
     machine.terminals.end_all();
     Ok(())
 }

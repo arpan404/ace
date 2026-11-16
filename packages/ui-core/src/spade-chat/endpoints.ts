@@ -70,6 +70,8 @@ export interface SpadeModels {
   fastModel: string | undefined;
   /** `endpoint/model` that turns recordings into words (ADR 0134); undefined: none set. */
   transcriptionModel: string | undefined;
+  /** `endpoint/model` a new bot starts on; undefined: the person's first usable model. */
+  newBotModel: string | undefined;
   /** False only when Spade says this machine has no keychain to keep keys in. */
   keychain: boolean;
   /** Some keys aren't known yet: the keychain hasn't answered. Asked again, they may be. */
@@ -198,6 +200,10 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
     transcriptionModel:
       typeof record.transcription_model === "string" && record.transcription_model
         ? record.transcription_model
+        : undefined,
+    newBotModel:
+      typeof record.new_bot_model === "string" && record.new_bot_model
+        ? record.new_bot_model
         : undefined,
     keychain: record.keychain !== false,
     keysPending: record.keys_pending === true,

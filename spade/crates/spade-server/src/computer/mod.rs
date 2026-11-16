@@ -46,6 +46,20 @@ pub fn shell_commands(
 /// How long a surface counts as live after it was last used.
 pub const ACTIVE: Duration = Duration::from_secs(2 * 60);
 
+/// How long a browser or screen the bot just reached for counts as starting while ace hasn't
+/// reported it yet; after that the computer reads as it is.
+pub const STARTING: Duration = Duration::from_secs(30);
+
+/// The computer as a whole, for "Waking up…": nothing open (`asleep`), the bot reached for its
+/// browser or screen and ace hasn't shown it yet (`starting`), or something is open (`ready`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lifecycle {
+    Asleep,
+    Starting,
+    Ready,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Driver {
@@ -112,6 +126,10 @@ pub struct View {
     /// can watch them.
     pub thread_id: Option<String>,
     pub surfaces: Vec<SurfaceView>,
+    pub state: Lifecycle,
+    /// Every surface this bot's computer has ever had open, in a fixed order (`browser`,
+    /// `screen`, `terminal`, `files`); kept across restarts, so the app shows only those tabs.
+    pub used: Vec<Kind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -213,6 +231,10 @@ struct Surface {
     backend: Option<String>,
     since: Option<i64>,
     last: Option<i64>,
+    /// When the bot last reached for it with one of ace's tools.
+    bot_at: Option<i64>,
+    /// When ace last reported it.
+    reported_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -260,6 +282,8 @@ pub struct Computers {
     offered: Mutex<HashMap<String, i64>>,
     /// Paths the person changed in cowork and when, so the bot leaves them alone a while.
     person_files: Mutex<HashMap<String, Vec<cowork::Recent>>>,
+    /// The surfaces each bot's computer has ever had open, as kept under `used/`.
+    used: Mutex<HashMap<String, BTreeSet<Kind>>>,
     changes: broadcast::Sender<Change>,
     me: Weak<Self>,
 }
@@ -315,6 +339,7 @@ impl Computers {
             }
         }
         let person_files = cowork::load_recent(&root, clock.now_ms());
+        let used = load_used(&root);
         let computers = Arc::new_cyclic(|me| Self {
             root,
             workspaces,
@@ -338,6 +363,7 @@ impl Computers {
             activity: Mutex::default(),
             offered: Mutex::default(),
             person_files: Mutex::new(person_files),
+            used: Mutex::new(used),
             changes: broadcast::channel(1024).0,
             me: me.clone(),
         });
@@ -479,12 +505,52 @@ impl Computers {
         let thread_id = lock(&self.threads).get(agent).cloned();
         let stopping =
             driver == Driver::Person && (info.busy || lock(&self.stopping).contains(agent));
+        let starting = self.starting(agent, now);
+        let state = lifecycle(starting, info.running, &surfaces);
+        let mut used = lock(&self.used).get(agent).cloned().unwrap_or_default();
+        used.extend(surfaces.iter().filter(|s| s.last.is_some()).map(|s| s.kind));
         View {
             mode: self.mode(agent),
             driver,
             stopping,
             thread_id,
             surfaces,
+            state,
+            used: used.into_iter().collect(),
+        }
+    }
+
+    /// The bot reached for its browser or screen within [`STARTING`] and ace hasn't reported it
+    /// since.
+    fn starting(&self, agent: &str, now: i64) -> bool {
+        let window = i64::try_from(STARTING.as_millis()).unwrap_or(i64::MAX);
+        let all = lock(&self.surfaces);
+        [Kind::Browser, Kind::Screen].into_iter().any(|kind| {
+            all.get(&(agent.to_owned(), kind)).is_some_and(|s| {
+                s.bot_at.is_some_and(|at| now - at < window)
+                    && !s.reported_live
+                    && s.reported_at
+                        .is_none_or(|reported| Some(reported) < s.bot_at)
+            })
+        })
+    }
+
+    /// Keeps any surface the view shows as used for the first time.
+    fn keep_used(&self, agent: &str, view: &View) {
+        let mut all = lock(&self.used);
+        let known = all.entry(agent.to_owned()).or_default();
+        if view.used.iter().all(|kind| known.contains(kind)) {
+            return;
+        }
+        known.extend(view.used.iter().copied());
+        let kinds: Vec<Kind> = known.iter().copied().collect();
+        let text = serde_json::to_string(&kinds).unwrap_or_default();
+        let path = self.root.join("used").join(format!("{agent}.json"));
+        let written = std::fs::create_dir_all(self.root.join("used"))
+            .map_err(|e| e.to_string())
+            .and_then(|()| crate::atomic::write_whole(&path, &text).map_err(|e| e.to_string()));
+        if let Err(error) = written {
+            tracing::warn!(%agent, %error, "the surfaces a bot used could not be kept");
         }
     }
 
@@ -492,7 +558,8 @@ impl Computers {
     /// going quiet is sent too.
     pub fn changed(&self, agent: &str) {
         let view = self.view(agent);
-        let live = view.surfaces.iter().any(|s| s.live);
+        self.keep_used(agent, &view);
+        let live = view.surfaces.iter().any(|s| s.live) || view.state == Lifecycle::Starting;
         {
             let mut sent = lock(&self.sent);
             if sent.get(agent) != Some(&view) {
@@ -523,7 +590,8 @@ impl Computers {
                     return;
                 };
                 let view = computers.view(&agent);
-                let live = view.surfaces.iter().any(|s| s.live);
+                let live =
+                    view.surfaces.iter().any(|s| s.live) || view.state == Lifecycle::Starting;
                 if !live {
                     lock(&computers.watched).remove(&agent);
                     computers.changed(&agent);
@@ -547,6 +615,7 @@ impl Computers {
                 surface.since = Some(now);
             }
             surface.last = Some(now);
+            surface.bot_at = Some(now);
         }
         self.changed(agent);
     }
@@ -566,6 +635,7 @@ impl Computers {
             surface.tab_id = report.tab_id.map(|t| t.chars().take(200).collect());
             surface.backend = report.backend.map(|b| b.chars().take(32).collect());
             surface.last = Some(now);
+            surface.reported_at = Some(now);
         }
         if let Some(thread) = report.thread_id {
             lock(&self.threads).insert(agent.to_owned(), thread.chars().take(200).collect());
@@ -721,6 +791,8 @@ impl Computers {
         lock(&self.wanted).remove(agent);
         lock(&self.handbacks).remove(agent);
         lock(&self.sent).remove(agent);
+        lock(&self.used).remove(agent);
+        let _ = std::fs::remove_file(self.root.join("used").join(format!("{agent}.json")));
         self.forget_activity(agent);
         self.terminals.remove(agent);
     }
@@ -761,4 +833,41 @@ impl Computers {
         drop(records);
         Ok(true)
     }
+}
+
+/// The computer's state from its parts: starting beats the rest, then anything open.
+fn lifecycle(starting: bool, terminal_running: bool, surfaces: &[SurfaceView]) -> Lifecycle {
+    if starting {
+        Lifecycle::Starting
+    } else if terminal_running || surfaces.iter().any(|s| s.live) {
+        Lifecycle::Ready
+    } else {
+        Lifecycle::Asleep
+    }
+}
+
+/// Each bot's used surfaces, from `<root>/used/<bot>.json`; a file that can't be read is
+/// skipped (the bot's surfaces are found again as it uses them).
+fn load_used(root: &std::path::Path) -> HashMap<String, BTreeSet<Kind>> {
+    let mut used = HashMap::new();
+    let Ok(entries) = std::fs::read_dir(root.join("used")) else {
+        return used;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Some(bot) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let kinds = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Vec<Kind>>(&text).ok());
+        if let Some(kinds) = kinds {
+            used.insert(bot.to_owned(), kinds.into_iter().collect());
+        }
+    }
+    used
 }

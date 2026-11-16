@@ -8,8 +8,8 @@ import {
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
 /*
- * Spending caps, the model review and each bot's activity log (ADR 0135,
- * spade/docs/oversight.md), each answer parsed with `@ace/ui-core/spade-chat`. An answer that
+ * What bots spent, the model review and each bot's activity log (ADR 0135,
+ * spade/docs/oversight.md); spend is information only (ADR 0166), each answer parsed with `@ace/ui-core/spade-chat`. An answer that
  * doesn't parse throws, in words.
  */
 
@@ -39,13 +39,12 @@ export async function setOversight(target: SpadeTarget, change: SpadeOversightCh
 
 export async function readAgentOversight(target: SpadeTarget, agent: string, signal?: AbortSignal) {
   const path = `/v1/agents/${segment(agent)}/oversight`;
-  return sure(parseSpadeAgentOversight(await spadeHttp(target, "GET", path, { signal })), "caps");
+  const body = await spadeHttp(target, "GET", path, { signal });
+  return sure(parseSpadeAgentOversight(body), "spending");
 }
 
-/** Caps in micros; `null` clears a cap, or makes the bot follow the review default. */
+/** The bot's review switch; `null` makes it follow the review default. */
 export interface SpadeAgentOversightChange {
-  daily_cap_micros?: number | null;
-  monthly_cap_micros?: number | null;
   review?: boolean | null;
 }
 
@@ -56,7 +55,7 @@ export async function setAgentOversight(
 ) {
   const path = `/v1/agents/${segment(agent)}/oversight`;
   const body = await spadeHttp(target, "PUT", path, { body: change });
-  return sure(parseSpadeAgentOversight(body), "caps");
+  return sure(parseSpadeAgentOversight(body), "spending");
 }
 
 export async function readActivity(

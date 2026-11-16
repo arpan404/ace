@@ -105,6 +105,12 @@ export { movingPullRequest } from "./catalog/moving-pull-request.ts";
 export { sketchPullRequests, type PrSketch } from "./catalog/forge-browse.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";
+export type {
+  FakeMarketAcceptance,
+  FakeMarketEntry,
+  FakeMarketplaceWire,
+  MarketplaceSeed,
+} from "./marketplace-wire.ts";
 export { accountList } from "./catalog/accounts.ts";
 export type { FakeAccount, FakeQuotaWindow } from "./catalog/accounts.ts";
 export { FakeUsage, type UsageSessionTotal, type UsageSource } from "./catalog/usage.ts";
@@ -151,11 +157,18 @@ export {
   withLongAutomations,
 } from "./scenarios/long-lists.ts";
 export { FakeSpadeApi } from "./spade-api.ts";
+export { FakeSpadeWork, type FakeSpadeTask } from "./spade-work.ts";
 /** A file's revision as the fake Spade reads and checks it (cowork saves send it as `base`). */
 export { fakeFileRevision } from "./spade-computer.ts";
 export type { FakeSpadeAgent } from "./spade-api.ts";
 export type { FakeSpadeNote } from "./spade-notes.ts";
 export type { FakeSpadeSpending } from "./spade-oversight.ts";
+export type {
+  FakeSpadeCheckpoint,
+  FakeSpadeGrant,
+  FakeSpadeNetworkPolicy,
+} from "./spade-security.ts";
+export { fakeSpadeNetworkDefaults } from "./spade-security.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";

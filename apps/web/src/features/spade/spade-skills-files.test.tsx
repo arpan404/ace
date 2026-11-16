@@ -106,14 +106,18 @@ test("a command the bot wants to run shows itself, and can be allowed always as 
   const request = within(
     await screen.findByRole("group", { name: "Writer wants to run a command" }),
   );
-  await userEvent.click(request.getByRole("button", { name: "Review" }));
   expect(request.getByLabelText("Command").textContent).toBe("npm test");
-  await userEvent.click(request.getByRole("button", { name: "Always allow this command" }));
+  await userEvent.click(request.getByRole("button", { name: "Always allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-writer/approvals/k1")).toEqual([
       { allowed: true, always: true },
     ]),
   );
+  // Answered, it leaves the chat: no "Always allowed" line stays.
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: /^Writer wants to run a command/ })).toBeNull(),
+  );
+  expect(screen.queryByText(/Always allowed/)).toBeNull();
 });
 
 test("Files lists the bot's folder, opens a file and deletes after confirming", async () => {
@@ -122,13 +126,10 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
     api.files.set("writer", { "notes/plan.md": "# Plan\nShip it.", "todo.txt": "milk" });
   });
   await screen.findByRole("feed", { name: "Conversation with Writer" });
-  // From the bot's page: its Files, all of them.
-  await userEvent.click(await screen.findByRole("link", { name: /^Writer on .*open its page$/ }));
-  const section = within(await screen.findByRole("region", { name: "Files" }));
-  await userEvent.click(section.getByRole("button", { name: "All" }));
-  // Changing files needs the person driving.
-  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
-  await screen.findByRole("button", { name: "Hand back" });
+  // From the profile's Library: its files, all of them, in Computer's Files.
+  await userEvent.click(await screen.findByRole("button", { name: "Open Writer's profile" }));
+  await userEvent.click(await screen.findByRole("tab", { name: "Library" }));
+  await userEvent.click(await screen.findByRole("button", { name: "All files" }));
   const files = within(await screen.findByRole("list", { name: "Files" }));
   expect(files.getAllByRole("listitem").map((row) => row.textContent?.split(/\d/)[0])).toEqual([
     expect.stringContaining("notes"),
@@ -162,17 +163,17 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
 });
 
 test("moving to another folder closes the open file, and Delete names the file's path", async () => {
-  const history = createMemoryHistory({ initialEntries: ["/spade/writer?files=notes"] });
+  const history = createMemoryHistory({
+    initialEntries: ["/spade/writer?profile=computer&computer=files&files=notes"],
+  });
   await spadeApp(
-    "/spade/writer?files=notes",
+    "/spade/writer?profile=computer&computer=files&files=notes",
     (api) => {
       withWriter(api);
       api.files.set("writer", { "notes/plan.md": "# Plan", "todo.txt": "milk" });
     },
     { history },
   );
-  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
-  await screen.findByRole("button", { name: "Hand back" });
   const inner = within(await screen.findByRole("list", { name: "Files" }));
   const plan = (await inner.findAllByRole("listitem")).find((row) =>
     row.textContent?.includes("plan.md"),
@@ -186,7 +187,7 @@ test("moving to another folder closes the open file, and Delete names the file's
 
   await userEvent.click(within(plan).getByRole("button", { name: /^plan\.md/ }));
   await screen.findByLabelText("notes/plan.md");
-  history.push("/spade/writer?files=.");
+  history.push("/spade/writer?profile=computer&computer=files&files=.");
   const top = within(await screen.findByRole("list", { name: "Files" }));
   await top.findByRole("button", { name: /^todo\.txt/ });
   expect(screen.queryByLabelText("notes/plan.md")).toBeNull();

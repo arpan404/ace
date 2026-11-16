@@ -1,7 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -9,7 +9,7 @@ beforeEach(() => localStorage.clear());
 const now = () => Date.now();
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
-test("Spade lists first, then bots by latest activity, each with what it does now or its last message", async () => {
+test("Spade is the list's first row, then each bot with what it asks or its last message", async () => {
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({
@@ -30,15 +30,21 @@ test("Spade lists first, then bots by latest activity, each with what it does no
   });
   const list = await roster();
   await waitFor(() =>
-    expect(list.getAllByRole("link").map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/^Spade.*No messages yet$/),
-      expect.stringMatching(/^(IN)?Inbox.*Waiting for you$/),
-      expect.stringMatching(/^(GA)?Garden.*You: Water the tomatoes at 6$/),
+    // The rows, not the icon links above them (Apps, plugins and skills).
+    expect(
+      list
+        .getAllByRole("link")
+        .filter((link) => !link.hasAttribute("aria-label"))
+        .map((row) => row.textContent),
+    ).toEqual([
+      "SpadeNo messages yet",
+      "InboxWaiting for you",
+      "GardenYou: Water the tomatoes at 6",
     ]),
   );
 });
 
-test("opening a bot shows its conversation as bubbles from both sides, and none of its tool calls", async () => {
+test("opening a bot shows its conversation as bubbles from both sides, each of its messages its own bubble, its tool calls not at all", async () => {
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -76,15 +82,20 @@ test("opening a bot shows its conversation as bubbles from both sides, and none 
   });
   await userEvent.click(await botRow("Garden"));
   const chat = within(await feed("Garden"));
-  expect((await chat.findByRole("article", { name: "You" })).textContent).toBe(
-    "When do I plant garlic?",
-  );
-  // One reply is one bubble: its words, without the search it ran between them.
+  expect(
+    within(await chat.findByRole("article", { name: "You" })).getByText("When do I plant garlic?"),
+  ).toBeTruthy();
+  // One run of the bot's, each step's words its own bubble, never the search it ran between.
   const replies = chat.getAllByRole("article", { name: "Garden" });
   expect(replies).toHaveLength(1);
-  expect(replies[0]?.textContent).toContain("Let me check.In October.");
+  const run = within(replies[0] ?? document.body);
+  expect(run.getByText("Let me check.")).toBeTruthy();
+  expect(
+    run.getByText("Let me check.").closest("p, div") === run.getByText("October").closest("p, div"),
+  ).toBe(false);
   expect(chat.getByText("October").tagName).toBe("STRONG");
-  expect(chat.queryByText(/web/i)).toBeNull();
+  expect(chat.queryByText("Searched the web")).toBeNull();
+  expect(chat.queryByText(/web_search/)).toBeNull();
 });
 
 test("while a bot works its face, status and time show under its last bubble, with Stop in the composer, until the reply ends", async () => {
@@ -109,7 +120,7 @@ test("while a bot works its face, status and time show under its last bubble, wi
   expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
 
-test("an approval waits above the composer, and Send answers it", async () => {
+test("a request waits in the chat as the bot's bubble, and Allow answers it and clears it", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -118,14 +129,48 @@ test("an approval waits above the composer, and Send answers it", async () => {
   });
   await userEvent.click(await botRow("Inbox"));
   const request = await screen.findByRole("group", { name: "Inbox wants to send an email" });
-  await userEvent.click(within(request).getByRole("button", { name: "Send" }));
+  // The composer stays free while it waits.
+  expect(screen.getByRole("combobox", { name: "Message Inbox" })).toBeTruthy();
+  await userEvent.click(within(request).getByRole("button", { name: "Allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k7")).toEqual([
       { allowed: true, always: false },
     ]),
   );
+  // Answered, it leaves the chat: no settled line stays.
   await waitFor(() =>
-    expect(screen.queryByRole("group", { name: "Inbox wants to send an email" })).toBeNull(),
+    expect(screen.queryByRole("group", { name: /^Inbox wants to send an email/ })).toBeNull(),
+  );
+});
+
+test("with focus on a waiting request, Escape denies it and Enter allows the next", async () => {
+  const { spade } = await spadeApp("/spade/inbox", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const inbox = api.addAgent({ id: "inbox", name: "Inbox" });
+    api.ask(inbox, "k1", "shell", { command: "ls" });
+  });
+  const first = await screen.findByRole("group", { name: "Inbox wants to run a command" });
+  first.focus();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k1")).toEqual([
+      { allowed: false, always: false },
+    ]),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: /^Inbox wants to run a command/ })).toBeNull(),
+  );
+  const inbox = spade.agents.find((agent) => agent.id === "inbox");
+  if (!inbox) throw new Error("no Inbox");
+  spade.ask(inbox, "k2", "workspace_write", { path: "notes.md", content: "hi" });
+  const next = await screen.findByRole("group", { name: "Inbox wants to write a file" });
+  next.focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k2")).toEqual([
+      { allowed: true, always: false },
+    ]),
   );
 });
 
@@ -141,16 +186,33 @@ test("editing a bot sends only what changed", async () => {
     });
   });
   await feed("Garden");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
-  const task = dialog.getByRole("textbox", { name: "Task" });
+  await openProfile("Garden");
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
+  );
+  const task = screen.getByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
-  await userEvent.type(task, "Keep the tomatoes alive");
-  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  await userEvent.type(task, "Keep the tomatoes alive{Meta>}{Enter}{/Meta}");
+  await screen.findByRole("button", { name: "Edit the task: Keep the tomatoes alive" });
   await waitFor(() =>
     expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([{ task: "Keep the tomatoes alive" }]),
   );
+});
+
+test("Esc puts a task being edited back, and nothing is sent", async () => {
+  const { spade } = await spadeApp("/spade/garden?profile=details", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    api.addAgent({ id: "garden", name: "Garden", task: "Keep the garden alive" });
+  });
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" }),
+  );
+  const task = screen.getByRole("textbox", { name: "Task" });
+  await userEvent.clear(task);
+  await userEvent.type(task, "Something else{Escape}");
+  await screen.findByRole("button", { name: "Edit the task: Keep the garden alive" });
+  expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([]);
 });
 
 test("deleting a bot asks first, then removes it and its conversation", async () => {
@@ -160,8 +222,8 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
     api.addAgent({ id: "garden", name: "Garden" });
   });
   await feed("Garden");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete bot" }));
+  await openProfile("Garden");
+  await userEvent.click(await screen.findByRole("button", { name: "Delete bot…" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete Garden?" }));
   expect(confirm.getByText("This deletes Garden and its whole conversation.")).toBeTruthy();
   expect(spade.sent("DELETE", "/v1/agents/garden")).toEqual([]);
@@ -172,37 +234,53 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
   );
 });
 
-test("Spade itself can be edited but never deleted", async () => {
+test("Spade itself can be changed in its profile but never deleted, and keeps its name and face", async () => {
   await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
   await feed("Spade");
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  expect(await screen.findByRole("menuitem", { name: "Edit Spade" })).toBeTruthy();
-  expect(screen.queryByRole("menuitem", { name: "Delete bot" })).toBeNull();
+  await openProfile("Spade");
+  await screen.findByRole("button", { name: "Duplicate" });
+  expect(screen.getByRole("button", { name: "Write its task" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete bot…" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Rename Spade" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Change face" })).toBeNull();
+  // Its Library starts with what every bot knows about the person.
+  await userEvent.click(screen.getByRole("tab", { name: "Library" }));
+  const headings = await screen.findAllByRole("heading", { level: 3 });
+  expect(headings.map((each) => each.textContent).slice(0, 2)).toEqual(["About you", "Notes"]);
 });
 
-test("an approval shows what the call would do on request, as plain text", async () => {
+test("a request is the bot's bubble saying who an email goes to and what, as plain text", async () => {
   await spadeApp("/spade/inbox", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     const inbox = api.addAgent({ id: "inbox", name: "Inbox" });
-    api.ask(inbox, "k7", "send_email", { to: "marta@example.com", body: "<b>Thursday</b> works" });
+    api.ask(inbox, "k7", "send_email", {
+      to: "marta@example.com",
+      subject: "Thursday",
+      body: "<b>Thursday</b> works",
+    });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Review" }));
-  const details = await screen.findByLabelText("Details");
-  expect(details.textContent).toContain('"to": "marta@example.com"');
-  expect(details.textContent).toContain("<b>Thursday</b> works");
-  expect(details.querySelector("b")).toBeNull();
+  const chat = within(await screen.findByRole("feed", { name: "Conversation with Inbox" }));
+  const request = await chat.findByRole("group", {
+    name: "Inbox wants to send an email to marta@example.com",
+  });
+  expect(request.textContent).toContain("Subject: Thursday");
+  expect(request.textContent).toContain("<b>Thursday</b> works");
+  expect(request.querySelector("b")).toBeNull();
+  // Never the call's raw JSON.
+  expect(request.textContent).not.toContain("{");
 });
 
-test("Stop stays in the composer while a bot waits on the person", async () => {
+test("a bot waiting on the person's answer to a request is not working: no Stop in the composer", async () => {
   await spadeApp("/spade/inbox", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     api.ask(api.addAgent({ id: "inbox", name: "Inbox" }), "k7", "send_email");
   });
   await screen.findByRole("group", { name: "Inbox wants to send an email" });
-  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Talk with Inbox" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });

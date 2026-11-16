@@ -1,4 +1,3 @@
-import { spadeAccessLabel, parseSpadeAccess } from "./autonomy.ts";
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { spadeMoney } from "./oversight.ts";
@@ -20,7 +19,7 @@ export const spadeActivityKinds = [
   "task",
   "access",
   "spend",
-  "cap",
+  "hook",
 ] as const;
 export type SpadeActivityKind = (typeof spadeActivityKinds)[number];
 
@@ -36,7 +35,7 @@ export const spadeActivityKindWords: Record<SpadeActivityKind, string> = {
   task: "Progress",
   access: "Access",
   spend: "Spending",
-  cap: "Caps",
+  hook: "Plugins",
 };
 
 export interface SpadeActivityEntry {
@@ -49,6 +48,10 @@ export interface SpadeActivityEntry {
   summary: string;
   outcome: string | undefined;
   reply: string | undefined;
+  /** The entry in Spade's words ("Ran a command"); undefined from an older Spade. */
+  sentence: string | undefined;
+  /** One line of what it touched ("gh pr list --state open"); undefined when there is none. */
+  detail: string | undefined;
   costMicros: number | undefined;
   raw: Record<string, unknown>;
 }
@@ -62,6 +65,8 @@ const entryShape = z.object({
   summary: z.string().nullish().catch(undefined),
   outcome: z.string().nullish().catch(undefined),
   reply: z.string().nullish().catch(undefined),
+  sentence: z.string().nullish().catch(undefined),
+  detail: z.string().nullish().catch(undefined),
   cost_micros: z.number().nonnegative().nullish().catch(undefined),
 });
 
@@ -91,6 +96,8 @@ export function parseSpadeActivity(
         summary: value.summary ?? "",
         outcome: value.outcome ?? undefined,
         reply: value.reply ?? undefined,
+        sentence: value.sentence || undefined,
+        detail: value.detail || undefined,
         costMicros: value.cost_micros ?? undefined,
         raw: fields,
       },
@@ -191,13 +198,12 @@ function sentenceOf(entry: SpadeActivityEntry): {
         sentence: `The reviewer ${reviewVerdicts[outcome] ?? "approved"}: ${words.base}`,
         detail: reasonOf(entry),
       };
-    case "access": {
-      const access = parseSpadeAccess(name);
+    case "access":
+      // Spade has one level now (ADR 0163); a log from an older Spade may name another.
       return {
-        sentence: access ? `Access changed to ${spadeAccessLabel(access)}` : "Access changed",
+        sentence: name === "auto_review" ? "Access changed to Auto-review" : "Access changed",
         detail: "",
       };
-    }
     case "task":
       // Spade names it `continued` or `paused`, and its summary is the whole sentence ("carried
       // on by itself, step 4", "Paused after 25 steps on its own. …").
@@ -209,8 +215,9 @@ function sentenceOf(entry: SpadeActivityEntry): {
       };
     case "spend":
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
-    case "cap":
-      return { sentence: name === "monthly" ? "Reached its monthly cap" : "Reached its daily cap" };
+    case "hook":
+      // Spade's summary is the whole sentence ("guard's PreToolUse hook refused a call: …").
+      return { sentence: capitalised(entry.summary || "A plugin's hook ran"), detail: "" };
     case undefined:
       return { sentence: name ? words.done : "Did something this app doesn't know" };
   }
@@ -226,6 +233,48 @@ export function spadeActivityWords(entry: SpadeActivityEntry): SpadeActivityWord
     sentence,
     detail: (detail ?? entry.summary) || undefined,
     facts: facts.length ? facts.join(" · ") : undefined,
+  };
+}
+
+/** How an entry went, when it went wrong or still waits: the one thing a row shows in colour. */
+export type SpadeActivityException = { words: string; tone: "failed" | "needs" | "quiet" };
+
+/** An entry as a profile's row: Spade's sentence and detail, and only an exception beside it. */
+export interface SpadeActivityRow {
+  sentence: string;
+  detail: string | undefined;
+  exception: SpadeActivityException | undefined;
+}
+
+const failedOutcomes = new Set(["error", "failed", "interrupted"]);
+
+/**
+ * One activity row in Spade's own words (`sentence`, `detail`): never a tool's name or its
+ * arguments. An older Spade that sends no sentence gets the app's words for it. Beside it only
+ * what stands out: a failure, a refusal, the reviewer asking. A step that went
+ * fine says nothing more.
+ */
+export function spadeActivityRow(entry: SpadeActivityEntry): SpadeActivityRow {
+  const outcome = entry.outcome ?? "";
+  const exception: SpadeActivityException | undefined = failedOutcomes.has(outcome)
+    ? { words: "Failed", tone: "failed" }
+    : outcome === "declined" || reviewVerdicts[outcome] === "refused"
+      ? { words: outcome === "declined" ? "Declined" : "Refused", tone: "failed" }
+      : entry.kind === "review" && reviewVerdicts[outcome] === "asked you"
+        ? { words: "Asked you", tone: "needs" }
+        : outcome === "running"
+          ? { words: "Running", tone: "quiet" }
+          : undefined;
+  if (entry.sentence !== undefined)
+    return { sentence: entry.sentence, detail: entry.detail, exception };
+  const words = sentenceOf(entry);
+  // An older Spade: its summary holds a call's arguments, so only the kinds whose summary is
+  // words of its own show one.
+  const prose = entry.kind === "bot" || entry.kind === "routine" || entry.kind === "spend";
+  return {
+    sentence: words.sentence,
+    detail: words.detail || (prose ? entry.summary : undefined) || undefined,
+    exception,
   };
 }
 

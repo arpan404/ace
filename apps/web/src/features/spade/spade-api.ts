@@ -7,7 +7,6 @@ import {
   parseSpadeSearchSettings,
   parseSpadeSubscriptions,
   parseSpadeTranscription,
-  type SpadeAccess,
   type SpadeAgent,
   type SpadeEndpoint,
   type SpadeFormat,
@@ -15,7 +14,7 @@ import {
   type SpadeModels,
   type SpadeSubscription,
 } from "@ace/ui-core/spade-chat";
-import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
+import { segment, spadeBody, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
 /*
  * Spade's agent, endpoint and model routes (ADR 0126, 0127), each answer parsed with
@@ -46,8 +45,6 @@ export interface SpadeAgentDraft {
   model: string;
   /** Absent: Spade picks a face. */
   avatar?: SpadeAvatarChoice;
-  /** How much it may do without asking; applies from its next step. */
-  access?: SpadeAccess;
 }
 
 /**
@@ -60,12 +57,36 @@ export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
   time_zone?: string;
 };
 
-export async function createAgent(target: SpadeTarget, draft: SpadeNewAgent) {
-  const body = await spadeHttp(target, "POST", "/v1/agents", { body: draft });
-  return sure(parseSpadeAgent(body), "new agent");
+/**
+ * Makes a bot. With `first`, its first message goes in the same call (the new-bot conversation):
+ * Spade makes the bot and sends the message together, or does neither and says why. An older
+ * Spade that answers without the message gets it sent on its own.
+ */
+export async function createAgent(
+  target: SpadeTarget,
+  draft: SpadeNewAgent,
+  first?: { text: string; images: readonly { data: string }[] },
+) {
+  const sent = first
+    ? {
+        ...draft,
+        first_message: {
+          text: first.text,
+          ...(first.images.length ? { images: first.images.map(({ data }) => ({ data })) } : {}),
+        },
+      }
+    : draft;
+  const body = await spadeHttp(target, "POST", "/v1/agents", { body: sent });
+  const agent = sure(parseSpadeAgent(body), "new agent");
+  // A Spade from before first messages makes the bot and drops the message: send it now.
+  if (first && !agent.lastMessage)
+    await spadeHttp(target, "POST", `/v1/conversations/${segment(agent.conversation)}/messages`, {
+      body: spadeBody(first),
+    });
+  return agent;
 }
 
-/** Name and avatar change at once; task and model apply from the agent's next turn, access from its next step. */
+/** Name and avatar change at once; task and model apply from the agent's next turn. */
 export async function editAgent(
   target: SpadeTarget,
   id: string,
@@ -78,6 +99,25 @@ export async function editAgent(
 /** Deletes the agent and its conversation. */
 export async function deleteAgent(target: SpadeTarget, id: string): Promise<void> {
   await spadeHttp(target, "DELETE", `/v1/agents/${segment(id)}`);
+}
+
+/**
+ * Marks a bot's or group's conversation seen up to `seq` (its last event when absent); Spade
+ * never moves the cursor back. Answers the cursor where it now is.
+ */
+export async function markSeen(
+  target: SpadeTarget,
+  conversation: string,
+  seq: number | undefined,
+): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/conversations/${segment(conversation)}/seen`, {
+    body: seq === undefined ? {} : { seq },
+  });
+}
+
+/** Pins a bot to the strip under the list's buttons, or unpins it; kept in Spade, on every device. */
+export async function pinAgent(target: SpadeTarget, id: string, pinned: boolean): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/agents/${segment(id)}/pin`, { body: { pinned } });
 }
 
 /** Whether this machine's Spade hosts the main bot (only the first machine Spade ran on does). */
@@ -169,6 +209,11 @@ export async function removeModel(target: SpadeTarget, endpoint: string, model: 
 /** `endpoint/model` for titles and other small jobs; null: each agent's own model. */
 export async function setFastModel(target: SpadeTarget, model: string | null): Promise<void> {
   await spadeHttp(target, "PUT", "/v1/settings", { body: { fast_model: model } });
+}
+
+/** `endpoint/model` a new bot starts on; null: the person's first usable model. */
+export async function setNewBotModel(target: SpadeTarget, model: string | null): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/settings", { body: { new_bot_model: model } });
 }
 
 export async function setKey(target: SpadeTarget, endpoint: string, key: string): Promise<void> {

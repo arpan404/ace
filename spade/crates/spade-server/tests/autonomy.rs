@@ -1,5 +1,6 @@
-//! Access levels, the auto-review and tasks that keep going (ADR 0144), through the API with a
-//! real database and a scripted fake model. Every model, reviewer included, is the fake.
+//! The auto-review, Spade's one access level, and tasks that keep going (ADR 0144, 0163), through
+//! the API with a real database and a scripted fake model. Every model, reviewer included, is the
+//! fake, except where a test needs a reviewer that can't be reached.
 
 mod support;
 
@@ -7,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
+use spade_core::effect::Effect;
 use spade_core::tools::Risk;
 use spade_server::engine::Limits;
 use spade_server::tools::{TaskStatus, Tool};
@@ -15,17 +17,16 @@ use support::{FakeTool, ManualClock, Options, Result, Spade};
 
 const TITLE: &str = r#"{"title":"Work"}"#;
 
-/// A bot on `access`, and its conversation.
-async fn bot(spade: &Spade, access: &str) -> Result<(String, String)> {
+/// A bot, and its conversation.
+async fn bot(spade: &Spade) -> Result<(String, String)> {
     let (status, body) = spade
         .post(
             "/v1/agents",
-            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m",
-                    "access": access }),
+            json!({ "name": "Builder", "task": "Keep the build green", "model": "fake/m" }),
         )
         .await?;
     assert_eq!(status, 201, "{body}");
-    assert_eq!(body["agent"]["access"], access);
+    assert_eq!(body["agent"]["access"], "auto_review");
     let agent = &body["agent"];
     Ok((
         agent["id"].as_str().unwrap_or_default().to_owned(),
@@ -106,23 +107,34 @@ fn ran(calls: &Arc<std::sync::Mutex<Vec<Value>>>) -> usize {
     calls.lock().map(|c| c.len()).unwrap_or(0)
 }
 
+/// A Spade whose reviewer is the fake model, answering in script order like the bot.
+async fn reviewed_by_fake(scripts: Vec<Script>, tools: Vec<Arc<dyn Tool>>) -> Result<Spade> {
+    let options = Options {
+        reviewer: None,
+        ..Options::default()
+    };
+    Spade::start_with(scripts, tools, options).await
+}
+
+const APPROVE: &str = r#"{"verdict":"approve","reason":"Fine."}"#;
+
 #[tokio::test]
-async fn auto_review_approves_a_workspace_command_without_asking_the_person() -> Result {
+async fn the_reviewer_approves_a_workspace_command_and_it_runs_without_asking_the_person() -> Result
+{
     let tool = shell();
     let commands = calls_of(&tool);
-    let spade = Spade::start(
+    let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "cargo test" })),
-            Script::reply("").plain(
-                r#"{"verdict":"approve","reason":"Runs the tests in its folder.","outward_or_irreversible":false}"#,
-            ),
+            Script::reply("")
+                .plain(r#"{"verdict":"approve","reason":"Runs the tests in its folder."}"#),
             Script::reply("Tests pass."),
             Script::reply("").plain(TITLE),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (agent, conversation) = bot(&spade, "auto_review").await?;
+    let (agent, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Run the tests").await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(count(&events, "approval_requested"), 0, "{events:?}");
@@ -144,11 +156,11 @@ async fn auto_review_approves_a_workspace_command_without_asking_the_person() ->
 async fn a_refusal_reaches_the_bot_as_a_result_with_the_reason_and_nothing_runs() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
-    let spade = Spade::start(
+    let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "rm -rf tests" })),
             Script::reply("").plain(
-                r#"{"verdict":"refuse","reason":"That deletes the tests the person wants kept.","outward_or_irreversible":false}"#,
+                r#"{"verdict":"refuse","reason":"That deletes the tests the person wants kept."}"#,
             ),
             Script::reply("Understood, I'll leave the tests."),
             Script::reply("").plain(TITLE),
@@ -156,7 +168,7 @@ async fn a_refusal_reaches_the_bot_as_a_result_with_the_reason_and_nothing_runs(
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Tidy up").await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(ran(&commands), 0);
@@ -179,19 +191,192 @@ async fn a_refusal_reaches_the_bot_as_a_result_with_the_reason_and_nothing_runs(
 }
 
 #[tokio::test]
-async fn sending_email_as_the_person_always_goes_to_them_with_the_reason() -> Result {
-    let send = FakeTool::new("send_email", Risk::Write, "Sent").app("Mail: Sends an email");
+async fn the_bot_trying_a_refused_step_again_asks_the_person_who_can_allow_it() -> Result {
+    let tool = shell();
+    let commands = calls_of(&tool);
+    let refuse = r#"{"verdict":"refuse","reason":"It deletes the person's build."}"#;
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "rm -rf build" })),
+            Script::reply("").plain(refuse),
+            Script::reply("").call("c2", "shell", json!({ "command": "rm -rf build" })),
+            Script::reply("").plain(refuse),
+            Script::reply("Cleaned."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(tool) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Clean the build").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    // The first refusal went back to the bot; the retry came to the person, with the reason.
+    let first_result = first(&events, "tool_finished").ok_or("no result")?;
+    assert_eq!(first_result["call_id"], "c1");
+    assert!(
+        first_result["content"]
+            .as_str()
+            .is_some_and(|c| c.starts_with("Not run: It deletes the person's build."))
+    );
+    let asked = first(&events, "approval_requested").ok_or("not asked")?;
+    assert_eq!(asked["call_id"], "c2");
+    assert_eq!(
+        asked["reviewer_reason"],
+        "Refused again: It deletes the person's build."
+    );
+    // The reviewer was shown what it refused before.
+    let second_review = spade.fake.seen()[3].body.to_string();
+    assert!(second_review.contains("refused_before"), "{second_review}");
+    assert_eq!(ran(&commands), 0);
+    // The person has the last word.
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c2"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    settled(&spade, &conversation).await?;
+    assert_eq!(ran(&commands), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_payment_never_runs_on_the_reviewers_approval_and_reaches_the_person() -> Result {
+    let pay = FakeTool::new("pay_invoice", Risk::Write, "Paid")
+        .app("Billing: Pays an invoice")
+        .declares(Effect::Pay);
+    let paid = calls_of(&pay);
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "pay_invoice", json!({ "invoice": 7 })),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
+            Script::reply("Paid."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(pay) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Pay invoice 7").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It could spend money, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
+    assert_eq!(ran(&paid), 0);
+    // The person decides it.
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    settled(&spade, &conversation).await?;
+    assert_eq!(ran(&paid), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sending_email_as_the_person_reaches_them_and_their_always_allow_still_holds() -> Result {
+    let send = FakeTool::new("send_email", Risk::Write, "Sent")
+        .app("Mail: Sends an email")
+        .declares(Effect::SendAsPerson);
     let sent = calls_of(&send);
-    let spade = Spade::start(
-        vec![Script::reply("").call("c1", "send_email", json!({ "to": "sam@example.com" }))],
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "send_email", json!({ "to": "sam@example.com" })),
+            Script::reply("Sent."),
+            Script::reply("").plain(TITLE),
+            Script::reply("").call("c2", "send_email", json!({ "to": "kim@example.com" })),
+            Script::reply("Sent again."),
+        ],
         vec![Arc::new(send) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Email Sam").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(&events, "It sends a message as you, so you decide.")?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
     assert_eq!(ran(&sent), 0);
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            json!({ "allowed": true, "always": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    settled(&spade, &conversation).await?;
+    assert_eq!(ran(&sent), 1);
+    // The person's Always allow lets the next send run with no question and no review.
+    spade.say(&conversation, "Email Kim too").await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while ran(&sent) < 2 && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(ran(&sent), 2);
+    assert_eq!(count(&events, "approval_requested"), 1, "{events:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_applescript_that_sends_an_imessage_reaches_the_person_without_a_review() -> Result {
+    let shell = shell();
+    let runs = calls_of(&shell);
+    let command = "osascript <<'APPLESCRIPT'\n\
+                   tell application \"Messages\"\n  \
+                   set targetChat to chat id \"any;-;+16013291450\"\n  \
+                   send \"hi from spade v2\" to targetChat\n\
+                   end tell\n\
+                   APPLESCRIPT";
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": command })),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
+            Script::reply("Sent."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(shell) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Text hi to my number").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
+    assert_eq!(ran(&runs), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> Result {
+    let publish = FakeTool::new("publish_page", Risk::Write, "Published")
+        .app("Site: Publishes a page")
+        .declares(Effect::Publish);
+    let published = calls_of(&publish);
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "publish_page", json!({ "page": "notes" })),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Published."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(publish) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Publish the notes page").await?;
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "approval_requested"), 0);
+    assert_eq!(ran(&published), 1);
+    let review = spade.fake.seen()[1].body.to_string();
+    assert!(
+        review.contains("It posts or publishes something."),
+        "{review}"
+    );
     Ok(())
 }
 
@@ -216,6 +401,7 @@ async fn a_reviewer_that_takes_too_long_leaves_the_call_to_the_person() -> Resul
             review_timeout: Duration::ZERO,
             ..Limits::default()
         },
+        reviewer: None,
         ..Options::default()
     };
     let spade = Spade::start_with(
@@ -223,14 +409,14 @@ async fn a_reviewer_that_takes_too_long_leaves_the_call_to_the_person() -> Resul
             Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
             // Slower than the timeout, so the timeout always wins.
             Script::reply("")
-                .plain(r#"{"verdict":"approve","reason":"fine","outward_or_irreversible":false}"#)
+                .plain(APPROVE)
                 .held(Duration::from_secs(5)),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
         options,
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Build it").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
     let asked = first(&events, "approval_requested").ok_or("not asked")?;
@@ -243,34 +429,37 @@ async fn a_reviewer_that_takes_too_long_leaves_the_call_to_the_person() -> Resul
 }
 
 #[tokio::test]
-async fn full_access_runs_a_command_with_nothing_asked() -> Result {
+async fn a_held_call_goes_to_the_person_when_the_reviewer_cant_be_reached() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
+    // The default test reviewer's endpoint refuses every connection.
     let spade = Spade::start(
-        vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "git status" })),
-            Script::reply("Clean."),
-            Script::reply("").plain(TITLE),
-        ],
+        vec![Script::reply("").call("c1", "shell", json!({ "command": "ls" }))],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
-    spade.say(&conversation, "Check the tree").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert_eq!(count(&events, "approval_requested"), 0);
-    assert_eq!(count(&events, "call_reviewed"), 0);
-    assert_eq!(ran(&commands), 1);
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "List the files").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    let asked = first(&events, "approval_requested").ok_or("not asked")?;
+    assert_eq!(
+        asked["reviewer_reason"],
+        "The reviewer couldn't be reached, so you decide."
+    );
+    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    assert_eq!(verdict["verdict"], "escalate");
+    assert_eq!(verdict["model"], support::UNREACHABLE_REVIEWER);
+    assert_eq!(ran(&commands), 0);
     assert_eq!(
         spade.fake.seen().len(),
-        3,
-        "two steps and a title, no review"
+        1,
+        "only the bot's step reached a model"
     );
     Ok(())
 }
 
 #[tokio::test]
-async fn no_level_lets_a_bot_read_sign_in_tokens() -> Result {
+async fn a_bot_never_reads_sign_in_tokens() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
     let spade = Spade::start(
@@ -286,7 +475,7 @@ async fn no_level_lets_a_bot_read_sign_in_tokens() -> Result {
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Show me the Codex login").await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(ran(&commands), 0);
@@ -299,101 +488,114 @@ async fn no_level_lets_a_bot_read_sign_in_tokens() -> Result {
     Ok(())
 }
 
-#[tokio::test]
-async fn on_ask_the_person_is_asked_as_before_with_no_reviewer() -> Result {
-    let tool = shell();
-    let spade = Spade::start(
-        vec![Script::reply("").call("c1", "shell", json!({ "command": "ls" }))],
-        vec![Arc::new(tool) as Arc<dyn Tool>],
-    )
-    .await?;
-    let (_, conversation) = bot(&spade, "ask").await?;
-    spade.say(&conversation, "List the files").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    let asked = first(&events, "approval_requested").ok_or("not asked")?;
-    assert!(asked.get("reviewer_reason").is_none());
-    assert_eq!(count(&events, "call_reviewed"), 0);
-    assert_eq!(spade.fake.seen().len(), 1);
+/// Bots an earlier Spade stored levels for, as it wrote them: one on `ask`, one on
+/// `full_access`, one on `auto_review`, and one with none.
+fn older_bots(store: &spade_store::Store) -> spade_store::Result<()> {
+    for (n, level) in [
+        ("ask", Some("ask")),
+        ("full", Some("full_access")),
+        ("auto", Some("auto_review")),
+        ("none", None),
+    ] {
+        let stored: Vec<spade_core::Event> = level
+            .map(|level| {
+                spade_core::Event::Unknown(json!({ "type": "access_changed", "level": level }))
+            })
+            .into_iter()
+            .collect();
+        store.create_agent(
+            spade_store::NewAgent {
+                id: &format!("a-{n}"),
+                kind: "bot",
+                name: n,
+                task: "",
+                avatar: r#"{"kind":"spade"}"#,
+                model: "fake/m",
+                conversation: &format!("c-{n}"),
+            },
+            &stored,
+            0,
+        )?;
+    }
     Ok(())
 }
 
-/// A bot an earlier Spade made, before access levels: no level is stored for it.
-fn older_bot(store: &spade_store::Store) -> spade_store::Result<()> {
-    store.create_agent(
-        spade_store::NewAgent {
-            id: "a-old",
-            kind: "bot",
-            name: "Old",
-            task: "",
-            avatar: r#"{"kind":"spade"}"#,
-            model: "fake/m",
-            conversation: "c-old",
-        },
-        &[],
-        0,
-    )
+fn levels_stored(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e["type"] == "access_changed")
+        .map(|e| e["level"].as_str().unwrap_or("").to_owned())
+        .collect()
 }
 
 #[tokio::test]
-async fn a_new_bot_starts_on_auto_review_and_one_made_before_levels_is_on_ask() -> Result {
+async fn levels_spade_no_longer_has_read_as_auto_review_and_move_forward_once() -> Result {
     let options = Options {
-        new_bot_access: spade_core::autonomy::Access::AutoReview,
-        seed: Some(older_bot),
+        seed: Some(older_bots),
         ..Options::default()
     };
     let spade = Spade::start_with(vec![Script::reply("Hi")], Vec::new(), options).await?;
-    let made = spade.new_agent("Fresh", "").await?;
-    assert_eq!(made["access"], "auto_review");
-    assert_eq!(roster_entry(&spade, "c-old").await?["access"], "ask");
-    // Spade itself, made by this build, is a bot like the others.
-    let (_, roster) = spade.get("/v1/agents").await?;
-    let main = roster["agents"]
-        .as_array()
-        .and_then(|l| l.iter().find(|a| a["kind"] == "main").cloned())
-        .ok_or("no Spade")?;
-    assert_eq!(main["access"], "auto_review");
-    let (status, refused) = patch(
-        &spade,
-        made["id"].as_str().unwrap_or(""),
-        json!({ "access": "everything" }),
-    )
-    .await?;
-    assert_eq!(status, 400, "{refused}");
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_level_change_survives_a_restart() -> Result {
-    let spade = Spade::start(vec![Script::reply("Hi")], Vec::new()).await?;
-    let (agent, conversation) = bot(&spade, "ask").await?;
-    let (status, changed) = patch(&spade, &agent, json!({ "access": "full_access" })).await?;
-    assert_eq!(status, 200, "{changed}");
-    assert_eq!(changed["agent"]["access"], "full_access");
+    for n in ["ask", "full", "auto", "none"] {
+        let conversation = format!("c-{n}");
+        assert_eq!(
+            roster_entry(&spade, &conversation).await?["access"],
+            "auto_review"
+        );
+    }
+    // Every stored level reads as auto_review; each retired one got one change to auto_review
+    // after it, the others nothing.
+    for (n, stored) in [("ask", 2), ("full", 2), ("auto", 1), ("none", 0)] {
+        let levels = levels_stored(&spade.events(&format!("c-{n}")).await?);
+        assert_eq!(levels, vec!["auto_review"; stored], "{n}");
+    }
+    let (_, log) = spade.get("/v1/agents/a-full/activity?kind=access").await?;
+    assert_eq!(log["entries"][0]["name"], "auto_review");
+    // A bot that was on full access has its steps reviewed: here the reviewer can't be reached,
+    // so the person is asked rather than the command running unchecked.
     let tool = shell();
     let commands = calls_of(&tool);
     let spade = spade
         .restart(
             vec![Arc::new(tool) as Arc<dyn Tool>],
-            vec![
-                Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
-                Script::reply("Built."),
-                Script::reply("").plain(TITLE),
-            ],
+            vec![Script::reply("").call("c1", "shell", json!({ "command": "cargo build" }))],
         )
         .await?;
     assert_eq!(
-        roster_entry(&spade, &conversation).await?["access"],
-        "full_access"
+        levels_stored(&spade.events("c-full").await?).len(),
+        2,
+        "moved once, not again on the restart"
     );
-    spade.say(&conversation, "Build it").await?;
-    let events = settled(&spade, &conversation).await?;
-    assert_eq!(count(&events, "approval_requested"), 0);
-    assert_eq!(ran(&commands), 1);
-    // The change is in the activity log.
-    let (_, log) = spade
-        .get(&format!("/v1/agents/{agent}/activity?kind=access"))
-        .await?;
-    assert_eq!(log["entries"][0]["name"], "full_access");
+    spade.say("c-full", "Build it").await?;
+    spade.wait_for("c-full", "approval_requested").await?;
+    assert_eq!(ran(&commands), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_api_refuses_any_level_but_auto_review() -> Result {
+    let spade = Spade::start(vec![Script::reply("Hi")], Vec::new()).await?;
+    for level in ["ask", "full_access", "everything"] {
+        let (status, body) = spade
+            .post(
+                "/v1/agents",
+                json!({ "name": "B", "task": "", "model": "fake/m", "access": level }),
+            )
+            .await?;
+        assert_eq!(status, 400, "{level}: {body}");
+        assert!(
+            body.to_string().contains("access must be auto_review"),
+            "{body}"
+        );
+    }
+    let (agent, conversation) = bot(&spade).await?;
+    for level in ["ask", "full_access"] {
+        let (status, body) = patch(&spade, &agent, json!({ "access": level })).await?;
+        assert_eq!(status, 400, "{level}: {body}");
+    }
+    let (status, body) = patch(&spade, &agent, json!({ "access": "auto_review" })).await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["agent"]["access"], "auto_review");
+    assert!(levels_stored(&spade.events(&conversation).await?).is_empty());
     Ok(())
 }
 
@@ -403,7 +605,8 @@ fn task_tools(shell: FakeTool) -> Vec<Arc<dyn Tool>> {
 
 #[tokio::test]
 async fn a_bot_with_an_open_task_keeps_going_after_its_reply_until_it_marks_it_done() -> Result {
-    let tool = shell();
+    // A read, so the steps run with no review between them.
+    let tool = FakeTool::new("port", Risk::Read, "ported");
     let commands = calls_of(&tool);
     let spade = Spade::start(
         vec![
@@ -413,18 +616,18 @@ async fn a_bot_with_an_open_task_keeps_going_after_its_reply_until_it_marks_it_d
                     "task_status",
                     json!({ "status": "working", "note": "porting" }),
                 )
-                .call("c2", "shell", json!({ "command": "port one" })),
+                .call("c2", "port", json!({ "file": "one" })),
             Script::reply("Started on the port."),
             Script::reply("").plain(TITLE),
             // Spade's own next step: no message from the person.
-            Script::reply("").call("c3", "shell", json!({ "command": "port two" })),
+            Script::reply("").call("c3", "port", json!({ "file": "two" })),
             Script::reply("").call("c4", "task_status", json!({ "status": "done" })),
             Script::reply("The port is done."),
         ],
         task_tools(tool),
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Port the tests").await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(count(&events, "task_continued"), 1, "{events:?}");
@@ -468,7 +671,7 @@ async fn steps_that_change_nothing_pause_the_task_and_say_so() -> Result {
         options,
     )
     .await?;
-    let (agent, conversation) = bot(&spade, "full_access").await?;
+    let (agent, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Sort out the build").await?;
     let events = spade.wait_for(&conversation, "task_paused").await?;
     let paused = first(&events, "task_paused").ok_or("not paused")?;
@@ -500,7 +703,7 @@ async fn stop_ends_a_task_spade_was_carrying_on() -> Result {
         vec![Arc::new(slow) as Arc<dyn Tool>, Arc::new(TaskStatus)],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Find the flaky test").await?;
     spade.wait_for(&conversation, "task_continued").await?;
     spade.wait_for(&conversation, "tool_started").await?;
@@ -543,7 +746,7 @@ async fn task_in_backoff(clock: &Arc<ManualClock>, backoff_ms: i64) -> Result<(S
         options,
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Sort out the build").await?;
     spade
         .wait_for_count(&conversation, "reply_finished", 2)
@@ -601,41 +804,25 @@ async fn stop_calls_off_a_step_waiting_out_its_backoff() -> Result {
 }
 
 #[tokio::test]
-async fn an_app_tool_with_no_annotations_goes_to_the_person() -> Result {
-    let tool = FakeTool::new("sync_board", Risk::Write, "ok").unannotated_app("Syncs a board");
+async fn an_app_tool_marked_read_only_that_declares_a_send_reaches_the_person() -> Result {
+    let tool = FakeTool::new("share_doc", Risk::Read, "shared")
+        .app("Reads the document")
+        .declares(Effect::SendAsPerson);
     let ran_calls = calls_of(&tool);
-    let spade = Spade::start(
-        vec![Script::reply("").call("c1", "sync_board", json!({}))],
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "share_doc", json!({ "with": "all" })),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
+        ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
-    spade.say(&conversation, "Sync the board").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(
-        &events,
-        "Spade can't tell what this tool does, so you decide.",
-    )?;
-    assert_eq!(ran(&ran_calls), 0);
-    Ok(())
-}
-
-#[tokio::test]
-async fn an_app_tool_that_claims_to_read_but_sends_goes_to_the_person() -> Result {
-    let tool = FakeTool::new("send_message", Risk::Read, "sent").app("Reads the inbox");
-    let ran_calls = calls_of(&tool);
-    let spade = Spade::start(
-        vec![Script::reply("").call("c1", "send_message", json!({ "to": "all" }))],
-        vec![Arc::new(tool) as Arc<dyn Tool>],
-    )
-    .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Check the inbox").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(
-        &events,
-        "Its app says it only reads, but its name says it acts, so you decide.",
-    )?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
     assert_eq!(ran(&ran_calls), 0);
     Ok(())
 }
@@ -645,12 +832,12 @@ async fn a_command_too_long_for_the_reviewer_to_read_whole_goes_to_the_person() 
     let tool = shell();
     let commands = calls_of(&tool);
     let long = "echo ok; ".repeat(5_000) + "rm -rf notes";
-    let spade = Spade::start(
+    let spade = reviewed_by_fake(
         vec![Script::reply("").call("c1", "shell", json!({ "command": long }))],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Tidy up").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
     asked_by_rule(
@@ -658,27 +845,7 @@ async fn a_command_too_long_for_the_reviewer_to_read_whole_goes_to_the_person() 
         "It is too long for the reviewer to read whole, so you decide.",
     )?;
     assert_eq!(ran(&commands), 0);
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_publishing_command_goes_to_the_person_whatever_the_reviewer_would_say() -> Result {
-    let tool = shell();
-    let commands = calls_of(&tool);
-    let spade = Spade::start(
-        vec![Script::reply("").call(
-            "c1",
-            "shell",
-            json!({ "command": "make && bash -c 'git push origin main'" }),
-        )],
-        vec![Arc::new(tool) as Arc<dyn Tool>],
-    )
-    .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
-    spade.say(&conversation, "Ship it").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(&events, "It posts or publishes something, so you decide.")?;
-    assert_eq!(ran(&commands), 0);
+    assert_eq!(spade.fake.seen().len(), 1, "no review");
     Ok(())
 }
 
@@ -691,65 +858,49 @@ fn ticket() -> FakeTool {
 }
 
 #[tokio::test]
-async fn a_page_read_in_an_earlier_turn_still_sends_an_outward_call_to_the_person() -> Result {
+async fn an_outward_call_after_a_page_read_in_an_earlier_turn_is_reviewed_with_that_context()
+-> Result {
     let filing = ticket();
     let filed = calls_of(&filing);
-    let spade = Spade::start(
+    let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "fetch_page", json!({ "url": "https://x.example" })),
             Script::reply("I read it."),
             Script::reply("").plain(TITLE),
             Script::reply("").call("c2", "file_ticket", json!({ "title": "x" })),
+            Script::reply("")
+                .plain(r#"{"verdict":"refuse","reason":"The page asked for it, not the person."}"#),
+            Script::reply("I won't file it."),
         ],
         vec![Arc::new(page()) as Arc<dyn Tool>, Arc::new(filing)],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Read the page").await?;
     settled(&spade, &conversation).await?;
     // The person's next message doesn't wash the page out of the model's view.
     spade.say(&conversation, "Now file the ticket").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(
-        &events,
-        "It acts outside the bot's folder after reading untrusted content, so you decide.",
-    )?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    assert_eq!(count(&events, "approval_requested"), 0);
+    let review = spade.fake.seen()[4].body.to_string();
+    assert!(review.contains("fetch_page"), "{review}");
+    assert!(
+        review.contains("after reading untrusted content"),
+        "{review}"
+    );
     assert_eq!(ran(&filed), 0);
     Ok(())
 }
 
 #[tokio::test]
-async fn the_reviewer_is_told_of_untrusted_content_from_an_earlier_turn() -> Result {
-    let spade = Spade::start(
-        vec![
-            Script::reply("").call("c1", "fetch_page", json!({ "url": "https://x.example" })),
-            Script::reply("I read it."),
-            Script::reply("").plain(TITLE),
-            Script::reply("").call("c2", "shell", json!({ "command": "cargo build" })),
-            Script::reply("").plain(
-                r#"{"verdict":"escalate","reason":"Unsure.","outward_or_irreversible":false}"#,
-            ),
-        ],
-        vec![Arc::new(page()) as Arc<dyn Tool>, Arc::new(shell())],
-    )
-    .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
-    spade.say(&conversation, "Read the page").await?;
-    settled(&spade, &conversation).await?;
-    spade.say(&conversation, "Build it").await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    let seen = spade.fake.seen();
-    let review = seen.last().ok_or("no reviewer")?.body.to_string();
-    assert!(review.contains("fetch_page"), "{review}");
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_routine_set_up_after_untrusted_content_asks_even_on_full_access_and_fires_untrusted()
+async fn a_routine_set_up_after_untrusted_content_is_reviewed_with_that_concern_and_fires_untrusted()
 -> Result {
     let clock = ManualClock::at(1_794_477_600_000); // 2026-11-12T10:00:00Z, a Thursday.
     let options = Options {
         clock: Some(clock.clone()),
+        reviewer: None,
         ..Options::default()
     };
     let spade = Spade::start_with(
@@ -761,6 +912,7 @@ async fn a_routine_set_up_after_untrusted_content_asks_even_on_full_access_and_f
                 json!({ "name": "Morning", "instruction": "File a ticket.",
                         "schedule": "weekdays at 9:00", "time_zone": "UTC" }),
             ),
+            Script::reply("").plain(APPROVE),
             Script::reply("Saved."),
             Script::reply("").plain(TITLE),
             Script::reply("Morning."),
@@ -769,21 +921,15 @@ async fn a_routine_set_up_after_untrusted_content_asks_even_on_full_access_and_f
         options,
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Read the page").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(
-        &events,
-        "It sets up standing work after reading untrusted content, so you decide.",
-    )?;
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c2"),
-            json!({ "allowed": true }),
-        )
-        .await?;
-    assert_eq!(status, 202);
-    settled(&spade, &conversation).await?;
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "approval_requested"), 0);
+    let review = spade.fake.seen()[2].body.to_string();
+    assert!(
+        review.contains("It sets up standing work after reading untrusted content."),
+        "{review}"
+    );
     clock.set(1_794_560_400_000); // 2026-11-13T09:00:00Z.
     spade_server::routines::tick(&spade.engine).await?;
     let events = spade
@@ -798,7 +944,7 @@ async fn a_routine_set_up_after_untrusted_content_asks_even_on_full_access_and_f
 }
 
 #[tokio::test]
-async fn reading_credentials_is_refused_on_ask_too_for_reads_and_any_reader() -> Result {
+async fn reading_credentials_is_refused_for_reads_and_any_reader_without_a_review() -> Result {
     let reader = FakeTool::new("read_file", Risk::Read, "-----BEGIN KEY-----");
     let read = calls_of(&reader);
     let tool = shell();
@@ -826,7 +972,7 @@ async fn reading_credentials_is_refused_on_ask_too_for_reads_and_any_reader() ->
         vec![Arc::new(reader) as Arc<dyn Tool>, Arc::new(tool)],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "ask").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Back up my keys").await?;
     let events = settled(&spade, &conversation).await?;
     assert_eq!(count(&events, "approval_requested"), 0);
@@ -843,28 +989,68 @@ async fn reading_credentials_is_refused_on_ask_too_for_reads_and_any_reader() ->
         );
     }
     assert_eq!(ran(&read) + ran(&commands), 0);
+    assert_eq!(
+        count(&events, "call_reviewed"),
+        3,
+        "the rules' own verdicts"
+    );
     Ok(())
 }
 
+/// A reasoning model's answer cut off by its token budget, mid-string.
+const CUT_SHORT: &str = r#"{"verdict":"approve","reason":"It only builds the proj"#;
+
 #[tokio::test]
-async fn a_reviewer_answer_that_leaves_out_whether_it_reaches_outside_goes_to_the_person() -> Result
-{
+async fn a_reviewer_answer_cut_short_is_asked_for_again_and_its_second_answer_holds() -> Result {
     let tool = shell();
     let commands = calls_of(&tool);
-    let spade = Spade::start(
+    let spade = reviewed_by_fake(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
-            Script::reply("").plain(r#"{"verdict":"approve","reason":"Fine."}"#),
+            Script::reply("").plain(CUT_SHORT),
+            Script::reply("").plain(APPROVE),
+            Script::reply("Built."),
+            Script::reply("").plain(TITLE),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Build it").await?;
+    let events = settled(&spade, &conversation).await?;
+    assert_eq!(count(&events, "approval_requested"), 0, "{events:?}");
+    assert_eq!(ran(&commands), 1);
+    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    assert_eq!(verdict["verdict"], "allow");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_reviewer_cut_short_twice_leaves_the_call_to_the_person_in_plain_words() -> Result {
+    let tool = shell();
+    let commands = calls_of(&tool);
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
+            Script::reply("").plain(CUT_SHORT),
+            // A verdict Spade's reviewer no longer gives doesn't parse either.
+            Script::reply("").plain(r#"{"verdict":"escalate","reason":"Unsure."}"#),
+            // Only reached if it were asked a third time: it would approve.
+            Script::reply("").plain(APPROVE),
+        ],
+        vec![Arc::new(tool) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Build it").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
     let asked = first(&events, "approval_requested").ok_or("not asked")?;
-    let reason = asked["reviewer_reason"].as_str().unwrap_or("");
-    assert!(reason.starts_with("The review couldn't run"), "{reason}");
+    let reason = "The reviewer couldn't decide on this, so you decide.";
+    assert_eq!(asked["reviewer_reason"], reason, "{events:?}");
+    let verdict = first(&events, "call_reviewed").ok_or("no verdict")?;
+    assert_eq!(verdict["verdict"], "escalate");
+    assert_eq!(verdict["reason"], reason);
+    assert_eq!(spade.fake.seen().len(), 3, "the bot's step and two reviews");
     assert_eq!(ran(&commands), 0);
     Ok(())
 }
@@ -892,7 +1078,7 @@ async fn stop_pressed_as_a_reply_ends_calls_off_the_step_that_would_follow() -> 
             go.notified().await;
         })
     }));
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "Find the flaky test").await?;
     tokio::time::timeout(Duration::from_secs(10), reached.notified()).await?;
     let (status, body) = spade
@@ -913,8 +1099,10 @@ async fn stop_pressed_as_a_reply_ends_calls_off_the_step_that_would_follow() -> 
 }
 
 #[tokio::test]
-async fn a_tool_that_hands_back_a_token_is_refused_even_on_full_access() -> Result {
-    let token = FakeTool::new("get_api_token", Risk::Read, "sk-123").app("Returns the API token");
+async fn a_tool_that_hands_back_a_token_is_refused() -> Result {
+    let token = FakeTool::new("get_api_token", Risk::Read, "sk-123")
+        .app("Returns the API token")
+        .declares(Effect::Credential);
     let read = calls_of(&token);
     let spade = Spade::start(
         vec![
@@ -925,7 +1113,7 @@ async fn a_tool_that_hands_back_a_token_is_refused_even_on_full_access() -> Resu
         vec![Arc::new(token) as Arc<dyn Tool>],
     )
     .await?;
-    let (_, conversation) = bot(&spade, "full_access").await?;
+    let (_, conversation) = bot(&spade).await?;
     spade.say(&conversation, "What's my token?").await?;
     let events = settled(&spade, &conversation).await?;
     let result = first(&events, "tool_finished").ok_or("no result")?;
@@ -935,25 +1123,5 @@ async fn a_tool_that_hands_back_a_token_is_refused_even_on_full_access() -> Resu
         "{content}"
     );
     assert_eq!(ran(&read), 0);
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_tool_that_changes_access_goes_to_the_person() -> Result {
-    let rotate = FakeTool::new("rotate_api_key", Risk::Write, "rotated").app("Rotates the key");
-    let rotated = calls_of(&rotate);
-    let spade = Spade::start(
-        vec![Script::reply("").call("c1", "rotate_api_key", json!({}))],
-        vec![Arc::new(rotate) as Arc<dyn Tool>],
-    )
-    .await?;
-    let (_, conversation) = bot(&spade, "auto_review").await?;
-    spade.say(&conversation, "Rotate the key").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
-    asked_by_rule(
-        &events,
-        "It changes sign-ins, keys or who has access, so you decide.",
-    )?;
-    assert_eq!(ran(&rotated), 0);
     Ok(())
 }

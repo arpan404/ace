@@ -7,6 +7,9 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
+/** First-run setup in Spade's conversation, named by its heading. */
+const setupName = "Pick the model Spade answers with";
+
 /** Spade as it starts with no key anywhere: on the presets' main model. */
 const main = (spade: FakeSpadeApi, model = "opencode-go/kimi-k2") =>
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" }, model });
@@ -30,11 +33,11 @@ const anthropic = {
 };
 
 test("a local endpoint can be added without a key", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     main(api);
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
   await userEvent.type(dialog.getByRole("textbox", { name: "Name" }), "Ollama");
   await userEvent.type(
@@ -61,12 +64,8 @@ test("on a machine without a keychain, Spade's conversation says which variable 
     api.presets.push(opencode);
     main(api);
   });
-  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
-  expect(
-    setup.getByText(
-      /^This machine has no keychain for Spade to keep keys in\. Set OPENCODE_API_KEY/,
-    ),
-  ).toBeTruthy();
+  const setup = within(await screen.findByRole("region", { name: setupName }));
+  expect(setup.getByText(/^This machine has no keychain\. Set OPENCODE_API_KEY/)).toBeTruthy();
   expect(setup.queryByRole("button", { name: "Save key" })).toBeNull();
 });
 
@@ -76,7 +75,7 @@ test("an endpoint made while saving its key stays made: trying again sets its ke
     api.keyFailure = 500;
     main(api);
   });
-  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
+  const setup = within(await screen.findByRole("region", { name: setupName }));
   await userEvent.type(setup.getByLabelText("Key"), "sk-1");
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
   expect((await setup.findByRole("alert")).textContent).toBe("The keychain refused the key.");
@@ -85,11 +84,11 @@ test("an endpoint made while saving its key stays made: trying again sets its ke
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
   await waitFor(() => expect(spade.sent("PUT", "/v1/keys/opencode-go")).toHaveLength(2));
   expect(spade.sent("POST", "/v1/endpoints")).toHaveLength(1);
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: setupName })).toBeNull());
 });
 
 test("only the person's saved models can be removed; the preset's have no Remove", async () => {
-  await spadeApp("/settings/spade", (api) => {
+  await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     const [endpoint] = api.endpoints;
     if (endpoint)
@@ -110,7 +109,7 @@ test("first run on another endpoint's key moves Spade onto that endpoint's model
     api.presets.push(opencode, anthropic);
     main(api);
   });
-  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
+  const setup = within(await screen.findByRole("region", { name: setupName }));
   await userEvent.click(setup.getByRole("combobox", { name: "Endpoint" }));
   await userEvent.click(await screen.findByRole("option", { name: "Anthropic" }));
   await userEvent.type(setup.getByLabelText("Key"), "sk-ant");
@@ -121,7 +120,7 @@ test("first run on another endpoint's key moves Spade onto that endpoint's model
     ]),
   );
   expect(spade.sent("PUT", "/v1/keys/anthropic")).toEqual([{ key: "sk-ant" }]);
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: setupName })).toBeNull());
 });
 
 test("with a usable endpoint but Spade on one it can't reach, setup asks only for the model", async () => {
@@ -129,7 +128,7 @@ test("with a usable endpoint but Spade on one it can't reach, setup asks only fo
     withEndpoint(api);
     main(api);
   });
-  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
+  const setup = within(await screen.findByRole("region", { name: setupName }));
   expect(setup.queryByLabelText("Key")).toBeNull();
   await userEvent.click(setup.getByRole("button", { name: "Model" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
@@ -139,11 +138,11 @@ test("with a usable endpoint but Spade on one it can't reach, setup asks only fo
       { model: "openrouter/anthropic/sonnet" },
     ]),
   );
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: setupName })).toBeNull());
 });
 
 test("while the keychain hasn't answered, an endpoint's key says it is being checked, then what it is", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     api.keysPending = true;
     main(api, "openrouter/saved/model");
@@ -152,9 +151,9 @@ test("while the keychain hasn't answered, an endpoint's key says it is being che
   // The list is there at once; only the key waits.
   expect(await openrouter.findByText("Checking the keychain…")).toBeTruthy();
   expect(openrouter.getByText("Saved model")).toBeTruthy();
-  expect(openrouter.queryByText(/^Not set/)).toBeNull();
+  expect(openrouter.queryByText("Not saved")).toBeNull();
   spade.keysPending = false;
-  expect(await openrouter.findByText("Set")).toBeTruthy();
+  expect(await openrouter.findByText("Saved in the keychain")).toBeTruthy();
 });
 
 test("Spade never asks for a key the keychain may still hold", async () => {
@@ -165,5 +164,5 @@ test("Spade never asks for a key the keychain may still hold", async () => {
   });
   await waitFor(() => expect(spade.sent("GET", "/v1/models").length).toBeGreaterThan(0));
   await screen.findByRole("feed");
-  expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull();
+  expect(screen.queryByRole("region", { name: setupName })).toBeNull();
 });

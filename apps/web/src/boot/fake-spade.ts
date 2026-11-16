@@ -1,4 +1,10 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
+import { seedFakeCards } from "./fake-spade-cards.ts";
+import { seedFakeGroup } from "./fake-spade-group.ts";
+import { seedFakeLibrary } from "./fake-spade-library.ts";
+import { seedFakeTranscript } from "./fake-spade-transcript.ts";
+import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
+import { seedFakeWork } from "./fake-spade-work.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -37,6 +43,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     ],
   };
   here.endpoints.push(endpoint);
+  here.newBotModel = "openrouter/anthropic/claude-sonnet-5.5";
   // The person's subscriptions, as ace lists them (ADR 0133).
   here.subscriptions = [
     {
@@ -133,8 +140,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "none",
       accessory: "none",
     },
-    // Full access, carrying on with its task by itself.
-    access: "full_access",
+    // Carrying on with its task by itself.
+    access: "auto_review",
     task_state: { status: "working", note: "Writing the Fixes section" },
     continuing: true,
     last_activity: minutes(44),
@@ -297,15 +304,11 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     name: "Flights",
     task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
     model: "openrouter/openai/gpt-6.1-mini",
-    access: "ask",
+    access: "auto_review",
     task_state: { status: "done" },
     spending: {
       today_micros: 180_000,
       month_micros: 1_240_000,
-      daily_cap_micros: 1_000_000,
-      monthly_cap_micros: null,
-      capped: null,
-      resets_at: null,
     },
     avatar: {
       kind: "character",
@@ -413,19 +416,36 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   here.oversight.activity.set(
     "flights",
     [
-      { kind: "access", name: "auto_review", summary: "access level", outcome: null, ago: 1 },
+      {
+        kind: "access",
+        name: "auto_review",
+        summary: "access level",
+        sentence: "Access changed to Auto-review",
+        outcome: null,
+        ago: 1,
+      },
       {
         kind: "task",
         name: "paused",
         summary: "Paused: its last 4 steps changed nothing. Send a message to let it carry on.",
+        sentence: "Paused: its last 4 steps changed nothing",
         outcome: null,
         ago: 2,
       },
-      { kind: "tool", name: "web_search", summary: "Checked 6 airlines", outcome: "ok", ago: 3 },
+      {
+        kind: "tool",
+        name: "web_search",
+        summary: "query: OPO LIS fares",
+        sentence: "Searched the web",
+        detail: "OPO to LIS fares, 14–18 Nov",
+        outcome: "ok",
+        ago: 3,
+      },
       {
         kind: "task",
         name: "continued",
         summary: "carried on by itself, step 4",
+        sentence: "Carried on by itself, step 4",
         outcome: null,
         ago: 3,
       },
@@ -433,6 +453,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         kind: "review",
         name: "workspace_write",
         summary: "flights.md",
+        sentence: "The reviewer approved: write a file",
+        detail: "Updating its own fare notes is part of its task.",
         reason: "Updating its own fare notes is part of its task.",
         outcome: "allowed",
         ago: 4,
@@ -441,6 +463,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         kind: "review",
         name: "send_email",
         summary: "to: deals@example.com",
+        sentence: "The reviewer refused: send an email",
+        detail: "Signing you up for a newsletter isn't part of watching fares.",
         reason: "Signing you up for a newsletter isn't part of watching fares.",
         outcome: "refused",
         ago: 5,
@@ -449,15 +473,27 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         kind: "review",
         name: "call_tool",
         summary: "book_flight",
+        sentence: "The reviewer asked you: book a flight",
+        detail: "It could spend money, so you decide.",
         reason: "It could spend money, so you decide.",
         outcome: "escalated",
         ago: 6,
       },
-      { kind: "tool", name: "web_fetch", summary: "Found €212 on TAP", outcome: "ok", ago: 7 },
+      {
+        kind: "tool",
+        name: "web_fetch",
+        summary: "url: https://www.flytap.com/en-pt",
+        sentence: "Read a web page",
+        detail: "flytap.com: €212 return, 07:40",
+        outcome: "ok",
+        ago: 7,
+      },
       {
         kind: "routine",
         name: "Fare check",
         summary: "Fare check ran",
+        sentence: "Fare check ran",
+        detail: "Routine · 3 steps",
         outcome: "finished",
         ago: 540,
       },
@@ -476,6 +512,28 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     "Budget: under €220 return",
   ])
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
+
+  seedFakeCards(here);
+  seedFakeLibrary(here, now);
+  seedFakeWork(daemon, here, minutes);
+  seedFakeGroup(here, now);
+  // A few pins, oldest first: the strip under the list's buttons.
+  for (const [index, id] of ["inbox", "garden", "notes"].entries()) {
+    const agent = here.agents.find((each) => each.id === id);
+    if (agent) agent.pinned_at = now - (10 - index) * 60_000;
+  }
+  const lisbon = here.teams.groups.find((each) => each.id === "lisbon");
+  if (lisbon) lisbon.pinned_at = now - 5 * 60_000;
+  seedFakeTranscript(here, (back) => {
+    rewound = back * 60_000;
+  });
+  seedFakeCapabilities(
+    here,
+    (back) => {
+      rewound = back * 60_000;
+    },
+    now,
+  );
 
   const remote = running(server);
   remote.addAgent({
@@ -508,10 +566,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   remote.endpoints.push({ ...endpoint });
 }
 
+/** How far back the fake's clock reads for what is seeded next, in ms (the transcript's days). */
+let rewound = 0;
+
 function running(daemon: FakeDaemon) {
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   daemon.services.settings.write("spade.enabled", true);
-  return new FakeSpadeApi(daemon.spade, () => Date.now());
+  return new FakeSpadeApi(daemon.spade, () => Date.now() - rewound);
 }
 
 /**
@@ -542,6 +603,8 @@ function seedComputers(spade: FakeSpadeApi, now: number) {
       "\x1b[33m51d0ce4\x1b[0m Zod guard: load every browser worker\r\n" +
       "\x1b[33mc07a9e2\x1b[0m Fix the composer's paste jump\r\n$ ",
   );
+  // Garden reached for its browser just now: its computer is waking up.
+  computer.waking("garden", true);
   computer.use("flights", {
     kind: "browser",
     live: false,
@@ -647,7 +710,28 @@ function seedConnectors(spade: FakeSpadeApi) {
       tools: 12,
     },
   );
-  spade.connectors.access.set("inbox", { all: false, connectors: ["notion"] });
+  spade.connectors.access.set("inbox", { all: false, connectors: ["github"] });
+  spade.skillStore = {
+    ace: true,
+    skills: [
+      {
+        id: "skl_trip",
+        name: "Trip budget",
+        description: "Totals a trip's bookings in one currency.",
+        origin: "spade",
+        written_by: ["spade"],
+        used_by: ["spade", "inbox"],
+      },
+      {
+        id: "skl_release",
+        name: "Release notes",
+        description: "Writes release notes from merged pull requests.",
+        origin: "ace",
+        written_by: [],
+        used_by: ["inbox"],
+      },
+    ],
+  };
 }
 
 /** A template with its own face, as Spade ships them. */

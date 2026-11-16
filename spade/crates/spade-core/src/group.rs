@@ -4,10 +4,12 @@
 
 use crate::event::{Event, FromGroup, GroupBot, Known};
 
-/// Asks one run allows, the person's own included.
-pub const MOST_ASKS: usize = 8;
-/// The deepest chain in a run: person to lead (1), lead to member (2), member to member (3).
-pub const MOST_DEPTH: u32 = 3;
+pub mod files;
+
+/// The deepest chain in a run (person to lead is 1, lead to member 2, and so on): a guard against
+/// a runaway chain, not a budget. A run takes as many asks as its work needs (ADR 0158); an ask
+/// back to a bot already waiting up the chain is refused as a cycle.
+pub const MOST_DEPTH: u32 = 16;
 /// Group messages a recipient is shown with the one it answers.
 pub const RECENT: usize = 12;
 /// Characters of each earlier message shown.
@@ -17,8 +19,9 @@ const RECENT_CHARS: usize = 600;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     Stopped,
-    TooMany,
     TooDeep,
+    /// The bot asked is already waiting on this chain of asks: it could never answer.
+    Cycle,
 }
 
 impl Refusal {
@@ -28,35 +31,50 @@ impl Refusal {
             Self::Stopped => "Refused: the person stopped this group's work. Answer with what \
                               you have."
                 .to_owned(),
-            Self::TooMany => format!(
-                "Refused: this group's message already had {MOST_ASKS} asks. Answer with what \
-                 you have."
-            ),
             Self::TooDeep => format!(
                 "Refused: this would be a chain of more than {MOST_DEPTH} asks. Answer with \
                  what you have."
             ),
+            Self::Cycle => "Refused: that bot is waiting on your answer already, further up this \
+                            chain of asks. Answer with what you have, or ask someone else."
+                .to_owned(),
         }
     }
 }
 
-/// Whether one more ask at `depth` fits run `run`.
-pub fn admit(events: &[Event], run: &str, depth: u32) -> Result<(), Refusal> {
-    let mut asks = 0;
-    for event in events {
-        match event {
-            Event::Known(Known::GroupStopped { run: r }) if r == run => {
-                return Err(Refusal::Stopped);
-            }
-            Event::Known(Known::GroupAsked { run: r, .. }) if r == run => asks += 1,
-            _ => {}
-        }
+/// Whether one more ask, by `by` (the person when `None`) to `to` at `depth`, fits run `run`.
+pub fn admit(
+    events: &[Event],
+    run: &str,
+    depth: u32,
+    by: Option<&GroupBot>,
+    to: &GroupBot,
+) -> Result<(), Refusal> {
+    let stopped = events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::GroupStopped { run: r }) if r == run));
+    if stopped {
+        return Err(Refusal::Stopped);
     }
     if depth > MOST_DEPTH {
         return Err(Refusal::TooDeep);
     }
-    if asks >= MOST_ASKS {
-        return Err(Refusal::TooMany);
+    // Up the chain: the open ask `by` is answering, then the one its asker is answering, ...
+    let open: Vec<OpenAsk> = open_asks(events)
+        .into_iter()
+        .filter(|o| o.run == run)
+        .collect();
+    let mut asker = by;
+    for _ in 0..=open.len() {
+        let Some(bot) = asker else { break };
+        if bot.id == to.id {
+            return Err(Refusal::Cycle);
+        }
+        asker = open
+            .iter()
+            .rev()
+            .find(|o| o.to.id == bot.id)
+            .and_then(|o| o.by.as_ref());
     }
     Ok(())
 }
@@ -67,6 +85,8 @@ pub struct OpenAsk {
     pub run: String,
     pub ask: String,
     pub to: GroupBot,
+    /// Who asked; the person when `None`.
+    pub by: Option<GroupBot>,
     pub depth: u32,
     /// Waiting for the bot's machine to come online.
     pub queued: bool,
@@ -82,11 +102,12 @@ pub fn open_asks(events: &[Event]) -> Vec<OpenAsk> {
                 ask,
                 to,
                 depth,
-                ..
+                by,
             }) => open.push(OpenAsk {
                 run: run.clone(),
                 ask: ask.clone(),
                 to: to.clone(),
+                by: by.clone(),
                 depth: *depth,
                 queued: false,
             }),

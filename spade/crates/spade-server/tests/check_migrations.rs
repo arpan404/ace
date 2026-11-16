@@ -1,4 +1,4 @@
-//! `spade-server --check-migrations` as an updater runs it: the real binary against a copy of a
+//! `spade --check-migrations` as an updater runs it: the real binary against a copy of a
 //! database.
 
 use std::process::Command;
@@ -9,7 +9,7 @@ use spade_store::Store;
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn check(path: &std::path::Path) -> Result<(Option<i32>, String)> {
-    let output = Command::new(env!("CARGO_BIN_EXE_spade-server"))
+    let output = Command::new(env!("CARGO_BIN_EXE_spade"))
         .arg("--check-migrations")
         .arg(path)
         // Proves the check never reads the data folder: it would be created here if it did.

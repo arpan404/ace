@@ -21,8 +21,17 @@ const TRUSTED: &[&str] = &["machines", "models", "projects_find", "automations_l
 
 /// ace's tools that can run for minutes, run as background jobs. `delegate` waits for its
 /// children there, so the conversation shows as working while they run and their results come
-/// back as a `<job_result>`; nothing wakes Spade when a child finishes otherwise.
+/// back as a `<job_result>`; nothing wakes Spade when a child finishes otherwise. The job waits
+/// again each time ace's own wait runs out, until the children settle (`ace_wait`), and after a
+/// restart it runs again: `delegate` returns the same children for the same call, and `wait`
+/// only reads.
 const BACKGROUND: &[&str] = &["wait", "delegate"];
+
+/// Whether a lost job of ace's tool `name` runs again after a restart instead of reading as
+/// "unknown outcome": it reattaches to the same children.
+pub(crate) fn reattaches(name: &str) -> bool {
+    BACKGROUND.contains(&name)
+}
 
 /// How long a background `delegate` waits for its children unless the model asked otherwise.
 const DELEGATE_WAIT_SECONDS: u64 = 600;
@@ -161,15 +170,34 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 untrusted: false,
                 files: Box::default(),
                 shared: crate::tools::Shared::default(),
+                transient: false,
             }
         }
+        // Nothing ran (ace was away or busy): a background call is parked and tried again later
+        // (ADR 0160).
         Err(ToolsError::NotRun(why)) => {
-            ToolOutput::error(format!("Not run: {why}. It is safe to try again."))
+            ToolOutput::error(format!("Not run: {why}. It is safe to try again.")).transient()
         }
         Err(error @ (ToolsError::OutcomeUnknown(_) | ToolsError::Timeout)) => {
             ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({error})"))
         }
         Err(error) => ToolOutput::error(error.to_string()),
+    }
+}
+
+/// An answer's text: its text parts, else its structured content.
+fn answer_text(result: &AceToolResult) -> String {
+    let text: String = result
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    match &result.structured {
+        Some(structured) if text.is_empty() => structured.to_string(),
+        _ => text,
     }
 }
 
@@ -202,13 +230,13 @@ impl Tool for AceCall {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify(
+    /// ace's own risk, and a purchase button a driving call is told to press (ADR 0171).
+    fn effect(&self, arguments: &Value) -> Option<spade_core::effect::Effect> {
+        Some(spade_core::effect::ace(
             &self.def.spec.name,
             self.def.risk,
-            spade_core::autonomy::Source::Ace,
             arguments,
-        )
+        ))
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -216,11 +244,25 @@ impl Tool for AceCall {
         let arguments = prepare_delegate(&name, key, arguments);
         // From the call's key, which Spade made for the turn: never from the model's arguments.
         let bot = self.bots.as_ref().and_then(|bots| bots.agent_for_key(key));
+        let (engines, key) = (self.bots.clone(), key.to_owned());
         Box::pin(async move {
-            output(match bot {
-                Some(bot) => client.call_for(&name, arguments, &bot).await,
+            let asked = (name == "delegate").then(|| arguments.clone());
+            let first = match &bot {
+                Some(bot) => client.call_for(&name, arguments, bot).await,
                 None => client.call(&name, arguments).await,
-            })
+            };
+            // The threads a delegate started are the bot's ace children (ADR 0161).
+            if let (Some(asked), Ok(answer), Some(engine)) =
+                (&asked, &first, engines.as_ref().and_then(EngineHandle::get))
+            {
+                engine.ace_delegated(&key, asked, &answer_text(answer));
+            }
+            let result = if BACKGROUND.contains(&name.as_str()) {
+                super::ace_wait::until_settled(&client, bot.as_deref(), &name, first).await
+            } else {
+                first
+            };
+            output(result)
         })
     }
 }

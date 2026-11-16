@@ -52,6 +52,7 @@
     "@ace/handoff": "workspace:*",
     "@ace/history-import": "workspace:*",
     "@ace/html": "workspace:*",
+    "@ace/marketplace": "workspace:*",
     "@ace/markit-web": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/media": "workspace:*",

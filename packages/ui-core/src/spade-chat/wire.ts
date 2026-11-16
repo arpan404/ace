@@ -1,19 +1,14 @@
 import { z } from "zod";
 import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
+import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
- * is rate limiting, the model failed, a spending cap stopped it, or anything else.
+ * is rate limiting, the model failed, or anything else. Spade has no spending caps (ADR 0166): a
+ * `cap` an older Spade stored reads as `other`.
  */
-export const spadeFailureKinds = [
-  "unreachable",
-  "key",
-  "rate_limited",
-  "model",
-  "cap",
-  "other",
-] as const;
+export const spadeFailureKinds = ["unreachable", "key", "rate_limited", "model", "other"] as const;
 export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
 
 /*
@@ -97,6 +92,13 @@ const known = z.discriminatedUnion("type", [
     arguments: z.unknown().optional(),
     /** Why the auto-review asked the person rather than approve it itself. */
     reviewer_reason: z.string().nullish().catch(undefined),
+    /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
+    ask: z.enum(["undeclared", "outside_sandbox"]).nullish().catch(undefined),
+    /** A helper's call (ADR 0152), asked here in its bot's conversation. */
+    helper: z
+      .object({ job: z.string(), conversation: z.string(), call_id: z.string() })
+      .nullish()
+      .catch(undefined),
   }),
   z.object({
     type: z.literal("approval_answered"),
@@ -127,29 +129,49 @@ const known = z.discriminatedUnion("type", [
     images: spadeImageList,
     documents: spadeDocumentList,
   }),
-  /** The bot asked the person and waits for their next message (ADR 0128). */
+  /**
+   * The bot asked the person a card of questions (ADR 0128, 0154). `question` is the prompts,
+   * one per line; `questions` each with its kind (absent from a Spade before kinds: one text
+   * question), read by `spadeCardQuestions`.
+   */
   z.object({
     type: z.literal("question_asked"),
     reply,
     call_id: z.string(),
-    question: z.string(),
+    question: z.string().catch(""),
+    questions: z.unknown().optional(),
+  }),
+  /** Left for later, by the person or by the bot asking without waiting. */
+  z.object({
+    type: z.literal("question_deferred"),
+    call_id: z.string(),
+    by_bot: z.boolean().nullish().catch(undefined),
+  }),
+  /** The answers, one per question; `late` once deferred, `typed` when a message stood for them. */
+  z.object({
+    type: z.literal("question_answered"),
+    call_id: z.string(),
+    answers: z.array(z.unknown()).catch([]),
+    late: z.boolean().nullish().catch(undefined),
+    typed: z.boolean().nullish().catch(undefined),
+  }),
+  z.object({
+    type: z.literal("question_dismissed"),
+    call_id: z.string(),
+    late: z.boolean().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("job_started"), reply, job: z.string(), name: z.string() }),
   z.object({
     type: z.literal("job_finished"),
     job: z.string(),
     name: z.string(),
+    /** The result the model reads; a helper's line shows its first words (ADR 0152). */
+    content: z.string().optional().catch(undefined),
     is_error: z.boolean().optional(),
     files,
   }),
-  /** The bot reached a spending cap; stored once per day or month (ADR 0135). */
-  z.object({
-    type: z.literal("cap_reached"),
-    scope: z.enum(["daily", "monthly"]),
-    cap_micros: z.number().nonnegative().catch(0).default(0),
-    period_start: z.unknown().optional(),
-    resets_at: z.number().nullish().catch(undefined),
-  }),
+  // `cap_reached` (ADR 0135) is gone with the caps (ADR 0166): one an older Spade stored is
+  // kept as raw data and shows nothing.
   /** The model review judged a call before it ran (ADR 0135). */
   z.object({
     type: z.literal("call_reviewed"),
@@ -180,6 +202,7 @@ const known = z.discriminatedUnion("type", [
     text: z.string(),
     data: z.array(z.unknown()).optional(),
   }),
+  ...spadeCapabilityEvents,
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;
@@ -224,7 +247,8 @@ const waitingMemberShape = z.object({
     .transform((machine) => machine ?? null),
 });
 const statusShape = z.object({
-  state: z.enum(["idle", "working", "waiting"]),
+  /** `sleeping`: it sleeps or waits on a wake (ADR 0160), never idle or done. */
+  state: z.enum(["idle", "working", "waiting", "sleeping"]),
   status: z.string().nullish().catch(undefined),
   /** In a group's stream, the member that waits for the person; anything unreadable is none. */
   waiting_member: waitingMemberShape.nullish().catch(undefined),
@@ -240,7 +264,7 @@ export type SpadeLiveInput =
   /** The agent's current state and its few words on what it does now (ADR 0127). */
   | {
       kind: "status";
-      state: "idle" | "working" | "waiting";
+      state: "idle" | "working" | "waiting" | "sleeping";
       status: string | undefined;
       /** In a group's stream, the member that waits for the person (by id, never by words). */
       waitingMember?: { id: string; name: string; machine: string | null } | undefined;

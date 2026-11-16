@@ -143,6 +143,19 @@ impl Notes<'_> {
 pub struct HistoryMatch {
     pub seq: i64,
     pub snippet: String,
+    /// When the event was stored.
+    pub at_ms: i64,
+}
+
+/// Which part of a conversation's past a search covers, and in what order (ADR 0164).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HistoryWindow {
+    /// Only events stored at or after this time.
+    pub since_ms: Option<i64>,
+    /// Only events stored before this time.
+    pub until_ms: Option<i64>,
+    /// Oldest first instead of best match first.
+    pub oldest_first: bool,
 }
 
 const COLUMNS: &str = "n.id, n.agent_id, n.text, n.source, n.created_ms, n.updated_ms, n.used_ms, \
@@ -383,6 +396,17 @@ impl Store {
         query: &str,
         limit: usize,
     ) -> Result<Vec<HistoryMatch>> {
+        self.search_history_in(conversation, query, HistoryWindow::default(), limit)
+    }
+
+    /// [`Store::search_history`] within `window`: a span of time, oldest first if asked.
+    pub fn search_history_in(
+        &self,
+        conversation: &str,
+        query: &str,
+        window: HistoryWindow,
+        limit: usize,
+    ) -> Result<Vec<HistoryMatch>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let upto: i64 = tx
@@ -423,18 +447,30 @@ impl Store {
             )?;
         }
         let found = {
-            let mut statement = tx.prepare(
-                "SELECT seq, snippet(history_search, 0, '', '', '…', 24) FROM history_search
-                 WHERE history_search MATCH ?1 AND conversation_id = ?2
-                 ORDER BY bm25(history_search) LIMIT ?3",
-            )?;
+            let order = if window.oldest_first {
+                "h.seq"
+            } else {
+                "bm25(history_search)"
+            };
+            let mut statement = tx.prepare(&format!(
+                "SELECT h.seq, snippet(history_search, 0, '', '', '…', 24), e.at_ms
+                 FROM history_search h
+                 JOIN events e ON e.conversation_id = h.conversation_id AND e.seq = h.seq
+                 WHERE history_search MATCH ?1 AND h.conversation_id = ?2
+                   AND (?4 IS NULL OR e.at_ms >= ?4) AND (?5 IS NULL OR e.at_ms < ?5)
+                 ORDER BY {order} LIMIT ?3"
+            ))?;
             let limit = i64::try_from(limit).unwrap_or(i64::MAX);
-            let rows = statement.query_map(params![query, conversation, limit], |row| {
-                Ok(HistoryMatch {
-                    seq: row.get(0)?,
-                    snippet: row.get(1)?,
-                })
-            })?;
+            let rows = statement.query_map(
+                params![query, conversation, limit, window.since_ms, window.until_ms],
+                |row| {
+                    Ok(HistoryMatch {
+                        seq: row.get(0)?,
+                        snippet: row.get(1)?,
+                        at_ms: row.get(2)?,
+                    })
+                },
+            )?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         };
         tx.commit()?;

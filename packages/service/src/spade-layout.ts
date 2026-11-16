@@ -3,19 +3,19 @@ import { desktopAppMarker } from "./desktop-update.ts";
 import { spadeBinaryName } from "./spade-plan.ts";
 
 /**
- * Where a release carries `spade-server` (ADR 0123), the one definition packaging, the daemon
- * and the desktop app share. Both bundles keep it in a `spade` folder at their root:
+ * Where a release carries Spade's binary, `spade` (ADR 0123), the one definition packaging, the
+ * daemon and the desktop app share. Both bundles keep it in a `spade` folder at their root:
  *
  * - a standalone release (`<ACE_HOME>/releases/<version>-<target>/`): `bin/node`, `ace.mjs`,
- *   `spade/spade-server`;
+ *   `spade/spade`;
  * - the desktop app's resources: `runtime/` (Bun), `daemon/ace.mjs` beside the app's marker,
- *   `spade/spade-server`.
+ *   `spade/spade`.
  */
-export const spadeServerFolder = "spade";
+export const spadeFolder = "spade";
 
-/** `spade-server` (`.exe` on Windows) under a release or desktop resources `root`. */
-export function bundledSpadeServer(root: string, platform: NodeJS.Platform): string {
-  return join(root, spadeServerFolder, spadeBinaryName(platform));
+/** `spade` (`.exe` on Windows) under a release or desktop resources `root`. */
+export function bundledSpade(root: string, platform: NodeJS.Platform): string {
+  return join(root, spadeFolder, spadeBinaryName(platform));
 }
 
 /**

@@ -42,6 +42,8 @@ const Environment = z.object({
   ACE_CURSOR_SDK_HOME: z.string().min(1).optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
+  /** Development only: a marketplace other than market.acehq.dev (ADR 0168 §3). */
+  ACE_MARKET_URL: z.url().optional(),
   /** ace's account backend (ADR 0111), where `ace login` signs in; ace's own by default. */
   ACE_ACCOUNT_URL: AceAccountOrigin.optional(),
   /**
@@ -85,6 +87,8 @@ export interface Config {
   cursorSdkHome?: string;
   workspaceRoot?: string;
   relayUrl?: string;
+  /** ACE_MARKET_URL: a development marketplace in place of market.acehq.dev. */
+  marketUrl?: string;
   /** ACE_ACCOUNT_URL: the account backend `ace login` uses. */
   accountOrigin?: string;
   /** ACE_HOSTED_RELAY_URL: ace's hosted relay, which needs a machine grant to register. */
@@ -175,6 +179,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       : {}),
     ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
+    ...(settings.ACE_MARKET_URL ? { marketUrl: settings.ACE_MARKET_URL } : {}),
     ...accountSettings(settings.ACE_ACCOUNT_URL, settings.ACE_HOSTED_RELAY_URL),
     host: "127.0.0.1",
     port,

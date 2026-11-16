@@ -23,8 +23,10 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/groups", get(list).post(create))
         .route("/groups/{id}", axum::routing::patch(update).delete(delete))
+        .route("/groups/{id}/pin", axum::routing::put(pin))
         .route("/groups/{id}/messages", post(post_message))
         .route("/groups/{id}/stop", post(stop))
+        .route("/groups/{id}/files", get(files))
         .route("/templates", get(templates))
         .route("/agents/{id}/duplicate", post(duplicate))
         .route("/agents/{id}/export", get(export))
@@ -99,6 +101,7 @@ fn group_json(view: &GroupView) -> Value {
             "from": if m.from.is_some() { "agent" } else { "person" },
             "text": m.text,
             "at": m.at_ms,
+            "seq": m.seq,
             "agent": m.from.as_ref().map(|b| json!({ "id": b.id, "name": b.name, "machine": b.machine })),
         })
     });
@@ -111,10 +114,13 @@ fn group_json(view: &GroupView) -> Value {
         "created_at": group.created_ms,
         "updated_at": group.updated_ms,
         "last_activity": view.last_activity_ms,
+        "pinned_at": group.pinned_ms,
         "state": view.state.name(),
         "status": view.status,
         "waiting_member": view.waiting_member.as_ref().map(|b| json!({ "id": b.id, "name": b.name, "machine": b.machine })),
         "last_message": last_message,
+        "seen_seq": view.seen,
+        "unseen": view.unseen(),
     })
 }
 
@@ -161,6 +167,19 @@ async fn update(
     }
 }
 
+/// `PUT /v1/groups/{id}/pin`: pins the group to the top of the list, or unpins it.
+async fn pin(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<super::agents::Pin>,
+) -> Response {
+    match state.engine.pin_group(&id, body.pinned) {
+        Ok(Some(view)) => Json(json!({ "group": group_json(&view) })).into_response(),
+        Ok(None) => group_problem(&GroupError::NotFound),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
 async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.delete_group(&id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -188,6 +207,42 @@ async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response
     match state.engine.stop_group(&id) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => group_problem(&error),
+    }
+}
+
+/// The files the group's members made in it, for its Library; one gone from its workspace since
+/// is left out. Each opens with `GET /v1/agents/{agent}/workspace/file?path=…`.
+async fn files(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let found = tokio::task::spawn_blocking(move || {
+        state.engine.group_files(&id).map(|files| {
+            files.map(|files| {
+                files
+                    .into_iter()
+                    .filter(|file| still_there(state.workspaces.as_ref(), file))
+                    .collect::<Vec<_>>()
+            })
+        })
+    })
+    .await;
+    match found {
+        Ok(Ok(Some(files))) => Json(json!({ "files": files })).into_response(),
+        Ok(Ok(None)) => problem(StatusCode::NOT_FOUND, "no such group"),
+        Ok(Err(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+        Err(_) => problem(StatusCode::INTERNAL_SERVER_ERROR, "the request stopped"),
+    }
+}
+
+/// Whether the member's workspace still holds the file; kept when Spade can't tell.
+fn still_there(
+    workspaces: Option<&crate::workspace::Workspaces>,
+    file: &crate::engine::GroupFile,
+) -> bool {
+    let Some(workspace) = workspaces.and_then(|all| all.of(&file.agent).ok()) else {
+        return true;
+    };
+    match (workspace.dir(), workspace.normal(&file.path)) {
+        (Ok(dir), Ok(path)) => dir.exists(path),
+        _ => true,
     }
 }
 

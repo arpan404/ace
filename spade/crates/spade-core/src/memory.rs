@@ -272,6 +272,18 @@ pub fn searchable(event: &Event) -> Option<String> {
         Known::ToolFinished { name, content, .. } => format!("{name} result: {content}"),
         Known::JobFinished { name, content, .. } => format!("{name} job result: {content}"),
         Known::QuestionAsked { question, .. } => format!("you asked: {question}"),
+        // Past compactions (ADR 0164): what a summary kept is found again by its words.
+        Known::ContextCompacted { summary, .. } => format!("summary of earlier turns: {summary}"),
+        Known::QuestionAnswered { answers, .. } => {
+            let said: Vec<String> = answers
+                .iter()
+                .map(|a| match a {
+                    serde_json::Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                })
+                .collect();
+            format!("person answered: {}", said.join("; "))
+        }
         _ => return None,
     };
     let body = text.split_once(": ").map_or("", |(_, body)| body);
@@ -391,6 +403,7 @@ mod tests {
                 tokens_before: 0,
                 images_left_out: None,
                 untrusted: false,
+                carried: None,
             }),
             with("- [n_2] kept"),
             Event::Known(Known::MemoryIndexed {

@@ -58,7 +58,7 @@ the bot, as a web page can.
    whose output is untrusted.
 
 4. **Extraction runs in a child process, with limits.** The server re-runs its own binary as
-   `spade-server extract-document`, hands it the bytes on stdin and reads one JSON answer from
+   `spade extract-document`, hands it the bytes on stdin and reads one JSON answer from
    stdout, at most 20 MB. The child is killed after 20 seconds, and at most two run at once. Inside
    it, before any parser sees the file: a ZIP may hold at most 10,000 entries, and every entry the
    reader will open is first inflated through a counter that refuses the file past 64 MB from one

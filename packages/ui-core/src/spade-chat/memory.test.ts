@@ -23,7 +23,9 @@ function conversation() {
         ? `remembered: ${bubble.note.text}${bubble.note.shared ? " (shared)" : ""}`
         : bubble.kind === "bot" || bubble.kind === "person"
           ? `${bubble.kind}: ${bubble.text}`
-          : bubble.kind,
+          : bubble.kind === "question"
+            ? `question ${bubble.standing}: ${bubble.questions.map((q) => q.prompt).join(" / ")}`
+            : bubble.kind,
     );
   return { state, stored, bubbles, view: () => spadeView(state) };
 }
@@ -88,7 +90,7 @@ describe("what a bot remembered", () => {
 });
 
 describe("a question from the bot", () => {
-  test("shows as the bot's bubble and the bot waits until the person answers", () => {
+  test("an older one with no kinds is one text card, and the person's next message answers it", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
@@ -98,14 +100,14 @@ describe("a question from the bot", () => {
       calls: [{ id: "q1", name: "ask_user" }],
     });
     c.stored({ type: "question_asked", reply: "r1", call_id: "q1", question: "Which airport?" });
-    expect(c.bubbles()).toEqual(["bot: Which airport?"]);
+    expect(c.bubbles()).toEqual(["question waiting: Which airport?"]);
     expect(c.view()).toMatchObject({ asking: true, busy: true, working: { moving: false } });
     c.stored({ type: "user_message", text: "Heathrow" });
     expect(c.view().asking).toBe(false);
     c.stored({ type: "step_finished", reply: "r1", text: "Booked from Heathrow." });
     c.stored({ type: "reply_finished", reply: "r1", text: "Booked from Heathrow." });
     expect(c.bubbles()).toEqual([
-      "bot: Which airport?",
+      "question answered: Which airport?",
       "person: Heathrow",
       "bot: Booked from Heathrow.",
     ]);
@@ -121,6 +123,8 @@ describe("a question from the bot", () => {
     c.stored({ type: "stop_requested", reply: "r1", jobs: [] });
     c.stored({ type: "reply_stopped", reply: "r1", text: "" });
     expect(c.view()).toMatchObject({ asking: false, busy: false });
+    // Its turn ended unanswered: the card stays, closed.
+    expect(c.bubbles()).toContain("question closed: Which airport?");
   });
 });
 

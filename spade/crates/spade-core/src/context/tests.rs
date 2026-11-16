@@ -195,15 +195,13 @@ fn the_next_prompt_repeats_the_previous_one_and_adds_to_its_end() {
     ];
     let before = prompt(SYSTEM, tools.clone(), &events);
     events.push(step("r1", "Done.", &[]));
-    events.push(Event::Known(Known::SkillsIndexed {
-        text: "Skills: release, deploy".into(),
-    }));
+    assert!(
+        !crate::skills::index_due(&events),
+        "no new skill index before the next compaction"
+    );
     let after = prompt(SYSTEM, tools, &events);
 
-    assert_eq!(
-        before.system, after.system,
-        "the skill index stays the first one"
-    );
+    assert_eq!(before.system, after.system);
     assert_eq!(before.tools, after.tools);
     assert_eq!(after.messages[..before.messages.len()], before.messages[..]);
     assert!(
@@ -373,6 +371,7 @@ fn untrusted_content_stays_in_view_across_turns_until_compaction_leaves_it_out()
             tokens_before: 0,
             images_left_out: None,
             untrusted,
+            carried: None,
         })
     };
     let mut events = vec![
@@ -413,6 +412,8 @@ fn job_done(job: &str, name: &str, content: &str) -> Event {
         is_error: false,
         uncertain: false,
         files: Vec::new(),
+        untrusted: false,
+        cost_micros: None,
     })
 }
 
@@ -433,6 +434,47 @@ fn a_job_result_arriving_while_tools_run_waits_for_their_results() {
             "result:c1:No mail",
             "person:<job_result job=\"j1\" tool=\"research\" status=\"ok\">\nThree options\n</job_result>"
         ]
+    );
+}
+
+#[test]
+fn a_helpers_result_is_untrusted_only_when_the_helper_read_something_untrusted() {
+    // `helper` itself vouches for its output; the result says whether the helper read untrusted
+    // content (ADR 0152).
+    let registry = Registry::new([ToolDef {
+        spec: ToolSpec {
+            name: "helper".into(),
+            description: "Hand part of the work to a helper".into(),
+            schema: json!({}),
+        },
+        risk: Risk::Read,
+        untrusted_output: false,
+        deferred: false,
+        background: true,
+    }]);
+    let opened_by = |untrusted: bool| {
+        let result = Event::Known(Known::JobFinished {
+            job: "j1".into(),
+            name: "helper".into(),
+            content: "The build failed on step 3".into(),
+            is_error: false,
+            uncertain: false,
+            files: Vec::new(),
+            untrusted,
+            cost_micros: Some(1_200),
+        });
+        vec![
+            Event::user_message("Why did the build fail?"),
+            result,
+            Event::reply_started("r2", "m"),
+        ]
+    };
+    assert!(!untrusted_turn(&opened_by(false), &registry));
+    let tainted = opened_by(true);
+    assert!(untrusted_turn(&tainted, &registry));
+    assert_eq!(
+        untrusted_sources(&tainted, &registry),
+        vec!["a helper's result".to_owned()]
     );
 }
 
@@ -674,6 +716,7 @@ fn between_compactions_new_images_only_add_to_the_end_of_the_prompt() {
         tokens_before: 0,
         images_left_out: Some(fixed),
         untrusted: false,
+        carried: None,
     }));
     assert_eq!(shown_images(&messages_with(&events, &Shelf)), SHOWN_IMAGES);
     let mut before = messages_with(&events, &Shelf);

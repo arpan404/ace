@@ -42,6 +42,7 @@ import { createFilesSession } from "./files.ts";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
 import { createSuitsSession } from "./suits.ts";
+import { createMarketplaceSession } from "./marketplace.ts";
 import { createBrowserSession } from "./browser.ts";
 import { createBrowsingSession } from "./browsing.ts";
 import { createComputerUsingSession } from "./computer-using.ts";
@@ -108,6 +109,7 @@ export const socketServiceFactories = [
   createNotificationsSession,
   createPluginsSession,
   createSuitsSession,
+  createMarketplaceSession,
   createBrowsingSession,
   createComputerUsingSession,
   createUserBrowserSession,

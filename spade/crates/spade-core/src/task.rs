@@ -47,7 +47,8 @@ pub struct State {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PauseReason {
-    /// It used the steps one task may take on its own.
+    /// It used the steps one task could take on its own. Only earlier Spades stored it: no step
+    /// count pauses a task now (ADR 0158).
     Budget,
     /// Several steps in a row changed nothing.
     NoProgress,
@@ -70,8 +71,6 @@ impl PauseReason {
 /// How far a task goes on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Policy {
-    /// Steps Spade starts by itself before pausing, counted from the person's latest message.
-    pub max_steps: u32,
     /// Steps in a row with no effect (no change made, no plan changed) before pausing.
     pub idle_limit: u32,
     /// The wait before a step that follows one with no effect; doubled for each more.
@@ -82,7 +81,6 @@ pub struct Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self {
-            max_steps: 25,
             idle_limit: 3,
             backoff_ms: 30_000,
             backoff_max_ms: 15 * 60_000,
@@ -108,8 +106,18 @@ pub enum Next {
 
 /// The task state from the latest `task_status` call with valid arguments.
 pub fn state(events: &[Event]) -> Option<State> {
-    events.iter().rev().find_map(|event| match event {
+    state_in(events.iter())
+}
+
+/// [`state`] over events in order, read from the newest.
+pub fn state_in<'a>(events: impl DoubleEndedIterator<Item = &'a Event>) -> Option<State> {
+    events.rev().find_map(|event| match event {
         Event::Known(Known::StepFinished { calls, .. }) => calls.iter().rev().find_map(|call| {
+            // Only a call that may be `task_status` is unwrapped, so reading the state of a
+            // long turn copies nothing.
+            if call.name != TASK_STATUS && call.name != CALL_TOOL {
+                return None;
+            }
             let (name, arguments) = resolved(&call.name, &call.arguments);
             (name == TASK_STATUS)
                 .then(|| serde_json::from_value::<State>(arguments).ok())
@@ -134,22 +142,30 @@ pub fn nudge(step: u32) -> String {
         "<continue step=\"{step}\">Nobody has written since your last reply, and your task is \
          still marked working, so carry on with the next step. Call task_status with done when \
          the task is finished. If you need the person, ask with ask_user and set \
-         blocked_on_person. If you must wait on something outside (a build, a reply, a date), set \
-         waiting and save a routine to check back. Write to the person only at milestones.\
+         blocked_on_person. If you must wait on something outside (a build, a reply, a date), call \
+         sleep_until or wait_for and end your reply. Write to the person only at milestones.\
          </continue>"
     )
 }
 
 /// Whether Spade starts the next step of the bot's task, and when.
 pub fn next(events: &[Event], policy: &Policy) -> Next {
-    if !ended_finished(events) || stopped_since_last_reply(events) || jobs_running(events) {
+    if !ended_finished(events)
+        || stopped_since_last_reply(events)
+        || jobs_running(events)
+        || sleeping(events)
+    {
         return Next::Nothing;
     }
-    if state(events).map(|s| s.status) != Some(Status::Working) {
+    // A claim of done the goal's check answered "not yet" sends the bot back to work (ADR 0159).
+    if state(events).map(|s| s.status) != Some(Status::Working)
+        && !crate::goal::verify::sent_back(events)
+    {
         return Next::Nothing;
     }
     // The run started at the person's latest message. A bot's message or a routine's firing
-    // carries on the task it belongs to, with its budget and any pause.
+    // carries on the task it belongs to, with any pause. However many steps it takes, it carries
+    // on while each step does something (ADR 0158).
     let run_start = events
         .iter()
         .rposition(|e| {
@@ -173,12 +189,6 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     }
     let steps = continued_replies(run);
     let taken = u32::try_from(steps.len()).unwrap_or(u32::MAX);
-    if taken >= policy.max_steps {
-        return Next::Pause {
-            reason: PauseReason::Budget,
-            steps: taken,
-        };
-    }
     let idle = idle_in_a_row(run, &steps);
     if idle >= policy.idle_limit {
         return Next::Pause {
@@ -199,8 +209,9 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     }
 }
 
-/// The last reply ended by finishing (not stopped, failed or cut off), and none is open.
-fn ended_finished(events: &[Event]) -> bool {
+/// The last reply ended by finishing (not stopped, failed or cut off), or was ended by a spending
+/// cap an earlier build had (retired by ADR 0166, so its task carries on), and none is open.
+pub(crate) fn ended_finished(events: &[Event]) -> bool {
     let last = events.iter().rev().find(|e| {
         matches!(
             e,
@@ -213,12 +224,21 @@ fn ended_finished(events: &[Event]) -> bool {
             )
         )
     });
-    matches!(last, Some(Event::Known(Known::ReplyFinished { .. })))
+    matches!(
+        last,
+        Some(Event::Known(
+            Known::ReplyFinished { .. }
+                | Known::ReplyFailed {
+                    kind: crate::event::FailureKind::Cap,
+                    ..
+                }
+        ))
+    )
 }
 
 /// The person pressed Stop after the last reply started (an idle Stop cancels a step waiting to
 /// start).
-fn stopped_since_last_reply(events: &[Event]) -> bool {
+pub(crate) fn stopped_since_last_reply(events: &[Event]) -> bool {
     let start = events
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
@@ -228,8 +248,13 @@ fn stopped_since_last_reply(events: &[Event]) -> bool {
         .any(|e| matches!(e, Event::Known(Known::StopRequested { .. })))
 }
 
+/// The bot sleeps or waits on a wake (ADR 0160): the wake is its next step.
+pub(crate) fn sleeping(events: &[Event]) -> bool {
+    !crate::wake::open(events).is_empty()
+}
+
 /// A background job still runs: its result starts the next turn.
-fn jobs_running(events: &[Event]) -> bool {
+pub(crate) fn jobs_running(events: &[Event]) -> bool {
     !crate::Transcript::fold(events).jobs.is_empty()
 }
 
@@ -271,7 +296,8 @@ fn had_effect(run: &[Event], reply: &str) -> bool {
     changed || plan_changed(run, reply)
 }
 
-/// The reply sent a `todo` or `task_status` different from the one before it.
+/// The reply sent a `todo`, `task_status`, `task_goal` or `task_plan` different from the one
+/// before it.
 fn plan_changed(run: &[Event], reply: &str) -> bool {
     let mut before: Vec<(String, Value)> = Vec::new();
     for event in run {
@@ -283,7 +309,7 @@ fn plan_changed(run: &[Event], reply: &str) -> bool {
         };
         for call in calls {
             let (name, arguments) = resolved(&call.name, &call.arguments);
-            if name != "todo" && name != TASK_STATUS {
+            if name != "todo" && name != TASK_STATUS && !crate::goal::is_tool(&name) {
                 continue;
             }
             let previous = before

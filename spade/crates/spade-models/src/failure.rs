@@ -21,8 +21,8 @@ pub(crate) fn read(model: &str, error: &genai::Error, answered: bool) -> ModelEr
     match unanswered(error) {
         Some(Unanswered::Status(status, headers)) => ModelError::Unanswered {
             model: model.to_owned(),
+            transient: transient_status(status) && !used_up(&message),
             message,
-            transient: transient_status(status),
             retry_after: headers.and_then(retry_after),
             status: Some(status.as_u16()),
         },
@@ -90,6 +90,23 @@ fn transient_status(status: StatusCode) -> bool {
         || status.is_server_error()
 }
 
+/// A refusal that says the account's quota or credit is used up. It comes as a `429` like a rate
+/// limit, but waiting doesn't end it: the person has to act, so it is never sent again.
+fn used_up(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    [
+        "insufficient_quota",
+        "exceeded your current quota",
+        "quota exceeded",
+        "billing",
+        "credit balance",
+        "out of credits",
+        "payment required",
+    ]
+    .iter()
+    .any(|words| message.contains(words))
+}
+
 /// The longest wait read from an endpoint. Anything longer means the same to a caller (too long
 /// to wait for); capping it keeps any number an endpoint sends a valid duration.
 const LONGEST_HINT: Duration = Duration::from_secs(24 * 60 * 60);
@@ -154,6 +171,24 @@ mod tests {
             );
             assert_eq!(error.transient(), transient, "{status}");
         }
+    }
+
+    #[test]
+    fn a_429_saying_the_quota_or_credit_is_used_up_is_never_sent_again() {
+        let with_body = |body: &str| genai::Error::HttpError {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            canonical_reason: String::new(),
+            body: body.to_owned(),
+            headers: Box::new(HeaderMap::new()),
+        };
+        for body in [
+            r#"{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}"#,
+            "Your credit balance is too low to access the API.",
+        ] {
+            assert!(!read("m", &with_body(body), false).transient(), "{body}");
+        }
+        let limited = with_body(r#"{"error":{"type":"rate_limit_error"}}"#);
+        assert!(read("m", &limited, false).transient());
     }
 
     #[test]

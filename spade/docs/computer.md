@@ -23,9 +23,21 @@ Spade without computers: `503`.
       "live": true, "title": "string" | null, "since": 0 | null,
       "url": "string", "tab_id": "string", "ending_stuck": true, "last": 0 | null,
       "person_active": false }
-  ]
+  ],
+  "state": "asleep" | "starting" | "ready",
+  "used": ["browser", "terminal"]
 }
 ```
+
+- `state` is the computer as a whole, for "Waking up…" before the first frame: `starting` while
+  the bot reached for its browser or screen (one of ace's tools for it started) in the last 30 s
+  and ace hasn't reported that surface since; else `ready` while any surface is live or its
+  terminal's shell runs; else `asleep`. A surface ace never reports reads as starting for 30 s
+  only. A change of `state` is sent on the live stream like any other change.
+- `used` is every surface this bot's computer has ever had (a `last` time), in the order
+  `browser`, `screen`, `terminal`, `files`, so the app shows only those tabs. It survives restarts
+  (`<data folder>/computer/used/<bot id>.json`, written when a surface is first used) and goes
+  when the bot is deleted.
 
 - `mode` is `cowork` (the default: the person and the bot use the computer at once) or
   `exclusive` (the person took over and the bot is paused). `driver` follows it: `bot` in cowork,
@@ -221,11 +233,14 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
 `[stderr]` part, large output kept as a file, and untrusted output are all as in
 [workspace.md](workspace.md). A bot command never goes through the person's shell:
 
-1. One command at a time per bot. It is refused (an error result) in exclusive mode. In cowork
-   it runs while the person types in their shell.
+1. Commands run in sessions (ADR 0158): the bot's own conversation is one, and each of its
+   helpers is another. One command at a time per session, in order; different sessions run at
+   once, so a helper's ten-minute build never holds up the bot's commands or another helper's.
+   It is refused (an error result) in exclusive mode. In cowork it runs while the person types in
+   their shell, who gets to type in exclusive mode once no session's command runs.
 2. It runs as the one-shot shell does: `/bin/sh -c`, its own process group, the built
-   environment, stdin from `/dev/null`. Two things change. It starts in the folder the bot's last
-   command ended in (the workspace at first), and with the variables that command exported. These
+   environment, stdin from `/dev/null`. Two things change. It starts in the folder its session's
+   last command ended in (the workspace at first), and with the variables that command exported. These
    are never carried: `PATH`, `HOME`, `SHELL`, `ENV`, `BASH_ENV`, `IFS`, `CDPATH`, the prompts,
    `TERM`, `PWD`, `TMPDIR`, `LANG`, `USER`, `LOGNAME`, `LD_*`, `DYLD_*`, `BASH_FUNC_*`,
    `SPADE_*`. At most 200 variables (64 KiB) are carried.
@@ -272,7 +287,7 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    scope (`approval_requested.scope`: the command and a digest of the folder and variables), and
    when either has changed, the same command asks again. A carried `NODE_OPTIONS` or `PYTHONPATH`
    would change what it runs. The scope a call was allowed with, always or by the person's
-   answer, is checked again under the terminal's command lock, right before it runs. When an
+   answer, is checked again under its session's command lock, right before it runs. When an
    earlier call in the same response, or a restart, changed the state since, the call is not run.
    Its result says so ("Not run: your terminal's folder or carried variables changed…"), and the
    model's next call of it asks. A call is never asked again in place, because its start is

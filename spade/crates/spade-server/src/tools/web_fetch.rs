@@ -72,7 +72,21 @@ impl Tool for WebFetch {
                     }
                     ToolOutput::ok(out)
                 }
-                Err(error) => ToolOutput::error(error.to_string()),
+                Err(error) => {
+                    // The network, a rate limit or a server error may pass (ADR 0160).
+                    let transient = matches!(
+                        &error,
+                        spade_fetch::FetchError::Network { .. }
+                            | spade_fetch::FetchError::TimedOut(_)
+                            | spade_fetch::FetchError::Status(429 | 500..=599)
+                    );
+                    let output = ToolOutput::error(error.to_string());
+                    if transient {
+                        output.transient()
+                    } else {
+                        output
+                    }
+                }
             }
         })
     }

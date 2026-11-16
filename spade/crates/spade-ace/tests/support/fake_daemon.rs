@@ -6,6 +6,14 @@
 //! as if changed since). A
 //! wrong token gets an `unauthorized` error and close 4001, as the daemon does. Reads answer
 //! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
+//! `review-code` has two files (`files`); [`FakeDaemon::edit_review`] gives it a new hash and
+//! one changed file, [`FakeDaemon::remove_review`] takes it away. A subscribed list hears
+//! `skills.changed` from [`FakeDaemon::push_change`].
+//!
+//! `marketplace.request` answers `spadeSkills` and `spadeSkillFiles` (ADR 0168) from the market
+//! skills set with [`FakeDaemon::set_market_skill`]; [`FakeDaemon::push_market_change`] pushes
+//! `marketplace.changed` to every welcomed socket, and [`FakeDaemon::market_unavailable`] makes
+//! every market request fail as a daemon whose marketplace isn't ready does.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -14,6 +22,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
+use sha2::Digest as _;
 use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
@@ -35,7 +44,35 @@ pub struct FakeDaemon {
     drop_all: broadcast::Sender<()>,
     saw_close: Arc<AtomicBool>,
     writes: Arc<Mutex<Vec<Value>>>,
+    changes: broadcast::Sender<()>,
+    subscriptions: Arc<AtomicUsize>,
+    review: Arc<Mutex<Review>>,
+    market: Arc<Mutex<Market>>,
+    market_changes: broadcast::Sender<()>,
 }
+
+/// One market file: its path, content and whether it is executable.
+type MarketFile = (String, Vec<u8>, bool);
+
+/// The fake's installed market skills: each one's version and files (`SKILL.md` among them).
+#[derive(Default)]
+struct Market {
+    skills: std::collections::BTreeMap<String, (String, Vec<MarketFile>)>,
+    unavailable: bool,
+    requests: usize,
+}
+
+/// What `review-code` is now.
+#[derive(Clone, Copy, Default)]
+struct Review {
+    edited: bool,
+    removed: bool,
+}
+
+pub const GUIDE_EDITED: &str = "# Guide, second edition\n";
+
+pub const GUIDE: &str = "# Guide\n";
+pub const SCRIPT: &str = "#!/bin/sh\necho hi\n";
 
 impl FakeDaemon {
     pub async fn start() -> Self {
@@ -60,6 +97,14 @@ impl FakeDaemon {
         let (drop_all, _) = broadcast::channel(4);
         let saw_close = Arc::new(AtomicBool::new(false));
         let writes = Arc::new(Mutex::new(Vec::new()));
+        let (changes, _) = broadcast::channel(16);
+        let subscriptions = Arc::new(AtomicUsize::new(0));
+        let watching = (changes.clone(), subscriptions.clone());
+        let review = Arc::new(Mutex::new(Review::default()));
+        let reviewing = review.clone();
+        let market = Arc::new(Mutex::new(Market::default()));
+        let (market_changes, _) = broadcast::channel(16);
+        let marketing = (market.clone(), market_changes.clone());
         let accept = (hellos.clone(), connections.clone(), drop_all.clone());
         let recorded = writes.clone();
         let closes = saw_close.clone();
@@ -75,8 +120,10 @@ impl FakeDaemon {
                     tokio::spawn(serve(
                         socket,
                         accept.0.clone(),
-                        accept.2.subscribe(),
+                        (accept.2.subscribe(), watching.0.subscribe()),
                         recorded.clone(),
+                        (watching.1.clone(), reviewing.clone()),
+                        (marketing.0.clone(), marketing.1.subscribe()),
                     ));
                 }
             }
@@ -88,7 +135,63 @@ impl FakeDaemon {
             drop_all,
             saw_close,
             writes,
+            changes,
+            subscriptions,
+            review,
+            market,
+            market_changes,
         }
+    }
+
+    /// Installs (or replaces) the market skill `name` with `files`, `SKILL.md` among them.
+    pub fn set_market_skill(&self, name: &str, version: &str, files: &[(&str, &[u8], bool)]) {
+        let files = files
+            .iter()
+            .map(|(path, bytes, executable)| ((*path).to_owned(), bytes.to_vec(), *executable))
+            .collect();
+        lock(&self.market)
+            .skills
+            .insert(name.to_owned(), (version.to_owned(), files));
+    }
+
+    /// The market skill `name` is no longer installed.
+    pub fn remove_market_skill(&self, name: &str) {
+        lock(&self.market).skills.remove(name);
+    }
+
+    /// Every market request fails (`true`) or is answered again (`false`).
+    pub fn market_unavailable(&self, unavailable: bool) {
+        lock(&self.market).unavailable = unavailable;
+    }
+
+    /// How many `marketplace.request` frames came.
+    pub fn market_requests(&self) -> usize {
+        lock(&self.market).requests
+    }
+
+    /// Pushes `marketplace.changed` on every welcomed socket.
+    pub fn push_market_change(&self) {
+        let _ = self.market_changes.send(());
+    }
+
+    /// `review-code` gets a new hash, a changed guide and no script.
+    pub fn edit_review(&self) {
+        lock(&self.review).edited = true;
+    }
+
+    /// `review-code` is no longer in the library.
+    pub fn remove_review(&self) {
+        lock(&self.review).removed = true;
+    }
+
+    /// Pushes `skills.changed` on every subscribed socket.
+    pub fn push_change(&self) {
+        let _ = self.changes.send(());
+    }
+
+    /// How many lists asked to subscribe.
+    pub fn subscriptions(&self) -> usize {
+        self.subscriptions.load(Ordering::SeqCst)
     }
 
     /// Every `create` and `edit` operation received, in order.
@@ -122,9 +225,12 @@ impl FakeDaemon {
 async fn serve(
     socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     hellos: Arc<Mutex<Vec<Value>>>,
-    mut drop_all: broadcast::Receiver<()>,
+    (mut drop_all, mut changes): (broadcast::Receiver<()>, broadcast::Receiver<()>),
     writes: Arc<Mutex<Vec<Value>>>,
+    (subscriptions, review): (Arc<AtomicUsize>, Arc<Mutex<Review>>),
+    (market, mut market_changes): (Arc<Mutex<Market>>, broadcast::Receiver<()>),
 ) {
+    let mut subscribed: Option<Value> = None;
     let (mut sink, mut stream) = socket.split();
     let (out, mut outgoing) = mpsc::unbounded_channel::<Message>();
     let writer = tokio::spawn(async move {
@@ -140,6 +246,18 @@ async fn serve(
         let frame = tokio::select! {
             frame = stream.next() => frame,
             _ = drop_all.recv() => break,
+            Ok(()) = changes.recv() => {
+                if let Some(id) = &subscribed {
+                    send(&out, json!({ "type": "skills.changed", "requestId": id, "entries": [], "stale": false }));
+                }
+                continue;
+            }
+            Ok(()) = market_changes.recv() => {
+                if authenticated {
+                    send(&out, json!({ "type": "marketplace.changed", "installed": 1, "updates": 0 }));
+                }
+                continue;
+            }
         };
         let Some(Ok(Message::Text(text))) = frame else {
             break;
@@ -169,6 +287,18 @@ async fn serve(
             }
             continue;
         }
+        if message["type"] == "pluginRequest" {
+            send(&out, plugin_answer(&message));
+            continue;
+        }
+        if message["type"] == "marketplace.request" {
+            let result = market_answer(&mut lock(&market), &message["operation"]);
+            send(
+                &out,
+                json!({ "type": "marketplace.result", "requestId": message["requestId"], "result": result }),
+            );
+            continue;
+        }
         if message["type"] != "skills.request" {
             continue;
         }
@@ -178,8 +308,16 @@ async fn serve(
         send(&out, json!({ "type": "pong" }));
         match operation["op"].as_str() {
             Some("list") => {
+                if operation["subscribe"] == true {
+                    subscriptions.fetch_add(1, Ordering::SeqCst);
+                    subscribed = Some(request_id.clone());
+                }
                 let stale = operation["workspaceId"] == STALE_WORKSPACE;
-                let mut entries = vec![entry(REVIEW), entry(DEPLOY)];
+                let now = *lock(&review);
+                let mut entries = vec![entry(DEPLOY)];
+                if !now.removed {
+                    entries.insert(0, reviewed(now));
+                }
                 entries.extend(created(&lock(&writes)).into_iter().map(|(entry, _)| entry));
                 if stale {
                     entries.push(json!({ "id": "skl_broken", "scope": "personal" }));
@@ -201,6 +339,7 @@ async fn serve(
                 let made = created(&lock(&writes))
                     .into_iter()
                     .find(|(entry, _)| entry["id"] == json!(id));
+                let now = *lock(&review);
                 let out = out.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -208,7 +347,9 @@ async fn serve(
                         json!({ "kind": "hologram", "beam": 3 })
                     } else if let Some((entry, text)) = made {
                         json!({ "kind": "skill", "entry": entry, "text": text })
-                    } else if id == REVIEW || id == DEPLOY {
+                    } else if id == REVIEW && !now.removed {
+                        json!({ "kind": "skill", "entry": reviewed(now), "text": text_of(&id), "kept": [] })
+                    } else if id == DEPLOY {
                         json!({ "kind": "skill", "entry": entry(&id), "text": text_of(&id), "kept": [] })
                     } else {
                         json!({ "kind": "error", "code": "not_found", "message": "No skill with that id." })
@@ -218,6 +359,50 @@ async fn serve(
                         json!({ "type": "skills.result", "requestId": request_id, "result": result }),
                     );
                 });
+            }
+            Some("files") => {
+                use base64::Engine as _;
+                let sha = |text: &str| {
+                    sha2::Sha256::digest(text.as_bytes())
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                };
+                let all = [
+                    ("references/guide.md", GUIDE, false),
+                    ("scripts/run.sh", SCRIPT, true),
+                ];
+                let edited = [("references/guide.md", GUIDE_EDITED, false)];
+                let files: &[(&str, &str, bool)] =
+                    if lock(&review).edited { &edited } else { &all };
+                let file = |(path, text, executable): (&str, &str, bool)| {
+                    json!({
+                        "path": path, "size": text.len(), "hash": sha(text), "executable": executable
+                    })
+                };
+                let result = if operation["id"] != REVIEW {
+                    json!({ "kind": "files", "id": operation["id"], "files": [], "omitted": [] })
+                } else if let Some(path) = operation["path"].as_str() {
+                    match files.iter().find(|(p, _, _)| *p == path) {
+                        Some(found) => json!({
+                            "kind": "file", "id": REVIEW, "file": file(*found),
+                            "content": base64::engine::general_purpose::STANDARD.encode(found.1),
+                        }),
+                        None => {
+                            json!({ "kind": "error", "code": "not_found", "message": "No such file." })
+                        }
+                    }
+                } else {
+                    json!({
+                        "kind": "files", "id": REVIEW,
+                        "files": files.iter().map(|f| file(*f)).collect::<Vec<_>>(),
+                        "omitted": [{ "path": "big.bin", "reason": "too_large" }],
+                    })
+                };
+                send(
+                    &out,
+                    json!({ "type": "skills.result", "requestId": request_id, "result": result }),
+                );
             }
             Some("create") | Some("edit") => {
                 lock(&writes).push(operation.clone());
@@ -281,6 +466,43 @@ async fn serve_deaf(
     }
 }
 
+/// What the daemon answers a `pluginRequest`: one accepted plugin, `style-kit`, turned off in
+/// ace, and `plugin_failed` for any other.
+fn plugin_answer(message: &Value) -> Value {
+    let request_id = message["requestId"].clone();
+    let request = &message["request"];
+    let install = json!({ "name": "style-kit", "version": "1.0", "commit": "c".repeat(40),
+        "hash": "d".repeat(64), "acceptedAt": 5 });
+    let response = match (request["type"].as_str(), request["name"].as_str()) {
+        (Some("plugins.list"), _) => json!({ "type": "plugins.list", "installs": [install],
+            "reviews": [], "availability": [{ "name": "style-kit", "enabled": false, "providers": [] }] }),
+        (Some("plugins.spade"), Some("style-kit")) => json!({ "type": "plugins.spade", "plugin": {
+            "install": install, "enabled": false, "root": "/plugins/versions/d",
+            "components": [{ "kind": "rule", "name": "style", "path": "rules/style.md",
+                "description": "", "text": "Use tabs." },
+                { "kind": "skill", "name": "tidy", "path": "skills/tidy/SKILL.md",
+                "description": "Tidy code", "text": "---\nname: tidy\n---\nTidy it.\n",
+                "files": [{ "path": "guide.md", "bytes": 5,
+                    "hash": "e".repeat(64), "executable": false }] }],
+            "executions": [{ "kind": "stdio", "name": "lint", "command": "node",
+                "args": ["${PLUGIN_ROOT}/lint.js"], "env": { "MODE": "x" } }],
+            "unsupported": [] } }),
+        (Some("plugins.spadeFile"), Some("style-kit"))
+            if request["path"] == "skills/tidy/guide.md" =>
+        {
+            use base64::Engine as _;
+            json!({ "type": "plugins.spadeFile", "path": "skills/tidy/guide.md",
+                "hash": "e".repeat(64), "executable": false,
+                "content": base64::engine::general_purpose::STANDARD.encode("Guide") })
+        }
+        _ => {
+            return json!({ "type": "error", "code": "plugin_failed",
+                "message": "Plugin not installed", "requestId": request_id });
+        }
+    };
+    json!({ "type": "pluginResult", "requestId": request_id, "response": response })
+}
+
 /// What the daemon answers a `create` or `edit`.
 fn write_result(operation: &Value) -> Value {
     let creating = operation["op"] == "create";
@@ -342,8 +564,70 @@ fn created(writes: &[Value]) -> Vec<(Value, String)> {
         .collect()
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A `MarketResult` for one `MarketOperation` Spade sends.
+fn market_answer(market: &mut Market, operation: &Value) -> Value {
+    market.requests += 1;
+    if market.unavailable {
+        return json!({ "op": "error", "code": "unavailable", "message": "The marketplace isn't ready yet" });
+    }
+    let listed = |files: &[MarketFile]| -> Vec<Value> {
+        files
+            .iter()
+            .map(|(path, bytes, executable)| {
+                json!({ "path": path, "bytes": bytes.len(), "hash": sha256_hex(bytes), "executable": executable })
+            })
+            .collect()
+    };
+    match operation["op"].as_str() {
+        Some("spadeSkills") => json!({
+            "op": "spadeSkills",
+            "skills": market.skills.iter().map(|(name, (version, files))| {
+                let all: Vec<u8> = files.iter().flat_map(|(p, b, _)| p.bytes().chain(b.iter().copied())).collect();
+                json!({ "name": name, "version": version, "hash": sha256_hex(&all),
+                        "description": format!("{name} from the market") })
+            }).collect::<Vec<_>>(),
+        }),
+        Some("spadeSkillFiles") => {
+            let name = operation["name"].as_str().unwrap_or_default();
+            let Some((_, files)) = market.skills.get(name) else {
+                return json!({ "op": "error", "code": "not_found", "message": format!("There is no market skill {name}") });
+            };
+            match operation["path"].as_str() {
+                None => json!({ "op": "spadeSkillFiles", "files": listed(files) }),
+                Some(path) => match files.iter().find(|(p, _, _)| p == path) {
+                    Some(file) => {
+                        use base64::Engine as _;
+                        json!({ "op": "spadeSkillFiles", "files": listed(std::slice::from_ref(file)),
+                                "content": base64::engine::general_purpose::STANDARD.encode(&file.1) })
+                    }
+                    None => {
+                        json!({ "op": "error", "code": "not_found", "message": format!("{name} has no file {path}") })
+                    }
+                },
+            }
+        }
+        _ => json!({ "op": "error", "code": "invalid", "message": "unknown operation" }),
+    }
+}
+
 pub fn text_of(id: &str) -> String {
     format!("---\nname: {id}\n---\nDo the thing carefully.\n")
+}
+
+/// `review-code`'s entry as it is now.
+fn reviewed(now: Review) -> Value {
+    let mut listed = entry(REVIEW);
+    if now.edited {
+        listed["hash"] = json!("c".repeat(64));
+    }
+    listed
 }
 
 fn entry(id: &str) -> Value {

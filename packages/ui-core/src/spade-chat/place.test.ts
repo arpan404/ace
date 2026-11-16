@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   parseSpadeEvents,
   spadeApprovalSentence,
-  spadeCallLine,
   spadeFailureSentence,
   spadeJobEndLine,
   spadeSetupSentence,
@@ -53,15 +52,11 @@ test("while Spade waits for the keychain, the person is told what to look for on
   expect(spadeSetupSentence({ state: "starting" })).toBeUndefined();
 });
 
-test("a call reads as what it did, or why it didn't run", () => {
-  expect(spadeCallLine("web_search", "done")).toBe("Searched the web");
-  expect(spadeCallLine("send_email", "declined")).toBe("You declined: send an email");
-  expect(spadeCallLine("ace__thread_start", "running")).toBe("Using thread start");
-  expect(spadeCallLine("web_fetch", "skipped")).toBe("Didn't read a web page");
+test("an approval reads in the tool's plain words, even for a tool it doesn't know", () => {
   expect(spadeApprovalSentence("ace_thread_send")).toBe(
     "Spade wants to send a message to a thread.",
   );
-  expect(spadeCallLine("ace_new_thing", "done")).toBe("Used new thing");
+  expect(spadeApprovalSentence("ace_new_thing")).toBe("Spade wants to use new thing.");
 });
 
 test("an events page keeps every event it can read, in order", () => {
@@ -95,7 +90,6 @@ describe("a failed reply's sentence", () => {
     expect(spadeFailureSentence("model", "OpenCode Go")).toBe(
       "The model on OpenCode Go failed to answer.",
     );
-    expect(spadeFailureSentence("cap", undefined)).toBe("It reached a spending limit.");
   });
 
   test("an endpoint this app doesn't know reads as the endpoint", () => {

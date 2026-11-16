@@ -16,7 +16,7 @@ with (kept for a bot whose machine is away). `away` is true while a member's mac
 reached.
 
 **Group** = `{"id", "name", "lead": Member, "members": [Member], "conversation", "created_at",
-"updated_at", "last_activity", "state", "status", "last_message"}`.
+"updated_at", "last_activity", "pinned_at", "state", "status", "last_message", "seen_seq", "unseen"}`.
 
 - `members` includes the lead, in the order the person chose.
 - `conversation` is the group's transcript: read it with `GET /v1/conversations/{id}/events` and
@@ -24,18 +24,32 @@ reached.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
 answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
-- `last_message`: `{"from": "person"|"agent", "text", "at", "agent": {"id", "name",
-"machine"}|null}` or null; plain text, at most 200 characters.
+- `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "agent": {"id", "name",
+"machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
+  ([agents.md](agents.md)).
+- `seen_seq`, `unseen`: the group's seen cursor and whether a member answered since the person
+  last saw it while nothing in the group runs or waits; marked with
+  `PUT /v1/conversations/{conversation}/seen` (see Seen in [agents.md](agents.md)).
 
-| Method and path              | Body                                          | Answer                                   |
-| ---------------------------- | --------------------------------------------- | ---------------------------------------- |
-| `GET /groups`                |                                               | `{"groups":[Group]}`, by `last_activity` |
-| `POST /groups`               | `{name, members: [{agent, machine?}], lead?}` | `201 {"group"}`                          |
-| `PATCH /groups/{id}`         | any of `name`, `members`, `lead`              | `200 {"group"}`                          |
-| `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped         |
-| `POST /groups/{id}/messages` | `{text}`                                      | `202 {"run"}`                            |
-| `POST /groups/{id}/stop`     |                                               | `204`                                    |
+| Method and path              | Body                                          | Answer                                         |
+| ---------------------------- | --------------------------------------------- | ---------------------------------------------- |
+| `PUT /groups/{id}/pin`       | `{"pinned": bool}`                            | `200 {"group"}`; `404` (see Pins in agents.md) |
+| `GET /groups`                |                                               | `{"groups":[Group]}`, by `last_activity`       |
+| `POST /groups`               | `{name, members: [{agent, machine?}], lead?}` | `201 {"group"}`                                |
+| `PATCH /groups/{id}`         | any of `name`, `members`, `lead`              | `200 {"group"}`                                |
+| `DELETE /groups/{id}`        |                                               | `204`; its open asks are stopped               |
+| `POST /groups/{id}/messages` | `{text}`                                      | `202 {"run"}`                                  |
+| `POST /groups/{id}/stop`     |                                               | `204`                                          |
+| `GET /groups/{id}/files`     |                                               | `{"files":[{agent, path, at}]}`                |
 
+- `GET /groups/{id}/files` is the group's Library: every file its members on this machine made
+  answering it, newest first, once per member and path. A member's reply counts when a message
+  from the group started or steered it; a file counts when its `workspace_write` or
+  `workspace_edit` ran without error, or a background job of that reply kept it (a report). `at`
+  is when it was last written there; one since removed from the workspace is left out. A file
+  opens with `GET /v1/agents/{agent}/workspace/file?path=…`. Group messages carry no attachments,
+  so this is the only list; members on other machines keep their files there. `404` for no such
+  group.
 - `name`: 1 to 60 characters, one line. `lead` is a member's `agent` id on this machine. Without
   `lead`, Spade leads (and is added as a member when it isn't one); with Spade switched off on
   this machine, the first member of this machine leads. `members` (lead counted) is 2 to 8
@@ -61,9 +75,11 @@ another member: it is posted as a handoff line, the member answers in its own co
 answer is posted as the member's message, and the tool returns it to the asker (untrusted). The
 tool waits for the answer (up to 10 minutes). Only bots of the group's machine can call it.
 
-**Budget.** A run allows at most 8 asks (the person's own included) and a chain at most 3 deep
-(person to lead is 1, lead to member 2, member to member 3). Asks beyond either, asks after Stop
-and asks in a group being deleted are refused with words for the bot.
+**Chains.** A run takes as many asks as its work needs (ADR 0158). An ask to a bot already
+waiting up the asker's chain (the bot whose ask the asker is answering, or that bot's asker, and
+so on) is refused as a cycle: it could never answer. A chain deeper than 16 (person to lead is 1,
+lead to member 2, ...) is refused as a runaway guard. Those, asks after Stop and asks in a group
+being deleted are refused with words for the bot.
 
 **Stop** (`POST /groups/{id}/stop`) ends the run: every open ask is stopped (a bot of this
 machine has its turn stopped; a bot elsewhere is sent a stop through ace), stopped answers aren't
@@ -178,6 +194,53 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
 template's, the model to the fast model for `fast` (else the default), and its routines are
 created with the bot, in `time_zone` (an IANA zone in the body; the machine's when absent).
 Unknown template: `404`.
+
+## Bots from marketplace recipes
+
+A recipe is a bot file at `version: 2` that asks rather than grants (ADR 0168 §5). The daemon
+fetches and reviews it; when the person presses Install it posts it to `POST /v1/agents`:
+
+```json
+{
+  "recipe": {
+    "format": "spade-bot",
+    "version": 2,
+    "name": "Inbox",
+    "blurb": "…",
+    "task": "…",
+    "face": { "kind": "character", "...": "..." },
+    "model": "fast",
+    "routines": [{ "name": "Morning sort", "instruction": "…", "schedule": "weekdays at 8:00" }],
+    "tools": ["web_search"],
+    "notes": ["…"]
+  },
+  "from_recipe": { "source": "market", "name": "inbox", "version": "1.2.0" },
+  "grants": {
+    "connectors": ["<catalogue id>", "https://…"],
+    "plugins": ["mail-tools"],
+    "skills": []
+  },
+  "start_routines": false
+}
+```
+
+It makes one top-level bot as a template does: name, task and face from the recipe (an unknown
+face value is repaired), the person's own fast model for `fast` and their default for `capable`
+(never a model id from the file), and routines from their schedules, paused unless
+`start_routines`. `tools`, when present, narrows the bot's built-in tools as a worker's grant
+does (ADR 0161): it never adds one. `notes` become the bot's own notes.
+
+Nothing in the recipe is a grant; only `grants` is. A granted catalogue id or https address this
+machine has connected is allowed for the bot; the others are named in `left_out` ("Connect after
+install"). Granted plugins are allowed as `PUT /v1/agents/{id}/plugins` allows them, after a
+fresh read of ace's plugins. Skills need no grant: market skills land in the skill store and
+serve every bot ([workspace.md](workspace.md)).
+
+Answer: `201 {"agent", "left_out"}`; the agent carries `from_recipe` (and `tools` when narrowed)
+from then on, for its profile. A recipe with anything named or shaped like a secret, a schedule
+Spade can't read, a model other than `fast` or `capable`, another version, or a grant Spade can't
+apply is `400` with the reason in `error` and `detail`, and no bot is made: one already made is
+removed again. A newer recipe never changes the bot.
 
 ## Duplicate, export, import
 

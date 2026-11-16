@@ -8,7 +8,7 @@ import { swapSpade, type SpadeSwapMode, type SpadeSwapResult } from "./spade-swa
 import { localSpadeSwapPorts, type SpadeSwapIo } from "./spade-swap-ports.ts";
 
 /**
- * Updates Spade to the release's `spade-server` at `source` (ADR 0123), after the daemon. Holds
+ * Updates Spade to the release's `spade` at `source` (ADR 0123), after the daemon. Holds
  * its own lock, so two updaters never swap Spade at once, and keeps only the new and the
  * previous binary afterwards. Never throws: the result says what happened.
  */

@@ -17,9 +17,11 @@ use super::{Engine, Frame};
 use crate::teams::Outcome;
 use crate::tools::ToolOutput;
 
-/// The deepest chain of bot-to-bot messages allowed: the person asks Spade, Spade asks A, A asks
-/// B, B asks C; C cannot ask further.
-pub const MOST_HOPS: u32 = 3;
+/// The deepest chain of bot-to-bot messages allowed (the person asks Spade, Spade asks A, A asks
+/// B, ...): a guard against bots messaging each other forever, set well past any real chain of
+/// orchestrator, workers, sub-workers and reviewers (ADR 0158). The same number holds for asks
+/// from other machines and for a group's chain of asks.
+pub const MOST_HOPS: u32 = 16;
 
 impl Engine {
     /// The other agents a bot can message: every agent but `caller` (Spade too, unless it is
@@ -147,9 +149,6 @@ impl Engine {
             Ok(target) => target,
             Err(why) => return ToolOutput::error(why),
         };
-        if let Some(why) = self.cap_refusal(&target.conversation) {
-            return ToolOutput::error(why);
-        }
         let depth = self.hops(caller) + 1;
         if depth > MOST_HOPS {
             return ToolOutput::error(format!(
@@ -342,32 +341,10 @@ impl Engine {
             )));
         }
         let name = &target.name;
-        // A reply closed because the bot reached its cap (ADR 0135) answered nothing.
-        let mut capped: Option<String> = None;
         events.iter().find_map(|stored| match &stored.event {
-            Event::Known(Known::CapReached {
-                scope,
-                cap_micros,
-                period_start,
-                resets_at,
-            }) => {
-                let hit = spade_core::oversight::Hit {
-                    scope: *scope,
-                    cap_micros: *cap_micros,
-                    period_start: *period_start,
-                    resets_at: *resets_at,
-                };
-                capped = Some(spade_core::oversight::refusal(name, &hit));
-                None
+            Event::Known(Known::ReplyFinished { text, .. }) => {
+                Some(Outcome::Answered(text.clone()))
             }
-            Event::Known(Known::ReplyFinished { text, .. }) => match capped.take() {
-                Some(why) => Some(Outcome::Failed(why)),
-                // Closed at a cap said earlier this period: empty, and the bot is at it now.
-                None if text.is_empty() && self.cap_refusal(&target.conversation).is_some() => {
-                    self.cap_refusal(&target.conversation).map(Outcome::Failed)
-                }
-                None => Some(Outcome::Answered(text.clone())),
-            },
             Event::Known(Known::ReplyStopped { text, .. }) => Some(Outcome::Stopped(format!(
                 "{name} was stopped before it finished. What it had said: {text}"
             ))),

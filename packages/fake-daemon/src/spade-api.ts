@@ -1,12 +1,18 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
+import { FakeSpadeKnowledge } from "./spade-knowledge.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
+import { FakeSpadeRoles } from "./spade-roles.ts";
+import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
-import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
+import { FakeSpadeOversight } from "./spade-oversight.ts";
+import { FakeSpadeSecurity } from "./spade-security.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { FakeSpadeWakes } from "./spade-wakes.ts";
+import { FakeSpadeWork } from "./spade-work.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 /*
@@ -17,40 +23,8 @@ import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 type Json = Record<string, unknown>;
 
-export interface FakeSpadeAgent {
-  id: string;
-  kind: "main" | "bot";
-  name: string;
-  task: string;
-  avatar: Json;
-  model: string;
-  conversation: string;
-  created_at: number;
-  updated_at: number;
-  last_activity: number;
-  state: "idle" | "working" | "waiting";
-  waiting_for: "approval" | "question" | null;
-  status: string | null;
-  /** Why its latest reply on a subscription failed (ADR 0133). */
-  problem?: string | null;
-  last_message: {
-    from: "person" | "agent";
-    text: string;
-    at: number;
-    from_agent: { id: string; name: string } | null;
-  } | null;
-  /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
-  spending?: FakeSpadeSpending;
-  review?: boolean | null;
-  /** How much it may do without asking; left out, as a Spade before access levels does. */
-  access?: "ask" | "auto_review" | "full_access";
-  /** Its task: on it, waiting on the person, or done; with whether it carries on by itself. */
-  task_state?: {
-    status: "working" | "waiting" | "blocked_on_person" | "done";
-    note?: string;
-  } | null;
-  continuing?: boolean;
-}
+import type { FakeSpadeAgent } from "./spade-agent.ts";
+export type { FakeSpadeAgent } from "./spade-agent.ts";
 
 interface Stored {
   seq: number;
@@ -69,6 +43,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** `new_bot_model`: the model new bots start on; null, the first usable one. */
+  newBotModel: string | null = null;
   /** `endpoint/model` for voice messages (ADR 0134). */
   transcriptionModel: string | null = null;
   /** Stored images by hash with their media type; any other hash answers 404. */
@@ -110,16 +86,28 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly computer: FakeSpadeComputer;
   /** Each agent's skill proposals, in Spade's JSON. */
   proposals = new Map<string, Json[]>();
+  /** Spade's skill store (`GET /v1/skills`), in Spade's JSON; Add to ace's library moves one out. */
+  skillStore: { skills: Json[]; ace: boolean } = { skills: [], ace: false };
   /** What the bots remember, their own and the shared ones (ADR 0128). */
   readonly notes: FakeSpadeNotes;
+  /** Each bot's knowledge pages and past work (ADR 0164). */
+  readonly knowledge: FakeSpadeKnowledge;
+  /** Each bot's services (ADR 0160). */
+  readonly services = new FakeSpadeServices();
+  /** Models for other work, for every bot and on each (ADR 0162). */
+  readonly roles = new FakeSpadeRoles();
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
   /** The person's connected apps and each bot's allow list (ADR 0131). */
   readonly connectors = new FakeSpadeConnectors();
   /** Caps, the review and the activity log (ADR 0135). */
   readonly oversight = new FakeSpadeOversight();
+  /** The sandbox, and each bot's network, grants, egress log and checkpoints (ADR 0167). */
+  readonly security: FakeSpadeSecurity;
   /** Web search settings: the SearXNG address and whether a Brave key is set. */
   readonly search = new FakeSpadeSearch();
+  /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
+  readonly wakes: FakeSpadeWakes;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -128,12 +116,16 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly routines: FakeSpadeRoutines;
   /** Groups, templates, duplicate, export and import (ADR 0132). */
   readonly teams: FakeSpadeTeams;
+  /** Each bot's goal and plan, and its tree of workers (ADR 0159, 0161). */
+  readonly work = new FakeSpadeWork(() => this.agents);
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
     this.notes = new FakeSpadeNotes(now);
+    this.knowledge = new FakeSpadeKnowledge(now);
     this.routines = new FakeSpadeRoutines(now);
+    this.security = new FakeSpadeSecurity(now);
     const agents = () => this.agents;
     this.teams = new FakeSpadeTeams({
       // The list as it is now: a delete replaces it.
@@ -172,6 +164,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return folders;
       },
       exists: (agent) => this.agents.some((candidate) => candidate.id === agent),
+    });
+    this.wakes = new FakeSpadeWakes({
+      conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      store: (conversation, event) => this.store(conversation, event),
     });
     spade.serve(this);
   }
@@ -259,9 +256,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
     });
   }
 
+  /** A call Spade asked about because of its effect (ADR 0171), not a reviewer's doubt. */
+  askAbout(
+    agent: FakeSpadeAgent,
+    callId: string,
+    name: string,
+    args: unknown,
+    ask: "undeclared" | "outside_sandbox",
+  ): void {
+    this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask });
+  }
+
   private request(
     agent: FakeSpadeAgent,
-    call: { callId: string; name: string; args: unknown; reply: string; reviewerReason?: string },
+    call: {
+      callId: string;
+      name: string;
+      args: unknown;
+      reply: string;
+      reviewerReason?: string;
+      ask?: string;
+    },
   ): void {
     const { callId, name, args, reply: id } = call;
     this.store(agent.conversation, { type: "reply_started", reply: id });
@@ -278,6 +293,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       name,
       ...(args === undefined ? {} : { arguments: args }),
       ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
+      ...(call.ask === undefined ? {} : { ask: call.ask }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -306,6 +322,41 @@ export class FakeSpadeApi implements FakeSpadeServer {
     agent.waiting_for = "question";
     this.status(agent, "waiting", null);
   }
+
+  /**
+   * A reply that asks a card of questions (ADR 0154) and waits on it; with `later`, the bot asked
+   * without waiting, so it is for later from the start and the reply ends.
+   */
+  card(agent: FakeSpadeAgent, callId: string, questions: Json[], later = false): void {
+    const id = `r${++this.sequence}`;
+    const prompts = questions.map((each) => String(each.prompt ?? "")).join("\n");
+    this.store(agent.conversation, { type: "reply_started", reply: id });
+    this.store(agent.conversation, {
+      type: "step_finished",
+      reply: id,
+      text: "",
+      calls: [{ id: callId, name: "ask_user", arguments: { questions } }],
+    });
+    this.store(agent.conversation, {
+      type: "question_asked",
+      reply: id,
+      call_id: callId,
+      question: prompts,
+      questions,
+    });
+    if (later) {
+      this.store(agent.conversation, { type: "question_deferred", call_id: callId, by_bot: true });
+      this.store(agent.conversation, { type: "reply_finished", reply: id, text: "" });
+      // Spade counts each question of the card.
+      agent.questions_for_later = (agent.questions_for_later ?? 0) + questions.length;
+      return;
+    }
+    agent.waiting_for = "question";
+    this.status(agent, "waiting", null);
+  }
+
+  /** The answer the next card reply gets instead of 202: a status and Spade's error words. */
+  refuseQuestion: { status: number; error: string } | undefined;
 
   /** The bodies the app sent to `method path`, parsed. */
   sent(method: string, path: string): Json[] {
@@ -342,6 +393,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
     ];
   }
 
+  /** The global roles; the review's model is the oversight's own setting, as on Spade. */
+  private rolesRoute(method: string, body: Json): FakeSpadeAnswer {
+    this.roles.global.review = this.oversight.oversight.review_model;
+    const answered = this.roles.globalRoute(method, body);
+    this.oversight.oversight.review_model = this.roles.global.review ?? null;
+    return answered;
+  }
+
   answer(request: FakeSpadeRequest): FakeSpadeAnswer | Promise<FakeSpadeAnswer> {
     this.requests.push(request);
     const [path = "", query = ""] = request.path.split("?");
@@ -372,7 +431,32 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!agent) return problem(404, "No such agent.");
       return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
     }
+    if (root === "skills" && request.method === "GET") return reply(this.skillStore);
+    if (root === "skills" && id && sub === "add-to-ace" && request.method === "POST") {
+      if (!this.skillStore.ace) return problem(503, "ace isn't running.");
+      const skills = this.skillStore.skills;
+      if (!skills.some((skill) => skill.id === id)) return problem(404, "no such skill");
+      this.skillStore.skills = skills.filter((skill) => skill.id !== id);
+      return reply({ skill_id: `skl_${id}` });
+    }
     if (root === "oversight") return this.oversight.route(request.method, body);
+    if (root === "security") return this.security.machineRoute(request.method, id, body);
+    if (
+      root === "agents" &&
+      id &&
+      (sub === "security" || sub === "grants" || sub === "checkpoints")
+    )
+      return this.security.agentRoute(
+        request.method,
+        this.agents.find((candidate) => candidate.id === id),
+        parts.slice(2),
+        new URLSearchParams(query),
+        body,
+      );
+    if (root === "agents" && id && sub === "wakes")
+      return this.wakes.route(request.method, id, subId, parts[4]);
+    if (root === "digests" && request.method === "GET")
+      return this.wakes.list(new URLSearchParams(query));
     if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -380,10 +464,28 @@ export class FakeSpadeApi implements FakeSpadeServer {
         ? this.oversight.activityRoute(id, new URLSearchParams(query))
         : this.oversight.agentRoute(request.method, agent, body);
     }
-    if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
+    if (root === "agents" && id && (sub === "knowledge" || sub === "episodes")) {
+      if (!this.agents.some((agent) => agent.id === id)) return problem(404, "No such agent.");
+      const rest = sub === "episodes" ? ["episodes"] : parts.slice(3);
+      return this.knowledge.agentRoute(request.method, id, rest, new URLSearchParams(query), body);
+    }
+    if (root === "knowledge" && id) return this.knowledge.entryRoute(request.method, id, sub, body);
+    if (root === "episodes" && id) return this.knowledge.episodeRoute(request.method, id);
+    if (root === "agents" && id && sub === "services") {
+      if (!this.agents.some((agent) => agent.id === id)) return problem(404, "No such agent.");
+      return this.services.route(request.method, id, parts.slice(3), new URLSearchParams(query));
+    }
+    if (root === "models" && id === "roles") return this.rolesRoute(request.method, body);
+    if (root === "agents" && id && sub === "models") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.roles.agentRoute(request.method, id, agent.model, this.fastModel, body);
+    }
+    const searched = new URLSearchParams(query).get("q") ?? "";
+    if (root === "notes") return this.notes.route(request.method, null, id, body, sub, searched);
     if (root === "agents" && id && sub === "notes")
       return this.agents.some((agent) => agent.id === id)
-        ? this.notes.route(request.method, id, undefined, body)
+        ? this.notes.route(request.method, id, undefined, body, undefined, searched)
         : problem(404, "No such agent.");
     if (root === "agents" && id === "import" && request.method === "POST")
       return this.teams.importRoute(body);
@@ -394,9 +496,21 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
-    if (root === "agents") return this.agentRoute(request.method, id, body);
+    if (root === "agents" && id && (sub === "task" || sub === "tree")) {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.work.route(request.method, agent, sub, subId, body) ?? problem(404, "Not found.");
+    }
+    if (root === "agents" && id && sub === "pin" && request.method === "PUT") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      agent.pinned_at = body.pinned === true ? (agent.pinned_at ?? this.now()) : null;
+      return reply({ agent });
+    }
+    if (root === "agents") return this.agentRoute(request.method, id, body, query);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
-    if (root === "connectors") return this.connectors.route(request.method, id, sub, body);
+    if (root === "connectors")
+      return this.connectors.route(request.method, id, sub, body, this.roster());
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.keysPending
@@ -406,6 +520,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         ...(this.characterAvatars ? { character_avatars: true } : {}),
         presets: this.presets,
         fast_model: this.fastModel,
+        new_bot_model: this.newBotModel,
         transcription_model: this.transcriptionModel,
         keychain: this.keychain,
       });
@@ -417,6 +532,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "settings" && request.method === "PUT") {
       if ("fast_model" in body)
         this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("new_bot_model" in body)
+        this.newBotModel = typeof body.new_bot_model === "string" ? body.new_bot_model : null;
       if ("transcription_model" in body) {
         const model =
           typeof body.transcription_model === "string" ? body.transcription_model : null;
@@ -454,32 +571,70 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(404, "Not found.");
   }
 
-  private agentRoute(method: string, id: string | undefined, body: Json): FakeSpadeAnswer {
+  /** The agents `GET /v1/agents` lists, in its order: Spade first (while on), then by activity. */
+  private listed(): FakeSpadeAgent[] {
+    return this.agents
+      .filter((agent) => agent.kind !== "main" || this.mainEnabled)
+      .toSorted(
+        (a, b) =>
+          Number(b.kind === "main") - Number(a.kind === "main") ||
+          b.last_activity - a.last_activity,
+      );
+  }
+
+  /** The person's message into a conversation, as `POST /conversations/{id}/messages` takes it. */
+  private takeMessage(conversation: string, agent: FakeSpadeAgent | undefined, body: Json) {
+    const media = mediaOf(body);
+    for (const image of (media.images ?? []) as Json[])
+      this.images.set(String(image.sha256), String(image.media_type));
+    this.store(conversation, { type: "user_message", text: body.text ?? "", ...media });
+    if (agent)
+      agent.last_message = {
+        from: "person",
+        text: String(body.text ?? ""),
+        at: this.now(),
+        from_agent: null,
+      };
+  }
+
+  private roster() {
+    return this.listed().map((agent) => ({ id: agent.id, main: agent.kind === "main" }));
+  }
+
+  private agentRoute(
+    method: string,
+    id: string | undefined,
+    body: Json,
+    query = "",
+  ): FakeSpadeAnswer {
     if (!id && method === "GET")
       return reply({
-        agents: this.agents
-          .filter((agent) => agent.kind !== "main" || this.mainEnabled)
-          .toSorted(
-            (a, b) =>
-              Number(b.kind === "main") - Number(a.kind === "main") ||
-              b.last_activity - a.last_activity,
-          )
-          .map((agent) => Object.assign({}, agent, { computer: this.computer.of(agent.id) })),
+        agents: this.listed().map((agent) =>
+          Object.assign({}, agent, this.work.rosterFields(agent), {
+            computer: this.computer.of(agent.id),
+          }),
+        ),
       });
+    // As Spade: the auto-review is the one level; any other is refused.
+    if (body.access !== undefined && body.access !== "auto_review")
+      return problem(400, "access must be auto_review.");
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
       const agent = this.addAgent({
         name: String(body.name ?? ""),
         task: String(body.task ?? ""),
-        model: String(body.model ?? ""),
-        // A new bot starts on Auto-review unless the person picked another level.
-        access: accessOf(body.access) ?? "auto_review",
+        // As Spade: a new bot with no model named starts on the model for new bots.
+        model: String(body.model ?? this.newBotModel ?? ""),
+        access: "auto_review",
         ...(avatar?.kind === "image"
           ? { avatar: { kind: "image", sha256: "a".repeat(64) } }
           : avatar?.kind === "character"
             ? { avatar: storedBotFace(repairFace(avatar)) as Json }
             : {}),
       });
+      // As Spade: a first message goes with the bot it makes (the new-bot conversation).
+      const first = body.first_message as Json | undefined;
+      if (first && typeof first === "object") this.takeMessage(agent.conversation, agent, first);
       return reply({ agent }, 201);
     }
     const agent = this.agents.find((candidate) => candidate.id === id);
@@ -489,8 +644,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "task", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
-      const access = accessOf(body.access);
-      if (access) agent.access = access;
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
@@ -500,8 +653,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (method === "DELETE") {
       if (agent.kind === "main") return problem(409, "Spade can't be deleted.");
+      // As Spade: a bot with workers asks what becomes of them (ADR 0161).
+      const asked = this.work.deleting(agent, new URLSearchParams(query));
+      if (asked) return asked;
       this.agents = this.agents.filter((candidate) => candidate !== agent);
       this.notes.forget(agent.id);
+      this.knowledge.forget(agent.id);
       return { status: 204 };
     }
     return problem(405, "Not allowed.");
@@ -664,6 +821,25 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return { status: 204 };
   }
 
+  /**
+   * `PUT /v1/conversations/{id}/seen`: the cursor moves forward to `seq` (the last event when
+   * absent, never past it), the bot's or group's `unseen` clears, and the live stream says so.
+   */
+  private markSeen(id: string, list: readonly Stored[], raw: string | undefined): FakeSpadeAnswer {
+    const body = raw ? (JSON.parse(raw) as Json) : {};
+    const last = list.at(-1)?.seq ?? 0;
+    const asked = typeof body.seq === "number" ? Math.min(body.seq, last) : last;
+    const owner =
+      this.agents.find((candidate) => candidate.conversation === id) ??
+      this.teams.groups.find((candidate) => candidate.conversation === id);
+    if (!owner) return problem(404, "No such conversation.");
+    const seq = Math.max(owner.seen_seq ?? 0, asked);
+    owner.seen_seq = seq;
+    owner.unseen = false;
+    this.spade.emit(`/v1/conversations/${id}/live`, "seen", { seq });
+    return reply({ seen_seq: seq });
+  }
+
   private conversationRoute(
     request: FakeSpadeRequest,
     id: string,
@@ -674,24 +850,58 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const list = this.events.get(id);
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
+    if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
     if (sub === "events") {
       const after = Number(new URLSearchParams(query).get("after") ?? 0);
       return reply(list.filter((stored) => stored.seq > after));
     }
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      const media = mediaOf(body);
-      for (const image of (media.images ?? []) as Json[])
-        this.images.set(String(image.sha256), String(image.media_type));
-      this.store(id, { type: "user_message", text: body.text ?? "", ...media });
-      if (agent)
-        agent.last_message = {
-          from: "person",
-          text: String(body.text ?? ""),
-          at: this.now(),
-          from_agent: null,
-        };
+      this.takeMessage(id, agent, body);
       return reply({ seq: list.length }, 202);
+    }
+    if (sub === "questions" && subId && request.method === "POST") {
+      const body = request.body ? (JSON.parse(request.body) as Json) : {};
+      const refusal = this.refuseQuestion;
+      if (refusal) {
+        this.refuseQuestion = undefined;
+        return problem(refusal.status, refusal.error);
+      }
+      const events = list.map((stored) => stored.event);
+      const card = events.find(
+        (event) => event.type === "question_asked" && event.call_id === subId,
+      );
+      const asked = card !== undefined;
+      const questions = Array.isArray(card?.questions) ? card.questions.length : 1;
+      const settled = events.some(
+        (event) =>
+          (event.type === "question_answered" || event.type === "question_dismissed") &&
+          event.call_id === subId,
+      );
+      const deferred = events.some(
+        (event) => event.type === "question_deferred" && event.call_id === subId,
+      );
+      if (!asked || settled || (body.defer === true && deferred))
+        return problem(409, "That question isn't open.");
+      if (body.defer === true) this.store(id, { type: "question_deferred", call_id: subId });
+      else if (body.dismiss === true)
+        this.store(id, { type: "question_dismissed", call_id: subId, late: deferred || undefined });
+      else if (Array.isArray(body.answers))
+        this.store(id, {
+          type: "question_answered",
+          call_id: subId,
+          answers: body.answers,
+          late: deferred || undefined,
+        });
+      else return problem(400, "Send exactly one of answers, defer or dismiss.");
+      if (agent) {
+        const later =
+          (agent.questions_for_later ?? 0) +
+          (body.defer === true ? questions : deferred ? -questions : 0);
+        agent.questions_for_later = Math.max(0, later);
+        if (agent.waiting_for === "question") this.status(agent, "idle", null);
+      }
+      return reply({}, 202);
     }
     if (sub === "approvals" && subId && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
@@ -719,9 +929,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(404, "Not found.");
   }
 }
-
-const accessLevels = ["ask", "auto_review", "full_access"] as const;
-const accessOf = (value: unknown) => accessLevels.find((level) => level === value);
 
 /** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
 function uploadIdentity(data: unknown) {

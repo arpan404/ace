@@ -172,7 +172,7 @@ describe("matching a sent message to Spade's stored copy", () => {
 });
 
 describe("what a bot's tools show", () => {
-  test("shared images and documents go in that reply's bubble, after its words", () => {
+  test("shared images and documents ride on the bubble of the words before them", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Chart it" });
     c.stored({ type: "reply_started", reply: "r1" });
@@ -200,13 +200,14 @@ describe("what a bot's tools show", () => {
     c.stored({ type: "step_finished", reply: "r1", text: "Here it is." });
     c.stored({ type: "reply_finished", reply: "r1", text: "Here it is." });
     const bubbles = c.bubbles();
-    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["person", "bot"]);
+    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["person", "bot", "bot"]);
     expect(bubbles[1]).toMatchObject({
       kind: "bot",
-      text: "Making it.\n\nHere it is.",
+      text: "Making it.",
       images: [{ sha256: hash("f") }],
       documents: [{ name: "data.csv" }],
     });
+    expect(bubbles[2]).toMatchObject({ kind: "bot", text: "Here it is.", images: [] });
   });
 
   test("an image shared by a reply that said nothing still shows as the bot's bubble", () => {

@@ -176,8 +176,8 @@ test("the screen's controls go back once its view goes, so nothing stays the per
   await waitFor(async () =>
     expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["human"]),
   );
-  // Off to the files while still driving: the screen's view goes, and its controls with it.
-  await userEvent.click(screen.getByRole("tab", { name: "Files" }));
+  // Off to the Library while still driving: the screen's view goes, and its controls with it.
+  await userEvent.click(screen.getByRole("tab", { name: "Library" }));
   await waitFor(async () =>
     expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["none"]),
   );

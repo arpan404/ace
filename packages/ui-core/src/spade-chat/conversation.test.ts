@@ -47,7 +47,11 @@ const said = (entries: readonly SpadeEntry[]) =>
                       ? `[shared ${part.images.length + part.documents.length}]`
                       : part.kind === "search-setup"
                         ? "[search setup]"
-                        : part.text,
+                        : part.kind === "request"
+                          ? `[asked ${part.answer ?? "open"}]`
+                          : part.kind === "question"
+                            ? `[question ${part.standing}]`
+                            : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
@@ -192,7 +196,7 @@ describe("what stays open", () => {
     expect(c.view().busy).toBe(true);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "c1", allowed: false });
     expect(c.view().approvals).toEqual([]);
-    expect(said(c.view().entries)).toEqual(["spade: [send_email declined]"]);
+    expect(said(c.view().entries)).toEqual(["spade: [send_email declined] | [asked denied]"]);
   });
 
   test("a background job keeps the conversation working after its reply finished", () => {
@@ -356,7 +360,10 @@ describe("the Spade API's later details", () => {
       text: "",
       images: [{ sha256: hash("a"), media_type: "image/png", bytes: 120 }, { sha256: "bad" }],
     });
-    expect(c.view().entries).toEqual([{ kind: "user", key: "s1", text: "", images: [image] }]);
+    // The stored copy carries when Spade stored it.
+    expect(c.view().entries).toEqual([
+      { kind: "user", key: "s1", text: "", images: [image], at: 1000 },
+    ]);
   });
 
   test("a sent message isn't taken for a stored one with other images", () => {
@@ -418,7 +425,7 @@ test("a call made through call_tool reads as the tool it reached", () => {
     content: "The person declined this action.",
     is_error: true,
   });
-  expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined]"]);
+  expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined] | [asked denied]"]);
 });
 
 const delegated = (c: ReturnType<typeof conversation>, calls: { id: string; args: unknown }[]) => {
@@ -532,7 +539,7 @@ test("a job's end reads above the words that answer it", () => {
 });
 
 describe("the conversation as a chat", () => {
-  test("bubbles show both sides' words and nothing of the tools, jobs or compaction", () => {
+  test("bubbles show both sides' words, each step's words its own bubble, nothing of tools, jobs or compaction", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Find me a flight" });
     c.stored({ type: "reply_started", reply: "r1" });
@@ -557,7 +564,7 @@ describe("the conversation as a chat", () => {
     expect(
       spadeBubbles(c.view()).map((bubble) =>
         bubble.kind === "ask"
-          ? `ask: ${bubble.sentence}`
+          ? `ask: ${bubble.name}`
           : bubble.kind === "other"
             ? `${bubble.agent.name}: ${bubble.text}`
             : bubble.kind === "routine"
@@ -568,7 +575,11 @@ describe("the conversation as a chat", () => {
                   ? `files: ${bubble.paths.join(", ")}`
                   : bubble.kind === "search-setup"
                     ? "search setup"
-                    : `${bubble.kind}: ${bubble.text}`,
+                    : bubble.kind === "question"
+                      ? `question: ${bubble.callId}`
+                      : "text" in bubble
+                        ? `${bubble.kind}: ${bubble.text}`
+                        : bubble.kind,
       ),
     ).toEqual([
       "person: Find me a flight",
@@ -578,13 +589,85 @@ describe("the conversation as a chat", () => {
     ]);
   });
 
-  test("an approval arrives as the bot's bubble and leaves once answered", () => {
+  test("each step's words is its own bubble, in order, and no steps line stays once the reply ends", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
+    for (const [index, text] of ["First.", "Second.", "Third."].entries()) {
+      c.stored({
+        type: "step_finished",
+        reply: "r1",
+        text,
+        calls: [{ id: `k${index}`, name: "shell" }],
+      });
+      c.stored({ type: "tool_started", reply: "r1", call_id: `k${index}`, name: "shell" });
+      c.stored({ type: "tool_finished", reply: "r1", call_id: `k${index}`, name: "shell" });
+    }
+    c.stored({ type: "reply_finished", reply: "r1", text: "Third." });
+    const bubbles = spadeBubbles(c.view());
+    expect(bubbles.map((bubble) => bubble.kind)).toEqual(["bot", "bot", "bot"]);
+    expect(bubbles.map((bubble) => (bubble.kind === "bot" ? bubble.text : ""))).toEqual([
+      "First.",
+      "Second.",
+      "Third.",
+    ]);
+    expect(new Set(bubbles.map((bubble) => bubble.key)).size).toBe(3);
+  });
+
+  test("streaming words grow a bubble of their own after the finished ones", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Done with that." });
+    c.frame("delta", { reply: "r1", text: "Now I am wri" });
+    expect(
+      spadeBubbles(c.view()).map((bubble) =>
+        bubble.kind === "bot" ? [bubble.text, bubble.live] : [],
+      ),
+    ).toEqual([
+      ["Done with that.", false],
+      ["Now I am wri", true],
+    ]);
+  });
+
+  test("a failed reply puts its ending on its last words, not on a bubble of its own", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "Trying." });
+    c.stored({ type: "reply_failed", reply: "r1", text: "", error: "x", kind: "other" });
+    expect(spadeBubbles(c.view())).toMatchObject([
+      { kind: "bot", text: "Trying.", end: "failed", failure: { kind: "other" } },
+    ]);
+  });
+
+  test("an approval is the bot's bubble after the words that asked, and leaves the chat once answered", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "Drafted it.",
+      calls: [{ id: "k9", name: "send_email" }],
+    });
     c.stored({ type: "approval_requested", reply: "r1", call_id: "k9", name: "send_email" });
-    expect(spadeBubbles(c.view()).at(-1)).toMatchObject({ kind: "ask", callId: "k9" });
+    const asked = () =>
+      spadeBubbles(c.view()).map((bubble) =>
+        bubble.kind === "ask" ? `ask ${bubble.state}` : bubble.kind === "bot" ? bubble.text : "",
+      );
+    expect(asked()).toEqual(["Drafted it.", "ask open"]);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
-    expect(spadeBubbles(c.view()).some((bubble) => bubble.kind === "ask")).toBe(false);
+    c.stored({ type: "step_finished", reply: "r1", text: "Sent." });
+    expect(asked()).toEqual(["Drafted it.", "Sent."]);
+    c.stored({ type: "reply_finished", reply: "r1", text: "Sent." });
+    expect(asked()).toEqual(["Drafted it.", "Sent."]);
+  });
+
+  test("a request its reply ended before the person answered leaves nothing", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "approval_requested", reply: "r1", call_id: "k1", name: "shell" });
+    c.stored({ type: "stop_requested", reply: "r1", jobs: [] });
+    c.stored({ type: "reply_stopped", reply: "r1", text: "" });
+    expect(spadeBubbles(c.view()).find((bubble) => bubble.kind === "ask")).toBeUndefined();
+    expect(c.view().approvals).toEqual([]);
   });
 
   test("the bot's own words on what it does show while it works and go when the reply ends", () => {
@@ -595,6 +678,20 @@ describe("the conversation as a chat", () => {
     expect(c.view().status).toBe("Reading a page");
     c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
     expect(c.view().status).toBeUndefined();
+  });
+
+  test("a status that names a tool by its raw name reads in the tool's plain words", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "c1", name: "ace__screen_act" }],
+    });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "c1", name: "ace__screen_act" });
+    c.frame("status", { state: "working", status: "Using screen act" });
+    expect(c.view().status).toBe("Using an app on the screen");
   });
 });
 
@@ -620,7 +717,7 @@ describe("Try again on a failed reply", () => {
     expect(retryOf(c)).toBe("Plan my week");
   });
 
-  test("isn't offered once the conversation moved on, nor for a cap", () => {
+  test("isn't offered once the conversation moved on", () => {
     const moved = conversation();
     moved.stored({ type: "user_message", text: "Plan my week" });
     moved.stored({ type: "reply_started", reply: "r1" });
@@ -629,11 +726,14 @@ describe("Try again on a failed reply", () => {
     expect(spadeBubbles(moved.view()).some((b) => b.kind === "bot" && b.failure?.retry)).toBe(
       false,
     );
+  });
+
+  test("is offered for a reply an older Spade ended at a spending cap, which no longer holds", () => {
     const capped = conversation();
     capped.stored({ type: "user_message", text: "Plan my week" });
     capped.stored({ type: "reply_started", reply: "r1" });
     capped.stored(retryFailed("cap"));
-    expect(retryOf(capped)).toBeUndefined();
+    expect(retryOf(capped)).toBe("Plan my week");
   });
 
   test("isn't offered for a message with a picture, which sending the words again would lose", () => {

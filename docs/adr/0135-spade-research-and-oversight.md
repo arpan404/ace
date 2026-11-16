@@ -8,6 +8,7 @@ activity log and an optional model review end to end). Builds on
 calls), [ADR 0129](0129-spade-routines.md) and [ADR 0130](0130-spade-skills-and-workspace.md)
 (each bot's workspace and the trust rules for files). The contract is in
 [spade/docs/oversight.md](../../spade/docs/oversight.md).
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 2 (the caps) and research's spend budget are removed; spend shows as information only.
 
 ## Context
 

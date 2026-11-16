@@ -1,5 +1,5 @@
 //! Oversight over HTTP (ADR 0135, spade/docs/oversight.md): the service's settings, each bot's
-//! caps and review switch, and each bot's activity log.
+//! review switch and spend (information only, ADR 0166), and each bot's activity log.
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -49,6 +49,8 @@ struct Change {
     review_default: Option<bool>,
     #[serde(default, deserialize_with = "present")]
     review_model: Option<Option<String>>,
+    #[serde(default)]
+    classifier: Option<bool>,
 }
 
 async fn change(State(state): State<AppState>, Body(body): Body<Change>) -> Response {
@@ -56,6 +58,7 @@ async fn change(State(state): State<AppState>, Body(body): Body<Change>) -> Resp
         time_zone: body.time_zone,
         review_default: body.review_default,
         review_model: body.review_model,
+        classifier: body.classifier,
     };
     if let Err(error) = state.engine.set_oversight(change) {
         return oversight_problem(&error);
@@ -74,25 +77,11 @@ async fn agent_view(State(state): State<AppState>, Path(id): Path<String>) -> Re
     }
 }
 
+/// The bot's review switch. Caps an older app still sends are ignored: Spade has none (ADR 0166).
 #[derive(Deserialize)]
 struct AgentChange {
     #[serde(default, deserialize_with = "present")]
-    daily_cap_micros: Option<Option<i64>>,
-    #[serde(default, deserialize_with = "present")]
-    monthly_cap_micros: Option<Option<i64>>,
-    #[serde(default, deserialize_with = "present")]
     review: Option<Option<bool>>,
-}
-
-/// A cap as stored: whole micros, never negative.
-fn cap(raw: Option<Option<i64>>) -> Result<Option<Option<u64>>, Box<Response>> {
-    match raw {
-        Some(Some(micros)) => u64::try_from(micros)
-            .map(|m| Some(Some(m)))
-            .map_err(|_| Box::new(problem(StatusCode::BAD_REQUEST, "a cap can't be negative"))),
-        Some(None) => Ok(Some(None)),
-        None => Ok(None),
-    }
 }
 
 async fn agent_change(
@@ -100,13 +89,8 @@ async fn agent_change(
     Path(id): Path<String>,
     Body(body): Body<AgentChange>,
 ) -> Response {
-    let change = match (cap(body.daily_cap_micros), cap(body.monthly_cap_micros)) {
-        (Ok(daily), Ok(monthly)) => OversightChange {
-            daily_cap_micros: daily,
-            monthly_cap_micros: monthly,
-            review: body.review,
-        },
-        (Err(problem), _) | (_, Err(problem)) => return *problem,
+    let change = OversightChange {
+        review: body.review,
     };
     if let Err(error) = state.engine.set_agent_oversight(&id, change) {
         return oversight_problem(&error);
@@ -155,10 +139,19 @@ async fn activity(
     };
     // Folding a long history is file work: off the async threads.
     let engine = state.engine.clone();
-    let found = tokio::task::spawn_blocking(move || engine.activity_log(&id, &query)).await;
+    let found = tokio::task::spawn_blocking(move || {
+        let page = engine.activity_log(&id, &query)?;
+        // What each role spent today and this month (ADR 0162).
+        let by_role = engine
+            .store_agent(&id)?
+            .map(|agent| engine.role_spend_json(&agent.conversation));
+        Ok::<_, OversightError>((page, by_role))
+    })
+    .await;
     match found {
-        Ok(Ok(page)) => Json(json!({
-            "entries": page.entries,
+        Ok(Ok((page, by_role))) => Json(json!({
+            "entries": super::routing::entries_with_roles(&page.entries),
+            "spend_by_role": by_role,
             "more": page.next_before.is_some(),
             "next_before": page.next_before,
         }))

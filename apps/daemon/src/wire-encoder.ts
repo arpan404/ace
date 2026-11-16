@@ -1,6 +1,7 @@
 import type { ServerMessage, DeliveryEvent } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import type { SuitServerMessage } from "@ace/protocol/suits";
+import type { MarketServerMessage } from "@ace/protocol/marketplace";
 import { EventEncodings } from "./event-encodings.ts";
 
 /** What one connection's hello said it takes in place of whole events. */
@@ -52,7 +53,7 @@ export class WireEncoder {
       : this.encodings.bytes(event);
   }
   encode(
-    message: ServerMessage | PluginServerMessage | SuitServerMessage,
+    message: ServerMessage | PluginServerMessage | SuitServerMessage | MarketServerMessage,
     shape: EventShape = wholeEvents,
   ): string {
     if (message.type !== "events") return JSON.stringify(message);

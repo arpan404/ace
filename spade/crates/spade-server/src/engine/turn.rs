@@ -8,7 +8,7 @@ use std::panic::AssertUnwindSafe;
 
 use futures_util::{FutureExt, StreamExt};
 use spade_core::checkpoint::Checkpoints;
-use spade_core::context::{self, SYSTEM};
+use spade_core::context;
 use spade_core::event::{Call, FailureKind, Known, ReplyEnd, Tokens};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
@@ -39,6 +39,11 @@ pub(super) struct Failure {
     pub kind: FailureKind,
     /// The endpoint the call went to, when the failure was the endpoint's.
     pub endpoint: Option<String>,
+    /// It may pass (unreachable, rate limited, a `5xx`, a dropped stream): the turn waits it out
+    /// on an outage wake and sends the step again (ADR 0158, ADR 0160).
+    pub transient: bool,
+    /// How long the endpoint asked to be left alone.
+    pub retry_after: Option<std::time::Duration>,
 }
 
 impl Failure {
@@ -53,22 +58,17 @@ impl Failure {
                     .map(|(endpoint, _)| endpoint.to_owned())
             })
             .flatten();
-        Self { kind, endpoint }
-    }
-
-    /// A spending cap: the day's, or the turn's own cost limit.
-    fn cap() -> Self {
         Self {
-            kind: FailureKind::Cap,
-            endpoint: None,
+            kind,
+            endpoint,
+            transient: error.transient(),
+            retry_after: error.retry_after(),
         }
     }
 }
 
 /// What one model step produced.
 pub(super) enum Step {
-    /// The bot's own cap held at admission.
-    Capped(spade_core::oversight::Hit),
     Answered,
     Calls,
     Paused,
@@ -135,7 +135,10 @@ pub(super) async fn run(
     }
     // A task still working carries on by itself (ADR 0144). The step is registered while this
     // worker still owns the conversation, so a Stop pressed once it lets go calls it off.
-    let planned = if paused {
+    // A helper's reply closing is its end (ADR 0152): its job hears of it and a queued helper
+    // takes its slot. A helper has no task to carry on, and no title of its own.
+    let helper = engine.helper_of(&id).is_some();
+    let planned = if paused || helper {
         None
     } else {
         engine.turn_ended(&id).await;
@@ -145,6 +148,8 @@ pub(super) async fn run(
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     live.waiting_on_you.store(false, Ordering::SeqCst);
     live.turn_running.store(false, Ordering::SeqCst);
+    // Between turns nothing keeps the conversation's events in memory.
+    *live.log.lock().unwrap_or_else(|p| p.into_inner()) = super::turn_log::Log::Empty;
     engine.set_status(&id, None);
     if paused {
         // Admission may have reopened while this worker was pausing, after reopening looked for
@@ -161,9 +166,11 @@ pub(super) async fn run(
     {
         engine.spawn_turn(&id);
     }
+    if helper {
+        engine.helper_ended(&id);
+        return;
+    }
     name_if_untitled(&engine, &id).await;
-    // A turn (or its title) that took the bot to its cap says so, once.
-    engine.note_if_capped(&id);
     if let Some(planned) = planned {
         engine.carry_on_as(&id, planned);
     }
@@ -185,7 +192,7 @@ async fn close_durably(engine: &Engine, id: &str, reply: &str, close: &Event) {
 /// Whether `reply` is still the open reply, from a fresh read.
 fn still_open(engine: &Engine, id: &str, reply: &str) -> Result<bool, spade_store::StoreError> {
     let events = engine.load(id)?;
-    let open = Transcript::fold(&events)
+    let open = Transcript::fold(events.iter())
         .open_reply()
         .and_then(|m| m.reply.clone());
     Ok(open.as_deref() == Some(reply))
@@ -205,7 +212,7 @@ pub(super) async fn pausing(pause: &mut watch::Receiver<Pause>, point: Point) {
 
 fn open_reply(engine: &Engine, id: &str) -> Option<String> {
     let events = engine.load(id).ok()?;
-    Transcript::fold(&events).open_reply()?.reply.clone()
+    Transcript::fold(events.iter()).open_reply()?.reply.clone()
 }
 
 async fn drive(
@@ -244,47 +251,35 @@ async fn drive(
             Next::CallModel { reply } => {
                 *driven = Some(reply.clone());
                 let model = turn_model(engine, &events, &reply);
-                // A subscription (ADR 0133) runs its own loop and keeps its own context: Spade's
-                // step, cost and cap limits and compaction are for endpoint models.
+                // A subscription (ADR 0133) runs its own loop and keeps its own context:
+                // compaction is for endpoint models.
                 let cli = spade_core::brain::CliModel::is(&model);
-                let done = progress(&events);
-                if !cli && done.steps >= engine.limits.max_steps {
-                    let limit = engine.limits.max_steps;
-                    return Ended::Failed(
-                        String::new(),
-                        format!("the turn reached its limit of {limit} steps"),
-                    );
-                }
-                if !cli && done.cost_micros >= engine.limits.turn_cost_micros {
-                    return Ended::FailedAs(
-                        String::new(),
-                        "the turn reached its cost limit".to_owned(),
-                        Failure::cap(),
-                    );
-                }
-                if !cli && !engine.within_cap().unwrap_or(false) {
-                    return Ended::FailedAs(
-                        String::new(),
-                        "today's spending cap is used up".to_owned(),
-                        Failure::cap(),
-                    );
-                }
-                // The bot's own cap (ADR 0135): no model call starts; it says so once.
-                if let Some((_, hit)) = engine.bot_cap(id) {
-                    return match engine.close_capped(id, &reply, &hit) {
-                        Ok(()) => Ended::Finished,
-                        Err(error) => Ended::Failed(String::new(), error.to_string()),
-                    };
-                }
-                if super::index::if_needed(engine, id, &events).await {
+                // A helper has no indexes: it starts from Spade's rules, its profile and its task
+                // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
+                let helper = engine.helper_of(id).is_some();
+                if !helper && super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
-                if super::memory::index_if_due(engine, id, &events) {
+                if super::plugin_hooks::start_if_needed(engine, id, &events, cli).await {
+                    continue;
+                }
+                if !cli && super::plugin_hooks::before_step(engine, id, &events).await {
+                    continue;
+                }
+                if !helper && super::memory::index_if_due(engine, id, &events) {
+                    continue;
+                }
+                // A goal closed with no episode yet (a store that failed), and the knowledge
+                // topics for the cached top (ADR 0164).
+                if !helper && engine.owed_episodes(id) {
+                    continue;
+                }
+                if !helper && super::episodes::index_if_due(engine, id, &events) {
                     continue;
                 }
                 // What the person did on the bot's computer meanwhile (cowork), before the step's
                 // prompt is built, so the step reads it.
-                if engine.offer_person_activity(id) {
+                if !helper && engine.offer_person_activity(id) {
                     continue;
                 }
                 if cli {
@@ -300,15 +295,17 @@ async fn drive(
                             }
                         }
                         Step::Calls => {}
-                        Step::Capped(hit) => {
-                            return match engine.close_capped(id, &reply, &hit) {
-                                Ok(()) => Ended::Finished,
-                                Err(error) => Ended::Failed(String::new(), error.to_string()),
-                            };
-                        }
                         Step::Paused => return Ended::Paused,
                         Step::Stopped(text) => return Ended::Stopped(text),
                         Step::Failed(text, error) => return Ended::Failed(text, error),
+                        Step::FailedAs(_, error, failure) if failure.transient => {
+                            match outage(engine, id, &reply, &error, &failure, &mut stop, pause)
+                                .await
+                            {
+                                Some(ended) => return ended,
+                                None => continue,
+                            }
+                        }
                         Step::FailedAs(text, error, failure) => {
                             return Ended::FailedAs(text, error, failure);
                         }
@@ -326,21 +323,26 @@ async fn drive(
                     continue;
                 }
                 match model_step(engine, id, &reply, &events, &mut stop, pause).await {
+                    // A plugin's Stop hook may ask for one more step first (ADR 0151).
+                    Step::Answered if super::plugin_hooks::at_stop(engine, id).await => {}
                     Step::Answered => match finish_unless_steered(engine, id, &reply) {
                         Ok(true) => return Ended::Finished,
                         Ok(false) => {}
                         Err(error) => return Ended::Failed(String::new(), error),
                     },
                     Step::Calls => {}
-                    Step::Capped(hit) => {
-                        return match engine.close_capped(id, &reply, &hit) {
-                            Ok(()) => Ended::Finished,
-                            Err(error) => Ended::Failed(String::new(), error.to_string()),
-                        };
-                    }
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
+                    // A stream cut by a failure that may pass: what streamed is dropped and the
+                    // step is sent again once the outage is waited out, like a resumed pause.
+                    Step::FailedAs(_, error, failure) if failure.transient => {
+                        if let Some(ended) =
+                            outage(engine, id, &reply, &error, &failure, &mut stop, pause).await
+                        {
+                            return ended;
+                        }
+                    }
                     Step::FailedAs(text, error, failure) => {
                         return Ended::FailedAs(text, error, failure);
                     }
@@ -348,6 +350,11 @@ async fn drive(
             }
             Next::Calls { reply, calls } => {
                 *driven = Some(reply.clone());
+                match super::plugin_hooks::before_calls(engine, id, &reply, &events, &calls).await {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => return Ended::Failed(String::new(), error.to_string()),
+                }
                 match handle_calls(engine, id, &reply, &events, calls, &mut stop, pause).await {
                     Handled::Continue => {}
                     Handled::Paused => return Ended::Paused,
@@ -356,6 +363,25 @@ async fn drive(
                 }
             }
         }
+    }
+}
+
+/// Waits out an outage that cut a step (ADR 0158, ADR 0160); `None` once the step may be sent
+/// again, else how the turn ends.
+async fn outage(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    error: &str,
+    failure: &Failure,
+    stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
+) -> Option<Ended> {
+    tracing::warn!(%error, "a model step was cut by a failure that may pass; the turn waits");
+    match super::retry::wait_out(engine, id, reply, error, failure.retry_after, stop, pause).await {
+        super::retry::Waited::Again => None,
+        super::retry::Waited::Stopped => Some(Ended::Stopped(String::new())),
+        super::retry::Waited::Paused => Some(Ended::Paused),
     }
 }
 
@@ -382,31 +408,15 @@ async fn model_step(
 ) -> Step {
     let model = turn_model(engine, events, reply);
     let images = engine.images_for(&model);
-    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
-        .session(id);
+    let system = engine.system_for(id);
+    let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
     let live = engine.live(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
-    // Admitted against the caps counting calls in flight (ADR 0135); paid for when it ends.
-    // Waits while only the estimates of calls still running stand in the way.
+    // Paid for when it ends (ADR 0135); never refused (ADR 0166).
     let hint = super::ledger::turn_hint(events);
-    let admission = tokio::select! {
-        admission = engine.admit_waiting(id, &model, &prompt, hint) => admission,
-        _ = stopped(stop) => return Step::Stopped(String::new()),
-        _ = pausing(pause, Point::Streaming) => return Step::Paused,
-    };
-    let admitted = match admission {
-        Ok(admitted) => admitted,
-        Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
-        Err(super::ledger::Refusal::Service | super::ledger::Refusal::InFlight) => {
-            return Step::FailedAs(
-                String::new(),
-                "today's spending cap is used up".to_owned(),
-                Failure::cap(),
-            );
-        }
-    };
+    let admitted = engine.admit(id, &model);
     // A step cut off before its usage came is still paid for: its prompt, and what streamed.
     let input = super::ledger::prompt_tokens(&prompt);
     let partly = |text: &str| {
@@ -415,7 +425,8 @@ async fn model_step(
     };
     // Sent again while it fails before anything streams; only a call the endpoint answered is
     // paid for, and one cut off while waiting for its answer may have been.
-    let mut stream = match super::retry::open(engine, id, &model, &prompt, stop, pause).await {
+    let mut stream = match super::retry::open(engine, id, reply, &model, &prompt, stop, pause).await
+    {
         super::retry::Opened::Answering(stream) => stream,
         super::retry::Opened::Stopped => {
             admitted.settle(&partly(""));
@@ -549,11 +560,13 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
         })) => (*seen).min(last_step),
         _ => last_step,
     };
-    let steered = events[seen..].iter().any(|e| {
-        matches!(
-            e,
-            Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. })
-        )
+    let steered = events[seen..].iter().any(|e| match e {
+        Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. }) => true,
+        // A wake's note or a job's check-in (ADR 0160) steers like a job's result.
+        Event::Known(known) => {
+            spade_core::question::is_late(known) || spade_core::wake::is_note(known)
+        }
+        Event::Unknown(_) => false,
     });
     if steered {
         return Ok(false);
@@ -563,57 +576,52 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
         _ => String::new(),
     };
     let total = progress(&events);
+    // What the person sees the turn cost counts the helpers whose results it read (ADR 0152).
+    let helpers = spade_core::helper::cost_in_turn(&events);
     let finished = Event::Known(Known::ReplyFinished {
         reply: reply.to_owned(),
         text,
         input_tokens: None,
         output_tokens: None,
-        cost_micros: total.cost_micros,
+        cost_micros: total.cost_micros + helpers,
     });
     engine.append(id, &finished).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
-/// Names the conversation after its first reply, with the person's fast model (else the agent's
-/// own), else after its first message.
+/// Names the conversation after its first reply, with its `title` role's model (ADR 0162), else
+/// after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     // Never for an agent being deleted: nothing is spent on a conversation about to go.
-    if engine.deleting(id) || engine.may_spend(id).is_err() {
+    if engine.deleting(id) {
         return;
     }
     let Ok(events) = engine.load(id) else { return };
-    let transcript = Transcript::fold(&events);
+    let transcript = Transcript::fold(events.iter());
     if transcript.title.is_some() || transcript.open_reply().is_some() {
         return;
     }
     let Some(first) = transcript.first_message().map(str::to_owned) else {
         return;
     };
-    let fast = match engine.fast_model() {
-        Ok(Some(model)) => model,
-        _ => engine.reply_model(id),
-    };
+    let fast = engine.role_model(id, spade_core::routing::Role::Title);
     let prompt = title::prompt(&first).session(id);
     let admitted = engine
-        .admit_waiting(id, &fast, &prompt, super::ledger::Hint::default())
-        .await;
-    let suggested = match admitted {
-        // At a cap the title comes from the first message, at no cost.
-        Err(_) => None,
-        Ok(admitted) => match engine
-            .models
-            .generate::<title::Suggestion>(&fast, &prompt)
-            .await
-        {
-            Ok(generated) => {
-                admitted.settle(&generated.usage);
-                title::clean(&generated.value.title)
-            }
-            Err(error) => {
-                admitted.settle_if(error.usage());
-                None
-            }
-        },
+        .admit(id, &fast)
+        .for_role(spade_core::routing::Role::Title);
+    let suggested = match engine
+        .models
+        .generate::<title::Suggestion>(&fast, &prompt)
+        .await
+    {
+        Ok(generated) => {
+            admitted.settle(&generated.usage);
+            title::clean(&generated.value.title)
+        }
+        Err(error) => {
+            admitted.settle_if(error.usage());
+            None
+        }
     };
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
@@ -684,7 +692,6 @@ mod tests {
             tools: crate::tools::Toolbox::new(Vec::new()),
             clock: Arc::new(crate::clock::SystemClock),
             ids: Arc::new(crate::clock::CountingIds::default()),
-            daily_cap_micros: 1_000_000,
             utc_offset_seconds: 0,
             limits: super::super::Limits::default(),
             skills: None,
@@ -718,7 +725,7 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(5), worker).await??;
 
         let events = engine.load("c1")?;
-        let transcript = Transcript::fold(&events);
+        let transcript = Transcript::fold(events.iter());
         assert!(transcript.open_reply().is_none(), "r1 was left open");
         assert!(events.iter().any(|e| matches!(
             e,

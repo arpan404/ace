@@ -17,6 +17,7 @@ pub mod brains;
 mod config;
 mod discovery;
 pub mod events;
+pub mod plugins;
 pub mod skills;
 pub mod tools;
 mod url;
@@ -29,8 +30,9 @@ pub use discovery::{
     next_retry_between,
 };
 pub use skills::{
-    ALL_AGENTS, AceSkills, NewSkill, Skill, SkillEdit, SkillErrorCode, SkillList, SkillScope,
-    SkillText, SkillsError,
+    ALL_AGENTS, AceSkills, MarketFile, MarketFileBytes, MarketSkill, NewSkill, Skill, SkillEdit,
+    SkillErrorCode, SkillFile, SkillFileBytes, SkillFiles, SkillList, SkillScope, SkillText,
+    SkillsError,
 };
 pub use spade_mcp::Secret;
 pub use tools::{

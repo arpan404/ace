@@ -6,9 +6,11 @@ use std::collections::HashMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::event::{CapScope, Event, Known, Verdict};
+use crate::event::{Event, Known, Verdict};
 use crate::redact;
 use crate::tools::{CALL_TOOL, TOOL_SEARCH, unwrap_call_tool};
+
+pub mod words;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,11 +23,12 @@ pub enum Kind {
     Routine,
     Review,
     Spend,
-    Cap,
     /// The person changed the bot's access level (ADR 0144).
     Access,
     /// Spade carried the bot's task on by itself, or paused it (ADR 0144).
     Task,
+    /// A plugin's hook added text, refused a call, asked for more, or failed (ADR 0151).
+    Hook,
 }
 
 impl Kind {
@@ -39,9 +42,9 @@ impl Kind {
             "routine" => Self::Routine,
             "review" => Self::Review,
             "spend" => Self::Spend,
-            "cap" => Self::Cap,
             "access" => Self::Access,
             "task" => Self::Task,
+            "hook" => Self::Hook,
             _ => return None,
         })
     }
@@ -57,6 +60,12 @@ pub struct Entry {
     pub kind: Kind,
     pub name: Option<String>,
     pub summary: String,
+    /// What happened in Spade's words ("Ran a command", "Sent message in Gmail"); what the app
+    /// shows instead of the name.
+    pub sentence: String,
+    /// One line under the sentence: the command, the file's path, the note, an email's
+    /// recipient and subject. Never raw arguments; `None` when the sentence says it all.
+    pub detail: Option<String>,
     pub outcome: Option<String>,
     pub reply: Option<String>,
     pub cost_micros: Option<u64>,
@@ -76,6 +85,15 @@ pub fn fold<'a>(events: impl IntoIterator<Item = Stored<'a>>) -> Vec<Entry> {
     let mut log = Log::default();
     for stored in events {
         log.apply(&stored);
+    }
+    // Last, since a call's outcome (and with it "Running" or "Ran") settles after its entry.
+    for entry in &mut log.entries {
+        entry.sentence = words::sentence(&words::Facts {
+            kind: entry.kind,
+            name: entry.name.as_deref(),
+            summary: &entry.summary,
+            outcome: entry.outcome.as_deref(),
+        });
     }
     log.entries
 }
@@ -105,6 +123,10 @@ impl Log {
             0
         };
         self.last = (stored.seq, n);
+        let detail = match fields.detail {
+            Some(detail) => detail,
+            None => words::other_detail(kind, &fields.summary),
+        };
         self.entries.push(Entry {
             id: format!("{}-{n}", stored.seq),
             seq: stored.seq,
@@ -112,6 +134,8 @@ impl Log {
             kind,
             name: fields.name,
             summary: fields.summary,
+            sentence: String::new(),
+            detail,
             outcome: fields.outcome.map(str::to_owned),
             reply: fields.reply,
             cost_micros: fields.cost,
@@ -286,7 +310,7 @@ impl Log {
                     Fields {
                         reply: Some(reply.clone()),
                         outcome: Some("asked"),
-                        ..Fields::named(name, &summary(name, arguments))
+                        ..Fields::call(name, arguments)
                     },
                 );
             }
@@ -311,7 +335,7 @@ impl Log {
                     Fields {
                         reply: Some(reply.clone()),
                         outcome: Some(answer),
-                        ..Fields::named(&name, &summary(&name, &arguments))
+                        ..Fields::call(&name, &arguments)
                     },
                 );
             }
@@ -355,15 +379,149 @@ impl Log {
                 let words = reason.words(*steps);
                 self.push(stored, Kind::Task, Fields::named("paused", &words));
             }
-            Known::CapReached {
-                scope, cap_micros, ..
-            } => {
-                let name = match scope {
-                    CapScope::Daily => "daily",
-                    CapScope::Monthly => "monthly",
+            // The goal, plan and its check (ADR 0159).
+            Known::GoalSet { title, by, .. } => {
+                let name = match by {
+                    crate::goal::Author::Bot => "goal drafted",
+                    crate::goal::Author::Person => "goal set",
                 };
-                let words = format!("{} cap", crate::oversight::dollars(*cap_micros));
-                self.push(stored, Kind::Cap, Fields::named(name, &words));
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named(name, &redact::one_line(title)),
+                );
+            }
+            Known::GoalCleared { failed, .. } => {
+                let words = if *failed {
+                    "ended by the person as failed"
+                } else {
+                    "ended by the person"
+                };
+                self.push(stored, Kind::Task, Fields::named("goal ended", words));
+            }
+            Known::PlanCheckpoint {
+                item, done, total, ..
+            } => {
+                let words = format!("item {item} closed, {done} of {total}");
+                self.push(stored, Kind::Task, Fields::named("checkpoint", &words));
+            }
+            Known::TaskVerified {
+                verdict, missing, ..
+            } => {
+                let words = match missing.first() {
+                    Some(first) => redact::one_line(first),
+                    None => "every criterion met".to_owned(),
+                };
+                self.push(stored, Kind::Task, Fields::named(verdict.name(), &words));
+            }
+            // Wakes, check-ins and services (ADR 0160), with the bot's reason.
+            Known::WakeSet {
+                wake,
+                purpose,
+                due_ms,
+                condition,
+                reason,
+                ..
+            } => {
+                let open = crate::wake::Open {
+                    wake: wake.clone(),
+                    reply: String::new(),
+                    purpose: purpose.clone(),
+                    due_ms: *due_ms,
+                    condition: condition.clone(),
+                    reason: reason.clone(),
+                };
+                let words = crate::wake::words(&open, |ms| ms.to_string());
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("wake_set", &redact::one_line(&words)),
+                );
+            }
+            Known::WakeFired { cause, .. } => {
+                let words = format!("woke ({})", cause.name());
+                self.push(stored, Kind::Task, Fields::named("woke", &words));
+            }
+            Known::WakeCancelled { .. } => {
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("wake_cancelled", "a wake was cancelled"),
+                );
+            }
+            Known::JobProgress { name, minutes, .. } => {
+                let words = format!("checked in on {name} after {minutes} minutes");
+                self.push(stored, Kind::Task, Fields::named("job_progress", &words));
+            }
+            Known::ServiceStarted { name, command, .. } => {
+                let words = format!("started service {name}: {command}");
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("service_started", &redact::one_line(&words)),
+                );
+            }
+            Known::ServiceEnded { service, cause, .. } => {
+                let words = format!("service {service} {}", cause.name());
+                self.push(stored, Kind::Task, Fields::named("service_ended", &words));
+            }
+            // Its workers (ADR 0161).
+            Known::WorkerStarted(started) => {
+                let words = format!("started {} worker {}", started.kind.name(), started.name);
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("worker_started", &redact::one_line(&words)),
+                );
+            }
+            Known::WorkerReported(report) => {
+                let words = format!("{} {}", report.name, report.state.words());
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("worker_reported", &redact::one_line(&words)),
+                );
+            }
+            // A choice made on the person's behalf (ADR 0165).
+            Known::DecisionMade(decision) => {
+                let words = format!("decided {}: {}", decision.decision, decision.choice);
+                self.push(
+                    stored,
+                    Kind::Task,
+                    Fields::named("decision_made", &redact::one_line(&words)),
+                );
+            }
+            Known::HookRan { hook, outcomes, .. } => {
+                for outcome in outcomes {
+                    let (words, how) = match &outcome.result {
+                        crate::hooks::HookResult::Nothing => continue,
+                        crate::hooks::HookResult::Text { .. } => ("added text".to_owned(), "added"),
+                        crate::hooks::HookResult::Refused { reason }
+                            if hook == crate::hooks::STOP =>
+                        {
+                            (format!("asked for one more step: {reason}"), "refused")
+                        }
+                        crate::hooks::HookResult::Refused { reason } => {
+                            (format!("refused a call: {reason}"), "refused")
+                        }
+                        crate::hooks::HookResult::Failed { why } => {
+                            (format!("failed: {why}"), "failed")
+                        }
+                    };
+                    let summary = format!("{}'s {hook} hook {words}", outcome.plugin);
+                    self.push(
+                        stored,
+                        Kind::Hook,
+                        Fields {
+                            name: Some(outcome.plugin.clone()),
+                            summary: redact::text(&summary),
+                            outcome: Some(how),
+                            reply: None,
+                            cost: None,
+                            detail: None,
+                        },
+                    );
+                }
             }
             Known::ReplyFinished { reply, .. } => self.turn_ended(stored, reply, "finished"),
             Known::ReplyStopped { reply, .. } => self.turn_ended(stored, reply, "stopped"),
@@ -394,6 +552,7 @@ impl Log {
                 outcome: Some(how),
                 reply: Some(reply.to_owned()),
                 cost: Some(cost),
+                detail: None,
             },
         );
     }
@@ -413,6 +572,7 @@ impl Log {
                 outcome: Some("failed"),
                 reply: Some(reply.to_owned()),
                 cost: (cost > 0).then_some(cost),
+                detail: None,
             },
         );
     }
@@ -424,6 +584,8 @@ struct Fields {
     outcome: Option<&'static str>,
     reply: Option<String>,
     cost: Option<u64>,
+    /// The detail line: `None` takes it from the summary (by kind), `Some` sets it.
+    detail: Option<Option<String>>,
 }
 
 impl Fields {
@@ -434,6 +596,15 @@ impl Fields {
             outcome: None,
             reply: None,
             cost: None,
+            detail: None,
+        }
+    }
+
+    /// A call's: its arguments in one line, and the detail that matters for its kind.
+    fn call(name: &str, arguments: &Value) -> Self {
+        Self {
+            detail: Some(words::call_detail(name, arguments)),
+            ..Self::named(name, &summary(name, arguments))
         }
     }
 
@@ -478,7 +649,10 @@ fn call_entry(name: &str, arguments: &Value) -> (Kind, Fields) {
     };
     (
         kind,
-        Fields::new(name, &summary(name, arguments), "running"),
+        Fields {
+            outcome: Some("running"),
+            ..Fields::call(name, arguments)
+        },
     )
 }
 
@@ -493,7 +667,7 @@ fn summary(name: &str, arguments: &Value) -> String {
 }
 
 /// Whether an entry passes the filters: one of `kinds` (all when empty), at or after `from` and
-/// before `to`, and every word of `query` in its name or summary (any case).
+/// before `to`, and every word of `query` in its name, summary, sentence or detail (any case).
 pub fn matches(entry: &Entry, kinds: &[Kind], range: Option<(i64, i64)>, query: &str) -> bool {
     if !kinds.is_empty() && !kinds.contains(&entry.kind) {
         return false;
@@ -503,7 +677,14 @@ pub fn matches(entry: &Entry, kinds: &[Kind], range: Option<(i64, i64)>, query: 
     {
         return false;
     }
-    let text = format!("{} {}", entry.name.as_deref().unwrap_or(""), entry.summary).to_lowercase();
+    let text = format!(
+        "{} {} {} {}",
+        entry.name.as_deref().unwrap_or(""),
+        entry.summary,
+        entry.sentence,
+        entry.detail.as_deref().unwrap_or("")
+    )
+    .to_lowercase();
     query
         .split_whitespace()
         .all(|word| text.contains(&word.to_lowercase()))

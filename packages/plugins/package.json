@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./catalog": "./src/extension-catalog.ts",
+    "./import": "./src/import-pure.ts",
     "./testing/codex-config": "./src/testing/codex-config.ts"
   },
   "scripts": {

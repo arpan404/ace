@@ -1,5 +1,6 @@
 //! `research` (ADR 0135, spade/docs/oversight.md): a background tool that plans sub-questions,
-//! searches and reads pages in parallel within budgets of time, pages and spend, has the bot's
+//! searches and reads pages in parallel within budgets of time and pages (never money, ADR 0166),
+//! has the bot's
 //! model write a report that cites its sources by number, checks it against them, and keeps it
 //! in the bot's workspace. The decisions are `spade_core::research`; this is the I/O around them.
 
@@ -19,7 +20,7 @@ use spade_core::tools::{Risk, ToolDef};
 use spade_models::{Prompt, ToolSpec};
 use tokio::time::Instant;
 
-use crate::engine::{Admission, Engine, Hint};
+use crate::engine::{Admission, Engine};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
 use crate::workspace::Workspaces;
 pub use web::{LiveWeb, Read, Web};
@@ -122,7 +123,6 @@ impl Tool for ResearchTool {
                 web,
                 budget: fixed.unwrap_or_else(|| args.depth.budget()),
                 started: Instant::now(),
-                spent: 0,
                 stopped: None,
             };
             let output = run.go(&question, &workspaces, &bot).await;
@@ -140,7 +140,6 @@ struct Run {
     web: Arc<dyn Web>,
     budget: Budget,
     started: Instant,
-    spent: u64,
     /// Why it stopped early, once it has.
     stopped: Option<String>,
 }
@@ -164,9 +163,7 @@ impl Run {
         if self.stopped.is_some() {
             return false;
         }
-        let why = if self.spent >= self.budget.spend_micros {
-            Some("the spend budget".to_owned())
-        } else if self.time_left().is_none() {
+        let why = if self.time_left().is_none() {
             Some("the time budget".to_owned())
         } else {
             None
@@ -175,25 +172,9 @@ impl Run {
         self.stopped.is_none()
     }
 
-    /// Admits one model call against the caps (ADR 0135), waiting within the time budget while
-    /// only calls still running stand in the way; records why not when a cap is reached or the
-    /// time runs out first.
-    async fn admit(&mut self, prompt: &Prompt) -> Option<Admission> {
-        let limit = self.time_left()?;
-        let waiting =
-            self.engine
-                .admit_waiting(&self.conversation, &self.model, prompt, Hint::default());
-        match tokio::time::timeout(limit, waiting).await {
-            Ok(Ok(admitted)) => Some(admitted),
-            Ok(Err(refused)) => {
-                self.stopped = Some(refused.reached());
-                None
-            }
-            Err(_) => {
-                self.stopped = Some("the time budget".to_owned());
-                None
-            }
-        }
+    /// The admission for one model call, paid for under the bot (ADR 0135).
+    fn admit(&self) -> Admission {
+        self.engine.admit(&self.conversation, &self.model)
     }
 
     async fn typed<T>(&mut self, prompt: Prompt) -> Option<T>
@@ -202,7 +183,7 @@ impl Run {
     {
         let prompt = prompt.session(&self.conversation);
         let limit = self.time_left()?;
-        let admitted = self.admit(&prompt).await?;
+        let admitted = self.admit();
         let answer = tokio::time::timeout(
             limit,
             self.engine.models().generate::<T>(&self.model, &prompt),
@@ -210,11 +191,11 @@ impl Run {
         .await;
         match answer {
             Ok(Ok(generated)) => {
-                self.spent += admitted.settle(&generated.usage);
+                admitted.settle(&generated.usage);
                 Some(generated.value)
             }
             Ok(Err(error)) => {
-                self.spent += admitted.settle_if(error.usage());
+                admitted.settle_if(error.usage());
                 None
             }
             Err(_) => {
@@ -405,15 +386,10 @@ impl Run {
         let prompt =
             research::write_prompt(question, questions, sources).session(&self.conversation);
         let limit = self.time_left().ok_or("it reached the time budget")?;
-        let Some(admitted) = self.admit(&prompt).await else {
-            return Err(format!(
-                "it reached {}",
-                self.stopped.clone().unwrap_or_default()
-            ));
-        };
+        let admitted = self.admit();
         match tokio::time::timeout(limit, self.engine.models().chat(&self.model, &prompt)).await {
             Ok(Ok(reply)) => {
-                self.spent += admitted.settle(&reply.usage);
+                admitted.settle(&reply.usage);
                 let text = reply.text.trim().to_owned();
                 if text.is_empty() {
                     Err("the model wrote nothing".to_owned())
@@ -422,7 +398,7 @@ impl Run {
                 }
             }
             Ok(Err(error)) => {
-                self.spent += admitted.settle_if(error.usage());
+                admitted.settle_if(error.usage());
                 Err(error.to_string())
             }
             Err(_) => {

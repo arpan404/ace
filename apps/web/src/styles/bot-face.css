@@ -94,6 +94,17 @@
 .bot-face[data-state="blocked"] .bf-sweat {
   opacity: 1;
 }
+/* Sleeping (ADR 0160): lids down, eyes low, head dipped. Still from the start: no motion. */
+.bot-face[data-state="sleeping"] .bf-lid {
+  transform: translateY(calc(var(--eh) * 0.9));
+}
+.bot-face[data-state="sleeping"] .bf-pu {
+  transform: translate(0px, calc(var(--ay) * 1));
+  transition: none;
+}
+.bot-face[data-state="sleeping"] .bf-hd {
+  transform: translateY(0.6px) rotate(-5deg);
+}
 .bot-face[data-state="done"] .bf-ey {
   opacity: 0;
 }

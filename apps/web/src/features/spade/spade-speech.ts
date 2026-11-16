@@ -1,4 +1,4 @@
-import { spadeMarkup, type SpadeInline } from "@ace/ui-core/spade-chat";
+import { spadePlainText } from "@ace/ui-core/spade-chat";
 import { useSyncExternalStore } from "react";
 
 /*
@@ -24,26 +24,10 @@ export function canReadAloud(): boolean {
   return typeof speechSynthesis !== "undefined" && typeof SpeechSynthesisUtterance === "function";
 }
 
-const inlineText = (inlines: readonly SpadeInline[]) =>
-  inlines.map((inline) => inline.text).join("");
-
-/** A reply's words as they are said: its formatting marks left out, code as written. */
-export function spokenText(text: string): string {
-  return spadeMarkup(text)
-    .map((block) =>
-      block.kind === "code"
-        ? block.text
-        : block.kind === "list"
-          ? block.items.map(inlineText).join("\n")
-          : inlineText(block.inlines),
-    )
-    .join("\n\n");
-}
-
 /** Speak `text` as the reply `key`, stopping whatever else was being read. */
 export function readAloud(key: string, text: string) {
   speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(spokenText(text));
+  const utterance = new SpeechSynthesisUtterance(spadePlainText(text));
   const done = () => {
     if (speaking === key) set(undefined);
   };

@@ -6,7 +6,7 @@ use super::super::secrets::basename;
 
 /// One simple command: its words (wrappers taken off) and where its output is written.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Simple {
+pub struct Simple {
     pub words: Vec<String>,
     pub writes_to: Vec<String>,
     /// Files its input comes from (`< file`).
@@ -17,6 +17,9 @@ pub(super) struct Simple {
     pub group: usize,
     /// The folder it starts in, when a wrapper changed it (`env -C dir`).
     pub dir: Option<String>,
+    /// Text a here-document or here-string feeds it. Only read for a program Spade reads
+    /// scripts of (`osascript`); for any other the command is [`Unreadable`].
+    pub here: Option<String>,
 }
 
 impl Simple {
@@ -64,17 +67,25 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
     let mut in_word = false;
     let mut target = false;
     let mut input = false;
+    // The next word is a here-string's text.
+    let mut here = false;
+    // Here-documents opened on this line, whose bodies start after its end.
+    let mut pending: Vec<Opened> = Vec::new();
     let mut i = 0;
     let end_word = |word: &mut String,
                     in_word: &mut bool,
                     target: &mut bool,
                     input: &mut bool,
+                    here: &mut bool,
                     current: &mut Simple| {
         if !*in_word {
             return;
         }
         let taken = std::mem::take(word);
-        if *target {
+        if *here {
+            current.here = Some(taken);
+            *here = false;
+        } else if *target {
             current.writes_to.push(taken);
             *target = false;
         } else if *input {
@@ -93,6 +104,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 &mut in_word,
                 &mut target,
                 &mut input,
+                &mut here,
                 &mut current,
             ),
             '\n' | ';' | '&' | '|' | '(' | ')' => {
@@ -103,6 +115,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                         &mut in_word,
                         &mut target,
                         &mut input,
+                        &mut here,
                         &mut current,
                     );
                     i += 1;
@@ -118,6 +131,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     &mut in_word,
                     &mut target,
                     &mut input,
+                    &mut here,
                     &mut current,
                 );
                 if target {
@@ -127,6 +141,9 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 if matches!(c, '&' | '|') && chars.get(i + 1) == Some(&c) {
                     i += 1;
                 }
+                if here {
+                    return Err(Unreadable);
+                }
                 out.push(std::mem::take(&mut current));
                 match c {
                     '(' => group += 1,
@@ -135,6 +152,18 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 }
                 current.piped = piped;
                 current.group = group;
+                if c == '\n' && !pending.is_empty() {
+                    // The bodies of this line's here-documents, in order.
+                    i += 1;
+                    for opened in std::mem::take(&mut pending) {
+                        let (body, next) = body(&chars, i, &opened)?;
+                        if let Some(command) = out.get_mut(opened.at) {
+                            command.here = Some(body);
+                        }
+                        i = next;
+                    }
+                    continue;
+                }
             }
             '\'' => {
                 in_word = true;
@@ -189,9 +218,29 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                 i = next;
                 continue;
             }
+            '<' if chars.get(i + 1) == Some(&'<') => {
+                end_word(
+                    &mut word,
+                    &mut in_word,
+                    &mut target,
+                    &mut input,
+                    &mut here,
+                    &mut current,
+                );
+                if chars.get(i + 2) == Some(&'<') {
+                    // A here-string: the next word is the text.
+                    here = true;
+                    i += 3;
+                    continue;
+                }
+                let (opened, next) = opening(&chars, i + 2, out.len())?;
+                pending.push(opened);
+                i = next;
+                continue;
+            }
             '<' => {
-                // A here-document or here-string carries text Spade doesn't read as a command.
-                if matches!(chars.get(i + 1), Some('<') | Some('(')) {
+                // Process substitution runs a command Spade doesn't read.
+                if chars.get(i + 1) == Some(&'(') {
                     return Err(Unreadable);
                 }
                 end_word(
@@ -199,6 +248,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     &mut in_word,
                     &mut target,
                     &mut input,
+                    &mut here,
                     &mut current,
                 );
                 input = true;
@@ -214,6 +264,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     &mut in_word,
                     &mut target,
                     &mut input,
+                    &mut here,
                     &mut current,
                 );
                 if chars.get(i + 1) == Some(&'(') {
@@ -253,21 +304,234 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
         &mut in_word,
         &mut target,
         &mut input,
+        &mut here,
         &mut current,
     );
-    if target {
+    if target || here || !pending.is_empty() {
         return Err(Unreadable);
     }
     out.push(current);
     let mut simple: Vec<Simple> = Vec::new();
+    // Aliases the command defines, by name, read through where they are used.
+    let mut aliases: Vec<(String, String)> = Vec::new();
     for command in out
         .into_iter()
-        .filter(|c| !c.words.is_empty() || !c.writes_to.is_empty())
+        .filter(|c| !c.words.is_empty() || !c.writes_to.is_empty() || c.here.is_some())
     {
-        simple.extend(unwrap(command, depth)?);
+        let fed = command.here.is_some();
+        let unwrapped = through_aliases(unwrap(command, depth)?, &mut aliases, depth)?;
+        // Text fed to anything but a script reader Spade follows stays unread.
+        if fed
+            && !unwrapped.last().is_some_and(|last| {
+                last.here.is_some() && last.words.first().is_some_and(|w| reads_here(w))
+            })
+        {
+            return Err(Unreadable);
+        }
+        simple.extend(unwrapped);
     }
     simple.extend(nested);
     Ok(simple)
+}
+
+/// Records the aliases `commands` define, and reads each use of one as what it stands for
+/// (its text, then the words after the name). An alias whose text can't be read leaves the
+/// command unreadable. Read through even where a shell wouldn't expand it (on the line that
+/// defines it, or under `bash -c`), since some shells do.
+fn through_aliases(
+    commands: Vec<Simple>,
+    aliases: &mut Vec<(String, String)>,
+    depth: usize,
+) -> Result<Vec<Simple>, Unreadable> {
+    let mut out = Vec::new();
+    for command in commands {
+        let Some(first) = command.words.first() else {
+            out.push(command);
+            continue;
+        };
+        if basename(first) == "alias" {
+            for definition in command.words[1..].iter().filter(|w| !w.starts_with('-')) {
+                if let Some((name, text)) = definition.split_once('=') {
+                    aliases.retain(|(known, _)| known != name);
+                    aliases.push((name.to_owned(), text.to_owned()));
+                }
+            }
+            out.push(command);
+            continue;
+        }
+        out.extend(expand(command, aliases, depth, &[])?);
+    }
+    Ok(out)
+}
+
+/// One command with the alias it starts with read through; `used` are the aliases already
+/// read on the way here, which a shell never expands again. The remaining words are never
+/// dropped: when the alias is empty they take command position (so the next word is expanded,
+/// as a shell does), and a value ending in a space expands the next word too.
+fn expand(
+    command: Simple,
+    aliases: &[(String, String)],
+    depth: usize,
+    used: &[&str],
+) -> Result<Vec<Simple>, Unreadable> {
+    let Some((name, text)) = command.words.first().and_then(|first| {
+        aliases
+            .iter()
+            .rev()
+            .find(|(name, _)| name == first && !used.contains(&name.as_str()))
+    }) else {
+        return Ok(vec![command]);
+    };
+    if used.len() > DEEPEST {
+        return Err(Unreadable);
+    }
+    let mut now: Vec<&str> = used.to_vec();
+    now.push(name);
+    // Whether a shell would alias-expand the next word too: an empty value (the next word takes
+    // command position) or one that ends in a blank.
+    let expand_next = text.trim().is_empty() || text.ends_with([' ', '\t', '\n']);
+    let rest: Vec<String> = command.words[1..].to_vec();
+    // The alias body, each command's own first word read through in turn.
+    let mut head = Vec::new();
+    for read in adopt(parse(text, depth + 1)?, &command) {
+        head.extend(expand(read, aliases, depth, &now)?);
+    }
+    // The words after the alias. With `expand_next`, the first of them is at command position, so
+    // it is read through as an alias too; otherwise they stay as written (arguments).
+    let tail = if rest.is_empty() {
+        Vec::new()
+    } else if expand_next {
+        expand(command.child(rest), aliases, depth, &now)?
+    } else {
+        vec![command.child(rest)]
+    };
+    // Join the body and the tail: the first tail command's words continue the last body command
+    // (a program and its arguments are one command), the rest follow.
+    let mut out = head;
+    let mut tail = tail.into_iter();
+    if let Some(first_tail) = tail.next() {
+        match out.last_mut() {
+            Some(last) => {
+                last.words.extend(first_tail.words);
+                last.reads_from.extend(first_tail.reads_from);
+                last.writes_to.extend(first_tail.writes_to);
+                last.piped |= first_tail.piped;
+            }
+            None => out.push(first_tail),
+        }
+    }
+    out.extend(tail);
+    // The original call's own redirects and pipe belong to the last command that runs; when the
+    // whole alias and its words vanish, keep a command for them so a bare redirect is not lost.
+    let has_redirects =
+        !command.writes_to.is_empty() || !command.reads_from.is_empty() || command.piped;
+    if out.is_empty() && has_redirects {
+        out.push(command.child(Vec::new()));
+    }
+    if let Some(last) = out.last_mut() {
+        last.writes_to.extend(command.writes_to.iter().cloned());
+        last.reads_from.extend(command.reads_from.iter().cloned());
+        last.piped |= command.piped;
+    }
+    Ok(out)
+}
+
+/// Programs whose here-document or here-string Spade reads as their script.
+fn reads_here(program: &str) -> bool {
+    basename(program) == "osascript"
+}
+
+/// A here-document opened on a line: its delimiter, and the command it feeds.
+struct Opened {
+    delimiter: String,
+    /// `<<-`: leading tabs come off each line.
+    tabs: bool,
+    /// The delimiter was quoted, so the body is taken as written.
+    literal: bool,
+    /// The command's index among those read so far.
+    at: usize,
+}
+
+/// The delimiter after `<<` (at `start`), and the index after it.
+fn opening(chars: &[char], start: usize, at: usize) -> Result<(Opened, usize), Unreadable> {
+    let mut i = start;
+    let tabs = chars.get(i) == Some(&'-');
+    if tabs {
+        i += 1;
+    }
+    while matches!(chars.get(i), Some(' ' | '\t')) {
+        i += 1;
+    }
+    let mut delimiter = String::new();
+    let mut literal = false;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '\'' | '"' => {
+                literal = true;
+                i += 1;
+                loop {
+                    match chars.get(i) {
+                        None | Some('\n') => return Err(Unreadable),
+                        Some(&q) if q == c => break,
+                        Some(&ch) => delimiter.push(ch),
+                    }
+                    i += 1;
+                }
+            }
+            '\\' => {
+                literal = true;
+                i += 1;
+                delimiter.push(*chars.get(i).ok_or(Unreadable)?);
+            }
+            ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '(' | ')' => break,
+            '$' | '`' => return Err(Unreadable),
+            _ => delimiter.push(c),
+        }
+        i += 1;
+    }
+    if delimiter.is_empty() {
+        return Err(Unreadable);
+    }
+    Ok((
+        Opened {
+            delimiter,
+            tabs,
+            literal,
+            at,
+        },
+        i,
+    ))
+}
+
+/// A here-document's body from `start` (a line's beginning) to its delimiter line, and the
+/// index after that line. One whose text could run a command (`$(...)`, backticks in an unquoted
+/// body) or with no delimiter line can't be read.
+fn body(chars: &[char], start: usize, opened: &Opened) -> Result<(String, usize), Unreadable> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut i = start;
+    while i < chars.len() {
+        let end = chars[i..]
+            .iter()
+            .position(|&c| c == '\n')
+            .map_or(chars.len(), |n| i + n);
+        let line: String = chars[i..end].iter().collect();
+        let line = if opened.tabs {
+            line.trim_start_matches('\t').to_owned()
+        } else {
+            line
+        };
+        let next = (end + 1).min(chars.len());
+        if line == opened.delimiter {
+            let text = lines.join("\n");
+            if !opened.literal && (text.contains("$(") || text.contains('`')) {
+                return Err(Unreadable);
+            }
+            return Ok((text, next));
+        }
+        lines.push(line);
+        i = end + 1;
+    }
+    Err(Unreadable)
 }
 
 /// The text inside `$(...)` starting at `start` (the `$`), and the index after its `)`.
@@ -299,6 +563,11 @@ fn substitution(chars: &[char], start: usize) -> Result<(String, usize), Unreada
     }
     Err(Unreadable)
 }
+
+/// Shell keywords that can stand before a command, or close a compound one.
+const KEYWORDS: &[&str] = &[
+    "{", "}", "if", "then", "else", "elif", "fi", "do", "done", "while", "until", "!", "esac",
+];
 
 /// Programs that run the command after them, with their flags that take a value.
 const WRAPPERS: &[(&str, &[&str])] = &[
@@ -434,6 +703,17 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
         };
         if is_assignment(&first) {
             simple.words.remove(0);
+            continue;
+        }
+        // A shell keyword before a command (`{ cmd; }`, `if cmd; then cmd; fi`, `while`,
+        // `do`, `! cmd`, a function's body): what follows it is what runs.
+        if KEYWORDS.contains(&first.as_str()) {
+            simple.words.remove(0);
+            continue;
+        }
+        // `function name { body; }`: the body is read where it is written, as if it ran.
+        if first == "function" {
+            simple.words.drain(..simple.words.len().min(2));
             continue;
         }
         let program = basename(&first).to_owned();

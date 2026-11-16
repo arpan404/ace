@@ -13,7 +13,7 @@ import { mismatchedBinaries } from "./native-arch.ts";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
 import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
 import { stageAceMedia } from "./ace-media.ts";
-import { stageSpadeServer } from "./spade-server.ts";
+import { stageSpade } from "./spade.ts";
 async function main() {
   const version = ReleaseVersion.parse(process.argv[2]);
   if (process.versions.node !== nodeVersion)
@@ -56,8 +56,8 @@ async function main() {
     async () => collectLicenses(await bundleDaemon(repo, root, publicKey, target), root),
     async () => {
       // Spade ships in the same archive, under the same manifest and checksums (ADR 0123).
-      const spade = await stageSpadeServer({ repo, root, target, version, env: process.env });
-      process.stdout.write(`[release] spade-server: ${spade}\n`);
+      const spade = await stageSpade({ repo, root, target, version, env: process.env });
+      process.stdout.write(`[release] spade: ${spade}\n`);
     },
     () => stageAceMedia({ repo, root, target, version, env: process.env }),
     () => cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE")),

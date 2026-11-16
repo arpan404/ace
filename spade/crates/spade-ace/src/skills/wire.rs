@@ -42,8 +42,8 @@ impl fmt::Debug for Hello<'_> {
     }
 }
 
-/// Mirrors `SkillsRequest` and the `list`, `read`, `create` and `edit` arms of `SkillOperation` in
-/// `packages/protocol/src/skill-library.ts`.
+/// Mirrors `SkillsRequest` and the `list`, `read`, `files`, `create` and `edit` arms of
+/// `SkillOperation` in `packages/protocol/src/skill-library.ts`.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillsRequest<'a> {
@@ -60,12 +60,21 @@ pub(crate) enum Operation<'a> {
     List {
         #[serde(skip_serializing_if = "Option::is_none")]
         workspace_id: Option<&'a str>,
+        /// The daemon then pushes `skills.changed` on this socket until it closes.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        subscribe: bool,
     },
     #[serde(rename_all = "camelCase")]
     Read {
         id: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         workspace_id: Option<&'a str>,
+    },
+    /// A skill's files besides SKILL.md, or with `path` that one file's content (ADR 0151).
+    Files {
+        id: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        path: Option<&'a str>,
     },
     /// A personal skill, linked for `agents`.
     Create {
@@ -89,7 +98,10 @@ pub(crate) enum Operation<'a> {
 impl Operation<'_> {
     /// Only reads may be sent again after a dropped socket.
     pub(crate) fn reads_only(&self) -> bool {
-        matches!(self, Self::List { .. } | Self::Read { .. })
+        matches!(
+            self,
+            Self::List { .. } | Self::Read { .. } | Self::Files { .. }
+        )
     }
 }
 
@@ -113,6 +125,9 @@ pub(crate) enum Incoming {
     Error(ErrorFrame),
     #[serde(rename = "skills.result")]
     SkillsResult(SkillsResult),
+    /// `SkillsChanged`: a subscribed list changed. Spade lists again rather than reading it.
+    #[serde(rename = "skills.changed")]
+    SkillsChanged,
     /// `spade.machines.result` and `spade.remote.result` from
     /// `packages/protocol/src/spade-remote.ts`, kept whole.
     /// `spade.computer.result` and `spade.computer.drive.result` from
@@ -124,6 +139,16 @@ pub(crate) enum Incoming {
         alias = "spade.computer.drive.result"
     )]
     SpadeResult(SpadeResult),
+    /// `PluginServerMessage` in `packages/protocol/src/plugins.ts`; `response` kept raw.
+    #[serde(rename = "pluginResult")]
+    PluginResult(PluginResult),
+    /// `marketplace.result` from `MarketServerMessage` in `packages/protocol/src/marketplace.ts`;
+    /// `result` kept raw.
+    #[serde(rename = "marketplace.result")]
+    MarketResult(SkillsResult),
+    /// `marketplace.changed`: installed entries changed. Spade lists again rather than reading it.
+    #[serde(rename = "marketplace.changed")]
+    MarketChanged,
     #[serde(other)]
     Other,
 }
@@ -145,6 +170,14 @@ pub(crate) struct SpadeResult {
     pub request_id: String,
     #[serde(flatten)]
     pub fields: serde_json::Map<String, Value>,
+}
+
+/// Mirrors `PluginServerMessage` in `packages/protocol/src/plugins.ts`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PluginResult {
+    pub request_id: String,
+    pub response: Value,
 }
 
 /// Mirrors `SkillsResult` in `packages/protocol/src/skill-library.ts`. `result` stays raw, so a
@@ -170,6 +203,33 @@ pub(crate) struct SkillEntry {
     pub manual: bool,
     pub argument_hint: Option<String>,
     pub hash: String,
+}
+
+/// Mirrors `SkillFile` in `packages/protocol/src/skill-library.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SkillFile {
+    /// Relative to the skill's folder, with `/`.
+    pub path: String,
+    pub size: u64,
+    /// SHA-256 of the content.
+    pub hash: String,
+    #[serde(default)]
+    pub executable: bool,
+}
+
+/// The `files` arm of `SkillResult`, `omitted` kept raw.
+#[derive(Debug, Deserialize)]
+pub(crate) struct FilesResult {
+    pub files: Vec<SkillFile>,
+    #[serde(default)]
+    pub omitted: Vec<Value>,
+}
+
+/// The `file` arm of `SkillResult`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct FileResult {
+    pub file: SkillFile,
+    pub content: String,
 }
 
 #[cfg(test)]

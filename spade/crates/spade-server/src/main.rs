@@ -15,9 +15,11 @@ use spade_server::images::ImageStore;
 use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
+use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch,
-    TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch, WebSearch,
+    AceLink, AceTarget, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
+    SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch,
+    WebSearch,
 };
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -62,6 +64,13 @@ fn main() -> std::process::ExitCode {
         );
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
+    // Linux's sandbox launcher (ADR 0167): applies a Landlock plan to itself, then runs the
+    // command in its place.
+    if let Some(flag) = args.first()
+        && flag == spade_sandbox::linux::LAUNCHER_ARG
+    {
+        return sandbox_exec(&args[1..]);
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
@@ -105,12 +114,12 @@ async fn serve_main() -> std::process::ExitCode {
     }
 }
 
-/// `spade-server --check-migrations <path>`: an updater asks whether this build can open a
+/// `spade --check-migrations <path>`: an updater asks whether this build can open a
 /// snapshot of Spade's database (docs/ace-integration.md, "Updates"). Migrates and checks that
 /// file only; never touches the data folder. Exit 0 if usable, else 1 with one line saying why.
 fn check_migrations(path: Option<&std::ffi::OsString>) -> std::process::ExitCode {
     let Some(path) = path else {
-        eprintln!("usage: spade-server --check-migrations <path to a copy of spade.sqlite>");
+        eprintln!("usage: spade --check-migrations <path to a copy of spade.sqlite>");
         return std::process::ExitCode::from(2);
     };
     match Store::check(std::path::Path::new(path)) {
@@ -223,8 +232,40 @@ async fn run() -> Result<(), Failure> {
         Arc::new(WebFetch(fetcher.clone())),
         Arc::new(Todo),
         Arc::new(TaskStatus),
+        Arc::new(TaskGoal),
+        Arc::new(TaskPlan),
+        Arc::new(DecisionLog),
     ];
     let workspaces = Workspaces::new(home.dir.join("workspace"));
+    // Each bot's commands, services and plugin servers run in its OS sandbox, with their traffic
+    // through Spade's egress proxy (ADR 0167). `SPADE_SANDBOX=off` turns it off for development:
+    // commands then run as before and stay reviewed.
+    let runner = if env("SPADE_SANDBOX").is_some_and(|v| v.trim() == "off") {
+        spade_sandbox::Runner::unavailable("The sandbox is turned off (SPADE_SANDBOX=off).")
+    } else {
+        let launcher = std::env::current_exe().ok();
+        tokio::task::spawn_blocking(move || spade_sandbox::Runner::probe(launcher))
+            .await
+            .unwrap_or_else(|_| spade_sandbox::Runner::unavailable("The sandbox probe failed."))
+    };
+    tracing::info!(status = ?runner.status(), "sandbox");
+    let person_home = env(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let security = spade_server::security::Security::start(spade_server::security::Setup {
+        runner,
+        store: Store::open(&home.database()).map_err(other)?,
+        home: person_home,
+        spade_data: home.dir.clone(),
+        ace_data: env("SPADE_ACE_HOME").map(std::path::PathBuf::from),
+        workspaces: home.dir.join("workspace"),
+        log_dir: home.dir.join("egress"),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(SystemIds),
+        bots: bots.clone(),
+    })
+    .await;
+    let shell = Shell::system().confined(security.clone());
     // Deep research (ADR 0135), reading through the same backends and fetcher.
     core.push(Arc::new(ResearchTool::new(
         Arc::new(LiveWeb {
@@ -238,7 +279,7 @@ async fn run() -> Result<(), Failure> {
     let terminals = Terminals::new(
         home.dir.join("terminal"),
         workspaces.clone(),
-        Shell::system(),
+        shell.clone(),
         Arc::new(SystemClock),
     );
     let computers = Computers::open(
@@ -250,36 +291,64 @@ async fn run() -> Result<(), Failure> {
     core.extend(workspace_tools(
         workspaces.clone(),
         bots.clone(),
-        spade_server::computer::shell_commands(&terminals, Shell::system()),
+        spade_server::computer::shell_commands(&terminals, shell.clone()),
+    ));
+    // Bots' owned services (ADR 0160), through the same shell rules as `shell`.
+    let services =
+        spade_server::services::Services::new(workspaces.clone(), shell.clone(), bots.clone());
+    core.extend(spade_server::tools::service_tools(&services));
+    // Pushes, comments and messages with the person's sign-ins, outside the sandbox (ADR 0171).
+    core.extend(spade_server::tools::outward::outward_tools(
+        workspaces.clone(),
+        bots.clone(),
+        Arc::new(spade_server::tools::outward::SystemHost),
+        Arc::new(spade_server::tools::outward::SandboxStage::new(
+            shell.clone(),
+        )),
+        home.dir.join("outward"),
     ));
     core.extend(spade_server::media::tools::all(
         workspaces.clone(),
         bots.clone(),
     ));
-    let mut skills: Option<Arc<dyn SkillLibrary>> = None;
-    let mut learning: Option<Arc<Learning>> = None;
-    if let Some(link) = &ace {
-        let library: Arc<dyn SkillLibrary> = link.clone();
-        let learned = Arc::new(Learning::new(
-            home.dir.join("skills"),
-            Arc::new(SystemClock),
-            library.clone(),
-        ));
-        core.push(Arc::new(SkillSearch(library.clone())));
-        core.push(Arc::new(
-            SkillLoad::new(library.clone()).with_notes(learned.clone(), bots.clone()),
-        ));
-        core.push(Arc::new(SkillPropose {
-            learning: learned.clone(),
-            bots: bots.clone(),
-        }));
-        core.push(Arc::new(SkillFeedback {
-            learning: learned.clone(),
-            bots: bots.clone(),
-        }));
-        skills = Some(library);
-        learning = Some(learned);
-    }
+    // Spade's own skill store (ADR 0151): ace's library mirrored with its files while ace is
+    // there, skills written in Spade otherwise. Spade Cloud has the store with no ace.
+    let upstream = ace
+        .clone()
+        .map(|link| link as Arc<dyn spade_server::skill_store::Upstream>);
+    let skill_store = SkillStore::open(
+        home.dir.join("skills"),
+        Store::open(&home.database()).map_err(other)?,
+        Arc::new(SystemClock),
+        upstream,
+    );
+    tokio::spawn(skill_store.clone().run_mirror());
+    // Skills installed from ace's marketplace (ADR 0168), copied the same way.
+    tokio::spawn(skill_store.clone().run_market());
+    let library: Arc<dyn SkillLibrary> = skill_store.clone();
+    let learned = Arc::new(Learning::new(
+        home.dir.join("skills"),
+        Arc::new(SystemClock),
+        library.clone(),
+    ));
+    core.push(Arc::new(
+        SkillSearch::new(library.clone()).with_uses(bots.clone()),
+    ));
+    core.push(Arc::new(
+        SkillLoad::new(library.clone())
+            .with_notes(learned.clone(), bots.clone())
+            .with_workspaces(workspaces.clone(), bots.clone()),
+    ));
+    core.push(Arc::new(SkillPropose {
+        learning: learned.clone(),
+        bots: bots.clone(),
+    }));
+    core.push(Arc::new(SkillFeedback {
+        learning: learned.clone(),
+        bots: bots.clone(),
+    }));
+    let skills: Option<Arc<dyn SkillLibrary>> = Some(library);
+    let learning: Option<Arc<Learning>> = Some(learned);
     let mut tools = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
     if let Some(link) = &ace {
         tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
@@ -321,6 +390,25 @@ async fn run() -> Result<(), Failure> {
         connectors.clone(),
         Store::open(&home.database()).map_err(other)?,
     )));
+    // The person's plugins (ADR 0151), read from ace: rules, hooks and local MCP servers.
+    let plugins = match &ace {
+        Some(link) => {
+            let plugins = spade_server::plugins::Plugins::new(
+                link.clone(),
+                Store::open(&home.database()).map_err(other)?,
+                workspaces.clone(),
+                shell.clone(),
+            );
+            tools = tools.with_source(Arc::new(spade_server::tools::PluginTools::new(
+                plugins.clone(),
+                Store::open(&home.database()).map_err(other)?,
+            )));
+            // Their skills and commands are store skills, offered to the bots allowed them.
+            plugins.set_skill_store(skill_store.clone());
+            Some(plugins)
+        }
+        None => None,
+    };
 
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
@@ -328,9 +416,8 @@ async fn run() -> Result<(), Failure> {
         tools,
         clock: Arc::new(SystemClock),
         ids: Arc::new(SystemIds),
-        daily_cap_micros: spade_core::spending::usd_to_micros(config.daily_cap_usd),
         utc_offset_seconds: local_offset_seconds(),
-        limits: Limits::default(),
+        limits: limits(&config),
         skills,
         images: ImageStore::open(&home.images()).map_err(other)?,
         adopt: startup.adopt,
@@ -338,8 +425,17 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    engine.set_security(security.clone());
+    // Workers get connectors only from their makers' (ADR 0161).
+    engine.set_connector_grants(connectors.clone());
+    if let Some(plugins) = &plugins {
+        engine.set_plugins(plugins.clone());
+        // Plugin agents are helper profiles of the bots allowed their plugins.
+        engine.set_profile_source(plugins.clone());
+    }
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());
+    engine.set_services(services.clone());
     if let Some(link) = &ace {
         let agents = engine
             .agents()
@@ -398,6 +494,7 @@ async fn run() -> Result<(), Failure> {
         ace,
         workspaces: Some(workspaces),
         learning,
+        skill_store: Some(skill_store),
         connectors: Some(connectors),
         search: Some(search),
     };
@@ -408,6 +505,11 @@ async fn run() -> Result<(), Failure> {
             .pause_for_stop(spade_core::maintenance::STOP_STEP_ALLOWANCE)
             .await;
         terminals.end_all();
+        // A `keep` service starts again with Spade; the others are reported lost then.
+        services.stop_everything();
+        if let Some(plugins) = &plugins {
+            plugins.stop_all();
+        }
     };
     let served = spade_server::serve(listener, state, stopping).await;
     home.clear_server_json();
@@ -441,5 +543,44 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
+    }
+}
+
+/// The engine's limits, with what the environment set.
+fn limits(config: &Config) -> Limits {
+    let defaults = Limits::default();
+    Limits {
+        max_parallel_tools: config.parallel_tools.unwrap_or(defaults.max_parallel_tools),
+        helpers_at_once: config.helpers_at_once.unwrap_or(defaults.helpers_at_once),
+        workers_at_once: config.workers_at_once.unwrap_or(defaults.workers_at_once),
+        context_budget: config.context_tokens.unwrap_or(defaults.context_budget),
+        knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
+        ..defaults
+    }
+}
+
+/// `spade sandbox-exec <plan> <program> <args>…`: answers only when the command can't start.
+fn sandbox_exec(args: &[std::ffi::OsString]) -> std::process::ExitCode {
+    let refused = |why: &str| {
+        eprintln!("spade sandbox-exec: {why}");
+        std::process::ExitCode::from(126)
+    };
+    let (Some(plan), Some(program)) = (args.first(), args.get(1)) else {
+        return refused("a plan and a program are needed");
+    };
+    #[cfg(all(target_os = "linux", feature = "landlock"))]
+    {
+        let Some(plan) = plan
+            .to_str()
+            .and_then(|text| serde_json::from_str::<spade_sandbox::linux::Plan>(text).ok())
+        else {
+            return refused("the plan doesn't parse");
+        };
+        refused(&spade_sandbox::linux::exec(&plan, program, &args[2..]))
+    }
+    #[cfg(not(all(target_os = "linux", feature = "landlock")))]
+    {
+        let _ = (plan, program);
+        refused("this build has no Linux sandbox")
     }
 }

@@ -12,62 +12,32 @@ const withSpade = (spade: FakeSpadeApi) => {
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
 };
 
-async function newBot() {
-  await openNew("New bot");
-  return within(await screen.findByRole("dialog", { name: "New bot" }));
-}
-
 async function choose(scope: ReturnType<typeof within>, select: string, option: string) {
   await userEvent.click(scope.getByRole("combobox", { name: select }));
   await userEvent.click(await screen.findByRole("option", { name: option }));
 }
 
-test("the model picker lists what the endpoint serves with its facts, and takes a typed id", async () => {
+test("the model picker lists what each endpoint serves with its facts, and takes a typed id", async () => {
   await spadeApp("/spade", withSpade);
-  const form = await newBot();
-  await userEvent.click(await form.findByRole("button", { name: "Model" }));
+  await openNew("New bot");
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const models = within(await screen.findByRole("listbox", { name: "Models" }));
   await models.findByRole("option", { name: /^Sonnet/ });
+  // With no model for new bots set, the first choice leaves it to Spade.
   expect(models.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Your first usable model",
     "Saved model",
     "Llama128K context",
     "Sonnet200K context · images, tools",
   ]);
-  await userEvent.type(screen.getByRole("textbox", { name: "Search models" }), "qwen/qwen3-coder");
-  await userEvent.click(
-    await screen.findByRole("option", { name: "Use “qwen/qwen3-coder” as the model id" }),
+  expect(
+    within(screen.getByRole("group", { name: "OpenRouter" })).getAllByRole("option"),
+  ).toHaveLength(3);
+  await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "qwen/qwen3-coder");
+  await userEvent.click(await screen.findByRole("option", { name: "Use “qwen/qwen3-coder”" }));
+  expect(screen.getByRole("button", { name: "Model" }).textContent).toBe(
+    "qwen/qwen3-coder · OpenRouter",
   );
-  expect(form.getByRole("button", { name: "Model" }).textContent).toBe("qwen/qwen3-coder");
-});
-
-test("New bot creates the bot on the machine chosen for it and opens its conversation", async () => {
-  const { others, spade } = await spadeApp("/spade", withSpade, {
-    machines: [{ hostId: "studio", name: "Studio Mac", seed: withEndpoint }],
-  });
-  const form = await newBot();
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Travel");
-  await userEvent.type(form.getByRole("textbox", { name: "Task" }), "Plan and book my trips");
-  await userEvent.click(form.getByRole("radio", { name: "Creature: fox" }));
-  await userEvent.click(form.getByRole("radio", { name: "Colours: cocoa" }));
-  await choose(form, "Machine", "Studio Mac");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
-  const studio = others.get("studio");
-  await waitFor(() =>
-    expect(studio?.sent("POST", "/v1/agents")).toEqual([
-      {
-        name: "Travel",
-        task: "Plan and book my trips",
-        model: "openrouter/anthropic/sonnet",
-        access: "auto_review",
-        avatar: expect.objectContaining({ kind: "character", v: 1, body: "fox", pair: "cocoa" }),
-      },
-    ]),
-  );
-  expect(spade.sent("POST", "/v1/agents")).toEqual([]);
-  await screen.findByRole("feed", { name: "Conversation with Travel" });
-  expect((await botRow("Travel")).getAttribute("aria-current")).toBe("page");
 });
 
 test("a bot on a machine that goes offline stays listed, as away", async () => {
@@ -83,7 +53,7 @@ test("a bot on a machine that goes offline stays listed, as away", async () => {
   await botRow("Research");
   app.crashMachine("studio");
   await waitFor(async () =>
-    expect((await botRow("Research")).textContent).toContain("Away · Studio Mac is offline"),
+    expect((await botRow("Research")).textContent).toContain("Studio Mac is offline"),
   );
 });
 
@@ -94,20 +64,21 @@ test("with no endpoint key, Spade's conversation asks for one and saves it to Sp
     if (endpoint) endpoint.key_set = false;
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
-  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
-  expect(
-    setup.getByText("Spade needs a model from an endpoint it can reach to answer."),
-  ).toBeTruthy();
+  const setup = within(
+    await screen.findByRole("region", { name: "Pick the model Spade answers with" }),
+  );
   await userEvent.type(setup.getByLabelText("Key"), "sk-test");
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/keys/openrouter")).toEqual([{ key: "sk-test" }]),
   );
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("region", { name: "Pick the model Spade answers with" })).toBeNull(),
+  );
 });
 
 test("an endpoint added from a preset reaches Spade, and one bots still use can't be removed", async () => {
-  const { spade } = await spadeApp("/settings/spade", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
     withSpade(api);
     api.presets.push({
       id: "opencode-go",
@@ -119,7 +90,7 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
     });
     api.addAgent({ id: "inbox", name: "Inbox", model: "openrouter/meta/llama" });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
   await choose(dialog, "From", "OpenCode Go");
   await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
@@ -134,10 +105,10 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
       },
     ]),
   );
-  const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
-  await userEvent.click(openrouter.getByRole("button", { name: "Remove OpenRouter" }));
-  expect((await openrouter.findByRole("alert")).textContent).toBe(
-    "Spade, Inbox use this endpoint.",
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Remove OpenRouter" }));
+  // It asks once, saying the key goes too, then Spade's refusal shows where it was asked.
+  expect(screen.getByText("Remove OpenRouter and its key?")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Spade, Inbox use this endpoint.");
   expect(spade.endpoints.map((endpoint) => endpoint.id)).toContain("openrouter");
 });

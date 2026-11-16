@@ -1,14 +1,11 @@
-import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
+import type { ComputerView, ProfileTab } from "./computer/panel-place.ts";
 import { Link, Navigate } from "@tanstack/react-router";
 import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useMachines } from "@/lib/machines.ts";
-import { SpadeActivity } from "./spade-activity.tsx";
-import { BotScreen, type BotView } from "./spade-bot-screen.tsx";
-import { BotPage } from "./spade-bot-page.tsx";
+import { BotScreen } from "./spade-bot-screen.tsx";
 import { Conversation } from "./spade-conversation.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
-import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeRoster } from "./use-spade-roster.ts";
 import { ConversationSkeleton, Problem, useSpadeLine } from "./spade-screen-parts.tsx";
@@ -53,17 +50,17 @@ function SpadeHome() {
 
 /**
  * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation; with
- * `computer` its computer expanded on that surface (`files` and `file` for the file manager);
- * with `view` its own page, or its routines or activity alone.
+ * `profile` its profile beside it on that tab (`computer`, `files` and `file` for what Computer
+ * shows).
  */
 export function SpadeAgentScreen(props: {
   agentId: string;
   machine: string | undefined;
-  computer?: SpadeSurfaceKind | undefined;
+  profile?: ProfileTab | undefined;
+  computer?: ComputerView | undefined;
   files?: string | undefined;
   /** With `files`, a file in it opened. */
   file?: string | undefined;
-  view?: BotView | undefined;
 }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
@@ -108,8 +105,9 @@ export function SpadeAgentScreen(props: {
       </BotScreen>
     );
   const key = `${bot.machine.key}/${bot.id}`;
-  // An older link to the files opens the computer on Files.
+  // A link to Computer's view or to the files opens the profile on Computer.
   const computer = props.computer ?? (props.files !== undefined ? "files" : undefined);
+  const profile = props.profile ?? (computer === undefined ? undefined : "computer");
   const folder = props.files === undefined || props.files === "." ? "" : props.files;
   return (
     <SpadeMachineScope
@@ -122,25 +120,14 @@ export function SpadeAgentScreen(props: {
         </BotScreen>
       }
     >
-      {props.view === "bot" ? (
-        <BotPage key={key} bot={bot} />
-      ) : props.view === "routines" ? (
-        <BotScreen bot={bot}>
-          <SpadeRoutines key={key} bot={bot} />
-        </BotScreen>
-      ) : props.view === "activity" ? (
-        <BotScreen bot={bot}>
-          <SpadeActivity key={key} bot={bot} />
-        </BotScreen>
-      ) : (
-        <Conversation
-          key={key}
-          bot={bot}
-          roster={roster.bots}
-          computer={computer}
-          files={{ folder, file: props.file }}
-        />
-      )}
+      <Conversation
+        key={key}
+        bot={bot}
+        roster={roster.bots}
+        profile={profile}
+        computer={computer}
+        files={{ folder, file: props.file }}
+      />
     </SpadeMachineScope>
   );
 }

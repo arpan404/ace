@@ -15,7 +15,13 @@ const posix = process.platform !== "win32";
  */
 async function setup(
   onTestFinished: (fn: () => Promise<void>) => void,
-  options: { registeredFor?: string; binary?: boolean; registered?: boolean } = {},
+  options: {
+    registeredFor?: string;
+    binary?: boolean;
+    registered?: boolean;
+    /** As a build before the binary's rename left it: `spade-server`, and a plist naming it. */
+    beforeRename?: boolean;
+  } = {},
 ) {
   const user = await mkdtemp(join(tmpdir(), "ace-spade-fresh-"));
   onTestFinished(() => rm(user, { recursive: true, force: true }));
@@ -24,19 +30,24 @@ async function setup(
   await writeFile(join(root, "spade/spade.sqlite"), "Spade's data");
   if (options.binary !== false) {
     await mkdir(join(root, "releases/spade/0.4.0"), { recursive: true });
-    await writeFile(join(root, "releases/spade/0.4.0/spade-server"), "spade", { mode: 0o755 });
+    const name = options.beforeRename ? "spade-server" : "spade";
+    await writeFile(join(root, "releases/spade/0.4.0", name), "spade", { mode: 0o755 });
     await symlink("0.4.0", join(root, "releases/spade/current"));
   }
   const planFor = (home: string) => spadeServicePlan(home, "darwin", { userHome: user, uid: 501 });
   if (options.registered !== false) {
     const registered = planFor(options.registeredFor ?? root);
     await mkdir(dirname(registered.file), { recursive: true });
-    await writeFile(registered.file, registered.content);
+    await writeFile(
+      registered.file,
+      options.beforeRename ? registered.previous.content : registered.content,
+    );
   }
   /** What launchd was asked, and whether Spade's binary was still in the home at the time. */
   const calls: string[] = [];
   const run: SyncRunner = (file, args) => {
-    const inPlace = existsSync(join(root, "releases/spade/current/spade-server"));
+    const current = join(root, "releases/spade/current");
+    const inPlace = ["spade", "spade-server"].some((name) => existsSync(join(current, name)));
     calls.push(`${file} ${args[0]} (binary ${inPlace ? "in the home" : "absent"})`);
     return { code: 0, stderr: "" };
   };
@@ -61,7 +72,7 @@ test.runIf(posix)(
       "launchctl bootstrap (binary in the home)",
     ]);
     // Spade's program follows the home; its data stays in the backup with the rest.
-    expect(await readFile(join(root, "releases/spade/current/spade-server"), "utf8")).toBe("spade");
+    expect(await readFile(join(root, "releases/spade/current/spade"), "utf8")).toBe("spade");
     expect(existsSync(join(root, "spade/spade.sqlite"))).toBe(false);
     expect(await readFile(join(prepared.backup, "spade/spade.sqlite"), "utf8")).toBe(
       "Spade's data",
@@ -93,5 +104,17 @@ test.runIf(posix)(
     const { calls, prepare } = await setup(onTestFinished, { binary: false });
     expect(prepare().state).toBe("fresh");
     expect(calls).toEqual(["launchctl bootout (binary absent)"]);
+  },
+);
+
+test.runIf(posix)(
+  "a fresh start stops and restarts a Spade an earlier build registered as spade-server",
+  async ({ onTestFinished }) => {
+    const { calls, prepare } = await setup(onTestFinished, { beforeRename: true });
+    expect(prepare().state).toBe("fresh");
+    expect(calls).toEqual([
+      "launchctl bootout (binary in the home)",
+      "launchctl bootstrap (binary in the home)",
+    ]);
   },
 );

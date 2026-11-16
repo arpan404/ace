@@ -1,8 +1,7 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
-import { configure, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { configure, waitFor } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -17,32 +16,6 @@ const spadeHere = (spade: FakeSpadeApi, createdAt = 1) => {
     created_at: createdAt,
   });
 };
-
-async function choose(scope: ReturnType<typeof within>, select: string, option: string) {
-  await userEvent.click(scope.getByRole("combobox", { name: select }));
-  await userEvent.click(await screen.findByRole("option", { name: option }));
-}
-
-test("a machine chosen for a new bot that goes out of reach stays chosen, and Create waits", async () => {
-  const { app } = await spadeApp("/spade", spadeHere, {
-    machines: [{ hostId: "studio", name: "Studio Mac", seed: withEndpoint }],
-  });
-  await openNew("New bot");
-  const form = within(await screen.findByRole("dialog", { name: "New bot" }));
-  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Travel");
-  await choose(form, "Machine", "Studio Mac");
-  await userEvent.click(form.getByRole("button", { name: "Model" }));
-  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
-  expect(form.getByRole("button", { name: "Create bot" }).hasAttribute("disabled")).toBe(false);
-  app.crashMachine("studio");
-  expect(
-    await form.findByText(
-      "Studio Mac isn't reachable right now. Wait for it, or pick another machine.",
-    ),
-  ).toBeTruthy();
-  expect(form.getByRole("combobox", { name: "Machine" }).textContent).toContain("Studio Mac");
-  expect(form.getByRole("button", { name: "Create bot" }).hasAttribute("disabled")).toBe(true);
-});
 
 test("a bot whose Spade stops while its machine stays online reads as unavailable, not working", async () => {
   const { app, others } = await spadeApp("/spade", spadeHere, {
@@ -64,9 +37,7 @@ test("a bot whose Spade stops while its machine stays online reads as unavailabl
   if (!studio || !others.get("studio")) throw new Error("no studio");
   studio.spade.status = { state: "off" };
   await waitFor(async () =>
-    expect((await botRow("Research")).textContent).toContain(
-      "Unavailable · Spade isn't running on Studio Mac",
-    ),
+    expect((await botRow("Research")).textContent).toContain("Off on Studio Mac"),
   );
   expect((await botRow("Research")).querySelector("svg.bot-face")?.getAttribute("data-state")).toBe(
     "idle",

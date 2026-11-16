@@ -76,6 +76,13 @@ impl Registry {
         self.tools.get(name)
     }
 
+    /// The same registry with only the tools `keep` accepts (a helper's narrower set, ADR 0152).
+    #[must_use]
+    pub fn retain(mut self, keep: impl Fn(&ToolDef) -> bool) -> Self {
+        self.tools.retain(|_, tool| keep(tool));
+        self
+    }
+
     /// What the model is sent: core tools sorted by name, then `tool_search` and `call_tool` when
     /// any tool is deferred. Same input, same bytes.
     pub fn offered(&self) -> Vec<ToolSpec> {
@@ -157,8 +164,10 @@ pub fn unwrap_call_tool(arguments: &Value) -> Option<(String, Value)> {
 fn tool_search_spec() -> ToolSpec {
     ToolSpec {
         name: TOOL_SEARCH.to_owned(),
-        description: "Find more tools by describing what you need, such as \"calendar events\" or \
-                      \"start a coding agent\". Returns each tool's name and input schema."
+        description: "Find more tools by describing what you need, such as \"calendar events\", \
+                      \"start a coding agent\" or \"open a page in the browser\". The person's \
+                      apps, ace's tools and plugin tools are found here, not listed up front. \
+                      Returns each tool's name and input schema; run one with call_tool."
             .to_owned(),
         schema: json!({ "type": "object",
                         "properties": { "query": { "type": "string" } },
@@ -169,7 +178,9 @@ fn tool_search_spec() -> ToolSpec {
 fn call_tool_spec() -> ToolSpec {
     ToolSpec {
         name: CALL_TOOL.to_owned(),
-        description: "Run a tool found with tool_search.".to_owned(),
+        description: "Run a tool found with tool_search: its name exactly as listed and arguments \
+                      matching its input schema. Search first; never guess a name."
+            .to_owned(),
         schema: json!({ "type": "object",
                         "properties": { "name": { "type": "string" },
                                         "arguments": { "type": "object" } },

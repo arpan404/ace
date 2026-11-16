@@ -47,7 +47,8 @@ Every agent has two tools:
   counts as untrusted, so a write after it asks. A bot cannot message itself. A turn that another
   bot's message started or steered counts as untrusted, so every write in it asks the person, even
   one they allowed "always". `depth` is 1 when the caller was answering the person and one more per
-  hop; a message deeper than 3 is refused.
+  hop; a message deeper than 16 is refused, a guard against bots messaging each other forever
+  (it was 3 before ADR 0158). The same holds for asks from other machines.
 
 ## Endpoints and models
 
@@ -106,6 +107,43 @@ context comes from `context_length`, `context_window`, `max_context_length` or
 `max_input_tokens`. At most 4 MB, 5,000 models and 10 seconds. A failure is one line that never
 carries the key.
 
+## Models per role
+
+Each bot uses a model per role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)):
+`main` (its turns: the bot's model), `helper`, `verify` (the check of done), `review`, `compact`
+(summaries) and `title`. A role's model is the bot's override, else the global one, else the
+default:
+
+| Role                         | Default                                                                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `helper`, `compact`, `title` | the fast model (`fast_model`), else the bot's                                                                                                   |
+| `review`                     | the review model (oversight `review_model`, the global override), else the fast model, else the bot's                                           |
+| `verify`                     | the most expensive model the person already uses (bots', review, fast, new-bot) listing at least the bot's price, not the bot's; else the bot's |
+
+Strength is the listed input plus output price; unpriced models never win a default. An override
+whose model is gone is skipped. Roles other than `main` take endpoint models only, never `cli:`.
+Overrides are JSON settings (`model_roles`, `model_roles:{agent}`); a bot's go with it when it is
+deleted.
+
+- **Per call.** `helper {model}` takes a role name or `endpoint/model`. A model must be listed on
+  one of the person's endpoints and, when the bot has an `allowed` list, on it; anything else is
+  refused with the roles and the allowed models.
+- **Escalation.** With `escalate` on (the call's, else the bot's, else the global setting; off by
+  default) a helper that failed on another model reruns once on the bot's model, stored as job
+  `<job>~2`. Its result starts "(The helper failed on X, so it ran again on Y.)".
+- **Spend.** The ledger (`spend.role`) records each call's role; a helper's calls are `helper`,
+  rows from before the column `main`.
+- **Cache.** A role's model applies from its next new request; past prompts are never rewritten.
+  Compaction moves to the `compact` model only when that model's context holds the prompt (plus
+  8,192 tokens), it takes what the conversation's model takes (tools, images, PDFs) and, unless
+  the person chose the model, its cold estimate is below the conversation model's cached one.
+
+API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, escalate}`) and
+`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source}], overrides: {roles, allowed,
+escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`, `default` or `own`).
+`main` is refused there: change the bot's model. `PUT /v1/models/roles {roles: {review}}` sets
+oversight's `review_model`.
+
 ## Faces
 
 A bot's character face is eight fields; clients draw it (the model and geometry live in
@@ -145,11 +183,17 @@ All under `/v1`, with the bearer token; JSON; problems are `{"error": "<one line
 fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
-"created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
-"problem", "last_message", "access", "task_state", "continuing"}`
+"created_at", "updated_at", "last_activity", "pinned_at", "state", "working", "waiting_for", "status",
+"problem", "last_message", "seen_seq", "unseen", "access", "task_state", "continuing"}`
 
 - `access`, `task_state`, `continuing`: the bot's access level and its task as it last said, and
   whether Spade is carrying the task on by itself ([autonomy.md](autonomy.md)).
+- `parent`, `workers`: the bot that made it as a worker (`{id, name}`, else `null`), and how many
+  of its own worker bots have not settled ([workers.md](workers.md)). `state` rolls up its
+  workers: it reads `waiting` or `working` while any of them does.
+- `from_recipe`, `tools`: only on a bot made from a marketplace recipe: the recipe's
+  `{source, name, version}`, and the built-in tools it is narrowed to when the recipe named them
+  ([teams.md](teams.md)).
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"character","v":1,"body","pair","ears","marking","eyes","mouth","cheeks","accessory"}`
@@ -164,29 +208,66 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   arguments; `null` when idle.
 - `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
   until a later reply finishes; `null` otherwise ([cli-brains.md](cli-brains.md)).
-- `last_message`: `{"from": "person"|"agent", "text", "at", "from_agent": {"id","name"}|null}` or
-  `null`. The latest message in the conversation: a message to the agent (`person`; with
+- `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "from_agent": {"id","name"}|null}`
+  or `null`. The latest message in the conversation: a message to the agent (`person`; with
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
-  output; plain text, at most 200 characters.
+  output. `text` is the list's preview: plain text on one line, at most 200 characters, with
+  markdown gone (emphasis, headings, quotes, fences, list marks, strike-through) and links and
+  images as their words (`[the plan](…)` → `the plan`). `seq` is its event.
+- `seen_seq`: the conversation's seen cursor (see Seen), or `null` when never marked.
+- `unseen`: the bot finished and the person hasn't seen it: `state` is `idle` and the bot's own
+  `last_message` is past `seen_seq`. Never true while any of its work runs or waits on the person.
+
+### Pins
+
+`PUT /v1/agents/{id}/pin` and `PUT /v1/groups/{id}/pin` with `{"pinned": bool}` pin a bot or a
+group (Spade, the main bot, too) to the top of the person's list, or unpin it. Answer
+`{"agent"}` or `{"group"}`; `404` for none. Agents and groups carry `pinned_at`: the ms it was
+pinned, or `null`. Pinning a pinned conversation keeps its `pinned_at`, so a list shows the strip
+oldest pin first. Pins live in `agents.pinned_ms` and `groups.pinned_ms`, so every device that
+reads this Spade shows the same strip, and they survive restarts.
+
+### Seen
+
+`PUT /v1/conversations/{id}/seen` with `{"seq"?}` (or no body) marks a bot's or a group's
+conversation seen up to that event, the conversation's last when absent, never past it. The
+cursor only moves forward: an older `seq` leaves it where it is. Answer `{"seen_seq"}`; `404` for
+no such conversation. Each mark is sent on the conversation's live stream as
+`event: seen`, `data: {"seq"}`, so every device drops its mark. Cursors live in the `seen` table,
+so they survive restarts, and go with their conversation; they are never events, so nothing the
+model reads changes. The schema step that added them counted every conversation as seen up to
+then.
 
 | Method and path                               | Body                                                                       | Answer                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
-| `POST /agents`                                | `{name, task?, model?, avatar?, access?}`                                  | `201 {"agent"}`; `model` defaults like the main agent's    |
+| `POST /agents`                                | `{name, task?, model?, avatar?, access?, first_message?}`                  | `201 {"agent"}`; `model` defaults as below                 |
 | `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
+| `PUT /agents/{id}/pin`                        | `{"pinned": bool}`                                                         | `200 {"agent"}`; `404`; `pinned_at` is ms or `null`        |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
-| `GET /models`                                 |                                                                            | `{"endpoints":[Endpoint],"presets":[Preset],"fast_model"}` |
+| `GET /models`                                 |                                                                            | `{"endpoints","presets","fast_model","new_bot_model", …}`  |
 | `POST /endpoints`                             | `{name, format, base_url, headers?, session_header?, needs_key?, preset?}` | `201 {"endpoint"}`                                         |
 | `PATCH /endpoints/{id}`                       | same fields but `preset`                                                   | `200 {"endpoint"}`                                         |
 | `DELETE /endpoints/{id}`                      |                                                                            | `204` (its keychain key goes too); `409 {error, agents}`   |
 | `GET /endpoints/{id}/models`                  |                                                                            | `{"models":[{id, name?, context?, capabilities?}]}`, live  |
 | `POST /endpoints/{id}/models`                 | `{id, name?, context?, capabilities?}`                                     | `200 {"endpoint"}`                                         |
 | `DELETE /endpoints/{id}/models?id=<model id>` |                                                                            | `204`; `404` if not saved                                  |
-| `PUT /settings`                               | `{"fast_model": "endpoint/model" \| null}`                                 | `204`                                                      |
+| `PUT /settings`                               | any of `fast_model`, `new_bot_model`: `"endpoint/model" \| null`           | `204`                                                      |
 | `PUT`/`DELETE /keys/{endpoint}`               | `{key}`                                                                    | as before (ADR 0119)                                       |
 | `POST /conversations`                         |                                                                            | `410`: create an agent instead                             |
 
+- A new bot's `model`, when the body names none: `new_bot_model` (the person's choice in Settings,
+  answered by `GET /models`, set with `PUT /settings`; `null` clears it), else the person's first
+  usable model. A template's own model kind still wins over it, and an imported bot whose model
+  isn't here gets it too.
+- `first_message`: `{"text", "images"?: [{"data"}]}` (images as for messages) makes the bot and
+  sends it this as its first message, the new-bot conversation's one call. Both happen, or
+  neither: a message Spade can refuse before the bot exists (empty, too long, too many images)
+  answers as `POST /conversations/{id}/messages` would and makes nothing; one refused as it is
+  sent (an attachment that is no image, storage) deletes the bot again before answering. The answer's
+  `agent` is read after the send, so its `state` is already `working`. Files and voice go in
+  later messages.
 - Avatar in a body: `{"kind":"image","data":"<base64 or data: URL>"}` (PNG, JPEG, GIF or WebP,
   3.75 MB at most, stored like attached images) or a character face. An absent avatar, or
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see

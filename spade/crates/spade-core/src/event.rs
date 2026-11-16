@@ -42,10 +42,33 @@ pub enum Known {
         task: String,
         model: String,
     },
-    /// The skill index for this conversation, fixed at its first turn so the prompt's top stays
-    /// cached; later skills are found with `skill_search`.
+    /// The skill index for this conversation, stored before its first model call and again after
+    /// each compaction, so the prompt's top stays cached in between; skills added meanwhile are
+    /// found with `skill_search`. The latest one is in effect.
     SkillsIndexed {
         text: String,
+    },
+    /// The person's plugins for this conversation (ADR 0151): their rules, and what their
+    /// `SessionStart` hooks added. Stored before the first model call, after each compaction and
+    /// after the person changes the bot's plugins (`plugins_changed`); the latest one is in
+    /// effect. `added` is a hook's text: untrusted.
+    PluginsStarted {
+        #[serde(default)]
+        rules: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        added: String,
+    },
+    /// The person changed which plugins the bot may use. Its rules are stored again before the
+    /// next model call.
+    PluginsChanged {},
+    /// What the person's plugin hooks answered at one of Spade's events (ADR 0151), stored once
+    /// so a rebuilt prompt is the same and a restart never runs them again for it. `target` names
+    /// what they answered: a call id, a message's or step's event index.
+    HookRan {
+        hook: String,
+        target: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        outcomes: Vec<crate::hooks::HookOutcome>,
     },
     /// The bot's notes for the cached top of the prompt (ADR 0128), stored before the first model
     /// call and once after each compaction, so the top changes only when the conversation
@@ -53,11 +76,50 @@ pub enum Known {
     MemoryIndexed {
         text: String,
     },
-    /// `ask_user`: the bot asked the person and the turn waits for their next message.
+    /// The topic index of the bot's knowledge base for the cached top (ADR 0164), stored before
+    /// the first model call and once after each compaction, like `memory_indexed`.
+    KnowledgeIndexed {
+        text: String,
+    },
+    /// `ask_user`: the bot asked the person (ADR 0154). The turn waits for the answer unless a
+    /// `question_deferred` follows. `question` is the prompts, one per line; `questions` holds
+    /// each with its kind (absent on events stored before kinds: one `text` question).
     QuestionAsked {
         reply: String,
         call_id: String,
         question: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        questions: Vec<crate::question::Question>,
+        /// Asked with `wait: false` (ADR 0154 decision 4): the bot keeps working, so the event's
+        /// escalation level is `ask`, not `block` (ADR 0165). Its `question_deferred` follows.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        later: bool,
+    },
+    /// The question is left for later (ADR 0154): by the person (**Answer later**), or by the
+    /// bot asking with `wait: false` (`by_bot`). The call is answered at once and the turn goes
+    /// on; the question stays open until answered or dismissed.
+    QuestionDeferred {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        by_bot: bool,
+    },
+    /// The person's answers, one per question, as checked. `late`: the question was deferred,
+    /// so this reaches the bot like a job's result, as a `<question_answer>`. `typed`: a
+    /// message the person typed (stored just before) stood for these answers; the bot reads the
+    /// message itself.
+    QuestionAnswered {
+        call_id: String,
+        answers: Vec<Value>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        late: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        typed: bool,
+    },
+    /// The person dismissed the question (**Never mind**). `late` as for `question_answered`.
+    QuestionDismissed {
+        call_id: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        late: bool,
     },
     /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
     /// whole so they go back exactly as they came.
@@ -92,6 +154,23 @@ pub enum Known {
         /// reviewer's reason, or the rule that always asks. Absent when the rule gate asked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reviewer_reason: Option<String>,
+        /// Why the person is asked when it isn't the usual request (ADR 0171): a tool that
+        /// declares no effect, or a command the bot asks to run outside the sandbox. Absent for
+        /// older events and the usual request; a word this build doesn't know reads as absent.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::effect::lenient_ask"
+        )]
+        ask: Option<crate::effect::Ask>,
+        /// For a tool that declares nothing, what the person's answer is kept under: the bot,
+        /// the tool's server and version, its own name and its schema (ADR 0171, amendment 1).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_key: Option<String>,
+        /// Set when a helper (ADR 0152) made the call: the approval is asked in the bot's
+        /// conversation, the person answers it there, and the answer reaches the helper.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        helper: Option<Box<HelperAsk>>,
     },
     ApprovalAnswered {
         reply: String,
@@ -164,15 +243,17 @@ pub enum Known {
         /// Workspace files the job kept for the person to open (a research report, ADR 0135).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         files: Vec<String>,
+        /// The result carries untrusted content (a helper that read a web page, ADR 0152): the
+        /// turn that reads it is untrusted, as if the bot had read that content itself.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        untrusted: bool,
+        /// What the job spent on model calls (a helper's steps, ADR 0152), for the turn's cost
+        /// shown to the person. Absent for jobs that make none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost_micros: Option<u64>,
     },
-    /// The bot reached one of its spending caps (ADR 0135). Stored once per day or month.
-    CapReached {
-        scope: CapScope,
-        cap_micros: u64,
-        /// The start of the day or month the cap is for, so it is said once per period.
-        period_start: i64,
-        resets_at: i64,
-    },
+    // `cap_reached`, stored by builds with spending caps (ADR 0135, removed by ADR 0166), is no
+    // longer a known event: it is read as raw data and folds to nothing.
     /// The model review judged a call the gate would have run (ADR 0135).
     CallReviewed {
         reply: String,
@@ -188,8 +269,8 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bound: Option<String>,
     },
-    /// The person set the bot's access level (ADR 0144). The latest one holds from the bot's
-    /// next tool call; a bot with none is on `ask`.
+    /// A bot's access level was set (ADR 0144). Spade has one level now (ADR 0163): older
+    /// events naming `ask` or `full_access` read as `auto_review`.
     AccessChanged {
         level: crate::autonomy::Access,
     },
@@ -205,6 +286,82 @@ pub enum Known {
     TaskPaused {
         reason: crate::task::PauseReason,
         steps: u32,
+    },
+    /// The task's goal (ADR 0159): the person's words and the criteria for done. The bot drafts
+    /// one while none is open; only the person changes or replaces an open one.
+    GoalSet {
+        goal: String,
+        title: String,
+        text: String,
+        criteria: Vec<crate::goal::Criterion>,
+        by: crate::goal::Author,
+        /// The model that checks this goal, when the person chose one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        verifier: Option<String>,
+    },
+    /// The person ended the goal without it being done (ADR 0159); `failed` when they ended it
+    /// as failed (ADR 0164), which its episode records.
+    GoalCleared {
+        goal: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
+    },
+    /// A closed goal's episode was stored (ADR 0164): what worked, what failed, what it cost.
+    /// Stored once per goal, after the episode itself.
+    EpisodeStored {
+        goal: String,
+        episode: String,
+    },
+    /// One change to the goal's plan (ADR 0159), from a `task_plan` call Spade accepted.
+    PlanChanged {
+        goal: String,
+        change: crate::goal::Change,
+    },
+    /// An item of the plan closed with evidence (ADR 0159): where a restart resumes from.
+    PlanCheckpoint {
+        goal: String,
+        item: String,
+        done: u32,
+        total: u32,
+    },
+    /// The verifier judged a claim that the task is done (ADR 0159). Stored before anything acts
+    /// on it, so a restart reuses it.
+    TaskVerified {
+        goal: String,
+        /// The `task_status` call that claimed done.
+        claim: String,
+        verdict: crate::goal::Finding,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        criteria: Vec<crate::goal::CriterionCheck>,
+        /// Items whose evidence doesn't hold; they reopen.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rejected: Vec<crate::goal::Rejected>,
+        /// What is still missing, in plain words; the bot's next step reads it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        missing: Vec<String>,
+        #[serde(default)]
+        model: String,
+        #[serde(default)]
+        cost_micros: u64,
+    },
+    /// Retired: a task waiting for a spending cap's reset, as an earlier build stored it. A task
+    /// waits as a wake now (`wake_set {purpose: park}`, ADR 0160). Still read, and ignored: when
+    /// Spade reopens the task is planned again, and parks again if the cap still holds.
+    TaskParked {
+        reason: crate::wake::ParkReason,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        until_ms: Option<i64>,
+        why: String,
+    },
+    /// Retired: a turn waiting for its endpoint, as an earlier build stored it. A turn waits as a
+    /// wake now (`wake_set {purpose: outage}`, ADR 0160). Still read: the open reply stays paused
+    /// across a restart, resumes waiting until `until_ms`, and its `round` counts toward the
+    /// backoff.
+    TurnParked {
+        reply: String,
+        until_ms: i64,
+        round: u32,
+        why: String,
     },
     /// The person pressed Stop, naming what was running then: the open reply and the background
     /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
@@ -297,6 +454,11 @@ pub enum Known {
         /// facts drawn from it are only suggested to the person (ADR 0128).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untrusted: bool,
+        /// The writes this summary lists as already carried out, so the next compaction carries
+        /// them forward instead of walking the whole conversation again. Missing on events from
+        /// before it was stored; the next compaction then walks from the start once.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        carried: Option<CarriedLedger>,
     },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
@@ -336,9 +498,89 @@ pub enum Known {
     GroupStopped {
         run: String,
     },
+    /// The bot will be woken (ADR 0160): at `due_ms`, when `condition` happens, or both (a wait
+    /// with a timeout). Open until a `wake_fired` or `wake_cancelled` names it.
+    WakeSet {
+        wake: String,
+        /// The reply that set it; empty for a retry Spade parked after a reply closed.
+        #[serde(default)]
+        reply: String,
+        purpose: crate::wake::Purpose,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        due_ms: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        condition: Option<crate::wake::Condition>,
+        #[serde(default)]
+        reason: String,
+    },
+    /// A wake fired, once. With a `note` the model reads it like a job's result, so it steers
+    /// an open turn or opens a reply; `data` is untrusted text that came with it (a service's
+    /// line, a thread's title). Without one (a job's end or a message settled it, or a parked
+    /// job runs again) the model reads nothing more.
+    WakeFired {
+        wake: String,
+        cause: crate::wake::Cause,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        note: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        data: Vec<String>,
+    },
+    /// A wake was called off before it fired.
+    WakeCancelled {
+        wake: String,
+        by: crate::wake::CancelledBy,
+    },
+    /// A check-in on a background job still running (ADR 0160): the model reads it like a job's
+    /// result. `tail` is the job's latest output, untrusted.
+    JobProgress {
+        job: String,
+        name: String,
+        check: u32,
+        minutes: u32,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        tail: String,
+    },
+    /// The bot started an owned service (ADR 0160), or Spade started a `keep` one again after a
+    /// restart (`restarts` counts those).
+    ServiceStarted {
+        service: String,
+        name: String,
+        command: String,
+        #[serde(default)]
+        cwd: String,
+        #[serde(default)]
+        keep: bool,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        restarts: u32,
+    },
+    /// An owned service ended.
+    ServiceEnded {
+        service: String,
+        cause: crate::service::Ended,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<i32>,
+    },
+    /// This bot was made as another bot's worker (ADR 0161): the first event of its conversation.
+    /// Its parent, its grants and the brief that starts it.
+    WorkerOf(crate::tree::Link),
+    /// This bot started a worker (ADR 0161): a bot it made, or an ace child of its `delegate`.
+    WorkerStarted(crate::tree::Started),
+    /// A worker of this bot settled (ADR 0161). The model reads it like a job's result.
+    WorkerReported(crate::tree::Report),
+    // `worker_budget` (ADR 0161, removed by ADR 0166) is read as raw data, like `cap_reached`.
+    /// This worker no longer has a parent: its parent was deleted and the person kept it.
+    WorkerDetached {
+        by: String,
+    },
+    /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
+    /// Shown in digests and the activity log; the model reads only its call's result.
+    DecisionMade(crate::decision::Decision),
 }
 
-/// Which of a bot's caps (ADR 0135).
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 /// Why a reply failed, in the few kinds a person can act on (`reply_failed`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -351,7 +593,9 @@ pub enum FailureKind {
     RateLimited,
     /// The model or the endpoint failed while answering, or refused the request.
     Model,
-    /// A spending cap stopped it: the day's, or the turn's own cost limit.
+    /// Retired (ADR 0166): a spending cap ended the reply before its next call, as builds with
+    /// caps stored it. Still read: such a reply counts as finished, so its task carries on, and
+    /// it reaches no one.
     Cap,
     /// Anything else, and any kind a later build adds.
     #[default]
@@ -391,13 +635,6 @@ impl FailureKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CapScope {
-    Daily,
-    Monthly,
-}
-
 /// What the model review decided about a call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -418,6 +655,17 @@ pub struct FromAgent {
     /// The machine it runs on, by name, when that is another machine (ADR 0132).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
+}
+
+/// The helper behind an approval asked in its bot's conversation (ADR 0152).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperAsk {
+    /// The bot's background job the helper runs as (the id of the `helper` call).
+    pub job: String,
+    /// The helper's own hidden conversation.
+    pub conversation: String,
+    /// The call's id in the helper's conversation.
+    pub call_id: String,
 }
 
 /// The group a message came through (ADR 0132), and whether the group's earlier messages that
@@ -612,6 +860,34 @@ impl Event {
             title: title.into(),
         })
     }
+}
+
+/// The "already carried out" list a compaction wrote (ADR 0158): one line per write, newest last.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CarriedLedger {
+    pub writes: Vec<CarriedWrite>,
+    /// Older writes no longer listed one by one, so the list stays bounded over weeks.
+    #[serde(default, skip_serializing_if = "is_none_earlier")]
+    pub earlier: u64,
+}
+
+fn is_none_earlier(n: &u64) -> bool {
+    *n == 0
+}
+
+/// One write in a compaction's "already carried out" list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarriedWrite {
+    pub call_id: String,
+    /// The tool, call id and arguments, trimmed to one line.
+    pub what: String,
+    /// What became of it ("" when done).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    /// Its background job had not ended when this list was written; the next compaction looks
+    /// again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub running: bool,
 }
 
 #[cfg(test)]

@@ -4,18 +4,32 @@
 //! title and last update for the list. Keys are never stored here (ADR 0119).
 
 mod agents;
+mod digests;
 mod endpoints;
+mod episodes;
+mod helpers;
+mod knowledge;
 mod notes;
 mod oversight;
 mod routines;
 mod schema;
+mod seen;
+mod skills;
+mod spend;
 mod teams;
+mod workers;
 
-pub use agents::{Agent, NewAgent};
+pub use agents::{Agent, BOT_RECIPE, NewAgent, recipe_key};
+pub use digests::{DIGESTS, NewDigest, StoredDigest, digests_key};
 pub use endpoints::{StoredEndpoint, StoredModel};
-pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
+pub use episodes::{NewEpisode, StoredEpisode};
+pub use helpers::StoredHelper;
+pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};
+pub use notes::{HistoryMatch, HistoryWindow, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
+pub use skills::{SkillOrigin, SkillUse, StoredSkill};
+pub use spend::{MODEL_ROLES, roles_key};
 pub use teams::{Delivered, Delivery, InboxEntry, OutboxEntry, StoredGroup, StoredMember};
 
 use std::path::Path;
@@ -112,6 +126,9 @@ impl Store {
             "notes",
             "routines",
             "routine_runs",
+            "skills",
+            "skill_uses",
+            "helpers",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
@@ -139,11 +156,13 @@ impl Store {
         Ok(())
     }
 
-    /// Every conversation, most recently updated first.
+    /// Every conversation, most recently updated first. Helpers' hidden conversations
+    /// (ADR 0152) are left out: [`Store::helpers`] lists them.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT id, title, created_ms, updated_ms FROM conversations
+             WHERE id NOT IN (SELECT conversation_id FROM helpers)
              ORDER BY updated_ms DESC, id DESC",
         )?;
         let rows = statement.query_map([], |row| {
@@ -199,6 +218,16 @@ impl Store {
 
     /// The conversation's events numbered after `after`, in order.
     pub fn events(&self, conversation: &str, after: i64) -> Result<Vec<StoredEvent>> {
+        Ok(self.events_weighed(conversation, after)?.0)
+    }
+
+    /// [`Store::events`], with the stored size of what was read in bytes: a measure of what the
+    /// events take in memory, for a reader that keeps them (the engine's running turn).
+    pub fn events_weighed(
+        &self,
+        conversation: &str,
+        after: i64,
+    ) -> Result<(Vec<StoredEvent>, usize)> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT seq, at_ms, body FROM events
@@ -206,15 +235,24 @@ impl Store {
         )?;
         let rows = statement.query_map(params![conversation, after], |row| {
             let body: String = row.get(2)?;
-            Ok(StoredEvent {
+            let bytes = body.len();
+            let stored = StoredEvent {
                 seq: row.get(0)?,
                 at_ms: row.get(1)?,
                 event: Event::from_json(
                     serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
                 ),
-            })
+            };
+            Ok((stored, bytes))
         })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut events = Vec::new();
+        let mut bytes = 0;
+        for row in rows {
+            let (stored, size) = row?;
+            events.push(stored);
+            bytes += size;
+        }
+        Ok((events, bytes))
     }
 
     /// Records what a reply cost.
@@ -245,7 +283,7 @@ impl Store {
 }
 
 /// Appends `events` to `conversation` inside `tx`, numbered after the rest.
-fn append_in(
+pub(crate) fn append_in(
     tx: &rusqlite::Transaction<'_>,
     conversation: &str,
     events: &[Event],

@@ -1,8 +1,8 @@
 import { splitSpadeModel, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { useId, useState } from "react";
+import { SettingCard, SettingRow } from "@/components/setting-row.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { addEndpoint, editAgent, readLiveModels, setKey } from "./spade-api.ts";
@@ -44,6 +44,9 @@ export function SpadeKeySetup(props: { main: { id: string; model: string } }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  const titleId = useId();
+  const keyId = useId();
+  const modelId = useId();
   const data = models.data;
   const current = splitSpadeModel(props.main.model);
   const main = data?.endpoints.find((endpoint) => endpoint.id === current.endpoint);
@@ -117,54 +120,72 @@ export function SpadeKeySetup(props: { main: { id: string; model: string } }) {
     }
   };
   return (
-    <section aria-label="Spade's model" className="mb-6 flex flex-col gap-2 text-ui">
-      <p className="text-muted-foreground">
-        Spade needs a model from an endpoint it can reach to answer.
-      </p>
+    <section aria-labelledby={titleId} className="mb-6 flex max-w-[480px] flex-col gap-4 text-ui">
+      <h2 id={titleId} className="text-lg leading-6 font-semibold">
+        Pick the model Spade answers with
+      </h2>
       {value && (
         <form
-          className="flex flex-wrap items-center gap-1.5"
+          className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
             void save();
           }}
         >
-          <Select label="Endpoint" value={value} options={options} onValueChange={choose} />
-          {endpoint && usable(endpoint) && (
-            <SpadeModelChoice endpoint={endpoint} model={model} onChange={setModel} />
-          )}
-          {needsKey && !keyless && (
-            <Input
-              aria-label="Key"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Paste key"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              disabled={saving}
-              className="w-56"
-            />
+          <SettingCard>
+            <SettingRow title="Endpoint" density="compact" inline>
+              <Select label="Endpoint" value={value} options={options} onValueChange={choose} />
+            </SettingRow>
+            {needsKey && (
+              <SettingRow
+                title="Key"
+                htmlFor={keyId}
+                description={
+                  keyless
+                    ? `This machine has no keychain. Set ${keyVariables(data.presets)} where Spade runs, then turn Spade off and on again.`
+                    : undefined
+                }
+                density="compact"
+              >
+                {!keyless && (
+                  <Input
+                    id={keyId}
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Paste key"
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    disabled={saving}
+                    className="w-56"
+                  />
+                )}
+              </SettingRow>
+            )}
+            {endpoint && usable(endpoint) && (
+              <SettingRow title="Model" htmlFor={modelId} density="compact" inline>
+                <SpadeModelChoice
+                  id={modelId}
+                  endpoint={endpoint}
+                  model={model}
+                  onChange={setModel}
+                />
+              </SettingRow>
+            )}
+          </SettingCard>
+          {error && (
+            <p role="alert" className="text-destructive">
+              {error}
+            </p>
           )}
           {!keyless && (
-            <Button size="sm" type="submit" disabled={saving || (needsKey && !draft.trim())}>
-              {needsKey ? "Save key" : "Use this model"}
-            </Button>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={saving || (needsKey && !draft.trim())}>
+                {needsKey ? "Save key" : "Use this model"}
+              </Button>
+            </div>
           )}
-          <Link to="/settings/spade" className={buttonVariants({ size: "sm", variant: "ghost" })}>
-            Settings
-          </Link>
         </form>
-      )}
-      {keyless && (
-        <p className="text-muted-foreground">
-          {`This machine has no keychain for Spade to keep keys in. Set ${keyVariables(data.presets)} where Spade runs, then turn Spade off and on again.`}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="text-destructive">
-          {error}
-        </p>
       )}
     </section>
   );

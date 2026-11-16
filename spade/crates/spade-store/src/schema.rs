@@ -138,6 +138,47 @@ const MIGRATIONS: &[Migration] = &[
               UPDATE routines SET untrusted = 1 WHERE created_by IS NOT 'person';",
         backfill: None,
     },
+    Migration {
+        // ADR 0151: Spade's own skill store, and how each bot used each skill.
+        sql: crate::skills::SCHEMA,
+        backfill: None,
+    },
+    Migration {
+        // ADR 0152: helpers' hidden conversations.
+        sql: crate::helpers::SCHEMA,
+        backfill: None,
+    },
+    Migration {
+        // How far the person has read each conversation, for "finished, not seen".
+        sql: crate::seen::SCHEMA,
+        backfill: None,
+    },
+    Migration {
+        // Pins: when the person pinned a bot or a group to the top of their list.
+        sql: "ALTER TABLE agents ADD COLUMN pinned_ms INTEGER;
+              ALTER TABLE groups ADD COLUMN pinned_ms INTEGER;",
+        backfill: None,
+    },
+    Migration {
+        // ADR 0162: what each call was for, so spend shows by role.
+        sql: crate::spend::SCHEMA,
+        backfill: None,
+    },
+    Migration {
+        // ADR 0165: digests, beside each bot's conversation.
+        sql: crate::digests::SCHEMA,
+        backfill: None,
+    },
+    Migration {
+        // ADR 0164: knowledge bases, their links, and episodes of closed goals.
+        sql: crate::knowledge::SCHEMA,
+        backfill: Some(crate::episodes::create),
+    },
+    Migration {
+        // ADR 0166: no spending caps; their settings go.
+        sql: crate::oversight::NO_CAPS,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

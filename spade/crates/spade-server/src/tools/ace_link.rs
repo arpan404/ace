@@ -18,7 +18,8 @@ use super::{
     AceLibrary, LibraryFuture, SkillLibrary, SkillSource, Tool, ToolSource, WriteError, WriteFuture,
 };
 
-/// ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
+/// ace's `wait` can block for up to ten minutes: a transport timeout just past that. A call
+/// still running after the engine's foreground window carries on as a background job.
 const CALL_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 
 /// How often a live connection is checked by default (a ping on the MCP session), so a daemon
@@ -495,6 +496,48 @@ impl ToolSource for AceLink {
 
 const AWAY: &str = "ace is not running, or Spade is not connected to it yet";
 
+/// The person's accepted plugins through the daemon (ADR 0151).
+impl crate::plugins::Daemon for AceLink {
+    fn installed(
+        &self,
+    ) -> crate::plugins::BoxFuture<'_, Result<Vec<spade_ace::plugins::Installed>, String>> {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            skills.plugins().await.map_err(|e| e.to_string())
+        })
+    }
+
+    fn plugin<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> crate::plugins::BoxFuture<'a, Result<spade_ace::plugins::SpadePlugin, String>> {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            skills
+                .plugin_for_spade(name)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+
+    fn file<'a>(
+        &'a self,
+        name: &'a str,
+        path: &'a str,
+    ) -> crate::plugins::BoxFuture<'a, Result<Vec<u8>, String>> {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            skills
+                .plugin_file(name, path)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
 /// Each bot's browser and screen through the daemon (ADR 0142).
 impl crate::computer::daemon::Daemon for AceLink {
     fn drive<'a>(
@@ -605,6 +648,13 @@ impl SkillLibrary for AceLink {
             Some(library) => library.edit(base, description, body),
             None => Box::pin(async { Err(WriteError::Unavailable(AWAY.to_owned())) }),
         }
+    }
+}
+
+/// The store mirrors ace's library while connected (ADR 0151).
+impl crate::skill_store::Upstream for AceLink {
+    fn library(&self) -> Option<Arc<AceSkills>> {
+        self.skills()
     }
 }
 

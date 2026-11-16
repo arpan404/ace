@@ -59,6 +59,15 @@ struct State {
     redirect_calls: Mutex<Option<String>>,
     /// While true, every request is accepted and never answered.
     hang: std::sync::atomic::AtomicBool,
+    /// Whether the children `delegate` started have finished; until then `wait` times out.
+    children_done: std::sync::atomic::AtomicBool,
+    /// Every call a handler ran: its tool and arguments.
+    ran: Mutex<Vec<(String, serde_json::Value)>>,
+    /// While true, `agent_cancel` answers an error, as ace does when it can't cancel a thread.
+    refuse_cancels: std::sync::atomic::AtomicBool,
+    /// While true, `delegate` starts two children and answers as a wait for any: `t1` done, `t2`
+    /// still working.
+    two_children: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -86,6 +95,10 @@ impl FakeMcp {
             hold: tokio::sync::watch::channel(false).0,
             redirect_calls: Mutex::new(None),
             hang: std::sync::atomic::AtomicBool::new(false),
+            children_done: std::sync::atomic::AtomicBool::new(false),
+            refuse_cancels: std::sync::atomic::AtomicBool::new(false),
+            two_children: std::sync::atomic::AtomicBool::new(false),
+            ran: Mutex::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -163,6 +176,22 @@ impl FakeMcp {
         self.state.hold.send_replace(false);
     }
 
+    /// From now on `delegate` starts two children and returns once the first is done, the other
+    /// still working, as a wait for any does.
+    pub fn two_children(&self) {
+        self.state.two_children.store(true, Ordering::SeqCst);
+    }
+
+    /// From now on `agent_cancel` fails (`true`) or works (`false`).
+    pub fn refuse_cancels(&self, refuse: bool) {
+        self.state.refuse_cancels.store(refuse, Ordering::SeqCst);
+    }
+
+    /// The children `delegate` started finish: the next `wait` is ready.
+    pub fn settle_children(&self) {
+        self.state.children_done.store(true, Ordering::SeqCst);
+    }
+
     /// Answers every `tools/call` POST with a 307 to `url`.
     pub fn redirect_calls_to(&self, url: String) {
         *lock(&self.state.redirect_calls) = Some(url);
@@ -181,6 +210,11 @@ impl FakeMcp {
     /// Calls a tool handler actually ran.
     pub fn tool_runs(&self) -> usize {
         self.state.tool_runs.load(Ordering::SeqCst)
+    }
+
+    /// Every call a handler ran, in order: its tool and arguments.
+    pub fn ran(&self) -> Vec<(String, serde_json::Value)> {
+        lock(&self.state.ran).clone()
     }
 
     pub fn request_headers(&self) -> Vec<HeaderMap> {
@@ -391,6 +425,10 @@ impl ServerHandler for Fake {
     ) -> Result<CallToolResponse, ErrorData> {
         self.0.tool_runs.fetch_add(1, Ordering::SeqCst);
         let args = request.arguments.clone().unwrap_or_default();
+        lock(&self.0.ran).push((
+            request.name.to_string(),
+            serde_json::Value::Object(args.clone()),
+        ));
         let result = match request.name.as_ref() {
             // Answers whom the call named itself as made for (`_meta` `ace/acting-for`).
             "whoami" => {
@@ -425,6 +463,55 @@ impl ServerHandler for Fake {
                 json!({ "code": "person_busy",
                         "message": "the person is using this tab; nothing was done" })
                 .to_string(),
+            )]),
+            // ace's own: one child, still working until the test settles it; each wait answers
+            // `timeout` meanwhile, as ace does after `timeoutSeconds`.
+            "delegate" if self.0.two_children.load(Ordering::SeqCst) => {
+                let wait = json!({
+                    "status": "ready",
+                    "mode": "any",
+                    "threads": [
+                        { "threadId": "t1", "state": "done", "title": "One", "elapsedSeconds": 1,
+                          "result": "Done." },
+                        { "threadId": "t2", "state": "working", "title": "Two", "elapsedSeconds": 1,
+                          "result": "" },
+                    ],
+                });
+                CallToolResult::success(vec![ContentBlock::text(
+                    json!({ "ok": true, "data": { "threadIds": ["t1", "t2"], "wait": wait } })
+                        .to_string(),
+                )])
+            }
+            "delegate" | "wait" => {
+                if request.name.as_ref() == "wait" {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let done = self.0.children_done.load(Ordering::SeqCst);
+                let wait = json!({
+                    "status": if done { "ready" } else { "timeout" },
+                    "mode": "all",
+                    "threads": [{ "threadId": "t1", "state": if done { "done" } else { "working" },
+                                  "title": "Fix the bug", "elapsedSeconds": 1,
+                                  "result": if done { "Fixed the bug." } else { "" } }],
+                });
+                let data = if request.name.as_ref() == "delegate" {
+                    json!({ "threadIds": ["t1"], "wait": wait })
+                } else {
+                    wait
+                };
+                CallToolResult::success(vec![ContentBlock::text(
+                    json!({ "ok": true, "data": data }).to_string(),
+                )])
+            }
+            "agent_cancel" if self.0.refuse_cancels.load(Ordering::SeqCst) => {
+                CallToolResult::error(vec![ContentBlock::text(
+                    json!({ "ok": false, "error": "the thread could not be cancelled now" })
+                        .to_string(),
+                )])
+            }
+            // ace's own: a child is messaged or cancelled.
+            "agent_message" | "agent_cancel" => CallToolResult::success(vec![ContentBlock::text(
+                json!({ "ok": true, "data": {} }).to_string(),
             )]),
             "slow" => {
                 tokio::time::sleep(Duration::from_secs(30)).await;

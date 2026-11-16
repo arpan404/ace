@@ -12,14 +12,6 @@ const agent = (fields: Record<string, unknown>) =>
     ...fields,
   });
 
-describe("access levels", () => {
-  test("a bot from before access levels has none, and one it doesn't know reads as none", () => {
-    expect(agent({})?.access).toBeUndefined();
-    expect(agent({ access: "root" })?.access).toBeUndefined();
-    expect(agent({ access: "full_access" })?.access).toBe("full_access");
-  });
-});
-
 describe("a task that carries on", () => {
   test("a bot carrying on by itself says it is working on it, with its step", () => {
     const bot = agent({

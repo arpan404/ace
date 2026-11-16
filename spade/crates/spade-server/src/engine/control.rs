@@ -14,15 +14,22 @@ impl Engine {
     /// Stops the open turn and the conversation's background jobs. Returns whether anything was
     /// running.
     ///
-    /// The stop is stored first: the turn's worker, job starts, job results and restart recovery
-    /// all honour it. If storing it fails, everything running is still stopped now, the stop is
+    /// The stop is stored first: the turn's worker, job starts, job results, wakes, services and
+    /// restart recovery all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
+        // Its workers and ace children stop with it (ADR 0161).
+        let under = self.stop_workers(id);
+        // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
+        let woke = self.stop_wakes(id) || under;
         let live = self.live(id);
         // What runs is read, a task's waiting step (ADR 0144) called off and the stop stored
         // under the one lock work starts under: no turn, job or step can begin between the
         // look and the marker, and anything that begins after it sees the stop.
         let (loaded, reply, jobs, pending, stored) = {
+            // The job list before the record lock, the order a job start takes them in
+            // (jobs::start), so a start and a stop at once never wait on each other.
+            let live_jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let worker = live
                 .stop
@@ -30,15 +37,10 @@ impl Engine {
                 .unwrap_or_else(|p| p.into_inner())
                 .as_ref()
                 .map(|(reply, _)| reply.clone());
-            let running_jobs: Vec<String> = live
-                .jobs
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .keys()
-                .cloned()
-                .collect();
+            let running_jobs: Vec<String> = live_jobs.keys().cloned().collect();
+            drop(live_jobs);
             // From storage and from memory, so a read failure still stops what runs.
-            let loaded = self.load(id).map(|events| Transcript::fold(&events));
+            let loaded = self.load(id).map(|events| Transcript::fold(events.iter()));
             let pending = self.drop_continuation(id);
             let (open, mut jobs, busy) = match &loaded {
                 Ok(t) => (
@@ -55,7 +57,7 @@ impl Engine {
                 }
             }
             if !busy && reply.is_none() && jobs.is_empty() && !pending {
-                return loaded.map(|_| false);
+                return loaded.map(|_| woke);
             }
             // The stop names what it stops, so a late write never reaches newer work.
             let marker = Event::Known(Known::StopRequested {
@@ -71,6 +73,10 @@ impl Engine {
             }
             (loaded, reply, jobs, pending, stored)
         };
+        // A wake, service or worker the stopped work stored before the marker, after the first
+        // sweep, ends too. One stored after the marker was refused (each is admitted under the
+        // record lock), so once Stop returns none from the stopped work exists.
+        let woke = self.stop_workers(id) | self.stop_wakes(id) || woke;
         // Then the workers are told.
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
@@ -85,13 +91,15 @@ impl Engine {
         // Only what the stop names: another worker may have closed the reply and started a new
         // one, with jobs of its own, since the stop was stored.
         let stopped_jobs = jobs::stop_named(self, id, reply.as_deref(), &jobs);
+        // The helpers those jobs ran stop too, and no queued one starts (ADR 0152).
+        self.stop_helpers(id, reply.as_deref(), &jobs);
         // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.
         if !turn && reply.is_some() && stored.is_ok() {
             self.spawn_turn(id);
         }
         loaded?;
         stored?;
-        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending)
+        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending || woke)
     }
 
     /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and
@@ -105,7 +113,8 @@ impl Engine {
         close: &Event,
     ) -> Result<(), StoreError> {
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let mut events = self.load(id)?;
+        // Once per reply: a copy is fine here.
+        let mut events = Arc::unwrap_or_clone(self.load(id)?);
         events.push(close.clone());
         // While closed for an update nothing new starts; reopening answers what is left.
         let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst) && !self.held(id);
@@ -127,12 +136,33 @@ impl Engine {
         reply: &str,
         event: &Event,
     ) -> Result<bool, StoreError> {
+        self.record_all_unless_stopped(id, reply, std::slice::from_ref(event))
+    }
+
+    /// [`Engine::record_unless_stopped`] for events stored together.
+    pub(super) fn record_all_unless_stopped(
+        &self,
+        id: &str,
+        reply: &str,
+        events: &[Event],
+    ) -> Result<bool, StoreError> {
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         if stop_requested(&self.load(id)?, reply) {
             return Ok(false);
         }
-        self.append(id, event)?;
+        self.append_events(id, events)?;
         Ok(true)
+    }
+
+    /// Sets the bot of `conversation` to run its commands outside the sandbox.
+    fn run_commands_outside(&self, conversation: &str) {
+        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
+            return;
+        };
+        if let Err(error) = security.set_commands(&agent, Some(crate::security::Commands::Outside))
+        {
+            tracing::warn!(%error, %agent, "the bot's commands setting could not be changed");
+        }
     }
 
     /// Answers an approval the open turn is waiting on.
@@ -148,7 +178,27 @@ impl Engine {
         }
         // Check and answer under one lock, so two answers to one approval cannot both land.
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let transcript = Transcript::fold(&self.load(id)?);
+        let events = self.load(id)?;
+        let transcript = Transcript::fold(events.iter());
+        let awaited = transcript.awaiting.iter().any(|c| c == call_id)
+            || transcript.helper_awaiting.iter().any(|(c, _)| c == call_id);
+        // "Always for this bot" on a request to run outside the sandbox: the bot's commands run
+        // outside it from now on, each reviewed (ADR 0171).
+        if awaited && allowed && always && asks_outside(&events, call_id) {
+            self.run_commands_outside(id);
+        }
+        // A request Spade asked for a reason of its own (outside the sandbox, a tool that
+        // declares nothing) is answered for this call only: its "always" is kept elsewhere (the
+        // bot's setting, the answer for the tool), never as an Always allow that would let the
+        // same command or tool run unreviewed later.
+        let always = always && !asked_for_a_reason(&events, call_id);
+        if transcript.helper_awaiting.iter().any(|(c, _)| c == call_id) {
+            // A helper's call (ADR 0152): the answer reaches the helper.
+            self.answer_for_helper(id, &events, call_id, allowed, always)?;
+            drop(_order);
+            self.announce(id);
+            return Ok(());
+        }
         if !transcript.awaiting.iter().any(|c| c == call_id) {
             return Err(AnswerError::NotAwaiting);
         }
@@ -168,4 +218,22 @@ impl Engine {
         self.live(id).wake.notify_one();
         Ok(())
     }
+}
+
+/// Whether the request `call_id` was asked for a reason of Spade's own (`ask`).
+fn asked_for_a_reason(events: &[Event], call_id: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(event, Event::Known(Known::ApprovalRequested {
+            call_id: c, ask: Some(_), ..
+        }) if c == call_id)
+    })
+}
+
+/// Whether the request `call_id` asked to run a command outside the sandbox.
+fn asks_outside(events: &[Event], call_id: &str) -> bool {
+    events.iter().any(|event| {
+        matches!(event, Event::Known(Known::ApprovalRequested {
+            call_id: c, ask: Some(spade_core::effect::Ask::OutsideSandbox), ..
+        }) if c == call_id)
+    })
 }

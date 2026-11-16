@@ -1,4 +1,4 @@
-//! What replies cost and whether today's cap allows another.
+//! What replies cost. Information only: nothing stops on it (ADR 0166).
 
 use spade_models::{Price, Usage};
 
@@ -44,11 +44,6 @@ pub fn usd_to_micros(usd: f64) -> u64 {
     } else {
         0
     }
-}
-
-/// Whether another reply may start after `spent` today, under `cap`.
-pub fn within_cap(spent_micros: u64, cap_micros: u64) -> bool {
-    spent_micros < cap_micros
 }
 
 /// The start of the local day containing `now_ms`, for a clock `offset_seconds` east of UTC.
@@ -159,13 +154,6 @@ mod tests {
             ..Usage::default()
         };
         assert_eq!(cost_micros(Some(price), &usage), 2_000);
-    }
-
-    #[test]
-    fn the_cap_blocks_once_reached() {
-        let cap = usd_to_micros(5.0);
-        assert!(within_cap(4_999_999, cap));
-        assert!(!within_cap(5_000_000, cap));
     }
 
     #[test]

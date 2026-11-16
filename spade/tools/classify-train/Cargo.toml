@@ -1,0 +1,16 @@
+[package]
+name = "classify-train"
+version = "0.1.0"
+description = "Builds the data for Spade's tool-call classifier, trains it and writes its int8 weights (ADR 0172). Offline; no network, no models."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+spade-classify = { path = "../../crates/spade-classify" }
+spade-core = { path = "../../crates/spade-core" }
+
+[lints]
+workspace = true

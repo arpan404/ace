@@ -2,7 +2,7 @@ import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -13,6 +13,12 @@ function seed(spade: FakeSpadeApi) {
   withEndpoint(spade);
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   return spade.addAgent({ id: "scout", name: "Scout" });
+}
+
+/** Scout at work in its terminal. */
+function usingTerminal(spade: FakeSpadeApi) {
+  seed(spade);
+  spade.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
 }
 
 /** Scout at work in its browser. */
@@ -49,20 +55,41 @@ function phoneWindow(width = 390) {
   });
 }
 
-test("a live tile is pinned above the chat while the bot uses its browser, and goes when it stops", async () => {
-  const { spade } = await spadeApp("/spade/scout", seed);
-  await screen.findByRole("combobox", { name: "Message Scout" });
-  expect(screen.queryByRole("region", { name: /live$/ })).toBeNull();
+test("Computer shows only the surfaces the bot has used, its live one marked, with no tile in the chat", async () => {
+  const { spade } = await spadeApp("/spade/scout?profile=computer", seed);
+  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  // Never used: one line, and no switcher.
+  await profile.findByText("Scout hasn't used its computer yet.");
+  expect(profile.queryByRole("tablist", { name: "Computer" })).toBeNull();
 
   spade.computer.use("scout", { kind: "browser", live: true, title: "Hotels", url: staybook });
-  const tile = await screen.findByRole("region", { name: "Browser · staybook.com, live" });
-  expect(within(tile).getByText("Hotels")).toBeTruthy();
+  const tabs = await profile.findByRole("tablist", { name: "Computer" });
+  await waitFor(() =>
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["Browser, in use", "Activity"]),
+  );
+  expect(screen.queryByRole("region", { name: /live$/ })).toBeNull();
+  expect(profile.getByText("Scout's browser")).toBeTruthy();
 
+  // Done with it, it stays listed as used, no longer live.
   spade.computer.use("scout", { kind: "browser", live: false, title: null, url: staybook });
-  await waitFor(() => expect(screen.queryByRole("region", { name: /live$/ })).toBeNull());
+  await within(tabs).findByRole("tab", { name: "Browser" });
 });
 
-test("Hide puts the tile away until Watch on the working line brings it back", async () => {
+test("while the computer starts, Computer says it is waking up", async () => {
+  const { spade } = await spadeApp("/spade/scout?profile=computer", seed);
+  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  await profile.findByText("Scout hasn't used its computer yet.");
+  spade.computer.waking("scout", true);
+  await profile.findByText("Waking up…");
+  spade.computer.waking("scout", false);
+  await profile.findByText("Scout hasn't used its computer yet.");
+});
+
+test("Watch on the working line opens the panel on what the bot uses, without taking over", async () => {
   const { spade } = await spadeApp("/spade/scout", (api) => {
     const scout = seed(api);
     api.store(scout.conversation, { type: "user_message", text: "Find a hotel." });
@@ -70,55 +97,65 @@ test("Hide puts the tile away until Watch on the working line brings it back", a
     api.status(scout, "working", "Comparing hotels");
     api.computer.use("scout", { kind: "browser", live: true, title: "Hotels", url: staybook });
   });
-  const tile = await screen.findByRole("region", { name: /live$/ });
-  await userEvent.click(within(tile).getByRole("button", { name: "Hide" }));
-  expect(screen.queryByRole("region", { name: /live$/ })).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Watch" }));
-  await screen.findByRole("region", { name: /live$/ });
-  expect(spade.requests.some((request) => request.path.includes("take-over"))).toBe(false);
-});
-
-test("Expand gives the computer the main column with the chat docked beside it, Chat hides the dock, and collapsing goes back", async () => {
-  await spadeApp("/spade/scout", browsing);
-  const tile = await screen.findByRole("region", { name: /live$/ });
-  await userEvent.click(within(tile).getByRole("button", { name: "Expand" }));
-
   const tabs = await screen.findByRole("tablist", { name: "Computer" });
   expect(
     within(tabs)
-      .getAllByRole("tab")
-      .map((tab) => tab.textContent),
-  ).toEqual([expect.stringMatching(/^Browser/), "Files"]);
-  expect(
-    within(tabs)
-      .getByRole("tab", { name: /Browser/ })
+      .getByRole("tab", { name: /^Browser/ })
       .getAttribute("aria-selected"),
   ).toBe("true");
+  // Open, Watch has nothing more to show.
+  expect(screen.queryByRole("button", { name: "Watch" })).toBeNull();
+  expect(spade.requests.some((request) => request.path.includes("take-over"))).toBe(false);
+});
+
+test("the profile opens beside the chat, and opens again on the tab and view left for that bot", async () => {
+  await spadeApp("/spade/scout", (api) => {
+    browsing(api);
+    api.addAgent({ id: "mail", name: "Mail" });
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Open Scout's profile" }));
+  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  expect(profile.getByRole("tab", { name: "Details" }).getAttribute("aria-selected")).toBe("true");
+  // The chat stays beside it.
+  expect(screen.getByRole("combobox", { name: "Message Scout" })).toBeTruthy();
+  await userEvent.click(profile.getByRole("tab", { name: "Computer" }));
+  const tabs = await profile.findByRole("tablist", { name: "Computer" });
   expect(screen.getByLabelText("Address").textContent).toContain("staybook.com");
-  const dock = screen.getByRole("complementary", { name: "Chat with Scout" });
-  expect(within(dock).getByRole("combobox", { name: "Message Scout" })).toBeTruthy();
+  await userEvent.click(within(tabs).getByRole("tab", { name: "Activity" }));
 
-  await userEvent.click(screen.getByRole("button", { name: "Chat" }));
-  expect(screen.queryByRole("complementary", { name: "Chat with Scout" })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Chat" }));
-  await screen.findByRole("complementary", { name: "Chat with Scout" });
+  // Another bot's profile is its own; back at Scout's, it is open where it was left.
+  await userEvent.click(await botRow("Mail"));
+  await screen.findByRole("feed", { name: "Conversation with Mail" });
+  expect(screen.queryByRole("region", { name: "Scout's profile" })).toBeNull();
+  await userEvent.click(await botRow("Scout"));
+  const again = await screen.findByRole("tablist", { name: "Computer" });
+  await waitFor(() =>
+    expect(within(again).getByRole("tab", { name: "Activity" }).getAttribute("aria-selected")).toBe(
+      "true",
+    ),
+  );
 
-  await userEvent.click(screen.getByRole("button", { name: "Back to the chat" }));
-  await waitFor(() => expect(screen.queryByRole("tablist", { name: "Computer" })).toBeNull());
-  await screen.findByRole("region", { name: /live$/ });
+  // Closed, it stays closed when Scout's chat opens again.
+  await userEvent.click(screen.getByRole("button", { name: "Close profile" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Scout's profile" })).toBeNull());
+  await userEvent.click(await botRow("Mail"));
+  await screen.findByRole("feed", { name: "Conversation with Mail" });
+  await userEvent.click(await botRow("Scout"));
+  await screen.findByRole("feed", { name: "Conversation with Scout" });
+  expect(screen.queryByRole("region", { name: "Scout's profile" })).toBeNull();
 });
 
 test("Take over tells Spade the person has it alone, and Hand back shares the computer again", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=browser", browsing);
-  await screen.findByText("Scout is working here");
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
-  await screen.findByText(/Scout is paused\./);
-  expect(screen.getByRole("status").textContent).toContain("You have it.");
+  await screen.findByText("Scout is using the browser");
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  await screen.findByText("You have the browser");
   expect(spade.sent("POST", "/v1/agents/scout/computer/take-over")).toHaveLength(1);
   expect(spade.computer.driver("scout")).toBe("person");
 
   await userEvent.click(screen.getByRole("button", { name: "Hand back" }));
-  await screen.findByText("Scout is working here");
+  await screen.findByText("Scout is using the browser");
   expect(spade.sent("POST", "/v1/agents/scout/computer/hand-back")).toHaveLength(1);
   expect(spade.computer.driver("scout")).toBe("bot");
 });
@@ -154,16 +191,17 @@ test("the person types in the bot's terminal without taking over, and sees the s
 test("after Take over the terminal waits for the bot's work to stop before taking keys", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
     seed(api);
+    api.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
     api.computer.stopping("scout", true);
   });
   const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
   const input = await within(panel).findByRole("textbox", { name: "Scout's input" });
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
   await screen.findByText("Stopping Scout…");
   expect((input as HTMLTextAreaElement).disabled).toBe(true);
 
   spade.computer.stopping("scout", false);
-  await screen.findByText(/Scout is paused\./);
+  await screen.findByText("You have the terminal");
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
 });
 
@@ -230,29 +268,7 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
   );
 });
 
-test("a request waits above the composer saying who it goes to and what, and Send lets it go", async () => {
-  const { spade } = await spadeApp("/spade/scout", (api) => {
-    const scout = seed(api);
-    api.ask(scout, "k-mail", "send_email", {
-      to: { name: "Marta Reyes" },
-      body: "Hi Marta, Thursday works.",
-    });
-  });
-  const request = await screen.findByRole("group", {
-    name: "Scout wants to send an email to Marta Reyes",
-  });
-  expect(within(request).getByText("Hi Marta, Thursday works.")).toBeTruthy();
-  // Nothing more about the wait in the chat itself.
-  expect(within(screen.getByRole("feed")).queryByText("Waiting for you")).toBeNull();
-  await userEvent.click(within(request).getByRole("button", { name: "Send" }));
-  await waitFor(() =>
-    expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k-mail")).toEqual([
-      { allowed: true, always: false },
-    ]),
-  );
-});
-
-test("the bot's name opens its own page with its computer, routines, memory, files, activity and spending", async () => {
+test("the profile holds the bot's routines and spending in Details, its notes and files in Library, and what it used in Computer", async () => {
   await spadeApp("/spade/scout", (api) => {
     seed(api);
     api.computer.use("scout", {
@@ -269,46 +285,38 @@ test("the bot's name opens its own page with its computer, routines, memory, fil
     api.notes.add({ text: "Home airport is OPO", agent: "scout", scope: "agent", source: "bot" });
     api.files.set("scout", { "fares.csv": "date,price\n" });
     const scout = api.agents.find((agent) => agent.id === "scout");
-    if (scout)
-      scout.spending = {
-        today_micros: 180_000,
-        month_micros: 1_240_000,
-        daily_cap_micros: 1_000_000,
-        monthly_cap_micros: null,
-        capped: null,
-        resets_at: null,
-      };
+    if (scout) scout.spending = { today_micros: 180_000, month_micros: 1_240_000 };
   });
-  await userEvent.click(await screen.findByRole("link", { name: /^Scout on .*open its page$/ }));
-  for (const section of ["Computer", "Routines", "Memory", "Files", "Activity", "Spending"])
-    await screen.findByRole("heading", { name: section });
-  const routines = screen.getByRole("heading", { name: "Routines" }).closest("section");
+  await openProfile("Scout");
+  const profile = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  for (const section of ["Task", "Runs with", "Routines", "Apps", "Spending"])
+    await profile.findByRole("heading", { name: section });
+  const routines = profile.getByRole("heading", { name: "Routines" }).closest("section");
   await waitFor(() => expect(routines?.textContent).toContain("Fare check"));
-  expect(await screen.findByText("Home airport is OPO")).toBeTruthy();
-  expect(await screen.findByText("fares.csv")).toBeTruthy();
-  expect(screen.getByText("$1.24")).toBeTruthy();
+  expect(profile.getByText("$1.24")).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Open Terminal" }));
-  const tabs = await screen.findByRole("tablist", { name: "Computer" });
-  expect(
-    within(tabs)
-      .getByRole("tab", { name: /Terminal/ })
-      .getAttribute("aria-selected"),
-  ).toBe("true");
+  await userEvent.click(profile.getByRole("tab", { name: "Library" }));
+  expect(await profile.findByText("Home airport is OPO")).toBeTruthy();
+  await userEvent.click(await profile.findByRole("button", { name: /fares\.csv/ }));
+  // A file opens in Computer's Files, beside what else it used.
+  const tabs = await profile.findByRole("tablist", { name: "Computer" });
+  expect(within(tabs).getByRole("tab", { name: "Files" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
+  expect(within(tabs).getByRole("tab", { name: "Terminal" })).toBeTruthy();
 });
 
-test("on a phone the list is its own screen, and the computer fills the screen with ‹ Chat back", async () => {
+test("on a phone the profile takes the window, with Chat to go back", async () => {
   phoneWindow();
   await spadeApp("/spade", browsing);
   await userEvent.click(await botRow("Scout"));
-  const tile = await screen.findByRole("region", { name: /live$/ });
-  await userEvent.click(within(tile).getByRole("button", { name: "Expand" }));
-  await screen.findByRole("tablist", { name: "Computer" });
-  // Full screen: no chat beside it.
-  expect(screen.queryByRole("complementary", { name: "Chat with Scout" })).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: "Scout: open its profile" }));
+  await screen.findByRole("region", { name: "Scout's profile" });
+  // The chat is under it, out of reach.
   expect(screen.queryByRole("combobox", { name: "Message Scout" })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Chat" }));
+  await userEvent.click(screen.getByRole("button", { name: "Back to chat" }));
   await screen.findByRole("combobox", { name: "Message Scout" });
+  expect(screen.queryByRole("region", { name: "Scout's profile" })).toBeNull();
 });
 
 test("handing back leaves one quiet line in the chat, with what changed behind a disclosure as plain text", async () => {
@@ -336,13 +344,14 @@ test("handing back leaves one quiet line in the chat, with what changed behind a
 test("Take over gives the controls only once Spade itself says the bot's work has stopped", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
     seed(api);
+    api.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
     api.computer.stopping("scout", true);
   });
   const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
   const input = await within(panel).findByRole("textbox", { name: "Scout's input" });
   // No frame follows the take-over: only Spade's answer to reading the computer counts.
   spade.computer.quiet = true;
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
   await waitFor(() =>
     expect(
       spade.requests.filter(
@@ -394,11 +403,11 @@ test("while a take-over is on its way, files can be read and downloaded but ever
 
 test("the status says the bot waits for the person while their input makes it yield", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=browser", browsing);
-  await screen.findByText("Scout is working here");
+  await screen.findByText("Scout is using the browser");
   spade.computer.personActive("scout", "browser", true);
   await screen.findByText("Scout is waiting for you");
   spade.computer.personActive("scout", "browser", false);
-  await screen.findByText("Scout is working here");
+  await screen.findByText("Scout is using the browser");
 });
 
 test("words typed while a file saves stay as the draft", async () => {
@@ -418,14 +427,14 @@ test("words typed while a file saves stay as the draft", async () => {
   expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
-test("Take over on the tile says the person has it, with Hand back", async () => {
-  const { spade } = await spadeApp("/spade/scout", browsing);
-  const tile = await screen.findByRole("region", { name: /live$/ });
-  await userEvent.click(within(tile).getByRole("button", { name: "Take over" }));
-  await within(tile).findByText("You have it");
-  expect(within(tile).queryByRole("button", { name: "Take over" })).toBeNull();
-  await userEvent.click(within(tile).getByRole("button", { name: "Hand back" }));
-  await within(tile).findByRole("button", { name: "Take over" });
+test("Take over in the profile says the person has it, with Hand back", async () => {
+  const { spade } = await spadeApp("/spade/scout?profile=computer", browsing);
+  const panel = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  await userEvent.click(await panel.findByRole("button", { name: "Take over" }));
+  await panel.findByText("You have the browser");
+  expect(panel.queryByRole("button", { name: "Take over" })).toBeNull();
+  await userEvent.click(panel.getByRole("button", { name: "Hand back" }));
+  await panel.findByRole("button", { name: "Take over" });
   expect(spade.computer.driver("scout")).toBe("bot");
 });
 
@@ -442,8 +451,9 @@ test("while the person drives, the bot reads as paused, with no clock and no Sto
   await feed.findByText("Comparing hotels");
   expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
 
-  const tile = await screen.findByRole("region", { name: /live$/ });
-  await userEvent.click(within(tile).getByRole("button", { name: "Take over" }));
+  await userEvent.click(screen.getByRole("button", { name: "Watch" }));
+  const panel = within(await screen.findByRole("region", { name: "Scout's profile" }));
+  await userEvent.click(await panel.findByRole("button", { name: "Take over" }));
   const line = await feed.findByRole("status");
   await waitFor(() => expect(line.textContent).toBe("Paused while you have the computer"));
   expect(feed.queryByText("Comparing hotels")).toBeNull();
@@ -459,13 +469,13 @@ const reads = (spade: FakeSpadeApi) =>
   ).length;
 
 test("a read of the computer that lands after the stream dropped gives no controls", async () => {
-  const { app, spade } = await spadeApp("/spade/scout?computer=terminal", seed);
+  const { app, spade } = await spadeApp("/spade/scout?computer=terminal", usingTerminal);
   const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
   const input = await within(panel).findByRole<HTMLTextAreaElement>("textbox", {
     name: "Scout's input",
   });
   const release = spade.computer.holdReads();
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
   await waitFor(() => expect(reads(spade)).toBe(1));
   // The stream drops while the read is out, and can't come back while Spade is away.
   app.daemon.spade.status = { state: "starting" };
@@ -495,13 +505,13 @@ test("in cowork the person's keys stop once the stream drops, and come back with
 });
 
 test("a slow read never overwrites a newer state from the stream", async () => {
-  const { spade } = await spadeApp("/spade/scout?computer=terminal", seed);
+  const { spade } = await spadeApp("/spade/scout?computer=terminal", usingTerminal);
   const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
   const input = await within(panel).findByRole<HTMLTextAreaElement>("textbox", {
     name: "Scout's input",
   });
   const release = spade.computer.holdReads();
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
   // Read while the bot had stopped; then, before it lands, Spade says the bot is stopping.
   await waitFor(() => expect(reads(spade)).toBe(1));
   spade.computer.stopping("scout", true);

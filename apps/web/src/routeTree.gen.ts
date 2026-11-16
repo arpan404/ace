@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from "./routes/__root"
 import { Route as HomeRouteImport } from "./routes/_home"
 import { Route as AutomationsRouteImport } from "./routes/automations"
+import { Route as MarketplaceRouteImport } from "./routes/marketplace"
 import { Route as PairRouteImport } from "./routes/pair"
 import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
@@ -27,6 +28,10 @@ import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as HomePullsRouteImport } from "./routes/_home.pulls"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
 import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
+import { Route as MarketplaceIndexRouteImport } from "./routes/marketplace.index"
+import { Route as MarketplaceCatalogsRouteImport } from "./routes/marketplace.catalogs"
+import { Route as MarketplaceInstalledRouteImport } from "./routes/marketplace.installed"
+import { Route as MarketplaceUpdatesRouteImport } from "./routes/marketplace.updates"
 import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
 import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
 import { Route as SettingsAgentsRouteImport } from "./routes/settings.agents"
@@ -42,28 +47,37 @@ import { Route as SettingsProfileRouteImport } from "./routes/settings.profile"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
 import { Route as SettingsSimulatorsRouteImport } from "./routes/settings.simulators"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
-import { Route as SettingsSpadeRouteImport } from "./routes/settings.spade"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
 import { Route as SkillsNewRouteImport } from "./routes/skills.new"
 import { Route as SpadeIndexRouteImport } from "./routes/spade.index"
 import { Route as SpadeAgentIdRouteImport } from "./routes/spade.$agentId"
+import { Route as SpadeNewRouteImport } from "./routes/spade.new"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
+import { Route as MarketplaceCategoriesCategoryRouteImport } from "./routes/marketplace.categories.$category"
 import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.providers.index"
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
 import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.remote.$machine"
 import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.map"
+import { Route as SettingsSpadeIndexRouteImport } from "./routes/settings.spade.index"
+import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.apps"
+import { Route as SettingsSpadeModelsRouteImport } from "./routes/settings.spade.models"
+import { Route as SettingsSpadeSearchRouteImport } from "./routes/settings.spade.search"
+import { Route as SettingsSpadeSecurityRouteImport } from "./routes/settings.spade.security"
 import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
+import { Route as SpadeGroupsNewRouteImport } from "./routes/spade.groups.new"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
 import { Route as HomePullsProjectNewRouteImport } from "./routes/_home.pulls_.$project.new"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
+import { Route as MarketplaceSourceTypeNameRouteImport } from "./routes/marketplace.$source.$type.$name"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
+import { Route as MarketplaceSourceTypeNameReviewRouteImport } from "./routes/marketplace.$source.$type.$name_.review"
 
 const HomeRoute = HomeRouteImport.update({
   id: "/_home",
@@ -72,6 +86,11 @@ const HomeRoute = HomeRouteImport.update({
 const AutomationsRoute = AutomationsRouteImport.update({
   id: "/automations",
   path: "/automations",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MarketplaceRoute = MarketplaceRouteImport.update({
+  id: "/marketplace",
+  path: "/marketplace",
   getParentRoute: () => rootRouteImport,
 } as any)
 const PairRoute = PairRouteImport.update({
@@ -154,6 +173,26 @@ const AutomationsNewRoute = AutomationsNewRouteImport.update({
   path: "/new",
   getParentRoute: () => AutomationsRoute,
 } as any)
+const MarketplaceIndexRoute = MarketplaceIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => MarketplaceRoute,
+} as any)
+const MarketplaceCatalogsRoute = MarketplaceCatalogsRouteImport.update({
+  id: "/catalogs",
+  path: "/catalogs",
+  getParentRoute: () => MarketplaceRoute,
+} as any)
+const MarketplaceInstalledRoute = MarketplaceInstalledRouteImport.update({
+  id: "/installed",
+  path: "/installed",
+  getParentRoute: () => MarketplaceRoute,
+} as any)
+const MarketplaceUpdatesRoute = MarketplaceUpdatesRouteImport.update({
+  id: "/updates",
+  path: "/updates",
+  getParentRoute: () => MarketplaceRoute,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: "/",
   path: "/",
@@ -229,11 +268,6 @@ const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
   path: "/source-control",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsSpadeRoute = SettingsSpadeRouteImport.update({
-  id: "/spade",
-  path: "/spade",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsStorageRoute = SettingsStorageRouteImport.update({
   id: "/storage",
   path: "/storage",
@@ -264,6 +298,11 @@ const SpadeAgentIdRoute = SpadeAgentIdRouteImport.update({
   path: "/$agentId",
   getParentRoute: () => SpadeRoute,
 } as any)
+const SpadeNewRoute = SpadeNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => SpadeRoute,
+} as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   id: "/t/$threadId",
   path: "/t/$threadId",
@@ -280,6 +319,12 @@ const AutomationsAutomationIdEditRoute =
     id: "/$automationId/edit",
     path: "/$automationId/edit",
     getParentRoute: () => AutomationsRoute,
+  } as any)
+const MarketplaceCategoriesCategoryRoute =
+  MarketplaceCategoriesCategoryRouteImport.update({
+    id: "/categories/$category",
+    path: "/categories/$category",
+    getParentRoute: () => MarketplaceRoute,
   } as any)
 const SettingsProvidersIndexRoute = SettingsProvidersIndexRouteImport.update({
   id: "/providers/",
@@ -307,9 +352,39 @@ const SettingsRemoteMapRoute = SettingsRemoteMapRouteImport.update({
   path: "/remote/map",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsSpadeIndexRoute = SettingsSpadeIndexRouteImport.update({
+  id: "/spade/",
+  path: "/spade/",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeAppsRoute = SettingsSpadeAppsRouteImport.update({
+  id: "/spade/apps",
+  path: "/spade/apps",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeModelsRoute = SettingsSpadeModelsRouteImport.update({
+  id: "/spade/models",
+  path: "/spade/models",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeSearchRoute = SettingsSpadeSearchRouteImport.update({
+  id: "/spade/search",
+  path: "/spade/search",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSpadeSecurityRoute = SettingsSpadeSecurityRouteImport.update({
+  id: "/spade/security",
+  path: "/spade/security",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SpadeGroupsGroupIdRoute = SpadeGroupsGroupIdRouteImport.update({
   id: "/groups/$groupId",
   path: "/groups/$groupId",
+  getParentRoute: () => SpadeRoute,
+} as any)
+const SpadeGroupsNewRoute = SpadeGroupsNewRouteImport.update({
+  id: "/groups/new",
+  path: "/groups/new",
   getParentRoute: () => SpadeRoute,
 } as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
@@ -337,16 +412,29 @@ const HomeTThreadIdForkRoute = HomeTThreadIdForkRouteImport.update({
   path: "/t/$threadId/fork",
   getParentRoute: () => HomeRoute,
 } as any)
+const MarketplaceSourceTypeNameRoute =
+  MarketplaceSourceTypeNameRouteImport.update({
+    id: "/$source/$type/$name",
+    path: "/$source/$type/$name",
+    getParentRoute: () => MarketplaceRoute,
+  } as any)
 const HomeTThreadIdAgentsAgentIdRoute =
   HomeTThreadIdAgentsAgentIdRouteImport.update({
     id: "/t/$threadId_/agents/$agentId",
     path: "/t/$threadId/agents/$agentId",
     getParentRoute: () => HomeRoute,
   } as any)
+const MarketplaceSourceTypeNameReviewRoute =
+  MarketplaceSourceTypeNameReviewRouteImport.update({
+    id: "/$source/$type/$name_/review",
+    path: "/$source/$type/$name/review",
+    getParentRoute: () => MarketplaceRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsRouteWithChildren
+  "/marketplace": typeof MarketplaceRouteWithChildren
   "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
@@ -361,6 +449,9 @@ export interface FileRoutesByFullPath {
   "/new": typeof HomeNewRoute
   "/pulls": typeof HomePullsRoute
   "/automations/new": typeof AutomationsNewRoute
+  "/marketplace/catalogs": typeof MarketplaceCatalogsRoute
+  "/marketplace/installed": typeof MarketplaceInstalledRoute
+  "/marketplace/updates": typeof MarketplaceUpdatesRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
@@ -375,30 +466,40 @@ export interface FileRoutesByFullPath {
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
-  "/settings/spade": typeof SettingsSpadeRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/automations/": typeof AutomationsIndexRoute
+  "/marketplace/": typeof MarketplaceIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/spade/": typeof SpadeIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/marketplace/categories/$category": typeof MarketplaceCategoriesCategoryRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/settings/spade/apps": typeof SettingsSpadeAppsRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsRoute
+  "/settings/spade/search": typeof SettingsSpadeSearchRoute
+  "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
+  "/settings/spade/": typeof SettingsSpadeIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
+  "/marketplace/$source/$type/$name": typeof MarketplaceSourceTypeNameRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
+  "/marketplace/$source/$type/$name/review": typeof MarketplaceSourceTypeNameReviewRoute
 }
 export interface FileRoutesByTo {
   "/pair": typeof PairRoute
@@ -412,6 +513,9 @@ export interface FileRoutesByTo {
   "/new": typeof HomeNewRoute
   "/pulls": typeof HomePullsRoute
   "/automations/new": typeof AutomationsNewRoute
+  "/marketplace/catalogs": typeof MarketplaceCatalogsRoute
+  "/marketplace/installed": typeof MarketplaceInstalledRoute
+  "/marketplace/updates": typeof MarketplaceUpdatesRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
@@ -426,36 +530,47 @@ export interface FileRoutesByTo {
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
-  "/settings/spade": typeof SettingsSpadeRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
+  "/marketplace": typeof MarketplaceIndexRoute
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
   "/spade": typeof SpadeIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/marketplace/categories/$category": typeof MarketplaceCategoriesCategoryRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/settings/spade/apps": typeof SettingsSpadeAppsRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsRoute
+  "/settings/spade/search": typeof SettingsSpadeSearchRoute
+  "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
+  "/settings/spade": typeof SettingsSpadeIndexRoute
   "/issues/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/issues/$project/new": typeof HomeIssuesProjectNewRoute
   "/pulls/$project/$number": typeof HomePullsProjectNumberRoute
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
+  "/marketplace/$source/$type/$name": typeof MarketplaceSourceTypeNameRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
+  "/marketplace/$source/$type/$name/review": typeof MarketplaceSourceTypeNameReviewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   "/_home": typeof HomeRouteWithChildren
   "/automations": typeof AutomationsRouteWithChildren
+  "/marketplace": typeof MarketplaceRouteWithChildren
   "/pair": typeof PairRoute
   "/settings": typeof SettingsRouteWithChildren
   "/setup": typeof SetupRoute
@@ -470,6 +585,9 @@ export interface FileRoutesById {
   "/_home/new": typeof HomeNewRoute
   "/_home/pulls": typeof HomePullsRoute
   "/automations/new": typeof AutomationsNewRoute
+  "/marketplace/catalogs": typeof MarketplaceCatalogsRoute
+  "/marketplace/installed": typeof MarketplaceInstalledRoute
+  "/marketplace/updates": typeof MarketplaceUpdatesRoute
   "/settings/advanced": typeof SettingsAdvancedRoute
   "/settings/agents": typeof SettingsAgentsRoute
   "/settings/appearance": typeof SettingsAppearanceRoute
@@ -484,37 +602,48 @@ export interface FileRoutesById {
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
-  "/settings/spade": typeof SettingsSpadeRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
   "/spade/$agentId": typeof SpadeAgentIdRoute
+  "/spade/new": typeof SpadeNewRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
+  "/marketplace/": typeof MarketplaceIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/spade/": typeof SpadeIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/marketplace/categories/$category": typeof MarketplaceCategoriesCategoryRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/settings/spade/apps": typeof SettingsSpadeAppsRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsRoute
+  "/settings/spade/search": typeof SettingsSpadeSearchRoute
+  "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
+  "/spade/groups/new": typeof SpadeGroupsNewRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
+  "/settings/spade/": typeof SettingsSpadeIndexRoute
   "/_home/issues_/$project/$number": typeof HomeIssuesProjectNumberRoute
   "/_home/issues_/$project/new": typeof HomeIssuesProjectNewRoute
   "/_home/pulls_/$project/$number": typeof HomePullsProjectNumberRoute
   "/_home/pulls_/$project/new": typeof HomePullsProjectNewRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
+  "/marketplace/$source/$type/$name": typeof MarketplaceSourceTypeNameRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
+  "/marketplace/$source/$type/$name_/review": typeof MarketplaceSourceTypeNameReviewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
     | "/automations"
+    | "/marketplace"
     | "/pair"
     | "/settings"
     | "/setup"
@@ -529,6 +658,9 @@ export interface FileRouteTypes {
     | "/new"
     | "/pulls"
     | "/automations/new"
+    | "/marketplace/catalogs"
+    | "/marketplace/installed"
+    | "/marketplace/updates"
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
@@ -543,30 +675,40 @@ export interface FileRouteTypes {
     | "/settings/prompts"
     | "/settings/simulators"
     | "/settings/source-control"
-    | "/settings/spade"
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
     | "/spade/$agentId"
+    | "/spade/new"
     | "/automations/"
+    | "/marketplace/"
     | "/settings/"
     | "/skills/"
     | "/spade/"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/marketplace/categories/$category"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/map"
+    | "/settings/spade/apps"
+    | "/settings/spade/models"
+    | "/settings/spade/search"
+    | "/settings/spade/security"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
+    | "/settings/spade/"
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
+    | "/marketplace/$source/$type/$name"
     | "/t/$threadId/agents/$agentId"
+    | "/marketplace/$source/$type/$name/review"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/pair"
@@ -580,6 +722,9 @@ export interface FileRouteTypes {
     | "/new"
     | "/pulls"
     | "/automations/new"
+    | "/marketplace/catalogs"
+    | "/marketplace/installed"
+    | "/marketplace/updates"
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
@@ -594,35 +739,46 @@ export interface FileRouteTypes {
     | "/settings/prompts"
     | "/settings/simulators"
     | "/settings/source-control"
-    | "/settings/spade"
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
     | "/spade/$agentId"
+    | "/spade/new"
     | "/"
     | "/automations"
+    | "/marketplace"
     | "/settings"
     | "/skills"
     | "/spade"
     | "/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/marketplace/categories/$category"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/map"
+    | "/settings/spade/apps"
+    | "/settings/spade/models"
+    | "/settings/spade/search"
+    | "/settings/spade/security"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId"
     | "/settings/providers"
     | "/settings/remote"
+    | "/settings/spade"
     | "/issues/$project/$number"
     | "/issues/$project/new"
     | "/pulls/$project/$number"
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
+    | "/marketplace/$source/$type/$name"
     | "/t/$threadId/agents/$agentId"
+    | "/marketplace/$source/$type/$name/review"
   id:
     | "__root__"
     | "/_home"
     | "/automations"
+    | "/marketplace"
     | "/pair"
     | "/settings"
     | "/setup"
@@ -637,6 +793,9 @@ export interface FileRouteTypes {
     | "/_home/new"
     | "/_home/pulls"
     | "/automations/new"
+    | "/marketplace/catalogs"
+    | "/marketplace/installed"
+    | "/marketplace/updates"
     | "/settings/advanced"
     | "/settings/agents"
     | "/settings/appearance"
@@ -651,36 +810,47 @@ export interface FileRouteTypes {
     | "/settings/prompts"
     | "/settings/simulators"
     | "/settings/source-control"
-    | "/settings/spade"
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
     | "/spade/$agentId"
+    | "/spade/new"
     | "/_home/"
     | "/automations/"
+    | "/marketplace/"
     | "/settings/"
     | "/skills/"
     | "/spade/"
     | "/_home/t/$threadId"
     | "/automations/$automationId/edit"
+    | "/marketplace/categories/$category"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/map"
+    | "/settings/spade/apps"
+    | "/settings/spade/models"
+    | "/settings/spade/search"
+    | "/settings/spade/security"
     | "/spade/groups/$groupId"
+    | "/spade/groups/new"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
+    | "/settings/spade/"
     | "/_home/issues_/$project/$number"
     | "/_home/issues_/$project/new"
     | "/_home/pulls_/$project/$number"
     | "/_home/pulls_/$project/new"
     | "/_home/t/$threadId_/fork"
+    | "/marketplace/$source/$type/$name"
     | "/_home/t/$threadId_/agents/$agentId"
+    | "/marketplace/$source/$type/$name_/review"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   HomeRoute: typeof HomeRouteWithChildren
   AutomationsRoute: typeof AutomationsRouteWithChildren
+  MarketplaceRoute: typeof MarketplaceRouteWithChildren
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   SetupRoute: typeof SetupRoute
@@ -703,6 +873,13 @@ declare module "@tanstack/react-router" {
       path: "/automations"
       fullPath: "/automations"
       preLoaderRoute: typeof AutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/marketplace": {
+      id: "/marketplace"
+      path: "/marketplace"
+      fullPath: "/marketplace"
+      preLoaderRoute: typeof MarketplaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/pair": {
@@ -817,6 +994,34 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof AutomationsNewRouteImport
       parentRoute: typeof AutomationsRoute
     }
+    "/marketplace/": {
+      id: "/marketplace/"
+      path: "/"
+      fullPath: "/marketplace/"
+      preLoaderRoute: typeof MarketplaceIndexRouteImport
+      parentRoute: typeof MarketplaceRoute
+    }
+    "/marketplace/catalogs": {
+      id: "/marketplace/catalogs"
+      path: "/catalogs"
+      fullPath: "/marketplace/catalogs"
+      preLoaderRoute: typeof MarketplaceCatalogsRouteImport
+      parentRoute: typeof MarketplaceRoute
+    }
+    "/marketplace/installed": {
+      id: "/marketplace/installed"
+      path: "/installed"
+      fullPath: "/marketplace/installed"
+      preLoaderRoute: typeof MarketplaceInstalledRouteImport
+      parentRoute: typeof MarketplaceRoute
+    }
+    "/marketplace/updates": {
+      id: "/marketplace/updates"
+      path: "/updates"
+      fullPath: "/marketplace/updates"
+      preLoaderRoute: typeof MarketplaceUpdatesRouteImport
+      parentRoute: typeof MarketplaceRoute
+    }
     "/settings/": {
       id: "/settings/"
       path: "/"
@@ -922,13 +1127,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsSourceControlRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/spade": {
-      id: "/settings/spade"
-      path: "/spade"
-      fullPath: "/settings/spade"
-      preLoaderRoute: typeof SettingsSpadeRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/settings/storage": {
       id: "/settings/storage"
       path: "/storage"
@@ -971,6 +1169,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SpadeAgentIdRouteImport
       parentRoute: typeof SpadeRoute
     }
+    "/spade/new": {
+      id: "/spade/new"
+      path: "/new"
+      fullPath: "/spade/new"
+      preLoaderRoute: typeof SpadeNewRouteImport
+      parentRoute: typeof SpadeRoute
+    }
     "/_home/t/$threadId": {
       id: "/_home/t/$threadId"
       path: "/t/$threadId"
@@ -991,6 +1196,13 @@ declare module "@tanstack/react-router" {
       fullPath: "/automations/$automationId/edit"
       preLoaderRoute: typeof AutomationsAutomationIdEditRouteImport
       parentRoute: typeof AutomationsRoute
+    }
+    "/marketplace/categories/$category": {
+      id: "/marketplace/categories/$category"
+      path: "/categories/$category"
+      fullPath: "/marketplace/categories/$category"
+      preLoaderRoute: typeof MarketplaceCategoriesCategoryRouteImport
+      parentRoute: typeof MarketplaceRoute
     }
     "/settings/providers/": {
       id: "/settings/providers/"
@@ -1027,11 +1239,53 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRemoteMapRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/spade/": {
+      id: "/settings/spade/"
+      path: "/spade"
+      fullPath: "/settings/spade/"
+      preLoaderRoute: typeof SettingsSpadeIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/apps": {
+      id: "/settings/spade/apps"
+      path: "/spade/apps"
+      fullPath: "/settings/spade/apps"
+      preLoaderRoute: typeof SettingsSpadeAppsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/models": {
+      id: "/settings/spade/models"
+      path: "/spade/models"
+      fullPath: "/settings/spade/models"
+      preLoaderRoute: typeof SettingsSpadeModelsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/search": {
+      id: "/settings/spade/search"
+      path: "/spade/search"
+      fullPath: "/settings/spade/search"
+      preLoaderRoute: typeof SettingsSpadeSearchRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/security": {
+      id: "/settings/spade/security"
+      path: "/spade/security"
+      fullPath: "/settings/spade/security"
+      preLoaderRoute: typeof SettingsSpadeSecurityRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/spade/groups/$groupId": {
       id: "/spade/groups/$groupId"
       path: "/groups/$groupId"
       fullPath: "/spade/groups/$groupId"
       preLoaderRoute: typeof SpadeGroupsGroupIdRouteImport
+      parentRoute: typeof SpadeRoute
+    }
+    "/spade/groups/new": {
+      id: "/spade/groups/new"
+      path: "/groups/new"
+      fullPath: "/spade/groups/new"
+      preLoaderRoute: typeof SpadeGroupsNewRouteImport
       parentRoute: typeof SpadeRoute
     }
     "/_home/issues_/$project/$number": {
@@ -1069,12 +1323,26 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomeTThreadIdForkRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/marketplace/$source/$type/$name": {
+      id: "/marketplace/$source/$type/$name"
+      path: "/$source/$type/$name"
+      fullPath: "/marketplace/$source/$type/$name"
+      preLoaderRoute: typeof MarketplaceSourceTypeNameRouteImport
+      parentRoute: typeof MarketplaceRoute
+    }
     "/_home/t/$threadId_/agents/$agentId": {
       id: "/_home/t/$threadId_/agents/$agentId"
       path: "/t/$threadId/agents/$agentId"
       fullPath: "/t/$threadId/agents/$agentId"
       preLoaderRoute: typeof HomeTThreadIdAgentsAgentIdRouteImport
       parentRoute: typeof HomeRoute
+    }
+    "/marketplace/$source/$type/$name_/review": {
+      id: "/marketplace/$source/$type/$name_/review"
+      path: "/$source/$type/$name/review"
+      fullPath: "/marketplace/$source/$type/$name/review"
+      preLoaderRoute: typeof MarketplaceSourceTypeNameReviewRouteImport
+      parentRoute: typeof MarketplaceRoute
     }
   }
 }
@@ -1135,6 +1403,30 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
   AutomationsRouteChildren,
 )
 
+interface MarketplaceRouteChildren {
+  MarketplaceCatalogsRoute: typeof MarketplaceCatalogsRoute
+  MarketplaceInstalledRoute: typeof MarketplaceInstalledRoute
+  MarketplaceUpdatesRoute: typeof MarketplaceUpdatesRoute
+  MarketplaceIndexRoute: typeof MarketplaceIndexRoute
+  MarketplaceCategoriesCategoryRoute: typeof MarketplaceCategoriesCategoryRoute
+  MarketplaceSourceTypeNameRoute: typeof MarketplaceSourceTypeNameRoute
+  MarketplaceSourceTypeNameReviewRoute: typeof MarketplaceSourceTypeNameReviewRoute
+}
+
+const MarketplaceRouteChildren: MarketplaceRouteChildren = {
+  MarketplaceCatalogsRoute: MarketplaceCatalogsRoute,
+  MarketplaceInstalledRoute: MarketplaceInstalledRoute,
+  MarketplaceUpdatesRoute: MarketplaceUpdatesRoute,
+  MarketplaceIndexRoute: MarketplaceIndexRoute,
+  MarketplaceCategoriesCategoryRoute: MarketplaceCategoriesCategoryRoute,
+  MarketplaceSourceTypeNameRoute: MarketplaceSourceTypeNameRoute,
+  MarketplaceSourceTypeNameReviewRoute: MarketplaceSourceTypeNameReviewRoute,
+}
+
+const MarketplaceRouteWithChildren = MarketplaceRoute._addFileChildren(
+  MarketplaceRouteChildren,
+)
+
 interface SettingsRouteChildren {
   SettingsAdvancedRoute: typeof SettingsAdvancedRoute
   SettingsAgentsRoute: typeof SettingsAgentsRoute
@@ -1150,14 +1442,18 @@ interface SettingsRouteChildren {
   SettingsPromptsRoute: typeof SettingsPromptsRoute
   SettingsSimulatorsRoute: typeof SettingsSimulatorsRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
-  SettingsSpadeRoute: typeof SettingsSpadeRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
   SettingsRemoteMachineRoute: typeof SettingsRemoteMachineRoute
   SettingsRemoteMapRoute: typeof SettingsRemoteMapRoute
+  SettingsSpadeAppsRoute: typeof SettingsSpadeAppsRoute
+  SettingsSpadeModelsRoute: typeof SettingsSpadeModelsRoute
+  SettingsSpadeSearchRoute: typeof SettingsSpadeSearchRoute
+  SettingsSpadeSecurityRoute: typeof SettingsSpadeSecurityRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
   SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
+  SettingsSpadeIndexRoute: typeof SettingsSpadeIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -1175,14 +1471,18 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsPromptsRoute: SettingsPromptsRoute,
   SettingsSimulatorsRoute: SettingsSimulatorsRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
-  SettingsSpadeRoute: SettingsSpadeRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
   SettingsRemoteMachineRoute: SettingsRemoteMachineRoute,
   SettingsRemoteMapRoute: SettingsRemoteMapRoute,
+  SettingsSpadeAppsRoute: SettingsSpadeAppsRoute,
+  SettingsSpadeModelsRoute: SettingsSpadeModelsRoute,
+  SettingsSpadeSearchRoute: SettingsSpadeSearchRoute,
+  SettingsSpadeSecurityRoute: SettingsSpadeSecurityRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
   SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
+  SettingsSpadeIndexRoute: SettingsSpadeIndexRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
@@ -1206,14 +1506,18 @@ const SkillsRouteWithChildren =
 
 interface SpadeRouteChildren {
   SpadeAgentIdRoute: typeof SpadeAgentIdRoute
+  SpadeNewRoute: typeof SpadeNewRoute
   SpadeIndexRoute: typeof SpadeIndexRoute
   SpadeGroupsGroupIdRoute: typeof SpadeGroupsGroupIdRoute
+  SpadeGroupsNewRoute: typeof SpadeGroupsNewRoute
 }
 
 const SpadeRouteChildren: SpadeRouteChildren = {
   SpadeAgentIdRoute: SpadeAgentIdRoute,
+  SpadeNewRoute: SpadeNewRoute,
   SpadeIndexRoute: SpadeIndexRoute,
   SpadeGroupsGroupIdRoute: SpadeGroupsGroupIdRoute,
+  SpadeGroupsNewRoute: SpadeGroupsNewRoute,
 }
 
 const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)
@@ -1221,6 +1525,7 @@ const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRouteWithChildren,
   AutomationsRoute: AutomationsRouteWithChildren,
+  MarketplaceRoute: MarketplaceRouteWithChildren,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
   SetupRoute: SetupRoute,

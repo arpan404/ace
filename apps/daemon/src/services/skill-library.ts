@@ -1,7 +1,7 @@
 import type { SkillOperation } from "@ace/protocol";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-const reads = new Set<SkillOperation["op"]>(["list", "read", "usage"]);
+const reads = new Set<SkillOperation["op"]>(["list", "read", "files", "usage"]);
 /** `skills.request` (ADR 0103). Subscribed lists push `skills.changed` until unsubscribed. */
 export function createSkillLibrarySession(context: SocketContext): SocketService {
   const stops = new Map<string, () => void>();

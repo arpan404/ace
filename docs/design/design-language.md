@@ -43,7 +43,7 @@ ace never copies another product's look. It is recognisably itself: grey ink, on
   | Finished, not seen                    | #6CBF8C   | #2E7D4F   | check circle                          |
   | Idle / seen                           | —         | —         | no icon, age only                     |
 
-- **One accent** for the primary action (send, approve, the selected tab's fill). Never decorative.
+- **One accent** for the primary action (send, approve, the selected tab's fill) and, in a Spade conversation, the person's own bubble: the one use that marks who is speaking, the same in every conversation. A bot is known by its face, never by a colour. Never decorative.
 - Light and dark are equal citizens; every colour is checked at 3:1 against its surface.
 
 ### Type
@@ -68,12 +68,12 @@ A 4-point grid. One side margin per platform (16 on iPhone). Fixed row heights s
 
 - **Rounded, never sharp, never mixed.** Each platform has a short shape scale and nothing outside it.
 - **Concentric always:** a shape inside another follows its curve (inner radius = outer radius − inset).
-- **Desktop and web:** the scale in DESIGN.md §2 (4 / 6 / 8 / 12 / 18 / full), with full roundness for pills, Send/Stop, tabs and status marks.
+- **Desktop and web:** the scale in DESIGN.md §2 (4 / 6 / 8 / 12 / 18 / full), with full roundness for pills, Send/Stop, tabs and status marks. Spade is the softer room inside ace's frame: its bubbles and cards take 18, its icon buttons are circles and its buttons pills ([spade.md](spade.md)); the frame around it keeps its own shapes.
 - **iPhone:** full roundness (see §5).
 
 ### Materials
 
-Three surfaces only: **background** (flat, where content lives), **glass** (only for things that float over content: tab bar, composer capsule, header buttons, menus), **raised** (sheets, dialogs, anything that holds content above the page). Never glass on glass; never glass on a scrolling area.
+Three surfaces only: **background** (flat, where content lives), **glass** (only for things that float over content: tab bar, composer capsule, header buttons, menus), **raised** (sheets, dialogs, anything that holds content above the page). Never glass on glass; never glass on a scrolling area, except what floats over a transcript as the composer does (a Spade conversation's pill).
 
 ### Iconography
 

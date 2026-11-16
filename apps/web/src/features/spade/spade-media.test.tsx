@@ -295,7 +295,7 @@ test("Read aloud isn't offered where the system can't speak", async () => {
   expect(screen.queryByRole("button", { name: "Read aloud" })).toBeNull();
 });
 
-test("choosing a transcription model stores only that setting, leaving the model's facts alone, and Turn off clears it", async () => {
+test("choosing a transcription model stores only that setting, leaving the model's facts alone, and Off clears it", async () => {
   const saved = {
     id: "saved/model",
     name: "Saved model",
@@ -307,20 +307,23 @@ test("choosing a transcription model stores only that setting, leaving the model
     api.endpoints[0] = { ...api.endpoints[0], models: [saved] };
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
-  await userEvent.type(screen.getByRole("textbox", { name: "Search models" }), "saved/model");
+  const picker = await screen.findByRole("button", { name: "Transcription" });
+  expect(picker.textContent).toBe("Off");
+  await userEvent.click(picker);
+  await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "saved/model");
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/settings")).toEqual([
       { transcription_model: "openrouter/saved/model" },
     ]),
   );
-  await screen.findByRole("button", { name: "Turn off" });
+  await waitFor(() => expect(picker.textContent).toBe("Saved model · OpenRouter"));
   expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([]);
   expect(spade.endpoints[0]).toMatchObject({ models: [saved] });
-  await userEvent.click(screen.getByRole("button", { name: "Turn off" }));
+  await userEvent.click(picker);
+  await userEvent.click(await screen.findByRole("option", { name: "Off" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/settings").at(-1)).toEqual({ transcription_model: null }),
   );
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Turn off" })).toBeNull());
+  await waitFor(() => expect(picker.textContent).toBe("Off"));
 });

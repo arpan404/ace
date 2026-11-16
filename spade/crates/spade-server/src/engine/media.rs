@@ -30,7 +30,7 @@ impl Engine {
             return Err(SendError::TooManyDocuments);
         }
         let attached = outgoing.images.len() + outgoing.documents.len();
-        self.check_message(id, &outgoing.text, attached)?;
+        self.check_message(&outgoing.text, attached)?;
         if self.store.conversation(id)?.is_none() || self.deleting(id) {
             return Err(SendError::NotFound);
         }
@@ -41,9 +41,9 @@ impl Engine {
         if self.store.group_for_conversation(id)?.is_some() {
             return Err(SendError::Group);
         }
-        // A bot at its own cap starts nothing (ADR 0135).
-        if let Some(why) = self.cap_refusal(id) {
-            return Err(SendError::BotCapped(why));
+        // A helper hears only its task (ADR 0152).
+        if self.helper_of(id).is_some() {
+            return Err(SendError::Helper);
         }
         let images = outgoing
             .images
@@ -92,8 +92,6 @@ pub enum TranscribeError {
     Audio(#[from] crate::media::AudioError),
     #[error("{0}")]
     Model(String),
-    #[error("today's spending cap is used up")]
-    OverCap,
     #[error(transparent)]
     Store(#[from] spade_store::StoreError),
 }
@@ -113,13 +111,10 @@ impl Engine {
             .set_setting(TRANSCRIPTION_MODEL, model.as_deref())?)
     }
 
-    /// The words in a recording, from the person's transcription model. Refused once today's
-    /// cap is spent; what it cost is recorded like any model call.
+    /// The words in a recording, from the person's transcription model; what it cost is
+    /// recorded like any model call.
     pub async fn transcribe(&self, audio: Vec<u8>) -> Result<String, TranscribeError> {
         let model = self.transcription_model()?.ok_or(TranscribeError::NotSet)?;
-        if !self.within_cap()? {
-            return Err(TranscribeError::OverCap);
-        }
         if audio.len() > crate::media::audio::MOST_AUDIO_BYTES {
             return Err(crate::media::AudioError::TooLarge.into());
         }
@@ -136,7 +131,7 @@ impl Engine {
     }
 
     /// Records what an image or transcription call cost (ADR 0134): its tokens and its price per
-    /// call, in the same ledger as model calls, so the daily cap counts it.
+    /// call, in the same ledger as model calls.
     pub(crate) fn pay_call(&self, conversation: &str, model: &str, usage: &spade_models::Usage) {
         let cost = spade_core::spending::call_cost_micros(self.models.price(model), usage);
         if cost > 0

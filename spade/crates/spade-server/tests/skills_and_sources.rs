@@ -29,6 +29,7 @@ impl Library {
                 name: (*name).into(),
                 description: (*description).into(),
                 manual: false,
+                body: String::new(),
             })
             .collect();
         Arc::new(library)
@@ -43,6 +44,7 @@ impl Library {
                 name: name.into(),
                 description: "added later".into(),
                 manual: false,
+                body: String::new(),
             });
     }
 }
@@ -66,7 +68,7 @@ impl SkillLibrary for Library {
 fn skill_tools(library: &Arc<Library>) -> Vec<Arc<dyn Tool>> {
     let library: Arc<dyn SkillLibrary> = library.clone();
     vec![
-        Arc::new(SkillSearch(library.clone())),
+        Arc::new(SkillSearch::new(library.clone())),
         Arc::new(SkillLoad::new(library)),
     ]
 }
@@ -129,6 +131,60 @@ async fn the_skill_index_is_frozen_at_the_first_reply_and_skills_load_by_name() 
         second.contains("Steps for skl_release: check, then ship."),
         "{second}"
     );
+    Ok(())
+}
+
+const SUMMARY: &str = r#"{"goal":"Say hello","decisions":[],"facts":[],"open":[],"references":[]}"#;
+
+#[tokio::test]
+async fn a_skill_added_later_joins_the_index_at_the_next_compaction_and_not_before() -> Result {
+    let library = Library::with(&[("release", "Ship a release")]);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("Hi."),
+            Script::reply("").plain(r#"{"title":"Hi"}"#),
+            Script::reply("Hi again."),
+            Script::reply("").plain(SUMMARY),
+            Script::reply("Hello once more."),
+            Script::reply("And again."),
+        ],
+        skill_tools(&library),
+        with_library(&library),
+    )
+    .await?;
+    let id = spade.ask("Hello").await?;
+    spade.wait_for(&id, "renamed").await?;
+    library.add("deploy");
+    for (text, count) in [("Again", 2), ("Once more", 3), ("And again", 4)] {
+        if count == 3 {
+            let (status, _) = spade
+                .post(&format!("/v1/conversations/{id}/compact"), json!({}))
+                .await?;
+            assert_eq!(status, 204);
+        }
+        spade
+            .post(
+                &format!("/v1/conversations/{id}/messages"),
+                json!({ "text": text }),
+            )
+            .await?;
+        spade.wait_for_count(&id, "reply_finished", count).await?;
+    }
+    let seen = spade.fake.seen();
+    let system = |n: usize| {
+        seen[n].body["messages"][0]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+    assert_eq!(system(0), system(2), "no compaction yet: the top is cached");
+    assert!(!system(2).contains("deploy"), "{}", system(2));
+    assert!(
+        system(4).contains("- deploy: added later"),
+        "after the compaction the index has the new skill: {}",
+        system(4)
+    );
+    assert_eq!(system(4), system(5), "and stays fixed until the next one");
     Ok(())
 }
 
@@ -200,9 +256,13 @@ async fn a_tool_that_arrives_later_is_found_and_run_without_changing_the_offered
             "ask_user",
             "bot_message",
             "bots_list",
+            "episode_search",
             "group_ask",
+            "helper",
             "history_read",
             "history_search",
+            "knowledge_search",
+            "knowledge_write",
             "memory_forget",
             "memory_save",
             "memory_search",
@@ -210,6 +270,8 @@ async fn a_tool_that_arrives_later_is_found_and_run_without_changing_the_offered
             "routine_delete",
             "routine_save",
             "routines_list",
+            "sleep_until",
+            "wait_for",
             "tool_search",
             "call_tool"
         ],

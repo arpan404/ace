@@ -1,4 +1,4 @@
-//! The API's edges: the token, health, the daily cap, the live stream and keys.
+//! The API's edges: the token, health, routes that are gone, the live stream and keys.
 
 mod support;
 
@@ -41,27 +41,28 @@ async fn health_is_open_and_everything_else_needs_the_token() -> Result {
 }
 
 #[tokio::test]
-async fn over_the_daily_cap_a_message_is_refused_without_a_model_call() -> Result {
-    let spade = Spade::start_with(
-        vec![Script::reply("Costly answer.")],
-        Vec::new(),
-        support::Options {
-            cap_usd: 0.00005,
-            ..Default::default()
-        },
-    )
-    .await?;
-    let id = spade.ask("First").await?;
-    spade.wait_for(&id, "reply_finished").await?;
-    let calls_before = spade.fake.seen().len();
+async fn the_removed_budget_route_answers_404_and_spends_nothing() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let agent = spade.new_agent("Scout", "Find things").await?;
+    let id = agent["id"].as_str().unwrap_or_default().to_owned();
+    // Spade has no budgets (ADR 0166): the route a worker's budget was set on is gone.
     let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{id}/messages"),
-            json!({ "text": "Second" }),
+        .put(
+            &format!("/v1/agents/{id}/budget"),
+            json!({ "budget_usd": 5 }),
         )
         .await?;
-    assert_eq!(status, 402);
-    assert_eq!(spade.fake.seen().len(), calls_before);
+    assert_eq!(status, 404);
+    let (status, _) = spade
+        .put(
+            &format!("/v1/agents/{id}/budget"),
+            json!({ "budget_usd": null }),
+        )
+        .await?;
+    assert_eq!(status, 404);
+    let (status, body) = spade.get(&format!("/v1/agents/{id}/tree")).await?;
+    assert_eq!(status, 200, "{body}");
+    assert!(body["tree"].get("budget_micros").is_none(), "{body}");
     Ok(())
 }
 

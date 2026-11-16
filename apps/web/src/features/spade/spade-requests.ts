@@ -32,11 +32,7 @@ export class SpadeRequestError extends Error {
 
 /** What a refusal says to the person, by Spade's status where its own words would be vague. */
 function refusal(status: number, body: string): string {
-  // A cap's refusal says which cap and until when, in Spade's own words (ADR 0135).
-  const words = spadeProblem(body);
-  if (status === 402)
-    return words ?? "Today's spending cap is reached. Spade will answer again tomorrow.";
-  return words ?? `Spade answered ${status}.`;
+  return spadeProblem(body) ?? `Spade answered ${status}.`;
 }
 
 /** A connection, or the transport over it (`spadeTransport`). */

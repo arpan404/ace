@@ -88,21 +88,55 @@ struct ConnectorCall {
     hub: Arc<Connectors>,
 }
 
+impl ConnectorCall {
+    /// What its server and catalogue entry say about it: its annotations, and the catalogue's
+    /// word for this tool and for every tool of the app (the least it does).
+    fn facts(&self) -> spade_core::effect::Mcp {
+        use spade_core::effect::{Effect, Mcp};
+        let entry = self
+            .tool
+            .catalogue
+            .as_deref()
+            .and_then(|id| self.hub.catalogue().iter().find(|entry| entry.id == id));
+        let declared = [
+            entry.and_then(|entry| entry.effects.get(&self.tool.tool.name)),
+            entry.and_then(|entry| entry.every_tool.as_ref()),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(Effect::declared)
+        .max();
+        Mcp {
+            read_only: self.def.risk == Risk::Read,
+            annotated: self.tool.tool.annotated,
+            declared,
+        }
+    }
+}
+
 impl Tool for ConnectorCall {
     fn def(&self) -> ToolDef {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        spade_core::autonomy::classify(
-            &self.tool.tool.name,
-            self.def.risk,
-            spade_core::autonomy::Source::App(spade_core::autonomy::AppHints {
-                description: &self.tool.tool.description,
-                annotated: self.tool.tool.annotated,
-                open_world: self.tool.tool.open_world,
-            }),
-            arguments,
+    /// What its catalogue entry declares, raised by its annotations (ADR 0171): with no entry
+    /// for it, a connector's tool, which holds the person's sign-in, declares nothing.
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+        spade_core::effect::mcp(self.facts())
+    }
+
+    fn hints(&self) -> Option<spade_core::effect::Mcp> {
+        Some(self.facts())
+    }
+
+    /// The connection, its server's address, the server's own tool name and its schema.
+    fn identity(&self) -> String {
+        format!(
+            "connector:{}@{}:{}#{}",
+            self.tool.connector,
+            self.tool.server,
+            self.tool.tool.name,
+            super::schema_hash(&self.tool.tool.input_schema)
         )
     }
 
@@ -133,6 +167,65 @@ fn output(error: CallError) -> ToolOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_effect_the_shipped_catalogue_declares_is_one_spade_reads() {
+        use spade_core::effect::Effect;
+        let mut declared = 0;
+        for entry in spade_connect::catalogue::shipped() {
+            if let Some(said) = &entry.every_tool {
+                let read = Effect::declared(said);
+                assert!(read.is_some_and(|e| e != Effect::Unknown), "{}", entry.id);
+                declared += 1;
+            }
+            for (tool, said) in &entry.effects {
+                let read = Effect::declared(said);
+                assert!(
+                    read.is_some_and(|e| e != Effect::Unknown),
+                    "{}: {tool}",
+                    entry.id
+                );
+                declared += 1;
+            }
+        }
+        // Every tool of a payments app pays, so they reach the person rather than the reviewer.
+        let pays = |id: &str| {
+            spade_connect::catalogue::shipped().iter().any(|e| {
+                e.id == id && e.every_tool.as_ref().and_then(Effect::declared) == Some(Effect::Pay)
+            })
+        };
+        assert!(pays("stripe") && pays("paypal") && pays("square"));
+        assert!(declared >= 4);
+    }
+
+    #[test]
+    fn an_app_wide_declaration_sends_every_tool_to_the_person_even_read_only_ones() {
+        use spade_core::effect::{Effect, Mcp, mcp};
+        // One per category the catalogue holds: payments and a support inbox that writes in the
+        // person's name. (Mail, chat, identity and secret stores are not in the catalogue yet.)
+        let table = [
+            ("stripe", Effect::Pay),
+            ("paypal", Effect::Pay),
+            ("square", Effect::Pay),
+            ("intercom", Effect::SendAsPerson),
+        ];
+        let entries = spade_connect::catalogue::shipped();
+        for (id, want) in table {
+            let entry = entries.iter().find(|e| e.id == id);
+            let declared = entry
+                .and_then(|e| e.every_tool.as_ref())
+                .and_then(Effect::declared);
+            assert_eq!(declared, Some(want), "{id}");
+            for read_only in [false, true] {
+                let effect = mcp(Mcp {
+                    read_only,
+                    annotated: true,
+                    declared,
+                });
+                assert_eq!(effect, Some(want), "{id} read_only={read_only}");
+            }
+        }
+    }
 
     #[test]
     fn a_call_cut_off_after_sending_never_reads_as_not_run() {

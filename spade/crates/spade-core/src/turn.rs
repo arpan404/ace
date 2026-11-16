@@ -31,9 +31,10 @@ pub enum Status {
     Declined,
     /// Started and not finished.
     Running,
-    /// An `ask_user` question waiting for the person's next message.
+    /// An `ask_user` question waiting for the person (ADR 0154).
     Asked,
-    /// The person's message answering an `ask_user` question has arrived.
+    /// The `ask_user` call no longer waits: answered in the card or by a typed message, left for
+    /// later, or dismissed. [`crate::question::call_result`] says what it reads.
     Answered,
 }
 
@@ -83,15 +84,7 @@ pub fn next_step(events: &[Event]) -> Next {
                 matches!(event, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call.id)
             });
             if let Some(at) = question {
-                let answered = turn[at..].iter().any(|event| {
-                    matches!(
-                        event,
-                        Event::Known(Known::UserMessage {
-                            from_agent: None,
-                            ..
-                        })
-                    )
-                });
+                let answered = crate::question::call_result(&turn[at..], &call.id).is_some();
                 let status = if answered {
                     Status::Answered
                 } else {
@@ -128,6 +121,8 @@ pub fn unique_call_ids(
     calls: Vec<Call>,
     mut mint: impl FnMut() -> String,
 ) -> Vec<Call> {
+    // The ids already used that this step's calls also use: one pass, copying only those.
+    let wanted: std::collections::HashSet<&str> = calls.iter().map(|c| c.id.as_str()).collect();
     let mut used: std::collections::HashSet<String> = events
         .iter()
         .filter_map(|event| match event {
@@ -135,13 +130,26 @@ pub fn unique_call_ids(
             _ => None,
         })
         .flatten()
+        .filter(|call| wanted.contains(call.id.as_str()))
         .map(|call| call.id.clone())
         .collect();
+    let stored = |id: &str| {
+        events.iter().any(|event| {
+            matches!(event, Event::Known(Known::StepFinished { calls, .. })
+                if calls.iter().any(|c| c.id == id))
+        })
+    };
     calls
         .into_iter()
         .map(|mut call| {
-            while call.id.is_empty() || !used.insert(call.id.clone()) {
-                call.id = mint();
+            if call.id.is_empty() || !used.insert(call.id.clone()) {
+                // Rare: only a reused id is replaced, and the new one is checked against all.
+                loop {
+                    call.id = mint();
+                    if !call.id.is_empty() && !stored(&call.id) && used.insert(call.id.clone()) {
+                        break;
+                    }
+                }
             }
             call
         })
@@ -164,6 +172,19 @@ pub fn job_stopped(events: &[Event], job: &str) -> bool {
     named
         || events.iter().any(|e| match e {
             Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => {
+                stop_requested(events, reply)
+            }
+            _ => false,
+        })
+}
+
+/// Whether the person stopped the work tool call `call` belongs to: the reply that made it, or
+/// the background job it runs as. What such a call would start outside the turn (a wake, a
+/// service) must not begin.
+pub fn call_stopped(events: &[Event], call: &str) -> bool {
+    job_stopped(events, call)
+        || events.iter().any(|e| match e {
+            Event::Known(Known::ToolStarted { call_id, reply, .. }) if call_id == call => {
                 stop_requested(events, reply)
             }
             _ => false,
@@ -199,6 +220,7 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
     events.iter().skip(from).any(|event| match event {
         Event::Known(Known::UserMessage { .. }) => true,
         Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
+        Event::Known(known) => crate::question::is_late(known) || crate::wake::is_note(known),
         _ => false,
     })
 }
@@ -215,6 +237,7 @@ pub fn needs_reply(events: &[Event]) -> bool {
         None => events.iter().any(|event| match event {
             Event::Known(Known::UserMessage { .. }) => true,
             Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
+            Event::Known(known) => crate::question::is_late(known) || crate::wake::is_note(known),
             _ => false,
         }),
         Some(_) if open_reply(events).is_some() => false,
@@ -332,6 +355,9 @@ mod tests {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
+            ask: None,
+            tool_key: None,
+            helper: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -340,6 +366,9 @@ mod tests {
             arguments: json!({}),
             scope: None,
             reviewer_reason: None,
+            ask: None,
+            tool_key: None,
+            helper: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),
@@ -569,6 +598,8 @@ mod tests {
                 is_error: false,
                 uncertain: false,
                 files: Vec::new(),
+                untrusted: false,
+                cost_micros: None,
             }),
         ];
         assert!(!needs_reply(&events));

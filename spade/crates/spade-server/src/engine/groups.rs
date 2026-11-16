@@ -48,12 +48,22 @@ pub enum GroupError {
     Store(#[from] StoreError),
 }
 
+/// A file a member made answering the group: in that member's workspace.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GroupFile {
+    pub agent: String,
+    pub path: String,
+    pub at: i64,
+}
+
 /// The latest message in a group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupLast {
     pub from: Option<GroupBot>,
     pub text: String,
     pub at_ms: i64,
+    /// The event it is, for the seen cursor.
+    pub seq: i64,
 }
 
 /// What a group is doing now (ADR 0132): its state, a few words, and while it waits on the
@@ -95,6 +105,19 @@ pub struct GroupView {
     pub last_activity_ms: i64,
     /// Per member, in order: its machine can't be reached now.
     pub away: Vec<bool>,
+    /// How far the person has seen the group's conversation.
+    pub seen: Option<i64>,
+}
+
+impl GroupView {
+    /// A member answered and the person hasn't seen it, and nothing in the group runs or waits.
+    pub fn unseen(&self) -> bool {
+        self.state == State::Idle
+            && self
+                .last_message
+                .as_ref()
+                .is_some_and(|m| m.from.is_some() && m.seq > self.seen.unwrap_or(0))
+    }
 }
 
 /// A member as group events name it.
@@ -237,6 +260,7 @@ impl Engine {
             members,
             created_ms: now,
             updated_ms: now,
+            pinned_ms: None,
         };
         self.store.create_group(&group)?;
         self.group_view(&group.id)?.ok_or(GroupError::NotFound)
@@ -307,6 +331,49 @@ impl Engine {
         Ok(views)
     }
 
+    /// The files the group's members on this machine made answering it, newest first: each
+    /// member's own workspace paths, by member. `None` for no such group. Members on other
+    /// machines keep theirs there.
+    pub fn group_files(&self, id: &str) -> Result<Option<Vec<GroupFile>>, StoreError> {
+        let Some(group) = self.store.group(id)? else {
+            return Ok(None);
+        };
+        let mut files = Vec::new();
+        for member in group.members.iter().filter(|m| m.machine.is_empty()) {
+            let Some(agent) = self.store.agent(&member.agent_id)? else {
+                continue;
+            };
+            let events = self.store.events(&agent.conversation, 0)?;
+            let stored = events.iter().map(|e| spade_core::activity::Stored {
+                seq: e.seq,
+                at: e.at_ms,
+                event: &e.event,
+            });
+            files.extend(
+                spade_core::group::files::made_for(&group.id, stored)
+                    .into_iter()
+                    .map(|made| GroupFile {
+                        agent: agent.id.clone(),
+                        path: made.path,
+                        at: made.at,
+                    }),
+            );
+        }
+        files.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.path.cmp(&b.path)));
+        Ok(Some(files))
+    }
+
+    /// Pins a group to the top of the person's list, or unpins it.
+    pub fn pin_group(&self, id: &str, pinned: bool) -> Result<Option<GroupView>, StoreError> {
+        if !self
+            .store
+            .set_group_pinned(id, pinned, self.clock.now_ms())?
+        {
+            return Ok(None);
+        }
+        self.group_view(id)
+    }
+
     pub fn group_view(&self, id: &str) -> Result<Option<GroupView>, StoreError> {
         self.store
             .group(id)?
@@ -325,8 +392,9 @@ impl Engine {
         let last_message = stored.iter().rev().find_map(|e| match &e.event {
             Event::Known(Known::GroupMessage { text, from, .. }) => Some(GroupLast {
                 from: from.clone(),
-                text: roster::plain(text, roster::PREVIEW),
+                text: roster::preview(text, roster::PREVIEW),
                 at_ms: e.at_ms,
+                seq: e.seq,
             }),
             _ => None,
         });
@@ -336,7 +404,9 @@ impl Engine {
             .iter()
             .map(|m| !m.machine.is_empty() && !self.machine_online(&m.machine))
             .collect();
+        let seen = self.store.seen(&group.conversation)?;
         Ok(GroupView {
+            seen,
             last_activity_ms: last_activity_ms.max(group.updated_ms),
             group,
             state,

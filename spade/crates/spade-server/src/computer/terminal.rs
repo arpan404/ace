@@ -11,12 +11,17 @@
 //! Stop), and the next command waits until the whole process group is gone. Nothing a command
 //! prints can end it early or speak for Spade.
 //!
+//! Commands run in sessions (ADR 0158): the bot's own conversation is one ([`MAIN`]) and each of its
+//! helpers is another. A session carries its own folder and variables and runs one command at a
+//! time, in order; different sessions run at once, so a helper's long build never holds up the
+//! bot's or another helper's commands.
+//!
 //! What the person types is never read for meaning: it goes to their shell and nowhere else.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -36,6 +41,9 @@ pub const END_DEADLINE: Duration = Duration::from_secs(30);
 pub const IDLE: Duration = Duration::from_secs(6 * 60 * 60);
 /// The size a terminal starts at, until a viewer says otherwise.
 const START_SIZE: (u16, u16) = (120, 32);
+/// The bot's own session: its conversation's commands.
+pub const MAIN: &str = "";
+
 /// Most variables a bot's commands carry over, and their total size.
 const MOST_VARIABLES: usize = 200;
 const MOST_VARIABLE_BYTES: usize = 64 * 1024;
@@ -118,6 +126,16 @@ impl Terminals {
         self
     }
 
+    /// Whether a bot command with home `home` runs contained in the OS sandbox here (ADR 0167).
+    pub fn contains(&self, home: &Path) -> bool {
+        self.shell.contains(home)
+    }
+
+    /// Whether the bot with home `home` runs its commands outside the sandbox (ADR 0171).
+    pub fn outside(&self, home: &Path) -> bool {
+        self.shell.outside(home)
+    }
+
     /// Who hears that a terminal started, ended or ran something.
     pub fn on_change(&self, changed: Changed) {
         *lock(&self.changed) = Some(changed);
@@ -151,8 +169,8 @@ impl Terminals {
             carried: Mutex::default(),
             writer: Mutex::new(None),
             frames: broadcast::channel(1024).0,
-            commands: Arc::new(tokio::sync::Mutex::new(())),
-            running: AtomicBool::new(false),
+            commands: Mutex::default(),
+            running: AtomicUsize::new(0),
             stuck: AtomicBool::new(false),
             end_deadline: *lock(&self.end_deadline),
             supervisor: Mutex::default(),
@@ -318,20 +336,20 @@ pub struct Terminal {
     shell: Shell,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
-    /// Where the bot's last command ended and what it exported.
-    carried: Mutex<Carried>,
+    /// Where each session's last command ended and what it exported.
+    carried: Mutex<HashMap<String, Carried>>,
     /// Kept apart from `state`: a write can wait on a shell that is not reading.
     writer: Mutex<Option<(u64, Box<dyn Write + Send>)>>,
     frames: broadcast::Sender<Frame>,
-    /// One bot command at a time; held by the command's supervisor until it is gone.
-    commands: Arc<tokio::sync::Mutex<()>>,
-    /// A bot command runs, or is being stopped.
-    running: AtomicBool,
+    /// One command at a time in each session; held by the command's supervisor until it is gone.
+    commands: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// How many bot commands run, or are being stopped.
+    running: AtomicUsize,
     /// Quarantined: an earlier command's end is past its deadline and still going on.
     stuck: AtomicBool,
     end_deadline: Duration,
-    /// The running command's supervisor, so removing the bot ends its command.
-    supervisor: Mutex<Option<tokio::task::AbortHandle>>,
+    /// The running commands' supervisors, so removing the bot ends its commands.
+    supervisor: Mutex<Vec<tokio::task::AbortHandle>>,
     changed: Option<Changed>,
 }
 
@@ -373,21 +391,27 @@ impl Terminal {
         }
     }
 
-    /// The folder the bot's next command starts in: where its last one ended, else the
+    /// The folder `session`'s next command starts in: where its last one ended, else the
     /// workspace.
-    pub fn start_dir(&self) -> PathBuf {
-        lock(&self.carried)
+    pub fn start_dir(&self, session: &str) -> PathBuf {
+        self.carried_in(session)
             .dir
-            .clone()
             .filter(|dir| dir.is_dir())
             .unwrap_or_else(|| self.dir.clone())
     }
 
-    /// What the bot's next command would start from: the folder and the variables carried from
-    /// the last, as a digest. An "always" given for a command holds only while this is the same
-    /// (a carried `NODE_OPTIONS` or `PYTHONPATH` changes what the same command runs).
-    pub fn state_digest(&self) -> String {
-        let carried = lock(&self.carried).clone();
+    fn carried_in(&self, session: &str) -> Carried {
+        lock(&self.carried)
+            .get(session)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// What `session`'s next command would start from: the folder and the variables carried
+    /// from its last, as a digest. An "always" given for a command holds only while this is the
+    /// same (a carried `NODE_OPTIONS` or `PYTHONPATH` changes what the same command runs).
+    pub fn state_digest(&self, session: &str) -> String {
+        let carried = self.carried_in(session);
         let dir = carried
             .dir
             .filter(|dir| dir.is_dir())
@@ -409,7 +433,7 @@ impl Terminal {
     /// Whether a bot command runs (or is still being stopped). The person types only once it is
     /// gone.
     pub fn bot_running(&self) -> bool {
-        self.running.load(Ordering::SeqCst)
+        self.running.load(Ordering::SeqCst) > 0
     }
 
     fn touched(&self) {
@@ -565,7 +589,7 @@ impl Terminal {
     /// Ends the running bot command, if any: its supervisor is dropped, and the command with it
     /// (everything it started ends as the command's run is dropped).
     fn stop_command(&self) {
-        if let Some(supervisor) = lock(&self.supervisor).take() {
+        for supervisor in lock(&self.supervisor).drain(..) {
             supervisor.abort();
         }
     }
@@ -642,19 +666,26 @@ impl Terminal {
     /// supervisor owns it: if this call is dropped, the command and everything it started are
     /// ended, and the next command starts only once that is done.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
-        self.run_in_state(command, timeout, None).await
+        self.run_in_state(MAIN, command, timeout, None, false).await
     }
 
-    /// [`Terminal::run`], only while the terminal is in the state `expected` names (a
-    /// [`Terminal::state_digest`]): checked under the command lock, right before it runs, so no
-    /// command in between can change what it would run. Otherwise it is not run.
+    /// [`Terminal::run`] in `session`, only while that session is in the state `expected` names
+    /// (a [`Terminal::state_digest`]): checked under the session's command lock, right before it
+    /// runs, so no command in between can change what it would run. Otherwise it is not run.
+    /// `outside`: the gate decided it runs with no sandbox (ADR 0171).
     pub async fn run_in_state(
         self: &Arc<Self>,
+        session: &str,
         command: &str,
         timeout: Duration,
         expected: Option<&str>,
+        outside: bool,
     ) -> Result<Ran, String> {
-        let one = self.commands.clone().lock_owned().await;
+        let lane = lock(&self.commands)
+            .entry(session.to_owned())
+            .or_default()
+            .clone();
+        let one = lane.lock_owned().await;
         if self.stuck.load(Ordering::SeqCst) {
             return Err(
                 "Not run: the terminal is still ending earlier work. Try again later, or \
@@ -663,7 +694,7 @@ impl Terminal {
             );
         }
         if let Some(expected) = expected
-            && self.state_digest() != expected
+            && self.state_digest(session) != expected
         {
             return Err(
                 "Not run: your terminal's folder or carried variables changed since this \
@@ -675,12 +706,12 @@ impl Terminal {
         let (answer, answered) = oneshot::channel();
         let (held, abandoned) = oneshot::channel::<()>();
         let terminal = self.clone();
-        let command = command.to_owned();
-        self.running.store(true, Ordering::SeqCst);
+        let (command, session) = (command.to_owned(), session.to_owned());
+        self.running.fetch_add(1, Ordering::SeqCst);
         let supervisor = tokio::spawn(async move {
             let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&command, timeout, cleanup.clone()) => Some(ran),
+                ran = terminal.supervised(&session, &command, timeout, cleanup.clone(), outside) => Some(ran),
                 _ = abandoned => None,
             };
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
@@ -691,14 +722,18 @@ impl Terminal {
                 Ok(false) => terminal.unsettled(),
                 Err(_) => terminal.quarantine(cleanup),
             }
-            terminal.running.store(false, Ordering::SeqCst);
+            terminal.running.fetch_sub(1, Ordering::SeqCst);
             drop(one);
             terminal.touched();
             if let Some(ran) = finished {
                 let _ = answer.send(ran);
             }
         });
-        *lock(&self.supervisor) = Some(supervisor.abort_handle());
+        {
+            let mut supervisors = lock(&self.supervisor);
+            supervisors.retain(|s| !s.is_finished());
+            supervisors.push(supervisor.abort_handle());
+        }
         let _held = held;
         answered
             .await
@@ -733,16 +768,18 @@ impl Terminal {
             b"[bot] some of what it started may still run; the terminal starts afresh\n",
         ));
         self.end();
-        *lock(&self.carried) = Carried::default();
+        lock(&self.carried).clear();
     }
 
     async fn supervised(
         self: &Arc<Self>,
+        session: &str,
         command: &str,
         timeout: Duration,
         cleanup: Cleanup,
+        outside: bool,
     ) -> Result<Ran, String> {
-        let carried = lock(&self.carried).clone();
+        let carried = self.carried_in(session);
         let dir = carried
             .dir
             .filter(|dir| dir.is_dir())
@@ -788,10 +825,15 @@ impl Terminal {
                     env: &carried.env,
                     tee: Some(tee),
                     cleanup: Some(cleanup),
+                    stdin: None,
+                    kind: crate::workspace::shell::Kind::Terminal {
+                        scratch: self.scratch.clone(),
+                    },
+                    outside,
                 },
             )
             .await;
-        *lock(&self.carried) = state_files.read();
+        lock(&self.carried).insert(session.to_owned(), state_files.read());
         if let Ok(ran) = &ran {
             let ending = match (ran.timed_out, ran.code) {
                 (true, _) => "[bot] stopped: past its deadline\n".to_owned(),

@@ -38,6 +38,11 @@ pub struct Transcript {
     pub awaiting: Vec<String>,
     /// Background jobs still running, by job id. They outlive the turn that started them.
     pub jobs: Vec<String>,
+    /// Wakes still open (ADR 0160): the bot sleeps or waits on them, so it is not idle.
+    pub wakes: Vec<String>,
+    /// The open reply's turn waits out its endpoint's outage on this wake (ADR 0158, 0160): the
+    /// reply is open but runs nothing until it fires.
+    pub outage: Option<String>,
     /// The person pressed Stop while the open reply ran; it ends as stopped.
     pub stopping: bool,
     /// The open reply was paused for a planned restart and nothing of it has run since. It is
@@ -48,6 +53,10 @@ pub struct Transcript {
     pub questions: Vec<Question>,
     /// Tools the person allowed "always" in this conversation.
     pub always_allowed: Vec<String>,
+    /// Approvals the bot's helpers (ADR 0152) wait on, by call id here, with the helper's job.
+    /// Unlike `awaiting` they outlive the reply that started the helper: one stays until the
+    /// person answers it or the helper's job ends.
+    pub helper_awaiting: Vec<(String, String)>,
     /// Which tool each approval asked about, by call id.
     asked: Vec<(String, String)>,
     /// Indexes into `messages` of the replies still answering, oldest first. The last is the
@@ -59,7 +68,8 @@ pub struct Transcript {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Question {
     pub call_id: String,
-    /// The person's next message has arrived; the call's result is still to be stored.
+    /// The person answered, left it for later or dismissed it; the call's result is still to be
+    /// stored.
     pub answered: bool,
 }
 
@@ -84,13 +94,13 @@ impl Transcript {
     }
 
     pub fn apply(&mut self, event: &Event) {
+        let event_ref = event;
         let Event::Known(event) = event else { return };
         match event {
-            Known::UserMessage {
-                text, from_agent, ..
-            } => {
-                // The person's next message answers what the bot asked; another bot's does not.
-                if from_agent.is_none() {
+            Known::UserMessage { text, .. } => {
+                // A message the person types answers what the bot asked; another bot's, a
+                // routine's or a group's does not.
+                if crate::question::typed_by_person(event_ref) {
                     for question in &mut self.questions {
                         question.answered = true;
                     }
@@ -111,6 +121,24 @@ impl Transcript {
                     });
                 }
             }
+            // Answered in the card, left for later or dismissed: the turn no longer waits on it,
+            // and its result is still owed. A late answer is for the model, like a job's result.
+            Known::QuestionDeferred { call_id, .. }
+            | Known::QuestionAnswered {
+                call_id,
+                late: false,
+                ..
+            }
+            | Known::QuestionDismissed {
+                call_id,
+                late: false,
+            } => {
+                for question in self.questions.iter_mut().filter(|q| &q.call_id == call_id) {
+                    question.answered = true;
+                }
+            }
+            Known::QuestionAnswered { late: true, .. }
+            | Known::QuestionDismissed { late: true, .. } => {}
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
                 self.paused = false;
@@ -156,11 +184,22 @@ impl Transcript {
                 self.running.retain(|id| id != call_id);
                 self.questions.retain(|q| &q.call_id != call_id);
             }
-            Known::TurnPaused { reply } => {
+            // A turn waiting for its endpoint (ADR 0158) runs nothing either: a restart resumes it.
+            Known::TurnPaused { reply } | Known::TurnParked { reply, .. } => {
                 let open = self.open_reply().and_then(|m| m.reply.as_deref());
                 if open == Some(reply.as_str()) {
                     self.paused = true;
                 }
+            }
+            Known::ApprovalRequested {
+                call_id,
+                name,
+                helper: Some(helper),
+                ..
+            } => {
+                self.helper_awaiting
+                    .push((call_id.clone(), helper.job.clone()));
+                self.asked.push((call_id.clone(), name.clone()));
             }
             Known::ApprovalRequested { call_id, name, .. } => {
                 self.paused = false;
@@ -176,6 +215,7 @@ impl Transcript {
                 ..
             } => {
                 self.awaiting.retain(|id| id != call_id);
+                self.helper_awaiting.retain(|(id, _)| id != call_id);
                 let tool = self
                     .asked
                     .iter()
@@ -192,7 +232,35 @@ impl Transcript {
                 self.paused = false;
                 self.jobs.push(job.clone());
             }
-            Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
+            Known::JobFinished { job, .. } => {
+                self.jobs.retain(|id| id != job);
+                // A helper that ended asks nothing more.
+                self.helper_awaiting.retain(|(_, j)| j != job);
+            }
+            Known::WakeSet {
+                wake,
+                reply,
+                purpose,
+                ..
+            } => {
+                if !self.wakes.contains(wake) {
+                    self.wakes.push(wake.clone());
+                }
+                // A turn waiting out an outage runs nothing either: a restart resumes it.
+                let open = self.open_reply().and_then(|m| m.reply.as_deref());
+                if matches!(purpose, crate::wake::Purpose::Outage { .. })
+                    && open == Some(reply.as_str())
+                {
+                    self.paused = true;
+                    self.outage = Some(wake.clone());
+                }
+            }
+            Known::WakeFired { wake, .. } | Known::WakeCancelled { wake, .. } => {
+                self.wakes.retain(|w| w != wake);
+                if self.outage.as_ref() == Some(wake) {
+                    self.outage = None;
+                }
+            }
             Known::StopRequested { reply, .. } => {
                 let open = self.open_reply().and_then(|m| m.reply.clone());
                 if open.is_some() && open == *reply {
@@ -203,11 +271,15 @@ impl Transcript {
                 }
             }
             Known::SkillsIndexed { .. }
+            | Known::PluginsStarted { .. }
+            | Known::PluginsChanged {}
+            | Known::HookRan { .. }
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }
+            | Known::KnowledgeIndexed { .. }
+            | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
-            | Known::CapReached { .. }
             | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }
             | Known::GroupAsked { .. }
@@ -218,13 +290,28 @@ impl Transcript {
             | Known::AccessChanged { .. }
             | Known::TaskContinued { .. }
             | Known::TaskPaused { .. }
-            | Known::PersonActivity { .. } => {}
+            | Known::GoalSet { .. }
+            | Known::GoalCleared { .. }
+            | Known::PlanChanged { .. }
+            | Known::PlanCheckpoint { .. }
+            | Known::TaskVerified { .. }
+            | Known::PersonActivity { .. }
+            | Known::JobProgress { .. }
+            | Known::ServiceStarted { .. }
+            | Known::ServiceEnded { .. }
+            | Known::WorkerOf(_)
+            | Known::WorkerStarted(_)
+            | Known::WorkerReported(_)
+            | Known::WorkerDetached { .. }
+            | Known::DecisionMade(_)
+            | Known::TaskParked { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();
             self.awaiting.clear();
             self.questions.clear();
             self.paused = false;
+            self.outage = None;
         }
     }
 
@@ -289,6 +376,12 @@ impl Transcript {
             reply,
             open.text.clone(),
         ))
+    }
+
+    /// Whether anything of the bot waits for the person: an approval of the open reply, one of
+    /// its helpers', or a question it asked.
+    pub fn waiting_on_you(&self) -> bool {
+        !self.awaiting.is_empty() || !self.helper_awaiting.is_empty() || self.asking()
     }
 
     /// Whether the open reply waits for the person to answer a question it asked.
@@ -414,6 +507,9 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
+                tool_key: None,
+                helper: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -434,6 +530,9 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
+                tool_key: None,
+                helper: None,
             }),
             Event::Known(Known::StopRequested {
                 reply: Some("r1".into()),
@@ -464,6 +563,9 @@ mod tests {
                 arguments: serde_json::json!({}),
                 scope: None,
                 reviewer_reason: None,
+                ask: None,
+                tool_key: None,
+                helper: None,
             }),
             Event::Known(Known::ApprovalAnswered {
                 reply: "r1".into(),
@@ -523,6 +625,45 @@ mod tests {
         );
         assert_eq!(transcript.turn_state(), Some(TurnState::Answering));
         assert_eq!(transcript.close_after_restart(), None);
+    }
+
+    #[test]
+    fn a_turn_waiting_out_an_outage_stays_open_through_a_restart_until_its_wake_fires() {
+        let outage = |wake: &str| {
+            Event::Known(Known::WakeSet {
+                wake: wake.into(),
+                reply: "r1".into(),
+                purpose: crate::wake::Purpose::Outage {
+                    attempt: 1,
+                    error: "503".into(),
+                },
+                due_ms: Some(60_000),
+                condition: None,
+                reason: String::new(),
+            })
+        };
+        let mut events = vec![
+            Event::user_message("Hello"),
+            Event::reply_started("r1", "m"),
+            outage("w1"),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(transcript.outage.as_deref(), Some("w1"));
+        assert_eq!(
+            transcript.close_after_restart(),
+            None,
+            "it resumes, not interrupted"
+        );
+        events.push(crate::wake::fired(
+            "w1",
+            crate::wake::Cause::Time,
+            None,
+            Vec::new(),
+        ));
+        assert_eq!(Transcript::fold(&events).outage, None);
+        // An outage wake left over from another reply does not hold this one.
+        let other = vec![Event::reply_started("r2", "m"), outage("w2")];
+        assert_eq!(Transcript::fold(&other).outage, None);
     }
 
     #[test]
@@ -599,6 +740,8 @@ mod tests {
             is_error: false,
             uncertain: false,
             files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
         }));
         assert!(!Transcript::fold(&events).busy());
     }
@@ -699,6 +842,8 @@ mod tests {
                 reply: "r1".into(),
                 call_id: "q1".into(),
                 question: "Window or aisle?".into(),
+                questions: Vec::new(),
+                later: false,
             }),
             Event::Known(Known::ToolStarted {
                 reply: "r1".into(),
@@ -715,5 +860,73 @@ mod tests {
             "the reply stays open"
         );
         assert!(transcript.asking());
+    }
+
+    #[test]
+    fn a_helpers_approval_keeps_the_bot_waiting_after_its_reply_and_ends_with_the_helper() {
+        let asked = |call_id: &str| {
+            Event::Known(Known::ApprovalRequested {
+                reply: "r1".into(),
+                call_id: call_id.into(),
+                name: "workspace_write".into(),
+                arguments: serde_json::json!({}),
+                scope: None,
+                reviewer_reason: None,
+                ask: None,
+                tool_key: None,
+                helper: Some(Box::new(crate::event::HelperAsk {
+                    job: "j1".into(),
+                    conversation: "h1".into(),
+                    call_id: "call_0".into(),
+                })),
+            })
+        };
+        let mut events = vec![
+            Event::user_message("Fix the docs"),
+            Event::reply_started("r1", "m"),
+            Event::Known(Known::JobStarted {
+                reply: "r1".into(),
+                job: "j1".into(),
+                name: "helper".into(),
+            }),
+            finished("r1", "A helper is on it."),
+            asked("j1.call_0"),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(transcript.open_reply().is_none());
+        assert!(
+            transcript.waiting_on_you(),
+            "the helper waits on the person"
+        );
+        assert_eq!(transcript.turn_state(), None);
+
+        events.push(Event::Known(Known::ApprovalAnswered {
+            reply: "r1".into(),
+            call_id: "j1.call_0".into(),
+            allowed: true,
+            always: true,
+        }));
+        let transcript = Transcript::fold(&events);
+        assert!(!transcript.waiting_on_you());
+        assert_eq!(
+            transcript.always_allowed,
+            vec!["workspace_write".to_owned()]
+        );
+        assert_eq!(transcript.jobs, vec!["j1".to_owned()], "still working");
+
+        events.push(asked("j1.call_1"));
+        events.push(Event::Known(Known::JobFinished {
+            job: "j1".into(),
+            name: "helper".into(),
+            content: crate::context::JOB_STOPPED.into(),
+            is_error: true,
+            uncertain: true,
+            files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
+        }));
+        let transcript = Transcript::fold(&events);
+        assert!(!transcript.waiting_on_you(), "an ended helper asks nothing");
+        assert!(!transcript.busy());
     }
 }

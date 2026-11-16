@@ -1,3 +1,4 @@
+import { type SpadeAnswer } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
@@ -7,6 +8,12 @@ import { agentsKey } from "./use-spade-roster.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+
+/** What a card posts: exactly one of these. */
+export type QuestionReply =
+  | { answers: readonly SpadeAnswer[] }
+  | { defer: true }
+  | { dismiss: true };
 
 export const followDeps: FollowDeps = {
   frame: (callback) =>
@@ -84,6 +91,13 @@ export function useSpadeConversation(conversation: string) {
       return spadeHttp(client, "POST", `${path}/approvals/${segment(callId)}`, {
         body: { allowed, always },
       });
+    },
+    /**
+     * A card of questions (ADR 0154): its answers, Answer later, or Never mind. A 400 names the
+     * question and the rule it broke, in Spade's words (`SpadeRequestError`'s message).
+     */
+    question(callId: string, body: QuestionReply): Promise<string> {
+      return spadeHttp(client, "POST", `${path}/questions/${segment(callId)}`, { body });
     },
   };
 }

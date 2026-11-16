@@ -24,6 +24,15 @@ fn generated_color(seed: &str) -> &'static str {
     AVATAR_COLORS[(hash % AVATAR_COLORS.len() as u64) as usize]
 }
 
+/// The settings key prefix for a bot made from a marketplace recipe (ADR 0168): where it came
+/// from and the built-in tools it is narrowed to, as JSON the server shapes.
+pub const BOT_RECIPE: &str = "bot_recipe";
+
+/// One bot's recipe settings key.
+pub fn recipe_key(agent: &str) -> String {
+    format!("{BOT_RECIPE}:{agent}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Agent {
     pub id: String,
@@ -40,6 +49,8 @@ pub struct Agent {
     pub updated_ms: i64,
     /// When its conversation last changed.
     pub last_activity_ms: i64,
+    /// When the person pinned it to the top of their list; `None` when it isn't pinned.
+    pub pinned_ms: Option<i64>,
 }
 
 /// What creating an agent needs.
@@ -55,7 +66,7 @@ pub struct NewAgent<'a> {
 }
 
 const COLUMNS: &str = "a.id, a.kind, a.name, a.task, a.avatar, a.model, a.conversation_id,
-    a.created_ms, a.updated_ms, c.updated_ms";
+    a.created_ms, a.updated_ms, c.updated_ms, a.pinned_ms";
 
 fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
     Ok(Agent {
@@ -69,6 +80,7 @@ fn agent(row: &Row<'_>) -> rusqlite::Result<Agent> {
         created_ms: row.get(7)?,
         updated_ms: row.get(8)?,
         last_activity_ms: row.get(9)?,
+        pinned_ms: row.get(10)?,
     })
 }
 
@@ -120,12 +132,30 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Pins the agent at `now_ms`, or unpins it. Pinning a pinned agent keeps its place. Answers
+    /// false when there is no such agent.
+    pub fn set_agent_pinned(&self, id: &str, pinned: bool, now_ms: i64) -> Result<bool> {
+        let connection = self.lock()?;
+        let changed = connection.execute(
+            "UPDATE agents SET pinned_ms = CASE WHEN ?2 THEN COALESCE(pinned_ms, ?3) END
+             WHERE id = ?1",
+            params![id, pinned, now_ms],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn agent(&self, id: &str) -> Result<Option<Agent>> {
         self.agent_where("a.id = ?1", id)
     }
 
+    /// The agent whose conversation is `conversation`. A helper's conversation (ADR 0152)
+    /// belongs to its bot: its tools, connectors and settings are the bot's.
     pub fn agent_for_conversation(&self, conversation: &str) -> Result<Option<Agent>> {
-        self.agent_where("a.conversation_id = ?1", conversation)
+        self.agent_where(
+            "a.conversation_id = COALESCE(
+                 (SELECT parent_id FROM helpers WHERE conversation_id = ?1), ?1)",
+            conversation,
+        )
     }
 
     fn agent_where(&self, condition: &str, value: &str) -> Result<Option<Agent>> {
@@ -200,7 +230,7 @@ impl Store {
     }
 
     /// Deletes the agent, its conversation and the conversation's events. Spending stays in the
-    /// ledger, so today's cap still counts it. Returns whether the agent existed.
+    /// ledger, so the day's spend still shows it. Returns whether the agent existed.
     pub fn delete_agent(&self, id: &str) -> Result<bool> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
@@ -215,10 +245,27 @@ impl Store {
             return Ok(false);
         };
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
-        // Its caps and review switch (ADR 0135); its spend stays in the ledger.
+        // Its helpers' hidden conversations go with it (ADR 0152).
+        crate::helpers::delete_of(&tx, &conversation)?;
+        // Its review switch (ADR 0135); its spend stays in the ledger.
         tx.execute(
             "DELETE FROM settings WHERE key = ?1",
             params![crate::oversight::agent_key(id)],
+        )?;
+        // Its digest settings (ADR 0165); its digests go with the row.
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![crate::digests::digests_key(id)],
+        )?;
+        // Its model roles (ADR 0162).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![crate::spend::roles_key(id)],
+        )?;
+        // The recipe it was made from (ADR 0168).
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![recipe_key(id)],
         )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",

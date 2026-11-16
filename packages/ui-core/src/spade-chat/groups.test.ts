@@ -5,6 +5,7 @@ import {
   emptySpadeGroup,
   foldSpade,
   foldSpadeGroup,
+  parseSpadeGroupFiles,
   parseSpadeGroups,
   parseSpadeImport,
   parseSpadeLiveFrame,
@@ -181,7 +182,7 @@ test("in a bot's own chat a group's message reads as a label, not as the person"
   );
   if (input) foldSpade(state, input);
   expect(spadeBubbles(spadeView(state))).toEqual([
-    { kind: "group", key: "s1", group: "Trips", text: "Find flights", agent: undefined },
+    { kind: "group", key: "s1", group: "Trips", text: "Find flights", agent: undefined, at: 1 },
   ]);
 });
 
@@ -277,4 +278,19 @@ test("an exported bot's file name is safe to save anywhere", () => {
   expect(spadeBotFileName("Research")).toBe("Research.spade-bot.json");
   expect(spadeBotFileName("a/b: c?")).toBe("a b c.spade-bot.json");
   expect(spadeBotFileName("...")).toBe("bot.spade-bot.json");
+});
+
+test("a group's Library lists each file a member made, and leaves out one it can't read", () => {
+  const body = JSON.stringify({
+    files: [
+      { agent: "learning", path: "cards/explaining-away.csv", at: 20 },
+      { agent: "research", path: "", at: 10 },
+      { agent: "research", path: "sources.md", at: "soon" },
+    ],
+  });
+  expect(parseSpadeGroupFiles(body)).toEqual([
+    { agent: "learning", path: "cards/explaining-away.csv", at: 20 },
+    { agent: "research", path: "sources.md", at: 0 },
+  ]);
+  expect(parseSpadeGroupFiles(JSON.stringify({ error: "no such group" }))).toBeUndefined();
 });

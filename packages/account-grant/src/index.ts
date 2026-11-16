@@ -41,7 +41,31 @@ export const CloudGrantClaims = GrantClaims.extend({
   purpose: z.literal("spade-cloud"),
 });
 export type CloudGrantClaims = z.infer<typeof CloudGrantClaims>;
-const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims]);
+/**
+ * A publisher's grant for ace's marketplace (ADR 0168 §7), from a machine or a device. The relay
+ * and ace cloud refuse it, and the market refuses theirs: each parser is strict about its own.
+ */
+export const MarketGrantClaims = GrantClaims.extend({
+  aud: z.literal("market.acehq.dev"),
+  purpose: z.literal("market-publish"),
+});
+export type MarketGrantClaims = z.infer<typeof MarketGrantClaims>;
+const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims, MarketGrantClaims]);
+
+export function signMarketGrant(
+  claims: Omit<GrantClaims, "v" | "kid">,
+  key: GrantSigningKey,
+): string {
+  const full = MarketGrantClaims.parse({
+    ...claims,
+    v: 1,
+    kid: key.id,
+    aud: "market.acehq.dev",
+    purpose: "market-publish",
+  });
+  const body = new TextEncoder().encode(JSON.stringify(full));
+  return `${encodeBase64url(body)}.${encodeBase64url(ed25519.sign(body, key.privateKey))}`;
+}
 
 export function signCloudGrant(
   claims: Omit<GrantClaims, "v" | "kid">,
@@ -119,11 +143,20 @@ export function verifyCloudGrant(token: string, keys: GrantKeySet, now: number):
   return verifySigned(token, keys, now, "machine", CloudGrantClaims);
 }
 
+/** Verify a market publishing grant, from a machine or a device. Relay and cloud grants fail. */
+export function verifyMarketGrant(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+): MarketGrantClaims {
+  return verifySigned(token, keys, now, undefined, MarketGrantClaims);
+}
+
 function verifySigned<Claims extends GrantClaims>(
   token: string,
   keys: GrantKeySet,
   now: number,
-  kind: GrantKind,
+  kind: GrantKind | undefined,
   schema: z.ZodType<Claims>,
 ): Claims {
   const [body, signature, extra] = token.split(".");
@@ -147,7 +180,7 @@ function verifySigned<Claims extends GrantClaims>(
     valid = false;
   }
   if (!valid) throw new GrantError("Invalid grant signature");
-  if (claims.kind !== kind) throw new GrantError("Wrong grant kind");
+  if (kind !== undefined && claims.kind !== kind) throw new GrantError("Wrong grant kind");
   if (claims.exp <= now) throw new GrantError("Grant expired");
   if (claims.iat > now + GRANT_SKEW_MS || claims.exp - claims.iat > GRANT_LIFETIME_MS)
     throw new GrantError("Grant lifetime invalid");

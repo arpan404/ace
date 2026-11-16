@@ -1,5 +1,5 @@
-import { lstat, mkdir, readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
   SuitId,
   type SuitDetail,
@@ -209,6 +209,62 @@ export class SuitLibrary {
     this.#cache.delete(id);
     this.changed();
     return { op: "remove", removed: true };
+  }
+
+  /**
+   * Installs a Suit from files already checked and verified (a marketplace version, ADR 0168):
+   * written under a dot name the library never lists, then moved in whole, replacing the folder
+   * only when `replace` says the caller owns it (an update of the same install). It is stored,
+   * never applied: wearing it stays each device's choice.
+   */
+  async install(
+    id: string,
+    files: readonly { path: string; executable: boolean; content: Uint8Array }[],
+    options: { replace: boolean },
+  ): Promise<SuitSummary> {
+    const suitId = SuitId.parse(id);
+    const folder = join(this.#options.root, suitId);
+    const staging = join(this.#options.root, `.installing-${suitId}`);
+    const old = join(this.#options.root, `.replaced-${suitId}`);
+    const exists = await lstat(folder).then(
+      () => true,
+      (error: unknown) => {
+        if (isMissing(error)) return false;
+        throw error;
+      },
+    );
+    if (exists && !options.replace) throw new Error(`There is already a Suit ${suitId}`);
+    await rm(staging, { recursive: true, force: true });
+    await rm(old, { recursive: true, force: true });
+    let movedAside = false;
+    try {
+      for (const file of files) {
+        const target = join(staging, file.path);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, file.content, {
+          flag: "wx",
+          mode: file.executable ? 0o755 : 0o644,
+        });
+      }
+      if (exists) {
+        await rename(folder, old);
+        movedAside = true;
+      }
+      await rename(staging, folder);
+      movedAside = false;
+    } catch (error) {
+      // The new folder never landed: the one it was replacing goes back.
+      if (movedAside) await rename(old, folder);
+      throw error;
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+      await rm(old, { recursive: true, force: true });
+    }
+    this.#cache.delete(suitId);
+    this.changed();
+    const read = await this.#read(suitId, false);
+    if (!read) throw new Error(`${suitId} didn't land in the library`);
+    return read.inspected.summary;
   }
 
   request(request: SuitRequest): Promise<SuitResponse> {

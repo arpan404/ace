@@ -1,11 +1,13 @@
 import {
   parseSpadeAgent,
   parseSpadeGroup,
+  parseSpadeGroupFiles,
   parseSpadeGroups,
   parseSpadeImport,
   parseSpadeTemplates,
   type SpadeAgent,
   type SpadeGroup,
+  type SpadeGroupFile,
   type SpadeTemplate,
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
@@ -62,6 +64,11 @@ export async function deleteGroup(target: SpadeTarget, id: string): Promise<void
   await spadeHttp(target, "DELETE", `/v1/groups/${segment(id)}`);
 }
 
+/** Pins a group to the strip under the list's buttons, or unpins it. */
+export async function pinGroup(target: SpadeTarget, id: string, pinned: boolean): Promise<void> {
+  await spadeHttp(target, "PUT", `/v1/groups/${segment(id)}/pin`, { body: { pinned } });
+}
+
 /** Starts a run: the lead answers, or each member named with `@`. */
 export async function postGroupMessage(
   target: SpadeTarget,
@@ -73,6 +80,16 @@ export async function postGroupMessage(
 
 export async function stopGroup(target: SpadeTarget, id: string): Promise<void> {
   await spadeHttp(target, "POST", `/v1/groups/${segment(id)}/stop`);
+}
+
+/** The files the group's members on its machine made in it, newest first: its Library. */
+export async function readGroupFiles(
+  target: SpadeTarget,
+  id: string,
+  options: Signal = {},
+): Promise<SpadeGroupFile[]> {
+  const body = await spadeHttp(target, "GET", `/v1/groups/${segment(id)}/files`, options);
+  return sure(parseSpadeGroupFiles(body), "group files");
 }
 
 export async function readTemplates(

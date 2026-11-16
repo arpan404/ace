@@ -16,6 +16,8 @@ pub(super) enum Run {
     Exec(String),
     /// A file run as a shell script (`sh x`, `source x`, `sh < x`), whatever its name.
     Shell(String),
+    /// An AppleScript or JavaScript for Automation file run by `osascript`.
+    AppleScript(String),
     /// Make goals (none: the default goal), from the makefile (`-f`, else the usual names) in
     /// `dir`, with variables set on the command line.
     Make {
@@ -48,7 +50,7 @@ pub(super) struct Effect {
 }
 
 impl Effect {
-    fn kind(kind: Sensitive) -> Self {
+    pub(super) fn kind(kind: Sensitive) -> Self {
         Self::maybe(Some(kind))
     }
 
@@ -467,8 +469,11 @@ fn what(simple: &Simple, place: &dyn Place) -> Effect {
         "sudo" | "doas" | "su" | "pkexec" | "runuser" | "runas" | "launchctl" | "systemctl"
         | "crontab" | "reboot" | "shutdown" | "halt" | "diskutil" | "mount" | "umount"
         | "chflags" => Some(Sensitive::Admin),
-        "osascript" | "automator" | "shortcuts" | "xdotool" | "ydotool" | "cliclick" | "open"
-        | "xdg-open" | "start" => Some(Sensitive::Automation),
+        "osascript" => return super::apple::osascript(simple),
+        "shortcuts" => return super::apple::shortcuts(words),
+        "automator" | "xdotool" | "ydotool" | "cliclick" | "open" | "xdg-open" | "start" => {
+            Some(Sensitive::Automation)
+        }
         "stripe" | "paypal" => Some(Sensitive::Payment),
         "mail" | "mailx" | "sendmail" | "mutt" | "neomutt" | "msmtp" | "swaks" => {
             Some(Sensitive::MessageAsPerson)
@@ -910,6 +915,8 @@ fn gh(words: &[String]) -> Option<Sensitive> {
         .find(|w| !w.starts_with('-'))
         .map(String::as_str);
     match (sub, action) {
+        // A comment goes out from the person's account, in their name.
+        ("pr" | "issue", Some("comment")) => Some(Sensitive::MessageAsPerson),
         (
             "pr" | "issue" | "release" | "repo" | "gist" | "label" | "project" | "variable",
             Some(

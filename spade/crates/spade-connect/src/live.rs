@@ -30,6 +30,10 @@ pub struct ConnectorTool {
     pub name: String,
     /// The server's own tool, with its own name.
     pub tool: McpTool,
+    /// The catalogue entry its connector came from, whose declarations say what its tools do.
+    pub catalogue: Option<String>,
+    /// The server's address.
+    pub server: String,
 }
 
 /// Why a call returned no result.
@@ -97,6 +101,8 @@ impl Connectors {
                     connector_name: record.name.clone(),
                     name: format!("{}{SEPARATOR}{}", record.id, tool.name),
                     tool: tool.clone(),
+                    catalogue: record.catalogue.clone(),
+                    server: record.url.clone(),
                 });
             }
         }

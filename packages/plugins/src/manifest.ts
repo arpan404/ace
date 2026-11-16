@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContainedPath } from "@ace/protocol";
 import { PluginName, PluginHash } from "@ace/protocol/plugins";
 
 export const limits = {
@@ -9,30 +10,8 @@ export const limits = {
   installs: 256,
   pending: 32,
 };
-export const PluginPath = z
-  .string()
-  .min(1)
-  .max(512)
-  .refine((input) => {
-    const value = input.startsWith("./") ? input.slice(2) : input;
-    return (
-      !value.includes("\\") &&
-      !/[<>:"|?*]/.test(value) &&
-      ![...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) &&
-      !value.startsWith("/") &&
-      value
-        .split("/")
-        .every(
-          (part) =>
-            part !== "" &&
-            part !== "." &&
-            part !== ".." &&
-            !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part) &&
-            ![".git", "__proto__", "constructor", "prototype"].includes(part) &&
-            !/[. ]$/.test(part),
-        )
-    );
-  }, "Must be a contained relative path");
+/** Plugin files are named like any contained path (shared with a skill's files). */
+export const PluginPath = ContainedPath;
 export function normalizePath(input: string): string {
   const path = PluginPath.parse(input);
   return path.startsWith("./") ? path.slice(2) : path;

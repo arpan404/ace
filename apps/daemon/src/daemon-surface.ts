@@ -44,6 +44,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "handler",
     "plugins",
     "suits",
+    "marketplace",
     "suitLooks",
     "suitChecks",
     "browser",

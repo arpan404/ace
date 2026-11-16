@@ -6,14 +6,25 @@ mod body;
 mod brains;
 mod computer;
 mod connectors;
+mod digests;
 mod endpoints;
 mod files;
+mod goals;
+mod knowledge;
 mod media;
 mod memory;
 mod oversight;
+mod plugins;
+mod questions;
+mod recipes;
 mod routines;
+mod routing;
 mod search;
+mod security;
+mod skills;
 mod teams;
+mod wakes;
+mod workers;
 mod workspace;
 
 use std::convert::Infallible;
@@ -55,6 +66,8 @@ pub struct AppState {
     pub workspaces: Option<crate::workspace::Workspaces>,
     /// Skill proposals and notes, when Spade has a skill library.
     pub learning: Option<Arc<crate::learning::Learning>>,
+    /// Spade's own skill store (ADR 0151).
+    pub skill_store: Option<Arc<crate::skill_store::SkillStore>>,
     /// The person's connected apps (ADR 0131).
     pub connectors: Option<Arc<spade_connect::Connectors>>,
     /// Web search's backends, whose settings the person changes (docs/design.md, Web search).
@@ -75,6 +88,13 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(agents::update)
                 .delete(agents::delete)
                 .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
+        )
+        .route("/agents/{id}/pin", put(agents::pin))
+        .route("/agents/{id}/task", get(goals::read))
+        .route("/agents/{id}/tree", get(workers::tree))
+        .route(
+            "/agents/{id}/task/goal",
+            put(goals::set).delete(goals::clear),
         )
         .route("/main", put(agents::set_main))
         .route("/endpoints", post(endpoints::create))
@@ -105,10 +125,17 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/routines/{id}/run", post(routines::run))
         .route("/conversations/{id}/events", get(events))
+        .route("/conversations/{id}/helpers", get(helpers))
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
+        .route("/conversations/{id}/questions", get(questions::list))
+        .route(
+            "/conversations/{id}/questions/{call_id}",
+            post(questions::reply),
+        )
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
+        .route("/conversations/{id}/seen", put(seen))
         .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
@@ -125,14 +152,21 @@ pub fn router(state: AppState) -> Router {
                 .delete(end_maintenance),
         )
         .merge(connectors::routes())
+        .merge(plugins::routes())
         .merge(brains::routes())
         .merge(memory::routes())
+        .merge(knowledge::routes())
         .merge(oversight::routes())
+        .merge(routing::routes())
+        .merge(security::routes())
         .merge(workspace::routes())
+        .merge(skills::routes())
         .merge(computer::routes())
         .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
+        .merge(wakes::routes())
+        .merge(digests::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
@@ -220,20 +254,27 @@ pub(super) fn problem(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
+/// A stored event as served, with its escalation level when it reaches the person (ADR 0165):
+/// derived here, never stored.
 fn stored(event: &StoredEvent) -> Value {
-    json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() })
+    let mut served = json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() });
+    if let spade_core::Event::Known(known) = &event.event
+        && let Some(level) = spade_core::escalation::level(known)
+    {
+        served["level"] = json!(level);
+    }
+    served
 }
 
 pub(super) fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled | SendError::Group => StatusCode::CONFLICT,
+        SendError::Disabled | SendError::Group | SendError::Helper => StatusCode::CONFLICT,
         SendError::Empty
         | SendError::TooLong
         | SendError::TooManyImages
         | SendError::TooManyDocuments
         | SendError::Image(_) => StatusCode::BAD_REQUEST,
-        SendError::OverCap | SendError::BotCapped(_) => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -246,7 +287,8 @@ async fn list(State(state): State<AppState>) -> Response {
                 .map(|(c, activity)| {
                     json!({ "id": c.id, "title": c.title, "updated_at": c.updated_ms,
                             "answering": activity.answering, "jobs": activity.jobs,
-                            "waiting_on_you": activity.waiting_on_you })
+                            "waiting_on_you": activity.waiting_on_you,
+                            "questions_for_later": activity.questions_for_later })
                 })
                 .collect::<Vec<_>>(),
         )
@@ -287,6 +329,16 @@ async fn events(
     }
 }
 
+/// The helpers a conversation's bot started (ADR 0152), for the lines that expand to their
+/// steps: each helper's own conversation is read with `/events` and `/live` like any other.
+async fn helpers(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.helpers_view(&id) {
+        Ok(Some(helpers)) => Json(json!({ "helpers": helpers })).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
+}
+
 async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.stop(&id) {
         Ok(true) => StatusCode::ACCEPTED.into_response(),
@@ -295,6 +347,35 @@ async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("stopped, but the stop could not be saved yet ({error}); Spade keeps trying"),
         ),
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct Seen {
+    /// The last event the person saw; the conversation's last when absent.
+    #[serde(default)]
+    seq: Option<i64>,
+}
+
+/// Marks a bot's or a group's conversation seen (the list's "finished, not seen"). The body is
+/// optional: `{}` or none at all is "up to now". The cursor never moves back.
+async fn seen(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> Response {
+    let body: Seen = if body.iter().all(u8::is_ascii_whitespace) {
+        Seen::default()
+    } else {
+        match serde_json::from_slice(&body) {
+            Ok(body) => body,
+            Err(error) => return problem(StatusCode::BAD_REQUEST, &error.to_string()),
+        }
+    };
+    match state.engine.mark_seen(&id, body.seq) {
+        Ok(Some(seq)) => Json(json!({ "seen_seq": seq })).into_response(),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
 
@@ -315,9 +396,6 @@ async fn compact(
         Err(CompactError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error @ (CompactError::Busy | CompactError::Nothing)) => {
             problem(StatusCode::CONFLICT, &error.to_string())
-        }
-        Err(error @ (CompactError::OverCap | CompactError::BotCapped(_))) => {
-            problem(StatusCode::PAYMENT_REQUIRED, &error.to_string())
         }
         Err(CompactError::Failed(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
@@ -425,6 +503,11 @@ async fn live(
                     SseEvent::default()
                         .event("delta")
                         .data(json!({ "reply": reply, "text": text }).to_string()),
+                ),
+                Ok(Frame::Seen { seq }) => Some(
+                    SseEvent::default()
+                        .event("seen")
+                        .data(json!({ "seq": seq }).to_string()),
                 ),
                 Ok(Frame::Status {
                     state,

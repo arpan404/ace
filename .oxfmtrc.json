@@ -11,6 +11,7 @@
     "**/*.gen.ts",
     "docs/protocol",
     "spade/target/**",
-    "spade/crates/spade-server/shipped/**"
+    "spade/crates/spade-server/shipped/**",
+    "spade/crates/spade-classify/model/REPORT.md"
   ]
 }

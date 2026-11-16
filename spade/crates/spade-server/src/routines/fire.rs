@@ -137,6 +137,13 @@ pub async fn run_now(
 
 /// An ace thread changed: every active routine waiting for that event runs.
 pub(crate) async fn thread_changed(engine: &Arc<Engine>, change: &ThreadChange) {
+    // Bots waiting on this thread wake first (ADR 0160).
+    let state = match change.state {
+        ThreadState::Done => "done",
+        ThreadState::Failed => "failed",
+        ThreadState::NeedsYou => "needs_you",
+    };
+    engine.wake_on_thread(&change.thread_id, state, &change.title);
     let event = match change.state {
         ThreadState::Done => AceEvent::ThreadDone,
         ThreadState::Failed => AceEvent::ThreadFailed,
@@ -185,7 +192,6 @@ fn fire(
         .agent(&r.agent_id)?
         .ok_or(RoutineError::NoAgent)?;
     let heartbeat = r.kind == HEARTBEAT;
-    let capped = engine.cap_refusal(&agent.conversation);
     let skip = if previous_open(engine, r, &agent.conversation)? {
         Some((
             "skipped_running",
@@ -193,10 +199,8 @@ fn fire(
         ))
     } else if heartbeat && !engine.idle(&agent.conversation)? {
         Some(("skipped_busy", "The bot was busy.".to_owned()))
-    } else if !engine.can_run_turn(&agent.conversation)? {
-        Some(("skipped_cap", "Today's spending cap is reached.".to_owned()))
     } else {
-        capped.map(|why| ("skipped_cap", why))
+        None
     };
     let run = StoredRun {
         id: engine.new_id("run"),

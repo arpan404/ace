@@ -25,6 +25,8 @@ export interface FakeSpadeGroup {
   created_at: number;
   updated_at: number;
   last_activity: number;
+  /** When it was pinned (ms), as Spade sends it; null or absent when it isn't. */
+  pinned_at?: number | null;
   state: "idle" | "working" | "waiting";
   status: string | null;
   /** While the group waits on the person, the member that waits (ADR 0132). */
@@ -35,6 +37,12 @@ export interface FakeSpadeGroup {
     at: number;
     agent: { id: string; name: string; machine: string | null } | null;
   } | null;
+  /** The conversation's seen cursor, as Spade sends it; null when never marked. */
+  seen_seq?: number | null;
+  /** Finished and not seen since; tests set it, and marking the conversation seen clears it. */
+  unseen?: boolean;
+  /** Its Library: files its members made answering it, newest first. */
+  files?: { agent: string; path: string; at: number }[];
 }
 
 /** What the teams need of the rest of the fake. */
@@ -146,10 +154,15 @@ export class FakeSpadeTeams {
       group.last_message = { from: "person", text, at: this.host.now(), agent: null };
       return reply({ run }, 202);
     }
+    if (sub === "files" && method === "GET") return reply({ files: group.files ?? [] });
     if (sub === "stop" && method === "POST") {
       this.host.store(group.conversation, { type: "group_stopped", run: "run" });
       this.status(group, "idle", null);
       return { status: 204 };
+    }
+    if (sub === "pin" && method === "PUT") {
+      group.pinned_at = body.pinned === true ? (group.pinned_at ?? this.host.now()) : null;
+      return reply({ group });
     }
     if (method === "PATCH") {
       if (typeof body.name === "string") group.name = body.name;

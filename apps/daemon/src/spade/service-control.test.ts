@@ -8,14 +8,14 @@ test("the binary installed for Spade is ACE_SPADE_BIN in development, else the o
   expect(bundledSpadeBinary({ ACE_SPADE_BIN: "/dev/spade" }, undefined, "darwin", none)).toBe(
     "/dev/spade",
   );
-  // A standalone release: `<release>/ace.mjs`, `<release>/spade/spade-server`.
+  // A standalone release: `<release>/ace.mjs`, `<release>/spade/spade`.
   expect(bundledSpadeBinary({}, "/home/.ace/releases/0.5.0/ace.mjs", "linux", none)).toBe(
-    "/home/.ace/releases/0.5.0/spade/spade-server",
+    "/home/.ace/releases/0.5.0/spade/spade",
   );
   // The desktop app: `<resources>/daemon/ace.mjs` beside the app's marker, `<resources>/spade/`.
   expect(
     bundledSpadeBinary({ ACE_SPADE_BIN: "  " }, "/App/Resources/daemon/ace.mjs", "darwin", desktop),
-  ).toBe("/App/Resources/spade/spade-server");
+  ).toBe("/App/Resources/spade/spade");
   expect(() => bundledSpadeBinary({}, undefined, "linux", none)).toThrow("ACE_SPADE_BIN");
 });
 

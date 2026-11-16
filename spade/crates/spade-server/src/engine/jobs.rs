@@ -14,13 +14,13 @@ use std::time::Duration;
 
 use serde_json::Value;
 use spade_core::Transcript;
-use spade_core::context::{JOB_LOST, JOB_STOPPED, MAYBE_RAN};
+use spade_core::context::{JOB_LOST, JOB_STOPPED};
 use spade_core::event::{Event, Known};
-use spade_core::tools::Risk;
 use spade_store::StoreError;
 use tokio::sync::watch;
 
 use super::Engine;
+use super::wakes::job_name;
 use crate::tools::ToolOutput;
 
 /// A job in the live map, with the reply that started it.
@@ -60,6 +60,38 @@ pub(super) fn start(
     arguments: Value,
     stop: &watch::Receiver<bool>,
 ) -> Result<Started, StoreError> {
+    let work = {
+        let (engine, key, name) = (engine.clone(), format!("{id}.{job}"), name.to_owned());
+        async move { run(&engine, &key, &name, arguments).await }
+    };
+    begin(engine, id, reply, job, name, Box::pin(work), stop)
+}
+
+/// Moves a call still running after the foreground window to the background (ADR 0158): the same
+/// run carries on as job `job`, unless the turn was stopped, and then `work` is dropped, which
+/// cuts it off like any call in flight. The caller then answers the call with
+/// `context::moved_to_background`.
+pub(super) fn adopt(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    job: &str,
+    name: &str,
+    work: crate::tools::ToolFuture,
+    stop: &watch::Receiver<bool>,
+) -> Result<Started, StoreError> {
+    begin(engine, id, reply, job, name, work, stop)
+}
+
+fn begin(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    job: &str,
+    name: &str,
+    work: crate::tools::ToolFuture,
+    stop: &watch::Receiver<bool>,
+) -> Result<Started, StoreError> {
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
     if *stop.borrow() || engine.deleting(id) {
@@ -73,6 +105,26 @@ pub(super) fn start(
     if !engine.record_unless_stopped(id, reply, &started)? {
         return Ok(Started::Stopped);
     }
+    let handle = spawn(engine, id, reply, job, name, work);
+    jobs.insert(
+        job.to_owned(),
+        Job::Running {
+            reply: reply.to_owned(),
+            handle,
+        },
+    );
+    Ok(Started::Running)
+}
+
+/// Runs the job's work and stores its end, as a task; the caller puts it in the live map.
+fn spawn(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: &str,
+    job: &str,
+    name: &str,
+    work: crate::tools::ToolFuture,
+) -> tokio::task::AbortHandle {
     let task = {
         let (engine, id, job, name, reply) = (
             engine.clone(),
@@ -82,7 +134,23 @@ pub(super) fn start(
             reply.to_owned(),
         );
         tokio::spawn(async move {
-            let output = run(&engine, &format!("{id}.{job}"), &name, arguments).await;
+            let output = work.await;
+            // A failure that may pass parks the job: it stays running in the record and runs
+            // again when its retry wake fires (ADR 0160).
+            if output.transient && output.is_error && !output.uncertain {
+                let parked = {
+                    let live = engine.live(&id);
+                    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+                    // Gone means Stop already took this job's end.
+                    matches!(jobs.get(&job), Some(Job::Running { .. }))
+                        && engine.park_job(&id, &job, &output.content)
+                        && jobs.remove(&job).is_some()
+                };
+                if parked {
+                    engine.announce(&id);
+                    return;
+                }
+            }
             {
                 let live = engine.live(&id);
                 let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
@@ -107,7 +175,13 @@ pub(super) fn start(
                 });
                 keep_trying(|| engine.record(&id, &shared).map(|_| ())).await;
             }
-            let content = super::calls::trim(&output.content, engine.limits.result_chars);
+            let content = super::trim::trim(&output.content, engine.limits.result_chars);
+            // A helper's spend shows with the turn that reads its result (ADR 0152).
+            let cost_micros = if name == spade_core::helper::TOOL {
+                engine.helper_cost(&id, &job)
+            } else {
+                None
+            };
             let finished = Event::Known(Known::JobFinished {
                 job: job.clone(),
                 name,
@@ -115,6 +189,8 @@ pub(super) fn start(
                 is_error: output.is_error,
                 uncertain: output.uncertain,
                 files: output.files.to_vec(),
+                untrusted: output.untrusted,
+                cost_micros,
             });
             keep_trying(|| engine.deliver(&id, &finished)).await;
             engine
@@ -126,14 +202,7 @@ pub(super) fn start(
             engine.announce(&id);
         })
     };
-    jobs.insert(
-        job.to_owned(),
-        Job::Running {
-            reply: reply.to_owned(),
-            handle: task.abort_handle(),
-        },
-    );
-    Ok(Started::Running)
+    task.abort_handle()
 }
 
 /// Cancels every job of a conversation whose agent is being deleted. Nothing is stored: the
@@ -147,27 +216,13 @@ pub(super) fn cancel_all(live: &super::Live) {
     }
 }
 
-/// Runs the job's tool. `key` is unique across conversations and stable for this job.
+/// Runs the job's tool for as long as it takes (ADR 0158): Stop ends it, nothing else does.
+/// `key` is unique across conversations and stable for this job.
 async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOutput {
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
-    let reads_only = tool.def().risk == Risk::Read;
-    match tokio::time::timeout(engine.limits.job_timeout, tool.run(key, arguments)).await {
-        Ok(output) => output,
-        Err(_) => {
-            let said = format!(
-                "{name} did not finish within {} minutes.",
-                engine.limits.job_timeout.as_secs() / 60
-            );
-            if reads_only {
-                ToolOutput::error(said)
-            } else {
-                // A write cut off may still have acted; never let it read as "did not run".
-                ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({said})"))
-            }
-        }
-    }
+    tool.run(key, arguments).await
 }
 
 /// Stores something known only here (a job's end, a tool's result, a reply's close), retrying
@@ -215,6 +270,8 @@ pub(super) fn stop_named(
                     is_error: true,
                     uncertain: true,
                     files: Vec::new(),
+                    untrusted: false,
+                    cost_micros: None,
                 })
             })
             .collect();
@@ -263,28 +320,157 @@ fn take_named(
 /// Each is delivered as "unknown outcome", so the model can tell the person or check.
 pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreError> {
     let events = engine.load(id)?;
-    for job in Transcript::fold(&events).jobs {
+    for job in Transcript::fold(events.iter()).jobs {
+        // A job parked for a retry is not running: its wake runs it again (ADR 0160).
+        if spade_core::wake::parked(&events, &job) {
+            continue;
+        }
+        // A helper's work is all in its events: its job runs again and waits for it (ADR 0152).
+        if let Some(helper) = engine.store.helper_for_job(id, &job)? {
+            // Unless Stop was stored for it before the restart and its end was not: the stop
+            // holds, so the helper is closed as stopped and never resumed.
+            if spade_core::turn::job_stopped(&events, &job) {
+                engine.stop_helper_after_restart(&helper)?;
+                let stopped = Event::Known(Known::JobFinished {
+                    name: job_name(&events, &job),
+                    job,
+                    content: JOB_STOPPED.to_owned(),
+                    is_error: true,
+                    uncertain: true,
+                    files: Vec::new(),
+                    untrusted: false,
+                    cost_micros: None,
+                });
+                engine.record(id, &stopped)?;
+            } else {
+                reattach(engine, id, &events, &job, spade_core::helper::TOOL);
+            }
+            continue;
+        }
+        // A job waiting on ace's children runs again and reattaches to them, so the bot never
+        // reads as idle while they work (AGENTS.md priority 1).
+        let name = job_name(&events, &job);
+        if crate::tools::reattaches(&name) && !spade_core::turn::job_stopped(&events, &job) {
+            reattach_ace(engine, id, &events, &job, &name);
+            continue;
+        }
         let finished = Event::Known(Known::JobFinished {
-            name: job_name(&events, &job),
+            name,
             job,
             content: JOB_LOST.to_owned(),
             is_error: true,
             uncertain: true,
             files: Vec::new(),
+            untrusted: false,
+            cost_micros: None,
         });
         engine.deliver(id, &finished)?;
     }
     Ok(())
 }
 
-fn job_name(events: &[Event], job: &str) -> String {
-    events
+/// A parked job's retry wake fired (ADR 0160): the same call runs again as the same job. A
+/// `delegate` or `wait` waits for ace's tools first, like after a restart.
+pub(super) fn rerun(engine: &Arc<Engine>, id: &str, job: &str) {
+    let Ok(events) = engine.load(id) else { return };
+    if spade_core::turn::job_stopped(&events, job) || engine.deleting(id) {
+        return;
+    }
+    let name = job_name(&events, job);
+    if crate::tools::reattaches(&name) {
+        reattach_ace(engine, id, &events, job, &name);
+    } else {
+        reattach(engine, id, &events, job, &name);
+    }
+    engine.announce(id);
+}
+
+/// How long a reattached ace job waits for ace's tools to come back before it says its outcome is
+/// unknown.
+const ACE_BACK_WITHIN: Duration = Duration::from_secs(10 * 60);
+
+/// Runs a lost `delegate` or `wait` job again after a restart, once ace's tools are back: it
+/// reattaches to the same children and waits for them.
+fn reattach_ace(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, name: &str) {
+    let (reply, arguments) = call_of(events, job, name);
+    let live = engine.live(id);
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    let work = {
+        let (engine, key, name) = (engine.clone(), format!("{id}.{job}"), name.to_owned());
+        async move {
+            let started = std::time::Instant::now();
+            while engine.tools.get(&name).is_none() {
+                if started.elapsed() > ACE_BACK_WITHIN {
+                    return ToolOutput::maybe_ran(JOB_LOST.to_owned());
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            run(&engine, &key, &name, arguments).await
+        }
+    };
+    let handle = spawn(engine, id, &reply, job, name, Box::pin(work));
+    jobs.insert(job.to_owned(), Job::Running { reply, handle });
+}
+
+/// The reply that started job `job` of tool `tool` and its call's arguments, as stored: the inner
+/// tool's own when the call went through `call_tool`.
+fn call_of(events: &[Event], job: &str, tool: &str) -> (String, Value) {
+    let reply = events.iter().find_map(|event| match event {
+        Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => Some(reply.clone()),
+        _ => None,
+    });
+    let arguments = events
         .iter()
-        .find_map(|event| match event {
-            Event::Known(Known::JobStarted { job: j, name, .. }) if j == job => Some(name.clone()),
+        .filter_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
             _ => None,
         })
-        .unwrap_or_default()
+        .flatten()
+        .find(|call| call.id == job)
+        .map(|call| call.arguments.clone())
+        .unwrap_or(Value::Null);
+    let arguments = match spade_core::tools::unwrap_call_tool(&arguments) {
+        Some((inner, arguments)) if inner == tool => arguments,
+        _ => arguments,
+    };
+    (reply.unwrap_or_default(), arguments)
+}
+
+/// Runs job `job` (of tool `tool`) again with its call's arguments: a helper's after a restart,
+/// which finds its helper and waits for its end; a parked job's at its retry.
+fn reattach(engine: &Arc<Engine>, id: &str, events: &[Event], job: &str, tool: &str) {
+    let (reply, arguments) = call_of(events, job, tool);
+    let live = engine.live(id);
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    let work = {
+        let (engine, key, tool) = (engine.clone(), format!("{id}.{job}"), tool.to_owned());
+        async move { run(&engine, &key, &tool, arguments).await }
+    };
+    let handle = spawn(engine, id, &reply, job, tool, Box::pin(work));
+    jobs.insert(job.to_owned(), Job::Running { reply, handle });
+}
+
+impl Engine {
+    /// Ends every running job without storing anything, as the process exiting does, so a test
+    /// that restarts in one process sees what a real restart finds. Only with `test-hooks`.
+    #[cfg(feature = "test-hooks")]
+    pub fn drop_jobs_as_on_exit(&self) {
+        let live: Vec<Arc<super::Live>> = self
+            .live
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .cloned()
+            .collect();
+        for one in live {
+            let mut jobs = one.jobs.lock().unwrap_or_else(|p| p.into_inner());
+            for (_, job) in jobs.drain() {
+                if let Job::Running { handle, .. } = job {
+                    handle.abort();
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

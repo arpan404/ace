@@ -7,6 +7,7 @@
 //! `sudo`…). It is a best-effort layer in front of the reviewer, not containment (that is an OS
 //! sandbox's job): what it can't follow it sends to the person as unclear.
 
+mod apple;
 mod effects;
 mod make;
 mod options;
@@ -14,6 +15,7 @@ mod parse;
 mod paths;
 mod scripts;
 
+pub use parse::Simple;
 pub use paths::{Lexical, Place, Unseen, normalized};
 pub use scripts::LONGEST_SCRIPT;
 
@@ -21,7 +23,7 @@ use std::path::PathBuf;
 
 use super::Sensitive;
 use super::secrets::command_reads;
-use parse::{Simple, parse};
+use parse::parse;
 
 /// What a command needs, beyond the reviewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,8 +74,9 @@ pub fn assess(command: &str, place: &dyn Place) -> Assessment {
 pub(super) struct Walk {
     pub shown: Vec<Shown>,
     pub credentials: bool,
-    /// The first kind found; a plain kind (publishing, the network…) is said over "unclear" or
-    /// "can't show", since it names what the command does.
+    /// The first kind found of the highest rank: a payment or a send as the person (theirs
+    /// alone to decide) over any other, and a plain kind (publishing, the network…) over
+    /// "unclear" or "can't show", since it names what the command does.
     pub sensitive: Option<Sensitive>,
     /// Real paths of the files that run.
     pub ran: Vec<PathBuf>,
@@ -117,9 +120,13 @@ impl Budget {
 
 impl Walk {
     pub(super) fn kind(&mut self, kind: Sensitive) {
-        let vague = |k: Sensitive| matches!(k, Sensitive::Unclear | Sensitive::UnseenScript);
+        let rank = |k: Sensitive| match k {
+            _ if k.persons().is_some() => 2,
+            Sensitive::Unclear | Sensitive::UnseenScript => 0,
+            _ => 1,
+        };
         match self.sensitive {
-            Some(found) if !vague(found) || vague(kind) => {}
+            Some(found) if rank(found) >= rank(kind) => {}
             _ => self.sensitive = Some(kind),
         }
     }
@@ -227,6 +234,14 @@ pub fn simple_commands(text: &str) -> Option<Vec<Vec<String>>> {
     parse(text, 0)
         .ok()
         .map(|commands| commands.iter().map(with_targets).collect())
+}
+
+/// Every simple command in `text` as the parser reads it (words with wrappers taken off, its
+/// redirects, pipes, here-document text, subshell depth and folder), for Spade's tool-call
+/// classifier (ADR 0172), which reads the same structure as these rules; `None` when it can't be
+/// read.
+pub fn read(text: &str) -> Option<Vec<Simple>> {
+    parse(text, 0).ok()
 }
 
 fn with_targets(simple: &Simple) -> Vec<String> {

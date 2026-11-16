@@ -109,9 +109,15 @@ impl Tool for MemoryTool {
                 spec(
                     "history_search",
                     "Search this conversation's full stored history by keyword, including parts \
-                     that were summarised away. Returns positions to read with history_read.",
+                     that were summarised away and the summaries themselves, back to its first \
+                     day. Each match has its position and date; read one with history_read.",
                     json!({ "type": "object",
-                            "properties": { "query": string("Words to look for.") },
+                            "properties": {
+                                "query": string("Words to look for."),
+                                "since": string("Optional: only from this day on, like 2026-11-01."),
+                                "until": string("Optional: only up to this day, included."),
+                                "oldest_first": { "type": "boolean",
+                                    "description": "Oldest matches first instead of best." } },
                             "required": ["query"] }),
                 ),
                 Risk::Read,
@@ -162,20 +168,60 @@ impl Tool for MemoryTool {
     }
 }
 
-/// `ask_user`: offered to the model like any tool; the engine's turn loop answers it with the
-/// person's next message.
+/// `ask_user` (ADR 0128, ADR 0154): offered to the model like any tool; the engine's turn loop
+/// answers it with what the person did with the card.
 pub struct AskUser;
+
+/// What the model reads about `ask_user`.
+const ASK_ABOUT: &str = "Ask the person one to five questions, shown as a card they answer. \
+Pick the kind that fits each question: `choice` (one of 2-10 options; `other: true` lets them \
+write their own), `choices` (several options, `min`/`max` picks), `confirm` (yes or no), \
+`number` (`min`, `max`, `unit`), `date` (`time: true` to ask the time as well) or `text`. Ask \
+everything you need in one call rather than one question at a time. By default your turn pauses \
+until they answer; you read each prompt with its answer. The person may choose Answer later: \
+then the call says so at once, and you go on without it where you can or end your reply saying \
+what waits on it; their answer arrives later as a <question_answer>. Set `wait: false` to ask \
+without pausing at all, for preferences that shape later work, never for something your next \
+step depends on. The person may also dismiss the card. A call that breaks a rule is refused \
+saying which; fix it and ask again.";
 
 impl Tool for AskUser {
     fn def(&self) -> ToolDef {
+        let option = json!({ "type": "object",
+            "properties": {
+                "label": string("What the option says, briefly."),
+                "detail": string("Optional: one line more about it.") },
+            "required": ["label"] });
+        let question = json!({ "type": "object",
+            "properties": {
+                "id": string("Optional: your own name for the question."),
+                "prompt": string("The question, briefly."),
+                "kind": { "type": "string",
+                          "enum": ["text", "choice", "choices", "confirm", "number", "date"] },
+                "options": { "type": "array", "items": option,
+                             "description": "choice and choices: 2 to 10 options." },
+                "other": { "type": "boolean",
+                           "description": "choice and choices: they may write their own answer." },
+                "min": { "type": "number",
+                         "description": "choices: fewest picks (default 1). number: the least." },
+                "max": { "type": "number",
+                         "description": "choices: most picks. number: the most." },
+                "unit": string("number: the unit, like nights or kg."),
+                "time": { "type": "boolean", "description": "date: ask the time too." },
+                "placeholder": string("text: a hint shown in the empty field.") },
+            "required": ["prompt", "kind"] });
         ToolDef {
             spec: spec(
                 ASK_USER,
-                "Ask the person a question and wait for their answer, when you cannot go on \
-                 without it. Your turn pauses until they reply; their reply follows the result.",
+                ASK_ABOUT,
                 json!({ "type": "object",
-                        "properties": { "question": string("The question, briefly.") },
-                        "required": ["question"] }),
+                        "properties": {
+                            "questions": { "type": "array", "items": question,
+                                           "minItems": 1, "maxItems": 5 },
+                            "wait": { "type": "boolean",
+                                      "description": "false: ask without pausing; the answer \
+                                                      arrives later. Default true." } },
+                        "required": ["questions"] }),
             ),
             risk: Risk::Read,
             untrusted_output: false,

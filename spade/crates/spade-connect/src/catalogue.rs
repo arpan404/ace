@@ -1,7 +1,10 @@
 //! The shipped list of well-known remote MCP servers (`spade/config/connectors.json`), each
 //! checked against its maker's own documentation on the date the file records.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// How a server can be signed in to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +43,14 @@ pub struct Entry {
     /// servers never are; tests set it to point an entry at a fake app on 127.0.0.1.
     #[serde(skip)]
     pub local: bool,
+    /// What its tools do at least (ADR 0171), by the server's own tool name: an effect word
+    /// (`send_as_person`, `pay`, `publish`…) or a list of them. The tool's annotations can
+    /// raise it, never lower it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub effects: BTreeMap<String, Value>,
+    /// What every tool of the app does at least (`pay` for a payments app), read-only or not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every_tool: Option<Value>,
 }
 
 #[derive(Deserialize)]

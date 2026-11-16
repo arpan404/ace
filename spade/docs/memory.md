@@ -1,6 +1,7 @@
 # Memory, recall and asking the person
 
-How Spade's bots remember ([ADR 0128](../../docs/adr/0128-spade-memory.md)). Agents and their
+How Spade's bots remember ([ADR 0128](../../docs/adr/0128-spade-memory.md)). Knowledge bases,
+episodes of past tasks and history over weeks are in [knowledge.md](knowledge.md) (ADR 0164). Agents and their
 conversations are in [agents.md](agents.md); the prompt rules this keeps are in
 [design.md](design.md) (Caching, Compaction).
 
@@ -47,15 +48,15 @@ changing callers.
 
 ## Tools
 
-| Tool             | Arguments                         | Does                                                      |
-| ---------------- | --------------------------------- | --------------------------------------------------------- |
-| `memory_save`    | `text`, `about_person` (bool)     | Saves a note: shared when `about_person`, else the bot's  |
-| `memory_update`  | `id`, `text`                      | Rewrites one of the bot's or the shared notes             |
-| `memory_forget`  | `id`                              | Deletes one                                               |
-| `memory_search`  | `query`                           | Ranked notes the bot can see                              |
-| `history_search` | `query`                           | Matches in the bot's own stored conversation, by position |
-| `history_read`   | `from` (position), `count` (≤ 20) | Those events word for word                                |
-| `ask_user`       | `question`                        | Asks the person and waits for their next message          |
+| Tool             | Arguments                                    | Does                                                                                              |
+| ---------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `memory_save`    | `text`, `about_person` (bool)                | Saves a note: shared when `about_person`, else the bot's                                          |
+| `memory_update`  | `id`, `text`                                 | Rewrites one of the bot's or the shared notes                                                     |
+| `memory_forget`  | `id`                                         | Deletes one                                                                                       |
+| `memory_search`  | `query`                                      | Ranked notes the bot can see                                                                      |
+| `history_search` | `query`, `since?`, `until?`, `oldest_first?` | Matches in the bot's own stored conversation, by position and date ([knowledge.md](knowledge.md)) |
+| `history_read`   | `from` (position), `count` (≤ 20)            | Those events word for word                                                                        |
+| `ask_user`       | `questions`, `wait?` (or `question`)         | Asks the person one to five questions as a card ([questions.md](questions.md))                    |
 
 The memory tools run without asking, except while the prompt shows an untrusted event: any
 since the last compaction, from this turn or an earlier one (the same events the workspace's
@@ -87,16 +88,19 @@ A save that matched an existing note answers `{ "exists": { … } }` instead.
 
 The search index (`history_search` table) is filled from the event log as it is searched, so it
 covers every event, including spans compaction summarised. It indexes the person's messages, the
-bot's step text, tool results and background job results. A position is the event's `seq`, the
+bot's step text, tool results, background job results and each compaction's summary (ADR 0164). A position is the event's `seq`, the
 same number `GET /v1/conversations/{id}/events` reports.
 
 ### Asking the person
 
-`ask_user {question}` stores `question_asked {reply, call_id, question}` and the turn waits. The
-agent's `state` is `waiting` and `waiting_for` is `question`. The person's next message (not
-another bot's) answers it: the message is stored as usual, the call's result reads "The person
-answered; their reply follows.", and the turn carries on with the message after it. A restart
-keeps the turn waiting; Stop ends it like any wait.
+`ask_user` asks one to five questions of six kinds (text, choice, choices, confirm, number,
+date) as one card; the old `{question}` is one text question. It stores `question_asked` and the
+turn waits: the agent's `state` is `waiting` and `waiting_for` is `question`, also after a
+restart. The person answers in the card, leaves it for later (the call is answered at once and
+the turn carries on; the answer arrives later as a `<question_answer>`), or dismisses it. A
+message the person types (not another bot's) still answers a waiting card. `wait: false` asks
+without pausing. Stop ends a waiting card like any wait; a deferred one stays. All of it is in
+[questions.md](questions.md) (ADR 0154).
 
 ## Compaction
 

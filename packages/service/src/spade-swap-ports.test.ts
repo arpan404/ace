@@ -14,7 +14,7 @@ async function home(onTestFinished: (fn: () => Promise<void>) => void) {
   const ports = localSpadeSwapPorts({
     home: root,
     plan: spadeServicePlan(root, "linux", { userHome: root }),
-    source: join(root, "spade-server"),
+    source: join(root, "spade"),
     version: "0.5.0",
   });
   const snapshotDir = join(root, ".spade-update-snapshot");

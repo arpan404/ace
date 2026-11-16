@@ -4,8 +4,9 @@ import { Icon } from "@/components/icon.tsx";
 import { SurfaceLive } from "./surface-live.tsx";
 
 /**
- * A bot's browser (under its address) or screen in the expanded computer: the live view, which
- * takes the person's input while they may act (cowork, or exclusive while they drive).
+ * A bot's browser (under its address) or screen in its profile, at its real shape (16:10): the
+ * live view, which takes the person's input while they may act (cowork, or exclusive while they
+ * drive).
  */
 export function SurfacePicture(props: {
   machine: { key: string; name: string; primary: boolean };
@@ -18,13 +19,11 @@ export function SurfacePicture(props: {
   label: string;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-0 p-4">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-code shadow-[inset_0_0_0_1px_var(--border)]">
-        {props.kind === "browser" && <AddressBar url={props.surface?.url} />}
-        {/* A full-height column, so the live view fills it and the picture centres in it. */}
-        <div className="relative flex min-h-0 flex-1 flex-col bg-background *:min-h-0 *:flex-1">
-          <SurfaceLive {...props} />
-        </div>
+    <div className="flex aspect-[16/10] min-h-0 flex-col overflow-hidden rounded-xl bg-code shadow-[inset_0_0_0_1px_var(--border)]">
+      {props.kind === "browser" && <AddressBar url={props.surface?.url} />}
+      {/* A full-height column, so the live view fills it and the picture centres in it. */}
+      <div className="relative flex min-h-0 flex-1 flex-col bg-background *:min-h-0 *:flex-1">
+        <SurfaceLive {...props} />
       </div>
     </div>
   );

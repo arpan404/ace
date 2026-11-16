@@ -177,6 +177,10 @@ impl Engine {
                 tracing::error!(%error, "could not resume a conversation");
             }
         }
+        // Helpers paused or cut off carry on, and queued ones start as slots allow (ADR 0152).
+        for bot in self.bots_with_helpers() {
+            self.fill_slots(&bot);
+        }
     }
 
     /// Waits until no turn worker runs, `limit` passes, or `current` turns false.
@@ -230,7 +234,7 @@ pub(super) fn record_paused(engine: &Engine, id: &str, reply: &str) {
             return;
         }
     };
-    let transcript = Transcript::fold(&events);
+    let transcript = Transcript::fold(events.iter());
     let mut records: Vec<Event> = transcript
         .running
         .iter()

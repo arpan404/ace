@@ -3,12 +3,7 @@ import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../b
 import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
-import {
-  parseSpadeAccess,
-  parseSpadeTaskProgress,
-  type SpadeAccess,
-  type SpadeTaskProgress,
-} from "./autonomy.ts";
+import { parseSpadeTaskProgress, type SpadeTaskProgress } from "./autonomy.ts";
 
 /*
  * Spade's agents (ADR 0126, 0127): Spade itself, the main bot, and the person's bots, each a name,
@@ -32,6 +27,8 @@ export interface SpadeLastMessage {
   from: "person" | "agent";
   text: string;
   at: number;
+  /** Its event in the conversation; undefined from a Spade before seen cursors. */
+  seq: number | undefined;
   /** Another bot that sent it into this conversation (`from` is then `person`). */
   fromAgent: { id: string; name: string } | undefined;
 }
@@ -51,24 +48,32 @@ export interface SpadeAgent {
   createdAt: number;
   updatedAt: number;
   lastActivity: number;
+  /** When the person pinned it (ms); undefined when it isn't pinned. */
+  pinnedAt: number | undefined;
   state: SpadeAgentState;
-  /** What it waits on the person for while `waiting`: an approval, or (later) a question. */
+  /** What it waits on the person for while `waiting`: an approval, or a question. */
   waitingFor: "approval" | "question" | undefined;
+  /** Its cards the person left for later and hasn't answered or dismissed (ADR 0154). */
+  questionsForLater: number;
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
   /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
   problem: string | undefined;
   lastMessage: SpadeLastMessage | undefined;
-  /** Its spend and caps (ADR 0135); undefined from a Spade before them. */
+  /** The conversation's seen cursor: the last event the person has seen; undefined when never marked. */
+  seenSeq: number | undefined;
+  /** It finished and the person hasn't seen it since: never while it works or waits on them. */
+  unseen: boolean;
+  /** Its spend (ADR 0135), information only; undefined from a Spade before it. */
   spending: SpadeSpending | undefined;
   /** Its own model review switch; undefined follows the default. */
   review: boolean | undefined;
   /** Its computer and who drives it; undefined from a Spade before computers. */
   computer: SpadeComputer | undefined;
-  /** How much it may do without asking; undefined from a Spade before access levels (it asks). */
-  access: SpadeAccess | undefined;
   /** Where it is on its task, and whether it carries on by itself. */
   progress: SpadeTaskProgress | undefined;
+  /** The bot that made it as a worker (ADR 0161); undefined when the person made it. */
+  parent: { id: string; name: string } | undefined;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -83,6 +88,7 @@ const lastMessageShape = z.object({
   from: z.enum(["person", "agent"]).catch("agent"),
   text: z.string().catch(""),
   at: time.default(0),
+  seq: z.number().int().nonnegative().nullish().catch(undefined),
   from_agent: z
     .object({ id: z.string(), name: z.string().catch("") })
     .nullish()
@@ -99,13 +105,21 @@ const agentShape = z.object({
   created_at: time.default(0),
   updated_at: time.default(0),
   last_activity: time.default(0),
+  pinned_at: z.number().nullish().catch(undefined),
   state: z.enum(["idle", "working", "waiting"]).optional().catch(undefined),
   waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
+  questions_for_later: z.number().int().nonnegative().nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
   problem: z.string().nullish().catch(undefined),
   last_message: lastMessageShape.nullish().catch(undefined),
+  seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
+  unseen: z.boolean().catch(false).default(false),
+  parent: z
+    .object({ id: z.string().min(1), name: z.string().catch("") })
+    .nullish()
+    .catch(undefined),
 });
 
 function avatarOf(raw: unknown, seed: string, main: boolean): SpadeAvatar {
@@ -148,18 +162,28 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     createdAt: agent.created_at,
     updatedAt: agent.updated_at,
     lastActivity: agent.last_activity,
+    pinnedAt: agent.pinned_at ?? undefined,
     state: agent.state ?? (agent.working ? "working" : "idle"),
     waitingFor: agent.waiting_for ?? undefined,
+    questionsForLater: agent.questions_for_later ?? 0,
     status: agent.status || undefined,
     problem: agent.problem || undefined,
     lastMessage: last
-      ? { from: last.from, text: last.text, at: last.at, fromAgent: last.from_agent ?? undefined }
+      ? {
+          from: last.from,
+          text: last.text,
+          at: last.at,
+          seq: last.seq ?? undefined,
+          fromAgent: last.from_agent ?? undefined,
+        }
       : undefined,
+    seenSeq: agent.seen_seq ?? undefined,
+    unseen: agent.unseen,
     spending: parseSpadeSpending(record.spending),
     review: parseSpadeReview(record.review),
     computer: parseSpadeComputer(record.computer),
-    access: parseSpadeAccess(record.access),
     progress: parseSpadeTaskProgress(record),
+    parent: agent.parent ?? undefined,
     raw: record,
   };
 }

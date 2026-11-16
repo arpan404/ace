@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use spade_core::Event;
+use spade_core::autonomy::Access;
 use spade_core::event::Known;
 use spade_core::face;
 use spade_store::{Agent, NewAgent, StoreError};
@@ -24,7 +25,7 @@ const MAIN_PLACEHOLDER: &str = "main_model_placeholder";
 /// How long deleting an agent waits for its stopped work to let go.
 const LET_GO: Duration = Duration::from_secs(5);
 
-fn name(raw: &str) -> Result<String, AgentError> {
+pub(super) fn name(raw: &str) -> Result<String, AgentError> {
     let name = raw.trim();
     let count = name.chars().count();
     if count == 0 || count > NAME_CHARS || name.chars().any(char::is_control) {
@@ -35,7 +36,7 @@ fn name(raw: &str) -> Result<String, AgentError> {
     Ok(name.to_owned())
 }
 
-fn task(raw: &str) -> Result<String, AgentError> {
+pub(super) fn task(raw: &str) -> Result<String, AgentError> {
     let task = raw.trim();
     if task.chars().count() > TASK_CHARS {
         return Err(AgentError::Invalid(format!(
@@ -93,7 +94,11 @@ impl Engine {
         Ok(model.to_owned())
     }
 
-    fn avatar(&self, id: &str, input: Option<AvatarInput>) -> Result<String, AgentError> {
+    pub(super) fn avatar(
+        &self,
+        id: &str,
+        input: Option<AvatarInput>,
+    ) -> Result<String, AgentError> {
         Ok(match input {
             Some(AvatarInput::Image(bytes)) => {
                 let image = self.images.put(&bytes)?;
@@ -132,7 +137,7 @@ impl Engine {
         let conversation = self.ids.next("c");
         // The task the first turn reads. With none there is nothing to read: the model is named
         // by each `reply_started`.
-        let mut configured: Vec<Event> = (!task.is_empty())
+        let configured: Vec<Event> = (!task.is_empty())
             .then(|| {
                 Event::Known(Known::AgentConfigured {
                     task: task.clone(),
@@ -141,10 +146,6 @@ impl Engine {
             })
             .into_iter()
             .collect();
-        // A level chosen at creation is stored with the bot, in the same write (ADR 0144).
-        if let Some(level) = input.access {
-            configured.push(Event::Known(Known::AccessChanged { level }));
-        }
         self.store.create_agent(
             NewAgent {
                 id: &id,
@@ -218,21 +219,39 @@ impl Engine {
         self.view(id)
     }
 
-    /// Stops the agent's work, then deletes it with its conversation. Spade cannot be deleted.
+    /// Stops the agent's work, then deletes it with its conversation. Spade cannot be deleted. A
+    /// bot with workers is not deleted until the person says what becomes of them
+    /// ([`Engine::delete_agent_with`], ADR 0161).
     pub async fn delete_agent(self: &Arc<Self>, id: &str) -> Result<(), AgentError> {
         let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
         if agent.kind == MAIN {
             return Err(AgentError::Main("Spade, the main agent, cannot be deleted"));
         }
+        let workers = self.worker_children(&agent.conversation).len();
+        if workers > 0 {
+            return Err(AgentError::HasWorkers(workers));
+        }
+        self.delete_agent_now(id).await
+    }
+
+    /// [`Engine::delete_agent`] once its workers are dealt with.
+    pub(super) async fn delete_agent_now(self: &Arc<Self>, id: &str) -> Result<(), AgentError> {
+        let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
+        if agent.kind == MAIN {
+            return Err(AgentError::Main("Spade, the main agent, cannot be deleted"));
+        }
         let conversation = agent.conversation;
+        // Its parent's tree notes it gone (ADR 0161).
+        self.worker_deleted(&conversation);
         // Marked first, under the lock deliveries take: from here no message or job result is
         // delivered, and no turn or job starts, so stopping drains everything there is.
+        let helpers = self.helper_conversations(&conversation);
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.deleting
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .insert(conversation.clone());
+            let mut deleting = self.deleting.lock().unwrap_or_else(|p| p.into_inner());
+            deleting.insert(conversation.clone());
+            // Its helpers' conversations go with it (ADR 0152).
+            deleting.extend(helpers.iter().cloned());
         }
         if let Err(error) = self.stop(&conversation) {
             tracing::warn!(%error, "deleting an agent: its stop was not stored");
@@ -255,21 +274,42 @@ impl Engine {
             worker.abort();
         }
         super::jobs::cancel_all(&live);
+        self.forget_wakes(&conversation);
         let deleted = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let deleted = self.store.delete_agent(id);
             self.forget_activity(&conversation);
             deleted
         };
+        // Its network policies, grants, egress log and checkpoints go with it (ADR 0167).
+        if matches!(deleted, Ok(true))
+            && let Some(security) = self.security()
+        {
+            let (security, id) = (security.clone(), id.to_owned());
+            let _ = tokio::task::spawn_blocking(move || security.forget(&id)).await;
+        }
         self.live
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
-        self.deleting
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(&conversation);
+        {
+            let mut deleting = self.deleting.lock().unwrap_or_else(|p| p.into_inner());
+            deleting.remove(&conversation);
+            let mut live = self.live.lock().unwrap_or_else(|p| p.into_inner());
+            for helper in &helpers {
+                deleting.remove(helper);
+                if let Some(gone) = live.remove(helper)
+                    && let Some(worker) =
+                        gone.worker.lock().unwrap_or_else(|p| p.into_inner()).take()
+                {
+                    worker.abort();
+                }
+            }
+        }
         deleted?;
+        if let Some(plugins) = self.plugins() {
+            plugins.forget(id);
+        }
         self.bot_left(id)?;
         Ok(())
     }
@@ -300,25 +340,54 @@ impl Engine {
         let activity = self.activity(&agent.conversation)?;
         let status = self.status_for(&agent.conversation, &activity);
         let mut oversight = self.oversight_json(&agent)?;
-        // Its access level and task (ADR 0144).
+        // Its task (ADR 0144), and its access level: one level since ADR 0163, still shown so a
+        // client from before reads it rather than taking a missing one for `ask`.
         if let Some(shown) = oversight.as_object_mut() {
-            shown.insert("access".into(), activity.access.name().into());
+            shown.insert("access".into(), Access::AutoReview.name().into());
+            // The marketplace recipe it was made from (ADR 0168), for its profile.
+            if let Some(recipe) = self.bot_recipe(&agent.id) {
+                shown.insert(
+                    "from_recipe".into(),
+                    serde_json::to_value(&recipe.from_recipe).unwrap_or_default(),
+                );
+                if let Some(tools) = recipe.tools {
+                    shown.insert("tools".into(), tools.into());
+                }
+            }
             shown.insert(
                 "task_state".into(),
                 serde_json::to_value(&activity.task).unwrap_or_default(),
+            );
+            shown.insert(
+                "task_progress".into(),
+                serde_json::to_value(&activity.task_progress).unwrap_or_default(),
             );
             shown.insert(
                 "continuing".into(),
                 self.continuing(&agent.conversation, activity.continued)
                     .into(),
             );
+            // What it sleeps or waits for, and its running services (ADR 0160).
+            shown.insert(
+                "wake".into(),
+                activity
+                    .wake
+                    .as_ref()
+                    .map_or(serde_json::Value::Null, |open| self.wake_json(open)),
+            );
+            shown.insert("services".into(), activity.services.into());
+            // Its place in a tree (ADR 0161).
+            self.tree_fields(&agent.conversation, &activity, shown);
         }
+        let seen = self.store.seen(&agent.conversation)?;
         Ok(AgentView {
             oversight,
+            seen,
             state: activity.state,
             status,
             last_message: activity.last_message,
             waiting_for: activity.waiting_for,
+            questions_for_later: activity.questions_for_later,
             problem: activity.problem,
             agent,
         })
@@ -327,6 +396,18 @@ impl Engine {
     /// Whether the main agent runs on this machine (ADR 0127: the app picks one machine).
     pub fn main_enabled(&self) -> Result<bool, StoreError> {
         Ok(self.store.setting(MAIN_ENABLED)?.as_deref() != Some("false"))
+    }
+
+    /// Pins an agent to the top of the person's list, or unpins it. Answers its view, or `None`
+    /// for no such agent.
+    pub fn pin_agent(&self, id: &str, pinned: bool) -> Result<Option<AgentView>, StoreError> {
+        if !self
+            .store
+            .set_agent_pinned(id, pinned, self.clock.now_ms())?
+        {
+            return Ok(None);
+        }
+        self.agent_view(id)
     }
 
     pub fn set_main_enabled(&self, enabled: bool) -> Result<(), StoreError> {

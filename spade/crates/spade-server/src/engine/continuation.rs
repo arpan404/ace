@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use spade_core::Event;
 use spade_core::event::Known;
+use spade_core::goal::verify::{self, Claim};
 use spade_core::task::{self, Next};
 
 use super::Engine;
@@ -26,10 +27,13 @@ pub(super) enum Planned {
         reason: task::PauseReason,
         steps: u32,
     },
+    /// The bot claimed done with a goal open (ADR 0159): a verifier checks the claim first,
+    /// registered under `token` like a step, so a Stop calls it off.
+    Verify { claim: String, token: String },
 }
 
 /// How often a step waiting out its backoff looks at the clock again.
-const LOOK_AGAIN: Duration = Duration::from_secs(1);
+pub(super) const LOOK_AGAIN: Duration = Duration::from_secs(1);
 
 impl Engine {
     /// When Spade reopens: carries the bot's task on if it is still working.
@@ -43,10 +47,38 @@ impl Engine {
     /// will start is registered before this returns, so the turn's worker calls this before it
     /// lets go of the conversation: a Stop pressed at any point after it ends calls the step off.
     pub(super) fn plan_carry_on(&self, id: &str) -> Option<Planned> {
-        if !self.may_continue(id) {
+        if !self.may_start_step(id) {
             return None;
         }
-        let events = self.load(id).ok()?;
+        let mut events = self.load(id).ok()?;
+        // A claim of done is checked before anything else (ADR 0159).
+        match verify::claim(&events) {
+            Claim::None => {}
+            Claim::Settled(verdict) => {
+                let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+                let now = self.load(id).ok()?;
+                if stop_since(&now, &events) {
+                    return None;
+                }
+                if let Err(error) = self.append(id, &Event::Known(*verdict)) {
+                    tracing::error!(%error, "could not store a task's check");
+                    return None;
+                }
+                events = self.load(id).ok()?;
+            }
+            Claim::Check { claim, .. } => {
+                let token = self.ids.next("k");
+                let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+                if self.load(id).is_ok_and(|now| stop_since(&now, &events)) {
+                    return None;
+                }
+                self.continuations
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .insert(id.to_owned(), token.clone());
+                return Some(Planned::Verify { claim, token });
+            }
+        }
         match task::next(&events, &self.limits.task) {
             Next::Nothing => None,
             Next::Pause { reason, steps } => Some(Planned::Pause { reason, steps }),
@@ -88,6 +120,13 @@ impl Engine {
                     tracing::error!(%error, "could not store that a task paused");
                 }
             }
+            Planned::Verify { claim, token } => {
+                self.set_status(id, Some(super::goals::VERIFYING.to_owned()));
+                let (engine, id) = (self.clone(), id.to_owned());
+                tokio::spawn(async move {
+                    engine.verify_claim(&id, &claim, &token).await;
+                });
+            }
             Planned::Continue {
                 step,
                 due_ms,
@@ -119,7 +158,7 @@ impl Engine {
         }
     }
 
-    fn is_planned(&self, id: &str, token: &str) -> bool {
+    pub(super) fn is_planned(&self, id: &str, token: &str) -> bool {
         self.continuations
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -128,12 +167,9 @@ impl Engine {
     }
 
     /// Whether a step of the bot's task may start now: Spade is open, the bot is not being
-    /// deleted, the person doesn't have its computer, and it is under every cap.
-    fn may_continue(&self, id: &str) -> bool {
-        self.admission.load(Ordering::SeqCst)
-            && !self.deleting(id)
-            && !self.held(id)
-            && self.may_spend(id).is_ok()
+    /// deleted, and the person doesn't have its computer. Spend never stops it (ADR 0166).
+    fn may_start_step(&self, id: &str) -> bool {
+        self.admission.load(Ordering::SeqCst) && !self.deleting(id) && !self.held(id)
     }
 
     /// Starts step `step` if it is still the one due and `token` is still the latest plan. Stored
@@ -149,25 +185,26 @@ impl Engine {
                 }
                 current
             };
-            current
-                && self.may_continue(id)
-                && self.load(id).is_ok_and(|events| {
-                    matches!(task::next(&events, &self.limits.task), Next::Continue { step: s, .. } if s == step)
+            let due = if current && self.may_start_step(id) {
+                self.load(id).ok().filter(|events| {
+                    matches!(task::next(events, &self.limits.task), Next::Continue { step: s, .. } if s == step)
                 })
-                && {
-                    let note = Event::Known(Known::TaskContinued {
-                        step,
-                        nudge: task::nudge(step),
-                    });
-                    let opened = Event::reply_started(self.ids.next("r"), self.reply_model(id));
-                    match self.append_events(id, &[note, opened]) {
-                        Ok(_) => true,
-                        Err(error) => {
-                            tracing::error!(%error, "could not start the next step of a task");
-                            false
-                        }
+            } else {
+                None
+            };
+            due.is_some_and(|events| {
+                // What the goal's check found missing, and where the plan resumes (ADR 0159).
+                let nudge = format!("{}{}", task::nudge(step), verify::nudge_tail(&events));
+                let note = Event::Known(Known::TaskContinued { step, nudge });
+                let opened = Event::reply_started(self.ids.next("r"), self.reply_model(id));
+                match self.append_events(id, &[note, opened]) {
+                    Ok(_) => true,
+                    Err(error) => {
+                        tracing::error!(%error, "could not start the next step of a task");
+                        false
                     }
                 }
+            })
         };
         if started {
             self.spawn_turn(id);

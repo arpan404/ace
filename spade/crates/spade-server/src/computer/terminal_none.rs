@@ -65,6 +65,9 @@ impl Terminals {
     pub fn end_all(&self) {}
 }
 
+/// The bot's own session: its conversation's commands.
+pub const MAIN: &str = "";
+
 pub struct Terminal;
 
 impl Terminal {
@@ -72,11 +75,11 @@ impl Terminal {
         false
     }
 
-    pub fn state_digest(&self) -> String {
+    pub fn state_digest(&self, _session: &str) -> String {
         String::new()
     }
 
-    pub fn start_dir(&self) -> std::path::PathBuf {
+    pub fn start_dir(&self, _session: &str) -> std::path::PathBuf {
         std::path::PathBuf::new()
     }
 
@@ -101,9 +104,11 @@ impl Terminal {
 
     pub async fn run_in_state(
         self: &Arc<Self>,
+        _session: &str,
         _command: &str,
         _timeout: Duration,
         _expected: Option<&str>,
+        _outside: bool,
     ) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }

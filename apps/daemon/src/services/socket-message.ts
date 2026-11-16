@@ -7,6 +7,7 @@ import {
 } from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { SuitClientMessage } from "@ace/protocol/suits";
+import { MarketClientMessage } from "@ace/protocol/marketplace";
 import type { SocketMessage } from "./socket.ts";
 
 /** Every message family a socket accepts, in the order a message is matched against them. */
@@ -14,6 +15,7 @@ const families: readonly z.ZodType<SocketMessage>[] = [
   ClientMessage,
   PluginClientMessage,
   SuitClientMessage,
+  MarketClientMessage,
   BrowserClientMessage,
   BrowserBackendClientMessage,
   UserBrowserExtensionMessage,

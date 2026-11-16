@@ -49,6 +49,37 @@
   --picker-row-padding: 12px;
   --picker-row-height: 48px;
 
+  /*
+   * Spade (docs/design/spade.md). Bubbles take the 18 corner with 18 sides and 10 ends, so the
+   * corner never exceeds the padding; a code well sits 6 in at 12, concentric. Inside Spade's
+   * list and profile, icon buttons are 32 circles and buttons are 36 pills; the frame, the rail
+   * and Settings keep the square ones.
+   */
+  --chat-bubble-radius: var(--radius-xl);
+  --chat-bubble-x: 18px;
+  --chat-bubble-y: 10px;
+  --chat-code-inset: 6px;
+  --chat-code-radius: var(--radius-lg);
+  /* Between bubbles of one run, and between turns. */
+  --chat-run-gap: 4px;
+  --chat-turn-gap: 16px;
+  --spade-round-button: 32px;
+  --spade-pill-button: 36px;
+  --spade-composer-button: 40px;
+  --spade-list-row: 64px;
+  --spade-list-face: 40px;
+  --spade-head-face: 44px;
+  --spade-pill-face: 28px;
+  --spade-working-face: 32px;
+  --spade-profile-face: 96px;
+  --spade-profile-width: 360px;
+  --spade-phone-face: 52px;
+  /* A face's status dot and the ring of the surface behind it, at list size and at 96. */
+  --face-dot: 12px;
+  --face-dot-ring: 2.5px;
+  --face-dot-lg: 14px;
+  --face-dot-ring-lg: 3px;
+
   /* How much the page behind a modal is blurred under Translucent (`.ace-backdrop`). */
   --backdrop-blur: 7px;
 

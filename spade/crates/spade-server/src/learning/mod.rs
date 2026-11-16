@@ -5,7 +5,7 @@
 
 mod tools;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -219,6 +219,26 @@ impl Learning {
         Ok(proposal)
     }
 
+    /// The bots whose saved proposals wrote or changed each skill, by the skill's name, each
+    /// list in id order.
+    pub fn writers(&self) -> HashMap<String, Vec<String>> {
+        let _files = lock(&self.files);
+        let mut writers: HashMap<String, Vec<String>> = HashMap::new();
+        for proposal in self.read_all() {
+            if proposal.state == ProposalState::Saved {
+                writers
+                    .entry(proposal.name)
+                    .or_default()
+                    .push(proposal.agent);
+            }
+        }
+        for bots in writers.values_mut() {
+            bots.sort();
+            bots.dedup();
+        }
+        writers
+    }
+
     /// The bot's proposals, oldest first.
     pub fn proposals(&self, agent: &str) -> Vec<Proposal> {
         let _files = lock(&self.files);
@@ -387,7 +407,11 @@ impl Learning {
             },
         );
         let text = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
-        crate::atomic::write_whole(&self.notes_file(agent), &text).map_err(|e| e.to_string())
+        crate::atomic::write_whole(&self.notes_file(agent), &text).map_err(|e| e.to_string())?;
+        // Search breaks ties toward skills the bot found helpful (ADR 0151).
+        self.library
+            .record_verdict(agent, skill, verdict == Verdict::Helpful);
+        Ok(())
     }
 
     /// The bot's note on `skill`, if it left one.

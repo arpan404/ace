@@ -8,6 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub mod gated;
+#[cfg(target_os = "macos")]
+pub mod sandbox;
 
 use keyring_core::mock;
 use serde_json::{Value, json};
@@ -37,9 +39,11 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
-    /// Classed as a tool of one of the person's apps (ADR 0144); `true` when it annotates
+    /// Poses as a tool of one of the person's apps (ADR 0131); `true` when it annotates
     /// itself.
     pub app: Option<bool>,
+    /// What it declares it does (ADR 0171), over what its name or annotations would say.
+    pub declared: Option<spade_core::effect::Effect>,
 }
 
 impl FakeTool {
@@ -61,7 +65,14 @@ impl FakeTool {
             delay: Duration::ZERO,
             calls: Arc::default(),
             app: None,
+            declared: None,
         }
+    }
+
+    /// Declares what it does, as a catalogue entry or manifest would.
+    pub fn declares(mut self, effect: spade_core::effect::Effect) -> Self {
+        self.declared = Some(effect);
+        self
     }
 
     /// Poses as a tool of one of the person's apps, as a connector offers it (ADR 0131).
@@ -114,17 +125,39 @@ impl Tool for FakeTool {
         self.def.clone()
     }
 
-    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
-        use spade_core::autonomy::{AppHints, Source, classify};
-        let source = match self.app {
-            Some(annotated) => Source::App(AppHints {
-                description: &self.def.spec.description,
-                annotated,
-                open_world: annotated.then_some(true),
-            }),
-            None => Source::Spade,
-        };
-        classify(&self.def.spec.name, self.def.risk, source, arguments)
+    /// A fake `shell` is a command with no sandbox, as on a machine without one: classed by
+    /// what it runs, for the review.
+    fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        if self.def.spec.name == spade_core::autonomy::SHELL {
+            spade_core::autonomy::classify_shell(arguments, &spade_core::autonomy::shell::Lexical)
+        } else {
+            spade_core::autonomy::Classed::default()
+        }
+    }
+
+    /// An app tool's server facts: its catalogue entry declares it (as a write outside the box
+    /// unless the test says more); one that sends no annotations has no entry either.
+    fn hints(&self) -> Option<spade_core::effect::Mcp> {
+        self.app.map(|annotated| spade_core::effect::Mcp {
+            read_only: self.def.risk == Risk::Read,
+            annotated,
+            declared: self
+                .declared
+                .or(annotated.then_some(spade_core::effect::Effect::Network)),
+        })
+    }
+
+    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
+        use spade_core::effect::{builtin, mcp};
+        match self.hints() {
+            Some(hints) => mcp(hints),
+            // A fake of Spade's own that isn't in its table acts outside the box, so it is
+            // reviewed; tests of undeclared tools use `unannotated_app`.
+            None => self
+                .declared
+                .or_else(|| builtin(&self.def.spec.name, self.def.risk))
+                .or(Some(spade_core::effect::Effect::Network)),
+        }
     }
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
@@ -166,7 +199,6 @@ pub struct Spade {
 }
 
 pub struct Options {
-    pub cap_usd: f64,
     pub limits: Limits,
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Finds ace from this folder's files, retrying quickly.
@@ -191,8 +223,17 @@ pub struct Options {
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
     /// Bots' workspaces, for the API (ADR 0130).
     pub workspaces: Option<spade_server::workspace::Workspaces>,
+    /// The person's accepted plugins (ADR 0151), from this stand-in for ace; hooks stop after
+    /// `plugin_hook_limit` and local servers after `plugin_server_idle`.
+    pub plugins: Option<Arc<dyn spade_server::plugins::Daemon>>,
+    pub plugin_hook_limit: Duration,
+    pub plugin_server_idle: Duration,
+    /// How long a reading of ace's plugins is used.
+    pub plugin_fresh_for: Duration,
     /// Skill proposals, for the API (ADR 0130).
     pub learning: Option<Arc<spade_server::learning::Learning>>,
+    /// Spade's skill store, for the API (ADR 0151).
+    pub skill_store: Option<Arc<spade_server::skill_store::SkillStore>>,
     /// Sets up connectors (ADR 0131), with the mock keychain.
     pub connectors: bool,
     /// With `connectors`: the client ID metadata document Spade signs in as.
@@ -213,10 +254,18 @@ pub struct Options {
     pub model_retry: Option<spade_server::engine::Retry>,
     /// The real `web_search` over these backends, with Brave's key from the mock keychain.
     pub search: Option<spade_search::SearchConfig>,
-    /// The level new bots start on. `ask` here, so tests of the person's approvals keep asking;
-    /// the access tests choose (ADR 0144).
-    pub new_bot_access: spade_core::autonomy::Access,
+    /// The model that reviews held calls (ADR 0144, 0163). By default [`UNREACHABLE_REVIEWER`], whose
+    /// endpoint refuses every connection: the review can't run, so every held call goes to the
+    /// person and tests of approvals keep their script. `None` reviews on the default model
+    /// (the fake), for the auto-review's own tests.
+    pub reviewer: Option<String>,
+    /// Spade's classifier (ADR 0172) is on. Off by default here, so tests of the reviewer keep
+    /// their script; its own tests turn it on, as it is in a real Spade.
+    pub classifier: bool,
 }
+
+/// A reviewer whose endpoint refuses connections (a local port nothing listens on).
+pub const UNREACHABLE_REVIEWER: &str = "unreached/r";
 
 /// A clock a test sets by hand.
 #[derive(Default)]
@@ -288,7 +337,6 @@ impl Gate {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            cap_usd: 5.0,
             limits: Limits::default(),
             skills: None,
             ace_home: None,
@@ -302,7 +350,12 @@ impl Default for Options {
             keychain_read_gate: None,
             keychain_gate_for: None,
             workspaces: None,
+            plugins: None,
+            plugin_hook_limit: Duration::from_secs(10),
+            plugin_server_idle: Duration::from_secs(600),
+            plugin_fresh_for: spade_server::plugins::FRESH_FOR,
             learning: None,
+            skill_store: None,
             connectors: false,
             client_metadata: None,
             apps: Vec::new(),
@@ -313,7 +366,8 @@ impl Default for Options {
             brains: None,
             model_retry: None,
             search: None,
-            new_bot_access: spade_core::autonomy::Access::Ask,
+            reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
+            classifier: false,
         }
     }
 }
@@ -348,7 +402,13 @@ fn catalog(root: &str) -> Result<Catalog> {
                       { "id": "looker", "name": "Looker", "format": "openai-responses",
                         "base_url": "https://looker.example/v1/", "key": {},
                         "models": [{ "id": "look-1", "name": "Look", "capabilities": ["tools", "web-search"],
-                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] }]
+                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] },
+                      // The reviewer tests use unless they test the review: nothing listens.
+                      // Last, so it is never anyone's first usable model.
+                      { "id": "unreached", "name": "Unreached", "format": "openai-chat",
+                        "base_url": "http://127.0.0.1:9/v1/", "key": { "env": "UNREACHED_KEY" },
+                        "models": [{ "id": "r", "name": "R", "capabilities": ["tools"],
+                                     "price": { "input": 0, "output": 0 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -458,7 +518,7 @@ impl Spade {
                     }
                     keychain.get(endpoint).ok().flatten()
                 },
-                |var| (var == "FAKE_KEY").then(|| "fake-key".to_owned()),
+                |var| matches!(var, "FAKE_KEY" | "UNREACHED_KEY").then(|| "fake-key".to_owned()),
             ),
             spade_server::home::VERSION,
         )?;
@@ -502,7 +562,36 @@ impl Spade {
         } else {
             None
         };
+        let plugins = match &options.plugins {
+            Some(daemon) => {
+                let workspaces = options.workspaces.clone().unwrap_or_else(|| {
+                    spade_server::workspace::Workspaces::new(dir.path().join("workspace"))
+                });
+                let plugins = spade_server::plugins::Plugins::new(
+                    daemon.clone(),
+                    Store::open(&dir.path().join("spade.sqlite"))?,
+                    workspaces,
+                    spade_server::workspace::shell::Shell::system(),
+                )
+                .with_hook_limit(options.plugin_hook_limit)
+                .with_server_idle(options.plugin_server_idle)
+                .with_fresh_for(options.plugin_fresh_for);
+                if let Some(store) = &options.skill_store {
+                    plugins.set_skill_store(store.clone());
+                }
+                tools = tools.with_source(Arc::new(spade_server::tools::PluginTools::new(
+                    plugins.clone(),
+                    Store::open(&dir.path().join("spade.sqlite"))?,
+                )));
+                Some(plugins)
+            }
+            None => None,
+        };
         let bots = spade_server::tools::EngineHandle::default();
+        // As in Spade: ace's tools are called for the bot that made each call.
+        if let Some(link) = &ace {
+            link.act_for(bots.clone());
+        }
         let search = match options.search.clone() {
             Some(config) => {
                 let lookup = keys.clone();
@@ -535,7 +624,6 @@ impl Spade {
                 .ids
                 .clone()
                 .unwrap_or_else(|| Arc::new(CountingIds::default())),
-            daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
             limits: Limits {
                 retry: options.model_retry.unwrap_or(spade_server::engine::Retry {
@@ -543,7 +631,6 @@ impl Spade {
                     first_wait: Duration::from_millis(10),
                     longest: Duration::from_secs(1),
                 }),
-                new_bot_access: options.new_bot_access,
                 ..options.limits
             },
             skills: options.skills,
@@ -551,10 +638,20 @@ impl Spade {
             adopt: options.adopt.clone(),
             keychain: Some(keys.clone()),
         })?;
+        if !options.classifier {
+            engine.set_oversight(spade_server::engine::GlobalChange {
+                classifier: Some(false),
+                ..Default::default()
+            })?;
+        }
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
         }
         bots.set(&engine);
+        if let Some(plugins) = plugins {
+            engine.set_profile_source(plugins.clone());
+            engine.set_plugins(plugins);
+        }
         if let (Some(search), Ok(url)) = (&search, engine.searxng_url()) {
             search.set_searxng(url.as_deref())?;
         }
@@ -565,6 +662,7 @@ impl Spade {
             ace: ace.clone(),
             workspaces: options.workspaces.clone(),
             learning: options.learning.clone(),
+            skill_store: options.skill_store.clone(),
             connectors: connectors.clone(),
             search,
         };
@@ -584,6 +682,12 @@ impl Spade {
             spade_server::startup::finish(engine.clone(), None, None, options.settle_deadline);
         if options.keychain_delay.is_none() && options.keychain_gate.is_none() {
             finishing.await?;
+            if let Some(reviewer) = &options.reviewer {
+                engine.set_oversight(spade_server::engine::GlobalChange {
+                    review_model: Some(Some(reviewer.clone())),
+                    ..Default::default()
+                })?;
+            }
         }
         Ok(Self {
             base,
@@ -610,6 +714,23 @@ impl Spade {
             let _ = stop.send(());
         }
         let _ = (&mut self.task).await;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Stops this server, runs `sql` on its database (what a crash left behind), and opens a new
+    /// engine and server on it.
+    pub async fn restart_after_crash(
+        mut self,
+        sql: &str,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        rusqlite::Connection::open(self.dir.path().join("spade.sqlite"))?.execute_batch(sql)?;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
     }
@@ -641,11 +762,35 @@ impl Spade {
         self.restart(tools, scripts).await
     }
 
+    /// [`Spade::restart_after_stop`] with `options` for the new server.
+    pub async fn restart_after_stop_with(
+        self,
+        allowance: Duration,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        self.engine.pause_for_stop(allowance).await;
+        self.restart_with(tools, scripts, options).await
+    }
+
     pub async fn delete(&self, path: &str) -> Result<(u16, Value)> {
         let response = self
             .http
             .delete(format!("{}{path}", self.base))
             .bearer_auth(TOKEN)
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    pub async fn patch(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        let response = self
+            .http
+            .patch(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body)
             .send()
             .await?;
         let status = response.status().as_u16();

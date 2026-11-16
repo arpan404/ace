@@ -1,5 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -355,4 +357,60 @@ test("a watched listing is answered from memory, ace's own changes show at once,
   // Once the linger runs out the watch is gone and the next listing reads the disk.
   for (const expire of expiries.splice(0)) expire();
   expect(await names()).toContain("later");
+});
+
+test("a skill's files are listed with sizes and hashes, and one is read by its path", async () => {
+  const { home, library } = await fixture();
+  const folder = join(home, ".agents/skills/research");
+  await put(join(folder, "references/guide.md"), "# Guide\n");
+  await put(join(folder, "scripts/run.sh"), "#!/bin/sh\necho hi\n");
+  await chmod(join(folder, "scripts/run.sh"), 0o755);
+  await put(join(folder, ".hidden/secret"), "no");
+  await put(join(folder, "big.bin"), "x".repeat(1024 * 1024 + 1));
+  await symlink("/etc/hosts", join(folder, "hosts"));
+  const research = await named(library, "research");
+
+  const listed = await library.request({ op: "files", id: research.id });
+  expect(listed).toEqual({
+    kind: "files",
+    id: research.id,
+    files: [
+      {
+        path: "references/guide.md",
+        size: 8,
+        hash: createHash("sha256").update("# Guide\n").digest("hex"),
+        executable: false,
+      },
+      expect.objectContaining({ path: "scripts/run.sh", executable: true }),
+    ],
+    omitted: [
+      { path: "big.bin", reason: "too_large" },
+      { path: "hosts", reason: "not_a_file" },
+    ],
+  });
+
+  const read = await library.request({ op: "files", id: research.id, path: "scripts/run.sh" });
+  if (read.kind !== "file") throw new Error(JSON.stringify(read));
+  expect(Buffer.from(read.content, "base64").toString()).toBe("#!/bin/sh\necho hi\n");
+  expect(read.file).toMatchObject({ path: "scripts/run.sh", executable: true, size: 18 });
+});
+
+test("a skill's file is never read through a link, a hidden folder or a plugin", async () => {
+  const { home, library } = await fixture({
+    pluginSkills: async () => [{ plugin: "tools", name: "linted", description: "Lint it" }],
+  });
+  const folder = join(home, ".agents/skills/research");
+  await put(join(folder, ".hidden/secret"), "no");
+  await symlink("/etc/hosts", join(folder, "hosts"));
+  const research = await named(library, "research");
+  for (const path of ["hosts", ".hidden/secret", "SKILL.md", "missing.md"])
+    expect(await library.request({ op: "files", id: research.id, path })).toMatchObject({
+      kind: "error",
+      code: "not_found",
+    });
+  const plugin = await named(library, "linted");
+  expect(await library.request({ op: "files", id: plugin.id })).toMatchObject({
+    kind: "error",
+    code: "read_only",
+  });
 });

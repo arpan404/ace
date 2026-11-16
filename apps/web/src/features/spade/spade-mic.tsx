@@ -1,4 +1,4 @@
-import { MicrophoneIcon } from "@ace/icons";
+import { MicrophoneIcon, WaveformIcon } from "@ace/icons";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -164,7 +164,10 @@ export function useSpadeVoice(props: {
 
 export type SpadeVoiceInput = ReturnType<typeof useSpadeVoice>;
 
-/** The mic, beside + in the composer's footer: the platform's own control, so a glyph. */
+/** A round composer control, the size of the composer's others. */
+const round = "size-(--composer-control) rounded-full";
+
+/** The mic, just before the composer's filled button: the platform's own control, so a glyph. */
 export function MicButton(props: { voice: SpadeVoiceInput }) {
   const { voice } = props;
   if (!voice.available) return null;
@@ -175,6 +178,7 @@ export function MicButton(props: { voice: SpadeVoiceInput }) {
       label={recording ? "Stop recording" : "Record a voice message"}
       tip={recording ? "Stop recording" : "Hold to record"}
       pressed={recording}
+      className={round}
       // Not disabled while starting: the release that ends a hold must still arrive.
       disabled={voice.state === "transcribing"}
       onPointerDown={voice.press}
@@ -210,5 +214,21 @@ export function VoiceStrip(props: { voice: SpadeVoiceInput }) {
         </Button>
       </div>
     </StripSurface>
+  );
+}
+
+/**
+ * The filled button at the composer's end while the field is empty: voice mode, where the person
+ * talks with the bot. Voice comes later; until then it is drawn but off, and says so.
+ */
+export function VoiceButton(props: { name: string }) {
+  return (
+    <IconButton
+      icon={WaveformIcon}
+      label={`Talk with ${props.name}`}
+      disabled
+      reason="Voice is coming"
+      className={`${round} bg-tint text-tint-foreground hover:bg-tint hover:text-tint-foreground`}
+    />
   );
 }

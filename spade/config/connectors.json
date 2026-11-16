@@ -50,7 +50,8 @@
       "url": "https://api.githubcopilot.com/mcp/",
       "sign_in": ["token", "oauth_client"],
       "notes": "A personal access token always works. Sign in shows a code to enter on GitHub once Spade's own GitHub app is registered. Organisations may need to approve the app, and those on Copilot Business or Enterprise must allow MCP servers.",
-      "source": "https://github.com/github/github-mcp-server"
+      "source": "https://github.com/github/github-mcp-server",
+      "effects": { "add_issue_comment": "send_as_person", "merge_pull_request": "publish" }
     },
     {
       "id": "hubspot",
@@ -75,7 +76,8 @@
       "url": "https://mcp.intercom.com/mcp",
       "sign_in": ["oauth", "token"],
       "notes": "US workspaces. EU workspaces add the server by URL: https://mcp.eu.intercom.com/mcp",
-      "source": "https://developers.intercom.com/docs/guides/mcp"
+      "source": "https://developers.intercom.com/docs/guides/mcp",
+      "every_tool": "send_as_person"
     },
     {
       "id": "linear",
@@ -107,7 +109,8 @@
       "url": "https://mcp.paypal.com/http",
       "sign_in": ["oauth"],
       "notes": "Live accounts. The sandbox server is https://mcp.sandbox.paypal.com/http",
-      "source": "https://developer.paypal.com/tools/mcp-server/"
+      "source": "https://developer.paypal.com/tools/mcp-server/",
+      "every_tool": "pay"
     },
     {
       "id": "sentry",
@@ -123,7 +126,8 @@
       "url": "https://mcp.squareup.com/mcp",
       "sign_in": ["oauth"],
       "notes": "Production data only.",
-      "source": "https://developer.squareup.com/docs/mcp"
+      "source": "https://developer.squareup.com/docs/mcp",
+      "every_tool": "pay"
     },
     {
       "id": "stripe",
@@ -131,7 +135,8 @@
       "url": "https://mcp.stripe.com",
       "sign_in": ["oauth", "token"],
       "notes": "For a key, use an agent API key: from December 2026 Stripe refuses plain secret keys here.",
-      "source": "https://docs.stripe.com/mcp"
+      "source": "https://docs.stripe.com/mcp",
+      "every_tool": "pay"
     },
     {
       "id": "supabase",

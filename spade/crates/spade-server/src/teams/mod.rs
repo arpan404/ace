@@ -1,10 +1,12 @@
 //! Teams (ADR 0132, docs/teams.md): groups of bots with a lead, asks to bots of the person's
-//! other machines through ace, and bots made from templates, duplicated, exported and imported.
+//! other machines through ace, and bots made from templates or marketplace recipes (ADR 0168),
+//! duplicated, exported and imported.
 //! The engine owns the decisions that touch conversations (`engine::groups`, `engine::outbox`,
 //! `engine::inbox`); this module holds what they share, the way ace is reached, and the tools.
 
 mod portable;
 pub mod proof;
+mod recipe;
 mod remote;
 mod templates;
 mod tools;
@@ -17,6 +19,7 @@ use tokio::sync::{Notify, watch};
 pub use portable::{
     BotFile, Imported, PortableError, duplicate, export, from_template, import, template_model,
 };
+pub use recipe::{Recipe, RecipeGrants, RecipeInput, RecipeRoutine, from_recipe};
 pub use remote::{BoxFuture, Machine, Remote, RemoteError, answer_from, machines_from};
 pub use templates::{Template, TemplateRoutine, templates};
 pub use tools::with_tools;
@@ -54,7 +57,7 @@ impl Outcome {
 pub struct Shared {
     /// How Spade reaches its daemon for other machines, once it knows where ace is.
     pub(crate) remote: Mutex<Option<Arc<dyn Remote>>>,
-    /// Held across reading a group's events and recording an ask, so budget checks and Stop
+    /// Held across reading a group's events and recording an ask, so the ask checks and Stop
     /// never interleave.
     pub(crate) group_lock: Mutex<()>,
     /// Each open ask's end, for whoever waits on it (`group_ask`).

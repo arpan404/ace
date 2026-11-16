@@ -30,11 +30,6 @@ impl Engine {
         if text.chars().count() > self.limits.longest_message {
             return Err(GroupError::Invalid("the message is too long".to_owned()));
         }
-        if !self.within_cap()? {
-            return Err(GroupError::Conflict(
-                "today's spending cap is used up".to_owned(),
-            ));
-        }
         let group = self.store.group(id)?.ok_or(GroupError::NotFound)?;
         if group.members.len() < FEWEST_MEMBERS {
             return Err(GroupError::Conflict(
@@ -88,7 +83,7 @@ impl Engine {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner());
             let events = self.load(&group.conversation).map_err(|e| e.to_string())?;
-            group::admit(&events, run, depth).map_err(|r| r.words())?;
+            group::admit(&events, run, depth, by.as_ref(), &to_bot).map_err(|r| r.words())?;
             let ask = self.ids.next("ask");
             self.record(
                 &group.conversation,
@@ -147,10 +142,6 @@ impl Engine {
             .agent(&to.agent_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("{} is gone.", to.name))?;
-        // A member at its own cap answers nothing (ADR 0135); the ask fails with why.
-        if let Some(why) = self.cap_refusal(&agent.conversation) {
-            return Err(why);
-        }
         let message = Event::Known(Known::UserMessage {
             text: text.to_owned(),
             context: Some(context),

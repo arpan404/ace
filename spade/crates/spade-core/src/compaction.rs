@@ -4,9 +4,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::context::{self, outcome_unknown};
+use crate::context;
 use crate::event::{Event, Known};
-use crate::tools::{CALL_TOOL, Registry, Risk, unwrap_call_tool};
 
 /// Compact once the prompt reaches this share of the budget...
 pub const HIGH: f64 = 0.75;
@@ -16,8 +15,9 @@ pub const LOW: f64 = 0.35;
 /// The part of the conversation a compaction keeps word for word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
-    /// Index of the first event kept; always a message from the person sent while no tool call
-    /// was waiting for its result, so no call is cut from its result.
+    /// Index of the first event kept: a message from the person, or in a turn too long to keep
+    /// whole a step of it (ADR 0158); either way one that starts while no tool call waits for its
+    /// result, so no call is cut from its result.
     pub keep_from: usize,
 }
 
@@ -48,22 +48,69 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
         _ => None,
     });
     let starts = safe_starts(events, already);
-    let last = *starts.last()?;
     // Size each candidate's kept part in proportion to the reported prompt, by text length.
     let sizes: Vec<usize> = events.iter().map(text_len).collect();
     let total: usize = sizes.iter().sum::<usize>().max(1);
     let target = f64::from(budget) * LOW;
-    let keep_from = starts
+    let after = already.unwrap_or(0);
+    let fits = |start: usize| {
+        let kept: usize = sizes[start..].iter().sum();
+        f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
+    };
+    // A cut at the very start would summarise nothing.
+    if let Some(start) = starts
         .iter()
         .copied()
-        // A cut at the very start would summarise nothing.
-        .filter(|&start| start > already.unwrap_or(0))
-        .find(|&start| {
-            let kept: usize = sizes[start..].iter().sum();
-            f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
-        })
-        .unwrap_or(last);
-    (keep_from > already.unwrap_or(0)).then_some(Plan { keep_from })
+        .filter(|&s| s > after)
+        .find(|&s| fits(s))
+    {
+        return Some(Plan { keep_from: start });
+    }
+    // The latest turn alone is too big: it is cut at one of its own steps, so a turn of any
+    // length keeps its prompt bounded (ADR 0158).
+    let turn = starts.last().copied().unwrap_or(0).max(after);
+    let steps: Vec<usize> = step_starts(events, turn)
+        .into_iter()
+        .filter(|&s| s > after)
+        .collect();
+    let keep_from = match steps.iter().copied().find(|&s| fits(s)) {
+        Some(step) => step,
+        None => match starts.last().copied().filter(|&s| s > after) {
+            Some(message) => message,
+            None => *steps.last()?,
+        },
+    };
+    Some(Plan { keep_from })
+}
+
+/// Where a turn may be cut inside itself: each step after `from` that began once every earlier
+/// call had its result, and whose prompt had seen everything stored before it, so nothing the
+/// model has yet to read is summarised away.
+fn step_starts(events: &[Event], from: usize) -> Vec<usize> {
+    let mut open: Vec<&str> = Vec::new();
+    let mut arrived: Option<usize> = None;
+    let mut starts = Vec::new();
+    for (at, event) in events.iter().enumerate() {
+        let Event::Known(known) = event else { continue };
+        match known {
+            Known::StepFinished { calls, seen, .. } => {
+                let unread = arrived.is_some_and(|a| seen.is_none_or(|s| s <= a));
+                if at > from && open.is_empty() && !unread {
+                    starts.push(at);
+                }
+                open = calls.iter().map(|c| c.id.as_str()).collect();
+                arrived = None;
+            }
+            Known::ToolFinished { call_id, .. } => open.retain(|id| id != call_id),
+            Known::ReplyFinished { .. }
+            | Known::ReplyStopped { .. }
+            | Known::ReplyFailed { .. }
+            | Known::ReplyInterrupted { .. } => open.clear(),
+            known if context::arrives(known) => arrived = Some(at),
+            _ => {}
+        }
+    }
+    starts
 }
 
 /// Where a compaction may cut: each message from the person, after `after`, sent while every
@@ -178,6 +225,13 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
             }
         }
     }
+    out.push_str(&carried_section(carried_out));
+    out
+}
+
+/// The "already carried out" part of a summary, or nothing when no write was carried out.
+pub fn carried_section(carried_out: &[String]) -> String {
+    let mut out = String::new();
     if !carried_out.is_empty() {
         out.push_str("\nAlready carried out (do not repeat):\n");
         for action in carried_out {
@@ -187,110 +241,8 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     out
 }
 
-/// The note for a write whose outcome is unknown.
-const MAYBE: &str = ", may have taken effect; check before trying it again";
-
-/// What became of a write made before the cut, for the summary's "already carried out" list.
-fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static str> {
-    if background {
-        let ended = events.iter().find_map(|event| match event {
-            Event::Known(Known::JobFinished {
-                job,
-                is_error,
-                uncertain,
-                content,
-                ..
-            }) if job == call_id => Some(ended(*is_error, *uncertain, content)),
-            _ => None,
-        });
-        return match ended {
-            Some(note) => note,
-            None if started_job(events, call_id) => {
-                Some(", still running in the background; its result has not arrived")
-            }
-            None => None,
-        };
-    }
-    let finished = events.iter().find_map(|event| match event {
-        Event::Known(Known::ToolFinished {
-            call_id: c,
-            is_error,
-            uncertain,
-            content,
-            ..
-        }) if c == call_id => Some(ended(*is_error, *uncertain, content)),
-        _ => None,
-    });
-    match finished {
-        Some(note) => note,
-        None if started(events, call_id).is_some() => Some(MAYBE),
-        None => None,
-    }
-}
-
-/// The note for a write that has a stored result: done, unknown, or failed (left out).
-fn ended(is_error: bool, uncertain: bool, content: &str) -> Option<&'static str> {
-    if outcome_unknown(is_error, uncertain, content) {
-        Some(MAYBE)
-    } else if is_error {
-        None
-    } else {
-        Some("")
-    }
-}
-
-fn started_job(events: &[Event], job: &str) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, Event::Known(Known::JobStarted { job: j, .. }) if j == job))
-}
-
-/// The call's stored start: the risk and background flag it was recorded with, if any.
-fn started(events: &[Event], call_id: &str) -> Option<Option<(Risk, bool)>> {
-    events.iter().find_map(|event| match event {
-        Event::Known(Known::ToolStarted {
-            call_id: c,
-            risk,
-            background,
-            ..
-        }) if c == call_id => Some(risk.map(|risk| (risk, *background))),
-        _ => None,
-    })
-}
-
-/// Writes and destructive calls made before `keep_from`, each with its call id and exact
-/// arguments taken from the step, never from a summary. A write counts when it finished without
-/// error, wherever in the conversation that happened; one whose outcome is unknown (cut off, or a
-/// background job stopped or lost) or still running is listed as such, since repeating it could
-/// act twice. Failed writes are left out. A call's risk is the one stored when it ran; only events
-/// from before that was recorded fall back to `registry`.
-pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
-    let mut out = Vec::new();
-    for event in &events[..keep_from.min(events.len())] {
-        let Event::Known(Known::StepFinished { calls, .. }) = event else {
-            continue;
-        };
-        for call in calls {
-            let (name, arguments) = match call.name.as_str() {
-                CALL_TOOL => unwrap_call_tool(&call.arguments)
-                    .unwrap_or_else(|| (call.name.clone(), call.arguments.clone())),
-                _ => (call.name.clone(), call.arguments.clone()),
-            };
-            let recorded = started(events, &call.id).flatten();
-            let facts =
-                recorded.or_else(|| registry.get(&name).map(|tool| (tool.risk, tool.background)));
-            let Some((_, background)) =
-                facts.filter(|(risk, _)| !matches!(risk, Risk::Read | Risk::Memory))
-            else {
-                continue;
-            };
-            if let Some(note) = outcome(events, &call.id, background) {
-                out.push(format!("{name} (call {}) {arguments}{note}", call.id));
-            }
-        }
-    }
-    out
-}
+mod carried;
+pub use carried::{carried_out, ledger, lines};
 
 #[cfg(test)]
 mod tests;

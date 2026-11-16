@@ -50,7 +50,50 @@ async fn list(State(state): State<AppState>) -> Response {
         Ok(hub) => hub,
         Err(response) => return *response,
     };
-    Json(json!({ "catalogue": hub.catalogue(), "connectors": hub.list() })).into_response()
+    let connectors = match with_bots(&state, &hub, hub.list()) {
+        Ok(connectors) => connectors,
+        Err(response) => return *response,
+    };
+    Json(json!({ "catalogue": hub.catalogue(), "connectors": connectors })).into_response()
+}
+
+/// Each connector with `bots`: the ids of the bots allowed to use it, in roster order. Spade,
+/// the main bot, uses every one unless the person narrowed it (and none while it is off).
+fn with_bots(
+    state: &AppState,
+    hub: &Connectors,
+    views: Vec<spade_connect::View>,
+) -> Result<Vec<Value>, Box<Response>> {
+    let agents = state.engine.agents().map_err(|error| {
+        Box::new(problem(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &error.to_string(),
+        ))
+    })?;
+    let access: Vec<(String, Access)> = agents
+        .iter()
+        .map(|view| {
+            let id = view.agent.id.clone();
+            let allowed = hub.access(&id, view.agent.kind == crate::engine::MAIN);
+            (id, allowed)
+        })
+        .collect();
+    Ok(views
+        .into_iter()
+        .map(|view| {
+            let bots: Vec<&str> = access
+                .iter()
+                .filter(|(_, allowed)| match allowed {
+                    Access::All => true,
+                    Access::Only(ids) => ids.contains(&view.id),
+                })
+                .map(|(id, _)| id.as_str())
+                .collect();
+            let mut shown = json!(view);
+            shown["bots"] = json!(bots);
+            shown
+        })
+        .collect())
 }
 
 async fn one(State(state): State<AppState>, Path(id): Path<String>) -> Response {
@@ -59,7 +102,10 @@ async fn one(State(state): State<AppState>, Path(id): Path<String>) -> Response 
         Err(response) => return *response,
     };
     match hub.get(&id) {
-        Some(view) => Json(json!({ "connector": view })).into_response(),
+        Some(view) => match with_bots(&state, &hub, vec![view]) {
+            Ok(mut shown) => Json(json!({ "connector": shown.pop() })).into_response(),
+            Err(response) => *response,
+        },
         None => problem(StatusCode::NOT_FOUND, "no such connector"),
     }
 }

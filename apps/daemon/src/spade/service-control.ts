@@ -9,7 +9,7 @@ import {
   removeSpadeService,
   spadeServiceState,
 } from "@ace/service/spade-service";
-import { bundleRootOfEntry, bundledSpadeServer } from "@ace/service/spade-layout";
+import { bundleRootOfEntry, bundledSpade } from "@ace/service/spade-layout";
 import type { SpadeServiceState } from "./rules.ts";
 
 /**
@@ -18,7 +18,7 @@ import type { SpadeServiceState } from "./rules.ts";
  */
 export interface SpadeServiceControl {
   state(): Promise<SpadeServiceState>;
-  /** Copies this release's `spade-server` to `<ACE_HOME>/releases/spade/<version>/` if missing. */
+  /** Copies this release's `spade` to `<ACE_HOME>/releases/spade/<version>/` if missing. */
   installBinary(): Promise<void>;
   /** Registers and starts the service; an unchanged one that runs is left running. */
   register(): Promise<void>;
@@ -27,7 +27,7 @@ export interface SpadeServiceControl {
 }
 
 /**
- * The `spade-server` this release carries: `ACE_SPADE_BIN` in development, else the one in the
+ * The `spade` binary this release carries: `ACE_SPADE_BIN` in development, else the one in the
  * bundle the daemon's entry script (`ace.mjs`) runs from, laid out as `@ace/service/spade-layout`
  * says: a standalone release folder or the desktop app's resources.
  */
@@ -39,8 +39,8 @@ export function bundledSpadeBinary(
 ): string {
   const development = env.ACE_SPADE_BIN?.trim();
   if (development) return development;
-  if (!entry) throw new Error("This ace runs from source: set ACE_SPADE_BIN to a spade-server.");
-  return bundledSpadeServer(bundleRootOfEntry(entry, exists), platform);
+  if (!entry) throw new Error("This ace runs from source: set ACE_SPADE_BIN to a spade binary.");
+  return bundledSpade(bundleRootOfEntry(entry, exists), platform);
 }
 
 /**

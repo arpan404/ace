@@ -197,12 +197,7 @@ async fn start(
     tools: Vec<Arc<dyn Tool>>,
     turns: Vec<Vec<Act>>,
 ) -> Result<(Spade, Arc<Daemon>, String)> {
-    // No money to spend: a subscription never counts toward Spade's cap.
-    let options = Options {
-        cap_usd: 0.0,
-        ..Options::default()
-    };
-    let spade = Spade::start_with(Vec::new(), tools, options).await?;
+    let spade = Spade::start_with(Vec::new(), tools, Options::default()).await?;
     let (daemon, url) = fake_daemon().await?;
     daemon
         .turns
@@ -503,7 +498,6 @@ async fn a_turn_paused_after_a_call_resumes_on_the_cli_and_is_never_recorded_as_
         Duration::from_secs(30),
     )?;
     let options = Options {
-        cap_usd: 0.0,
         brains: Some(Arc::new(move || Ok(AceBrains::new(&tools)))),
         ..Options::default()
     };
@@ -544,5 +538,81 @@ async fn a_call_without_its_place_in_the_turn_is_not_run() -> Result {
         .unwrap_or_default();
     assert!(text.starts_with("Not run"), "{text}");
     assert_eq!(notes.lock().map(|n| n.len()).unwrap_or(0), 0);
+    Ok(())
+}
+
+/// The call id of the `count`th `question_asked` in the conversation, once it is stored.
+async fn asked_call(spade: &Spade, chat: &str, count: usize) -> Result<String> {
+    let events = spade.wait_for_count(chat, "question_asked", count).await?;
+    Ok(events
+        .iter()
+        .filter(|e| e["type"] == "question_asked")
+        .nth(count - 1)
+        .and_then(|e| e["call_id"].as_str())
+        .unwrap_or_default()
+        .to_owned())
+}
+
+#[tokio::test]
+async fn a_cli_bot_reads_card_answers_and_answer_later_as_call_results_and_late_answers_next_turn()
+-> Result {
+    let seat = json!({ "questions": [{ "prompt": "Window or aisle?", "kind": "choice",
+                                       "options": ["Window", "Aisle"] }] });
+    let (spade, daemon, _) = start(
+        Vec::new(),
+        vec![
+            vec![
+                Act::Call("ask_user", seat),
+                Act::Call("ask_user", json!({ "question": "Hotel budget?" })),
+                Act::Finish,
+            ],
+            vec![Act::Text("Booked within budget."), Act::Finish],
+        ],
+    )
+    .await?;
+    let (_, chat) = cli_bot(&spade, "").await?;
+    spade.say(&chat, "Book a trip").await?;
+    let first = asked_call(&spade, &chat, 1).await?;
+    let post = |call: String, body: Value| {
+        let spade = &spade;
+        let chat = chat.clone();
+        async move {
+            spade
+                .post(&format!("/v1/conversations/{chat}/questions/{call}"), body)
+                .await
+        }
+    };
+    let (status, _) = post(first, json!({ "answers": ["Aisle"] })).await?;
+    assert_eq!(status, 202);
+    let second = asked_call(&spade, &chat, 2).await?;
+    let (status, _) = post(second.clone(), json!({ "defer": true })).await?;
+    assert_eq!(status, 202);
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    let text: String = events
+        .iter()
+        .filter(|e| e["type"] == "step_finished")
+        .filter_map(|e| e["text"].as_str())
+        .collect();
+    assert!(
+        text.contains("[ask_user: The person answered.\n\nWindow or aisle?\nAnswer: Aisle]"),
+        "{text}"
+    );
+    assert!(
+        text.contains("[ask_user: The person will answer later."),
+        "{text}"
+    );
+
+    let (status, _) = post(second.clone(), json!({ "answers": ["About 150 a night"] })).await?;
+    assert_eq!(status, 202);
+    spade.wait_for_count(&chat, "reply_finished", 2).await?;
+    let sent = requests(&daemon);
+    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        sent[1]["message"],
+        format!(
+            "<question_answer call=\"{second}\">\nHotel budget?\nAnswer: About 150 a \
+             night\n</question_answer>"
+        )
+    );
     Ok(())
 }

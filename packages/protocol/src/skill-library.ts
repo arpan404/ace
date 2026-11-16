@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContainedPath } from "./contained-path.ts";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider-data.ts";
 
@@ -93,6 +94,25 @@ export const SkillUsage = z.object({
 });
 export type SkillUsage = z.infer<typeof SkillUsage>;
 
+/** A skill's files (ADR 0151): at most this many listed, each at most this large. */
+export const skillFileLimits = { files: 200, bytes: 1024 * 1024 } as const;
+export const SkillFile = z.object({
+  /** Relative to the skill's folder, with `/`. */
+  path: ContainedPath,
+  size: z.number().int().nonnegative(),
+  /** SHA-256 of the content. */
+  hash: SkillHash,
+  /** Its executable bit is set. */
+  executable: z.boolean(),
+});
+export type SkillFile = z.infer<typeof SkillFile>;
+/** A file or folder `files` left out, and why. */
+export const SkillFileOmitted = z.object({
+  path: z.string().max(4096),
+  reason: z.enum(["too_large", "too_many", "too_deep", "not_a_file"]),
+});
+export type SkillFileOmitted = z.infer<typeof SkillFileOmitted>;
+
 const target = { id: SkillId, workspaceId: WorkspaceId.optional() };
 const body = z.string().max(262144);
 export const SkillOperation = z.discriminatedUnion("op", [
@@ -134,6 +154,11 @@ export const SkillOperation = z.discriminatedUnion("op", [
     expectedHash: SkillHash,
   }),
   z.object({ op: z.literal("cancelUpdate"), reviewId: SkillUpdateReview.shape.id }),
+  /**
+   * A skill's files besides SKILL.md (ADR 0151): their paths, sizes and hashes, or, with `path`,
+   * that one file's content. Hidden entries (`.name`) and links are never listed or read.
+   */
+  z.object({ op: z.literal("files"), ...target, path: ContainedPath.optional() }),
   z.object({
     op: z.literal("usage"),
     workspaceId: WorkspaceId.optional(),
@@ -183,6 +208,20 @@ export const SkillResult = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("updateReview"), review: SkillUpdateReview }),
   z.object({ kind: z.literal("cancelled"), reviewId: SkillUpdateReview.shape.id }),
   z.object({ kind: z.literal("usage"), usage: z.array(SkillUsage).max(1024) }),
+  z.object({
+    kind: z.literal("files"),
+    id: SkillId,
+    files: z.array(SkillFile).max(skillFileLimits.files),
+    /** Left out: over the size limit, past the file limit, nested too deep, or not a file. */
+    omitted: z.array(SkillFileOmitted).max(1024),
+  }),
+  z.object({
+    kind: z.literal("file"),
+    id: SkillId,
+    file: SkillFile,
+    /** The content, base64. */
+    content: z.string().max(Math.ceil(skillFileLimits.bytes / 3) * 4),
+  }),
   z.object({ kind: z.literal("error"), code: SkillErrorCode, message: z.string().max(2048) }),
 ]);
 export type SkillResult = z.infer<typeof SkillResult>;

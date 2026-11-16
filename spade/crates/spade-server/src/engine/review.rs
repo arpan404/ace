@@ -13,6 +13,7 @@ use spade_core::tools::{Registry, ToolDef};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::judge::Judged;
 
 /// Longest a review may take before the call goes to the person.
 const REVIEW_TIMEOUT: Duration = Duration::from_secs(60);
@@ -52,58 +53,30 @@ pub(super) async fn call(
     let case = Case {
         bot,
         task,
-        person: review::person_words(events),
+        person: engine.person_words(id, events),
         untrusted: context::untrusted_in_view(events, registry),
         tool: name,
         description: &def.spec.description,
         arguments,
     };
     let prompt = review::prompt(&case).session(id);
-    // Waits while only calls still running stand in the way; only a cap really reached
-    // escalates for that reason.
-    let admission = tokio::select! {
-        admission = engine.admit_waiting(id, &model, &prompt, super::ledger::Hint::default()) => admission,
-        _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
-    };
-    let (verdict, reason, cost) = match admission {
-        Err(refused) => (
-            Verdict::Escalate,
-            format!(
-                "The review couldn't run: the bot reached {}.",
-                refused.reached()
+    let (verdict, reason, cost) =
+        match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
+            .await
+        {
+            Judged::Answer(judgment, cost) => (
+                Verdict::from(judgment.verdict),
+                judgment.reason.trim().to_owned(),
+                cost,
             ),
-            0,
-        ),
-        Ok(admitted) => {
-            let asked = tokio::select! {
-                answer = tokio::time::timeout(
-                    REVIEW_TIMEOUT,
-                    engine.models.generate::<Judgment>(&model, &prompt),
-                ) => answer,
-                _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
-            };
-            match asked {
-                Ok(Ok(generated)) => {
-                    let cost = admitted.settle(&generated.usage);
-                    let reason = generated.value.reason.trim().to_owned();
-                    (Verdict::from(generated.value.verdict), reason, cost)
-                }
-                Ok(Err(error)) => {
-                    let cost = admitted.settle_if(error.usage());
-                    (
-                        Verdict::Escalate,
-                        format!("The review couldn't run: {error}"),
-                        cost,
-                    )
-                }
-                Err(_) => (
-                    Verdict::Escalate,
-                    "The review took too long, so you decide.".to_owned(),
-                    0,
-                ),
-            }
-        }
-    };
+            Judged::Failed(why, cost) => (Verdict::Escalate, why.to_owned(), cost),
+            Judged::TimedOut(cost) => (
+                Verdict::Escalate,
+                "The review took too long, so you decide.".to_owned(),
+                cost,
+            ),
+            Judged::Stopped => return Reviewed::Stopped,
+        };
     let reviewed = Event::Known(Known::CallReviewed {
         reply: reply.to_owned(),
         call_id: call.id.clone(),

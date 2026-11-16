@@ -36,6 +36,8 @@ export interface SpadeGroupLastMessage {
   from: "person" | "agent";
   text: string;
   at: number;
+  /** Its event in the conversation; undefined from a Spade before seen cursors. */
+  seq: number | undefined;
   agent: SpadeGroupBot | undefined;
 }
 
@@ -49,10 +51,16 @@ export interface SpadeGroup {
   createdAt: number;
   updatedAt: number;
   lastActivity: number;
+  /** When the person pinned it (ms); undefined when it isn't pinned. */
+  pinnedAt: number | undefined;
   state: SpadeAgentState;
   /** A few words while it isn't idle: `Research is answering`. */
   status: string | undefined;
   lastMessage: SpadeGroupLastMessage | undefined;
+  /** The conversation's seen cursor: the last event the person has seen; undefined when never marked. */
+  seenSeq: number | undefined;
+  /** It finished and the person hasn't seen it since: never while it works or waits on them. */
+  unseen: boolean;
 }
 
 const time = z.number().catch(0);
@@ -82,6 +90,7 @@ const groupShape = z.object({
   created_at: time.default(0),
   updated_at: time.default(0),
   last_activity: time.default(0),
+  pinned_at: z.number().nullish().catch(undefined),
   state: z.enum(["idle", "working", "waiting"]).catch("idle").default("idle"),
   status: z.string().nullish().catch(undefined),
   last_message: z
@@ -89,10 +98,13 @@ const groupShape = z.object({
       from: z.enum(["person", "agent"]).catch("agent"),
       text: z.string().catch(""),
       at: time.default(0),
+      seq: z.number().int().nonnegative().nullish().catch(undefined),
       agent: spadeGroupBotShape.nullish().catch(undefined),
     })
     .nullish()
     .catch(undefined),
+  seen_seq: z.number().int().nonnegative().nullish().catch(undefined),
+  unseen: z.boolean().catch(false).default(false),
 });
 
 function memberOf(member: z.infer<typeof memberShape>): SpadeGroupMember {
@@ -125,11 +137,20 @@ export function parseSpadeGroupValue(raw: unknown): SpadeGroup | undefined {
     createdAt: group.created_at,
     updatedAt: group.updated_at,
     lastActivity: group.last_activity,
+    pinnedAt: group.pinned_at ?? undefined,
     state: group.state,
     status: group.status || undefined,
     lastMessage: last
-      ? { from: last.from, text: last.text, at: last.at, agent: last.agent ?? undefined }
+      ? {
+          from: last.from,
+          text: last.text,
+          at: last.at,
+          seq: last.seq ?? undefined,
+          agent: last.agent ?? undefined,
+        }
       : undefined,
+    seenSeq: group.seen_seq ?? undefined,
+    unseen: group.unseen,
   };
 }
 
@@ -161,6 +182,27 @@ export function spadeGroupLine(group: SpadeGroup): {
   if (!last?.text) return { text: group.members.map((member) => member.name).join(", ") };
   if (last.from === "person") return { text: `You: ${last.text}` };
   return { text: last.agent ? `${last.agent.name}: ${last.text}` : last.text };
+}
+
+/** A file a member made answering the group, for the group's Library (`GET /v1/groups/{id}/files`). */
+export interface SpadeGroupFile {
+  /** The member's agent id on the group's machine; the file is in its workspace. */
+  agent: string;
+  path: string;
+  /** When it was last written there. */
+  at: number;
+}
+
+const groupFileShape = z.object({ agent: z.string().min(1), path: z.string().min(1), at: time });
+
+/** `GET /v1/groups/{id}/files`, newest first as Spade sends them; undefined when the body has no list. */
+export function parseSpadeGroupFiles(body: string): SpadeGroupFile[] | undefined {
+  const list = spadeRecord(spadeJson(body))?.files;
+  if (!Array.isArray(list)) return undefined;
+  return list.flatMap((raw) => {
+    const file = groupFileShape.safeParse(raw);
+    return file.success ? [file.data] : [];
+  });
 }
 
 /** Most members a group holds, the lead counted, and fewest. */
