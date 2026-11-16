@@ -2,7 +2,6 @@ import {
   spadeAskedAgain,
   spadeRequestCard,
   type SpadeBubble,
-  type SpadeRequestCard,
   type SpadeRequestDetail,
 } from "@ace/ui-core/spade-chat";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -20,10 +19,8 @@ import {
   CardWord,
   NeedsYouLine,
   RaisedCard,
-  settledLine,
 } from "./spade-card.tsx";
 import { readNotes } from "./spade-notes-api.ts";
-import { QuietMark } from "./spade-quiet-line.tsx";
 import { notesKey } from "./spade-notes.tsx";
 
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
@@ -45,8 +42,8 @@ export type RequestAnswer = "allow" | "always" | "deny";
  * that kind of call (folded when long), then, where the gate keeps it, Always allow, and Deny on
  * the left and Allow on the right. Asked again after the auto-review refused it (ADR 0163), it
  * says so ("… asks again to …") and opens with what was refused before. With focus on it, Enter
- * allows and Escape denies. Answered, it
- * settles to one line ("Allowed · curl -s …") that opens to the whole request.
+ * allows and Escape denies. Once
+ * answered it leaves the chat.
  */
 export function SpadeRequestBubble(props: {
   item: Ask;
@@ -66,9 +63,8 @@ export function SpadeRequestBubble(props: {
     botName: props.nameOf,
   });
   const [answering, setAnswering] = useState<RequestAnswer>();
-  const open = item.state === "open";
   const answer = (choice: RequestAnswer) => {
-    if (answering !== undefined || !open) return;
+    if (answering !== undefined) return;
     setAnswering(choice);
     void props.onAnswer(item.callId, choice).then((sent) => {
       if (!sent) setAnswering(undefined);
@@ -79,7 +75,6 @@ export function SpadeRequestBubble(props: {
   const sentence = again?.sentence ?? card.sentence;
   const reason = again ? `Refused before: ${again.before}` : item.reason;
   const named = sentence.replace(/\.$/, "");
-  if (!open) return <Answered item={item} card={card} label={`${named}. ${answered(item)}`} />;
   return (
     <RaisedCard
       asks="request"
@@ -137,63 +132,6 @@ export function SpadeRequestBubble(props: {
       />
     </RaisedCard>
   );
-}
-
-/**
- * An answered request as one quiet line: how it was answered, then what it was (the command
- * itself, or the request's words), opening to the whole request.
- */
-function Answered(props: { item: Ask; card: SpadeRequestCard; label: string }) {
-  const { card } = props;
-  const [shown, setShown] = useState(false);
-  const command = card.detail?.kind === "command" ? card.detail.command : undefined;
-  const what = command ?? card.sentence.replace(/\.$/, "");
-  return (
-    <div role="group" aria-label={props.label} className="flex w-full min-w-0 flex-col">
-      <button
-        type="button"
-        aria-expanded={shown}
-        onClick={() => setShown((open) => !open)}
-        className={cn(
-          settledLine,
-          "items-center rounded-sm text-left focus-ring hover:text-foreground",
-        )}
-      >
-        {/* The quiet line's mark: allowed is met, denied stays open. */}
-        {props.item.state !== "closed" && (
-          <QuietMark
-            mark={props.item.state === "allowed" ? "done" : "open"}
-            label={answered(props.item)}
-          />
-        )}
-        <span className="shrink-0 text-subtle-foreground">{answered(props.item)} ·</span>
-        {/* Open, the whole request reads below instead. */}
-        {!shown && (
-          <span className={cn("min-w-0 truncate", command && "font-mono text-xs")}>
-            {what.split("\n")[0]}
-          </span>
-        )}
-      </button>
-      {shown && (
-        <div className="mt-1.5 ml-3 flex max-w-150 min-w-0 flex-col gap-2 text-ui">
-          <p className="text-muted-foreground">{card.sentence}</p>
-          {props.item.reason && <p className="text-muted-foreground">{props.item.reason}</p>}
-          {card.detail && <Detail detail={card.detail} />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function answered(item: Ask): string {
-  switch (item.state) {
-    case "allowed":
-      return item.always ? "Always allowed" : "Allowed";
-    case "denied":
-      return "Denied";
-    default:
-      return "Not answered";
-  }
 }
 
 /** A connector's tool by its connector's name: `c1__create_event` → "Calendar create event". */

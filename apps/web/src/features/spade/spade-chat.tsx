@@ -32,7 +32,7 @@ import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.t
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
-import { QuietLine, RestingLine, StepsFold } from "./spade-quiet-line.tsx";
+import { QuietLine, RestingLine } from "./spade-quiet-line.tsx";
 import { SpadeDigestBubble } from "./spade-digest-bubble.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
@@ -415,8 +415,6 @@ function RunItem(props: {
           onAnswer={handlers.onAnswer}
         />
       );
-    case "steps":
-      return <StepsFold label={item.label} steps={item.steps} />;
     case "digest":
       return <SpadeDigestBubble digest={item.digest} when={props.when} face={handlers.face} />;
     case "skill": {

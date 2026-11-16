@@ -8,7 +8,6 @@ import type {
 import { CaretRightIcon, CheckCircleIcon, CircleDashedIcon, CircleIcon } from "@ace/icons";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeFace } from "./spade-face.tsx";
 
@@ -76,36 +75,6 @@ export function QuietLine(props: {
       {inner}
       <CaretRightIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
     </button>
-  );
-}
-
-/**
- * A reply's steps folded into one line under its words ("2 steps, 1 not run"), opening to each
- * step in a line of its own; a refused step reads "Not run: …" with the review's reason.
- */
-export function StepsFold(props: {
-  label: string;
-  steps: readonly { key: string; text: string; refused: boolean }[];
-}) {
-  return (
-    <div role="note" className="ml-1.5 min-w-0">
-      <Disclosure
-        summary={<span className="min-w-0 truncate">{props.label}</span>}
-        summaryClassName="h-7 rounded-full px-2 text-ui text-muted-foreground hover:bg-hover"
-        className="max-w-full"
-      >
-        <ol
-          aria-label="Its steps"
-          className="mt-1 mb-1 ml-3.5 flex flex-col gap-0.5 border-l border-border pl-3.5 text-ui text-muted-foreground"
-        >
-          {props.steps.map((step) => (
-            <li key={step.key} className={cn("wrap-anywhere", step.refused && "text-foreground")}>
-              {step.text}
-            </li>
-          ))}
-        </ol>
-      </Disclosure>
-    </div>
   );
 }
 

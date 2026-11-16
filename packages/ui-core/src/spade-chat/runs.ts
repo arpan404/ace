@@ -51,7 +51,6 @@ const botSide = new Set<SpadeChatItem["kind"]>([
   "question",
   "skill",
   "files",
-  "steps",
   "digest",
 ]);
 
