@@ -2,7 +2,11 @@ import Foundation
 
 /// What sits above a thread's composer: one strip (a request, what holds the queue, a message
 /// that didn't go, commands a stopped turn left running, a transfer, what stops the checkout), or
-/// else the live pill. Read here so the transcript knows whether the pill is on screen.
+/// else the live pill, which the `@` and `/` list also takes the place of while it's open.
+///
+/// The page draws the pill by `drawsPill`. The transcript decides from whether the pill is
+/// actually on screen, as the pill reports it (`pillVisible`), not from the reasons it may be
+/// gone, so a live row is never hidden while no pill shows, for any reason.
 struct ThreadFoot: Equatable, Sendable {
     var requests = false
     var hold = false
@@ -11,12 +15,20 @@ struct ThreadFoot: Equatable, Sendable {
     var transfer = false
     var work = false
     var pill: PillRow?
+    /// The composer's `@` or `/` list is open: it takes the pill's place.
+    var suggesting = false
+    /// The pill is on screen now, as the pill itself last reported (`ThreadScreenModel`).
+    var pillVisible = false
 
     var stripShown: Bool { requests || hold || notSent || leftRunning || transfer || work }
-    /// The pill as it shows: none while a strip takes its place.
-    var shownPill: PillRow? { stripShown ? nil : pill }
-    /// What the pill on screen names; nothing while no pill shows.
-    var named: PillRow.Covers { shownPill?.covers ?? .nothing }
+    /// Whether the page draws the pill: the bridge sent one and nothing takes its place.
+    var drawsPill: Bool { pill != nil && !stripShown && !suggesting }
+    /// What the pill on screen names: nothing unless the pill reports itself on screen. A strip
+    /// also counts as taking its place, so a report left over from before can't hide a row.
+    var named: PillRow.Covers {
+        guard pillVisible, !stripShown, let covers = pill?.covers else { return .nothing }
+        return covers
+    }
 }
 
 /// A fact the pill and the transcript can both say.
@@ -62,7 +74,8 @@ extension BlockRow.Background {
 }
 
 extension ThreadFoot {
-    /// The foot of `thread` as its page draws it, by the order of the page's own strip chain.
+    /// The foot of `thread` as its page and transcript read it. The `@` and `/` list is the page's
+    /// own state: it sets `suggesting` itself.
     @MainActor static func of(_ thread: ThreadModel, transfers: TransfersModel) -> ThreadFoot {
         let screen = thread.screen
         return ThreadFoot(requests: !thread.approvals.isEmpty,
@@ -71,6 +84,7 @@ extension ThreadFoot {
                           leftRunning: screen.leftRunning != nil,
                           transfer: transfers.thread(thread.id)?.line != nil,
                           work: screen.work != nil,
-                          pill: screen.pill)
+                          pill: screen.pill,
+                          pillVisible: screen.pillVisible)
     }
 }

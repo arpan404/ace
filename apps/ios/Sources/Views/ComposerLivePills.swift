@@ -24,6 +24,9 @@ struct ComposerFloaters: View {
 struct ComposerLivePills: View {
     let pill: PillRow
     let open: (String) -> Void
+    /// Called with true as the pills come on screen and false as they leave: the transcript
+    /// leaves live rows to them only while they show (`ThreadFoot`).
+    var onScreen: (Bool) -> Void = { _ in }
     @State private var tapped = 0
     @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
@@ -46,6 +49,8 @@ struct ComposerLivePills: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Live")
         .accessibilityIdentifier("composer.live")
+        .onAppear { onScreen(true) }
+        .onDisappear { onScreen(false) }
     }
 
     @ViewBuilder private func pillButton(_ item: LivePill) -> some View {

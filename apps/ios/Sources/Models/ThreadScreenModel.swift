@@ -43,6 +43,8 @@ import Observation
     var steps: [Int: TurnStepsModel] = [:]
     /// The live pill over the composer; nil when nothing is live, queued or pursued.
     var pill: PillRow?
+    /// The pill is on screen now, set by the pill as it appears and leaves (`ThreadFoot`).
+    var pillVisible = false
     /// Commands a stopped or finished turn left running, for their strip with Stop.
     var leftRunning: LeftRunningRow?
     /// The thread's goal, for its sheet; nil without one.

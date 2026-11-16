@@ -10,22 +10,50 @@ import Testing
                 covers: PillRow.Covers(subagents: subagents, commands: commands))
     }
 
+    /// The foot as the page leaves it: the pill is on screen exactly when the page draws it,
+    /// and says so (`ComposerLivePills.onScreen`).
+    private func drawn(_ foot: ThreadFoot) -> ThreadFoot {
+        var drawn = foot
+        drawn.pillVisible = foot.drawsPill
+        return drawn
+    }
+
     @Test func aLiveTreeTheShownPillNamesLeavesTheTranscriptToThePill() {
-        let named = ThreadFoot(pill: pill()).named
+        let named = drawn(ThreadFoot(pill: pill())).named
         #expect(!named.transcriptShows(.subagents, live: true))
         #expect(!named.transcriptShows(.commands, live: true))
     }
 
     @Test func aSettledRowAlwaysShowsAsTheRecord() {
-        let named = ThreadFoot(pill: pill()).named
+        let named = drawn(ThreadFoot(pill: pill())).named
         #expect(named.transcriptShows(.subagents, live: false))
         #expect(named.transcriptShows(.commands, live: false))
     }
 
     @Test func aLiveFactThePillDoesNotNameStaysInTheTranscript() {
-        let named = ThreadFoot(pill: pill(subagents: true, commands: false)).named
+        let named = drawn(ThreadFoot(pill: pill(subagents: true, commands: false))).named
         #expect(!named.transcriptShows(.subagents, live: true))
         #expect(named.transcriptShows(.commands, live: true))
+    }
+
+    @Test func theSuggestionListTakesThePillsPlaceAndTheLiveRowsShowWhileItIsOpen() {
+        // Live subagents and a command, and the person types `@` or `/`.
+        let foot = drawn(ThreadFoot(pill: pill(), suggesting: true))
+        #expect(!foot.drawsPill)
+        #expect(foot.named.transcriptShows(.subagents, live: true))
+        #expect(foot.named.transcriptShows(.commands, live: true))
+        // The list closes: the pill is back and says them again.
+        let closed = drawn(ThreadFoot(pill: pill(), suggesting: false))
+        #expect(!closed.named.transcriptShows(.subagents, live: true))
+    }
+
+    @Test func aPillNotOnScreenForAnyReasonNamesNothing() {
+        // The bridge sent a pill but it hasn't said it's on screen (not drawn yet, gone for a
+        // reason the foot doesn't list): the transcript keeps every live row.
+        let foot = ThreadFoot(pill: pill(), pillVisible: false)
+        #expect(foot.drawsPill)
+        #expect(foot.named.transcriptShows(.subagents, live: true))
+        #expect(foot.named.transcriptShows(.commands, live: true))
     }
 
     @Test(arguments: [
@@ -35,15 +63,18 @@ import Testing
     func anyStripTakesThePillsPlaceAndBringsTheLiveRowsBack(_ strip: ThreadFoot) {
         var foot = strip
         foot.pill = pill()
-        #expect(foot.shownPill == nil)
+        #expect(!foot.drawsPill)
+        #expect(drawn(foot).named.transcriptShows(.subagents, live: true))
+        // A report left over from before the strip came can't hide a row either.
+        foot.pillVisible = true
         #expect(foot.named.transcriptShows(.subagents, live: true))
         #expect(foot.named.transcriptShows(.commands, live: true))
     }
 
     @Test func withNoPillOrAnOlderBridgesPillTheTranscriptKeepsEveryLiveRow() {
-        #expect(ThreadFoot().named.transcriptShows(.subagents, live: true))
+        #expect(drawn(ThreadFoot()).named.transcriptShows(.subagents, live: true))
         let older = PillRow(status: nil, segments: [PillRow.Segment(kind: "subagents", label: "2 subagents", opens: "agents", live: false)])
-        #expect(ThreadFoot(pill: older).named.transcriptShows(.subagents, live: true))
+        #expect(drawn(ThreadFoot(pill: older)).named.transcriptShows(.subagents, live: true))
     }
 
     private func group(live: Bool?, counted: Bool? = true, machines: [String]) -> BlockRow.Agents {
