@@ -49,7 +49,7 @@ struct ThreadMenuFacts: Equatable {
 }
 
 /// The ⋯ menu, one system menu: the page not showing (a phone with changes), the thread's
-/// screens as one row (`ThreadDestination.menuScreens`), then the conversation, the thread's
+/// screens as one row (`ThreadDestination.menuScreens`), then Agents and the conversation, the thread's
 /// tools and how it is organized, each its own section, so every action is one tap away. It
 /// redraws only when what it shows changes (`==`).
 struct ThreadMenu: View, Equatable {
@@ -89,8 +89,9 @@ struct ThreadMenu: View, Equatable {
 
     @ViewBuilder private var items: some View {
         if let page = ThreadDestination.menuPage(pages: pages, shown: shownPage) { pageItem(page) }
-        ControlGroup {
-            ForEach(ThreadDestination.menuScreens(pages: pages), id: \.self, content: screenItem)
+        let row = ThreadDestination.menuScreens(pages: pages)
+        if !row.isEmpty {
+            ControlGroup { ForEach(row, id: \.self, content: screenItem) }
         }
         conversation
         tools
@@ -137,6 +138,7 @@ struct ThreadMenu: View, Equatable {
     /// What can be done with the conversation itself.
     @ViewBuilder private var conversation: some View {
         Section {
+            ForEach(ThreadDestination.menuLeads(pages: pages), id: \.self, content: screenItem)
             item("Find in thread", .magnifyingGlass, "thread.search", .search)
             item("Turns", .listBullets, "thread.turns", .turns)
             item("Attachments", .paperclip, "thread.attachments", .attachments)

@@ -103,10 +103,17 @@ extension ThreadDestination {
     }
 
     /// The screens in ⋯'s row, in order. Beside the iPad's side panel: Changes, Files, Terminal
-    /// and Browser, opening as its tabs. On a phone: Files and Terminal (a thread with a
-    /// checkout), Browser and Agents, each pushed over the thread.
+    /// and Browser, opening as its tabs. On a phone: Files, Terminal and Browser for a thread with
+    /// a checkout, three across as the system fills a menu's row; a chat has no row.
     static func menuScreens(pages: ThreadPages?) -> [ThreadDestination] {
         guard let pages else { return [.changes, .files, .terminal, .browser] }
-        return (pages.checkout ? [.files, .terminal] : []) + [.browser, .agents]
+        return pages.checkout ? [.files, .terminal, .browser] : []
+    }
+
+    /// The screens that lead the section under the row on a phone: Agents, then a chat's Browser.
+    /// Beside the iPad's panel the agent tree is with the tools.
+    static func menuLeads(pages: ThreadPages?) -> [ThreadDestination] {
+        guard let pages else { return [] }
+        return pages.checkout ? [.agents] : [.agents, .browser]
     }
 }

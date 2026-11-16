@@ -38,13 +38,20 @@ import Testing
         #expect(ThreadDestination.menuPage(pages: nil, shown: .chat) == nil, "beside the iPad's panel Changes is a tab")
     }
 
-    @Test func onAPhoneTheScreensArePushedAndAChatHasNoCheckoutScreens() {
+    @Test func onAPhoneFilesTerminalAndBrowserFillTheRowAndAgentsLeadsTheNextSection() {
         let pages = ThreadPages(ThreadPageFacts(changedFiles: 3))
-        #expect(ThreadDestination.menuScreens(pages: pages) == [.files, .terminal, .browser, .agents])
-        #expect(ThreadDestination.menuScreens(pages: ThreadPages(ThreadPageFacts(chat: true))) == [.browser, .agents])
+        #expect(ThreadDestination.menuScreens(pages: pages) == [.files, .terminal, .browser])
+        #expect(ThreadDestination.menuLeads(pages: pages) == [.agents])
+    }
+
+    @Test func aChatHasNoCheckoutScreensSoItsBrowserFollowsAgentsWithoutARow() {
+        let chat = ThreadPages(ThreadPageFacts(chat: true))
+        #expect(ThreadDestination.menuScreens(pages: chat) == [])
+        #expect(ThreadDestination.menuLeads(pages: chat) == [.agents, .browser])
     }
 
     @Test func besideTheIPadPanelTheMenuOpensChangesAndTheToolsAsItsTabs() {
         #expect(ThreadDestination.menuScreens(pages: nil) == [.changes, .files, .terminal, .browser])
+        #expect(ThreadDestination.menuLeads(pages: nil) == [], "the agent tree is with the tools there")
     }
 }
