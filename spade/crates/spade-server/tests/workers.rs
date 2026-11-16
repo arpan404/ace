@@ -755,10 +755,12 @@ async fn stop_on_the_maker_cancels_its_ace_children_through_ace() -> Result {
             .any(|(name, arguments)| name == "agent_cancel" && arguments["threadId"] == "t1"))
     })
     .await?;
-    assert_eq!(
-        ace_children(&spade, &lead_id).await?,
-        vec![(json!("t1"), json!("Fix-bug"), json!("stopped"))]
-    );
+    // It reads `stopping` until ace confirms the cancel.
+    until("the ace child reads stopped", || async {
+        Ok(ace_children(&spade, &lead_id).await?
+            == vec![(json!("t1"), json!("Fix-bug"), json!("stopped"))])
+    })
+    .await?;
     Ok(())
 }
 
