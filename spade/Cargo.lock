@@ -1869,6 +1869,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "landlock"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cca98e95f35b29d469dade6724c6f96cec9236640f745a0e99b0334ec320ab1"
+dependencies = [
+ "enumflags2",
+ "libc",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3474,6 +3485,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-sandbox"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "landlock",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "spade-search"
 version = "0.1.0"
 dependencies = [
@@ -3521,6 +3548,7 @@ dependencies = [
  "spade-keys",
  "spade-mcp",
  "spade-models",
+ "spade-sandbox",
  "spade-search",
  "spade-server",
  "spade-store",

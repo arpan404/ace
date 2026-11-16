@@ -202,6 +202,9 @@ pub(super) async fn handle_calls(
                     else {
                         return Handled::Stopped;
                     };
+                    // A contained command, or a write in the workspace, the boundaries hold:
+                    // checkpointed, not reviewed; reviewed when the checkpoint can't be taken.
+                    let contained = engine.contained_call(id, &name, classed.contained).await;
                     let route = autonomy::route(autonomy::Call {
                         rule,
                         risk: def.risk,
@@ -219,6 +222,10 @@ pub(super) async fn handle_calls(
                             ),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments, &classed.shown),
+                        // The bot's OS sandbox holds it (ADR 0167): a shell command, or a file
+                        // tool's write in the workspace with a checkpoint to undo it.
+                        contained,
+                        granted: engine.granted(id, &name, &arguments),
                     });
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;

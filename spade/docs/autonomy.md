@@ -76,10 +76,11 @@ untrusted content is in view.
 It catches common ways a command reaches outside the workspace and names them to the reviewer as
 its concern. It is not a containment guarantee: a shell can do more than any
 reading of its words can follow, and a command it lets through can still reach the network or
-write outside the workspace. Containment will come from an OS sandbox in a later change: no
-network, and writes only in the workspace and temp folders, unless the reviewer or the person
-approves an unsandboxed run. Until then, `auto_review` relies on the reviewer for what the
-classifier misses.
+write outside the workspace. Containment is the OS sandbox of
+[ADR 0167](../../docs/adr/0167-spade-security-boundaries.md) ([security.md](security.md)): where
+it holds files and network, a command runs in it without a review unless the classifier finds
+publishing, a server change, mail, a payment or admin rights. Where it doesn't (Linux, Windows,
+or the sandbox off), `auto_review` relies on the reviewer for what the classifier misses.
 
 When it can't follow what a command will run, it doesn't try harder: it sends the command to the
 person as unclear.
