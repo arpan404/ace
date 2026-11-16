@@ -18,8 +18,10 @@ import {
   resendPayload,
   retryPointOf,
   type ModelChoice,
+  type Speed,
 } from "@ace/ui-core";
 import { runsOn } from "@ace/ui-core/thread-execution";
+import { forkOptions, forkTakesEffort, forkTakesSpeed, type ForkTune } from "./fork-tune.ts";
 import { forkStart, transitionsRow, type ForkAt, type ForkStart } from "./message-actions.ts";
 
 /*
@@ -42,11 +44,15 @@ type Dispatch = (
   },
 ) => void;
 
-/** A fork opened in the composer and not sent yet: where it starts, and the model picked for it. */
+/**
+ * A fork opened in the composer and not sent yet: where it starts, the model picked for it, and
+ * the effort and speed picked for its first turn.
+ */
 export interface ForkDraft extends ForkStart {
   /** Where the composer keeps its words, apart from the thread's own message (`fork:` + point). */
   key: string;
   choice: ModelChoice | undefined;
+  tune: ForkTune;
   sending: boolean;
 }
 
@@ -58,6 +64,8 @@ export function forkPayload(request: {
   threadId: ThreadId;
   store: ThreadSource;
   draft: ForkDraft;
+  /** The model the fork runs on: its pick, else the thread's, for its speed tiers. */
+  model: ModelChoice | undefined;
   input: string;
   files: readonly { name: string; mimeType?: string | undefined }[];
   modalities: readonly string[] | undefined;
@@ -72,6 +80,8 @@ export function forkPayload(request: {
   };
   const problem = continuationAttachmentProblem(request.files, reads, request.modalities);
   if (problem) return { refused: problem };
+  const options = forkOptions(request.model, request.draft.tune);
+  const tuned = Object.keys(options).length > 0;
   const parent = request.store.thread?.title;
   const title = parent ? `${parent} (fork)`.slice(0, 256) : undefined;
   return {
@@ -81,10 +91,13 @@ export function forkPayload(request: {
       point: request.draft.point,
       input: checked.input,
       budgetBytes: forkBudgetBytes,
-      // The thread's own selection forks natively; only a different pick is sent.
+      // The thread's own selection forks natively; only a different pick, or its own model at
+      // another effort or speed, is sent.
       ...(request.draft.choice
-        ? { selection: { ...choiceSelection(request.draft.choice), options: {} } }
-        : {}),
+        ? { selection: { ...choiceSelection(request.draft.choice), options } }
+        : tuned && selection
+          ? { selection: { ...selection, options: { ...selection.options, ...options } } }
+          : {}),
       ...(title ? { title } : {}),
       ...(request.context ? { context: request.context } : {}),
     },
@@ -167,6 +180,7 @@ export class ThreadTransitions {
       ...start,
       key: `fork:${this.#threadId}:${pointKey(start)}`,
       choice: undefined,
+      tune: {},
       sending: false,
     };
     this.#publish();
@@ -180,11 +194,27 @@ export class ThreadTransitions {
     this.#publish();
   }
 
-  /** A model picked for the fork; undefined forks on what the thread runs. */
+  /** A model picked for the fork, at its own defaults; undefined forks on what the thread runs. */
   choose(choice: ModelChoice | undefined): void {
     if (!this.#draft) return;
-    this.#draft = { ...this.#draft, choice };
+    this.#draft = { ...this.#draft, choice, tune: {} };
     this.#publish();
+  }
+
+  /** Effort for the fork's first turn on `model`; false when there is no fork or it isn't listed. */
+  effort(effort: string | undefined, model: ModelChoice | undefined): boolean {
+    if (!this.#draft || this.#draft.sending || !forkTakesEffort(model, effort)) return false;
+    this.#draft = { ...this.#draft, tune: { ...this.#draft.tune, effort } };
+    this.#publish();
+    return true;
+  }
+
+  /** Speed for the fork's first turn on `model`; false when there is no fork or no such tier. */
+  speed(speed: Speed, model: ModelChoice | undefined): boolean {
+    if (!this.#draft || this.#draft.sending || !forkTakesSpeed(model, speed)) return false;
+    this.#draft = { ...this.#draft, tune: { ...this.#draft.tune, speed } };
+    this.#publish();
+    return true;
   }
 
   /**

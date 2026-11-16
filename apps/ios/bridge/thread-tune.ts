@@ -23,6 +23,7 @@ import {
 } from "@ace/ui-core";
 import { runsOn, selectionIdentity, type PendingTurn } from "@ace/ui-core/thread-execution";
 import { preview } from "./presentation.ts";
+import { forkTuneRow, type ForkTune } from "./fork-tune.ts";
 
 /*
  * Effort and speed for the open thread's next message, as the web's model control offers them:
@@ -33,6 +34,8 @@ import { preview } from "./presentation.ts";
  */
 
 type Put = (key: string, read: () => Record<string, unknown> | undefined) => void;
+/** A fork being written: its model (undefined: the thread's) and what was picked for it. */
+type Forking = () => { choice: ModelChoice | undefined; tune: ForkTune } | undefined;
 const accountOf = (selection: { provider: string; instanceId?: string | undefined }) =>
   JSON.stringify([selection.provider, selection.instanceId ?? ""]);
 
@@ -42,6 +45,7 @@ export class TuneFollower {
   readonly #signal: AbortSignal;
   readonly #put: Put;
   readonly #now: () => number;
+  readonly #forking: Forking;
   #catalog: CatalogModel[] = [];
   #choices: ModelChoice[] = [];
   /** The provider and account the catalog was last asked for; cleared when that read fails. */
@@ -57,12 +61,24 @@ export class TuneFollower {
     signal: AbortSignal,
     put: Put,
     now: () => number,
+    forking: Forking = () => undefined,
   ) {
     this.#client = client;
     this.#store = store;
     this.#signal = signal;
     this.#put = put;
     this.#now = now;
+    this.#forking = forking;
+  }
+
+  /** The catalog's choice for what the thread runs on, which a fork on its own model runs on. */
+  model(): ModelChoice | undefined {
+    return this.#current();
+  }
+
+  /** The fork was opened, closed or tuned: the rows show its tuning, or the thread's again. */
+  redraw(): void {
+    this.#emit();
   }
 
   /** The thread changed: read the catalog for a new provider or account, re-check a pick, redraw. */
@@ -189,6 +205,9 @@ export class TuneFollower {
   }
   #emit(): void {
     this.#put("tune", () => {
+      // While a fork is written the sheet tunes the fork, never this thread's next message.
+      const fork = this.#forking();
+      if (fork) return forkTuneRow(fork.choice ?? this.#current(), fork.tune);
       const tuning = this.#tuning();
       const { effort, speed, preset, options } = tuning;
       const picked = optionEffort(options);

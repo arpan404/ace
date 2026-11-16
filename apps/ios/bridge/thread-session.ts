@@ -20,6 +20,7 @@ import {
   modelLabel,
   sendBusyReason,
   type QueueAction,
+  type ModelChoice,
 } from "@ace/ui-core";
 import { listedSubagentState } from "@ace/ui-core/subagent-group";
 import { runsOn } from "@ace/ui-core/thread-execution";
@@ -164,6 +165,7 @@ export class ThreadSession {
       changed: () => {
         this.#controls();
         this.#sheet.forkChanged();
+        this.#tune.redraw();
       },
       carry: (itemId, files) => this.#tray.carry(itemId, files),
       dropCarried: () => this.#tray.dropCarried(),
@@ -183,7 +185,17 @@ export class ThreadSession {
     this.#access = new ThreadAccessFollower(client, store, this.#threadId, put, (payload, id) =>
       this.#dispatch(payload, id),
     );
-    this.#tune = new TuneFollower(client, store, signal, put, () => host.now());
+    this.#tune = new TuneFollower(
+      client,
+      store,
+      signal,
+      put,
+      () => host.now(),
+      () => {
+        const draft = this.#transitions.draft;
+        return draft && { choice: draft.choice, tune: draft.tune };
+      },
+    );
     const trayRows = (files: TrayRow[], locked: string | undefined) =>
       put("attachments", () => ({
         type: "thread.attachments",
@@ -359,17 +371,22 @@ export class ThreadSession {
           "That doesn't fit the request. Check what you entered.",
         );
         break;
+      // While a fork is written, effort and speed are the fork's, never this thread's.
       case "effort":
         this.#admission(
           action.requestId,
-          this.#tune.effort(action.effort ?? undefined),
+          this.#transitions.draft
+            ? this.#transitions.effort(action.effort ?? undefined, this.#forkModel())
+            : this.#tune.effort(action.effort ?? undefined),
           "That effort can't be set for this model.",
         );
         break;
       case "speed":
         this.#admission(
           action.requestId,
-          this.#tune.speed(action.speed),
+          this.#transitions.draft
+            ? this.#transitions.speed(action.speed, this.#forkModel())
+            : this.#tune.speed(action.speed),
           "That speed can't be set for this model.",
         );
         break;
@@ -691,6 +708,7 @@ export class ThreadSession {
     const choice = this.#transitions.draft?.choice;
     this.#transitions.send(
       {
+        model: this.#forkModel(),
         input: text,
         files: this.#tray.files(),
         modalities: choice ? this.#sheet.modalities(choice) : undefined,
@@ -791,6 +809,10 @@ export class ThreadSession {
           }
         : undefined,
     );
+  }
+  /** The model a fork written now runs on: the one picked for it, else the thread's. */
+  #forkModel(): ModelChoice | undefined {
+    return this.#transitions.draft?.choice ?? this.#tune.model();
   }
   /** What the model control names: the fork's model while one is written, else the sheet's. */
   #next() {

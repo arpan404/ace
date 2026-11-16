@@ -83,6 +83,8 @@ const tray = () =>
     carried: { ref: string } | null;
   }[];
 const controls = () => latest("thread.controls")?.row as { continues: boolean } | undefined;
+const tune = () =>
+  latest("thread.tune") as { effort: string; speed: string; pending: boolean } | undefined;
 
 async function opened(fake: FakeDaemon) {
   const thread = open(connect(fake), "t");
@@ -335,6 +337,53 @@ test("a model picked while forking starts the fork there and leaves this thread 
     instanceId: "claude-personal",
   });
   expect(commands("thread.switch")).toHaveLength(0);
+});
+
+test("effort and speed picked while forking start the fork, and this thread's tuning stays as it was", async () => {
+  const thread = await opened(twoTurns());
+  const before = await until(() => tune(), "this thread's tuning");
+  thread.handle({ type: "fork.open", at: { kind: "latest" }, requestId: "l" });
+  await until(() => admission("l")?.ok, "the fork");
+  thread.handle({ type: "models" });
+  await until(() => latest("thread.models")?.state === "ready", "the model sheet");
+  thread.handle({
+    type: "switchModel",
+    key: "codex\u0000gpt-6",
+    account: "codex-personal",
+    confirmed: false,
+    requestId: "pick",
+  });
+  await until(() => admission("pick")?.ok, "the fork's model");
+  // The sheet's rows are the fork's while it is written: its model's levels and speeds.
+  await until(() => tune()?.effort === "medium", "the fork model's default effort");
+  thread.handle({ type: "effort", effort: "high", requestId: "e" });
+  thread.handle({ type: "speed", speed: "fast", requestId: "s" });
+  await until(() => admission("s"), "the speed");
+  expect(admission("e")?.ok).toBe(true);
+  expect(admission("s")?.ok).toBe(true);
+  expect(tune()).toMatchObject({ effort: "high", speed: "fast" });
+  thread.handle({
+    type: "send",
+    text: "Faster",
+    opposite: false,
+    continues: true,
+    requestId: "go",
+  });
+  await until(() => commands("thread.fork").length === 1, "the fork on the wire");
+  expect(commands("thread.fork")[0]?.selection).toMatchObject({
+    provider: "codex",
+    instanceId: "codex-personal",
+    options: { effort: "high", serviceTier: "priority" },
+  });
+  // This thread runs as it did: nothing picked for its next message.
+  thread.handle({ type: "fork.cancel" });
+  await until(() => draft() === null, "the fork closed");
+  const after = await until(
+    () => (tune()?.effort === before.effort ? tune() : undefined),
+    "this thread's own tuning again",
+  );
+  expect(after).toMatchObject({ speed: before.speed, pending: false });
+  expect(commands("thread.send")).toHaveLength(0);
 });
 
 test("editing a message with an image forks with the same image, removable without touching the thread", async () => {
