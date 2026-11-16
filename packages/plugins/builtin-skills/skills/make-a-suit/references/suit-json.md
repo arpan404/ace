@@ -180,15 +180,15 @@ Regions are `app`, `rail`, `sidebar`, `header`, `transcript`, `composer`, `right
 
 A Suit may play a video behind the app instead of an app scene (`scene.js` or `scenes.app`; region scenes still run). ace plays it in its own element: no Suit code runs for it.
 
-| Field                  | Takes                                                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `video.sources`        | One to three `.mp4`, `.m4v`, `.mov` or `.webm` files in `assets/`: renditions of one video. ace plays the smallest that shows sharp.        |
-| `video.poster`         | A `.webp`, `.jpg`, `.png` or `.avif` still in `assets/`: shown before the first frame, under Reduce motion, while saving power, on failure. |
-| `video.fit`            | `cover` (default) or `contain`.                                                                                                             |
-| `video.audio.muted`    | `true` or `false` (default): the Suit's own mute. ace has no sound control in its UI.                                                       |
-| `video.audio.volume`   | 0–1, default 0.6: the loudest it plays.                                                                                                     |
-| `video.palette.accent` | `true` (default) or `false`: the accent follows the picture's strongest colour, fitted so labels read and it never passes for a status.     |
-| `video.palette.tint`   | 0–0.25, default 0.12: how much of that colour the veil over the video takes, less wherever text would read worse.                           |
+| Field                  | Takes                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `video.sources`        | One to three `.mp4`, `.m4v`, `.mov` or `.webm` files in `assets/`: renditions of one video. ace plays the smallest that shows sharp.    |
+| `video.poster`         | A `.webp`, `.jpg`, `.png` or `.avif` still in `assets/`: shown before the first frame and whenever the video can't play.                |
+| `video.fit`            | `cover` (default) or `contain`.                                                                                                         |
+| `video.audio.muted`    | `true` or `false` (default): the Suit's own mute. ace has no sound control in its UI.                                                   |
+| `video.audio.volume`   | 0–1, default 0.6: the loudest it plays.                                                                                                 |
+| `video.palette.accent` | `true` (default) or `false`: the accent follows the picture's strongest colour, fitted so labels read and it never passes for a status. |
+| `video.palette.tint`   | 0–0.25, default 0.12: how much of that colour the veil over the video takes, less wherever text would read worse.                       |
 
 ```json
 "video": {

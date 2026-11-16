@@ -53,21 +53,34 @@ export function shownFrame(
 /** The canvas the reads draw into, kept per size so a read allocates nothing new. */
 const canvases = new Map<string, CanvasRenderingContext2D | null>();
 
+/** A picture's own size, once there is one to draw: a decoded video frame or a loaded image. */
+function pictureSize(source: HTMLVideoElement | HTMLImageElement) {
+  if (source instanceof HTMLImageElement)
+    return source.complete
+      ? { width: source.naturalWidth, height: source.naturalHeight }
+      : undefined;
+  // HAVE_CURRENT_DATA: a frame is there to draw.
+  return source.readyState >= 2
+    ? { width: source.videoWidth, height: source.videoHeight }
+    : undefined;
+}
+
 /**
- * The video's shown frame averaged to `columns × rows` RGBA, with where it lands; undefined
- * before a frame is decoded. Throws a `SecurityError` when the frame can't be read (no CORS).
+ * The video's shown frame (or the still image in its place) averaged to `columns × rows` RGBA,
+ * with where it lands; undefined before there is a picture. Throws a `SecurityError` when it
+ * can't be read (no CORS).
  */
 export function readVideoFrame(
-  video: HTMLVideoElement,
+  video: HTMLVideoElement | HTMLImageElement,
   columns: number,
   rows: number,
   fit: "cover" | "contain",
 ): { pixels: Uint8ClampedArray; box: Box } | undefined {
-  // HAVE_CURRENT_DATA: a frame is there to draw.
-  if (video.readyState < 2) return undefined;
+  const size = pictureSize(video);
+  if (!size) return undefined;
   const rect = video.getBoundingClientRect();
   const shown = shownFrame(
-    { width: video.videoWidth, height: video.videoHeight },
+    size,
     { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
     fit,
   );

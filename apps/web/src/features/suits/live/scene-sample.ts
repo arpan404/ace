@@ -57,7 +57,7 @@ function sampleOne(frame: HTMLIFrameElement, view: Window): Promise<SceneGrid | 
  * A Suit's video as it shows now (ADR 0169), read in the page itself: the video is ace's own
  * element. A frame the page can't read (no CORS) gives no grid, so the text over it is unchecked.
  */
-function sampleVideo(video: HTMLVideoElement): SceneGrid | undefined {
+function sampleVideo(video: HTMLVideoElement | HTMLImageElement): SceneGrid | undefined {
   const fit = video.dataset.fit === "contain" ? "contain" : "cover";
   try {
     const read = readVideoFrame(video, columns, rows, fit);
@@ -75,7 +75,12 @@ export async function sampleScenes(document: Document): Promise<SceneFrame[]> {
   const view = document.defaultView;
   if (!view) return [];
   const frames = [...document.querySelectorAll<HTMLIFrameElement>("iframe[data-suit-scene-frame]")];
-  const videos = [...document.querySelectorAll<HTMLVideoElement>("video[data-suit-video]")];
+  // A Suit's video, or the still image that stands in for one.
+  const videos = [
+    ...document.querySelectorAll<HTMLVideoElement | HTMLImageElement>(
+      "video[data-suit-video], img[data-suit-poster]",
+    ),
+  ];
   const scenes = await Promise.all(
     frames.map(async (frame) => {
       const host = frame.parentElement ?? document.documentElement;

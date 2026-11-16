@@ -41,6 +41,7 @@ const clip = (
 });
 
 const video = () => document.querySelector<HTMLVideoElement>("video[data-suit-video]");
+const poster = () => document.querySelector<HTMLImageElement>("img[data-suit-poster]");
 const shell = () => document.querySelector("[data-connection]");
 
 async function open(suit: SuitDetail) {
@@ -104,7 +105,15 @@ test("a video the daemon can't reach shows nothing, and the Suit keeps its colou
   expect(video()).toBeNull();
 });
 
-test("a video that keeps failing is dropped for that version, and the Suit carries on", async () => {
+test("a video this page can't reach shows its still image instead", async () => {
+  await open({ ...clip(), assets: { "assets/still.webp": `${base}assets/still.webp` } });
+  await waitFor(() => expect(poster()).not.toBeNull());
+  expect(video()).toBeNull();
+  expect(poster()?.getAttribute("src")).toBe(`${base}assets/still.webp`);
+  await waitFor(() => expect(shell()?.hasAttribute("data-suit-scene")).toBe(true));
+});
+
+test("a video that keeps failing is dropped for that version, its still image in its place", async () => {
   await open(clip());
   await waitFor(() => expect(video()).not.toBeNull());
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -121,5 +130,64 @@ test("a video that keeps failing is dropped for that version, and the Suit carri
     vi.useRealTimers();
   }
   await waitFor(() => expect(video()).toBeNull());
+  expect(poster()?.getAttribute("src")).toBe(`${base}assets/still.webp`);
   expect(root.getAttribute("data-suit")).toBe("clip");
+});
+
+/** Each file's own size as its metadata would give it, keyed by its name. */
+function fakeMetadata(sizes: Record<string, [number, number]>) {
+  const size = (element: HTMLVideoElement) =>
+    Object.entries(sizes).find(([name]) => element.getAttribute("src")?.endsWith(name))?.[1];
+  vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockImplementation(function (
+    this: HTMLVideoElement,
+  ) {
+    return size(this)?.[0] ?? 0;
+  });
+  vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockImplementation(function (
+    this: HTMLVideoElement,
+  ) {
+    return size(this)?.[1] ?? 0;
+  });
+  // A probe asks only for metadata: answer it as a browser would, once the source is set.
+  const setSrc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src")?.set;
+  vi.spyOn(HTMLMediaElement.prototype, "src", "set").mockImplementation(function (
+    this: HTMLMediaElement,
+    value: string,
+  ) {
+    setSrc?.call(this, value);
+    if (this.preload === "metadata")
+      queueMicrotask(() => this.dispatchEvent(new Event("loadedmetadata")));
+  });
+}
+
+function windowSize(width: number, height: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+}
+
+test("the rendition follows the window: 1080p in a small one, 4K once it fills a 4K screen", async () => {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  fakeMetadata({ "clip-2160.mp4": [3840, 2160], "clip-1080.mp4": [1920, 1080] });
+  windowSize(1280, 720);
+  try {
+    await open(
+      clip(
+        { sources: ["assets/clip-2160.mp4", "assets/clip-1080.mp4"] },
+        {
+          "assets/clip-2160.mp4": `${base}assets/clip-2160.mp4`,
+          "assets/clip-1080.mp4": `${base}assets/clip-1080.mp4`,
+        },
+      ),
+    );
+    await waitFor(() => expect(video()?.getAttribute("src")).toBe(`${base}assets/clip-1080.mp4`));
+    windowSize(3840, 2160);
+    act(() => void window.dispatchEvent(new Event("resize")));
+    await waitFor(() => expect(video()?.getAttribute("src")).toBe(`${base}assets/clip-2160.mp4`));
+    windowSize(1280, 720);
+    act(() => void window.dispatchEvent(new Event("resize")));
+    await waitFor(() => expect(video()?.getAttribute("src")).toBe(`${base}assets/clip-1080.mp4`));
+  } finally {
+    windowSize(width, height);
+  }
 });

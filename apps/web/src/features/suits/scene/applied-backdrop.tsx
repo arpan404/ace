@@ -11,7 +11,7 @@ import { useRegionScene } from "./suit-scenes.tsx";
  * carries on in its frame, and one that never loaded gets another go (`scene-stops.ts`).
  *
  * A Suit with a video (ADR 0169) shows that instead, in ace's own element; one that fails for good
- * is dropped for that version, the same way.
+ * is dropped for that version, the same way, and its still image (`video.poster`) takes its place.
  */
 export function AppliedSuitBackdrop(props: {
   /** Whether a scene draws now, so the shell can let it show through. */
@@ -27,8 +27,11 @@ export function AppliedSuitBackdrop(props: {
     video !== undefined &&
     videoStopped !== videoVersion &&
     video.sources.some((path) => shown.assets[path] !== undefined);
+  // A video that can't play (dropped after failures, or out of this page's reach) leaves its
+  // still image in its place.
+  const posterUrl = shown && video?.poster && !videoShows ? shown.assets[video.poster] : undefined;
   const { onShowing } = props;
-  const showing = videoShows || url !== null;
+  const showing = videoShows || posterUrl !== undefined || url !== null;
   useEffect(() => {
     onShowing(showing);
   }, [onShowing, showing]);
@@ -55,6 +58,28 @@ export function AppliedSuitBackdrop(props: {
             background: "var(--suit-video-veil, var(--sidebar))",
             opacity: "calc(1 - var(--suit-app-reveal, 0.65))",
           }}
+        />
+      </>
+    );
+  }
+  if (posterUrl && video) {
+    return (
+      <>
+        <img
+          src={posterUrl}
+          alt=""
+          aria-hidden="true"
+          crossOrigin="anonymous"
+          data-suit-poster=""
+          data-fit={video.fit}
+          className="pointer-events-none fixed inset-0 -z-10 size-full"
+          style={{ objectFit: video.fit }}
+        />
+        <div
+          aria-hidden="true"
+          data-suit-veil=""
+          className="pointer-events-none fixed inset-0 -z-10 bg-sidebar"
+          style={{ opacity: "calc(1 - var(--suit-app-reveal, 0.65))" }}
         />
       </>
     );

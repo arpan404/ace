@@ -74,11 +74,62 @@ function probe(source: Source): Promise<ProbedVideo> {
   });
 }
 
-/** The rendition to play: with one, that one; with several, each one's metadata read first. */
+/** The window in device pixels. */
+const deviceViewport = () => {
+  const ratio = window.devicePixelRatio || 1;
+  return {
+    width: Math.round(window.innerWidth * ratio),
+    height: Math.round(window.innerHeight * ratio),
+  };
+};
+
+/** How long the window must hold still before the rendition is chosen again. */
+export const viewportSettleMs = 400;
+
+/**
+ * The window's size in device pixels, kept current once it settles: a resize, full screen, or a
+ * move to a display with another pixel ratio (which a resize event doesn't always report).
+ */
+function useDeviceViewport() {
+  const [viewport, setViewport] = useState(deviceViewport);
+  useEffect(() => {
+    let cancel = () => {};
+    let ratio: MediaQueryList | undefined;
+    const settle = () => {
+      cancel();
+      cancel = timers.after(viewportSettleMs, () => {
+        const next = deviceViewport();
+        setViewport((now) => (now.width === next.width && now.height === next.height ? now : next));
+        watchRatio();
+      });
+    };
+    // A media query on the current ratio fires when the window moves to another display.
+    const watchRatio = () => {
+      ratio?.removeEventListener("change", settle);
+      ratio = window.matchMedia?.(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      ratio?.addEventListener("change", settle);
+    };
+    watchRatio();
+    window.addEventListener("resize", settle);
+    return () => {
+      cancel();
+      window.removeEventListener("resize", settle);
+      ratio?.removeEventListener("change", settle);
+    };
+  }, []);
+  return viewport;
+}
+
+/**
+ * The rendition to play: with one, that one; with several, each one's own size is read once,
+ * and the pick follows the window: going full screen or to a sharper display moves up, a smaller
+ * window moves down. A switch is a new element, which takes up the kept position.
+ */
 function usePickedSource(sources: readonly Source[], fit: SuitVideo["fit"]): Source | undefined {
   const key = sources.map((source) => source.url).join("\n");
-  const [probed, setProbed] = useState<{ key: string; path: string | undefined }>();
+  const [probed, setProbed] = useState<{ key: string; sizes: ProbedVideo[] }>();
   const several = sources.length > 1;
+  const viewport = useDeviceViewport();
   const latest = useRef(sources);
   useEffect(() => {
     latest.current = sources;
@@ -87,22 +138,16 @@ function usePickedSource(sources: readonly Source[], fit: SuitVideo["fit"]): Sou
     if (!several) return;
     let live = true;
     void Promise.all(latest.current.map(probe)).then((sizes) => {
-      if (!live) return;
-      const ratio = window.devicePixelRatio || 1;
-      const best = pickVideoSource(sizes, {
-        width: window.innerWidth * ratio,
-        height: window.innerHeight * ratio,
-        fit,
-      });
-      setProbed({ key, path: best?.path });
+      if (live) setProbed({ key, sizes });
     });
     return () => {
       live = false;
     };
-  }, [key, several, fit]);
+  }, [key, several]);
   if (!several) return sources[0];
   if (probed?.key !== key) return undefined;
-  return sources.find((source) => source.path === probed.path) ?? sources.at(-1);
+  const best = pickVideoSource(probed.sizes, { ...viewport, fit });
+  return sources.find((source) => source.path === best?.path) ?? sources.at(-1);
 }
 
 function useSavingPower(): boolean {

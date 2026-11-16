@@ -32,11 +32,13 @@ runtime don't change, and a Suit with a video has no `app` scene (a region's sce
 
 - `sources`: one to three renditions of one video (`.mp4`, `.m4v`, `.mov`, `.webm` under
   `assets/`). ace reads each file's real size from its metadata and plays the smallest one that
-  covers the window in device pixels, the largest when none does. A 4K file plays as 4K only on a
+  covers the window in device pixels, the largest when none does. It picks again when the window
+  settles at a new size or moves to a display with another pixel ratio, and the new rendition
+  carries on from the same moment. A 4K file plays as 4K only on a
   window that can show it, and Settings says the size that plays. ace never upscales a picture or
   calls it 4K; it shows what the file holds.
-- `poster`: a still image in `assets/`. It shows before the first frame, under Reduce motion,
-  while saving power, and whenever the video can't play.
+- `poster`: a still image in `assets/`. It shows before the first frame, and in the video's place
+  whenever the video can't play (out of the page's reach, or dropped after failing).
 - `audio.muted` turns the sound off from the Suit itself, and `volume` caps it (0–1). ace has no
   audio control of its own in the UI.
 - `palette`: what ace takes from the picture (below). Absent means both on at their defaults.
@@ -47,8 +49,10 @@ runtime don't change, and a Suit with a video has no `app` scene (a region's sce
   most three.
 - The reader never reads them. The content hash frames each one by path, size and modification
   time, so a changed file still makes a new version, and a 4K file is not hashed on every save.
-- `GET` of a video's URL streams from the file, opened without following a link, with byte
-  ranges (`206`, `416`). Grants, CORS, `nosniff` and the file policy are those of every other
+- `GET` of a video's URL streams from the file with byte ranges (`206`, `416`). It is opened
+  with no link anywhere on its path: after the open, every folder on the way is checked to be a
+  real folder and the name to still be the opened file, since `O_NOFOLLOW` guards only the last
+  name. Every other Suit file is read the same way. Grants, CORS, `nosniff` and the file policy are those of every other
   asset. The app's policy allows media from loopback daemons, as it allows their images.
 
 ### Colours from the picture, bounded
@@ -74,12 +78,16 @@ page couldn't load the video with CORS) leaves the Suit's own colours in place.
 - Plays only while the window is visible. A hidden window pauses it; it resumes at the same
   moment. Blur doesn't pause it, so music keeps playing while the person works in another app
   beside ace.
-- Reduce motion (`backdropMotion: "still"`) and saving power show the poster with no playback.
+- Reduce motion (`backdropMotion: "still"`) and saving power pause the video on the frame it
+  shows, so the backdrop doesn't jump to another picture; before any frame has loaded that is the
+  poster.
 - A browser that blocks autoplay with sound starts it muted and turns the sound on at the
   person's first click or key press in the page.
 - The position is kept per version of the Suit, so a reload, reconnect or daemon restart picks up
-  where it was. A video that fails three times is dropped for that version, and the Suit carries
-  on with its poster and colours.
+  where it was. A video that fails three times, with no five seconds of picture played between
+  failures, is dropped for that version, and the Suit carries on with its poster and colours.
+  Metadata loading doesn't forgive failures, so a file that reads but won't decode can't retry
+  forever.
 
 ### Checked like a scene
 
