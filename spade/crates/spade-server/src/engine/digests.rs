@@ -173,19 +173,19 @@ impl Engine {
             Some(last) => last,
             None => found.created_ms,
         };
-        let made = self.make_digest(&found, from, false).await?;
+        let made = self.make_digest(&found, from, self.now_ms(), false).await?;
         Ok(made.unwrap_or(Value::Null))
     }
 
-    /// Builds, polishes, stores and announces one digest over `[from, now)`. A scheduled one
+    /// Builds, polishes, stores and announces one digest over `[from, to)`. A scheduled one
     /// whose window was quiet is not stored: `None`.
     async fn make_digest(
         self: &Arc<Self>,
         agent: &spade_store::Agent,
         from: i64,
+        to: i64,
         scheduled: bool,
     ) -> Result<Option<Value>, DigestError> {
-        let to = self.now_ms();
         let built = self.build_digest(&agent.conversation, &agent.id, &agent.name, from, to, 0)?;
         if scheduled && built.quiet {
             return Ok(None);
@@ -310,8 +310,11 @@ impl Engine {
             .unwrap_or(agent.created_ms))
     }
 
-    /// Makes every digest that is due and answers when the next one is.
+    /// Makes every digest that is due and answers when the next one is. The clock is read once:
+    /// that reading is each window's end and, for a quiet window, where the schedule counts from
+    /// next, so an event stored at or after it is in the next window.
     async fn digest_tick(self: &Arc<Self>) -> Option<i64> {
+        let now = self.now_ms();
         let global = self.digest_settings().unwrap_or_default();
         let agents = self.store.agents().unwrap_or_default();
         let mut soonest: Option<i64> = None;
@@ -327,14 +330,15 @@ impl Engine {
             let Some(due) = schedule::due_at(applied, since) else {
                 continue;
             };
-            if due > self.now_ms() {
+            if due > now {
                 soonest = Some(soonest.map_or(due, |s| s.min(due)));
                 continue;
             }
-            match self.make_digest(&agent, since, true).await {
+            match self.make_digest(&agent, since, now, true).await {
                 Ok(Some(_)) => {}
                 Ok(None) => {
-                    let now = self.now_ms();
+                    // The quiet window's own end, never a later reading: the builder left out
+                    // what was stored at or after it.
                     let mut checked = self
                         .digests
                         .checked
@@ -345,7 +349,7 @@ impl Engine {
                 Err(error) => tracing::error!(%error, agent = %agent.id, "could not make a digest"),
             }
             if let Some(every) = applied.every_ms {
-                let next = self.now_ms() + every;
+                let next = now + every;
                 soonest = Some(soonest.map_or(next, |s| s.min(next)));
             }
         }

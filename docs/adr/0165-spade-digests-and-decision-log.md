@@ -113,7 +113,9 @@ No source measured what makes a digest work; the format and cadence below are pr
    A digest is due when `every` has passed since the end of the bot's last digest, or since the
    bot was made if it has none. A digest whose window holds nothing new (no event other than
    Spade's own bookkeeping) is not stored or sent; the next one covers the time since the last
-   stored digest. Top-level bots get tree digests. A worker gets digests of its own only if the
+   stored digest. A window is `[from, to)` with `to` the one clock reading the timer took, and a
+   quiet window moves the schedule to exactly that `to`, never a later reading, so an event
+   stored at or after the cutoff is always in the next window. Top-level bots get tree digests. A worker gets digests of its own only if the
    person set `every` on that worker itself; otherwise it appears in its root's. The timer is
    the same kind as the wakes' timer: it sleeps until the soonest due digest, at most a minute
    at a time, and runs again when a setting changes. A digest can also be made at any time with

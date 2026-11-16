@@ -5,10 +5,12 @@
 mod support;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
+use spade_server::clock::Clock;
 use spade_server::tools::{DecisionLog, Tool};
 use spade_testkit::Script;
 use support::{ManualClock, Options, Result, Spade};
@@ -312,6 +314,100 @@ async fn the_schedule_makes_one_digest_a_day_and_none_for_a_quiet_one() -> Resul
         .put(&format!("/v1/agents/{id}/digest"), json!({ "every": "5m" }))
         .await?;
     assert_eq!(status, 400, "shorter than an hour");
+    Ok(())
+}
+
+/// A clock the test sets that, while stepping, moves on by `step` ms after every reading, as a
+/// real clock does between two readings.
+struct SteppingClock {
+    now: AtomicI64,
+    step: AtomicI64,
+}
+
+impl SteppingClock {
+    fn at(ms: i64) -> Arc<Self> {
+        Arc::new(Self {
+            now: AtomicI64::new(ms),
+            step: AtomicI64::new(0),
+        })
+    }
+
+    fn set(&self, ms: i64) {
+        self.now.store(ms, Ordering::SeqCst);
+    }
+
+    fn stepping(&self, step: i64) {
+        self.step.store(step, Ordering::SeqCst);
+    }
+}
+
+impl Clock for SteppingClock {
+    fn now_ms(&self) -> i64 {
+        self.now
+            .fetch_add(self.step.load(Ordering::SeqCst), Ordering::SeqCst)
+    }
+}
+
+#[tokio::test]
+async fn work_stored_after_a_quiet_windows_cutoff_is_in_the_next_digest() -> Result {
+    const STEP: i64 = 60_000;
+    let clock = SteppingClock::at(START_MS);
+    let options = Options {
+        clock: Some(clock.clone()),
+        ..Options::default()
+    };
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("Hello."),
+            Script::reply("").plain(r#"{"title":"Hi"}"#),
+            Script::reply("At the cutoff."),
+            Script::reply("After the cutoff."),
+        ],
+        Vec::new(),
+        options,
+    )
+    .await?;
+    let (id, conversation) = bot(&spade, "Builder").await?;
+    spade.say(&conversation, "Hi").await?;
+    spade.wait_for(&conversation, "renamed").await?;
+    clock.set(START_MS + DAY_MS + 1_000);
+    spade.put("/v1/digests/settings", json!({})).await?;
+    until_digests(&spade, &id, 1).await?;
+
+    // A quiet day, looked at by a timer whose clock moves on while it works.
+    let cutoff = START_MS + 2 * DAY_MS + 2_000;
+    clock.set(cutoff);
+    clock.stepping(STEP);
+    spade.put("/v1/digests/settings", json!({})).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    clock.stepping(0);
+    assert_eq!(
+        digests_of(&spade, &id).await?.len(),
+        1,
+        "a quiet day makes none"
+    );
+
+    // Work stored exactly at the quiet window's cutoff, and after it but before the timer was
+    // done, is in the next digest.
+    clock.set(cutoff);
+    spade.say(&conversation, "One").await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    clock.set(cutoff + STEP + STEP / 2);
+    spade.say(&conversation, "Two").await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 3)
+        .await?;
+    clock.set(cutoff + DAY_MS + 3 * STEP);
+    spade.put("/v1/digests/settings", json!({})).await?;
+    let digests = until_digests(&spade, &id, 2).await?;
+    let text = digests[0]["text"].as_str().unwrap_or_default();
+    assert!(text.contains("2 replies"), "{text}");
+    assert_eq!(
+        digests[0]["from_ms"], cutoff,
+        "it starts where the quiet one ended"
+    );
     Ok(())
 }
 
