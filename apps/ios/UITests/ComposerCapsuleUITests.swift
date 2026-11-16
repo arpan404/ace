@@ -172,10 +172,12 @@ import XCTest
     /// At accessibility text sizes the pills overflow their row. A part scrolled past the edge
     /// doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
     func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
-        // Opened at launch: at this size the inbox's rows are too tall to scroll to it quickly.
+        // The largest size, where "Waiting on 2" and "1 command" overflow even the widest phone (at
+        // AX XL both still fit on an iPhone 17 Pro). Opened at launch: the inbox's rows are too
+        // tall at this size to scroll to it quickly.
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
-                               "--spike-open", "ios-waiting", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"]
+                               "--spike-open", "ios-waiting", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launchWithArguments()
         dismissNotificationsPrompt()
         let commands = app.descendants(matching: .any)["pill.commands"]
