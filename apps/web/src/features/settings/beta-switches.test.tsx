@@ -137,6 +137,10 @@ test("New bot offers bots from the marketplace only while it is on", async () =>
   }
 });
 
+/** The palette's Go to command (Settings › Beta's row also matches the word). */
+const option = () =>
+  screen.queryAllByRole("option").find((each) => each.textContent === "MarketplaceGo to");
+
 test("the command palette goes to the Marketplace only while it is on", async () => {
   for (const turnedOn of [true, false]) {
     const app = harness();
@@ -151,9 +155,6 @@ test("the command palette goes to the Marketplace only while it is on", async ()
       { timeout: 10000 },
     );
     await userEvent.type(search, "Marketplace");
-    // The Go to command (Settings › Beta's row also matches the word).
-    const option = () =>
-      screen.queryAllByRole("option").find((each) => each.textContent === "MarketplaceGo to");
     if (turnedOn) {
       await waitFor(() => expect(option()).toBeDefined());
       const command = option();
