@@ -151,9 +151,9 @@ run.
 - It reads the call's arguments whole, never cut; a call too long for that goes to the person.
 - It is told of every untrusted source still in the model's view: this turn's, an earlier
   turn's since the last compaction, or a summary drawn from one.
-- Its cost counts toward the caps even when the provider sends no usage (a timeout, Stop, an
+- Its cost is recorded even when the provider sends no usage (a timeout, Stop, an
   error that may have billed): Spade settles an estimate from the prompt.
-- Failure, a 60 s timeout, unparseable output (an `escalate` verdict included) or a cap: the person
+- Failure, a 60 s timeout or unparseable output (an `escalate` verdict included): the person
   is asked, with the reason. An unreviewed call never runs.
 - Status line while it reads: `Checking a step`.
 
@@ -224,16 +224,12 @@ An effect is a started call of risk write, destructive or memory, or a `todo` / 
 call with arguments different from the one before it. The engine also starts nothing while
 Spade is closing or the person has the bot's computer.
 
-**At a spending cap the task waits** (ADR 0158): a step due while the bot (or the service) is at a
-cap is not dropped. The task parks on a wake, `wake_set {purpose: {kind: park, reason: cap},
-due_ms, reason}`, once; the bot reads as `sleeping` with `reason` as its status ("Porter is at
-its daily cap of $1.00 until midnight. It carries on then, or as soon as the cap is raised.").
-The wake fires at `due_ms` (the cap's reset: the person's next midnight, or the first of next
-month), as soon as the person raises or removes the bot's cap, when Spade opens with the cap
-lifted, or when the person wakes it; then the step is planned again (and parks again if a cap
-still holds). A reply the service's cap ended (`reply_failed` of kind `cap`) carries the task on
-the same way. Any message settles the park (the reply it opens meets the cap again if it still
-holds); Stop cancels it. A `task_parked` stored by an earlier build is still read and ignored.
+**Spend never stops a task** ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md)): there are no spending caps or budgets. Builds before it
+parked a task at a cap (`wake_set {purpose: {kind: park, reason: cap}}`) and a worker at its
+budget (`wait_for {condition: {kind: budget}}`). Such a wake found open when Spade opens is
+cancelled (`wake_cancelled {by: spade}`) and the task carries on. A reply such a build ended at a
+cap (`reply_failed` of kind `cap`) counts as finished, so its task carries on too. A
+`task_parked` stored by an earlier build is still read and ignored.
 
 A continued step is stored as `task_continued {step, nudge}` followed by `reply_started`, in one
 write. The model reads `nudge` (`<continue step="n">…</continue>`) as a note from Spade; CLI
@@ -269,10 +265,9 @@ on an idle bot with a step waiting stores `stop_requested` with no reply and cal
   `verify::claim` decides: open or blocked items, an empty plan, or nothing changed since the
   last `not_yet` are answered `not_yet` without a model. Otherwise the verifier (the goal's
   `verifier`, else the review model) gets the goal, criteria, items and the evidence's stored
-  results, quoted. `done` needs every criterion met and no item rejected. A check stopped by a
-  spending cap parks the task on the cap like a step (above); one whose model fails in a way that
-  may pass parks it on `wake_set {purpose: {kind: park, reason: check, attempt}}` with the same
-  backoff as an outage (1, 2, 4 … minutes, at most an hour). Either way the task reads as
+  results, quoted. `done` needs every criterion met and no item rejected. A check whose model
+  fails in a way that may pass parks it on `wake_set {purpose: {kind: park, reason: check, attempt}}` with the same
+  backoff as an outage (1, 2, 4 … minutes, at most an hour). The task reads as
   `checking`, never done, and the claim is checked when the wake fires. A check that can't run
   otherwise (a refused request, the 60 s timeout) stores `unchecked`. Registered like a waiting
   step, so Stop calls it off. No claim is checked while a wake is open.
@@ -333,7 +328,7 @@ conversation; `spade_core::wake` and `spade_core::service` are the folds.
 
 - `GET /v1/agents/{id}/wakes`: `{wakes: [{id, purpose, due_at, condition, reason, words,
 attempt, job, error, parked}]}`; `purpose` is `sleep`, `wait`, `retry`, `outage` or `park`,
-  `parked` the park's reason (`cap`, `check`). `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
+  `parked` the park's reason (`check`). `POST /v1/agents/{id}/wakes/{wake}/wake` wakes it now (`202`, `409`
   when not open); `DELETE /v1/agents/{id}/wakes/{wake}` cancels it (`204`, `409`).
 - `GET /v1/agents/{id}/services`: `{services: [{id, name, command, cwd, keep, state, exit_code,
 restarts}]}`; `GET /v1/agents/{id}/services/{name}/logs?after=&lines=`: `{lines: [{n, text}],

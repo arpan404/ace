@@ -8,6 +8,7 @@ ones for decisions, within the person's endpoints"). Builds on
 [ADR 0152](0152-spade-helpers.md) (helpers), [ADR 0158](0158-spade-no-fixed-step-or-time-limits.md)
 (caps park, never end) and [ADR 0159](0159-spade-goals-plans-and-verification.md) (the verifier).
 Amends ADR 0159 decision 4: the verifier's default model is the `verify` role's.
+Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 5's `<budget>` note is removed; spend by role is still recorded and shown.
 
 ## Context
 
@@ -78,10 +79,10 @@ its own way and no bot can choose.
   global overrides (`null` for none).
 - `PUT /v1/models/roles`: `{roles?: {<role>: "endpoint/model" | null}, escalate?: bool | null}`.
 - `GET /v1/agents/{id}/models`: `{roles: [{role, model, source}], overrides: {roles, allowed,
-  escalate}, escalate, spend: {today: {<role>: micros}, month: {<role>: micros}}}`; `source` is
+escalate}, escalate, spend: {today: {<role>: micros}, month: {<role>: micros}}}`; `source` is
   `bot`, `global`, `default` or `own` (the bot's model, for `main` and every fallback).
 - `PUT /v1/agents/{id}/models`: `{roles?: {<role>: "endpoint/model" | null}, allowed?:
-  ["endpoint/model"] | null, escalate?: bool | null}`.
+["endpoint/model"] | null, escalate?: bool | null}`.
 - `GET /v1/agents/{id}/activity` adds `spend_by_role {today, month}`; entries with a cost add
   `role`.
 

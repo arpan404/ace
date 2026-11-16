@@ -23,7 +23,7 @@ Fix login`, `webhook`, `run now`.
   from sleep is noticed within a minute.
 - **No overlap.** A run is open from its message until a reply ends after it (finished, stopped,
   failed or interrupted). A firing while the routine's last run is open is recorded as skipped
-  (`The last run was still going.`). Over today's spending cap, it is skipped too.
+  (`The last run was still going.`). Spend never skips one ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md)).
 - **Time zones.** A schedule is read in the routine's `time_zone` (IANA); the app sends the
   person's, and the machine's is the default. A time a spring-forward skips runs just after the
   gap; a time an autumn change repeats runs once, at its first instant. Intervals count real
@@ -116,6 +116,6 @@ can act on), `404` for an unknown agent or routine, at most 50 routines per bot.
 
 ## Events
 
-| Type           | Fields                                                         | Meaning                      |
-| -------------- | -------------------------------------------------------------- | ---------------------------- |
+| Type           | Fields                                                         | Meaning                                                                                                                                     |
+| -------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `user_message` | `…, from_routine?: {id, name, run, label, heartbeat?, event?}` | A routine or heartbeat fired; the first message of the run, so a client's run line reads `name`, and the stored event's `at` is when it ran |

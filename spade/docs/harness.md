@@ -26,15 +26,16 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `job_finished`                               | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`                      | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                    |
 | `stop_requested`                             | `reply?`, `jobs[]`                                                                      | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
 | `turn_paused`                                | `reply`                                                                                 | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
-| `wake_set` / `wake_fired` / `wake_cancelled` | `wake`, `reply`, `purpose`, `due_ms?`, `condition?`, `reason` / `cause`, `note?` / `by` | Every timed or event-driven resume: a sleep, a wait, a turn waiting out an outage, a parked job, a task parked on a cap or for its check. Fires once ([autonomy.md](autonomy.md))   |
-| `task_parked` (retired)                      | `reason`, `until_ms?`, `why`                                                            | Stored by earlier builds for a task waiting on a cap. Still read and ignored: when Spade opens the task is planned again, and parks on a wake if the cap still holds                |
+| `wake_set` / `wake_fired` / `wake_cancelled` | `wake`, `reply`, `purpose`, `due_ms?`, `condition?`, `reason` / `cause`, `note?` / `by` | Every timed or event-driven resume: a sleep, a wait, a turn waiting out an outage, a parked job, a task parked for its check. Fires once ([autonomy.md](autonomy.md))               |
+| `task_parked` (retired)                      | `reason`, `until_ms?`, `why`                                                            | Stored by earlier builds for a task waiting on a cap. Still read and ignored: when Spade opens the task is planned again                                                            |
 | `turn_parked` (retired)                      | `reply`, `until_ms`, `round`, `why`                                                     | Stored by earlier builds for a turn waiting for its endpoint. Still read: the reply stays open across a restart, waits until `until_ms`, and `round` counts toward the backoff      |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
 
-A bot's tree of workers adds `worker_of`, `worker_started`, `worker_reported`, `worker_budget` and
-`worker_detached` (ADR 0161, [workers.md](workers.md)).
+A bot's tree of workers adds `worker_of`, `worker_started`, `worker_reported` and
+`worker_detached` (ADR 0161, [workers.md](workers.md)). `worker_budget` and `cap_reached`, stored by
+builds with budgets and caps, are read as raw data and fold to nothing ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md)).
 
 ## How a turn runs
 
@@ -99,11 +100,8 @@ outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at mos
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **No step or time limit:** a turn takes as many steps and as long as its work needs (ADR 0158).
-  The person's controls are Stop and their spending caps: past the service's daily cap (unset by
-  default) the turn ends with `reply_failed` ("today's spending cap is used up"), and a bot at its
-  own daily or monthly cap starts no model call: the turn closes and the bot says so once
-  ([oversight.md](oversight.md)). Either way a task that was working parks on a wake until the
-  cap's reset and carries on then ([autonomy.md](autonomy.md)). With the model review on, a write the gate would run
+  The person's control is Stop. Spend is recorded and shown, never a limit: no cap or budget
+  refuses, ends or parks anything ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md), [oversight.md](oversight.md)). With the model review on, a write the gate would run
   is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
   turn only waiting for an approval resumes, and so does a paused one (below).

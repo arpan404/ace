@@ -3,9 +3,9 @@
 Date: 2026-11-15. As built for [ADR 0161](../../docs/adr/0161-spade-orchestration-trees.md).
 Extends [helpers.md](helpers.md), [agents.md](agents.md), [autonomy.md](autonomy.md),
 [oversight.md](oversight.md) and [harness.md](harness.md) (wakes). The pure rules are
-`spade_core::tree`; the engine side is `engine/workers/` (`create`, `report`, `budget`,
+`spade_core::tree`; the engine side is `engine/workers/` (`create`, `report`, `spend`,
 `coordinate`, `lifecycle`, `view`), with hooks in `engine/mod.rs` (storing events, the roster's
-activity, deliveries), `engine/oversight.rs` and `engine/ledger.rs` (caps), `engine/park.rs`,
+activity, deliveries), `engine/ledger.rs` (what each call cost), `engine/park.rs`,
 `engine/control.rs` (Stop), `engine/helpers.rs` (tools), `engine/autonomy.rs` (access),
 `engine/agents.rs` (delete, roster fields) and `tools/ace.rs` (delegate). Storage is the event log;
 `spade_store::workers` reads the links once at start and sums a subtree's spend.
@@ -30,27 +30,25 @@ goes through `append_as`, which updates the link and marks the worker to be chec
 All offered deferred (found with `tool_search`), so a bot that never orchestrates is sent
 nothing more.
 
-| Tool             | Risk  | Arguments                                                                                         |
-| ---------------- | ----- | ------------------------------------------------------------------------------------------------- |
-| `bot_create`     | write | `name`, `task`, `brief?`, `model?`, `tools?`, `connectors?`, `plugins?`, `budget_usd?` |
-| `worker_message` | write | `worker`, `text`                                                                                  |
-| `worker_status`  | read  | `worker?`                                                                                         |
-| `worker_result`  | read  | `worker` (untrusted output)                                                                       |
-| `worker_stop`    | read  | `worker`                                                                                          |
-| `worker_budget`  | write | `worker`, `budget_usd`                                                                            |
+| Tool             | Risk  | Arguments                                                               |
+| ---------------- | ----- | ----------------------------------------------------------------------- |
+| `bot_create`     | write | `name`, `task`, `brief?`, `model?`, `tools?`, `connectors?`, `plugins?` |
+| `worker_message` | write | `worker`, `text`                                                        |
+| `worker_status`  | read  | `worker?`                                                               |
+| `worker_result`  | read  | `worker` (untrusted output)                                             |
+| `worker_stop`    | read  | `worker`                                                                |
 
 `worker` is an id or a name: a worker bot anywhere under the caller, one of its ace children (by
 thread id or role), or one of its helpers (by job). `wait_for` takes
 `{condition: {kind: "worker", worker?}}`.
 
 - **`bot_create`** answers at once: `{"worker", "name", "state": "working" | "queued",
-  "budget_usd", "next"}`. A run of the same call (after a restart) finds the bot it made by the
+"next"}`. A run of the same call (after a restart) finds the bot it made by the
   call's key (`worker_of.call`). A helper can't make bots. Refused with the reason:
   - a name or task that doesn't fit an agent's rules;
   - an unknown model;
   - a tree 16 deep;
-  - tools, connectors or plugins the maker lacks;
-  - a budget that isn't a positive amount.
+  - tools, connectors or plugins the maker lacks.
 - **Grants.**
   - There is one access level, the auto-review, so nothing narrows and `bot_create` takes no
     `access`.
@@ -85,7 +83,7 @@ thread id or role), or one of its helpers (by job). `wait_for` takes
   - A worker has settled when no reply or job is open, nothing under it works, its task won't
     carry on by itself, no claim of done waits for its check, and no wake of its own is open.
     One `worker_reported` is then delivered to its parent: `{worker, kind, name, state, epoch,
-    summary, words?}`.
+summary, words?}`.
   - The delivery stores a worker's report of a state in an epoch once, checked under the record
     lock. Every worker is checked again when Spade opens, so a report owed from before a restart
     arrives once.
@@ -98,25 +96,19 @@ thread id or role), or one of its helpers (by job). `wait_for` takes
   | `done`      | its reply finished and its goal's check passed (ADR 0159) | the reply        |
   | `finished`  | its reply finished, goal not checked done                 | the reply        |
   | `needs_you` | an approval or question waits (its own, or under it)      | `<reply>#ask<n>` |
-  | `parked`    | it waits for budget, or on a cap                          | the wake         |
   | `failed`    | its reply failed or a restart cut it off                  | the reply        |
   | `stopped`   | it was stopped                                            | the reply        |
 
   The model reads `<worker_report worker kind state from="spade">`: Spade's words and what to do
   next, then `<worker_words untrusted="true">` with its last reply (2,000 characters) as JSON.
 
-## Budgets and caps
+## Spend
 
-- Each model call is admitted against every budget and cap on its path to the top of its tree
-  (`Engine::tree_cap`, hooked into `bot_cap` and the ledger's admission):
-  - each worker's budget against its whole subtree's spend, all time;
-  - each bot's daily and monthly caps against its whole subtree's spend in that period.
-- A budget reached closes the open reply as at a cap (`cap_reached {scope: "budget"}`, said once
-  per budget). The worker then waits on `wake_set {purpose: {kind: wait}, condition: {kind:
-  budget}}` ("Waiting for more budget"), unless a task park (ADR 0158) holds it already.
-- `worker_budget`, or the person's `PUT /v1/agents/{id}/budget`, stores `worker_budget` in the
-  worker's conversation. Every waiting conversation of that subtree that may spend again then
-  wakes. Raising a bot's caps does the same for its subtree.
+A tree has no budgets ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md)): each node shows what it spent (`cost_micros`) and what its
+whole subtree spent (`subtree_cost_micros`), and nothing stops on either. Builds before it stored
+`worker_budget` events and `budget_micros` on `worker_of` and `worker_started`; they are read and
+ignored. A worker such a build parked for budget is cancelled out of its wait when Spade opens
+and carries on ([autonomy.md](autonomy.md)). A stored report of state `parked` reads as `other`.
 
 ## Concurrency
 
@@ -130,28 +122,25 @@ first, as others settle. Stopping a queued worker stores a stop, so it never sta
   ace children still running get `agent_cancel` and a quiet `stopped` report.
 - `DELETE /v1/agents/{id}` answers `409 {"error", "workers": n}` while the bot has workers.
   `?workers=stop` stops them first; `?workers=keep` leaves them working. Either way each stores
-  `worker_detached {by: "person"}` and becomes a top-level bot: no parent, no budget, grants no
-  longer capped.
+  `worker_detached {by: "person"}` and becomes a top-level bot: no parent, grants no longer
+  narrowed.
 
 ## API added
 
 - `GET /v1/agents/{id}/tree` → `{"tree": Node}`.
   - A bot node is `{kind: "bot", id, name, conversation, state, own_state, status, needs_you,
-    waiting_for, progress, cost_micros, subtree_cost_micros, budget_micros, parked, queued,
-    children}`.
+waiting_for, progress, cost_micros, subtree_cost_micros, queued, children}`.
   - A helper node is `{kind: "helper", id (its job), name (its profile), conversation, task,
-    state, needs_you, cost_micros, children: []}`.
+state, needs_you, cost_micros, children: []}`.
   - An ace node is `{kind: "ace", id (thread), name (role), state, needs_you, job,
-    cost_micros: null, children: []}`. Its `state` is one of `working`, `done`, `failed`,
+cost_micros: null, children: []}`. Its `state` is one of `working`, `done`, `failed`,
     `needs_you`, `limited`, `stopped` or `ended`.
-- `PUT /v1/agents/{id}/budget` with `{"budget_usd": number | null}` answers the worker's tree.
-  It answers `409` for a bot that is no worker and `400` for a budget that isn't positive.
+- `PUT /v1/agents/{id}/budget` is gone ([ADR 0166](../../docs/adr/0166-spade-has-no-spending-limits.md)): it answers `404`.
 - Every agent in `GET /v1/agents` adds `parent` (`{id, name}` or `null`) and `workers` (its
   worker bots that have not settled).
 
 ## Not built yet
 
-- Per-helper budgets.
 - A worker's questions routed to its maker; they go to the person.
 - Workers on other machines.
 - ace children's state between ace's waits; delegated threads are not in ace's event stream.

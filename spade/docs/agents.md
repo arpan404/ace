@@ -131,9 +131,6 @@ deleted.
 - **Escalation.** With `escalate` on (the call's, else the bot's, else the global setting; off by
   default) a helper that failed on another model reruns once on the bot's model, stored as job
   `<job>~2`. Its result starts "(The helper failed on X, so it ran again on Y.)".
-- **Budget.** A step Spade starts on its own (`task_continued.nudge`) ends with `<budget>`: spent
-  today and this month against the caps, today's spend by role and each role's model. Information
-  only.
 - **Spend.** The ledger (`spend.role`) records each call's role; a helper's calls are `helper`,
   rows from before the column `main`.
 - **Cache.** A role's model applies from its next new request; past prompts are never rewritten.
@@ -265,7 +262,7 @@ then.
   sends it this as its first message, the new-bot conversation's one call. Both happen, or
   neither: a message Spade can refuse before the bot exists (empty, too long, too many images)
   answers as `POST /conversations/{id}/messages` would and makes nothing; one refused as it is
-  sent (a cap reached, `402`; storage) deletes the bot again before answering. The answer's
+  sent (an attachment that is no image, storage) deletes the bot again before answering. The answer's
   `agent` is read after the send, so its `state` is already `working`. Files and voice go in
   later messages.
 - Avatar in a body: `{"kind":"image","data":"<base64 or data: URL>"}` (PNG, JPEG, GIF or WebP,
@@ -273,8 +270,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-  "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.
