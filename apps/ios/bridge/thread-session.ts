@@ -174,7 +174,11 @@ export class ThreadSession {
       put,
       now: () => host.now(),
       preview,
-      changed: () => this.#controls(),
+      changed: () => {
+        this.#controls();
+        this.#tune.redraw();
+      },
+      moved: (choice, tune) => this.#tune.hold(choice, tune),
       files: () => this.#tray.files(),
       fork: {
         open: () => this.#transitions.draft !== undefined,
@@ -192,8 +196,10 @@ export class ThreadSession {
       put,
       () => host.now(),
       () => {
+        // The rows tune what the next message runs on: a fork being written, a held switch,
+        // else this thread.
         const draft = this.#transitions.draft;
-        return draft && { choice: draft.choice, tune: draft.tune };
+        return draft ? { choice: draft.choice, tune: draft.tune } : this.#sheet.held();
       },
     );
     const trayRows = (files: TrayRow[], locked: string | undefined) =>
@@ -371,13 +377,16 @@ export class ThreadSession {
           "That doesn't fit the request. Check what you entered.",
         );
         break;
-      // While a fork is written, effort and speed are the fork's, never this thread's.
+      // While a fork is written they are the fork's; while a switch from the sheet is held,
+      // its model's; else this thread's next message's.
       case "effort":
         this.#admission(
           action.requestId,
           this.#transitions.draft
             ? this.#transitions.effort(action.effort ?? undefined, this.#forkModel())
-            : this.#tune.effort(action.effort ?? undefined),
+            : this.#sheet.held()
+              ? this.#sheet.tuneHeld({ effort: action.effort ?? undefined })
+              : this.#tune.effort(action.effort ?? undefined),
           "That effort can't be set for this model.",
         );
         break;
@@ -386,7 +395,9 @@ export class ThreadSession {
           action.requestId,
           this.#transitions.draft
             ? this.#transitions.speed(action.speed, this.#forkModel())
-            : this.#tune.speed(action.speed),
+            : this.#sheet.held()
+              ? this.#sheet.tuneHeld({ speed: action.speed })
+              : this.#tune.speed(action.speed),
           "That speed can't be set for this model.",
         );
         break;
@@ -400,6 +411,7 @@ export class ThreadSession {
         this.#sheet.pick(
           { key: action.key, account: action.account },
           action.confirmed,
+          { effort: action.effort, speed: action.speed },
           action.requestId,
           (payload, id, refused) =>
             void dispatchCommand(this.#client, payload, id, this.#pump, {
@@ -665,6 +677,7 @@ export class ThreadSession {
             reader: this.#store,
             threadId: this.#threadId,
             choice,
+            options: this.#sheet.continuedOptions,
             text: quoted ? `${quoteText(quoted)}${text}` : text,
             files: this.#tray.files(),
             modalities: this.#sheet.modalities(choice),

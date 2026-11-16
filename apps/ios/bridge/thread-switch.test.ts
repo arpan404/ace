@@ -121,6 +121,87 @@ test("another account of the same provider switches at once", async () => {
   await until(() => sheet()?.current?.account === "codex-team", "the new account checked");
 });
 
+test("a switch carries the effort and speed picked for the model it moves to", async () => {
+  const { thread } = await openSheet(connect(codexThread()));
+  thread.handle({
+    type: "switchModel",
+    key: gpt,
+    account: "codex-team",
+    confirmed: false,
+    effort: "high",
+    speed: "fast",
+    requestId: "team",
+  });
+  await until(() => commands("thread.switch").length === 1, "the switch on the wire");
+  expect(commands("thread.switch")[0]?.selection).toMatchObject({
+    instanceId: "codex-team",
+    options: { effort: "high", serviceTier: "priority" },
+  });
+});
+
+test("an effort or speed the new model doesn't offer is refused and nothing moves", async () => {
+  const { thread } = await openSheet(connect(codexThread()));
+  const pick = (requestId: string, tune: Record<string, string>) =>
+    thread.handle({
+      type: "switchModel",
+      key: opus,
+      account: "claude-personal",
+      confirmed: true,
+      ...tune,
+      requestId,
+    });
+  pick("effort", { effort: "minimal" });
+  pick("speed", { speed: "fast" });
+  await until(() => latest("admission", "speed"), "the refusals");
+  expect(admission("effort")).toMatchObject({
+    ok: false,
+    message: expect.stringMatching(/effort/),
+  });
+  expect(admission("speed")).toMatchObject({ ok: false, message: expect.stringMatching(/speed/) });
+  expect(commands("thread.switch")).toHaveLength(0);
+});
+
+test("effort and speed picked after a switch goes out but before the thread moves apply on the new model", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "sw",
+    workspaceId: "ace",
+    title: "Switch",
+    provider: "claude",
+    execution: {
+      provider: "claude",
+      model: "claude-opus-5-5",
+      instanceId: "claude-personal",
+      options: {},
+    },
+  });
+  fake.apply("sw", [facts.rootAgent("claude"), facts.turn("root"), facts.endTurn("root")]);
+  const { thread } = await openSheet(connect(fake));
+  thread.handle({
+    type: "switchModel",
+    key: gpt,
+    account: "codex-personal",
+    confirmed: true,
+    requestId: "codex",
+  });
+  // Picked before the daemon reports the move: a level and a speed only the new model has.
+  thread.handle({ type: "effort", effort: "minimal", requestId: "e" });
+  thread.handle({ type: "speed", speed: "fast", requestId: "s" });
+  await until(() => admission("s"), "the picks");
+  expect(admission("e").ok).toBe(true);
+  expect(admission("s").ok).toBe(true);
+  expect(latest("thread.tune")).toMatchObject({ effort: "minimal", speed: "fast" });
+  await until(() => controls()?.provider === "codex" && controls()?.note === "", "the move");
+  await until(() => latest("thread.tune")?.pending === true, "the picks on the new model");
+  expect(latest("thread.tune")).toMatchObject({ effort: "minimal", speed: "fast" });
+  thread.handle({ type: "send", text: "Go", opposite: false, requestId: "m" });
+  await until(() => commands("thread.send").length === 1, "the message");
+  expect(commands("thread.send")[0]?.options).toMatchObject({
+    effort: "minimal",
+    serviceTier: "priority",
+  });
+});
+
 test("a switch made while the agent works reads as pending until its next turn", async () => {
   const { thread } = await openSheet(connect(codexThread("gpt-6", true)));
   thread.handle({
@@ -169,7 +250,7 @@ test("another provider asks first, and nothing is sent until the person confirms
   await until(() => controls()?.provider === "claude", "the composer on Claude");
 });
 
-test("with fork on switch, another provider continues in a new thread with the next message", async () => {
+test("with fork on switch, another provider continues in a new thread, at the effort picked with it", async () => {
   const { thread, ready } = await openSheet(connect(codexThread()), { fork: true });
   const ask = ready.asks[ready.rows[row("claude-personal", opus)]?.ask ?? -1];
   expect(ask?.title).toBe("Continue in a new thread?");
@@ -178,9 +259,13 @@ test("with fork on switch, another provider continues in a new thread with the n
     key: opus,
     account: "claude-personal",
     confirmed: true,
+    effort: "high",
     requestId: "pick",
   });
   await until(() => controls()?.provider === "claude", "the composer naming Claude");
+  // Changed after confirming, before the new thread starts: the newer pick goes with it.
+  thread.handle({ type: "effort", effort: "low", requestId: "later" });
+  await until(() => admission("later")?.ok, "the later pick");
   expect(controls()).toMatchObject({
     note: "Continues in a new thread with your next message",
     continues: true,
@@ -199,7 +284,8 @@ test("with fork on switch, another provider continues in a new thread with the n
     threadId: "sw",
     input: "Carry on there.",
     point: { type: "turn" },
-    selection: { provider: "claude", instanceId: "claude-personal" },
+    // The effort picked with the model starts the new thread.
+    selection: { provider: "claude", instanceId: "claude-personal", options: { effort: "low" } },
   });
   expect(continued.opened).toMatch(/^sw-fork-/);
   expect(commands("thread.send")).toHaveLength(0);

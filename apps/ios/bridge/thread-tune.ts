@@ -22,6 +22,7 @@ import {
   type Speed,
 } from "@ace/ui-core";
 import { runsOn, selectionIdentity, type PendingTurn } from "@ace/ui-core/thread-execution";
+import { choiceSelection } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 import { forkTuneRow, type ForkTune } from "./fork-tune.ts";
 
@@ -53,6 +54,8 @@ export class TuneFollower {
   /** The newest catalog read: an older one answering late is dropped. */
   #reading = 0;
   #pending: PendingTurn | undefined;
+  /** Effort and speed picked for a model the thread is moving to, applied once it runs there. */
+  #ahead: { identity: string; tune: ForkTune } | undefined;
   #notice = "";
 
   constructor(
@@ -74,6 +77,20 @@ export class TuneFollower {
   /** The catalog's choice for what the thread runs on, which a fork on its own model runs on. */
   model(): ModelChoice | undefined {
     return this.#current();
+  }
+
+  /**
+   * The thread moved to `choice` with `tune` picked for it after the switch went out: it goes
+   * with the next message once the model's levels are read, as a pick made there would.
+   */
+  hold(choice: ModelChoice, tune: ForkTune): void {
+    if (tune.effort === undefined && tune.speed === undefined) return;
+    this.#ahead = {
+      identity: selectionIdentity({ ...choiceSelection(choice), options: {} }),
+      tune,
+    };
+    this.#reconcile();
+    this.#emit();
   }
 
   /** The fork was opened, closed or tuned: the rows show its tuning, or the thread's again. */
@@ -181,8 +198,37 @@ export class TuneFollower {
     this.#notice = "";
     this.#emit();
   }
-  /** The thread moved since the pick: keep what its model still takes, and say what went. */
   #reconcile(): void {
+    this.#carryOver();
+    this.#applyAhead();
+  }
+  /** A pick held for the model the thread now runs, once its levels are known. */
+  #applyAhead(): void {
+    const ahead = this.#ahead;
+    const identity = selectionIdentity(runsOn(this.#store.thread));
+    if (!ahead || ahead.identity !== identity || !this.#current()) return;
+    this.#ahead = undefined;
+    const { effort, speed } = ahead.tune;
+    const set = (options: PendingTurn["options"] | undefined) => {
+      this.#pending = options && { identity, options };
+    };
+    const tuning = this.#tuning();
+    if (
+      effort !== undefined &&
+      tuning.effort.reason === undefined &&
+      tuning.effort.efforts.includes(effort)
+    )
+      set(pickEffort(tuning, effort));
+    const after = this.#tuning();
+    if (
+      speed !== undefined &&
+      after.speed.reason === undefined &&
+      after.speed.tiers.some((tier) => tier.speed === speed)
+    )
+      set(pickSpeed(after, speed));
+  }
+  /** The thread moved since the pick: keep what its model still takes, and say what went. */
+  #carryOver(): void {
     const pending = this.#pending;
     const identity = selectionIdentity(runsOn(this.#store.thread));
     const shown = this.#current();
