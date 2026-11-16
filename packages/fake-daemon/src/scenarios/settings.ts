@@ -399,5 +399,8 @@ export function settingsValues(): Partial<SettingsValues> & Record<string, unkno
     "remote.enabled": true,
     "remote.lan": false,
     "remote.tailscale": true,
+    // A machine that turned Spade and the marketplace on in Settings › Beta.
+    "beta.spade": true,
+    "beta.marketplace": true,
   };
 }

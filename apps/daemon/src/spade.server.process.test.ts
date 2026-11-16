@@ -185,11 +185,41 @@ test("the daemon forwards requests and live streams to the Spade service, follow
     kind: "error",
     code: "unavailable",
   });
+}, 30_000);
+
+test("turning Spade off in Beta stops it and keeps its data and its own switch", async ({
+  onTestFinished,
+}) => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-beta-off-")));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "ace");
+  const service = fakeSpadeService(() => home);
+  onTestFinished(() => service.close());
+  const daemon = await startDaemon({
+    engine: noProviderDiscovery,
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    spade: { service: service.control, pollMs },
+  });
+  onTestFinished(() => daemon.close());
+  await showSpade(daemon, true);
+  await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
+  const token = await readFile(daemon.tokenPath, "utf8");
+  const client = new Client(daemon.url);
+  onTestFinished(() => client.close());
+  await once(client.socket, "open");
+  client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("device"), token });
+  client.send({ type: "spade.status", requestId: "s1" });
+  client.send({
+    type: "settings.set",
+    requestId: "on",
+    key: "spade.enabled",
+    value: true,
+    layer: { kind: "global" },
+  });
+  await until(client, status("ready"));
 
   // Turned off in Beta while on: its service stops and requests are refused as hidden, but its
   // data and `spade.enabled` stay, so turning it on again brings it back as it was.
-  enable(true, "on-again");
-  await poll(() => daemon.spade?.status().state === "ready" || undefined, "Spade on again");
   await writeFile(join(home, "spade", "kept.txt"), "Spade's own data");
   await showSpade(daemon, false);
   await poll(() => daemon.spade?.status().hidden === true || undefined, "Spade to hide");
@@ -203,7 +233,7 @@ test("the daemon forwards requests and live streams to the Spade service, follow
   });
   expect((await until(client, reply("h7"))).result).toMatchObject({
     kind: "error",
-    code: "hidden",
+    message: "Spade is turned off in Settings › Beta.",
   });
   expect((await stat(join(home, "spade"))).isDirectory()).toBe(true);
   expect(await readFile(join(home, "spade", "kept.txt"), "utf8")).toBe("Spade's own data");

@@ -208,6 +208,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     (turnedOn) => {
       if (turnedOn) log.log("info", "Spade's features.json flag moved to Settings › Beta");
     },
-    (error: unknown) => log.log("warn", `Moving Spade's features.json flag failed: ${String(error)}`),
+    (error: unknown) =>
+      log.log("warn", `Moving Spade's features.json flag failed: ${String(error)}`),
   );
 }

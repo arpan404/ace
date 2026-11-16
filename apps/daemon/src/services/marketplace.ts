@@ -54,9 +54,7 @@ const turnedOff: MarketResult = {
  * at once. Off with no settings to read. What was installed from the marketplace is never gated
  * here: suits, skills and plugins run from their own services.
  */
-export async function marketplaceTurnedOn(
-  settings: SettingsService | undefined,
-): Promise<boolean> {
+export async function marketplaceTurnedOn(settings: SettingsService | undefined): Promise<boolean> {
   try {
     return (await settings?.get(betaKeys.marketplace))?.value === true;
   } catch {

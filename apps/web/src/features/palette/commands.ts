@@ -23,6 +23,8 @@ import {
 } from "@ace/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { useBetaEnabled } from "@/lib/beta-enabled.ts";
+import { useSpadeShown } from "@/lib/spade-available.ts";
 import { windowsHelpActions } from "@/boot/help-actions.ts";
 import { openNewTerminal } from "@/features/panels/index.ts";
 import { useNewThreadEntry } from "@/features/projects/index.ts";
@@ -108,6 +110,9 @@ export function usePaletteGroups(
   const directory = useProjectDirectory();
   const { openSearch } = useLayout();
   const several = directory.projects.length > 1;
+  // Spade and the Marketplace are listed only while Settings › Beta has them on.
+  const spadeShown = useSpadeShown() === true;
+  const marketplace = useBetaEnabled("marketplace") === true;
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -160,16 +165,21 @@ export function usePaletteGroups(
       {
         value: "Go to",
         items: [
-          ...views.map((view): PaletteCommand => {
-            const command: PaletteCommand = {
-              id: `go-${view.id}`,
-              label: view.label,
-              icon: "view",
-              run: go(view.to),
-            };
-            if (view.shortcut) command.keys = keymap[view.shortcut].keys;
-            return command;
-          }),
+          ...views
+            .filter(
+              (view) =>
+                (view.id !== "spade" || spadeShown) && (view.id !== "marketplace" || marketplace),
+            )
+            .map((view): PaletteCommand => {
+              const command: PaletteCommand = {
+                id: `go-${view.id}`,
+                label: view.label,
+                icon: "view",
+                run: go(view.to),
+              };
+              if (view.shortcut) command.keys = keymap[view.shortcut].keys;
+              return command;
+            }),
           {
             id: "go-search",
             label: "Search all threads",
@@ -362,6 +372,8 @@ export function usePaletteGroups(
     push,
     several,
     openSearch,
+    spadeShown,
+    marketplace,
   ]);
   return useMemo(
     () =>

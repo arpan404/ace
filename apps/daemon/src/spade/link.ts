@@ -64,7 +64,7 @@ const defaultPoll = { waiting: 1000, ready: 5000, idle: 60_000 };
 const hiddenStatus: SpadeStatus = {
   state: "off",
   hidden: true,
-  reason: "Spade is hidden on this machine.",
+  reason: "Spade is turned off in Settings › Beta.",
 };
 
 export class SpadeLink {

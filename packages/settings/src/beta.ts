@@ -40,8 +40,7 @@ async function readLegacy(home: string): Promise<LegacyFlag> {
   } catch {
     return noLegacy;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-    return noLegacy;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return noLegacy;
   const { spade, ...rest } = Object.fromEntries(Object.entries(parsed));
   return {
     spade: typeof spade === "boolean" ? spade : undefined,
