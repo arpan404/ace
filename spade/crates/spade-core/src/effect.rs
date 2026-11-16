@@ -27,21 +27,28 @@ pub enum Effect {
     SendAsPerson,
     /// Spends money.
     Pay,
+    /// Acts in a page or an app the way the person would (a click, typing, a key): it could
+    /// send, pay or change access, and nothing contains it.
+    Drive,
     /// Changes sign-ins, keys or who has access.
     ChangeAccess,
+    /// Declared with a word this build doesn't know: the person decides until it is understood.
+    Unknown,
     /// Hands back a secret.
     Credential,
 }
 
 impl Effect {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Read,
         Self::WriteLocal,
         Self::Network,
         Self::Publish,
         Self::SendAsPerson,
         Self::Pay,
+        Self::Drive,
         Self::ChangeAccess,
+        Self::Unknown,
         Self::Credential,
     ];
 
@@ -54,7 +61,9 @@ impl Effect {
             Self::Publish => "publish",
             Self::SendAsPerson => "send_as_person",
             Self::Pay => "pay",
+            Self::Drive => "drive",
             Self::ChangeAccess => "change_access",
+            Self::Unknown => "unknown",
             Self::Credential => "credential",
         }
     }
@@ -64,13 +73,14 @@ impl Effect {
         Self::ALL.into_iter().find(|e| e.name() == word.trim())
     }
 
-    /// The most serious of what a value declares: one word, or a list of them. Unknown words are
-    /// dropped; `None` when nothing it says is an effect.
+    /// The most serious of what a value declares: one word, or a list of them. A word this build
+    /// doesn't know, or a value that isn't a word, is kept as [`Effect::Unknown`], never dropped;
+    /// `None` only when it declares nothing (an empty list).
     pub fn declared(value: &Value) -> Option<Self> {
         match value {
-            Value::String(word) => Self::parse(word),
+            Value::String(word) => Some(Self::parse(word).unwrap_or(Self::Unknown)),
             Value::Array(words) => words.iter().filter_map(Self::declared).max(),
-            _ => None,
+            _ => Some(Self::Unknown),
         }
     }
 }
@@ -167,33 +177,33 @@ pub struct Mcp {
     pub read_only: bool,
     /// It sent any annotation at all.
     pub annotated: bool,
-    /// What its catalogue entry or manifest declares for this tool.
+    /// What a trusted declaration says it does at least: its catalogue entry (for the tool or
+    /// for every tool of the app) or the manifest the person accepted.
     pub declared: Option<Effect>,
-    /// What its catalogue entry declares for every tool of the app that isn't read-only.
-    pub writes: Option<Effect>,
 }
 
-/// An MCP tool's effect: a declaration wins, then the annotations (`readOnlyHint` reads, any
-/// other annotation acts outside the box); a tool that says nothing is undeclared.
+/// An MCP tool's effect (ADR 0171, amendment 1). A trusted declaration is the least it does; the
+/// server's hints can raise it (a tool not marked read-only may write outside the box), never
+/// lower it. Hints alone are the server's word about itself, so a tool with no trusted
+/// declaration is undeclared: the person decides once, and no grant covers it.
 pub fn mcp(tool: Mcp) -> Option<Effect> {
-    if let Some(declared) = tool.declared {
-        return Some(declared);
-    }
-    if tool.read_only {
-        return Some(Effect::Read);
-    }
-    tool.writes.or(tool.annotated.then_some(Effect::Network))
+    let declared = tool.declared?;
+    let hinted = if tool.read_only {
+        Effect::Read
+    } else {
+        Effect::Network
+    };
+    Some(declared.max(hinted))
 }
 
-/// What one of ace's tools does: ace's own risk, and a driving call (`browser_*`, `screen_*`,
-/// `sim_*`) told to press a purchase button pays. ace's names never make a send: `agent_message`
-/// messages one of the person's agents.
-pub fn ace(name: &str, risk: Risk, arguments: &Value) -> Effect {
-    if drives(name) && buys(arguments) {
-        return Effect::Pay;
-    }
+/// What one of ace's tools does: ace's own risk. A driving call (`browser_*`, `screen_*`,
+/// `sim_*`) that can act (anything ace doesn't mark read-only: a click, typing, a key, a submit)
+/// is [`Effect::Drive`]: until ace reports what a step did, nothing contains it. ace's names
+/// never make a send: `agent_message` messages one of the person's agents.
+pub fn ace(name: &str, risk: Risk, _arguments: &Value) -> Effect {
     match risk {
         Risk::Read => Effect::Read,
+        _ if drives(name) => Effect::Drive,
         _ => Effect::Network,
     }
 }
@@ -202,54 +212,6 @@ fn drives(name: &str) -> bool {
     ["browser_", "screen_", "sim_"]
         .iter()
         .any(|prefix| name.starts_with(prefix))
-}
-
-/// What a button that completes a purchase says. Matched against the labels a driving call is
-/// told to press or type, as whole phrases; a click on an element by its id alone says nothing.
-const PURCHASE: &[&str] = &[
-    "place order",
-    "place your order",
-    "buy now",
-    "pay now",
-    "checkout",
-    "check out",
-    "complete purchase",
-    "confirm purchase",
-    "complete payment",
-    "confirm payment",
-    "submit payment",
-    "make payment",
-    "book now",
-    "confirm booking",
-    "complete booking",
-    "confirm and pay",
-    "subscribe now",
-    "start subscription",
-    "send money",
-];
-
-fn buys(arguments: &Value) -> bool {
-    fn texts<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
-        match value {
-            Value::String(text) => out.push(text),
-            Value::Array(list) => list.iter().for_each(|v| texts(v, out)),
-            Value::Object(map) => map.values().for_each(|v| texts(v, out)),
-            _ => {}
-        }
-    }
-    let mut found = Vec::new();
-    texts(arguments, &mut found);
-    found.iter().any(|text| {
-        let said: Vec<String> = text
-            .split(|c: char| !c.is_alphanumeric())
-            .filter(|w| !w.is_empty())
-            .map(str::to_lowercase)
-            .collect();
-        let said = format!(" {} ", said.join(" "));
-        PURCHASE
-            .iter()
-            .any(|phrase| said.contains(&format!(" {phrase} ")))
-    })
 }
 
 /// Where a call runs.
@@ -264,6 +226,8 @@ pub enum Place {
     /// A command that runs with no sandbox (the bot's setting, the person's per-call answer, or
     /// a machine without one): the shell classifier's reading of it, for the review.
     Unsandboxed(Class),
+    /// In the sandbox, but the checkpoint that would undo it couldn't be taken: reviewed.
+    Unprotected,
 }
 
 /// Which grant covers a call.
@@ -301,6 +265,9 @@ pub struct Call<'a> {
     pub granted: Granted,
     /// A file write in the workspace a checkpoint can undo (ADR 0167 decision 8).
     pub checkpointed: bool,
+    /// Where a typed send or push goes (`github.com/acme/app`, `github.com/acme/app#7`), for the
+    /// request's line.
+    pub target: Option<&'a str>,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -349,15 +316,22 @@ impl Route {
 const FILE_WRITES: &[&str] = &["workspace_write", "workspace_edit"];
 
 pub fn route(call: Call<'_>) -> Route {
-    if call.credentials {
+    // What the person allowed always, as the rule gate saw it (taint still holds it).
+    let allowed = call.always && call.rule == Decision::Run;
+    // Secrets and the person-only effects come first, wherever the call runs and whatever else
+    // failed: no sandbox, checkpoint or classifier changes them.
+    if call.credentials || call.effect == Some(Effect::Credential) {
         return Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned());
+    }
+    if let Some(effect) = call.effect
+        && let Some(route) = persons(call, effect, allowed)
+    {
+        return route;
     }
     // Outside the sandbox nothing is contained: the review path platforms without a sandbox use.
     if let Place::Unsandboxed(class) = call.place {
         return unsandboxed(call, class);
     }
-    // What the person allowed always, as the rule gate saw it (taint still holds it).
-    let allowed = call.always && call.rule == Decision::Run;
     let Some(effect) = call.effect else {
         if call.place == Place::Sandbox {
             return Route::Run;
@@ -374,26 +348,9 @@ pub fn route(call: Call<'_>) -> Route {
             },
         };
     };
-    match effect {
-        Effect::Credential => return Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned()),
-        // The person's alone, wherever it runs: no reviewer approves these.
-        Effect::Pay | Effect::ChangeAccess if allowed => return Route::Run,
-        Effect::Pay => return Route::ask(SPENDS),
-        Effect::ChangeAccess => return Route::ask(CHANGES_ACCESS),
-        Effect::SendAsPerson => {
-            return match call.granted {
-                _ if allowed => Route::Run,
-                // The person granted this push or comment for that repository.
-                Granted::Typed if !call.tainted => Route::Run,
-                Granted::Typed if call.fits => Route::Review(Some(GRANTED_TAINTED.to_owned())),
-                _ if call.tool == GIT_PUSH => Route::ask(PUSHES),
-                _ => Route::ask(SENDS_AS_YOU),
-            };
-        }
-        _ => {}
-    }
     match call.place {
         Place::Sandbox => return Route::Run,
+        Place::Unprotected => return review(call, Some(NO_CHECKPOINT)),
         Place::AsksOutside => {
             return Route::Ask {
                 line: OUTSIDE.to_owned(),
@@ -419,10 +376,10 @@ pub fn route(call: Call<'_>) -> Route {
             Route::Run
         }
         Effect::Network => {
-            if allowed || (call.granted != Granted::No && !call.tainted) {
+            if allowed || (call.granted == Granted::Tool && !call.tainted) {
                 return Route::Run;
             }
-            let concern = if call.granted != Granted::No {
+            let concern = if call.granted == Granted::Tool {
                 Some(GRANTED_TAINTED)
             } else if call.tainted {
                 Some(TAINTED_OUTWARD)
@@ -436,10 +393,49 @@ pub fn route(call: Call<'_>) -> Route {
         Effect::Publish if allowed => Route::Run,
         Effect::Publish => review(call, Some(PUBLISHES)),
         // Decided above.
-        Effect::SendAsPerson | Effect::Pay | Effect::ChangeAccess | Effect::Credential => {
-            Route::ask(UNDECLARED)
+        Effect::SendAsPerson
+        | Effect::Pay
+        | Effect::Drive
+        | Effect::ChangeAccess
+        | Effect::Unknown
+        | Effect::Credential => Route::ask(UNKNOWN),
+    }
+}
+
+/// Where a person-only effect goes: to the person unless their Always allow covers it, or, for a
+/// push or comment, a grant of its own kind. `None` for every other effect.
+fn persons(call: Call<'_>, effect: Effect, allowed: bool) -> Option<Route> {
+    let line = match effect {
+        Effect::Pay => SPENDS,
+        Effect::Drive => DRIVES,
+        Effect::ChangeAccess => CHANGES_ACCESS,
+        Effect::Unknown => UNKNOWN,
+        Effect::SendAsPerson if call.tool == GIT_PUSH => PUSHES,
+        Effect::SendAsPerson => SENDS_AS_YOU,
+        _ => return None,
+    };
+    if allowed {
+        return Some(Route::Run);
+    }
+    // The person granted this push or comment for that repository.
+    if effect == Effect::SendAsPerson && call.granted == Granted::Typed {
+        if !call.tainted {
+            return Some(Route::Run);
+        }
+        if call.fits {
+            return Some(Route::Review(Some(GRANTED_TAINTED.to_owned())));
         }
     }
+    let line = match call.target {
+        Some(target) if call.tool == GIT_PUSH => {
+            format!("It pushes to {target} with your sign-in, so you decide.")
+        }
+        Some(target) if effect == Effect::SendAsPerson => {
+            format!("It sends something in your name to {target}, so you decide.")
+        }
+        _ => line.to_owned(),
+    };
+    Some(Route::Ask { line, ask: None })
 }
 
 /// To the reviewer, unless it can't read the call whole.
@@ -494,10 +490,16 @@ pub fn remembered(events: &[crate::Event], tool: &str) -> Option<bool> {
 }
 
 /// Why a tool can never be granted (ADR 0167 decision 5), from what it declares: payments,
-/// sends in the person's name, access changes and secrets are the person's alone.
+/// sends in the person's name, driving a page or app, access changes, secrets and anything
+/// Spade can't name are the person's alone, and a tool that declares nothing is too.
 pub fn never_granted(effect: Option<Effect>) -> Option<&'static str> {
-    match effect? {
+    let Some(effect) = effect else {
+        return Some("It doesn't say what it does.");
+    };
+    match effect {
         Effect::Pay => Some("It could spend money."),
+        Effect::Drive => Some("It acts in a page or app as the person."),
+        Effect::Unknown => Some("It declares something Spade doesn't know yet."),
         Effect::SendAsPerson => Some("It sends something in the person's name."),
         Effect::ChangeAccess | Effect::Credential => {
             Some("It changes sign-ins, keys or who has access.")
@@ -513,6 +515,9 @@ pub const CHANGES_ACCESS: &str = "It changes sign-ins, keys or who has access, s
 pub const UNDECLARED: &str = "It doesn't say what it does, so you decide once for this bot.";
 pub const UNDECLARED_TAINTED: &str =
     "It doesn't say what it does and untrusted content is in view, so you decide.";
+pub const DRIVES: &str = "It acts in a page or app as you, so you decide.";
+pub const UNKNOWN: &str = "It declares something Spade doesn't know yet, so you decide.";
+pub const NO_CHECKPOINT: &str = "Spade couldn't take the checkpoint that would undo it.";
 pub const OUTSIDE: &str = "It asks to run outside the sandbox, so you decide.";
 pub const DECLINED_TOOL: &str = "The person declined this tool for this bot.";
 const PUBLISHES: &str = "It posts or publishes something.";

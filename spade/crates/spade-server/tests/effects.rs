@@ -146,7 +146,7 @@ async fn a_typed_send_goes_to_the_person_and_no_reviewer() -> Result {
     let asked = requests(&events);
     assert_eq!(
         asked[0]["reviewer_reason"],
-        "It sends something in your name, so you decide."
+        "It sends something in your name to +15551234567, so you decide."
     );
     assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
     assert_eq!(ran(&sent), 0);
@@ -200,7 +200,7 @@ mod sandboxed {
         assert_eq!(asked[0]["call_id"], "c2");
         assert_eq!(
             asked[0]["reviewer_reason"],
-            "It pushes with your sign-in, so you decide."
+            "It pushes to github.com/acme/app, branch main with your sign-in, so you decide."
         );
         assert_eq!(ran(&pushes), 1);
         Ok(())
@@ -364,6 +364,122 @@ mod sandboxed {
             )
             .await?;
         assert_eq!(status, 400, "{refused}");
+        Ok(())
+    }
+
+    /// Records what a push would start on the host, and answers each with success.
+    #[derive(Default)]
+    struct HostLog(std::sync::Mutex<Vec<Vec<String>>>);
+
+    impl spade_server::tools::outward::Host for HostLog {
+        fn run(
+            &self,
+            launch: spade_server::tools::outward::Launch,
+        ) -> spade_server::tools::outward::HostFuture {
+            let get_url = launch.args.iter().any(|a| a == "get-url");
+            if let Ok(mut log) = self.0.lock() {
+                log.push(launch.args);
+            }
+            Box::pin(async move {
+                Ok(spade_server::tools::outward::HostRan {
+                    code: Some(0),
+                    stdout: if get_url {
+                        "https://github.com/acme/app.git\n".to_owned()
+                    } else {
+                        String::new()
+                    },
+                    stderr: String::new(),
+                })
+            })
+        }
+    }
+
+    fn git(dir: &std::path::Path, args: &[&str]) -> Result {
+        let ran = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "init.defaultBranch=main",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()?;
+        assert!(ran.status.success(), "{args:?}: {ran:?}");
+        Ok(())
+    }
+
+    /// A repository at `dir` with one commit of `file`, on `main`, with an origin.
+    fn repository(dir: &std::path::Path, file: &str) -> Result {
+        std::fs::create_dir_all(dir)?;
+        git(dir, &["init", "-q"])?;
+        std::fs::write(dir.join(file), file)?;
+        git(dir, &["add", "."])?;
+        git(dir, &["commit", "-q", "-m", "one"])?;
+        git(
+            dir,
+            &["remote", "add", "origin", "https://github.com/acme/app.git"],
+        )
+    }
+
+    #[tokio::test]
+    async fn a_push_bundles_the_repository_in_the_sandbox_and_never_one_a_link_points_at() -> Result
+    {
+        let w = world(true, vec![], |_| vec![]).await?;
+        w.bots.set(&w.spade.engine);
+        let workspace = w.workspaces.of(&w.bot)?.path()?;
+        repository(&workspace.join("app"), "fix.txt")?;
+        // The bot's repository whose objects are a link to the person's private one.
+        let private = w.home.join("code/private");
+        repository(&private, "SECRET.txt")?;
+        repository(&workspace.join("linked"), "decoy.txt")?;
+        let objects = workspace.join("linked/.git/objects");
+        std::fs::remove_dir_all(&objects)?;
+        std::os::unix::fs::symlink(private.join(".git/objects"), &objects)?;
+        let data = w.home.parent().map(|r| r.join("data")).unwrap_or_default();
+        let host = Arc::new(HostLog::default());
+        let tools = spade_server::tools::outward::outward_tools(
+            w.workspaces.clone(),
+            w.bots.clone(),
+            host.clone(),
+            Arc::new(spade_server::tools::outward::SandboxStage::new(
+                w.shell.clone(),
+            )),
+            data.join("outward"),
+        );
+        let push = tools
+            .iter()
+            .find(|t| t.def().spec.name == "git_push")
+            .ok_or("no git_push")?;
+        let key = format!("{}.c1", w.conversation);
+        let out = push
+            .run(
+                &key,
+                json!({ "repo": "acme/app", "branch": "main", "path": "linked" }),
+            )
+            .await;
+        assert!(
+            out.is_error && out.content.contains("link"),
+            "{}",
+            out.content
+        );
+        assert!(host.0.lock().map(|l| l.is_empty()).unwrap_or(false));
+        let out = push
+            .run(
+                &key,
+                json!({ "repo": "acme/app", "branch": "main", "path": "app" }),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let log = host.0.lock().map(|l| l.clone()).unwrap_or_default();
+        let fetch = log.iter().find(|a| a.iter().any(|w| w == "fetch")).cloned();
+        assert!(
+            fetch.is_some_and(|a| a.iter().any(|w| w.ends_with("push.bundle"))),
+            "{log:?}"
+        );
         Ok(())
     }
 }

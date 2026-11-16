@@ -119,6 +119,44 @@ fit in a table.
    events, grants and settings read unchanged. A bot's stored network policy that equals the
    built-in default reads as inheriting the machine's, since every earlier build wrote one.
 
+## Amendment 1: what the security reviews changed (2026-11-16)
+
+Two security reviews of the first build found rules that a server's hints, a link or a repository's
+settings could get around. These replace the matching parts of decisions 2 and 3.
+
+- **Trusted declarations are a minimum.** Spade's table, a catalogue entry and a manifest the
+  person accepted say the least a tool does. MCP hints can only raise it (a tool not marked
+  read-only is at least `network`), never lower it. A catalogue entry's `every_tool` (formerly
+  `writes`) covers every tool of the app, read-only or not, so a Stripe tool marked read-only
+  still pays. A connector or plugin tool with no trusted declaration is undeclared whatever its
+  hints say: the person decides once, and no grant covers it.
+- **Unknown words are kept.** A declared word this build doesn't know is the effect `unknown`:
+  the person decides each call, unless their Always allow covers it, and nothing grants it.
+- **Driving a page or app is the person's.** An ace `browser_*`, `screen_*` or `sim_*` call ace
+  doesn't mark read-only (a click, typing, a key, a submit) is the effect `drive`: until ace
+  reports what a step did, it goes to the person unless their Always allow for that tool covers
+  it, and nothing grants it. The purchase-button word list is gone. Snapshots, screenshots and
+  reads stay `read`.
+- **Person-only effects come first.** A secret is refused, and `pay`, `send_as_person`, `drive`,
+  `change_access` and `unknown` go to the person, before anything about where the call runs is
+  read. A sandboxed call whose checkpoint couldn't be taken is reviewed with that said, after
+  those rules, not handed to the shell classifier.
+- **Generic grants cover only declared tools.** A `tool` grant is refused at creation, and
+  ignored at the gate, for a tool that declares nothing or could pay, send, drive, change access
+  or read secrets.
+- **A repository is known by its host.** Its identity is `host/owner/name` (`owner/name` means
+  GitHub). Push and comment grants match the host too; one written as `owner/name` means GitHub.
+  The request's line names where it goes ("It pushes to github.com/acme/app, branch main with
+  your sign-in, so you decide.").
+- **`git_push` reads the repository only through the sandbox.** Inside the bot's sandbox, a fixed
+  script refuses a `.git` that is or holds a link or an alternates file, reads the remote's URL
+  as stored (the repository's `insteadOf` and `pushInsteadOf` never apply) and writes a bundle of
+  the branch into a fresh folder of Spade's that only that run may write. On the host, Spade
+  fetches that bundle (a regular file nothing of the bot's can reach once the run ended) into a
+  clean repository, adds the URL as a remote, and pushes only when the destination git reports
+  after the person's own URL rewriting has the host and name the call named. Without a sandbox
+  on the machine, `git_push` doesn't run; a push there is a reviewed shell command.
+
 ## Options considered
 
 - **Better word lists.** Each fix moved a miss somewhere else, and two lists that disagree still

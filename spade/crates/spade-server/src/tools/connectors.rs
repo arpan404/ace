@@ -93,22 +93,28 @@ impl Tool for ConnectorCall {
         self.def.clone()
     }
 
-    /// Its annotations, unless its catalogue entry declares what it does (ADR 0171).
+    /// What its catalogue entry declares, raised by its annotations (ADR 0171): with no entry
+    /// for it, a connector's tool, which holds the person's sign-in, declares nothing.
     fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
         let entry = self
             .tool
             .catalogue
             .as_deref()
             .and_then(|id| self.hub.catalogue().iter().find(|entry| entry.id == id));
-        spade_core::effect::mcp(spade_core::effect::Mcp {
+        use spade_core::effect::{Effect, Mcp, mcp};
+        // The catalogue's word for this tool, and for every tool of the app: the least it does.
+        let declared = [
+            entry.and_then(|entry| entry.effects.get(&self.tool.tool.name)),
+            entry.and_then(|entry| entry.every_tool.as_ref()),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(Effect::declared)
+        .max();
+        mcp(Mcp {
             read_only: self.def.risk == Risk::Read,
             annotated: self.tool.tool.annotated,
-            declared: entry
-                .and_then(|entry| entry.effects.get(&self.tool.tool.name))
-                .and_then(spade_core::effect::Effect::declared),
-            writes: entry
-                .and_then(|entry| entry.writes.as_deref())
-                .and_then(spade_core::effect::Effect::parse),
+            declared,
         })
     }
 
@@ -145,19 +151,25 @@ mod tests {
         use spade_core::effect::Effect;
         let mut declared = 0;
         for entry in spade_connect::catalogue::shipped() {
-            if let Some(word) = &entry.writes {
-                assert!(Effect::parse(word).is_some(), "{}: {word}", entry.id);
+            if let Some(said) = &entry.every_tool {
+                let read = Effect::declared(said);
+                assert!(read.is_some_and(|e| e != Effect::Unknown), "{}", entry.id);
                 declared += 1;
             }
             for (tool, said) in &entry.effects {
-                assert!(Effect::declared(said).is_some(), "{}: {tool}", entry.id);
+                let read = Effect::declared(said);
+                assert!(
+                    read.is_some_and(|e| e != Effect::Unknown),
+                    "{}: {tool}",
+                    entry.id
+                );
                 declared += 1;
             }
         }
-        // Payments apps' writes pay, so they reach the person rather than the reviewer.
+        // Every tool of a payments app pays, so they reach the person rather than the reviewer.
         let pays = |id: &str| {
             spade_connect::catalogue::shipped().iter().any(|e| {
-                e.id == id && e.writes.as_deref().and_then(Effect::parse) == Some(Effect::Pay)
+                e.id == id && e.every_tool.as_ref().and_then(Effect::declared) == Some(Effect::Pay)
             })
         };
         assert!(pays("stripe") && pays("paypal") && pays("square"));

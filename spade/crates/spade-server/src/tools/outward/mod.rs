@@ -19,27 +19,32 @@ use spade_models::ToolSpec;
 
 use super::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
 use crate::workspace::Workspaces;
+pub use git::{SandboxStage, Stage, StageFuture, Staged, Staging};
 pub use host::{Host, HostError, HostFuture, HostRan, Launch, SystemHost};
 
 /// What the outward tools share.
 #[derive(Clone)]
 struct Outward {
     host: Arc<dyn Host>,
+    /// Bundles a push inside the bot's sandbox.
+    stage: Arc<dyn Stage>,
     workspaces: Workspaces,
     bots: EngineHandle,
     /// Spade's folder for the clean repositories and scripts each call makes.
     scratch: PathBuf,
 }
 
-/// The four tools, started through `host`.
+/// The four tools, started through `host`, a push staged through `stage`.
 pub fn outward_tools(
     workspaces: Workspaces,
     bots: EngineHandle,
     host: Arc<dyn Host>,
+    stage: Arc<dyn Stage>,
     scratch: PathBuf,
 ) -> Vec<Arc<dyn Tool>> {
     let shared = Outward {
         host,
+        stage,
         workspaces,
         bots,
         scratch,
@@ -64,13 +69,13 @@ fn spec(name: &str) -> (&'static str, Value) {
     match name {
         GIT_PUSH => (
             "Pushes one branch of a git repository in your workspace to its remote, with the \
-             person's sign-in (commands in the sandbox can't). repo is the remote's owner/name, \
-             which the remote's URL must match; remote defaults to origin; path is the \
-             repository's folder in your workspace. The person decides unless they granted \
+             person's sign-in (commands in the sandbox can't). repo is the remote's \
+             host/owner/name (owner/name for GitHub), which the remote's URL must match; remote \
+             defaults to origin; path is the repository's folder in your workspace. The person decides unless they granted \
              pushes to that branch. Never force-pushes.",
             json!({ "type": "object",
                     "properties": {
-                        "repo": { "type": "string", "description": "owner/name" },
+                        "repo": { "type": "string", "description": "host/owner/name, or owner/name on GitHub" },
                         "branch": { "type": "string" },
                         "remote": { "type": "string" },
                         "path": { "type": "string" } },
@@ -85,7 +90,7 @@ fn spec(name: &str) -> (&'static str, Value) {
             },
             json!({ "type": "object",
                     "properties": {
-                        "repo": { "type": "string", "description": "owner/name" },
+                        "repo": { "type": "string", "description": "host/owner/name, or owner/name on GitHub" },
                         "number": { "type": "integer", "minimum": 1 },
                         "body": { "type": "string" } },
                     "required": ["repo", "number", "body"] }),
@@ -137,7 +142,10 @@ impl Tool for OutwardTool {
                         .and_then(|bot| shared.workspaces.of(&bot).map_err(|e| e.to_string()))
                         .and_then(|workspace| workspace.path().map_err(|e| e.to_string()));
                     match workspace {
-                        Ok(workspace) => git::push(host, &workspace, &shared.scratch, args).await,
+                        Ok(workspace) => {
+                            let stage = shared.stage.as_ref();
+                            git::push(host, stage, &workspace, &shared.scratch, args).await
+                        }
                         Err(why) => ToolOutput::error(why),
                     }
                 }

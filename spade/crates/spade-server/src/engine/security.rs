@@ -50,21 +50,30 @@ impl Engine {
         };
         let grants = security.effective_grants(&agent);
         let text = |name: &str| arguments.get(name).and_then(Value::as_str).unwrap_or("");
-        let typed = match tool {
-            effect::GIT_PUSH => Some(Action::GitPush {
-                repo: text("repo"),
-                branch: text("branch"),
-            }),
-            effect::PR_COMMENT => Some(Action::PrComment {
-                repo: text("repo"),
-                own: false,
-            }),
-            _ => None,
-        };
-        if let Some(action) = typed {
-            let covered = !text("repo").is_empty() && spade_core::grant::allowed(&grants, &action);
-            return if covered { Granted::Typed } else { Granted::No };
+        // Pushes and comments are matched by their canonical destination, host included.
+        if matches!(tool, effect::GIT_PUSH | effect::PR_COMMENT) {
+            let Ok(repo) = spade_core::outward::canonical_repo(text("repo")) else {
+                return Granted::No;
+            };
+            let action = if tool == effect::GIT_PUSH {
+                Action::GitPush {
+                    repo: &repo,
+                    branch: text("branch"),
+                }
+            } else {
+                Action::PrComment {
+                    repo: &repo,
+                    own: false,
+                }
+            };
+            return if spade_core::grant::allowed(&grants, &action) {
+                Granted::Typed
+            } else {
+                Granted::No
+            };
         }
+        // A generic grant covers only a tool that declares what it does, and never one that
+        // could pay, send, drive a page or app, change access or read secrets.
         if effect::never_granted(declared).is_some() {
             return Granted::No;
         }

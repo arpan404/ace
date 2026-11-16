@@ -216,7 +216,7 @@ pub(super) async fn handle_calls(
                     let place = match classed.runs {
                         Runs::Host => Place::Host,
                         Runs::Sandbox if held => Place::Sandbox,
-                        Runs::Sandbox => Place::Unsandboxed(Class::Inside),
+                        Runs::Sandbox => Place::Unprotected,
                         Runs::AsksOutside => Place::AsksOutside,
                         Runs::Outside => Place::Unsandboxed(classed.class),
                     };
@@ -226,6 +226,7 @@ pub(super) async fn handle_calls(
                             .or_else(|| effect::remembered(owned, &name)),
                         (None, ..) => effect::remembered(events, &name),
                     };
+                    let target = spade_core::outward::target(&name, &arguments);
                     let route = effect::route(effect::Call {
                         tool: &name,
                         rule,
@@ -245,6 +246,7 @@ pub(super) async fn handle_calls(
                         fits: autonomy::fits_review(&arguments, &classed.shown),
                         granted: engine.granted(id, &name, &arguments, declared),
                         checkpointed: held && classed.runs == Runs::Host,
+                        target: target.as_deref(),
                     });
                     // A command the gate sends outside the sandbox runs there, and only it.
                     let outside = classed.runs == Runs::Outside;

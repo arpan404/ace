@@ -31,11 +31,12 @@ pub(super) async fn comment(
     on: On,
     args: CommentArgs,
 ) -> ToolOutput {
-    let checked = outward::repo(&args.repo)
-        .and_then(|()| outward::body(&args.body))
-        .and_then(|()| outward::number(&args.number));
-    let number = match checked {
-        Ok(number) => number,
+    let checked = outward::canonical_repo(&args.repo).and_then(|repo| {
+        outward::body(&args.body)?;
+        Ok((repo, outward::number(&args.number)?))
+    });
+    let (repo, number) = match checked {
+        Ok(checked) => checked,
         Err(why) => return ToolOutput::error(format!("Not sent: {why}.")),
     };
     let scratch = match Scratch::new(scratch_root) {
@@ -54,7 +55,7 @@ pub(super) async fn comment(
                 "comment".to_owned(),
                 number.to_string(),
                 "--repo".to_owned(),
-                args.repo.clone(),
+                repo.clone(),
                 "--body-file".to_owned(),
                 "-".to_owned(),
             ],
@@ -64,8 +65,7 @@ pub(super) async fn comment(
         .await;
     match ran {
         Ok(ran) if ran.ok() => ToolOutput::ok(format!(
-            "Commented on {}#{number}. {}",
-            args.repo,
+            "Commented on {repo}#{number}. {}",
             ran.stdout.trim()
         )),
         Ok(ran) => ToolOutput::error(format!("Not sent: {}", ran.said())),
@@ -74,9 +74,8 @@ pub(super) async fn comment(
              it and sign in with gh auth login."
         )),
         Err(HostError::Unknown(why)) => ToolOutput::maybe_ran(format!(
-            "The comment may or may not have been posted on {}#{number}: {why}. Check before \
-             sending it again.",
-            args.repo
+            "The comment may or may not have been posted on {repo}#{number}: {why}. Check \
+             before sending it again."
         )),
     }
 }

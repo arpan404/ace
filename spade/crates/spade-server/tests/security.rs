@@ -479,7 +479,7 @@ async fn deleting_a_bot_forgets_its_grants_log_and_checkpoints() -> Result {
         .spade
         .post(
             &format!("/v1/agents/{}/grants", w.bot),
-            json!({"kind": "tool", "tool": "preview_deploy"}),
+            json!({"kind": "git_push", "repo": "acme/app", "branch": "spade/*"}),
         )
         .await?;
     assert_eq!(status, 201);

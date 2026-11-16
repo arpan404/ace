@@ -109,7 +109,7 @@
       "sign_in": ["oauth"],
       "notes": "Live accounts. The sandbox server is https://mcp.sandbox.paypal.com/http",
       "source": "https://developer.paypal.com/tools/mcp-server/",
-      "writes": "pay"
+      "every_tool": "pay"
     },
     {
       "id": "sentry",
@@ -126,7 +126,7 @@
       "sign_in": ["oauth"],
       "notes": "Production data only.",
       "source": "https://developer.squareup.com/docs/mcp",
-      "writes": "pay"
+      "every_tool": "pay"
     },
     {
       "id": "stripe",
@@ -135,7 +135,7 @@
       "sign_in": ["oauth", "token"],
       "notes": "For a key, use an agent API key: from December 2026 Stripe refuses plain secret keys here.",
       "source": "https://docs.stripe.com/mcp",
-      "writes": "pay"
+      "every_tool": "pay"
     },
     {
       "id": "supabase",

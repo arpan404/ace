@@ -302,6 +302,9 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
         Arc::new(spade_server::tools::outward::SystemHost),
+        Arc::new(spade_server::tools::outward::SandboxStage::new(
+            shell.clone(),
+        )),
         home.dir.join("outward"),
     ));
     core.extend(spade_server::media::tools::all(

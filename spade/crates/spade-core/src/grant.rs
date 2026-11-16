@@ -49,7 +49,17 @@ pub struct Grant {
 /// Who made a grant.
 pub const BY_PERSON: &str = "person";
 
-/// Something a bot is about to do, as grants are checked against it.
+/// A repository pattern with its host: one written as `owner/name` is on GitHub (ADR 0171,
+/// amendment 1). The host is matched in lower case, like the canonical destination.
+fn on_host(pattern: &str) -> String {
+    match pattern.split_once('/') {
+        Some((host, rest)) if rest.contains('/') => format!("{}/{rest}", host.to_ascii_lowercase()),
+        _ => format!("{}/{pattern}", crate::outward::DEFAULT_HOST),
+    }
+}
+
+/// Something a bot is about to do, as grants are checked against it. A push's or comment's
+/// `repo` is canonical, `host/owner/name` (`outward::canonical_repo`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action<'a> {
     GitPush { repo: &'a str, branch: &'a str },
@@ -62,10 +72,10 @@ pub enum Action<'a> {
 pub fn covers(scope: &Scope, action: &Action<'_>) -> bool {
     match (scope, action) {
         (Scope::GitPush { repo, branch }, Action::GitPush { repo: r, branch: b }) => {
-            glob(repo, r) && glob(branch, b)
+            glob(&on_host(repo), r) && glob(branch, b)
         }
         (Scope::PrComment { repo, own_only }, Action::PrComment { repo: r, own }) => {
-            glob(repo, r) && (!own_only || *own)
+            glob(&on_host(repo), r) && (!own_only || *own)
         }
         (Scope::Folder { path, write }, Action::Folder { path: p, write: w }) => {
             inside(p, path) && (*write || !w)
@@ -104,14 +114,14 @@ pub fn within(child: &Scope, parent: &Scope) -> bool {
                 repo: pr,
                 branch: pb,
             },
-        ) => narrower(repo, pr) && narrower(branch, pb),
+        ) => narrower(&on_host(repo), &on_host(pr)) && narrower(branch, pb),
         (
             Scope::PrComment { repo, own_only },
             Scope::PrComment {
                 repo: pr,
                 own_only: po,
             },
-        ) => narrower(repo, pr) && (*own_only || !po),
+        ) => narrower(&on_host(repo), &on_host(pr)) && (*own_only || !po),
         (
             Scope::Folder { path, write },
             Scope::Folder {
@@ -289,15 +299,15 @@ mod tests {
     fn a_push_grant_covers_only_its_branches_of_its_repos() {
         let scope = push("arpan404/*", "spade/*");
         let can = |repo, branch| covers(&scope, &Action::GitPush { repo, branch });
-        assert!(can("arpan404/ace", "spade/fix-login"));
-        assert!(!can("arpan404/ace", "main"));
-        assert!(!can("arpan404/ace", "spade/a/b"));
-        assert!(!can("someone/ace", "spade/x"));
+        assert!(can("github.com/arpan404/ace", "spade/fix-login"));
+        assert!(!can("github.com/arpan404/ace", "main"));
+        assert!(!can("github.com/arpan404/ace", "spade/a/b"));
+        assert!(!can("github.com/someone/ace", "spade/x"));
         let deep = push("arpan404/ace", "spade/**");
         assert!(covers(
             &deep,
             &Action::GitPush {
-                repo: "arpan404/ace",
+                repo: "github.com/arpan404/ace",
                 branch: "spade/a/b"
             }
         ));
@@ -313,7 +323,7 @@ mod tests {
             covers(
                 &scope,
                 &Action::PrComment {
-                    repo: "arpan404/ace",
+                    repo: "github.com/arpan404/ace",
                     own,
                 },
             )
@@ -439,5 +449,43 @@ mod tests {
             serde_json::from_value(stored.clone()).unwrap_or_else(|_| grant(push("", "")));
         assert_eq!(grant.scope, push("a/b", "spade/*"));
         assert_eq!(serde_json::to_value(&grant).unwrap_or_default(), stored);
+    }
+
+    #[test]
+    fn a_push_or_comment_grant_names_the_host_its_repository_is_on() {
+        // Written without a host, a grant means GitHub; the destination is always canonical.
+        let cases = [
+            ("acme/*", "github.com/acme/app", true),
+            ("acme/*", "attacker.example/acme/app", false),
+            ("github.com/acme/*", "github.com/acme/app", true),
+            ("attacker.example/acme/*", "attacker.example/acme/app", true),
+            ("attacker.example/acme/*", "github.com/acme/app", false),
+        ];
+        for (pattern, repo, expected) in cases {
+            let push = covers(
+                &push(pattern, "spade/*"),
+                &Action::GitPush {
+                    repo,
+                    branch: "spade/x",
+                },
+            );
+            assert_eq!(push, expected, "{pattern} {repo}");
+            let comment = covers(
+                &Scope::PrComment {
+                    repo: pattern.to_owned(),
+                    own_only: false,
+                },
+                &Action::PrComment { repo, own: false },
+            );
+            assert_eq!(comment, expected, "{pattern} {repo}");
+        }
+        assert!(within(
+            &push("github.com/acme/app", "spade/*"),
+            &push("acme/*", "spade/*")
+        ));
+        assert!(!within(
+            &push("attacker.example/acme/app", "spade/*"),
+            &push("acme/*", "spade/*")
+        ));
     }
 }

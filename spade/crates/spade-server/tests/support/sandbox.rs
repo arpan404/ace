@@ -56,6 +56,12 @@ pub struct World {
     pub home: PathBuf,
     pub conversation: String,
     pub bot: String,
+    /// The bots' shell, confined by the world's security service.
+    pub shell: Shell,
+    /// Where the bots' workspaces are.
+    pub workspaces: Workspaces,
+    /// The engine, for tools a test builds itself.
+    pub bots: EngineHandle,
 }
 
 /// Where a world's files are, for the scripts that name them.
@@ -123,6 +129,7 @@ async fn world_with(
     let late = Arc::new(Late::default());
     let bots = EngineHandle::default();
     let shell = Shell::system().confined(late.clone());
+    let kept = (shell.clone(), workspaces.clone(), bots.clone());
     let commands = if terminal {
         let terminals = spade_server::computer::Terminals::new(
             data.join("terminal"),
@@ -171,6 +178,9 @@ async fn world_with(
         security,
         _dir: dir,
         home,
+        shell: kept.0,
+        workspaces: kept.1,
+        bots: kept.2,
     })
 }
 

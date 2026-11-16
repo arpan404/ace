@@ -138,11 +138,14 @@ impl Tool for FakeTool {
     fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
         use spade_core::effect::{Mcp, builtin, mcp};
         match self.app {
+            // An app tool its catalogue entry declares (as a write outside the box unless the
+            // test says more); one that sends no annotations has no entry either.
             Some(annotated) => mcp(Mcp {
                 read_only: self.def.risk == Risk::Read,
                 annotated,
-                declared: self.declared,
-                writes: None,
+                declared: self
+                    .declared
+                    .or(annotated.then_some(spade_core::effect::Effect::Network)),
             }),
             // A fake of Spade's own that isn't in its table acts outside the box, so it is
             // reviewed; tests of undeclared tools use `unannotated_app`.

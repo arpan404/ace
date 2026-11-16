@@ -58,6 +58,58 @@ pub fn remote(text: &str) -> Result<(), String> {
     }
 }
 
+/// The host a repository named without one is on.
+pub const DEFAULT_HOST: &str = "github.com";
+
+/// A repository's canonical identity, `host/owner/name` with the host in lower case: what grants,
+/// request lines and the push's destination are compared by. `owner/name` is on [`DEFAULT_HOST`].
+pub fn canonical_repo(text: &str) -> Result<String, String> {
+    let parts: Vec<&str> = text.split('/').collect();
+    let (host, owner_name) = match parts.as_slice() {
+        [owner, name] => (DEFAULT_HOST.to_owned(), format!("{owner}/{name}")),
+        [host, owner, name] => (host.to_ascii_lowercase(), format!("{owner}/{name}")),
+        _ => return Err(format!("{text} isn't a repository as host/owner/name")),
+    };
+    if !valid_host(&host) {
+        return Err(format!("{text} isn't a repository as host/owner/name"));
+    }
+    repo(&owner_name)?;
+    Ok(format!("{host}/{owner_name}"))
+}
+
+/// A remote's canonical identity, as [`canonical_repo`] gives it, compared case-insensitively.
+pub fn same_destination(remote: &Remote, canonical: &str) -> bool {
+    format!("{}/{}", remote.host, remote.repo).eq_ignore_ascii_case(canonical)
+}
+
+fn valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && !host.starts_with(['-', '.'])
+        && host.contains('.')
+        && host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.'))
+}
+
+/// Where a typed send or push goes, for the person's request line: `host/owner/name` for a push,
+/// `host/owner/name#7` for a comment, the recipient for a message.
+pub fn target(tool: &str, arguments: &serde_json::Value) -> Option<String> {
+    use crate::effect::{GIT_PUSH, ISSUE_COMMENT, PR_COMMENT, SEND_MESSAGE};
+    let text = |name: &str| arguments.get(name).and_then(serde_json::Value::as_str);
+    match tool {
+        GIT_PUSH => {
+            let repo = canonical_repo(text("repo")?).ok()?;
+            Some(format!("{repo}, branch {}", text("branch")?))
+        }
+        PR_COMMENT | ISSUE_COMMENT => {
+            let repo = canonical_repo(text("repo")?).ok()?;
+            Some(format!("{repo}#{}", number(arguments.get("number")?).ok()?))
+        }
+        SEND_MESSAGE => text("to").map(str::to_owned),
+        _ => None,
+    }
+}
+
 /// Where a remote's URL points: its host and its `owner/name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Remote {
@@ -95,11 +147,7 @@ pub fn remote_url(url: &str) -> Result<Remote, String> {
     } else {
         return refused();
     };
-    let valid_host = !host.is_empty()
-        && !host.starts_with('-')
-        && host
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.'));
+    let valid_host = valid_host(host);
     let name = path.trim_matches('/').trim_end_matches(".git");
     if !valid_host || repo(name).is_err() {
         return refused();
@@ -108,11 +156,6 @@ pub fn remote_url(url: &str) -> Result<Remote, String> {
         host: host.to_ascii_lowercase(),
         repo: name.to_owned(),
     })
-}
-
-/// Whether a remote is the repository the call names, by `owner/name` (any case).
-pub fn same_repo(remote: &Remote, named: &str) -> bool {
-    remote.repo.eq_ignore_ascii_case(named)
 }
 
 /// A pull request or issue number.
@@ -197,8 +240,8 @@ mod tests {
         ] {
             assert!(remote_url(url).is_err(), "{url}");
         }
-        let found = remote_url("https://github.com/Acme/App.git").ok();
-        assert!(found.is_some_and(|r| same_repo(&r, "acme/app")));
+        let found = remote_url("https://GitHub.com/Acme/App.git").ok();
+        assert!(found.is_some_and(|r| same_destination(&r, "github.com/acme/app")));
     }
 
     #[test]
@@ -240,5 +283,35 @@ mod tests {
         assert!(recipient("me@example.com").is_ok());
         assert!(recipient("-e").is_err());
         assert!(recipient("a\nb").is_err());
+    }
+
+    #[test]
+    fn a_repository_is_known_by_its_host_as_well_as_its_name() {
+        let cases = [
+            ("acme/app", Ok("github.com/acme/app")),
+            ("GitHub.com/acme/app", Ok("github.com/acme/app")),
+            ("attacker.example/acme/app", Ok("attacker.example/acme/app")),
+            ("acme", Err(())),
+            ("-x.com/acme/app", Err(())),
+            ("localhost/acme/app", Err(())),
+            ("a/b/c/d", Err(())),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(
+                canonical_repo(text).map_err(|_| ()),
+                expected.map(str::to_owned),
+                "{text}"
+            );
+        }
+        let elsewhere = remote_url("https://attacker.example/acme/app.git");
+        assert!(elsewhere.is_ok_and(|r| !same_destination(&r, "github.com/acme/app")));
+        let target = target(
+            crate::effect::GIT_PUSH,
+            &serde_json::json!({"repo": "acme/app", "branch": "spade/fix"}),
+        );
+        assert_eq!(
+            target.as_deref(),
+            Some("github.com/acme/app, branch spade/fix")
+        );
     }
 }

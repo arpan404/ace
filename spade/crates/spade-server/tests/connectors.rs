@@ -220,6 +220,11 @@ async fn a_bot_finds_and_runs_only_the_connectors_it_is_allowed() -> Result {
 
     let main = main_conversation(&spade).await?;
     spade.say(&main, "Echo something").await?;
+    // A connector added by URL has no catalogue entry, so its tool declares nothing: the person
+    // decides once for this bot (ADR 0171, amendment 1), its read-only hint notwithstanding.
+    let events = spade.wait_for(&main, "approval_requested").await?;
+    assert_eq!(asked(&events, "c2")["ask"], "undeclared");
+    answer(&spade, &main, "c2").await?;
     let events = spade.wait_for(&main, "reply_finished").await?;
     assert!(result(&events, "c1")?.contains("127-0-0-1__echo: Fake: echo in the fake app"));
     assert_eq!(result(&events, "c2")?, "from spade");
@@ -247,7 +252,12 @@ async fn a_bot_finds_and_runs_only_the_connectors_it_is_allowed() -> Result {
         .await?;
     assert_eq!(status, 200, "{allowed}");
     spade.say(&conversation, "Try again").await?;
-    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    // Another bot is asked for itself.
+    spade.wait_for(&conversation, "approval_requested").await?;
+    answer(&spade, &conversation, "c5").await?;
+    let events = spade
+        .wait_for_count(&conversation, "approval_requested", 2)
+        .await?;
     assert_eq!(result(&events, "c5")?, "allowed now");
     assert_eq!(
         app.tool_runs(),
@@ -269,6 +279,24 @@ async fn a_bot_finds_and_runs_only_the_connectors_it_is_allowed() -> Result {
         ))
         .await?;
     assert_eq!(everything["all"], true);
+    Ok(())
+}
+
+fn asked<'a>(events: &'a [Value], call: &str) -> &'a Value {
+    events
+        .iter()
+        .find(|e| e["type"] == "approval_requested" && e["call_id"] == call)
+        .unwrap_or(&Value::Null)
+}
+
+async fn answer(spade: &Spade, conversation: &str, call: &str) -> Result {
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/{call}"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
     Ok(())
 }
 
@@ -303,7 +331,7 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
                 via: None,
                 local: true,
                 effects: Default::default(),
-                writes: None,
+                every_tool: None,
             }],
             apps: vec![spade_connect::App {
                 connector: "fake".into(),
@@ -373,7 +401,7 @@ async fn spade_with_cloud(
                 via: Some(spade_connect::Via::Cloud),
                 local: true,
                 effects: Default::default(),
-                writes: None,
+                every_tool: None,
             }],
             cloud: Some(spade_connect::Cloud {
                 url: cloud.url(),

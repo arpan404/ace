@@ -184,7 +184,7 @@ async fn only_connectors_the_person_granted_and_has_connected_are_on() -> Result
                 via: None,
                 local: true,
                 effects: Default::default(),
-                writes: None,
+                every_tool: None,
             }],
             ..Options::default()
         },

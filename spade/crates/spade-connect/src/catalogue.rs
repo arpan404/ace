@@ -43,14 +43,14 @@ pub struct Entry {
     /// servers never are; tests set it to point an entry at a fake app on 127.0.0.1.
     #[serde(skip)]
     pub local: bool,
-    /// What its tools do (ADR 0171), by the server's own tool name: an effect word
-    /// (`send_as_person`, `pay`, `publish`…) or a list of them. Wins over the tool's annotations.
+    /// What its tools do at least (ADR 0171), by the server's own tool name: an effect word
+    /// (`send_as_person`, `pay`, `publish`…) or a list of them. The tool's annotations can
+    /// raise it, never lower it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub effects: BTreeMap<String, Value>,
-    /// What every tool of the app that isn't read-only does (`pay` for a payments app), unless
-    /// `effects` names the tool.
+    /// What every tool of the app does at least (`pay` for a payments app), read-only or not.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub writes: Option<String>,
+    pub every_tool: Option<Value>,
 }
 
 #[derive(Deserialize)]

@@ -119,7 +119,6 @@ impl Tool for PluginCall {
             read_only: self.def.risk == Risk::Read,
             annotated: self.tool.annotated,
             declared: self.server.declared(&self.tool.name),
-            writes: None,
         })
     }
 

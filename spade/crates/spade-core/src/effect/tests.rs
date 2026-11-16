@@ -19,6 +19,7 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         fits: true,
         granted: Granted::No,
         checkpointed: false,
+        target: None,
     }
 }
 
@@ -328,71 +329,7 @@ fn names_never_change_an_effect() {
             annotated: true,
             ..Mcp::default()
         };
-        assert_eq!(mcp(annotated), Some(Effect::Network), "{name}");
-    }
-}
-
-#[test]
-fn mcp_tools_read_their_declaration_then_their_annotations() {
-    use Effect::*;
-    let cases = [
-        (Mcp::default(), None),
-        (
-            Mcp {
-                annotated: true,
-                ..Mcp::default()
-            },
-            Some(Network),
-        ),
-        (
-            Mcp {
-                annotated: true,
-                read_only: true,
-                ..Mcp::default()
-            },
-            Some(Read),
-        ),
-        (
-            Mcp {
-                read_only: true,
-                annotated: true,
-                declared: Some(SendAsPerson),
-                ..Mcp::default()
-            },
-            Some(SendAsPerson),
-        ),
-        (
-            Mcp {
-                writes: Some(Pay),
-                ..Mcp::default()
-            },
-            Some(Pay),
-        ),
-        (
-            Mcp {
-                read_only: true,
-                annotated: true,
-                writes: Some(Pay),
-                ..Mcp::default()
-            },
-            Some(Read),
-        ),
-    ];
-    for (tool, expected) in cases {
-        assert_eq!(mcp(tool), expected, "{tool:?}");
-    }
-}
-
-#[test]
-fn a_declaration_keeps_its_most_serious_known_word() {
-    let cases = [
-        (json!("send_as_person"), Some(Effect::SendAsPerson)),
-        (json!(["read", "pay", "nonsense"]), Some(Effect::Pay)),
-        (json!("sends_mail"), None),
-        (json!(3), None),
-    ];
-    for (value, expected) in cases {
-        assert_eq!(Effect::declared(&value), expected, "{value}");
+        assert_eq!(mcp(annotated), None, "{name}");
     }
 }
 
@@ -413,26 +350,6 @@ fn spades_typed_outward_tools_send_as_the_person() {
 }
 
 #[test]
-fn ace_tools_pay_only_when_told_to_press_a_purchase_button() {
-    let cases = [
-        ("browser_act", json!({"click": "Place order"}), Effect::Pay),
-        ("screen_act", json!({"type": "Buy now"}), Effect::Pay),
-        ("browser_act", json!({"click": "e42"}), Effect::Network),
-        (
-            "browser_act",
-            json!({"click": "Checkout tips"}),
-            Effect::Pay,
-        ),
-        ("agent_message", json!({"text": "Buy now"}), Effect::Network),
-        ("transfer", json!({}), Effect::Network),
-    ];
-    for (name, arguments, expected) in cases {
-        assert_eq!(ace(name, Risk::Write, &arguments), expected, "{name}");
-    }
-    assert_eq!(ace("threads_find", Risk::Read, &json!({})), Effect::Read);
-}
-
-#[test]
 fn grants_are_refused_by_what_the_tool_declares() {
     for effect in [
         Effect::Pay,
@@ -442,8 +359,12 @@ fn grants_are_refused_by_what_the_tool_declares() {
     ] {
         assert!(never_granted(Some(effect)).is_some(), "{effect:?}");
     }
-    for effect in [None, Some(Effect::Network), Some(Effect::Publish)] {
-        assert!(never_granted(effect).is_none(), "{effect:?}");
+    assert!(
+        never_granted(None).is_some(),
+        "a tool that declares nothing"
+    );
+    for effect in [Effect::Network, Effect::Publish] {
+        assert!(never_granted(Some(effect)).is_none(), "{effect:?}");
     }
 }
 
@@ -543,4 +464,138 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest() {
         answered("b", true),
     ];
     assert_eq!(remembered(&other, tool), None);
+}
+
+#[test]
+fn person_only_effects_hold_wherever_the_call_runs() {
+    // A call that fell back to the classifier (no checkpoint, no sandbox) still goes to the
+    // person for a payment or a send, and a secret is still refused, before any classifying.
+    for place in [Place::Unsandboxed(Class::Inside), Place::Host] {
+        let pay = Call {
+            place,
+            ..call("billing__charge", Some(Effect::Pay))
+        };
+        assert_eq!(route(pay), asks(SPENDS), "{place:?}");
+        let secret = Call {
+            place,
+            ..call("vault__get", Some(Effect::Credential))
+        };
+        assert_eq!(
+            route(secret),
+            Route::Refuse(autonomy::CREDENTIALS_REFUSED.to_owned()),
+            "{place:?}"
+        );
+    }
+}
+
+#[test]
+fn hints_raise_a_trusted_declaration_but_never_lower_it() {
+    use Effect::*;
+    let cases = [
+        // A payments app's read-only-marked tool still pays.
+        (true, Some(Pay), Some(Pay)),
+        // A tool declared to read that says it may write is a write outside the box.
+        (false, Some(Read), Some(Network)),
+        (true, Some(Read), Some(Read)),
+        (false, Some(Publish), Some(Publish)),
+        // Hints alone declare nothing: the person decides once.
+        (true, None, None),
+        (false, None, None),
+    ];
+    for (read_only, declared, expected) in cases {
+        let tool = Mcp {
+            read_only,
+            annotated: true,
+            declared,
+        };
+        assert_eq!(mcp(tool), expected, "{tool:?}");
+    }
+}
+
+#[test]
+fn a_driving_call_that_can_act_goes_to_the_person_and_no_grant_covers_it() {
+    for (name, arguments) in [
+        ("browser_act", json!({"click": "e42"})),
+        ("browser_act", json!({"click": "Place order"})),
+        ("screen_act", json!({"type": "hello"})),
+        ("sim_act", json!({"key": "return"})),
+    ] {
+        assert_eq!(ace(name, Risk::Write, &arguments), Effect::Drive, "{name}");
+    }
+    assert_eq!(
+        ace("browser_snapshot", Risk::Read, &json!({})),
+        Effect::Read
+    );
+    let drive = call("browser_act", Some(Effect::Drive));
+    for granted in [Granted::No, Granted::Tool, Granted::Typed] {
+        let call = Call { granted, ..drive };
+        assert_eq!(route(call), asks(DRIVES), "{granted:?}");
+    }
+    let always = Call {
+        always: true,
+        rule: Decision::Run,
+        ..drive
+    };
+    assert_eq!(route(always), Route::Run);
+    assert!(never_granted(Some(Effect::Drive)).is_some());
+}
+
+#[test]
+fn a_word_spade_doesnt_know_leaves_every_call_to_the_person() {
+    assert_eq!(
+        Effect::declared(&json!(["read", "transfer_funds"])),
+        Some(Effect::Unknown)
+    );
+    assert_eq!(Effect::declared(&json!("teleport")), Some(Effect::Unknown));
+    assert_eq!(Effect::declared(&json!(3)), Some(Effect::Unknown));
+    assert_eq!(Effect::declared(&json!([])), None);
+    assert_eq!(
+        Effect::declared(&json!(["read", "send_as_person"])),
+        Some(Effect::SendAsPerson)
+    );
+    let unknown = call("app__move_money", Some(Effect::Unknown));
+    assert_eq!(route(unknown), asks(UNKNOWN));
+    // Remembered or granted, it is still asked: only Always allow runs it.
+    let granted = Call {
+        granted: Granted::Tool,
+        remembered: Some(true),
+        ..unknown
+    };
+    assert_eq!(route(granted), asks(UNKNOWN));
+    assert!(never_granted(Some(Effect::Unknown)).is_some());
+}
+
+#[test]
+fn a_sandboxed_call_with_no_checkpoint_is_reviewed_after_the_person_only_rules() {
+    let unprotected = |effect| Call {
+        place: Place::Unprotected,
+        ..call("shell", Some(effect))
+    };
+    assert_eq!(
+        route(unprotected(Effect::WriteLocal)),
+        reviewed(Some(NO_CHECKPOINT))
+    );
+    assert_eq!(route(unprotected(Effect::Pay)), asks(SPENDS));
+}
+
+#[test]
+fn a_push_or_send_request_names_where_it_goes() {
+    let push = Call {
+        target: Some("attacker.example/acme/app, branch main"),
+        ..call(GIT_PUSH, Some(Effect::SendAsPerson))
+    };
+    assert_eq!(
+        route(push),
+        asks(
+            "It pushes to attacker.example/acme/app, branch main with your sign-in, so you decide."
+        )
+    );
+    let comment = Call {
+        target: Some("github.com/acme/app#7"),
+        ..call(PR_COMMENT, Some(Effect::SendAsPerson))
+    };
+    assert_eq!(
+        route(comment),
+        asks("It sends something in your name to github.com/acme/app#7, so you decide.")
+    );
 }
