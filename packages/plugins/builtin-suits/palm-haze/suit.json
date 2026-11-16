@@ -5,6 +5,10 @@
   "description": "A sunset coast: plum dusk panels, flamingo-pink accents, palms swaying over the sea, neon art-deco hotels and a convertible cruising the boulevard.",
   "version": "1",
   "base": "ace",
+  "thumbnail": {
+    "light": "assets/thumbnail-light.webp",
+    "dark": "assets/thumbnail-dark.webp"
+  },
   "dark": {
     "canvas": "#110E16",
     "sidebar": "#0D0A11",
