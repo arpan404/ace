@@ -9,6 +9,13 @@ const html = (icon: Icon, props: Record<string, unknown> = {}) =>
   renderToStaticMarkup(createElement(icon, props));
 const doc = (markup: string) => new DOMParser().parseFromString(markup, "image/svg+xml");
 const lens = (page: Document) => page.querySelector("circle")?.outerHTML;
+/** How wide an icon's paths reach, from their x coordinates. */
+const drawnWidth = (icon: Icon) => {
+  const xs = [...doc(html(icon)).querySelectorAll("path")].flatMap((p) =>
+    (p.getAttribute("d")?.match(/-?\d*\.?\d+/g) ?? []).map(Number).filter((_, i) => i % 2 === 0),
+  );
+  return Math.max(...xs) - Math.min(...xs);
+};
 const caretStroke = (weight: IconWeight) =>
   Number(
     doc(html(icons.CaretDownIcon, { weight })).querySelector("path")?.getAttribute("stroke-width"),
@@ -107,6 +114,10 @@ describe("ace icons", () => {
       expect(down?.[i], `coordinate ${i}`).toBeCloseTo(mirrored);
     }
     expect(Math.max(...(up ?? []).filter((_, i) => i % 2 === 1))).toBeLessThan(12);
+  });
+
+  it("draws each of the picker's chevrons as wide as the single caret", () => {
+    expect(drawnWidth(icons.CaretUpDownIcon)).toBeCloseTo(drawnWidth(icons.CaretUpIcon));
   });
 
   it("draws zoom out as zoom in's lens and handle with only the level bar inside", () => {
