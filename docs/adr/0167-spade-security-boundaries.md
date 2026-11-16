@@ -173,7 +173,8 @@ filesystem and network isolation are both required.
      is still refused before anything runs.
    - **Checkpoints, then the review of inside work under taint.** Before a run that isn't
      reviewed, Spade snapshots the workspace (copy-on-write where the file system allows), at
-     most once a minute. It keeps the newest 20 for at most 7 days, under a size bound. The person
+     most once a minute. It keeps the newest 20 for at most 7 days (a size bound for volumes that can't clone
+     comes later). The person
      can list them, take one and restore one; a restore first snapshots the current state.
      Consented folders aren't snapshotted: they're the person's, often under their own version
      control, and a copy of a whole project per minute isn't bounded. Once checkpoints are in

@@ -30,6 +30,14 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/agents/{id}/security/egress", get(egress))
         .route("/agents/{id}/grants", get(grants).post(grant))
         .route("/agents/{id}/grants/{grant}", delete(revoke))
+        .route(
+            "/agents/{id}/checkpoints",
+            get(checkpoints).post(checkpoint),
+        )
+        .route(
+            "/agents/{id}/checkpoints/{checkpoint}/restore",
+            axum::routing::post(restore),
+        )
 }
 
 fn security(state: &AppState) -> Option<Arc<Security>> {
@@ -225,6 +233,62 @@ async fn revoke(
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => problem(StatusCode::NOT_FOUND, "there is no such grant"),
         Err(error) => failed(error),
+    })
+    .await
+}
+
+async fn checkpoints(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || match security.checkpoints(&id) {
+        Ok(list) => Json(json!({
+            "checkpoints": list,
+            "keep": crate::security::checkpoints::KEEP,
+            "longest_days": crate::security::checkpoints::LONGEST / (24 * 60 * 60 * 1000),
+            "every_seconds": crate::security::checkpoints::EVERY / 1000,
+        }))
+        .into_response(),
+        Err(error) => failed(error),
+    })
+    .await
+}
+
+async fn checkpoint(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || match security.take_checkpoint(&id, "person") {
+        Ok(taken) => (StatusCode::CREATED, Json(json!({"checkpoint": taken}))).into_response(),
+        Err(error) => failed(error),
+    })
+    .await
+}
+
+async fn restore(
+    State(state): State<AppState>,
+    Path((id, checkpoint)): Path<(String, String)>,
+) -> Response {
+    let Some(security) = security(&state) else {
+        return unavailable();
+    };
+    off_thread(move || {
+        // Never under a bot that is changing its files.
+        match state.engine.agent_view(&id) {
+            Ok(Some(view)) if view.state == crate::engine::State::Working => {
+                return problem(
+                    StatusCode::CONFLICT,
+                    "the bot is working; stop it before restoring a checkpoint",
+                );
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => return failed(SecurityError::NotFound),
+            Err(error) => return failed(SecurityError::Store(error.to_string())),
+        }
+        match security.restore_checkpoint(&id, &checkpoint) {
+            Ok(saved) => Json(json!({"restored": checkpoint, "saved": saved})).into_response(),
+            Err(error) => failed(error),
+        }
     })
     .await
 }

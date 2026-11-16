@@ -84,4 +84,13 @@ impl Confine for Security {
     fn contains(&self, home: &Path) -> bool {
         self.bot_of(home).is_some() && Security::contains(self)
     }
+
+    /// Before a run nobody reviews (a bot's command where the sandbox holds it), a checkpoint of
+    /// its workspace, at most once a minute (ADR 0167 decision 8). Plugins' runs don't take one.
+    fn before(&self, home: &Path, kind: &Kind) -> Option<Box<dyn FnOnce() + Send>> {
+        if matches!(kind, Kind::Plugin { .. }) || !Security::contains(self) {
+            return None;
+        }
+        self.checkpoint_due(&self.bot_of(home)?)
+    }
 }

@@ -74,6 +74,12 @@ pub trait Confine: Send + Sync {
 
     /// Whether a bot command with home `home` runs contained (files and network) on this machine.
     fn contains(&self, home: &Path) -> bool;
+
+    /// Blocking work to do before a run of `kind` with home `home` starts (a checkpoint of the
+    /// workspace, ADR 0167 decision 8); `None` when there is none.
+    fn before(&self, _home: &Path, _kind: &Kind) -> Option<Box<dyn FnOnce() + Send>> {
+        None
+    }
 }
 
 /// Wraps `program args` in a run's sandbox: the program and arguments to start instead.
@@ -270,7 +276,12 @@ impl Shell {
         // Before it starts, so everything of its group started after this.
         let spawned_us = platform::now_us();
         let confined = match &self.confine {
-            Some(confine) => confine.confine(home, &job.kind)?,
+            Some(confine) => {
+                if let Some(work) = confine.before(home, &job.kind) {
+                    let _ = tokio::task::spawn_blocking(work).await;
+                }
+                confine.confine(home, &job.kind)?
+            }
             None => None,
         };
         let mut environment = self.environment(home);

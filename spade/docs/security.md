@@ -135,24 +135,47 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
   credential read is refused first, as before.
 - `granted`: a grant covers the call (above).
 
-Nothing else changed: file writes under taint are still reviewed (checkpoints aren't built), and
-routines set up under taint, notes and outward calls keep their rules.
+`workspace_write` and `workspace_edit` count as contained too where the sandbox holds: a
+checkpoint is taken first when one is due, and they run without a review, untrusted content in
+view or not. What they write under taint still isn't trusted (workspace.md, Trust). Routines set
+up under taint, notes and outward calls keep their rules.
+
+## Checkpoints
+
+`security/checkpoints.rs`. A copy of the bot's workspace at `<data>/checkpoints/<bot>/<id>/`
+(`/bin/cp -c -R -p` on macOS, a clone on APFS, else a plain copy; `cp -a --reflink=auto` on
+Linux; none on Windows), its record `<id>.json` `{id, at, reason}` written once the copy is
+whole. A folder without a record is an unfinished copy and is removed when the list is read.
+`.spade/tmp` isn't kept. Taken:
+
+- `auto`: before a sandboxed bot command, terminal command or service, or a contained file write,
+  at most once a minute per bot (in memory, so a restart may take one sooner);
+- `person`: on `POST /agents/{id}/checkpoints`;
+- `before_restore`: just before a restore.
+
+Kept: the newest 20, none older than 7 days. A restore moves the workspace aside, copies the
+checkpoint in its place, and puts the old one back if the copy fails; it is refused (`409`) while
+the bot is working. Consented folders aren't copied. Files a restore brings back are trusted only
+where their content still matches the trust record.
 
 ## API
 
 Under `/v1`, with the bearer token. Only the person's API writes any of this; no bot tool does.
 
-| Method and path                            | Body                             | Answer                                                                                                                                                                                                          |
-| ------------------------------------------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /security`                            |                                  | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], toolchains_found: [path]}` |
-| `GET /agents/{id}/security`                |                                  | `{contained, network: Policy, plugin_network: Policy, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}`; `404` unknown bot                                      |
-| `PUT /agents/{id}/security/network`        | `{mode, allow?, dropped?}`       | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                 |
-| `PUT /agents/{id}/security/plugin-network` | `{mode, allow?, dropped?}`       | As above, for its plugins' hooks and servers                                                                                                                                                                    |
-| `PUT /agents/{id}/security/toolchains`     | `{toolchains: [path]}`           | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                        |
-| `GET /agents/{id}/security/egress`         | `?limit=` (1–5,000, default 200) | `{entries: [Entry]}`, oldest first                                                                                                                                                                              |
-| `GET /agents/{id}/grants`                  |                                  | `{grants: [Grant], effective: [Grant]}`                                                                                                                                                                         |
-| `POST /agents/{id}/grants`                 | `{kind, …scope}`                 | `201 {grant}`; `400` refused (why); `404` unknown bot                                                                                                                                                           |
-| `DELETE /agents/{id}/grants/{grant}`       |                                  | `204`; `404` no such grant                                                                                                                                                                                      |
+| Method and path                             | Body                             | Answer                                                                                                                                                                                                          |
+| ------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /security`                             |                                  | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], toolchains_found: [path]}` |
+| `GET /agents/{id}/security`                 |                                  | `{contained, network: Policy, plugin_network: Policy, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}`; `404` unknown bot                                      |
+| `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`       | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                 |
+| `PUT /agents/{id}/security/plugin-network`  | `{mode, allow?, dropped?}`       | As above, for its plugins' hooks and servers                                                                                                                                                                    |
+| `PUT /agents/{id}/security/toolchains`      | `{toolchains: [path]}`           | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                        |
+| `GET /agents/{id}/security/egress`          | `?limit=` (1–5,000, default 200) | `{entries: [Entry]}`, oldest first                                                                                                                                                                              |
+| `GET /agents/{id}/grants`                   |                                  | `{grants: [Grant], effective: [Grant]}`                                                                                                                                                                         |
+| `POST /agents/{id}/grants`                  | `{kind, …scope}`                 | `201 {grant}`; `400` refused (why); `404` unknown bot                                                                                                                                                           |
+| `DELETE /agents/{id}/grants/{grant}`        |                                  | `204`; `404` no such grant                                                                                                                                                                                      |
+| `GET /agents/{id}/checkpoints`              |                                  | `{checkpoints: [{id, at, reason}], keep: 20, longest_days: 7, every_seconds: 60}`, newest first                                                                                                                 |
+| `POST /agents/{id}/checkpoints`             |                                  | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                  |
+| `POST /agents/{id}/checkpoints/{c}/restore` |                                  | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                         |
 
 Settings are one stored setting per bot, `security:<bot id>`; a value that doesn't parse reads as
 the defaults. A change holds from the bot's next run.
@@ -180,11 +203,14 @@ Not built here. **Settings › Spade › Security** (the machine):
   access changes.
 - Network activity: the egress log, newest first, refused rows marked with their `reason`, and a
   "Allow this host" action on a refused row (adds it to `allow`).
-- Checkpoints: designed in ADR 0167 decision 8, not built; nothing to show yet.
+- Checkpoints: the list with when and why (`auto`, `person`, `before_restore`), "Take one now",
+  and "Restore" with a confirm saying the current state is kept as a checkpoint first; disabled
+  while the bot works (`409`).
 
 ## Not built yet
 
-- Checkpoints of the workspace, and dropping the review of file writes under taint after them.
+- A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
+  copies on other volumes don't).
 - Linux's seccomp filter (UDP, raw and Unix sockets), so Linux can count as contained.
 - Windows' AppContainer.
 - Tools that use `git_push` and `pr_comment` grants (a push or comment that holds the person's

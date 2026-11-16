@@ -43,4 +43,23 @@ impl Engine {
         let grants = security.effective_grants(&agent);
         spade_core::grant::allowed(&grants, &Action::Tool { tool, arguments })
     }
+
+    /// Whether a file tool's write in the workspace is held by the bot's boundaries, so it runs
+    /// without a review: the sandbox contains the bot's runs and a checkpoint (taken now when one
+    /// is due) can undo the write (ADR 0167 decision 8).
+    pub(super) async fn contained_write(&self, conversation: &str, tool: &str) -> bool {
+        if !matches!(tool, "workspace_write" | "workspace_edit") {
+            return false;
+        }
+        let (Some(security), Some(agent)) = (self.security(), self.agent_of(conversation)) else {
+            return false;
+        };
+        if !security.contains() {
+            return false;
+        }
+        if let Some(work) = security.checkpoint_due(&agent) {
+            let _ = tokio::task::spawn_blocking(work).await;
+        }
+        true
+    }
 }

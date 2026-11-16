@@ -3,6 +3,7 @@
 //! command is confined. The policy and launch logic is in `spade-sandbox` and `spade_core::grant`;
 //! this holds the person's settings and joins them to each run.
 
+pub mod checkpoints;
 mod confine;
 pub mod settings;
 pub mod toolchains;
@@ -75,6 +76,7 @@ pub struct Security {
     bots: EngineHandle,
     /// One change to a bot's settings at a time.
     changing: Mutex<()>,
+    checkpoints: Arc<checkpoints::Checkpoints>,
 }
 
 impl Security {
@@ -110,7 +112,7 @@ impl Security {
             runner: setup.runner,
             store: setup.store,
             home: setup.home,
-            spade_data: setup.spade_data,
+            spade_data: setup.spade_data.clone(),
             ace_data: setup.ace_data,
             workspaces: setup.workspaces,
             log,
@@ -120,6 +122,9 @@ impl Security {
             clock: setup.clock,
             bots: setup.bots,
             changing: Mutex::new(()),
+            checkpoints: Arc::new(checkpoints::Checkpoints::new(
+                setup.spade_data.join("checkpoints"),
+            )),
         })
     }
 
@@ -343,9 +348,83 @@ impl Security {
         toolchains::detect(&self.home, &|p: &Path| p.is_dir())
     }
 
-    /// Forgets a deleted bot's settings and log.
+    /// Forgets a deleted bot's settings, log and checkpoints.
     pub fn forget(&self, bot: &str) {
         let _ = self.store.set_setting(&settings::key(bot), None);
         self.log.forget(bot);
+        self.checkpoints.forget(bot);
+    }
+
+    fn workspace(&self, bot: &str) -> Result<PathBuf, SecurityError> {
+        self.exists(bot)?;
+        let workspace = self.workspaces.join(bot);
+        if !workspace.is_dir() {
+            return Err(SecurityError::Invalid(
+                "the bot's workspace doesn't exist yet".to_owned(),
+            ));
+        }
+        Ok(workspace)
+    }
+
+    /// A checkpoint of the bot's workspace to take before work nobody reviews, when one is due
+    /// (at most once a minute): blocking work for the caller to run before that work starts.
+    pub fn checkpoint_due(&self, bot: &str) -> Option<Box<dyn FnOnce() + Send>> {
+        let workspace = self.workspaces.join(bot);
+        let now = self.clock.now_ms();
+        if !workspace.is_dir() || !self.checkpoints.due(bot, now) {
+            return None;
+        }
+        let (checkpoints, id, bot) = (
+            self.checkpoints.clone(),
+            self.ids.next("cp"),
+            bot.to_owned(),
+        );
+        Some(Box::new(move || {
+            if let Err(error) = checkpoints.take(&bot, &workspace, &id, now, "auto") {
+                tracing::warn!(%error, %bot, "a checkpoint before unreviewed work was not taken");
+            }
+        }))
+    }
+
+    /// The bot's checkpoints, newest first.
+    pub fn checkpoints(&self, bot: &str) -> Result<Vec<checkpoints::Checkpoint>, SecurityError> {
+        self.exists(bot)?;
+        Ok(self.checkpoints.list(bot))
+    }
+
+    /// Takes a checkpoint of the bot's workspace now.
+    pub fn take_checkpoint(
+        &self,
+        bot: &str,
+        reason: &str,
+    ) -> Result<checkpoints::Checkpoint, SecurityError> {
+        let workspace = self.workspace(bot)?;
+        self.checkpoints
+            .take(
+                bot,
+                &workspace,
+                &self.ids.next("cp"),
+                self.clock.now_ms(),
+                reason,
+            )
+            .map_err(|why| SecurityError::Store(format!("the checkpoint failed: {why}")))
+    }
+
+    /// Puts checkpoint `id` back in the bot's workspace, after a checkpoint of how it is now;
+    /// answers that one. The caller makes sure the bot isn't working.
+    pub fn restore_checkpoint(
+        &self,
+        bot: &str,
+        id: &str,
+    ) -> Result<checkpoints::Checkpoint, SecurityError> {
+        let workspace = self.workspace(bot)?;
+        if !self.checkpoints.list(bot).iter().any(|c| c.id == id) {
+            return Err(SecurityError::NotFound);
+        }
+        let saved = self.take_checkpoint(bot, "before_restore")?;
+        self.checkpoints
+            .restore(bot, id, &workspace)
+            .map_err(|why| SecurityError::Store(format!("the restore failed: {why}")))?;
+        Ok(saved)
     }
 }
