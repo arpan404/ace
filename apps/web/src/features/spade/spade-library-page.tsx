@@ -339,7 +339,8 @@ function BodyField(props: {
           }
         }}
         className={cn(
-          "-mx-2.5 min-h-32 resize-none rounded-md bg-chat-well px-3 py-2.5 font-mono text-ui leading-5 text-foreground shadow-[inset_0_0_0_1px_var(--foreground)] outline-none [field-sizing:content]",
+          "-mx-2.5 min-h-32 resize-none rounded-md bg-chat-well px-3 py-2.5 text-foreground shadow-[inset_0_0_0_1px_var(--foreground)] outline-none [field-sizing:content]",
+          prose,
         )}
       />
       {problem && <Problem>{problem}</Problem>}

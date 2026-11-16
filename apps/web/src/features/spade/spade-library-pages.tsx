@@ -117,26 +117,31 @@ function Merges(props: { bot: RosterBot; pages: SpadeKnowledgeEntry[] }) {
   return (
     <SettingList aria-label="Alike pages">
       {pairs.map(({ into, from }) => (
-        <SettingListItem key={`${into.id}+${from.id}`} className="gap-1.5">
-          <span className="min-w-0 flex-1 text-ui text-muted-foreground">
+        <SettingListItem
+          key={`${into.id}+${from.id}`}
+          className="flex-col items-stretch gap-1 py-3"
+        >
+          <span className="text-ui text-muted-foreground">
             {`“${into.title}” and “${from.title}” say much the same`}
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className={rowPill}
-            onClick={() => setKept([...kept, `${into.id}+${from.id}`, `${from.id}+${into.id}`])}
-          >
-            Keep both
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            className={rowPill}
-            onClick={() => void merge(into.id, from.id)}
-          >
-            Merge
-          </Button>
+          <span className="-mr-3 flex justify-end gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              className={rowPill}
+              onClick={() => setKept([...kept, `${into.id}+${from.id}`, `${from.id}+${into.id}`])}
+            >
+              Keep both
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className={rowPill}
+              onClick={() => void merge(into.id, from.id)}
+            >
+              Merge
+            </Button>
+          </span>
         </SettingListItem>
       ))}
     </SettingList>

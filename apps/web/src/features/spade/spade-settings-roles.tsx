@@ -62,13 +62,11 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
             key={role}
             title={spadeRoleNames[role]}
             description={
-              set[role]
+              set[role] || strongest
                 ? undefined
-                : strongest
-                  ? "Default: your strongest model"
-                  : fast
-                    ? "Default: the fast model"
-                    : "Default: each bot's own model"
+                : fast
+                  ? "Default: the fast model"
+                  : "Default: each bot's own model"
             }
             value={set[role]}
             none={strongest ? "Strongest model" : fast ? "Fast model" : "Each bot's own"}

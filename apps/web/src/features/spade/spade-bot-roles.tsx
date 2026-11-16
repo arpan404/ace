@@ -56,10 +56,16 @@ function RoleRows(props: { bot: RosterBot }) {
           <ModelSettingRow
             key={row.role}
             title={spadeRoleNames[row.role]}
-            description={own ? spent : `${spent} · Follows Settings`}
+            description={
+              <>
+                <span className="block tabular-nums">{spent}</span>
+                {!own && <span className="block">Follows Settings</span>}
+              </>
+            }
             value={own}
             none="Follow Settings"
             follows={own ? undefined : row.model}
+            inline
             save={(model) => change({ roles: { [row.role]: model } })}
           />
         );

@@ -169,7 +169,9 @@ export function LibraryEpisode(props: { bot: RosterBot; id: string; onBack(): vo
         </Part>
       )}
       {episode.note && (
-        <Part label={`In ${props.bot.name}'s words`}>
+        <Part
+          label={`In ${/s$/i.test(props.bot.name) ? `${props.bot.name}'` : `${props.bot.name}'s`} words`}
+        >
           <li className="text-muted-foreground">{episode.note}</li>
         </Part>
       )}

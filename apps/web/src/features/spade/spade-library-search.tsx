@@ -134,7 +134,9 @@ export function LibraryResults(props: {
         <SettingList aria-label="Notes">
           {noteHits.map((note) => (
             <SettingListItem key={note.id} className="text-ui wrap-anywhere text-foreground">
-              <Marked text={note.text} query={query} />
+              <span className="min-w-0">
+                <Marked text={note.text} query={query} />
+              </span>
             </SettingListItem>
           ))}
         </SettingList>

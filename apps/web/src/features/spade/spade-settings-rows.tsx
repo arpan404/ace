@@ -69,11 +69,13 @@ export function Refusal(props: { children: ReactNode }) {
  */
 export function ModelSettingRow(props: {
   title: string;
-  description?: string | undefined;
+  description?: ReactNode;
   value: string | undefined;
   none?: string | undefined;
   /** What the empty choice comes to, shown while it is chosen (`SpadeModelPicker`). */
   follows?: string | undefined;
+  /** The picker beside the title at every width, as a bot's profile has it. */
+  inline?: boolean;
   save(model: string | null): Promise<unknown>;
 }) {
   const id = useId();
@@ -97,6 +99,7 @@ export function ModelSettingRow(props: {
       description={refusal ? <Refusal>{refusal}</Refusal> : props.description}
       htmlFor={id}
       density="compact"
+      inline={props.inline === true}
     >
       <SpadeModelPicker
         id={id}
