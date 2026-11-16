@@ -35,6 +35,28 @@ const join2 = (...parts: Uint8Array[]) => {
   return out;
 };
 
+const record = (key: string, value: string) => {
+  const body = ` ${key}=${value}\n`;
+  let length = body.length + 1;
+  while (length !== body.length + String(length).length)
+    length = body.length + String(length).length;
+  return `${length}${body}`;
+};
+/** A pax header saying `text`, then a regular file holding `content`. */
+const paxed = (text: string, content = "hello") => {
+  const pax = new TextEncoder().encode(text);
+  const paxBlock = new Uint8Array(Math.ceil(pax.byteLength / 512) * 512);
+  paxBlock.set(pax);
+  const file = new Uint8Array(512);
+  file.set(new TextEncoder().encode(content));
+  return join2(
+    header("././@PaxHeader", "x", pax.byteLength),
+    paxBlock,
+    header("a.md", "0", 5),
+    file,
+  );
+};
+
 describe("entry archives", () => {
   it("read back the files they were written from, executable bits included", () => {
     const files = folder({
@@ -109,28 +131,6 @@ describe("entry archives", () => {
   });
 
   describe("with a malformed extended header", () => {
-    const record = (key: string, value: string) => {
-      const body = ` ${key}=${value}\n`;
-      let length = body.length + 1;
-      while (length !== body.length + String(length).length)
-        length = body.length + String(length).length;
-      return `${length}${body}`;
-    };
-    /** A pax header saying `text`, then a regular file holding `content`. */
-    const paxed = (text: string, content = "hello") => {
-      const pax = new TextEncoder().encode(text);
-      const paxBlock = new Uint8Array(Math.ceil(pax.byteLength / 512) * 512);
-      paxBlock.set(pax);
-      const file = new Uint8Array(512);
-      file.set(new TextEncoder().encode(content));
-      return join2(
-        header("././@PaxHeader", "x", pax.byteLength),
-        paxBlock,
-        header("a.md", "0", 5),
-        file,
-      );
-    };
-
     it.each([
       ["a negative size", record("size", "-1024")],
       ["a fractional size", record("size", "12.5")],
