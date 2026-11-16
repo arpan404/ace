@@ -3,6 +3,7 @@ import type {
   SpadeEntry,
   SpadeQuestionCard,
   SpadeReplyEntry,
+  SpadeAskKind,
   SpadeRequest,
 } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
@@ -108,6 +109,8 @@ type SpadeBubbleOf =
       arguments: unknown;
       /** Why the model review asked the person: "It could spend money, so you decide." */
       reason: string | undefined;
+      /** Why Spade asked (ADR 0171); the choices on the card follow it. */
+      ask?: SpadeAskKind;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
       state: "open";
@@ -299,6 +302,7 @@ function askBubble(
     name: request.name,
     arguments: request.arguments,
     reason: waiting.reason ?? request.reason,
+    ...((waiting.ask ?? request.ask) ? { ask: waiting.ask ?? request.ask } : {}),
     helper: waiting.helper ?? request.helper,
     state: "open",
   };

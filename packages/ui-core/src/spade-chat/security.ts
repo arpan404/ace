@@ -19,7 +19,19 @@ export interface SpadeNetworkPolicy {
   dropped: string[];
 }
 
+/** Whether a bot's commands run in the sandbox or outside it, each one reviewed (ADR 0171). */
+export type SpadeCommandsMode = "sandboxed" | "outside";
+
+/** What every bot inherits unless it sets its own. */
+export interface SpadeBotDefaults {
+  commands: SpadeCommandsMode;
+  network: SpadeNetworkPolicy;
+  pluginNetwork: SpadeNetworkPolicy;
+}
+
 export interface SpadeSecurityMachine {
+  /** The machine-wide defaults every bot inherits. */
+  bots: SpadeBotDefaults;
   platform: string;
   /** `seatbelt`, `landlock`, `app_container` or `none`. */
   mechanism: string;
@@ -50,6 +62,10 @@ export type SpadeGrant = SpadeGrantScope & {
 
 export interface SpadeBotSecurity {
   contained: boolean;
+  /** Effective: the bot's own, else the machine's. */
+  commands: SpadeCommandsMode;
+  /** Which of the three the bot sets itself; false inherits the machine's. */
+  own: { commands: boolean; network: boolean; pluginNetwork: boolean };
   network: SpadeNetworkPolicy;
   pluginNetwork: SpadeNetworkPolicy;
   toolchains: string[];
@@ -94,7 +110,10 @@ function policy(raw: unknown, mode: SpadeNetworkMode): SpadeNetworkPolicy {
   return parsed.success ? parsed.data : { mode, allow: [], dropped: [] };
 }
 
+const commandsShape = z.enum(["sandboxed", "outside"]).catch("sandboxed");
+
 const machineShape = z.object({
+  bots: z.unknown().optional(),
   sandbox: z
     .object({ platform: text, mechanism: text, reason: z.string().nullish().catch(undefined) })
     .catch({ platform: "", mechanism: "none", reason: undefined }),
@@ -110,7 +129,13 @@ export function parseSpadeSecurityMachine(body: string): SpadeSecurityMachine | 
   const parsed = machineShape.safeParse(raw);
   if (!raw || !parsed.success) return undefined;
   const value = parsed.data;
+  const bots = spadeRecord(value.bots);
   return {
+    bots: {
+      commands: commandsShape.parse(bots?.commands),
+      network: policy(bots?.network, "allow_list"),
+      pluginNetwork: policy(bots?.plugin_network, "open"),
+    },
     platform: value.sandbox.platform,
     mechanism: value.sandbox.mechanism,
     contained: value.contained,
@@ -171,8 +196,17 @@ export function parseSpadeBotSecurity(body: string): SpadeBotSecurity | undefine
     const parsed = folderShape.safeParse(each);
     return parsed.success ? [parsed.data] : [];
   });
+  // An older Spade sends no `own`: everything reads as the bot's own, as it did.
+  const own = spadeRecord(raw.own);
+  const owns = (key: string) => (own ? own[key] !== false : true);
   return {
     contained: raw.contained === true,
+    commands: commandsShape.parse(raw.commands),
+    own: {
+      commands: owns("commands"),
+      network: owns("network"),
+      pluginNetwork: owns("plugin_network"),
+    },
     network: policy(raw.network, "allow_list"),
     pluginNetwork: policy(raw.plugin_network, "open"),
     toolchains: texts.parse(raw.toolchains ?? []),

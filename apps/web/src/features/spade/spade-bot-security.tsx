@@ -7,11 +7,18 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useNativePicker } from "@/lib/native-picker.ts";
 import { ProfileCheckpoints, ProfileEgress } from "./spade-bot-checkpoints.tsx";
+import { CommandsChoice } from "./spade-commands-choice.tsx";
 import { ProfileNetwork } from "./spade-bot-network.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { fault } from "./spade-profile-actions.ts";
 import { ProfileEmpty, ProfileSection } from "./spade-profile-parts.tsx";
-import { addGrant, botSecurityKey, removeGrant, useBotSecurity } from "./spade-security-api.ts";
+import {
+  addGrant,
+  botSecurityKey,
+  removeGrant,
+  setBotCommands,
+  useBotSecurity,
+} from "./spade-security-api.ts";
 import { Refusal } from "./spade-settings-rows.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -28,10 +35,34 @@ export function ProfileSecurity(props: { bot: RosterBot }) {
     <>
       <ProfileFolders bot={props.bot} security={data} />
       <ProfileGrants bot={props.bot} security={data} />
+      <ProfileCommands bot={props.bot} security={data} />
       <ProfileNetwork bot={props.bot} security={data} />
       <ProfileCheckpoints bot={props.bot} />
       <ProfileEgress bot={props.bot} />
     </>
+  );
+}
+
+/** Where the bot's commands run: the sandbox, outside it, or as this Mac has it (ADR 0171). */
+function ProfileCommands(props: { bot: RosterBot; security: SpadeBotSecurity }) {
+  const client = useSpadeClient();
+  const machine = useSpadeMachine().key;
+  const cache = useQueryClient();
+  const { security } = props;
+  return (
+    <ProfileSection label="Commands">
+      <CommandsChoice
+        value={security.own.commands ? security.commands : "inherit"}
+        effective={security.commands}
+        inheritable
+        save={async (choice) =>
+          cache.setQueryData(
+            botSecurityKey(machine, props.bot.id, "bot"),
+            await setBotCommands(client, props.bot.id, choice === "inherit" ? null : choice),
+          )
+        }
+      />
+    </ProfileSection>
   );
 }
 

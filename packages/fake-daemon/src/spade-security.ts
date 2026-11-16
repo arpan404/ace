@@ -43,8 +43,12 @@ export interface FakeSpadeCheckpoint {
   reason: string;
 }
 
+export type FakeSpadeCommands = "sandboxed" | "outside";
+
 export interface FakeSpadeBotSecurity {
-  network: FakeSpadeNetworkPolicy;
+  /** null inherits the machine's. */
+  commands: FakeSpadeCommands | null;
+  network: FakeSpadeNetworkPolicy | null;
   plugin_network: FakeSpadeNetworkPolicy | null;
   toolchains: string[];
   grants: FakeSpadeGrant[];
@@ -72,6 +76,16 @@ export class FakeSpadeSecurity {
   };
   proxy = { running: true, problem: null as string | null };
   defaults = [...fakeSpadeNetworkDefaults];
+  /** What every bot inherits (ADR 0171). */
+  botDefaults: {
+    commands: FakeSpadeCommands;
+    network: FakeSpadeNetworkPolicy;
+    plugin_network: FakeSpadeNetworkPolicy;
+  } = {
+    commands: "sandboxed",
+    network: { mode: "allow_list", allow: [], dropped: [] },
+    plugin_network: { mode: "open", allow: [], dropped: [] },
+  };
   toolchainsFound: string[] = [];
   /** Each bot's settings, as Spade stores `security:<bot>`. */
   readonly bots = new Map<string, FakeSpadeBotSecurity>();
@@ -104,7 +118,8 @@ export class FakeSpadeSecurity {
     let settings = this.bots.get(id);
     if (!settings) {
       settings = {
-        network: { mode: "allow_list", allow: [], dropped: [] },
+        commands: null,
+        network: null,
         plugin_network: null,
         toolchains: [],
         grants: [],
@@ -114,9 +129,27 @@ export class FakeSpadeSecurity {
     return settings;
   }
 
-  machineRoute(method: string): FakeSpadeAnswer {
-    if (method !== "GET") return problem(405, "Not allowed.");
+  machineRoute(method: string, sub?: string, body: Json = {}): FakeSpadeAnswer {
+    if (method === "PUT" && sub === "commands") {
+      if (body.commands !== "sandboxed" && body.commands !== "outside")
+        return problem(400, `unknown variant \`${String(body.commands)}\``);
+      this.botDefaults.commands = body.commands;
+      return this.machineView();
+    }
+    if (method === "PUT" && (sub === "network" || sub === "plugin-network")) {
+      const policy = this.policyFrom(body);
+      if (typeof policy === "string") return problem(400, policy);
+      if (sub === "network") this.botDefaults.network = policy;
+      else this.botDefaults.plugin_network = policy;
+      return this.machineView();
+    }
+    if (method !== "GET" || sub !== undefined) return problem(405, "Not allowed.");
+    return this.machineView();
+  }
+
+  private machineView(): FakeSpadeAnswer {
     return reply({
+      bots: this.botDefaults,
       sandbox: this.sandbox,
       proxy: this.proxy,
       contained: this.contains(),
@@ -148,8 +181,14 @@ export class FakeSpadeSecurity {
     const settings = this.bot(id);
     return {
       contained: this.contains(),
-      network: settings.network,
-      plugin_network: settings.plugin_network ?? { mode: "open", allow: [], dropped: [] },
+      commands: settings.commands ?? this.botDefaults.commands,
+      own: {
+        commands: settings.commands !== null,
+        network: settings.network !== null,
+        plugin_network: settings.plugin_network !== null,
+      },
+      network: settings.network ?? this.botDefaults.network,
+      plugin_network: settings.plugin_network ?? this.botDefaults.plugin_network,
       toolchains: settings.toolchains,
       grants: settings.grants,
       effective_grants: settings.grants,
@@ -157,6 +196,23 @@ export class FakeSpadeSecurity {
         .filter((grant) => grant.kind === "folder")
         .map((grant) => ({ grant: grant.id, path: grant.path, write: grant.write === true })),
     };
+  }
+
+  /** A policy body as Spade checks it; the refusal's words when it is wrong. */
+  private policyFrom(body: Json): FakeSpadeNetworkPolicy | string {
+    const mode = body.mode ?? "allow_list";
+    if (mode !== "off" && mode !== "allow_list" && mode !== "open")
+      return `unknown variant \`${String(mode)}\``;
+    const allow = (Array.isArray(body.allow) ? body.allow : []).map((each) =>
+      String(each).trim().toLowerCase(),
+    );
+    const wrong = allow.find((entry) => !entryForm.test(entry));
+    if (wrong !== undefined)
+      return `${wrong} is not a host, *.host or host:port (no scheme, path or other wildcard)`;
+    const dropped = (Array.isArray(body.dropped) ? body.dropped : []).map(String);
+    const unknown = dropped.find((name) => !this.defaults.includes(name));
+    if (unknown !== undefined) return `${unknown} is not one of the defaults`;
+    return { mode, allow: [...new Set(allow)], dropped };
   }
 
   private securityRoute(
@@ -167,24 +223,20 @@ export class FakeSpadeSecurity {
     body: Json,
   ): FakeSpadeAnswer {
     if (sub === undefined && method === "GET") return reply(this.view(id));
+    if (sub === "commands" && method === "PUT") {
+      const commands = body.commands;
+      if (commands !== null && commands !== "sandboxed" && commands !== "outside")
+        return problem(400, `unknown variant \`${String(commands)}\``);
+      this.bot(id).commands = commands;
+      return reply(this.view(id));
+    }
+    if ((sub === "network" || sub === "plugin-network") && method === "DELETE") {
+      this.bot(id)[sub === "network" ? "network" : "plugin_network"] = null;
+      return reply(this.view(id));
+    }
     if ((sub === "network" || sub === "plugin-network") && method === "PUT") {
-      const mode = body.mode ?? "allow_list";
-      if (mode !== "off" && mode !== "allow_list" && mode !== "open")
-        return problem(400, `unknown variant \`${String(mode)}\``);
-      const known: FakeSpadeNetworkPolicy["mode"] = mode;
-      const allow = (Array.isArray(body.allow) ? body.allow : []).map((each) =>
-        String(each).trim().toLowerCase(),
-      );
-      const wrong = allow.find((entry) => !entryForm.test(entry));
-      if (wrong !== undefined)
-        return problem(
-          400,
-          `${wrong} is not a host, *.host or host:port (no scheme, path or other wildcard)`,
-        );
-      const dropped = (Array.isArray(body.dropped) ? body.dropped : []).map(String);
-      const unknown = dropped.find((name) => !this.defaults.includes(name));
-      if (unknown !== undefined) return problem(400, `${unknown} is not one of the defaults`);
-      const policy = { mode: known, allow: [...new Set(allow)], dropped };
+      const policy = this.policyFrom(body);
+      if (typeof policy === "string") return problem(400, policy);
       const settings = this.bot(id);
       if (sub === "network") settings.network = policy;
       else settings.plugin_network = policy;

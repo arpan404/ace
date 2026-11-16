@@ -4,6 +4,7 @@ import {
   parseSpadeEgress,
   parseSpadeGrantAnswer,
   parseSpadeSecurityMachine,
+  type SpadeCommandsMode,
   type SpadeNetworkPolicy,
 } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
@@ -53,6 +54,45 @@ export async function setBotNetwork(
   return sure(parseSpadeBotSecurity(body), "security settings");
 }
 
+/** Resets one of a bot's network policies to the machine's. */
+export async function resetBotNetwork(target: SpadeTarget, agent: string, which: SpadeNetworkFor) {
+  const path = agentPath(
+    agent,
+    which === "commands" ? "security/network" : "security/plugin-network",
+  );
+  const body = await spadeHttp(target, "DELETE", path);
+  return sure(parseSpadeBotSecurity(body), "security settings");
+}
+
+/** A bot's commands setting; null goes back to the machine's (ADR 0171). */
+export async function setBotCommands(
+  target: SpadeTarget,
+  agent: string,
+  commands: SpadeCommandsMode | null,
+) {
+  const body = await spadeHttp(target, "PUT", agentPath(agent, "security/commands"), {
+    body: { commands },
+  });
+  return sure(parseSpadeBotSecurity(body), "security settings");
+}
+
+/** The machine's commands setting, which every bot inherits unless it sets its own. */
+export async function setMachineCommands(target: SpadeTarget, commands: SpadeCommandsMode) {
+  const body = await spadeHttp(target, "PUT", "/v1/security/commands", { body: { commands } });
+  return sure(parseSpadeSecurityMachine(body), "security settings");
+}
+
+/** The machine's network rule for commands or plugins, which bots inherit. */
+export async function setMachineNetwork(
+  target: SpadeTarget,
+  which: SpadeNetworkFor,
+  policy: SpadeNetworkPolicy,
+) {
+  const path = which === "commands" ? "/v1/security/network" : "/v1/security/plugin-network";
+  const body = await spadeHttp(target, "PUT", path, { body: policy });
+  return sure(parseSpadeSecurityMachine(body), "security settings");
+}
+
 /** A grant's scope as Spade takes it: `{kind, …}`. */
 export type SpadeGrantRequest =
   | { kind: "folder"; path: string; write: boolean }
@@ -84,12 +124,15 @@ export async function readEgress(target: SpadeTarget, agent: string, signal?: Ab
   return sure(parseSpadeEgress(body), "network activity");
 }
 
+export const securityMachineKey = (machine: string) =>
+  [...securityKey, machine, "machine"] as const;
+
 /** The machine's sandbox and default sites, read once Spade answers. */
 export function useSecurityMachine(enabled = true) {
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
   return useQuery({
-    queryKey: [...securityKey, machine, "machine"],
+    queryKey: securityMachineKey(machine),
     queryFn: ({ signal }) => readSecurityMachine(client, signal),
     enabled,
     retry: false,
