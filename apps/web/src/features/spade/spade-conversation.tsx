@@ -236,7 +236,6 @@ export function Conversation(props: {
               openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path })
             }
             endpointName={endpointName}
-            onHelperSteps={conversation.helperSteps}
             digests={digests}
             onWake={(wake, action) =>
               actOnWake(client, bot.id, wake, action).then(

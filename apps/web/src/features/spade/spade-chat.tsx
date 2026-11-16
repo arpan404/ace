@@ -9,7 +9,6 @@ import {
   withProposals,
   type SpadeAvatar,
   type SpadeChatItem,
-  type SpadeHelperStep,
   type SpadeProposal,
   type SpadeView,
   spadeQuietLine,
@@ -86,8 +85,6 @@ export function SpadeChat(props: {
   endpointName?(id: string): string | undefined;
   /** Try again on a failed reply: sends the person's last message again. */
   onRetry?(text: string): Promise<boolean>;
-  /** A helper's own steps, by its job (ADR 0152), for its line to expand to. */
-  onHelperSteps?(job: string): Promise<readonly SpadeHelperStep[]>;
   /** Its digests (ADR 0165), oldest first: messages of its own where each was made. */
   digests?: readonly SpadeDigest[] | undefined;
   /** The resting line's actions on its wake; resolves false when it didn't go through. */
@@ -150,7 +147,6 @@ export function SpadeChat(props: {
     onQuestion: props.onQuestion,
     onOpenFile: props.onOpenFile,
     onRetry: props.onRetry,
-    onHelperSteps: props.onHelperSteps,
     onOpenBot: props.onOpenBot,
     onOpenWork: props.onOpenWork,
     face: (id) => bot.others.get(id) ?? parseSpadeAvatar(undefined, id),
@@ -225,7 +221,6 @@ interface Handlers {
   onQuestion(callId: string, reply: QuestionReply): Promise<string | undefined>;
   onOpenFile(path: string): void;
   onRetry: ((text: string) => Promise<boolean>) | undefined;
-  onHelperSteps: ((job: string) => Promise<readonly SpadeHelperStep[]>) | undefined;
   onOpenBot: ((id: string) => void) | undefined;
   onOpenWork: (() => void) | undefined;
   /** A bot's face by its id: a worker's, in its quiet line and a digest. */
@@ -248,7 +243,7 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         : "mt-(--chat-turn-gap)";
     case "helper":
     case "quiet":
-      // A helper line reads under the reply that started it, as its steps do; quiet lines
+      // A helper line reads under the reply that started it; quiet lines
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
@@ -546,15 +541,9 @@ function Single(props: {
       );
     }
     case "helper": {
-      const read = props.handlers.onHelperSteps;
       return (
         <div className={space}>
-          <SpadeHelperLine
-            text={item.text}
-            open={item.open}
-            since={item.at}
-            readSteps={read ? () => read(item.job) : undefined}
-          />
+          <SpadeHelperLine text={item.text} open={item.open} since={item.at} />
         </div>
       );
     }
