@@ -76,11 +76,16 @@ trusted.
      it and its text preview, every history revision at it and every streamed text chunk at it,
      whichever item they belong to. Each row is read both validated and as stored, and the
      sequence becomes trusted only when every row gives the same value, field order and byte
-     size both ways. Revisions and chunks are found through indexes on their sequence
-     (`history_item_revisions_seq`, `item_text_chunks_seq`), created at open with
-     `IF NOT EXISTS` like this table's other indexes. The first open after the upgrade builds
-     them once, measured at 389 ms for 2 million revision rows, with no migration step or
-     version bump. Each adds one index entry per revision or chunk written.
+     size both ways. Revisions and chunks are found through `stored_trust_rows`, a map from
+     sequence to row key (`stored-trust-rows.ts`). Triggers on both tables keep it current for
+     every row written or removed from the moment they exist, one map entry per revision or
+     chunk. Rows from before the triggers are mapped in idle batches of 2,048, read in key order
+     from each table's primary key index, so no batch loads a row's body. The pass confirms no
+     sequence until that backfill is complete, so older rows stay validated on read until then.
+     An earlier design built plain indexes on `seq` at open. On a 34 GB home with 2.2 million
+     revisions that took 76 to 101 s on a cold page cache before the daemon listened; the
+     backfill reads the same rows in about 8 s of idle batches (p99 20 ms each). Open drops
+     those indexes if an earlier build left them (71 ms cold).
      `stored-trust-coverage.test.ts` plants a row of each kind that the event at its sequence
      doesn't name, and is where a new trusted read adds its kind.
    - **What a batch costs.** Every body's size is read from SQLite's record header
