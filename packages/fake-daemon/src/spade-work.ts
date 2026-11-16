@@ -1,5 +1,5 @@
 import type { FakeSpadeAnswer } from "./spade.ts";
-import type { FakeSpadeAgent } from "./spade-api.ts";
+import type { FakeSpadeAgent } from "./spade-agent.ts";
 
 /*
  * A bot's work in Spade's own JSON (ADR 0159, 0161; spade/docs/autonomy.md, workers.md): its

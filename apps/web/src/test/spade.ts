@@ -95,4 +95,3 @@ export async function openProfile(name: string) {
     await screen.findByRole("button", { name: new RegExp(`^${name}( on .*)?: open its profile$`) }),
   );
 }
-

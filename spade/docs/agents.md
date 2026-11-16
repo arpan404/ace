@@ -273,8 +273,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-  "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

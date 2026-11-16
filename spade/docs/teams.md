@@ -23,9 +23,9 @@ reached.
   `GET /v1/conversations/{id}/live` like any conversation. Posting to it there answers `409`.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
-  answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
+answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
 - `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "agent": {"id", "name",
-  "machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
+"machine"}|null}` or null; the list's plain-text preview, at most 200 characters, as for agents
   ([agents.md](agents.md)).
 - `seen_seq`, `unseen`: the group's seen cursor and whether a member answered since the person
   last saw it while nothing in the group runs or waits; marked with
@@ -139,7 +139,7 @@ other machines (op `spade`, below) and stamps them:
 - `x-ace-inbox-time`: milliseconds since the epoch;
 - `x-ace-inbox-proof`: lowercase hex HMAC-SHA256, keyed with the daemon's local token
   (`<ace home>/daemon-token`), of `ace-spade-inbox/1\n<time>\n<from-host>\n<from-name as
-  sent>\n<hex SHA-256 of the body>`.
+sent>\n<hex SHA-256 of the body>`.
 
 Spade reads the daemon's token from ace's home on each request and refuses (`403`) anything
 unsigned, signed with another key, or signed more than 5 minutes from its clock; Spade's own
@@ -167,7 +167,7 @@ The daemon passes these bodies through without reading them, except `op` for the
 
 - **Spade to its daemon** (the socket Spade already uses for `skills.request`):
   - `spade.machines {requestId}` → `spade.machines.result {requestId, machines: [{hostId, name,
-    status: "online"|"offline"}]}`: the linked machines this daemon can call.
+status: "online"|"offline"}]}`: the linked machines this daemon can call.
   - `spade.remote {requestId, machine: <host id>, request: <JSON object>}` →
     `spade.remote.result {requestId, result}` with `result` `{kind: "response", status, body}`
     (`body` is Spade's JSON answer there) or `{kind: "error", code, message}`, `code` one of

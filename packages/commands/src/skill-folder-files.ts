@@ -31,7 +31,7 @@ export async function listSkillFolder(disk: SkillDisk, folder: number): Promise<
     if (out.omitted.length < mostOmitted) out.omitted.push({ path, reason });
   };
   const visit = async (directory: number, prefix: string, depth: number): Promise<void> => {
-    const names = (await disk.names(directory)).filter((name) => !hidden(name)).sort();
+    const names = (await disk.names(directory)).filter((name) => !hidden(name)).toSorted();
     for (const name of names) {
       const path = prefix ? `${prefix}/${name}` : name;
       if (!prefix && name === "SKILL.md") continue;

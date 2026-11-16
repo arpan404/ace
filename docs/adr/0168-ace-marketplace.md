@@ -115,7 +115,7 @@ Read routes need no sign-in and set no cookie. All live under `/v1`:
   address, fetched with ADR 0014's fetcher (shallow bare fetch, isolated config, no hooks,
   nothing checked out or run). ADR 0014's `marketplace.json` gains an optional `entries` list
   beside `plugins`, each `{type, name, source, hash?, title?, description?, version?,
-  keywords?}` with `source` a folder in that repository, as 0014 has it. A catalog with only
+keywords?}` with `source` a folder in that repository, as 0014 has it. A catalog with only
   `plugins` reads as before, each as a `spade-plugin`. Git catalogs carry no signatures, no
   review marks, no categories and no featured list; their entries say "From <address>".
 
@@ -185,8 +185,8 @@ The Worker is a distributor, not a trust root. What a person installs is decided
 daemon runs itself:
 
 - **A signed version manifest.** Each listed version has a manifest: `{format, type, name,
-  version, publisher {id, name}, hash, files: [{path, bytes, executable, sha256}], size,
-  published, key}`, signed with Ed25519 by an ace marketplace key. Builds ship the public keys
+version, publisher {id, name}, hash, files: [{path, bytes, executable, sha256}], size,
+published, key}`, signed with Ed25519 by an ace marketplace key. Builds ship the public keys
   (two at a time, so a key can rotate; `key` names which one signed). The daemon verifies the
   signature, then that the archive's content hash and every file match the manifest. Anything
   that fails is refused, whatever the Worker says. Signing uses `@noble/ed25519`, already

@@ -62,7 +62,7 @@ items done after shallow checks, and declare the whole job finished because some
      verdict. The verdict is `done` only when every criterion is met and no item is rejected;
      Spade enforces that, whatever the model says.
    - Stored as `task_verified {goal, claim, verdict, criteria, rejected, missing, model,
-     cost_micros}` before anything acts on it; a restart reuses it. `claim` is the id of the
+cost_micros}` before anything acts on it; a restart reuses it. `claim` is the id of the
      `task_status` call it judged, so each claim is checked once.
    - `not_yet` sends the bot back to work: its task reads as `working`, the rejected items
      reopen, and the next step's note lists what's missing. A claim with nothing new since the
@@ -78,8 +78,8 @@ items done after shallow checks, and declare the whole job finished because some
    `unchecked` and `done`. `done` needs a `done` verdict on the latest claim and no
    background job still running (ace priority 1).
 6. **API.** `GET /v1/agents/{id}/task` answers `{task: {goal, items, verdict, checkpoint,
-   progress}}` (the goal carries its criteria; `null` with no goal ever); every agent in the roster adds `task_progress {state, items_total,
-   items_closed, items_verified}`. `task_state` (ADR 0144) stays the bot's own word, so a
+progress}}` (the goal carries its criteria; `null` with no goal ever); every agent in the roster adds `task_progress {state, items_total,
+items_closed, items_verified}`. `task_state` (ADR 0144) stays the bot's own word, so a
    client shows "done" only from `task_progress.state`.
 
 ## Options considered
