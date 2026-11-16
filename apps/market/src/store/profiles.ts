@@ -4,8 +4,12 @@ import type {
   MarketProfile,
   MarketVerificationProof,
 } from "@ace/protocol/marketplace";
+import { storedBytesSql } from "./me-limits.ts";
 
-/* Publishers' profiles in D1 (ADR 0173 §3): handles, skeletons, retired handles, pins, avatars. */
+/*
+ * Publishers' profiles in D1 (ADR 0173 §3): handles, skeletons, retired handles, pins, avatars,
+ * and the pictures they stored, charged to their quota.
+ */
 
 /** A publisher row as this Worker wrote it (ADR 0125). */
 export interface PublisherTable {
@@ -207,6 +211,94 @@ export async function changeHandle(
 
 export async function setAvatar(db: D1Database, id: string, sha256: string): Promise<void> {
   await db.prepare("UPDATE publishers SET avatar = ?2 WHERE id = ?1").bind(id, sha256).run();
+}
+
+/* ---------------------------------------------------------------- pictures */
+
+/** How long a picture nothing names is kept: an upload on its way names it well within this. */
+export const pictureGraceMs = 24 * 3_600_000;
+
+/**
+ * Charges a picture's bytes to the publisher before they are written (ADR 0173 §9), in the one
+ * statement that checks they fit beside its versions, drafts and other pictures. The same
+ * picture again is charged once. False when it doesn't fit.
+ */
+export async function reservePicture(
+  db: D1Database,
+  input: { publisher: string; key: string; size: number; quotaBytes: number; now: number },
+): Promise<boolean> {
+  const fits = `${storedBytesSql("?2")} + (SELECT COALESCE(SUM(size), 0) FROM pictures
+      WHERE publisher = ?2 AND key != ?1) + ?3 <= ?5`;
+  const result = await db
+    .prepare(
+      `INSERT INTO pictures (key, publisher, size, at) SELECT ?1, ?2, ?3, ?4 WHERE ${fits}
+        ON CONFLICT (key, publisher) DO UPDATE SET size = excluded.size, at = excluded.at
+          WHERE ${fits}`,
+    )
+    .bind(input.key, input.publisher, input.size, input.now, input.quotaBytes)
+    .run();
+  return result.meta.changes > 0;
+}
+
+/**
+ * Whether the picture row's publisher still shows it: its avatar as its own profile's, a
+ * listing picture in any entry's listing or pending listing (a transferred entry keeps its
+ * pictures).
+ */
+const pictureNamed = `(CASE WHEN substr(pictures.key, 1, 8) = 'avatars/'
+    THEN EXISTS (SELECT 1 FROM publishers
+      WHERE id = pictures.publisher AND avatar = substr(pictures.key, 9))
+    ELSE EXISTS (SELECT 1 FROM entries
+      WHERE instr(COALESCE(listing, ''), substr(pictures.key, 10)) > 0
+        OR instr(COALESCE(pending_listing, ''), substr(pictures.key, 10)) > 0) END)`;
+
+/**
+ * Looks at up to `limit` picture rows older than the grace period: one nothing names is
+ * dropped (its bytes stop counting), one still named is looked at again a grace period later.
+ * One batch, each statement re-checking, so a profile or listing that names a picture on the
+ * way keeps it.
+ */
+export async function sweepPictureRows(db: D1Database, now: number, limit: number) {
+  const due = `rowid IN (SELECT rowid FROM pictures WHERE at < ?1 ORDER BY at LIMIT ?2)`;
+  await db.batch([
+    db
+      .prepare(`DELETE FROM pictures WHERE ${due} AND NOT ${pictureNamed}`)
+      .bind(now - pictureGraceMs, limit),
+    db
+      .prepare(`UPDATE pictures SET at = ?3 WHERE ${due} AND ${pictureNamed}`)
+      .bind(now - pictureGraceMs, limit, now),
+  ]);
+}
+
+/** Which of these R2 keys a publisher's picture row still holds. */
+export async function heldPictures(db: D1Database, keys: readonly string[]): Promise<Set<string>> {
+  const { results } = await db
+    .prepare("SELECT DISTINCT key FROM pictures WHERE key IN (SELECT value FROM json_each(?1))")
+    .bind(JSON.stringify(keys))
+    .all<{ key: string }>();
+  return new Set(results.map((row) => row.key));
+}
+
+/** Where the cron's walk of an R2 prefix got to; undefined to start again. */
+export async function sweepCursor(db: D1Database, prefix: string): Promise<string | undefined> {
+  const row = await db
+    .prepare("SELECT after FROM sweep_cursors WHERE prefix = ?1")
+    .bind(prefix)
+    .first<{ after: string }>();
+  return row?.after;
+}
+
+export async function setSweepCursor(db: D1Database, prefix: string, after: string | undefined) {
+  await (
+    after === undefined
+      ? db.prepare("DELETE FROM sweep_cursors WHERE prefix = ?1").bind(prefix)
+      : db
+          .prepare(
+            `INSERT INTO sweep_cursors (prefix, after) VALUES (?1, ?2)
+            ON CONFLICT (prefix) DO UPDATE SET after = excluded.after`,
+          )
+          .bind(prefix, after)
+  ).run();
 }
 
 /**

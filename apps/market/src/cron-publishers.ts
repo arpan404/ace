@@ -2,19 +2,34 @@ import { skeleton } from "@ace/marketplace/profile";
 import { continueDraftScan } from "./api-publish.ts";
 import type { Env } from "./env.ts";
 import { deleteDraft, type DraftTable } from "./store/drafts.ts";
+import {
+  heldPictures,
+  pictureGraceMs,
+  setSweepCursor,
+  sweepCursor,
+  sweepPictureRows,
+} from "./store/profiles.ts";
 import { dueRechecks, recordRecheck } from "./store/verification.ts";
 import { checkDomain, type ProofFetch } from "./verify-proofs.ts";
 
 /*
  * The publishers' cron steps (ADR 0173 §5, §8, §13), each bounded: scan jobs that didn't fit a
  * request, drafts untouched for 30 days (with their bytes), expired transfers and proof tokens,
- * weekly domain re-checks that flag a mark and never drop it, and handle skeletons for rows from
- * before the migration.
+ * weekly domain re-checks that flag a mark and never drop it, handle skeletons for rows from
+ * before the migration, and pictures nothing names past a grace period.
  */
 
 const day = 86_400_000;
 export const draftDays = 30;
-const batch = { scans: 5, drafts: 100, skeletons: 200, rechecks: 20 } as const;
+const batch = {
+  scans: 5,
+  drafts: 100,
+  skeletons: 200,
+  rechecks: 20,
+  pictureRows: 200,
+  pictureObjects: 200,
+} as const;
+const picturePrefixes = ["avatars/", "previews/"] as const;
 
 export async function publisherCron(env: Env, now: number, fetch: ProofFetch): Promise<void> {
   await scanJobs(env, now);
@@ -22,6 +37,34 @@ export async function publisherCron(env: Env, now: number, fetch: ProofFetch): P
   await expire(env.MARKET, now);
   await rechecks(env.MARKET, now, fetch);
   await fillSkeletons(env.MARKET);
+  await sweepPictures(env, now);
+}
+
+/**
+ * Pictures nothing names (ADR 0173 §1): rows past the grace period that no profile or listing
+ * names are dropped, then one page of each R2 prefix is walked and objects past the grace
+ * period that no row holds are deleted. An upload writes its row before its bytes and names
+ * them after, so a cut-off one leaves only what this collects.
+ */
+export async function sweepPictures(env: Pick<Env, "MARKET" | "OBJECTS">, now: number) {
+  await sweepPictureRows(env.MARKET, now, batch.pictureRows);
+  for (const prefix of picturePrefixes) {
+    const after = await sweepCursor(env.MARKET, prefix);
+    const page = await env.OBJECTS.list({
+      prefix,
+      limit: batch.pictureObjects,
+      ...(after === undefined ? {} : { startAfter: after }),
+    });
+    const old = page.objects
+      .filter((object) => object.uploaded.getTime() < now - pictureGraceMs)
+      .map((object) => object.key);
+    if (old.length > 0) {
+      const held = await heldPictures(env.MARKET, old);
+      const orphans = old.filter((key) => !held.has(key));
+      if (orphans.length > 0) await env.OBJECTS.delete(orphans);
+    }
+    await setSweepCursor(env.MARKET, prefix, page.truncated ? page.objects.at(-1)?.key : undefined);
+  }
 }
 
 async function scanJobs(env: Env, now: number) {

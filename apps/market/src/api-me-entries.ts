@@ -17,7 +17,7 @@ import {
 import { notYours, type Authed, type AuthedPublisher } from "./auth.ts";
 import { listingReportKey, previewKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
-import { currentListing, liveVersions } from "./rules.ts";
+import { currentListing, isNewPublisher, liveVersions, publisherLimits } from "./rules.ts";
 import type { Route } from "./routes.ts";
 import {
   applyListing,
@@ -34,7 +34,7 @@ import {
 } from "./store/me-entries.ts";
 import { blockReason, putReport, scanContext } from "./store/me-scan.ts";
 import { addAppeal, offerTransfer, signals } from "./store/me-transfers.ts";
-import { pinsOf, publisherByHandle, publisherById } from "./store/profiles.ts";
+import { pinsOf, publisherByHandle, publisherById, reservePicture } from "./store/profiles.ts";
 import { addWithdrawal, ownerOf, storedVersion } from "./store/publish.ts";
 import { versionsOf } from "./store/read.ts";
 import { entryManagement } from "./store/rows.ts";
@@ -109,10 +109,6 @@ export async function meEntryRoute(
       if (!bytes) return failure(413, "too_large", "A listing picture is at most 1 MB.");
       const image = stripImage(bytes, "preview");
       if ("problem" in image) return refused([image.problem]);
-      const sha = sha256Hex(image.bytes);
-      await context.env.OBJECTS.put(previewKey(sha), image.bytes, {
-        httpMetadata: { contentType: image.type },
-      });
       const versions = await versionsOf(db, key.type, key.name);
       const listing = currentListing(
         key.name,
@@ -122,6 +118,9 @@ export async function meEntryRoute(
       const previews = [...listing.previews];
       if (route.index > previews.length)
         return invalid(`Add listing pictures in order: the next one is ${previews.length}.`);
+      const sha = sha256Hex(image.bytes);
+      const unstored = await storePicture(context, publisher, previewKey(sha), image);
+      if (unstored) return unstored;
       previews[route.index] = sha;
       return editListing(context, publisher, row.reviewed === 1, key, { ...listing, previews });
     }
@@ -181,6 +180,36 @@ export async function meEntryRoute(
     default:
       return versionAction(request, route, context, publisher);
   }
+}
+
+/**
+ * Stores a profile or listing picture (ADR 0173 §3, §9): charged to the publisher's quota
+ * before its bytes are written, and named by the caller only after, so a cut-off upload leaves
+ * nothing named that is missing, and the cron collects what nothing names. Answers the refusal
+ * when it doesn't fit.
+ */
+export async function storePicture(
+  context: Context,
+  publisher: AuthedPublisher,
+  key: string,
+  image: { bytes: Uint8Array; type: string },
+): Promise<Response | undefined> {
+  const quotaBytes = publisherLimits(isNewPublisher(publisher, context.now)).quotaBytes;
+  const charged = await reservePicture(context.env.MARKET, {
+    publisher: publisher.id,
+    key,
+    size: image.bytes.byteLength,
+    quotaBytes,
+    now: context.now,
+  });
+  if (!charged)
+    return failure(
+      429,
+      "quota",
+      `Your entries, drafts and pictures can take ${Math.round(quotaBytes / 1024 / 1024)} MB.`,
+    );
+  await context.env.OBJECTS.put(key, image.bytes, { httpMetadata: { contentType: image.type } });
+  return undefined;
 }
 
 /**

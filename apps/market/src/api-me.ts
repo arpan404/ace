@@ -13,7 +13,7 @@ import {
 } from "@ace/protocol/marketplace";
 import { draftRoute } from "./api-publish.ts";
 import { authenticate, reauthMs, type Authed, type AuthOptions } from "./auth.ts";
-import { meEntryRoute } from "./api-me-entries.ts";
+import { meEntryRoute, storePicture } from "./api-me-entries.ts";
 import { avatarKey, type Context } from "./context.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
 import { isNewPublisher } from "./rules.ts";
@@ -261,9 +261,8 @@ async function profileWrites(
       const image = stripImage(bytes, "avatar");
       if ("problem" in image) return refused([image.problem]);
       const sha = sha256Hex(image.bytes);
-      await context.env.OBJECTS.put(avatarKey(sha), image.bytes, {
-        httpMetadata: { contentType: image.type },
-      });
+      const unstored = await storePicture(context, publisher, avatarKey(sha), image);
+      if (unstored) return unstored;
       await setAvatar(db, publisher.id, sha);
       return json({ status: "done", avatar: sha });
     }

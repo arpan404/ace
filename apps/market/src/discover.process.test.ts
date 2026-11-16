@@ -194,6 +194,18 @@ it("measures movement against last week's whole ranking, its leader included aft
   expect(row("steady-second")).toMatchObject({ rank: 1, movement: { kind: "up", by: 1 } });
 });
 
+/** The columns of a copied row, with its name, publisher and a later listing. */
+const copied = (list: string[]) =>
+  list.map((column) =>
+    column === "name"
+      ? "?2"
+      : column === "publisher"
+        ? "?3"
+        : column === "published"
+          ? "published + 1"
+          : column,
+  );
+
 /** A copy of `from`'s entry and its versions under `name`, listed later, for `publisher`. */
 async function copyEntry(from: string, name: string, publisher: string) {
   const columns = async (table: string) =>
@@ -202,28 +214,18 @@ async function copyEntry(from: string, name: string, publisher: string) {
         name: string;
       }>()
     ).results.map((row) => row.name);
-  const copy = (list: string[]) =>
-    list.map((column) =>
-      column === "name"
-        ? "?2"
-        : column === "publisher"
-          ? "?3"
-          : column === "published"
-            ? "published + 1"
-            : column,
-    );
   const entry = await columns("entries");
   const version = await columns("versions");
   await market.db.batch([
     market.db
       .prepare(
-        `INSERT INTO entries (${entry.join(", ")}) SELECT ${copy(entry).join(", ")}
+        `INSERT INTO entries (${entry.join(", ")}) SELECT ${copied(entry).join(", ")}
           FROM entries WHERE type = 'spade-skill' AND name = ?1`,
       )
       .bind(from, name, publisher),
     market.db
       .prepare(
-        `INSERT INTO versions (${version.join(", ")}) SELECT ${copy(version).join(", ")}
+        `INSERT INTO versions (${version.join(", ")}) SELECT ${copied(version).join(", ")}
           FROM versions WHERE type = 'spade-skill' AND name = ?1`,
       )
       .bind(from, name),
