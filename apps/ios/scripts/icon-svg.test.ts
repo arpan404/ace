@@ -28,6 +28,10 @@ const inner = (svg: string) => svg.slice(svg.indexOf(">") + 1, svg.lastIndexOf("
 const masked = (cut: string) =>
   `<svg><defs><mask id="m"><rect width="24" height="24" fill="white"></rect>${cut}</mask></defs><g mask="url(#m)"></g></svg>`;
 
+/** A filled icon's cut line as its mask draws it: a regular-weight round stroke in black. */
+const cutStroke = (d: string) =>
+  `<path d="${d}" fill="none" stroke="black" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></path>`;
+
 type Point = readonly [number, number];
 interface Cap {
   from: Point;
@@ -156,7 +160,28 @@ test("a filled folder keeps its lip as a line cut out of the solid body", () => 
 test("a filled pencil's cut, a relative line, clips the same band as its absolute form", () => {
   const svg = assetSvg(NotePencilIcon, "fill");
   expect(svg).not.toContain("<mask");
-  expect(clipsOf(svg).used.length).toBeGreaterThan(0);
+  const { used, defined } = clipsOf(svg);
+  expect(used.length).toBeGreaterThan(0);
+  // The pencil's cut is `M15.6 5.9l2.5 2.5`: from 15.6,5.9 to 18.1,8.4, not to 2.5,2.5.
+  const absolute = clipsOf(clippedSvg(masked(cutStroke("M15.6 5.9L18.1 8.4")))).defined.get("m");
+  expect(absolute).toBeDefined();
+  for (const id of used) {
+    const clip = defined.get(id ?? "") ?? "";
+    expect(clip).toBe(absolute);
+    // A 0.875 half-width band along the diagonal, so each corner sits 0.62 off the line's ends.
+    const { corners } = bandOf(clip);
+    const expected = [
+      [14.98, 6.52],
+      [17.48, 9.02],
+      [18.72, 7.78],
+      [16.22, 5.28],
+      [14.98, 6.52],
+    ];
+    for (const [i, [x, y]] of corners.entries()) {
+      expect(x, `corner ${i} x`).toBeCloseTo(expected[i]?.[0] ?? NaN, 1);
+      expect(y, `corner ${i} y`).toBeCloseTo(expected[i]?.[1] ?? NaN, 1);
+    }
+  }
 });
 
 test("an icon drawn for the tab bar is sized for it and draws the same shapes", () => {
