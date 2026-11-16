@@ -6,6 +6,9 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
  * project with the person's own image, one with a chosen glyph and colour, one with only the
  * favicon found in its folder, and one with initials only (as `ace` itself is). The images are
  * plain shapes made for the fixture. No provider process runs.
+ *
+ * `ios-long-project` is a thread with changes in a project whose name is long, for the thread's
+ * bar: the title, the project's name under it and ⋯ have to share one row.
  */
 
 const customImage =
@@ -57,6 +60,24 @@ export function seedProjectMarks(daemon: FakeDaemon, machine: Machine): void {
       facts.endTurn("root"),
     ]);
   }
+  daemon.createThread({
+    hasSentMessage: true,
+    id: "ios-long-project",
+    workspaceId: "billing",
+    title: "Retry payouts that failed overnight",
+    provider: "claude",
+    details: {
+      workspace: { id: "billing", name: "billing-reconciliation-service", path: "/tmp/billing" },
+      branch: "fix/payout-retries",
+      machine,
+    },
+    diff: { files: 3, additions: 42, deletions: 7 },
+  });
+  daemon.apply("ios-long-project", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.endTurn("root"),
+  ]);
   // The badge is chosen the way a client chooses it: through the daemon's own command.
   daemon.command({
     id: CommandId.parse("ios-spike-badge-docs"),
