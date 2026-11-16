@@ -13,6 +13,8 @@ import { useEditBot } from "./spade-profile-actions.ts";
 import { pillButton, ProfileSection } from "./spade-profile-parts.tsx";
 import { ProfileRoutines } from "./spade-routines.tsx";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
+import { DeleteMakerDialog, type DeletingMaker } from "./spade-delete-maker.tsx";
+import { useMakerWorkers } from "./use-spade-work.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /**
@@ -151,6 +153,11 @@ function Foot(props: { bot: RosterBot }) {
   const exportBot = useExportBot();
   const remove = useDeleteBot();
   const [confirming, setConfirming] = useState<Confirming>();
+  const [deleting, setDeleting] = useState<DeletingMaker>();
+  const workersOf = useMakerWorkers(bot);
+  const deleted = (done: boolean) => {
+    if (done) void navigate({ to: "/spade", replace: true });
+  };
   return (
     <div className="mt-6 -ml-3.5 flex flex-wrap items-center gap-1">
       <Button
@@ -181,14 +188,20 @@ function Foot(props: { bot: RosterBot }) {
           tone="danger"
           className={cn(pillButton, "ml-auto -mr-3.5")}
           onClick={() =>
-            setConfirming({
-              title: `Delete ${bot.name}?`,
-              body: `This deletes ${bot.name} and its whole conversation.`,
-              confirm: "Delete bot",
-              run: () =>
-                void remove(bot).then((done) => {
-                  if (done) void navigate({ to: "/spade", replace: true });
-                }),
+            void workersOf().then((made) => {
+              // A bot that made workers asks one thing: stop them, or keep them going.
+              if (made.workers.length)
+                return setDeleting({
+                  name: bot.name,
+                  ...made,
+                  run: (workers) => void remove(bot, workers).then(deleted),
+                });
+              setConfirming({
+                title: `Delete ${bot.name}?`,
+                body: `This deletes ${bot.name} and its whole conversation.`,
+                confirm: "Delete bot",
+                run: () => void remove(bot).then(deleted),
+              });
             })
           }
         >
@@ -196,6 +209,7 @@ function Foot(props: { bot: RosterBot }) {
         </Button>
       )}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+      <DeleteMakerDialog deleting={deleting} onDone={() => setDeleting(undefined)} />
     </div>
   );
 }

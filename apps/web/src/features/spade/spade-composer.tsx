@@ -1,4 +1,7 @@
-import { useId, useRef, type ReactNode } from "react";
+import { spadeQuoted } from "@ace/ui-core/spade-chat";
+import { XIcon } from "@phosphor-icons/react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
+import { Icon } from "@/components/icon.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
   Composer,
@@ -38,6 +41,11 @@ export function SpadeComposer(props: {
   chips?: readonly { label: string; text: string; face: ReactNode }[] | undefined;
   /** Names `@` offers (a group's members), inserted as plain text. */
   mentionNames?: readonly string[] | undefined;
+  /**
+   * What the next message answers (a decision the person wants changed): above the field, and
+   * quoted before their words when it goes.
+   */
+  quote?: { text: string; onRemove(): void } | undefined;
   send(message: SpadeMessage): Promise<void>;
 }) {
   const toast = useToast();
@@ -49,8 +57,14 @@ export function SpadeComposer(props: {
     transcriptionModel: models.data?.transcriptionModel,
     onWords: (words) => composer.current?.insertText(words),
   });
+  const quoted = props.quote?.text;
+  // A new quote puts the caret in the field, to say what they want instead.
+  useEffect(() => {
+    if (quoted) composer.current?.focus();
+  }, [quoted]);
   const submit = async (draft: Draft) => {
-    const text = draft.text.trim();
+    const words = draft.text.trim();
+    const text = quoted && words ? spadeQuoted(quoted, words) : words;
     const files = draft.files.files.filter((file) => file !== undefined);
     if (!text && !draft.files.local.length) return false;
     try {
@@ -61,6 +75,7 @@ export function SpadeComposer(props: {
       // A recording goes with the words it became; with no words left, it stays behind.
       const recording = text ? voice.voice : undefined;
       await props.send({ text, images, documents, voice: recording });
+      if (quoted && words) props.quote?.onRemove();
       draft.files.release();
       if (recording) voice.remove();
       return true;
@@ -118,6 +133,21 @@ export function SpadeComposer(props: {
                       {chip.label}
                     </button>
                   ))}
+                </div>
+              )}
+              {props.quote && (
+                <div className="mb-2 flex px-1">
+                  <span className="flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full bg-secondary pr-1 pl-3 text-ui text-foreground">
+                    <span className="truncate">{props.quote.text}</span>
+                    <button
+                      type="button"
+                      aria-label="Remove quote"
+                      onClick={props.quote.onRemove}
+                      className="grid size-6 shrink-0 place-items-center rounded-full text-muted-foreground focus-ring hover:bg-hover hover:text-foreground"
+                    >
+                      <Icon icon={XIcon} size={14} />
+                    </button>
+                  </span>
                 </div>
               )}
               {props.attached}
