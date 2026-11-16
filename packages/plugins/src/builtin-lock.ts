@@ -47,8 +47,8 @@ const osClutter = (name: string) =>
   name === ".DS_Store" || name.startsWith("._") || name === "Thumbs.db" || name === "desktop.ini";
 
 /**
- * The hash of a folder: every entry below it by `/`-separated relative path, sorted, with the
- * SHA-256 of a file's bytes or a link's target. OS clutter (`osClutter`) is left out, so a
+ * The hash of a folder: every entry below it (files, folders, links) by `/`-separated relative
+ * path, sorted, with the SHA-256 of a file's bytes or a link's target. OS clutter (`osClutter`) is left out, so a
  * Finder visit doesn't make a copy look edited, and a folder hashes the same whether it came
  * from the repo or from a release's packed archive.
  */
@@ -59,8 +59,11 @@ export async function folderHash(folder: string): Promise<string> {
       if (osClutter(entry.name)) continue;
       const path = join(directory, entry.name);
       const name = `${prefix}${entry.name}`;
-      if (entry.isDirectory()) await walk(path, `${name}/`);
-      else if (entry.isFile())
+      if (entry.isDirectory()) {
+        // Listed itself, so an empty folder a person adds counts as a change too.
+        lines.push(`${name}/\0dir\n`);
+        await walk(path, `${name}/`);
+      } else if (entry.isFile())
         lines.push(
           `${name}\0${createHash("sha256")
             .update(await readFile(path))

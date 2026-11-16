@@ -157,6 +157,28 @@ it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   },
 );
 
+it("an empty folder the person added to a shipped Suit keeps it theirs", async () => {
+  const library = join(await home(), "suits");
+  await seedBuiltinSuits(library, await release({ tarn: "v1" }));
+  await mkdir(join(library, "tarn", "drafts"));
+  expect((await seedBuiltinSuits(library, await release({ tarn: "v2" }))).updated).toEqual([]);
+  expect(await readdir(join(library, "tarn"))).toContain("drafts");
+});
+
+it("a Suit deleted under an older release stays deleted when a later release ships it again", async () => {
+  const library = join(await home(), "suits");
+  await release({ tarn: "v1", loam: "v1" });
+  // The person deleted both Suits that release offered.
+  await mkdir(library, { recursive: true });
+  await writeFile(join(library, ".shipped"), "loam\ntarn\n");
+  // This release doesn't ship loam; the one after it does again.
+  await seedBuiltinSuits(library, await release({ tarn: "v1" }));
+  expect(
+    (await seedBuiltinSuits(library, await release({ tarn: "v1", loam: "v2" }))).installed,
+  ).toEqual([]);
+  expect(await suitsIn(library)).toEqual([]);
+});
+
 it("a shipped Suit the person removed is never copied back, even in a new version", async () => {
   const library = join(await home(), "suits");
   await seedBuiltinSuits(library, await release({ tarn: "v1", mizzle: "v1" }));

@@ -109,6 +109,13 @@ export async function seedBuiltinSuits(
         changed = true;
       }
     }
+    // Every Suit an older release offered and the person deleted, shipped now or not, so one
+    // shipped again later stays deleted once `.shipped` is gone.
+    for (const id of offeredBefore)
+      if (!installed.items[id] && !present.has(id)) {
+        installed.items[id] = { version: 0, hash: "", state: "removed" };
+        changed = true;
+      }
   } finally {
     if (changed) await writeInstalled(library, installed);
   }
