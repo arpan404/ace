@@ -8,7 +8,7 @@ struct NeedsYouLine: View {
     var body: some View {
         HStack(spacing: AceDesign.Space.related) {
             Text(words)
-                .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                .aceFont(AceDesign.TextRole.segment)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .monospacedDigit()
                 .contentTransition(.numericText())

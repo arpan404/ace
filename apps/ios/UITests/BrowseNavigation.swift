@@ -8,6 +8,30 @@ extension XCUIApplication {
         XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
         threadMenuItem("thread.agents").tap()
     }
+    /// The agent tree, from the live pill's part that opens it ("Waiting on 3", "2 subagents",
+    /// "1 command"): while it shows, the pill is where live subagents and commands are.
+    @MainActor func openAgentsFromPill() {
+        let part = buttons.matching(NSPredicate(format: "identifier IN %@", ["pill.status", "pill.subagents", "pill.commands"])).firstMatch
+        XCTAssertTrue(part.waitForExistence(timeout: 15))
+        part.tap()
+        XCTAssertTrue(descendants(matching: .any)["agents.page"].waitForExistence(timeout: 10))
+    }
+    /// A row of the Agents sheet, by the agent's name.
+    @MainActor func agentsRow(_ name: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'agents.row.' AND label CONTAINS %@", name)).firstMatch
+    }
+    /// A strip's answers are real buttons: those of `identifiers` that show, in order, are each a
+    /// full tap tall and none sits flush against the next.
+    @MainActor func assertStripButtons(_ identifiers: [String], file: StaticString = #filePath, line: UInt = #line) {
+        let shown = identifiers.map { buttons[$0] }.filter(\.exists)
+        XCTAssertGreaterThanOrEqual(shown.count, 2, "the strip offers its answers", file: file, line: line)
+        for button in shown { XCTAssertGreaterThanOrEqual(button.frame.height, 44, button.identifier, file: file, line: line) }
+        for (one, next) in zip(shown, shown.dropFirst()) {
+            let apart = max(next.frame.minX - one.frame.maxX, next.frame.minY - one.frame.maxY)
+            // Eight points apart, give or take layout rounding.
+            XCTAssertGreaterThanOrEqual(apart, 7.5, "\(one.identifier) sits against \(next.identifier)", file: file, line: line)
+        }
+    }
     /// The thread's title, which opens its menu: model, effort and access, then the thread's
     /// actions. It is the system's title, which has no identifier of ours: the bar's button that
     /// opens the title's menu.
@@ -171,8 +195,9 @@ extension XCUIApplication {
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.
     /// The drag runs down the element's own column: beside an iPad's open thread the list is not
-    /// in the middle of the window.
-    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 30) {
+    /// in the middle of the window. Twenty drags each way reach the fixture's last inbox rows at
+    /// body-size rows.
+    @MainActor func bringToMiddle(_ element: XCUIElement, attempts: Int = 40) {
         for attempt in 0..<attempts {
             // A row the lazy list hasn't loaded has no frame to read yet; its list is the one
             // under the Threads list's own Inbox control.

@@ -129,7 +129,7 @@ struct BrowserDownloadsSheet: View {
             List(downloads) { download in
                 QuietSectionRow {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(download.filename).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
+                        Text(download.filename).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
                         Text(detail(download)).font(AceDesign.Typeface.meta)
                             .foregroundStyle(download.failed || download.risky || saving(download)?.phase == "failed" ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                             .lineLimit(2)

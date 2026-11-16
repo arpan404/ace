@@ -59,7 +59,7 @@ struct ChatsList: View {
                             }
                         } header: {
                             Text(section.label)
-                                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                .aceFont(AceDesign.TextRole.meta)
                                 .foregroundStyle(AceTheme.Colours.subtleForeground)
                                 .textCase(nil)
                         }

@@ -293,7 +293,7 @@ private struct BubbleText: View {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                 switch piece {
                 case .prose(let text):
-                    Text(text).aceFont(AceDesign.TextRole.message, relativeTo: .body)
+                    Text(text).aceFont(AceDesign.TextRole.message)
                 case .code(let text):
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(verbatim: text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)

@@ -98,3 +98,12 @@ extension View {
         }
     }
 }
+
+extension Image {
+    /// One of ace's icons as a navigation bar button's glyph, at a bar symbol's size: a bar button
+    /// draws its image at the image's own size, so the size is the asset's (`bar-<name>`, written
+    /// by `generate-icons.ts` for the names in `barIcons`).
+    init(bar name: AceIcon.Name, weight: AceIcon.Weight = .regular) {
+        self.init(weight == .bold ? "bar-\(name.rawValue)-bold" : "bar-\(name.rawValue)")
+    }
+}

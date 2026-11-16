@@ -342,13 +342,15 @@ struct ThreadView: View {
                                openWork: metadata == nil ? nil : { showWork = true })
     }
 
-    /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
-    private var hasStrip: Bool {
-        !stripRequests.isEmpty
-            || (screen.queue?.strip).map { HoldStripState.of(strip: $0, canOperate: model.canOperate, archived: archived).visible } == true
-            || screen.queue?.notSent != nil || screen.leftRunning != nil
-            || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
+    /// The foot above the composer (`ThreadFoot`): a strip, else the pill unless the `@` and `/`
+    /// list is open.
+    private var foot: ThreadFoot {
+        let transfers: TransfersModel = model.transfers
+        var foot: ThreadFoot = ThreadFoot.of(thread, transfers: transfers)
+        foot.suggesting = suggester.trigger != nil
+        return foot
     }
+    private var hasStrip: Bool { foot.stripShown }
 
     /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
     /// request, what holds the queue, a message that didn't go, ...), or else the glass live
@@ -364,9 +366,15 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stripHeight = $0 }
                     // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            } else if let pill = screen.pill, suggester.trigger == nil {
+            } else if let pill = screen.pill, foot.drawsPill {
                 // The `@` and `/` list takes the pills' place over the transcript while it's open.
-                ComposerLivePills(pill: pill, open: openPill)
+                // Each part says when it's on screen, so the transcript keeps a fact's live rows
+                // whenever its part isn't; a new screen model gets pills of its own to say it there.
+                let screen = screen
+                ComposerLivePills(pill: pill, open: openPill) { part, shown in
+                    if shown { screen.visiblePills.insert(part) } else { screen.visiblePills.remove(part) }
+                }
+                    .id(ObjectIdentifier(screen))
                     .transition(.opacity)
             }
             composer

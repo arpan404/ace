@@ -73,14 +73,14 @@ struct ThreadMenu: View, Equatable {
         Menu {
             items
         } label: {
-            // Only the glyph: the bar's buttons keep their size at every text size (`barGlyph`).
-            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
-                .barGlyph()
+            // A plain glyph, so iOS draws the bar button at its own size.
+            Image(bar: .dotsThree, weight: .bold)
                 .foregroundStyle(AceTheme.Colours.foreground)
         }
         .menuOrder(.fixed)
+        .barGlyph()
         .accessibilityShowsLargeContentViewer {
-            AceIcon(.dotsThree, size: AceDesign.Size.navGlyph, weight: .bold)
+            Image(ace: .dotsThree, weight: .bold)
             Text("Thread options")
         }
         .accessibilityLabel("Thread options")

@@ -39,7 +39,7 @@ struct InboxView: View {
     /// The project New thread starts in, over the list's own filter.
     @State private var composeProject: String?
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
-    @State private var links = PendingLinks()
+    @State private var links = PendingLinks(launching: SpikeConfiguration.linkOnLaunch)
     /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
@@ -121,32 +121,31 @@ struct InboxView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
-            Tab(value: InboxTab.threads) {
+            Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
                 stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
-            } label: { Label { Text(HomeTabs.title(.threads)) } icon: { HomeTabs.tabImage(.threads) } }
+            }
             .accessibilityIdentifier("tab.threads")
-            Tab(value: InboxTab.chats) {
+            Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
                 stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
-            } label: { Label { Text(HomeTabs.title(.chats)) } icon: { HomeTabs.tabImage(.chats) } }
+            }
             .accessibilityIdentifier("tab.chats")
             // Spade, ace's cloud agent, keeps its slot between Chats and Search until it launches.
             if HomeTabs.showsSpade {
-                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.symbol(.spade), value: InboxTab.spade) {
+                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.spadeSymbol, value: InboxTab.spade) {
                     SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
                 }
             }
-            Tab(value: InboxTab.review) { review }
-                label: { Label { Text(HomeTabs.title(.review)) } icon: { HomeTabs.tabImage(.review) } }
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
                 .accessibilityIdentifier("tab.review")
             if HomeTabs.composeTab {
-                Tab(HomeTabs.title(.search), systemImage: HomeTabs.symbol(.search), value: InboxTab.search) { search }
+                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
                     .accessibilityIdentifier("tab.search")
                 if inbox.canStartThreads {
-                    Tab(tab == .chats ? "New chat" : "New thread", systemImage: HomeTabs.symbol(.compose), value: InboxTab.compose,
+                    Tab(tab == .chats ? "New chat" : "New thread", image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose,
                         role: Self.composeRole) { Color.clear }
                 }
             } else {
-                Tab(value: InboxTab.search, role: .search) { search }
+                Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
                     .accessibilityIdentifier("tab.search")
             }
         }

@@ -214,7 +214,7 @@ struct ForgeMergeRunStrip: View {
 
     private func sentence(_ text: String, failed: Bool) -> some View {
         Text(text)
-            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .aceFont(AceDesign.TextRole.segment).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(failed ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
             .lineLimit(2).monospacedDigit()
             .frame(maxWidth: .infinity, alignment: .leading)

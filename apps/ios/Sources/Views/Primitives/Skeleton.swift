@@ -97,10 +97,10 @@ struct SkeletonStalled: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             Text("Still waiting for your computer")
-                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                .aceFont(AceDesign.TextRole.rowTitle)
                 .foregroundStyle(AceDesign.Ink.primary)
             Text(retry == nil ? "It may be busy or offline. This fills in when it answers." : "It may be busy or offline.")
-                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceDesign.Ink.muted)
                 .fixedSize(horizontal: false, vertical: true)
             if let retry {

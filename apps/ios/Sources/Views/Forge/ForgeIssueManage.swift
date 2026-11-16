@@ -62,7 +62,7 @@ struct ForgeIssueManageSection: View {
             .accessibilityIdentifier("forge.issue.edit")
             if let problem {
                 QuietSectionRow {
-                    Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(problem).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceTheme.StatusText.failed).fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -191,7 +191,7 @@ struct ForgeIssueEditSheet: View {
                                 .accessibilityIdentifier("forge.issue.edit.body")
                         } else {
                             Text("This description is too long to edit on the phone. Edit it on GitHub.")
-                                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+                                .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                         }
                     }
                     ForgeSheetField("Labels") {
@@ -283,7 +283,7 @@ struct ForgeNewIssueSheet: View {
                             .accessibilityIdentifier("forge.newissue.body")
                     }
                     Text("Opens on \(repository.owner)/\(repository.name)")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+                        .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                         .padding(.horizontal, AceDesign.Space.margin)
                 }
                 .padding(.vertical, AceDesign.Space.related)
@@ -334,7 +334,7 @@ struct ForgeSheetField<Content: View>: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(heading).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
+            Text(heading).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
                 .accessibilityAddTraits(.isHeader)
             content()
             Hairline()
@@ -347,7 +347,7 @@ struct ForgeSheetField<Content: View>: View {
 struct ForgeSheetProblem: View {
     let text: String
     var body: some View {
-        Text(text).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        Text(text).aceFont(AceDesign.TextRole.meta)
             .foregroundStyle(AceTheme.StatusText.failed).fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, AceDesign.Space.margin)
             .accessibilityIdentifier("forge.sheet.problem")

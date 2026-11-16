@@ -65,9 +65,9 @@ struct FileScreen: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: AceTheme.Spacing.none) {
-                        Text(name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
+                        Text(name).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
                         if !folder.isEmpty {
-                            Text(folder).aceMonospace(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            Text(folder).aceMonospace(AceDesign.TextRole.meta)
                                 .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
                         }
                     }

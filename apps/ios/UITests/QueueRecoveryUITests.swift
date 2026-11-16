@@ -42,6 +42,7 @@ import XCTest
         XCTAssertTrue(sentence.label.hasPrefix("Codex is out of usage until"))
         XCTAssertTrue(app.buttons["hold.choose_model"].exists)
         XCTAssertTrue(app.buttons["hold.resume_now"].exists)
+        app.assertStripButtons(["hold.choose_model", "hold.resume_at_reset", "hold.resume_now"])
         screenshot("limit")
         app.buttons["hold.resume_at_reset"].tap()
         let scheduled = NSPredicate(format: "label CONTAINS 'resumes'")

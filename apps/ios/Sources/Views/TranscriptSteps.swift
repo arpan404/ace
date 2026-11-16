@@ -111,7 +111,7 @@ struct TargetChip: View {
         }
         .lineLimit(1)
         // Plain mono in the step's own ink, as the approved feed draws it: no chip.
-        .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+        .aceMonospace(AceDesign.TextRole.code)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
     }
 }
@@ -270,7 +270,7 @@ struct WorkBlockView: View {
             } label: {
                 LogRowBox(open: expanded) {
                     Text(row.work?.label ?? "Worked")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                 }
             }

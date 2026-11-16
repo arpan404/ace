@@ -28,7 +28,7 @@ struct InboxNeedLine: View {
                 NeedSubject(request: request, lines: typeSize.isAccessibilitySize ? 2 : 1)
                 if let position = NeedWords.position(tally) {
                     Text(position)
-                        .aceFont(AceDesign.TextRole.time, relativeTo: .caption).monospacedDigit()
+                        .aceFont(AceDesign.TextRole.time).monospacedDigit()
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                         .fixedSize()
                         .accessibilityLabel(NeedWords.spokenPosition(tally) ?? position)
@@ -56,7 +56,7 @@ private struct NeedSubject: View {
         let payload = request.command.isEmpty ? (request.strip?.payload ?? "") : request.command
         if request.kind == "approval" && !payload.isEmpty {
             Text(payload)
-                .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                .aceMonospace(AceDesign.TextRole.code)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(lines).truncationMode(.middle)
                 .padding(.horizontal, AceDesign.Space.related)
@@ -83,7 +83,7 @@ struct NeedWordStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.action)
             .fontWeight(primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(primary ? AceTheme.Colours.accent : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.stripWord)
@@ -102,7 +102,7 @@ struct NeedActionStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.action)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(1)
             .padding(.horizontal, AceDesign.Space.stripWord)

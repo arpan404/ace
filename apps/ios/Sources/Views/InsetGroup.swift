@@ -36,7 +36,7 @@ struct InsetHeader: View {
     let title: String
     init(_ title: String) { self.title = title }
     var body: some View {
-        Text(title).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+        Text(title).aceFont(AceDesign.TextRole.meta)
             .foregroundStyle(AceDesign.Ink.subtle).textCase(nil)
     }
 }
@@ -44,9 +44,9 @@ struct InsetHeader: View {
 /// The grouped rows' measures, on the type roles: labels and values on body, headers on meta.
 @MainActor enum InsetStyle {
     static let rowHeight = AceDesign.Size.rowLine
-    static let label = AceTheme.Typography.label
-    static let value = AceTheme.Typography.label
-    static let header = AceTheme.Typography.meta
+    static let label = AceDesign.TextRole.rowTitle
+    static let value = AceDesign.TextRole.rowTitle
+    static let header = AceDesign.TextRole.meta
 }
 
 /// One row: symbol, label (with an optional muted line under it) and a trailing view.
@@ -86,9 +86,9 @@ struct InsetRow<Trailing: View>: View {
                 EmptyView()
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceDesign.Ink.primary)
+                Text(title).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                 if let subtitle {
-                    Text(subtitle).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    Text(subtitle).aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
             }
@@ -115,7 +115,7 @@ struct InsetValue: View {
     let text: String?
     var body: some View {
         if let text {
-            Text(text).aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            Text(text).aceFont(AceDesign.TextRole.action)
                 .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
         }
     }

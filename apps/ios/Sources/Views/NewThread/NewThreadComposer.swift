@@ -165,13 +165,13 @@ struct NewThreadInstructionsView: View {
                         }
                         QuietSectionRow {
                             TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical)
-                                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                                .aceFont(AceDesign.TextRole.rowTitle)
                                 .lineLimit(2...8)
                                 .accessibilityIdentifier("newThread.instructions")
                         }
                     }
                     Text("Included in the thread's first message.")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .padding(.horizontal, AceDesign.Space.margin)
                 }

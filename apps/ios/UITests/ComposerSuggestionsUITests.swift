@@ -61,6 +61,9 @@ import XCTest
         app.revealRow("thread.ios-waiting").tap()
         let live = app.descendants(matching: .any)["composer.live"]
         XCTAssertTrue(live.waitForExistence(timeout: 25))
+        // The live subagents are the pill's while it shows: no group row in the transcript.
+        let group = app.buttons["subagents.rollup"]
+        XCTAssertTrue(group.waitForNonExistence(timeout: 5), "the pill says the live subagents")
         let input = app.textViews["composer.input"]
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
@@ -71,12 +74,15 @@ import XCTest
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         sleep(1)
         XCTAssertFalse(live.exists, "the pills step aside while the list is open")
+        // With no pill on screen the transcript says the live subagents again, never neither.
+        XCTAssertTrue(group.waitForExistence(timeout: 5), "the live subagents stay in view while the list is open")
         XCTAssertEqual(input.frame.minY, rest, accuracy: 1, "the composer stays where it was")
         XCTAssertLessThanOrEqual(list.frame.maxY, input.frame.minY, "the list sits above the capsule")
         screenshot("composer-command-over-transcript")
         input.typeText(XCUIKeyboardKey.delete.rawValue)
         XCTAssertTrue(list.waitForNonExistence(timeout: 5))
         XCTAssertTrue(live.waitForExistence(timeout: 5), "the pills come back once the list closes")
+        XCTAssertTrue(group.waitForNonExistence(timeout: 5), "and the pill says the live subagents again")
         XCTAssertEqual(input.frame.minY, rest, accuracy: 1, "and the composer hasn't moved")
 
         // A row picked from the list over the transcript lands in the field.

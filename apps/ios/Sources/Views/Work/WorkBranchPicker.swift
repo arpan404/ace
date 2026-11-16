@@ -61,7 +61,7 @@ struct WorkBranchPicker: View {
         .onChange(of: search) { _, query in model.sheet(["kind": "work.branches.find", "query": String(query.prefix(256))]) }
         .navigationTitle("Switch branch")
         .navigationBarTitleDisplayMode(.inline)
-        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+        .aceFont(AceDesign.TextRole.rowTitle)
         .accessibilityIdentifier("work.branches")
     }
 
@@ -73,7 +73,7 @@ struct WorkBranchPicker: View {
             dismiss()
         } label: {
             HStack(spacing: AceDesign.Space.related) {
-                Text(verbatim: name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                Text(verbatim: name).aceMonospace(AceDesign.TextRole.rowTitle)
                     .foregroundStyle(current || allowed ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: AceDesign.Space.related)

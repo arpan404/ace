@@ -117,7 +117,7 @@ struct NewSkillView: View {
     @ViewBuilder private var nameLine: some View {
         if let checkProblem {
             HStack(spacing: AceDesign.Space.related) {
-                Text(checkProblem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(checkProblem).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("skill.new.nameReadProblem")
@@ -125,7 +125,7 @@ struct NewSkillView: View {
                     .buttonStyle(.textAction(.prominent))
             }
         } else if let problem = check?.problem, !trimmed.isEmpty {
-            Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+            Text(problem).aceFont(AceDesign.TextRole.meta)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("skill.new.nameProblem")
@@ -158,7 +158,7 @@ struct NewSkillView: View {
             } else if agents.isEmpty {
                 QuietSectionRow {
                     Text("No coding agent is set up here to take a new skill.")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -178,7 +178,7 @@ struct NewSkillView: View {
                 VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                     QuietHeading("Runs")
                     Text("Couldn't read when it runs.")
-                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .aceFont(AceDesign.TextRole.meta)
                         .foregroundStyle(AceDesign.Ink.muted)
                 }
                 .padding(.horizontal, AceDesign.Space.margin)

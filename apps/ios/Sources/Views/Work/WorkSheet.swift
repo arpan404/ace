@@ -139,7 +139,7 @@ struct WorkSheet: View {
                 Button { model.sheet(["kind": "work.prs.more"]) } label: {
                     QuietSectionRow {
                         Text("Show \(min(work.morePrs, 20)) more of \(work.morePrs)")
-                            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .aceFont(AceDesign.TextRole.action)
                             .foregroundStyle(AceDesign.Ink.primary)
                     }
                 }
@@ -154,7 +154,7 @@ struct WorkSheet: View {
                 Button { reference = ""; linking = true } label: {
                     QuietSectionRow {
                         Text(work.prs.isEmpty ? "Link a pull request" : "Link another")
-                            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .aceFont(AceDesign.TextRole.action)
                             .fontWeight(AceDesign.Typeface.strong)
                             .foregroundStyle(AceDesign.Ink.primary)
                     }
@@ -203,7 +203,7 @@ struct WorkSheet: View {
                 if running { WorkingMark(label: "Working on the checkout") }
                 Text(message).foregroundStyle(colour).lineLimit(3)
             }
-            .aceFont(AceDesign.TextRole.action, relativeTo: .footnote)
+            .aceFont(AceDesign.TextRole.action)
             .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.row)
             .aceGlass(in: AceDesign.Shape.control)
             .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.related)

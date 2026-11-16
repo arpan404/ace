@@ -52,7 +52,7 @@ struct ThreadSummaryPage: View {
         QuietSection("Since you looked") {
             ForEach(lines) { line in
                 QuietSectionRow {
-                    Text(line.text).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    Text(line.text).aceFont(AceDesign.TextRole.rowTitle)
                         .foregroundStyle(Self.ink(line.tone, rest: AceDesign.Ink.muted)).lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -100,7 +100,7 @@ struct ThreadSummaryPage: View {
                     AceIcon(.terminal, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.subtle)
                     (Text(commands.ran + ", ") + Text(commands.failed).foregroundStyle(AceTheme.StatusText.failed))
-                        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                        .aceFont(AceDesign.TextRole.rowTitle)
                         .foregroundStyle(AceDesign.Ink.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -117,7 +117,7 @@ struct ThreadSummaryPage: View {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                     QuietRowText(title: files.title, detail: files.detail.isEmpty ? nil : files.detail)
                     ForEach(files.conflicts, id: \.self) { conflict in
-                        Text(conflict).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        Text(conflict).aceFont(AceDesign.TextRole.meta)
                             .foregroundStyle(AceTheme.StatusText.needsYou).lineLimit(2)
                     }
                 }
@@ -139,7 +139,7 @@ struct ThreadSummaryPage: View {
                     .foregroundStyle(entry.element.failed ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                 return entry.offset == 0 ? words : line + Text(" · ").foregroundStyle(AceDesign.Ink.subtle) + words
             }
-            .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+            .aceFont(AceDesign.TextRole.rowTitle)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
@@ -185,14 +185,14 @@ private struct SummaryNowHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             headline
-                .aceFont(AceDesign.TextRole.header, relativeTo: .headline)
+                .aceFont(AceDesign.TextRole.header)
                 .foregroundStyle(ThreadSummaryPage.ink(now.tone, rest: AceDesign.Ink.primary))
                 .monospacedDigit()
                 .accessibilityLabel("Thread status: \(now.speak)")
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("summary.now")
             if !now.sub.isEmpty {
-                Text(now.sub).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                Text(now.sub).aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(2).monospacedDigit()
                     .accessibilityIdentifier("summary.now.sub")
             }
@@ -232,7 +232,7 @@ private struct SummaryPlanSection: View {
                         .foregroundStyle(AceDesign.Ink.subtle)
                         .accessibilityHidden(true)
                     Text(todo.text)
-                        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                        .aceFont(AceDesign.TextRole.rowTitle)
                         .foregroundStyle(settled(todo) ? AceDesign.Ink.subtle : AceDesign.Ink.primary)
                         .strikethrough(todo.status == "cancelled")
                         .frame(maxWidth: .infinity, alignment: .leading)
