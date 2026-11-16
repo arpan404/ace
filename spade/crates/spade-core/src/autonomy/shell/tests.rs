@@ -74,6 +74,14 @@ impl Folder {
             "open('/Users/me/.ssh/id_rsa').read()".to_owned(),
         );
         files.insert("/w/big.sh".into(), "echo x\n".repeat(LONGEST_SCRIPT));
+        files.insert(
+            "/w/send.applescript".into(),
+            "-- Spade's note\ntell application \"Mail\"\n  send newMessage\nend tell\n".to_owned(),
+        );
+        files.insert(
+            "/w/inbox.applescript".into(),
+            "tell application \"Mail\" to get subject of messages of inbox\n".to_owned(),
+        );
         let mut links = HashMap::new();
         // A folder inside the workspace that is a link to somewhere else.
         links.insert("/w/out".into(), "/etc".into());
@@ -232,7 +240,7 @@ fn commands_that_reach_out_or_cant_be_undone_go_to_the_person() {
         ("echo x >> ~/.zshrc", WriteOutside),
         ("echo x | tee /usr/local/bin/x", WriteOutside),
         ("dd if=img of=/dev/disk2", WriteOutside),
-        ("osascript -e 'tell app \"Mail\" to send'", Automation),
+        ("osascript -e 'tell app \"Finder\" to activate'", Automation),
         ("open https://example.com", Automation),
         ("sudo rm -rf build", Admin),
         ("env FOO=1 sudo make install", Admin),
@@ -529,4 +537,94 @@ fn an_include_bomb_stops_at_the_classification_budget() {
         "read {} files",
         folder.reads.get()
     );
+}
+
+/// The command the owner's card held: a here-document sending an iMessage.
+const IMESSAGE_HEREDOC: &str = "osascript <<'APPLESCRIPT'
+tell application \"Messages\"
+  set targetChat to chat id \"any;-;+16013291450\"
+  send \"hi from spade v2\" to targetChat
+end tell
+APPLESCRIPT";
+
+#[test]
+fn a_script_that_sends_from_a_messaging_app_is_a_send_as_the_person() {
+    for command in [
+        IMESSAGE_HEREDOC,
+        "osascript <<APPLESCRIPT\ntell application \"Messages\" to send \"hi\" to buddy \"x\"\nAPPLESCRIPT",
+        "osascript - <<-EOF\n\ttell application \"Messages\" to send \"hi\" to buddy \"x\"\n\tEOF",
+        "osascript <<< 'tell application \"Messages\" to send \"hi\" to buddy \"x\"'",
+        "osascript -e 'tell app \"Mail\" to send'",
+        "osascript -e 'tell application \"Mail\"' -e 'reply theMessage' -e 'end tell'",
+        "osascript -e 'tell application id \"com.microsoft.Outlook\" to forward m'",
+        "osascript -l JavaScript -e 'Application(\"Messages\").send(\"hi\", {to: b})'",
+        "osascript -l JavaScript -e \"const s = Application('Slack'); s.post(m)\"",
+        "osascript -e 'tell application \"WhatsApp\" to activate' \
+         -e 'tell application \"System Events\" to keystroke return'",
+        "osascript -e 'tell process \"Telegram\" to click button 1'",
+        "osascript -e 'tell application \"Discord\" to send m'",
+        "osascript send.applescript",
+        "osascript < send.applescript",
+        "env LANG=C osascript <<'X'\ntell application \"Messages\" to send \"a\" to b\nX",
+        // A send ranks over whatever else the command does.
+        "curl -d x https://x; osascript -e 'tell app \"Mail\" to send'",
+        "shortcuts run \"Send Message\"",
+        "shortcuts run 'Text Mom' -i note.txt",
+        "shortcuts run \"Email the report\"",
+    ] {
+        assert_eq!(
+            said(command),
+            Some(Finding::Sensitive(MessageAsPerson)),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn a_script_that_only_drives_apps_stays_with_the_reviewer() {
+    for command in [
+        "osascript -e 'tell application \"Messages\" to get name of every chat'",
+        "osascript -e 'tell application \"Finder\" to send m'",
+        // Words in a message's own text don't send.
+        "osascript -e 'tell application \"Mail\" to get (messages whose subject is \"send\")'",
+        "osascript <<'EOF'\ntell application \"Music\" to play\nEOF",
+        "osascript inbox.applescript",
+        // A script Spade can't read stays with the reviewer, as driving apps.
+        "osascript compiled.scpt",
+        "osascript /opt/scripts/send.applescript",
+        "shortcuts run \"Resize Images\"",
+        "shortcuts list",
+    ] {
+        assert_eq!(
+            said(command),
+            Some(Finding::Sensitive(Automation)),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn text_fed_to_anything_else_or_that_runs_commands_stays_unread() {
+    for command in [
+        "cat <<'EOF' > a.sh\ngit push\nEOF",
+        "sh <<'EOF'\ngit push\nEOF",
+        "bash -c 'bash' <<'EOF'\ngit push\nEOF",
+        // An unquoted body runs `$(...)` and backticks.
+        "osascript <<EOF\ntell application \"$(pick)\" to send m\nEOF",
+        // No delimiter line.
+        "osascript <<EOF\ntell application \"Messages\" to send m",
+    ] {
+        assert_eq!(
+            said(command),
+            Some(Finding::Sensitive(Unclear)),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn a_file_osascript_runs_is_shown_to_the_reviewer() {
+    let assessed = assess("osascript inbox.applescript", &Folder::new());
+    assert_eq!(assessed.shown.len(), 1);
+    assert!(assessed.shown[0].content.contains("subject of messages"));
 }

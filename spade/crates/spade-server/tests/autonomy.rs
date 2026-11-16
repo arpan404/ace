@@ -317,6 +317,36 @@ async fn sending_email_as_the_person_reaches_them_and_their_always_allow_still_h
 }
 
 #[tokio::test]
+async fn an_applescript_that_sends_an_imessage_reaches_the_person_without_a_review() -> Result {
+    let shell = shell();
+    let runs = calls_of(&shell);
+    let command = "osascript <<'APPLESCRIPT'\n\
+                   tell application \"Messages\"\n  \
+                   set targetChat to chat id \"any;-;+16013291450\"\n  \
+                   send \"hi from spade v2\" to targetChat\n\
+                   end tell\n\
+                   APPLESCRIPT";
+    let spade = reviewed_by_fake(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": command })),
+            // Only reached if a reviewer were asked: it would approve.
+            Script::reply("").plain(APPROVE),
+            Script::reply("Sent."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(shell) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Text hi to my number").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(&events, "It sends something in your name, so you decide.")?;
+    assert_eq!(spade.fake.seen().len(), 1, "no reviewer was asked");
+    assert_eq!(ran(&runs), 0);
+    Ok(())
+}
+
+#[tokio::test]
 async fn publishing_is_still_the_reviewers_to_judge_and_runs_when_approved() -> Result {
     let publish =
         FakeTool::new("publish_page", Risk::Write, "Published").app("Site: Publishes a page");

@@ -281,6 +281,7 @@ pub(super) fn show(run: &Run, place: &dyn Place, depth: usize, walk: &mut Walk) 
         Run::File(path) => file(place, path, How::Interpreted, depth, walk),
         Run::Exec(path) => file(place, path, How::Executed, depth, walk),
         Run::Shell(path) => file(place, path, How::Shell, depth, walk),
+        Run::AppleScript(path) => apple_script(place, path, walk),
         Run::Make {
             dir,
             file: named,
@@ -435,6 +436,22 @@ fn file(place: &dyn Place, path: &str, how: How, depth: usize, walk: &mut Walk) 
     }
 }
 
+/// An `osascript` file: shown, and a send as the person when it sends from a messaging app. One
+/// Spade can't read (compiled, outside the folder, too long) stays with the reviewer as driving
+/// other apps, which the command already says.
+fn apple_script(place: &dyn Place, path: &str, walk: &mut Walk) {
+    let Some(text) = fetch_as(place, path, walk, None) else {
+        return;
+    };
+    walk.shown.push(Shown {
+        path: path.to_owned(),
+        content: text.clone(),
+    });
+    if super::apple::sends(&text) {
+        walk.kind(Sensitive::MessageAsPerson);
+    }
+}
+
 /// The hooks a git command would run: the repository's own, shown and checked like scripts.
 /// Hooks set elsewhere (`core.hooksPath`), a repository Spade can't read, or one shared with
 /// another worktree are unclear.
@@ -576,6 +593,16 @@ fn just(text: &str, wanted: &[String]) -> Option<Vec<String>> {
 /// A file's text, when it is inside the folder and short enough to show: recorded as run, and
 /// checked for credential places. `None` (and the walk told) when it can't be shown.
 fn fetch(place: &dyn Place, path: &str, walk: &mut Walk) -> Option<String> {
+    fetch_as(place, path, walk, Some(Sensitive::UnseenScript))
+}
+
+/// [`fetch`], with the kind a file that can't be shown comes to (`None`: nothing more).
+fn fetch_as(
+    place: &dyn Place,
+    path: &str,
+    walk: &mut Walk,
+    unseen: Option<Sensitive>,
+) -> Option<String> {
     // The classification's budget is checked before the read.
     if !walk.spent.may_read() {
         walk.kind(Sensitive::Unclear);
@@ -605,7 +632,11 @@ fn fetch(place: &dyn Place, path: &str, walk: &mut Walk) -> Option<String> {
     match &text {
         Some(text) if super::super::secrets::names_place(text) => walk.credentials = true,
         Some(_) => {}
-        None => walk.kind(Sensitive::UnseenScript),
+        None => {
+            if let Some(kind) = unseen {
+                walk.kind(kind);
+            }
+        }
     }
     text
 }
