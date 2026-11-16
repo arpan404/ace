@@ -196,3 +196,27 @@ cap (read only); `today_micros` and `month_micros` are every bot's spend togethe
 
 A cap of 0 is allowed and means the bot makes no model calls. Settings are kept in the `settings`
 table (`oversight` and `oversight:<agent id>`), deleted with the bot.
+
+## Digests, decisions and escalation levels
+
+[ADR 0165](../../docs/adr/0165-spade-digests-and-decision-log.md). Built from events in
+`spade_core::digest`, with no model call unless the person turns polish on.
+
+- **Levels.** Every event served by `/events` and `/live` carries `"level"` (`inform`, `ask`,
+  `block`, `stop`) when it reaches the person; `spade_core::escalation` maps them. Nothing new
+  waits: the level names what an existing wait already does.
+- **Decision log.** `decision_log {choice, reason, options?, item?}` stores `decision_made`; it
+  shows in the activity log (kind `task`) and in digests.
+- **Digests.** Per bot, with a nested digest per bot worker for a tree. They are made on a
+  schedule (daily by default; workers only when set on them) or on request. Settings are in the
+  `settings` table (`digests` and `digests:<agent id>`); digests are in the `digests` table,
+  deleted with the bot.
+
+| Route                           | Body or query                        | Answer                                          |
+| ------------------------------- | ------------------------------------ | ----------------------------------------------- |
+| `GET /digests`                  | `agent?`, `after?` (an id), `limit?` | `{"digests"}`, newest first                     |
+| `GET /digests/{id}`             |                                      | `{"digest"}`                                    |
+| `GET`/`PUT /digests/settings`   | `{every?, polish?}`                  | `{"settings", "every_ms", "polish"}`            |
+| `GET`/`PUT /agents/{id}/digest` | `{every?, polish?}`, `null` inherits | `{"settings", "every_ms", "polish", "next_ms"}` |
+| `POST /agents/{id}/digests`     |                                      | `201 {"digest"}`                                |
+| `GET /notices/live`             |                                      | server-sent `notice` events                     |
