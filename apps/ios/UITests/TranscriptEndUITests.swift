@@ -160,15 +160,13 @@ import XCTest
         waitForReady(transcript)
         app.textViews["composer.input"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        let opening = keyboardGaps(app, "open")
+        let opening = keyboardMotion(app, "open")
         transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
-        let closing = keyboardGaps(app, "close")
-        for (motion, gaps) in [("opens", opening), ("closes", closing)] {
-            XCTAssertGreaterThan(gaps.count, 5, "frames were sampled as the keyboard \(motion)")
-            let drift = (gaps.max() ?? 0) - (gaps.min() ?? 0)
-            XCTAssertLessThanOrEqual(drift, 4, "the gap holds as the keyboard \(motion): \(gaps)")
-        }
+        let closing = keyboardMotion(app, "close")
+        let report = "opening \(opening), closing \(closing)"
+        XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
+        XCTAssertTrue(opening.drift <= 4 && closing.drift <= 4, "the gap holds each way: \(report)")
     }
 
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
@@ -324,17 +322,20 @@ import XCTest
         }
         return id
     }
-    /// The gaps `KeyboardDriftProbe` read on each frame of the keyboard's last `motion`.
-    private func keyboardGaps(_ app: XCUIApplication, _ motion: String) -> [Int] {
+    /// What `KeyboardDriftProbe` read over the keyboard's last `motion`: the line-to-composer gap
+    /// on each frame, and the farthest the composer's foot strayed from the keyboard's edge.
+    private func keyboardMotion(_ app: XCUIApplication, _ motion: String) -> KeyboardMotion {
         let probe = app.descendants(matching: .any)["perf.probe"]
         // The probe records once the motion has settled.
         sleep(1)
-        let key = "keyboard.\(motion).gaps="
-        let recorded = NSPredicate(format: "value CONTAINS %@", key)
+        let recorded = NSPredicate(format: "value CONTAINS %@", "keyboard.\(motion).gaps=")
         wait(for: [expectation(for: recorded, evaluatedWith: probe)], timeout: 5)
-        let value = probe.value as? String ?? ""
-        let entry = value.split(separator: ";").first { $0.hasPrefix(key) }?.dropFirst(key.count) ?? ""
-        return entry.split(separator: ",").compactMap { Int($0) }
+        let entries = (probe.value as? String ?? "").split(separator: ";").reduce(into: [String: String]()) { found, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2 { found[parts[0]] = parts[1] }
+        }
+        let gaps = (entries["keyboard.\(motion).gaps"] ?? "").split(separator: ",").compactMap { Int($0) }
+        return KeyboardMotion(gaps: gaps, lag: Int(entries["keyboard.\(motion).lag"] ?? "") ?? -1)
     }
     private func open(_ threadId: String, probe: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
@@ -355,6 +356,14 @@ import XCTest
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
         }
     }
+}
+
+/// One keyboard motion as the probe saw it.
+private struct KeyboardMotion: CustomStringConvertible {
+    let gaps: [Int]
+    let lag: Int
+    var drift: Int { (gaps.max() ?? 0) - (gaps.min() ?? 0) }
+    var description: String { "drift \(drift) pt, composer off the keyboard by up to \(lag) pt, gaps \(gaps)" }
 }
 
 /// The fixture's own view of a thread, cut to what these tests read of it.
