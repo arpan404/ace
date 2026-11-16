@@ -14,6 +14,7 @@ import {
   type RefObject,
 } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { homeRowKey, homeRowThread, listOrderOf, type HomeRow, type RowBox } from "@ace/ui-core";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { matchesChord } from "@/lib/hotkeys.ts";
@@ -493,7 +494,9 @@ export function ThreadList(props: {
                   isTask(row) ? "pb-1" : "id" in row ? "pb-0.5" : row.kind !== "unsent" && "pb-px",
                   // While rows slide past each other each is opaque, and the one moving up
                   // passes over the others: a swap never shows two rows through each other.
-                  sliding && "bg-sidebar",
+                  // Over a Suit's scene the sidebar colour would black the list out for the
+                  // slide, so the rows stay clear there and the scene shows through.
+                  sliding && cn("bg-sidebar", sceneThrough),
                   sliding && entry.rising && "z-[1]",
                 )}
                 style={{
