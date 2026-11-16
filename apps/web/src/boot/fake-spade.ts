@@ -2,6 +2,7 @@ import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { seedFakeCards } from "./fake-spade-cards.ts";
 import { seedFakeGroup } from "./fake-spade-group.ts";
 import { seedFakeTranscript } from "./fake-spade-transcript.ts";
+import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -526,6 +527,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   seedFakeTranscript(here, (back) => {
     rewound = back * 60_000;
   });
+  seedFakeCapabilities(
+    here,
+    (back) => {
+      rewound = back * 60_000;
+    },
+    now,
+  );
 
   const remote = running(server);
   remote.addAgent({

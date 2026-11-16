@@ -7,6 +7,7 @@ import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { FakeSpadeWakes } from "./spade-wakes.ts";
 import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 /*
@@ -132,6 +133,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly oversight = new FakeSpadeOversight();
   /** Web search settings: the SearXNG address and whether a Brave key is set. */
   readonly search = new FakeSpadeSearch();
+  /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
+  readonly wakes: FakeSpadeWakes;
   private readonly events = new Map<string, Stored[]>();
   /** Each bot conversation's helpers (ADR 0152), whose own conversations are in `events`. */
   private readonly helpers = new Map<string, Json[]>();
@@ -186,6 +189,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return folders;
       },
       exists: (agent) => this.agents.some((candidate) => candidate.id === agent),
+    });
+    this.wakes = new FakeSpadeWakes({
+      conversationOf,
+      events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
+      store: (conversation, event) => this.store(conversation, event),
     });
     spade.serve(this);
   }
@@ -441,6 +449,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ skill_id: `skl_${id}` });
     }
     if (root === "oversight") return this.oversight.route(request.method, body);
+    if (root === "agents" && id && sub === "wakes")
+      return this.wakes.route(request.method, id, subId, parts[4]);
+    if (root === "digests" && request.method === "GET")
+      return this.wakes.list(new URLSearchParams(query));
     if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");

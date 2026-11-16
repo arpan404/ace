@@ -53,13 +53,13 @@ export function QuietLine(props: {
         <SpadeFace avatar={props.face(lead.bot)} size={20} state={lead.pose} />
       )}
       <span className="min-w-0 truncate">
-        {line.words.map((part, index) =>
+        {line.words.map((part) =>
           part.strong ? (
-            <strong key={index} className="font-medium text-foreground">
+            <strong key={part.text} className="font-medium text-foreground">
               {part.text}
             </strong>
           ) : (
-            <span key={index}>{part.text}</span>
+            <span key={part.text}>{part.text}</span>
           ),
         )}
       </span>
@@ -143,26 +143,32 @@ export function RestingLine(props: {
   return (
     <div
       role="status"
-      className="mt-(--chat-turn-gap) flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 first:mt-0"
+      className="mt-(--chat-turn-gap) flex min-w-0 items-center gap-2.5 first:mt-0"
     >
       <SpadeFace avatar={props.avatar} size={32} state="sleeping" />
-      <span className="min-w-0 text-ui text-muted-foreground">
-        {line.words}
-        {line.why && <span className="text-subtle-foreground"> · {line.why}</span>}
-      </span>
-      <span className="flex gap-0.5">
-        {line.actions.map((action) => (
-          <Button
-            key={action}
-            size="xs"
-            variant="ghost"
-            disabled={doing !== undefined}
-            className={cn("rounded-full", action === "cancel" && "text-muted-foreground")}
-            onClick={() => act(action)}
-          >
-            {doing === action ? actionWords[action].busy : actionWords[action].idle}
-          </Button>
-        ))}
+      {/* On a narrow screen the actions wrap under the words, not under the face. */}
+      <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+        <span className="min-w-0 text-ui text-muted-foreground">
+          {line.words}
+          {line.why && <span className="text-subtle-foreground"> · {line.why}</span>}
+        </span>
+        <span className="flex gap-0.5">
+          {line.actions.map((action) => (
+            <Button
+              key={action}
+              size="xs"
+              variant="ghost"
+              disabled={doing !== undefined}
+              className={cn(
+                "rounded-full pointer-coarse:h-11 pointer-coarse:px-3.5",
+                action === "cancel" && "text-muted-foreground",
+              )}
+              onClick={() => act(action)}
+            >
+              {doing === action ? actionWords[action].busy : actionWords[action].idle}
+            </Button>
+          ))}
+        </span>
       </span>
     </div>
   );

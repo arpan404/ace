@@ -34,8 +34,8 @@ export function SpadeDigestBubble(props: {
         {message.heading && <p className="font-semibold text-foreground">{message.heading}</p>}
         {message.lines.length > 0 && (
           <ul className="flex list-disc flex-col gap-1 pl-5">
-            {message.lines.map((line, index) => (
-              <li key={index}>{line}</li>
+            {message.lines.map((line) => (
+              <li key={line}>{line}</li>
             ))}
           </ul>
         )}
