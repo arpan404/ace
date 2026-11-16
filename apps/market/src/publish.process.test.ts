@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readArchive, typeLimits } from "@ace/marketplace";
 import { folder, sampleSkill, sampleSuit } from "@ace/marketplace/testing";
 import {
+  approveHeld,
   asSigner,
   cloudGrant,
   manifestFor,
@@ -54,6 +55,9 @@ describe("publishing", () => {
     expect((await market.fetch(`/v1/objects/${accepted.hash}`)).status).toBe(404);
     expect((await market.fetch("/v1/entries/spade-skill/waiting-skill/1.0.0")).status).toBe(404);
 
+    // A new publisher's first version is held for a maintainer before the signer sees it.
+    expect(await pendingPublisher(market, "spade-skill", "waiting-skill")).toBeUndefined();
+    expect(await approveHeld(market, "spade-skill", "waiting-skill")).toBe(200);
     const publisher = await pendingPublisher(market, "spade-skill", "waiting-skill");
     expect(publisher?.name).toBe("tester");
     const signed = await put(market, "/v1/signer/versions/spade-skill/waiting-skill/1.0.0", {

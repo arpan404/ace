@@ -151,6 +151,18 @@ export async function pendingPublisher(market: Market, type: string, name: strin
     ?.publisher;
 }
 
+/**
+ * A maintainer releases a held version (ADR 0173 §9), as a new publisher's first version is held.
+ * A version that isn't held is left alone.
+ */
+export async function approveHeld(market: Market, type: string, name: string, version = "1.0.0") {
+  const response = await put(market, `/v1/signer/holds/${type}/${name}/${version}`, {
+    decision: "approve",
+  });
+  await response.body?.cancel();
+  return response.status;
+}
+
 /** Publishes, then signs, as publisher and signer together; optionally with a review mark. */
 export async function publishSigned(
   market: Market,
