@@ -62,7 +62,18 @@ const lifetime = (iat = Date.now()) => ({ iat, exp: iat + GRANT_LIFETIME_MS });
 
 /** A market publishing grant for `account`, as the account backend mints it. */
 export const marketGrant = (account: string) =>
-  signMarketGrant({ kind: "machine", account, subject: "host-a", ...lifetime() }, grantKey);
+  signMarketGrant(
+    {
+      kind: "machine",
+      account,
+      subject: "host-a",
+      iss: "cloud.acehq.dev",
+      emailVerified: true,
+      authAt: Date.now(),
+      ...lifetime(),
+    },
+    grantKey,
+  );
 export const relayGrant = (account: string, kind: "machine" | "device" = "machine") =>
   signGrant({ kind, account, subject: "host-a", ...lifetime() }, grantKey);
 export const cloudGrant = (account: string) =>
