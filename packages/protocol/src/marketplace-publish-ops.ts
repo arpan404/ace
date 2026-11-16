@@ -3,6 +3,7 @@ import {
   MarketEntryName,
   MarketEntryType,
   MarketEntrySummary,
+  MarketHash,
   MarketPublisherName,
   MarketVersion,
 } from "./marketplace-base.ts";
@@ -151,6 +152,9 @@ export const MarketPublishAnswer = z.discriminatedUnion("kind", [
 ]);
 export type MarketPublishAnswer = z.infer<typeof MarketPublishAnswer>;
 
+export const MarketPictureKind = z.enum(["preview", "avatar"]);
+export type MarketPictureKind = z.infer<typeof MarketPictureKind>;
+
 /** Discover as the daemon answers it, with entries read into summaries. */
 export const MarketDiscover = z.strictObject({
   hero: MarketEntrySummary.optional(),
@@ -195,6 +199,8 @@ export type MarketPublisherPage = z.infer<typeof MarketPublisherPage>;
 export const marketPublishOperations = [
   z.strictObject({ op: z.literal("discover") }),
   z.strictObject({ op: z.literal("publisher"), handle: MarketPublisherName }),
+  /** A listing picture or an avatar by its sha256, as the market serves it. */
+  z.strictObject({ op: z.literal("picture"), kind: MarketPictureKind, hash: MarketHash }),
   z.strictObject({ op: z.literal("publish"), request: MarketPublishAction }),
   z.strictObject({
     op: z.literal("report"),
@@ -208,5 +214,11 @@ export const marketPublishOperations = [
 export const marketPublishResults = [
   z.strictObject({ op: z.literal("discover"), discover: MarketDiscover }),
   z.strictObject({ op: z.literal("publisher"), page: MarketPublisherPage }),
+  /** The picture's bytes as base64, checked against its hash, with their type. */
+  z.strictObject({
+    op: z.literal("picture"),
+    type: z.enum(["image/png", "image/jpeg", "image/webp"]),
+    data: z.string().max(1_400_000),
+  }),
   z.strictObject({ op: z.literal("publish"), answer: MarketPublishAnswer }),
 ] as const;

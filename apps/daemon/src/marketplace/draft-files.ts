@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { maxArchiveBytes, previewBytes, writeArchive, type ArchiveFile } from "@ace/marketplace";
 import type { MarketDraftSource } from "@ace/protocol/marketplace";
 import { Refused } from "./prepare.ts";
+import { pictureType } from "./pictures.ts";
 
 /*
  * A draft's bytes from what the app sends (ADR 0173 §5): a folder on this machine read as the
@@ -75,13 +76,6 @@ export async function draftArchive(source: MarketDraftSource): Promise<Uint8Arra
 /** An avatar or listing picture's bytes and their type, by their first bytes. */
 export function pictureBytes(base64: string): { bytes: Uint8Array; type: string } {
   const bytes = decoded(base64, previewBytes, "picture");
-  const starts = (...prefix: number[]) => prefix.every((byte, index) => bytes[index] === byte);
-  const type = starts(0x89, 0x50, 0x4e, 0x47)
-    ? "image/png"
-    : starts(0xff, 0xd8, 0xff)
-      ? "image/jpeg"
-      : starts(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45
-        ? "image/webp"
-        : "application/octet-stream";
+  const type = pictureType(bytes) ?? "application/octet-stream";
   return { bytes, type };
 }

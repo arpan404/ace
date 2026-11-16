@@ -8,6 +8,7 @@ import type {
   MarketResult,
   MarketReview,
   MarketReviewItem,
+  MarketScanReport,
   MarketServerMessage,
   MarketSource,
 } from "@ace/protocol/marketplace";
@@ -28,6 +29,8 @@ export interface FakeMarketEntry {
   items?: MarketReviewItem[];
   /** Its listed version was withdrawn, for this reason; `prepare` refuses it. */
   withdrawn?: string;
+  /** The device's scan blocks its bytes: `prepare` answers `blocked` with this report. */
+  blocked?: MarketScanReport;
 }
 
 /** An install the person accepted: the review's bytes and the choices sent with Install. */
@@ -48,6 +51,8 @@ export interface MarketplaceSeed {
   refuse?: Record<string, string>;
   /** Publishing, Discover and publisher pages (ADR 0173). */
   publishing?: MarketPublishSeed;
+  /** Listing pictures and avatars the `picture` op answers, by sha256. */
+  pictures?: Record<string, { type: "image/png" | "image/jpeg" | "image/webp"; data: string }>;
 }
 
 const hash = (seed: string) =>
@@ -133,6 +138,7 @@ export class FakeMarketplaceWire {
   ];
   #reviews = new Map<string, { review: MarketReview; items: MarketReviewItem[] }>();
   #refuse: Record<string, string> = {};
+  #pictures: NonNullable<MarketplaceSeed["pictures"]> = {};
   #readAt: number | undefined;
   #counter = 0;
   readonly #now: () => number;
@@ -162,6 +168,7 @@ export class FakeMarketplaceWire {
     if (seed.sources) this.#sources = seed.sources;
     this.#refuse = seed.refuse ?? this.#refuse;
     this.#readAt = seed.readAt;
+    if (seed.pictures) this.#pictures = { ...this.#pictures, ...seed.pictures };
     if (seed.publishing) this.publishing.seed(seed.publishing);
   }
 
@@ -315,6 +322,13 @@ export class FakeMarketplaceWire {
             message: `${operation.type}/${operation.name} isn't listed`,
           };
         if (entry.withdrawn) return { op: "error", code: "refused", message: entry.withdrawn };
+        if (entry.blocked)
+          return {
+            op: "error",
+            code: "blocked",
+            message: `${operation.type}/${operation.name} was refused by ace's scan on this device`,
+            scan: entry.blocked,
+          };
         const replaces =
           operation.op === "prepareUpdate"
             ? this.#installed.get(key(operation.type, operation.name))?.version
@@ -420,6 +434,12 @@ export class FakeMarketplaceWire {
         return this.publishing.publish(operation.request);
       case "report":
         return this.publishing.report(operation);
+      case "picture": {
+        const picture = this.#pictures[operation.hash];
+        return picture
+          ? { op: "picture", ...picture }
+          : { op: "error", code: "not_found", message: "There is no such picture" };
+      }
     }
   }
 }

@@ -200,6 +200,8 @@ export interface EntryRow extends EntryState {
   publisher: MarketPublisher;
   updated: number;
   downloads: number;
+  /** The approved listing edit's pictures, by sha256. */
+  previews?: readonly string[] | undefined;
 }
 
 /** An entry as the index lists it. An entry not reviewed names no categories. */
@@ -219,6 +221,7 @@ export function summary(entry: EntryRow): FeedEntry {
     downloads: entry.downloads,
     verified: entry.verified,
     ...(entry.deprecated !== undefined ? { deprecated: entry.deprecated } : {}),
+    ...(entry.previews?.length ? { previews: [...entry.previews] } : {}),
   };
 }
 

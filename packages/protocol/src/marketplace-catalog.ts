@@ -63,6 +63,8 @@ export const MarketFeedEntryWire = z.object({
   verified: z.boolean().catch(false),
   /** The publisher's note on the latest version, when they deprecated it. */
   deprecated: z.string().max(500).optional().catch(undefined),
+  /** The listing pictures by sha256 (ADR 0173 §5), served at `/v1/previews/{sha256}`. */
+  previews: z.array(MarketHash).max(4).optional().catch(undefined),
 });
 
 /** The index fields the Worker writes, all known to this build. */
@@ -81,6 +83,7 @@ export const marketFeedFields = [
   "downloads",
   "verified",
   "deprecated",
+  "previews",
 ] as const;
 
 export const MarketIndexBody = z.object({

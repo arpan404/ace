@@ -227,5 +227,6 @@ export function summaryOf(
     ...(source.kind === "git" ? { from: source.address } : {}),
     ...(marks.badges.verified(publisher) ? { verified: true } : {}),
     ...(market && entry.deprecated ? { deprecated: entry.deprecated.slice(0, 500) } : {}),
+    ...(market && entry.previews?.length ? { previews: entry.previews.slice(0, 4) } : {}),
   };
 }

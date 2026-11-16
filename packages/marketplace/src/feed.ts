@@ -31,6 +31,8 @@ export interface FeedEntry {
   verified?: boolean | undefined;
   /** The latest version is deprecated, with this note. */
   deprecated?: string | undefined;
+  /** Listing pictures by sha256 (ADR 0173 §5). */
+  previews?: string[] | undefined;
   /** Fields this build doesn't know, kept as they came. */
   extra?: Record<string, unknown> | undefined;
 }

@@ -297,6 +297,7 @@ export const marketReadOperations: readonly MarketOperation["op"][] = [
   "spadeSkillFiles",
   "discover",
   "publisher",
+  "picture",
 ];
 
 export const MarketSpadeSkill = z.strictObject({

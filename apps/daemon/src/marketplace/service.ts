@@ -5,7 +5,7 @@ import { type MarketKeySet } from "@ace/protocol/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
 import { GitCatalogs } from "./git.ts";
-import { MarketHttp, type MarketFetch } from "./http.ts";
+import { MarketHttp, MarketHttpError, type MarketFetch } from "./http.ts";
 import { undoJournal } from "./journal.ts";
 import {
   installReview,
@@ -25,6 +25,7 @@ import type { MarketPublisher } from "@ace/protocol/marketplace";
 import type { ScanContext } from "@ace/marketplace/scan";
 import { newer, prepareWithBrings, Refused } from "./prepare.ts";
 import { TurnedOff } from "./turned-off.ts";
+import { MarketPictures, PictureRefused } from "./pictures.ts";
 import { buildReview, reviewPage, type PreparedReview } from "./review.ts";
 import { MarketStore, verifiedKey, type StoredSource } from "./store.ts";
 import type { RowMarks } from "./listings.ts";
@@ -96,6 +97,7 @@ export class MarketplaceService {
   readonly #git: GitCatalogs;
   readonly #trust: Trust;
   readonly #pending = new Map<string, Pending>();
+  readonly #pictures = new MarketPictures();
   readonly #listeners = new Set<(counts: { installed: number; updates: number }) => void>();
   #queue: Promise<unknown> = Promise.resolve();
   #refreshing: Promise<void> | undefined;
@@ -237,6 +239,9 @@ export class MarketplaceService {
       if (thrown instanceof Refused)
         return error(thrown.code, thrown.message, thrown.problems, thrown.scan);
       if (thrown instanceof TurnedOff) return error(thrown.code, thrown.message);
+      if (thrown instanceof PictureRefused) return error("refused", thrown.message);
+      if (thrown instanceof MarketHttpError && thrown.status === 404)
+        return error("not_found", thrown.message);
       return error("failed", thrown instanceof Error ? thrown.message : "The marketplace failed");
     }
   }
@@ -357,6 +362,11 @@ export class MarketplaceService {
         return publishAction({ http: this.#http(), grant: ports.grant }, operation.request);
       case "report":
         return report(this.#http(), operation);
+      case "picture": {
+        const http = this.#http();
+        if (!http) return error("unavailable", "market.acehq.dev is turned off");
+        return this.#pictures.read(http, operation.kind, operation.hash);
+      }
     }
   }
 

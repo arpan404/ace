@@ -169,6 +169,19 @@ describe("an entry's management (ADR 0173 §5)", () => {
     expect(summary(row)).toMatchObject({ verified: true, deprecated: "Use 2.x." });
   });
 
+  it("an approved listing edit's pictures reach the index, so cards draw them", () => {
+    const row = {
+      ...entryState("notes", [version("1.0.0")]),
+      type: "suit",
+      name: "notes",
+      publisher: { id: "p", name: "n" },
+      updated: 1,
+      downloads: 0,
+    };
+    expect(summary({ ...row, previews: ["a".repeat(64)] }).previews).toEqual(["a".repeat(64)]);
+    expect(summary(row)).not.toHaveProperty("previews");
+  });
+
   it.each([
     [
       "blocked by the scan",

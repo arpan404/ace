@@ -99,5 +99,7 @@ export const MarketEntrySummary = z.strictObject({
   verified: z.boolean().optional(),
   /** The latest version is deprecated, with its publisher's note. */
   deprecated: z.string().max(500).optional(),
+  /** Its listing pictures by sha256, read with the `picture` op; cards show the first. */
+  previews: z.array(MarketHash).max(4).optional(),
 });
 export type MarketEntrySummary = z.infer<typeof MarketEntrySummary>;

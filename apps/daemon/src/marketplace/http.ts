@@ -1,4 +1,4 @@
-import { maxArchiveBytes } from "@ace/marketplace";
+import { maxArchiveBytes, previewBytes } from "@ace/marketplace";
 import { TurnedOff } from "./turned-off.ts";
 
 /*
@@ -175,6 +175,15 @@ export class MarketHttp {
     if (!response.ok)
       throw new MarketHttpError(`The market answered ${response.status}`, response.status);
     return JSON.parse(new TextDecoder().decode(await capped(response, jsonBytes)));
+  }
+
+  /** A listing picture or avatar by its sha256, capped at a picture's limit. */
+  async picture(kind: "preview" | "avatar", hash: string): Promise<Uint8Array> {
+    if (!/^[a-f0-9]{64}$/.test(hash)) throw new MarketHttpError("Not a content hash");
+    const response = await this.#get(`/v1/${kind}s/${hash}`, { accept: "image/*" });
+    if (!response.ok)
+      throw new MarketHttpError(`The market answered ${response.status}`, response.status);
+    return capped(response, previewBytes);
   }
 
   async object(hash: string): Promise<Uint8Array> {

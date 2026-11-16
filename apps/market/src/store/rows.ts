@@ -120,6 +120,7 @@ export function entryRow(row: EntryJoined): EntryRow {
     publisher: { id: row.publisher_id, name: row.publisher_name },
     updated: row.updated,
     downloads: row.downloads,
+    previews: row.listing ? ((JSON.parse(row.listing) as MarketListingEdit).previews ?? []) : [],
   };
 }
 
