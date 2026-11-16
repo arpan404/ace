@@ -35,3 +35,6 @@ export * from "./digests.ts";
 export * from "./knowledge.ts";
 export * from "./services.ts";
 export * from "./roles.ts";
+export * from "./goal.ts";
+export * from "./workers.ts";
+export * from "./decisions.ts";

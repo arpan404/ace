@@ -1,4 +1,6 @@
 import {
+  parseSpadeGoalProgress,
+  spadeGoalLine,
   spadeForLaterWords,
   spadeGroupLine,
   spadeProblemStep,
@@ -48,8 +50,12 @@ function lastLine(bot: RosterBot): string {
   return `${last.fromAgent ? last.fromAgent.name : "You"}: ${text}`;
 }
 
-/** A bot's row: what needs the person first, then what it does, what broke, else its last word. */
-export function spadeBotRow(bot: RosterBot): SpadeRow {
+/**
+ * A bot's row: what needs the person first, then its goal's verified progress, what it does,
+ * what broke, else its last word. The goal's words come from the check (ADR 0159), never the
+ * bot's own "done"; `notYet` is what the check found missing, when it is known.
+ */
+export function spadeBotRow(bot: RosterBot, notYet?: string): SpadeRow {
   if (bot.away || bot.unavailable) return { state: "off", line: offLine(bot) };
   if (bot.state === "waiting")
     return {
@@ -62,6 +68,8 @@ export function spadeBotRow(bot: RosterBot): SpadeRow {
   // A task it carries on by itself, or one that waits on the person, in its chat's words.
   const task = spadeTaskLine(bot.name, bot.progress, bot.status);
   if (task?.tone === "needs-you") return { state: "needs-you", line: task.step ?? "Needs you" };
+  const goal = goalRow(bot, task !== undefined, notYet);
+  if (goal) return goal;
   // Waiting on a job, another bot or its next step's time: nothing for the person to do.
   if (task?.tone === "waiting")
     return { state: "rest", line: ["Waiting", task.step].filter(Boolean).join(" · ") };
@@ -73,6 +81,17 @@ export function spadeBotRow(bot: RosterBot): SpadeRow {
   // Cards left for later wait on nothing: a quiet count, never the needs-you colour (ADR 0154).
   if (bot.questionsForLater > 0) return { state, line: spadeForLaterWords(bot.questionsForLater) };
   return { state, line: lastLine(bot) };
+}
+
+/** A bot's row while it has a goal: its verified progress, muted while it works. */
+function goalRow(bot: RosterBot, carriesOn: boolean, notYet: string | undefined) {
+  const progress = parseSpadeGoalProgress(bot.raw);
+  const line = spadeGoalLine(progress, notYet);
+  if (!progress || !line) return undefined;
+  const working = bot.state === "working" || carriesOn;
+  if (progress.state === "done" || progress.state === "unchecked" || !working)
+    return { state: bot.unseen ? "unseen" : "rest", line } satisfies SpadeRow;
+  return { state: "working", line } satisfies SpadeRow;
 }
 
 /** A group's row: what it waits on or does, else its last speaker named, then their words. */
@@ -97,10 +116,17 @@ export type SpadeListEntry =
 const activity = (entry: SpadeListEntry) =>
   entry.kind === "bot" ? entry.bot.lastActivity : entry.group.lastActivity;
 
-const botEntry = (bot: RosterBot, depth: 0 | 1 = 0): SpadeListEntry => ({
+/** What the check found missing for bots it sent back, by `machine/id` (`useGoalMissing`). */
+export type SpadeGoalMissing = ReadonlyMap<string, string>;
+
+const botEntry = (
+  bot: RosterBot,
+  missing: SpadeGoalMissing | undefined,
+  depth: 0 | 1 = 0,
+): SpadeListEntry => ({
   kind: "bot",
   bot,
-  row: spadeBotRow(bot),
+  row: spadeBotRow(bot, missing?.get(botKey(bot))),
   depth,
 });
 
@@ -116,9 +142,13 @@ function makerOf(bot: RosterBot, byKey: ReadonlyMap<string, RosterBot>): RosterB
 }
 
 /** Spade, the main bot, first as an ordinary row, then the rest by state, newest first. */
-function topLevel(bots: readonly RosterBot[], groups: readonly RosterGroup[]): SpadeListEntry[] {
+function topLevel(
+  bots: readonly RosterBot[],
+  groups: readonly RosterGroup[],
+  missing: SpadeGoalMissing | undefined,
+): SpadeListEntry[] {
   const others: SpadeListEntry[] = [
-    ...bots.filter((bot) => bot.kind !== "main").map((bot) => botEntry(bot)),
+    ...bots.filter((bot) => bot.kind !== "main").map((bot) => botEntry(bot, missing)),
     ...groups.map((group) => ({
       kind: "group" as const,
       group,
@@ -126,7 +156,7 @@ function topLevel(bots: readonly RosterBot[], groups: readonly RosterGroup[]): S
       depth: 0 as const,
     })),
   ];
-  const main = bots.filter((bot) => bot.kind === "main").map((bot) => botEntry(bot));
+  const main = bots.filter((bot) => bot.kind === "main").map((bot) => botEntry(bot, missing));
   return [...main, ...others.toSorted(byState)];
 }
 
@@ -137,8 +167,9 @@ function topLevel(bots: readonly RosterBot[], groups: readonly RosterGroup[]): S
 export function spadeFlatEntries(
   bots: readonly RosterBot[],
   groups: readonly RosterGroup[],
+  missing?: SpadeGoalMissing,
 ): SpadeListEntry[] {
-  return topLevel(bots, groups);
+  return topLevel(bots, groups, missing);
 }
 
 /**
@@ -152,6 +183,7 @@ export function spadeListEntries(
   bots: readonly RosterBot[],
   groups: readonly RosterGroup[],
   open?: string,
+  missing?: SpadeGoalMissing,
 ): SpadeListEntry[] {
   const byKey = new Map(bots.map((bot) => [botKey(bot), bot]));
   const workersOf = new Map<string, RosterBot[]>();
@@ -177,12 +209,12 @@ export function spadeListEntries(
     for (const member of [bot, ...familyOf(bot)]) reached.add(botKey(member));
   }
   const rootKeys = new Set(roots.map(botKey));
-  return topLevel(roots, groups).flatMap((entry) => {
+  return topLevel(roots, groups, missing).flatMap((entry) => {
     if (entry.kind !== "bot" || !rootKeys.has(botKey(entry.bot))) return [entry];
     const family = familyOf(entry.bot);
     const unfolded = open !== undefined && [entry.bot, ...family].some((bot) => bot.id === open);
     const shown = family
-      .map((bot) => botEntry(bot, 1))
+      .map((bot) => botEntry(bot, missing, 1))
       .filter(
         (worker) => unfolded || worker.row.state === "needs-you" || worker.row.state === "failed",
       );

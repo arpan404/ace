@@ -10,6 +10,7 @@ import {
   type SpadeCapabilityState,
 } from "./fold-capabilities.ts";
 import type { SpadeQuiet } from "./quiet.ts";
+import { parseSpadeDecision, type SpadeDecision } from "./decisions.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -246,6 +247,8 @@ export interface SpadeConversationState {
   stopping: Set<string>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
+  /** Choices the bot made on the person's behalf (ADR 0165), oldest first. */
+  decisions: readonly SpadeDecision[];
   /** Why the model review escalated each call, by call id, until its approval is answered. */
   reviews: Map<string, string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
@@ -293,6 +296,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
+    decisions: [],
     reviews: new Map(),
     status: undefined,
     capabilities: emptySpadeCapabilities(),
@@ -353,6 +357,11 @@ function foldStored(state: SpadeConversationState, stored: SpadeStored): boolean
   state.loaded = true;
   const { event } = stored;
   if (event.type === "unknown") {
+    const decision = parseSpadeDecision(event.raw, stored.at);
+    if (decision) {
+      state.decisions = [...state.decisions, decision];
+      return true;
+    }
     state.unknown++;
     return firstLoad;
   }

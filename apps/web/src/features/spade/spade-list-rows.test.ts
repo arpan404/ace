@@ -209,6 +209,25 @@ test("a folded family is one row, but a worker that needs you or failed stays ra
   expect(entries[2]?.row).toMatchObject({ state: "failed" });
 });
 
+const lark = (entries: ReturnType<typeof spadeListEntries>) =>
+  entries.find((entry) => entry.kind === "bot" && entry.bot.id === "lark");
+
+test("a nested worker's row reads what the check found, as it does in the flat list", () => {
+  const bots = family();
+  bots[1] = bot({
+    id: "lark",
+    name: "Linux repro",
+    last_activity: 4,
+    state: "working",
+    parent: maker,
+    task_progress: { state: "not_yet", items_total: 3, items_closed: 2, items_verified: 1 },
+  });
+  const missing = new Map([["primary/lark", "Linux CI still fails"]]);
+  const nested = lark(spadeListEntries(bots, [], "gh", missing));
+  expect(nested).toMatchObject({ depth: 1, row: { line: "Not yet: Linux CI still fails" } });
+  expect(lark(spadeFlatEntries(bots, [], missing))?.row.line).toBe("Not yet: Linux CI still fails");
+});
+
 test("a worker whose maker isn't listed is an ordinary bot, and the same id on another machine isn't its maker", () => {
   const other = { key: "m2", name: "Linux box", primary: false };
   const bots = [

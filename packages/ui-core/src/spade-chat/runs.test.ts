@@ -5,6 +5,7 @@ import {
   parseSpadeLiveFrame,
   spadeBubbles,
   spadeChatRows,
+  spadePastTime,
   spadeView,
   type SpadeChatItem,
   type SpadeChatRow,
@@ -204,5 +205,17 @@ describe("a conversation's times", () => {
       "time Today 9:00 AM",
       "item s4",
     ]);
+  });
+});
+
+const words = (iso: string) => spadePastTime(at(iso), { now, ...zone });
+
+describe("a past moment's words", () => {
+  test("today reads as the 12-hour clock alone; another day leads with its day", () => {
+    expect(words("2026-11-15T13:12:00Z")).toBe("1:12 PM");
+    expect(words("2026-11-15T00:05:00Z")).toBe("12:05 AM");
+    expect(words("2026-11-14T23:31:00Z")).toBe("Yesterday 11:31 PM");
+    expect(words("2026-11-13T15:11:00Z")).toBe("Fri 3:11 PM");
+    expect(words("2026-11-03T18:00:00Z")).toBe("Nov 3 6:00 PM");
   });
 });

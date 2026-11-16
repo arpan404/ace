@@ -1,4 +1,5 @@
 import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
+import type { SpadeDecision } from "./decisions.ts";
 import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 import { spadeHelperApprovalSentence } from "./helper-words.ts";
 import { spadeSoonestWake, type SpadeWake } from "./wakes.ts";
@@ -42,6 +43,8 @@ export interface SpadeView {
   /** Workers' and services' names by id, for the resting line's words. */
   workers: ReadonlyMap<string, string>;
   services: ReadonlyMap<string, string>;
+  /** Choices the bot made on the person's behalf (ADR 0165), oldest first. */
+  decisions: readonly SpadeDecision[];
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -85,6 +88,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     resting: resting(state, reply !== undefined, approvals.length > 0),
     workers: state.capabilities.workers,
     services: state.capabilities.services,
+    decisions: state.decisions,
   };
 }
 

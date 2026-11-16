@@ -6,13 +6,17 @@ import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
  * width), kept in localStorage.
  */
 
-/** The profile's tabs: what the bot is, what it keeps, what it drives. */
-export type ProfileTab = "details" | "library" | "computer";
+/**
+ * The profile's tabs: what the bot is, what it works toward (only while it has a goal, workers
+ * or decisions), what it keeps, what it drives.
+ */
+export type ProfileTab = "details" | "work" | "library" | "computer";
 
-export const profileTabs: readonly ProfileTab[] = ["details", "library", "computer"];
+export const profileTabs: readonly ProfileTab[] = ["details", "work", "library", "computer"];
 
 export const profileTabNames: Record<ProfileTab, string> = {
   details: "Details",
+  work: "Work",
   library: "Library",
   computer: "Computer",
 };

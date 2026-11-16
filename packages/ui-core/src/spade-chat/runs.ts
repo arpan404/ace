@@ -165,6 +165,17 @@ function dayReader(clock: SpadeChatClock) {
   };
   return {
     key,
+    day,
     stamp: (at: number) => `${day(at)} ${formatClock(at, clock.locale, clock.timeZone)}`,
   };
+}
+
+/**
+ * A past moment in the chat's words, short: "1:12 PM" today, else with its day as a time line
+ * has it ("Yesterday 11:31 PM", "Fri 3:11 AM", "Nov 3 6:00 PM"). Never 24-hour by default.
+ */
+export function spadePastTime(at: number, clock: SpadeChatClock): string {
+  const days = dayReader(clock);
+  const time = formatClock(at, clock.locale, clock.timeZone);
+  return days.key(at) === days.key(clock.now) ? time : `${days.day(at)} ${time}`;
 }
