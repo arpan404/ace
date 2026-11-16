@@ -372,8 +372,8 @@ struct ConversationFeed: View {
             .onChange(of: typeSize) { _, _ in applyLayoutRevision() }
             .onChange(of: densityId) { _, _ in applyLayoutRevision() }
             // Rotation and split-view width changes invalidate measurements
-            // automatically: only geometry (not paging or streaming) does.
-            .onChange(of: feedFrame.size) { _, _ in applyLayoutRevision() }
+            // automatically: only the width (not the keyboard, paging or streaming) does.
+            .onChange(of: feedFrame.width) { _, _ in applyLayoutRevision() }
             .onChange(of: model.connection) { _, connection in connectionChanged(connection) }
     }
     /// The keyboard: whether it is up, and while it moves.
@@ -821,7 +821,6 @@ struct ConversationFeed: View {
     private func currentRevision() -> TranscriptLayoutRevision {
         TranscriptLayoutRevision.current(
             width: Double(feedFrame.width > 0 ? feedFrame.width : intent.metrics.viewport),
-            height: Double(intent.metrics.viewport),
             typeSize: String(describing: typeSize),
             density: densityId,
             disclosures: shown.disclosures.opens)

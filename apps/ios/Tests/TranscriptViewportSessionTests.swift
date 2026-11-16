@@ -368,8 +368,8 @@ import Testing
     @Test func revisionIgnoresResidentContentCounts() {
         // Paging and streaming must not invalidate measurements: the revision
         // is geometry only, so identical geometry compares equal.
-        let a = TranscriptLayoutRevision.current(width: 400, height: 800, typeSize: "large", density: "d1", disclosures: 2)
-        let b = TranscriptLayoutRevision.current(width: 400, height: 800, typeSize: "large", density: "d1", disclosures: 2)
+        let a = TranscriptLayoutRevision.current(width: 400, typeSize: "large", density: "d1", disclosures: 2)
+        let b = TranscriptLayoutRevision.current(width: 400, typeSize: "large", density: "d1", disclosures: 2)
         #expect(a == b)
         var c = b
         c.width = 500
