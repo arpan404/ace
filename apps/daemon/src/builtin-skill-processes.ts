@@ -117,6 +117,15 @@ export function builtinSkillLeaseUnused(
   return leaseUnused(LeaseRecord.parse(JSON.parse(text)), runtime);
 }
 function leaseUnused(record: LeaseRecord, runtime: SkillProcessRuntime): boolean {
+  try {
+    return inspectLease(record, runtime);
+  } catch (error) {
+    // A reused or inaccessible PID/group is no proof of absence. Leave its files alone.
+    if (error instanceof Error && "code" in error && error.code === "EPERM") return false;
+    throw error;
+  }
+}
+function inspectLease(record: LeaseRecord, runtime: SkillProcessRuntime): boolean {
   if (record.launching) return false;
   if (!record.closed && sameProcess(record.owner, runtime.identity(record.owner.pid))) return false;
   for (const saved of record.processes) {
