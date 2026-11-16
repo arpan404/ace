@@ -167,11 +167,8 @@ const verifiedList = (ids: string[], key: MarketSigningKey) =>
     },
     key,
   );
+/** The entry's page, its review, then its search row, which by then has a verified manifest. */
 const shown = async () => {
-  const search = await harness.ask(
-    { op: "search", query: "triage", offset: 0, limit: 10 },
-    "search",
-  );
   const read = await harness.ask(
     { op: "read", source: "market", type: "spade-skill", name: "triage-mail" },
     "read",
@@ -179,6 +176,10 @@ const shown = async () => {
   const { review } = await harness.ask(
     { op: "prepare", source: "market", type: "spade-skill", name: "triage-mail" },
     "review",
+  );
+  const search = await harness.ask(
+    { op: "search", query: "triage", offset: 0, limit: 10 },
+    "search",
   );
   return { row: search.entries[0], page: read.entry.summary, review };
 };
