@@ -160,7 +160,7 @@ struct ThreadMenu: View, Equatable {
         } label: {
             // A plain glyph, so iOS draws the bar button at its own size; only the glyph keeps the
             // default size: the panel ⋯ presents keeps the person's text size.
-            Image(ace: .dotsThree, weight: .bold).barIcon()
+            Image(bar: .dotsThree, weight: .bold)
                 .foregroundStyle(AceTheme.Colours.foreground)
         }
         .barGlyph()
@@ -214,9 +214,10 @@ extension View {
 }
 
 extension Image {
-    /// One of ace's icons as a bar button's glyph: its 24pt box, where the drawing comes to the
-    /// size of the system's own bar symbols (the asset's 20pt box draws it a few points smaller).
-    func barIcon() -> some View {
-        resizable().scaledToFit().frame(width: AceDesign.Size.glyphBox, height: AceDesign.Size.glyphBox)
+    /// One of ace's icons as a navigation bar button's glyph, at a bar symbol's size: a bar button
+    /// draws its image at the image's own size, so the size is the asset's (`bar-<name>`, written
+    /// by `generate-icons.ts` for the names in `barIcons`).
+    init(bar name: AceIcon.Name, weight: AceIcon.Weight = .regular) {
+        self.init(weight == .bold ? "bar-\(name.rawValue)-bold" : "bar-\(name.rawValue)")
     }
 }
