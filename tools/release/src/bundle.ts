@@ -61,7 +61,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client|document)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
             },
             async (args) => {
               // Windows paths arrive with backslashes; the rewrites below match `/` paths.
