@@ -27,3 +27,6 @@ export * from "./computer.ts";
 export * from "./request-words.ts";
 export * from "./questions.ts";
 export * from "./runs.ts";
+export * from "./knowledge.ts";
+export * from "./services.ts";
+export * from "./roles.ts";
