@@ -48,13 +48,14 @@ export function spadeModelGroups(
   sources: SpadeModelSources,
   query: string,
   none?: string,
+  noneFacts = "",
 ): SpadeModelGroup[] {
   const typed = query.trim();
   const groups: SpadeModelGroup[] = [];
   if (none !== undefined && (!typed || matches(typed, none)))
     groups.push({
       label: undefined,
-      options: [{ value: "", name: none, source: undefined, facts: "" }],
+      options: [{ value: "", name: none, source: undefined, facts: noneFacts }],
     });
   for (const { endpoint, models } of sources.endpoints) {
     const options: SpadeModelOption[] = models

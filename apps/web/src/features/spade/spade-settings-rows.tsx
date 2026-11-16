@@ -72,6 +72,8 @@ export function ModelSettingRow(props: {
   description?: string | undefined;
   value: string | undefined;
   none?: string | undefined;
+  /** What the empty choice comes to, shown while it is chosen (`SpadeModelPicker`). */
+  follows?: string | undefined;
   save(model: string | null): Promise<unknown>;
 }) {
   const id = useId();
@@ -101,6 +103,7 @@ export function ModelSettingRow(props: {
         label={props.title}
         value={shown}
         none={props.none}
+        follows={props.follows}
         onChange={(value) => void choose(value)}
       />
     </SettingRow>
