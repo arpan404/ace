@@ -135,18 +135,22 @@ impl Tool for FakeTool {
         }
     }
 
+    /// An app tool's server facts: its catalogue entry declares it (as a write outside the box
+    /// unless the test says more); one that sends no annotations has no entry either.
+    fn hints(&self) -> Option<spade_core::effect::Mcp> {
+        self.app.map(|annotated| spade_core::effect::Mcp {
+            read_only: self.def.risk == Risk::Read,
+            annotated,
+            declared: self
+                .declared
+                .or(annotated.then_some(spade_core::effect::Effect::Network)),
+        })
+    }
+
     fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
-        use spade_core::effect::{Mcp, builtin, mcp};
-        match self.app {
-            // An app tool its catalogue entry declares (as a write outside the box unless the
-            // test says more); one that sends no annotations has no entry either.
-            Some(annotated) => mcp(Mcp {
-                read_only: self.def.risk == Risk::Read,
-                annotated,
-                declared: self
-                    .declared
-                    .or(annotated.then_some(spade_core::effect::Effect::Network)),
-            }),
+        use spade_core::effect::{builtin, mcp};
+        match self.hints() {
+            Some(hints) => mcp(hints),
             // A fake of Spade's own that isn't in its table acts outside the box, so it is
             // reviewed; tests of undeclared tools use `unannotated_app`.
             None => self
@@ -255,6 +259,9 @@ pub struct Options {
     /// person and tests of approvals keep their script. `None` reviews on the default model
     /// (the fake), for the auto-review's own tests.
     pub reviewer: Option<String>,
+    /// Spade's classifier (ADR 0172) is on. Off by default here, so tests of the reviewer keep
+    /// their script; its own tests turn it on, as it is in a real Spade.
+    pub classifier: bool,
 }
 
 /// A reviewer whose endpoint refuses connections (a local port nothing listens on).
@@ -360,6 +367,7 @@ impl Default for Options {
             model_retry: None,
             search: None,
             reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
+            classifier: false,
         }
     }
 }
@@ -630,6 +638,12 @@ impl Spade {
             adopt: options.adopt.clone(),
             keychain: Some(keys.clone()),
         })?;
+        if !options.classifier {
+            engine.set_oversight(spade_server::engine::GlobalChange {
+                classifier: Some(false),
+                ..Default::default()
+            })?;
+        }
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
         }

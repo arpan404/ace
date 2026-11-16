@@ -588,6 +588,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "classify-train"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spade-classify",
+ "spade-core",
+]
+
+[[package]]
 name = "cmake"
 version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3352,6 +3361,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-classify"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "spade-core",
+]
+
+[[package]]
 name = "spade-cloud-wire"
 version = "0.1.0"
 dependencies = [
@@ -3541,6 +3558,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "spade-ace",
+ "spade-classify",
  "spade-connect",
  "spade-core",
  "spade-docs",

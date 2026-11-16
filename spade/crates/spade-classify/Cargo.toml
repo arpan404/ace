@@ -1,0 +1,19 @@
+[package]
+name = "spade-classify"
+version = "0.1.0"
+description = "Spade's own tool-call classifier: hashed features into a small int8 linear model, built into the binary (ADR 0172)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+spade-core = { path = "../spade-core" }
+
+[[bench]]
+name = "classify"
+harness = false
+
+[lints]
+workspace = true

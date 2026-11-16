@@ -115,7 +115,11 @@ impl Tool for PluginCall {
 
     /// Its annotations, unless its entry declares what it does.
     fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
-        spade_core::effect::mcp(spade_core::effect::Mcp {
+        self.hints().and_then(spade_core::effect::mcp)
+    }
+
+    fn hints(&self) -> Option<spade_core::effect::Mcp> {
+        Some(spade_core::effect::Mcp {
             read_only: self.def.risk == Risk::Read,
             annotated: self.tool.annotated,
             declared: self.server.declared(&self.tool.name),

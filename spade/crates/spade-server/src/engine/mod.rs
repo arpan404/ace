@@ -8,6 +8,7 @@ mod autonomy;
 mod bots;
 mod brain;
 mod calls;
+mod classify;
 mod compact;
 mod computer;
 mod continuation;
@@ -146,6 +147,8 @@ pub struct Engine {
     images: ImageStore,
     /// Attached documents and recordings, beside the images (ADR 0134).
     media: Arc<crate::media::Media>,
+    /// Spade's classifier's decisions, logged on this machine (ADR 0172).
+    decisions: classify::Decisions,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -272,6 +275,7 @@ impl Engine {
         let tools = crate::tools::with_worker_tools(tools, &handle);
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
+        let decisions = classify::Decisions::new(data.join("classifier"));
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -283,6 +287,7 @@ impl Engine {
             skills: setup.skills,
             images: setup.images,
             media,
+            decisions,
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),

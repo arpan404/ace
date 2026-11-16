@@ -23,6 +23,7 @@ use tokio::sync::watch;
 
 use super::Engine;
 use super::autonomy::Reviewed;
+use super::classify::Screened;
 use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
@@ -312,41 +313,82 @@ pub(super) async fn handle_calls(
                             continue;
                         }
                         Route::Review(concern) => {
-                            let def = def.clone();
-                            let under = super::autonomy::Under {
+                            // Spade's classifier first (ADR 0172): it may settle a plain command
+                            // as low-risk or raise a person-only effect; otherwise it abstains
+                            // and the reviewer decides as before.
+                            let screening = super::classify::Screening {
                                 call: &pending.call,
                                 name: &name,
                                 arguments: &arguments,
-                                def: &def,
-                                shown: &classed.shown,
-                                concern: concern.as_deref(),
+                                classed: &classed,
+                                hints: engine.tools.get_for(id, &name).and_then(|t| t.hints()),
+                                reviewing: spade_classify::Reviewing {
+                                    plain_command: classed.runs == Runs::Outside
+                                        && classed.class == Class::Inside
+                                        && !classed.credentials,
+                                    tainted: !in_view.is_empty(),
+                                    runs_files: !classed.shown.is_empty(),
+                                    standing: autonomy::STANDING.contains(&name.as_str()),
+                                    concern: concern.is_some(),
+                                },
                             };
-                            // An approval is bound to the files as the reviewer read them: the
-                            // stored one's, or these when this review is the first.
-                            let expected = match review::stored(events, &pending.call.id) {
-                                Some(_) => review::bound(events, &pending.call.id),
-                                None => super::autonomy::binding(&classed.shown),
+                            let screened = match engine.screen(id, reply, events, &screening) {
+                                Ok(screened) => screened,
+                                Err(error) => return Handled::Failed(error.to_string()),
                             };
-                            if expected.is_some() || !classed.shown.is_empty() {
-                                bound.insert(pending.call.id.clone(), expected);
-                            }
-                            match super::autonomy::review(
-                                engine, id, reply, events, &registry, under, stop,
-                            )
-                            .await
-                            {
-                                Reviewed::Run => Decision::Run,
-                                Reviewed::Escalate(reason) => {
-                                    reviewer_reason = Some(reason);
+                            match screened {
+                                Screened::Run => Decision::Run,
+                                Screened::Ask(line) => {
+                                    reviewer_reason = Some(line);
                                     Decision::Ask
                                 }
-                                Reviewed::Refuse(reason) => {
-                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
-                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
-                                        .await;
-                                    continue;
+                                Screened::Stopped => return Handled::Stopped,
+                                Screened::Review => {
+                                    let def = def.clone();
+                                    let under = super::autonomy::Under {
+                                        call: &pending.call,
+                                        name: &name,
+                                        arguments: &arguments,
+                                        def: &def,
+                                        shown: &classed.shown,
+                                        concern: concern.as_deref(),
+                                    };
+                                    // An approval is bound to the files as the reviewer read them: the
+                                    // stored one's, or these when this review is the first.
+                                    let expected = match review::stored(events, &pending.call.id) {
+                                        Some(_) => review::bound(events, &pending.call.id),
+                                        None => super::autonomy::binding(&classed.shown),
+                                    };
+                                    if expected.is_some() || !classed.shown.is_empty() {
+                                        bound.insert(pending.call.id.clone(), expected);
+                                    }
+                                    match super::autonomy::review(
+                                        engine, id, reply, events, &registry, under, stop,
+                                    )
+                                    .await
+                                    {
+                                        Reviewed::Run => Decision::Run,
+                                        Reviewed::Escalate(reason) => {
+                                            reviewer_reason = Some(reason);
+                                            Decision::Ask
+                                        }
+                                        Reviewed::Refuse(reason) => {
+                                            let refused =
+                                                ToolOutput::ok(autonomy::refused(&reason));
+                                            finish_tool(
+                                                engine,
+                                                id,
+                                                reply,
+                                                &pending.call,
+                                                &name,
+                                                refused,
+                                            )
+                                            .await;
+                                            continue;
+                                        }
+                                        Reviewed::Stopped => return Handled::Stopped,
+                                    }
                                 }
-                                Reviewed::Stopped => return Handled::Stopped,
                             }
                         }
                     };

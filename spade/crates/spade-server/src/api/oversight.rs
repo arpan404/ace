@@ -49,6 +49,8 @@ struct Change {
     review_default: Option<bool>,
     #[serde(default, deserialize_with = "present")]
     review_model: Option<Option<String>>,
+    #[serde(default)]
+    classifier: Option<bool>,
 }
 
 async fn change(State(state): State<AppState>, Body(body): Body<Change>) -> Response {
@@ -56,6 +58,7 @@ async fn change(State(state): State<AppState>, Body(body): Body<Change>) -> Resp
         time_zone: body.time_zone,
         review_default: body.review_default,
         review_model: body.review_model,
+        classifier: body.classifier,
     };
     if let Err(error) = state.engine.set_oversight(change) {
         return oversight_problem(&error);

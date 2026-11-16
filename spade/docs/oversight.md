@@ -165,16 +165,18 @@ also carries
 `"review": true|false|null` (its own switch; `null` follows the default).
 
 **Oversight** = `{"time_zone", "today_micros", "month_micros", "review_default",
-"review_model": "endpoint/model"|null}`. `today_micros` and `month_micros` are every bot's spend
-together.
+"review_model": "endpoint/model"|null, "classifier": true|false}`. `today_micros` and
+`month_micros` are every bot's spend together. `classifier` is Spade's own classifier in front of
+the auto-review's reviewer ([ADR 0172](../../docs/adr/0172-spade-classifies-calls-with-its-own-model.md),
+[autonomy.md](autonomy.md)); on unless the person turned it off.
 
-| Method and path              | Body                                                          | Answer                                                  |
-| ---------------------------- | ------------------------------------------------------------- | ------------------------------------------------------- |
-| `GET /oversight`             |                                                               | `{"oversight"}`                                         |
-| `PUT /oversight`             | any of `time_zone`, `review_default`, `review_model`          | `200 {"oversight"}`; `400` for an unknown zone or model |
-| `GET /agents/{id}/oversight` |                                                               | `{"spending", "review"}`                                |
-| `PUT /agents/{id}/oversight` | `review` (may be `null`); caps an older app sends are ignored | `200 {"spending", "review"}`                            |
-| `GET /agents/{id}/activity`  | query as above                                                | `{"entries", "more", "spend_by_role"}`                  |
+| Method and path              | Body                                                               | Answer                                                  |
+| ---------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------- |
+| `GET /oversight`             |                                                                    | `{"oversight"}`                                         |
+| `PUT /oversight`             | any of `time_zone`, `review_default`, `review_model`, `classifier` | `200 {"oversight"}`; `400` for an unknown zone or model |
+| `GET /agents/{id}/oversight` |                                                                    | `{"spending", "review"}`                                |
+| `PUT /agents/{id}/oversight` | `review` (may be `null`); caps an older app sends are ignored      | `200 {"spending", "review"}`                            |
+| `GET /agents/{id}/activity`  | query as above                                                     | `{"entries", "more", "spend_by_role"}`                  |
 
 Settings are kept in the `settings`
 table (`oversight` and `oversight:<agent id>`), deleted with the bot.
