@@ -152,7 +152,11 @@ function SlideAction(props: { nav: MarketNav; entry: MarketEntrySummary }) {
       onClick={() =>
         suit
           ? nav.tryOn(entry, entry.title, publisherName(entry))
-          : nav.push({ kind: "review", entry, update: false })
+          : nav.push({
+              kind: "review",
+              entry: { source: entry.source, type: entry.type, name: entry.name },
+              update: false,
+            })
       }
     >
       {word}

@@ -95,10 +95,17 @@ export function useMarketInstalled() {
 
 export type EntryKey = MarketEntryKey;
 
+/** Only an entry's key: a summary passed as one carries fields the daemon's ops refuse. */
+const keyOnly = (key: EntryKey): EntryKey => ({
+  source: key.source,
+  type: key.type,
+  name: key.name,
+});
+
 export function useMarketEntry(key: EntryKey) {
   return useDaemonQuery({
     queryKey: [...marketKey, "entry", key.source, key.type, key.name],
-    read: (client, signal) => market(client, { op: "read", ...key }, "read", signal),
+    read: (client, signal) => market(client, { op: "read", ...keyOnly(key) }, "read", signal),
   });
 }
 
@@ -153,7 +160,7 @@ async function prepareReview(
     client,
     update
       ? { op: "prepareUpdate", type: typeOf(key.type), name: key.name }
-      : { op: "prepare", ...key },
+      : { op: "prepare", ...keyOnly(key) },
     "review",
     signal,
   );

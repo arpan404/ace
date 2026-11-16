@@ -34,7 +34,7 @@ export function useMarketNav(): MarketNav {
 
 /** Pushes an entry's page. */
 export const openEntry = (nav: MarketNav, entry: MarketEntryKey) =>
-  nav.push({ kind: "entry", entry });
+  nav.push({ kind: "entry", entry: { source: entry.source, type: entry.type, name: entry.name } });
 
 /** The words a disabled action shows while offline. */
 export const offlineTitle = (what: string) => `${what} when you're back online`;
