@@ -169,6 +169,48 @@ import XCTest
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
     }
 
+    /// At accessibility text sizes the pills overflow their row. A part mostly scrolled past the
+    /// edge doesn't say its fact, so that fact's live rows stay in the transcript until it shows.
+    func testAPillPastTheRowsEdgeAtLargeTextLeavesItsLiveRowsInTheTranscript() {
+        // The largest size, where `ios-waiting-goal`'s "Waiting on 2", "1 command" and "Pursuing
+        // goal" overflow the row. Opened at launch: the inbox's rows are too tall at this size to
+        // scroll to it quickly.
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", "ios-waiting-goal", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchWithArguments()
+        dismissNotificationsPrompt()
+        let status = app.descendants(matching: .any)["pill.status"]
+        let commands = app.descendants(matching: .any)["pill.commands"]
+        XCTAssertTrue(commands.waitForExistence(timeout: 25))
+        let width = app.windows.firstMatch.frame.width
+        func shown(_ part: XCUIElement) -> CGFloat {
+            let frame = part.frame
+            return max(0, min(frame.maxX, width) - max(frame.minX, 0)) / max(frame.width, 1)
+        }
+        let rollup = app.buttons["subagents.rollup"]
+        let line = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'background.'")).firstMatch
+        // At rest "Waiting on 2" shows whole and says the subagents; the goal is past the edge.
+        XCTAssertEqual(shown(status), 1, accuracy: 0.01)
+        XCTAssertLessThan(shown(app.buttons["pill.goal"]), 0.5, "the row overflows")
+        XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the shown status says the subagents")
+        // Scrolled to the row's end, where the goal shows: "Waiting on 2" and "1 command" are both
+        // past the edge, so the transcript says the subagents and the command itself.
+        let row = app.descendants(matching: .any)["composer.live"]
+        row.swipeLeft()
+        row.swipeLeft()
+        sleep(1)
+        XCTAssertLessThan(shown(status), 0.4, "the status is past the row's edge (\(shown(status)) shown)")
+        XCTAssertLessThan(shown(commands), 0.4, "the command's part is past the row's edge (\(shown(commands)) shown)")
+        XCTAssertTrue(rollup.waitForExistence(timeout: 5), "the subagents their hidden part said stay in view")
+        XCTAssertTrue(line.waitForExistence(timeout: 5), "the command its hidden part said stays in view")
+        shot("pill-past-the-edge")
+        // Back to the start: the status says the subagents again.
+        row.swipeRight()
+        row.swipeRight()
+        XCTAssertTrue(rollup.waitForNonExistence(timeout: 5), "the status is back and says the subagents")
+    }
+
     private func launch(into row: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]

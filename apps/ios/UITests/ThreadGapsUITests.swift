@@ -83,23 +83,20 @@ import XCTest
         // The turn's steps open grouped, as on the web: sentence rows on a rail.
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "work.group.")).firstMatch.waitForExistence(timeout: 15))
         screenshot("worked-full-steps")
-        let rollup = app.buttons["subagents.rollup"].firstMatch
-        app.bringToMiddle(rollup)
-        rollup.tap()
-        let review = app.buttons["subagent.Review PID-reuse safety"]
+        // The subagents still work, so their tree is the pill's.
+        app.openAgentsFromPill()
+        let review = app.agentsRow("Review PID-reuse safety")
         XCTAssertTrue(review.waitForExistence(timeout: 10))
-        app.bringToMiddle(review)
         review.tap()
         XCTAssertTrue(app.staticTexts["Review the kill-all change for PID-reuse safety."].waitForExistence(timeout: 25))
         app.navigationBars.buttons.firstMatch.tap()
         // The parent's transcript is on screen at once, never the empty loading state.
         XCTAssertFalse(app.staticTexts["Loading conversation…"].exists)
         screenshot("back-from-child")
-        let explore = app.buttons["subagent.Explore process groups"]
+        app.openAgentsFromPill()
+        let explore = app.agentsRow("Explore process groups")
         XCTAssertTrue(explore.waitForExistence(timeout: 25))
-        app.bringToMiddle(explore)
         explore.tap()
-        XCTAssertTrue(app.collectionViews["lane.transcript"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Process groups are created per thread."].waitForExistence(timeout: 10))
         screenshot("agent-lane-grouped")
     }

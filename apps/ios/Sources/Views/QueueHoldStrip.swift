@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// What holds the thread's queue, in the composer's one strip (DESIGN.md §8): one sentence and its
-/// ways on as words, worded by the bridge (`bridge/queue-hold.ts`). "Codex is out of usage until
-/// 1:14 AM · Switch · Resume at reset · Continue"; "Agent stopped · Continue"; "Queue paused ·
-/// Resume". Switch opens the model sheet; Review opens the queue. The way on that carries the turn
-/// on reads a step stronger. When the words and buttons don't fit one line, the buttons go under.
+/// ways on as buttons, worded by the bridge (`bridge/queue-hold.ts`). "Codex is out of usage until
+/// 1:14 AM" with Switch, Resume at reset and Continue; "Agent stopped" with Continue; "Queue
+/// paused" with Resume. Switch opens the model sheet; Review opens the queue. The way on that
+/// carries the turn on is the prominent one (`DockStrip`).
 struct QueueHoldStrip: View {
     let strip: QueueRow.Strip
     /// False on a phone that can only view the machine: the sentence shows, the ways on are off.

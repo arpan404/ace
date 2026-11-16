@@ -24,13 +24,21 @@ struct ComposerFloaters: View {
 struct ComposerLivePills: View {
     let pill: PillRow
     let open: (String) -> Void
+    /// Called with a part's `LivePill.id` and true while at least half of it shows in the row,
+    /// false as it scrolls off or leaves: the transcript leaves a fact's live rows to the part
+    /// saying it only while that part shows (`ThreadFoot`).
+    var onScreen: (String, Bool) -> Void = { _, _ in }
     @State private var tapped = 0
     @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AceDesign.Space.chipGap) {
                 ForEach(LivePill.of(pill)) { item in
-                    pillButton(item).transition(.opacity)
+                    pillButton(item)
+                        .transition(.opacity)
+                        // Large text or a narrow screen can push a part past the row's edge.
+                        .onScrollVisibilityChange(threshold: 0.5) { shown in onScreen(item.id, shown) }
+                        .onDisappear { onScreen(item.id, false) }
                 }
             }
             .padding(.leading, ComposerCapsuleMetrics.fieldEdge(sizeClass))

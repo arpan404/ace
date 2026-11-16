@@ -4,7 +4,9 @@ import SwiftUI
 /// Several fold into one quiet row led by their providers' marks (each provider once): "3
 /// subagents", each status count in its tone, how long they have run, a chevron; it opens to
 /// their rows under a hairline. The counts carry the state, so the group never reads done while
-/// any branch works or waits. Every word, state and time is the bridge's.
+/// any branch works or waits. Every word, state and time is the bridge's. While the group is live
+/// and the pill over the composer names subagents, the pill says it and the group waits here
+/// until every child has ended (`ThreadFoot`).
 struct SubagentGroupView: View {
     let agents: BlockRow.Agents
     let thread: ThreadModel
@@ -16,7 +18,13 @@ struct SubagentGroupView: View {
         if expanded { thread.screen.openGroups.remove(blockId) } else { thread.screen.openGroups.insert(blockId) }
     }
 
+    @Environment(\.pillNames) private var pillNames
+
     var body: some View {
+        if pillNames.transcriptShows(.subagents, live: agents.leavesToPill) { group }
+    }
+
+    @ViewBuilder private var group: some View {
         if agents.single ?? (agents.entries.count == 1), let only = agents.entries.first {
             AgentRow(entry: only, open: open)
         } else {
