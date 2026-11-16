@@ -86,9 +86,10 @@ import UIKit
                 return
             }
         }
-        // No animation to read yet, or none at all: the fitted curve, from the frame's own time.
+        // No animation to read yet (UIKit adds the keyboard's a tick after the notification), or
+        // none at all: the fitted curve, at the time the lift reaches the screen.
         PerfProbe.add("keyboard.source.curve", 1)
-        let elapsed = link.timestamp - move.start
+        let elapsed = link.targetTimestamp + frame - move.start
         let distance = Double(target - move.from)
         // A rising lift is the keyboard opening.
         let delay = distance > 0 ? KeyboardCurve.openingDelay : KeyboardCurve.closingDelay

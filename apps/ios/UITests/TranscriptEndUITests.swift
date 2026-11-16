@@ -344,6 +344,7 @@ import XCTest
         let gaps = (entries["keyboard.\(motion).gaps"] ?? "").split(separator: ",").compactMap { Int($0) }
         return KeyboardMotion(gaps: gaps, lag: Int(entries["keyboard.\(motion).lag"] ?? "") ?? -1,
                               covered: Int(entries["keyboard.\(motion).covered"] ?? "") ?? -1,
+                              errors: entries["keyboard.\(motion).errors"] ?? "",
                               trace: entries["keyboard.\(motion).trace"] ?? "")
     }
     private func open(_ threadId: String, probe: Bool = false) -> XCUIApplication {
@@ -373,10 +374,12 @@ private struct KeyboardMotion: CustomStringConvertible {
     let lag: Int
     /// The farthest the composer's foot went under the keyboard's edge.
     let covered: Int
+    /// Each frame's composer foot minus where the keyboard puts it, in points.
+    let errors: String
     /// Each frame's drawn y of the line, the composer and the keyboard's edge.
     let trace: String
     var drift: Int { (gaps.max() ?? 0) - (gaps.min() ?? 0) }
-    var description: String { "drift \(drift) pt, composer off the keyboard by up to \(lag) pt and under it by up to \(covered) pt, gaps \(gaps), line/composer/keyboard \(trace)" }
+    var description: String { "drift \(drift) pt, composer off the keyboard by up to \(lag) pt and under it by up to \(covered) pt (per frame \(errors)), gaps \(gaps), line/composer/keyboard \(trace)" }
 }
 
 /// The fixture's own view of a thread, cut to what these tests read of it.
