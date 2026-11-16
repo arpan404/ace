@@ -1,6 +1,12 @@
 import { readRoute } from "./api-read.ts";
 import { publish, withdraw } from "./api-publish.ts";
 import { signerRoute } from "./api-signer.ts";
+import { discoverRoute } from "./api-discover.ts";
+import { maintainerRoute } from "./api-maintainers.ts";
+import { meRoute } from "./api-me.ts";
+import { profileRoute } from "./api-profiles.ts";
+import { discoveryCron } from "./cron-discovery.ts";
+import { publisherCron } from "./cron-publishers.ts";
 import { encodeBase64url } from "@ace/account-grant";
 import type { Context, IdPrefix } from "./context.ts";
 import type { Env } from "./env.ts";
@@ -59,7 +65,11 @@ async function dispatch(
       return withdraw(request, route, context);
     default:
       return (
+        (await meRoute(request, url, route, context)) ??
+        (await profileRoute(request, route, context)) ??
         (await signerRoute(request, route, context)) ??
+        (await maintainerRoute(request, route, context)) ??
+        (await discoverRoute(request, url, route, context)) ??
         (await readRoute(request, url, route, context)) ??
         (await pageRoute(url, route, context)) ??
         notFound()
@@ -98,8 +108,19 @@ export default {
     };
     return dispatch(request, url, route, context);
   },
-  /** The cron: folds new download totals into the index's changes. */
+  /**
+   * The cron, every quarter hour, each step bounded (ADR 0173 §1): download totals into the
+   * index's changes, then the publishers' work (scan jobs, drafts, transfers, verification
+   * re-checks) and Discover's (download buckets, trending, top publishers).
+   */
   async scheduled(_controller, env, ctx): Promise<void> {
-    ctx.waitUntil(aggregateDownloads(env.MARKET, Date.now()));
+    const now = Date.now();
+    ctx.waitUntil(
+      (async () => {
+        await aggregateDownloads(env.MARKET, now);
+        await publisherCron(env, now, (target, init) => fetch(target, init));
+        await discoveryCron(env, now);
+      })(),
+    );
   },
 } satisfies ExportedHandler<Env>;
