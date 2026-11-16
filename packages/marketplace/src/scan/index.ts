@@ -224,8 +224,14 @@ export function finishScan(state: ScanState, input: ScanInput): MarketScanReport
   if (input.type === "suit") findings.push(...sceneCheck(input.files));
   findings.push(...hiddenEntryFindings(input));
 
-  const entryRules: readonly EntryRule[] =
-    input.type === "spade-plugin" ? pluginRules : input.type === "spade-bot" ? recipeRules : [];
+  // The recipe rules (prompt injection in SKILL.md, connectors) filter by type themselves, so
+  // they run on skills and plugins as well as recipes; the plugin rules run on plugins.
+  const entryRules: readonly EntryRule[] = [
+    ...(input.type === "spade-plugin" ? pluginRules : []),
+    ...(input.type === "spade-plugin" || input.type === "spade-skill" || input.type === "spade-bot"
+      ? recipeRules
+      : []),
+  ];
   for (const rule of entryRules)
     for (const hit of rule.find(input, facts))
       findings.push(
