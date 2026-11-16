@@ -407,7 +407,11 @@ export class FakeMarketplaceWire {
       case "publisher":
       case "publish":
       case "report":
-        return { op: "error", code: "unavailable", message: "Publishing isn't in the fake daemon yet" };
+        return {
+          op: "error",
+          code: "unavailable",
+          message: "Publishing isn't in the fake daemon yet",
+        };
     }
   }
 }
