@@ -229,6 +229,33 @@ import SQLite3
         #expect(ledger.groups.map(\.label).contains("Project"))
         #expect(ledger.coverage.complete)
     }
+    /// The model sheet's held switch: the effort picked with a model goes from Swift through the
+    /// bridge's action schema into the daemon's switch, and the thread comes back running it.
+    @Test func anEffortPickedWithAModelReachesTheDaemonWithItsSwitch() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model = ClientModel(now: { 0 })
+        defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
+        await model.connect(target: try target(), directory: root)
+        try await until { model.connection == "ready" }
+        model.open("ios-plan")
+        try await until { model.thread?.loaded == true }
+        let screen = try #require(model.thread?.screen)
+        model.requestModels()
+        try await until("the model sheet") { screen.modelsState == "ready" && screen.modelList.current != nil }
+        let list = screen.modelList
+        let current = try #require(list.current)
+        // Another model on the same account that switches at once, and a level that isn't its default.
+        let models: [ComposeAgent.Model] = list.read.agents.first { $0.provider == current.provider }?.models ?? []
+        let target = try #require(models.first { candidate in
+            let other = candidate.account == current.account && candidate.key != current.key
+            return other && list.moves[candidate.id] == nil && candidate.efforts.count > 1
+        })
+        let effort = try #require(target.efforts.first { $0.id != target.defaultEffort }).id
+        #expect(await model.switchModel(key: target.key, account: target.account, confirmed: true, effort: effort))
+        try await until("the thread on the new model at the effort picked with it") {
+            screen.modelList.current?.key == target.key && screen.tune?.effort == effort
+        }
+    }
     private func target() throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")), hostId: "ios-spike-host", deviceId: "ios-contract-device", pin: nil,
                          credential: { "{\"token\":\"ios-spike-token\"}" })
