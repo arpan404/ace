@@ -1,17 +1,17 @@
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useNow } from "@/lib/time.ts";
 import { useAddSource, useMarketSources, useRemoveSource } from "./market-api.ts";
+import { Empty } from "./market-card.tsx";
 import { count, failureSentence, readAtText } from "./market-model.ts";
-import { ListSkeleton, MarketPage, Quiet } from "./market-rows.tsx";
 
 /**
- * Where the marketplace reads from: ace's own market, then the git catalogs the person added,
- * each with when it was last read and Remove. A catalog is added by its https git address.
+ * Where the marketplace reads from, pushed from Installed: ace's own market, then the git
+ * catalogs the person added, each with when it was last read and Remove. A catalog is added by
+ * its https git address.
  */
-export function MarketCatalogsScreen() {
+export function CatalogsPage() {
   const sources = useMarketSources();
   const add = useAddSource();
   const remove = useRemoveSource();
@@ -28,49 +28,55 @@ export function MarketCatalogsScreen() {
     });
   };
   return (
-    <MarketPage title="Catalogs">
+    <div className="mk-inner" data-width="read">
+      <h1 className="mk-display-sm" style={{ marginTop: 8 }}>
+        Catalogs
+      </h1>
       {sources.isError && !sources.data ? (
-        <Quiet>{failureSentence(sources.error, "read")}</Quiet>
-      ) : !sources.data ? (
-        <ListSkeleton />
-      ) : (
-        <SettingSection label="Catalogs">
+        <Empty title={failureSentence(sources.error, "read")} />
+      ) : sources.data ? (
+        <ul className="mk-rows" aria-label="Catalogs" style={{ marginTop: 24 }}>
           {sources.data.sources.map((source) => (
-            <SettingRow
-              key={source.id}
-              inline
-              title={source.kind === "market" ? "ace's marketplace" : source.address}
-              description={[
-                count(source.entries, "entry", "entries"),
-                source.readAt === undefined
-                  ? "Not read yet"
-                  : `Read at ${readAtText(source.readAt, now)}`,
-                source.problem ? "Couldn't be read again" : undefined,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            >
+            <li key={source.id} className="mk-row">
+              <span className="mk-words">
+                <span className="mk-name">
+                  {source.kind === "market" ? "ace's marketplace" : source.address}
+                </span>
+                <span className="mk-meta">
+                  {[
+                    count(source.entries, "entry", "entries"),
+                    source.readAt === undefined
+                      ? "Not read yet"
+                      : `Read at ${readAtText(source.readAt, now)}`,
+                    source.problem ? "Couldn't be read again" : undefined,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </span>
               {source.kind === "git" && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-label={`Remove ${source.address}`}
-                  disabled={remove.isPending}
-                  onClick={() =>
-                    remove.mutate(source.id, {
-                      onError: (error) => setFailed(failureSentence(error, "removeSource")),
-                    })
-                  }
-                >
-                  Remove
-                </Button>
+                <span className="mk-actions">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`Remove ${source.address}`}
+                    disabled={remove.isPending}
+                    onClick={() =>
+                      remove.mutate(source.id, {
+                        onError: (error) => setFailed(failureSentence(error, "removeSource")),
+                      })
+                    }
+                  >
+                    Remove
+                  </Button>
+                </span>
               )}
-            </SettingRow>
+            </li>
           ))}
-        </SettingSection>
-      )}
+        </ul>
+      ) : null}
       <form
-        className="mt-6 flex items-center gap-2"
+        style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 24 }}
         onSubmit={(event) => {
           event.preventDefault();
           submit();
@@ -87,10 +93,10 @@ export function MarketCatalogsScreen() {
         </Button>
       </form>
       {failed && (
-        <p role="alert" className="mt-2 text-ui text-destructive">
+        <p role="alert" className="mk-withdrawn-line" style={{ marginTop: 8 }}>
           {failed}
         </p>
       )}
-    </MarketPage>
+    </div>
   );
 }

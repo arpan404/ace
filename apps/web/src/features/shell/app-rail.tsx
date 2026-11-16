@@ -87,6 +87,8 @@ export function AppRail(props: {
   usage?: ((current: boolean) => ReactNode) | undefined;
   /** Spade's place, which knows when an approval waits; where it goes is the rail's. */
   spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
+  /** The Marketplace, under Skills: a button that opens its modal over the page. */
+  market?: ReactNode;
   /** A Suit merged the rail into the sidebar: its places run as a row along the panel's top. */
   merged?: boolean | undefined;
 }) {
@@ -155,6 +157,7 @@ export function AppRail(props: {
             </Link>
           </Tip>
         ))}
+        {props.market}
         <span className="flex-1" />
         <UpdateButton />
         {props.usage?.(current === "usage")}

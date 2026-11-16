@@ -12,6 +12,8 @@ export interface SuitReport {
   detail: SuitDetail | undefined;
   /** An agent's preview on top of the device setting; undefined when none runs. */
   preview: SuitId | null | undefined;
+  /** A Suit being tried on (the Marketplace's Try it); it wins until the trial ends. */
+  trial?: SuitDetail | undefined;
 }
 
 const BootSuit = z.object({ suit: SuitDetail });
@@ -38,6 +40,8 @@ export function useAppliedSuit(
   });
   const applied = useMemo(
     () =>
+      // A Suit tried on shows as it is, the session's escape hatch aside.
+      (!off && report.trial) ||
       appliedSuit({
         setting: wantedSuit(setting, report.preview),
         off,
@@ -48,5 +52,5 @@ export function useAppliedSuit(
     [setting, off, report, cached],
   );
   const reportSuits = useCallback((next: SuitReport) => setReport(next), []);
-  return { applied, preview: report.preview, reportSuits };
+  return { applied, preview: report.preview, trying: report.trial !== undefined, reportSuits };
 }
