@@ -92,6 +92,7 @@ export function WebLink(props: AnchorHTMLAttributes<HTMLAnchorElement> & { href:
     <a
       target="_blank"
       rel="noreferrer noopener"
+      data-part="link"
       {...rest}
       href={href}
       onClick={(event) => {

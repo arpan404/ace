@@ -1,4 +1,4 @@
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { Link, useParams } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import {
@@ -105,6 +105,7 @@ function AutomationRow(props: { row: SidebarRow; selected: boolean }) {
       aria-current={props.selected ? "page" : undefined}
       title={`${row.title}\n${meta}`}
       {...panelRow()}
+      data-state={props.selected ? "active" : undefined}
     >
       <PanelRowBody
         title={row.title}

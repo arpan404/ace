@@ -1,7 +1,7 @@
 import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
 import { historyEnginePort, historySessionContext } from "./history-engine.ts";
 import { configuredAdapter } from "../provider-admission.ts";
-import { configuredDiscovery } from "../provider-discovery.ts";
+import { stagedDiscovery } from "../provider-discovery.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openCursorMcp } from "./cursor-mcp.ts";
@@ -27,6 +27,8 @@ import { Engine } from "../engine/index.ts";
 import { accessDefaults } from "../engine/access-defaults.ts";
 import { projectAccess } from "../project-access.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
+import type { AdapterRegistry } from "../engine/registry.ts";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ServiceContext } from "./types.ts";
 export async function startEngine(context: ServiceContext): Promise<void> {
   const { config, options, store, resources, services, log } = context;
@@ -49,14 +51,22 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     limitsForSession: (instanceId?: string) =>
       cursorCheckpointLimitOverride(services.providerConfigurations?.for("cursor", instanceId)),
   };
+  // Adapters register once each CLI's path and version are read; its login follows, since
+  // OpenCode's login probe alone takes most of a second and nothing at startup needs it.
+  const logins = new Map<"claude" | "codex" | "opencode", DiscoveryResult>();
+  let target: AdapterRegistry | undefined;
+  const loginRead = (provider: "claude" | "codex" | "opencode", cli: DiscoveryResult) => {
+    logins.set(provider, cli);
+    target?.refreshDiscovery(provider, cli);
+  };
   const discovered =
     engineOptions.registry ??
     discoverAdapters(
-      configuredDiscovery(context, engineOptions.adapterDiscovery),
+      stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
       (cli) => daemonClaudeAdapter(context, cli),
       async (adapters) => {
-        await registerPi(context, adapters);
-        await registerAntigravity(context, adapters);
+        // Independent providers: Pi's CLI and Antigravity's approved install are read together.
+        await Promise.all([registerPi(context, adapters), registerAntigravity(context, adapters)]);
       },
       cursorOptions,
       services.providerConfigurations?.for("cursor").enabled === false
@@ -66,6 +76,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   // From here on every check observes the CLI afresh: clients connect once the engine is up.
   const registry = await Promise.resolve(discovered).finally(() => services.startupProbes?.close());
   if (!engineOptions.registry) resources.own(() => registry.close(), "provider registry");
+  // Logins read before their adapters registered; later ones apply as they arrive.
+  target = registry;
+  for (const [provider, cli] of logins) registry.refreshDiscovery(provider, cli);
   context.signal.throwIfAborted();
   const capabilities = daemonMcpCapabilities(services);
   const worktrees = new ManagedWorktrees(store, config.dataDir);
@@ -169,11 +182,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       const discovery = update.then(async () => {
         context.signal.throwIfAborted();
         await discoverAdapters(
-          configuredDiscovery(context, engineOptions.adapterDiscovery),
+          stagedDiscovery(context, loginRead, engineOptions.adapterDiscovery),
           (cli) => daemonClaudeAdapter(context, cli),
           async (adapters) => {
-            if (!adapters.has("pi")) await registerPi(context, adapters);
-            await registerAntigravity(context, adapters);
+            await Promise.all([
+              adapters.has("pi") ? undefined : registerPi(context, adapters),
+              registerAntigravity(context, adapters),
+            ]);
           },
           cursorOptions,
           services.providerConfigurations?.for("cursor").enabled === false

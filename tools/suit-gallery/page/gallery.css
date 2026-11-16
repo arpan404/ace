@@ -1,0 +1,386 @@
+:root {
+  --glass: rgba(10, 14, 22, 0.5);
+  --glass-strong: rgba(10, 14, 22, 0.62);
+  --edge: rgba(255, 255, 255, 0.09);
+  --ink: #eef1f6;
+  --muted: rgba(238, 241, 246, 0.72);
+  --subtle: rgba(238, 241, 246, 0.5);
+  --accent: #7ce0b4;
+  --accent-ink: #06140e;
+  --blur: 30px;
+  --saturate: 1.4;
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #05070b;
+  color: var(--ink);
+  font: 13px/1.45 var(--ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Gallery controls: not part of the mock. */
+.bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: #0b0d12;
+  border-bottom: 1px solid #1c2028;
+  z-index: 10;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.bar-title {
+  font-weight: 600;
+  color: #c9ced8;
+}
+.group {
+  display: flex;
+  gap: 4px;
+}
+.sep {
+  width: 1px;
+  height: 18px;
+  background: #262b35;
+}
+.bar button {
+  flex: none;
+  font: inherit;
+  color: #b9bfcb;
+  background: #151922;
+  border: 1px solid #232835;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.bar button:hover {
+  color: #fff;
+  border-color: #3a4152;
+}
+.bar button[aria-pressed="true"],
+.bar button.on {
+  color: #0b0d12;
+  background: #e6e9ef;
+  border-color: #e6e9ef;
+}
+.bar button.fired {
+  border-color: #8a93a6;
+  color: #fff;
+}
+.status {
+  margin-left: auto;
+  color: #7d8494;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* The mock window: the scene fills it; ace floats over it as glass. */
+.window {
+  position: fixed;
+  inset: 44px 0 0 0;
+  overflow: hidden;
+}
+#scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  pointer-events: none;
+}
+.app {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  transition: opacity 0.25s;
+}
+.app.hidden {
+  opacity: 0;
+}
+/*
+ * Glass over the scene: tint, edge and highlight only. The blur and saturation (--blur,
+ * --saturate) are drawn by the scene runtime inside these rectangles, because backdrop-filter
+ * can't reach into the sandboxed scene frame (gallery.js sends it the rectangles).
+ */
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--edge);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 10px 40px rgba(0, 0, 0, 0.18);
+}
+
+.side {
+  width: 330px;
+  flex: none;
+  display: flex;
+  border-radius: 18px;
+  overflow: hidden;
+}
+.rail {
+  width: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0;
+  border-right: 1px solid var(--edge);
+}
+.lights {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 14px;
+}
+.lights i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+}
+.rail-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.rail-icon.on {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+.rail-icon svg,
+.send svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rail-fill {
+  flex: 1;
+}
+.threads {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 8px;
+}
+.threads-head {
+  display: flex;
+  gap: 4px;
+  padding: 0 6px 10px;
+}
+.tab {
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--subtle);
+  font-weight: 500;
+}
+.tab.on {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.1);
+}
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.row {
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+.row.on {
+  background: rgba(255, 255, 255, 0.08);
+}
+.row .meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--subtle);
+  font-size: 11.5px;
+}
+.row .meta span {
+  margin-left: auto;
+}
+.row .title {
+  color: var(--muted);
+  margin: 1px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row .title.strong,
+.row.on .title {
+  color: var(--ink);
+}
+
+/* Status icons: ace's own colours, never the Suit's. */
+.st {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+.st.working {
+  border: 1.6px dashed #7e9fd6;
+}
+.st.needs {
+  background: #edb250;
+}
+.st.done {
+  background: #6cbf8c;
+}
+.st.failed {
+  background: #f47670;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.head {
+  align-self: center;
+  padding: 5px 18px 6px;
+  border-radius: 999px;
+  text-align: center;
+}
+.head-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.head-meta {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.transcript {
+  flex: 1;
+  min-height: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  padding: 28px 32px;
+}
+.column {
+  width: 100%;
+  max-width: 700px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.you {
+  align-self: flex-end;
+  max-width: 78%;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  padding: 9px 14px;
+}
+.agent p {
+  margin: 0 0 10px;
+}
+code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 1px 5px;
+}
+.log {
+  border-left: 1px solid var(--edge);
+  padding-left: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.log-head {
+  color: var(--subtle);
+  font-size: 12px;
+}
+.verb {
+  color: var(--ink);
+}
+.add {
+  color: #6cbf8c;
+}
+.del {
+  color: #f47670;
+}
+.foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+.pills {
+  width: 100%;
+  max-width: 740px;
+  display: flex;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px 4px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.composer {
+  width: 100%;
+  max-width: 740px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 7px 7px 16px;
+  border-radius: 999px;
+  background: var(--glass-strong);
+}
+.plus {
+  color: var(--muted);
+  font-size: 19px;
+  line-height: 1;
+}
+.field {
+  flex: 1;
+  color: var(--subtle);
+  font-size: 14px;
+}
+.send {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+}

@@ -1,6 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { fakeSuit } from "@/test/fake-suits.ts";
+import { ThemeProvider } from "@/theme/theme-provider.tsx";
 import type { TerminalSessions } from "./sessions.ts";
+import { terminalLook } from "./suit-terminal.ts";
 import { ScreenRows } from "./terminal-view.tsx";
 import { XtermView } from "./xterm-view.tsx";
 
@@ -65,6 +68,34 @@ test("the DOM terminal screen draws with the resolved monospace stack plus the s
   expectSymbolFallback(screen.getByRole("log", { name: "zsh output" }).style.fontFamily);
 });
 
+test("without WebGL the DOM terminal screen draws a Suit's terminal font, size and colours", () => {
+  const crt = fakeSuit({
+    id: "crt",
+    dark: {},
+    terminal: {
+      fontFamily: "Courier New",
+      fontSize: 16,
+      lineHeight: 1.5,
+      dark: { background: "#001100", foreground: "#33ff66" },
+    },
+  });
+  const rows = [{ id: 1, segments: [{ text: "ok", style: {} }] }];
+  const { rerender } = render(
+    <ScreenRows rows={rows} label="zsh output" look={terminalLook(crt, "dark")} />,
+  );
+  const log = screen.getByRole("log", { name: "zsh output" });
+  expect(faces(log.style.fontFamily)[0]).toBe("Courier New");
+  expect(log.style.fontSize).toBe("16px");
+  expect(log.style.lineHeight).toBe("24px");
+  expect(log.style.color).toBe("rgb(51, 255, 102)");
+  expect(log.style.backgroundColor).toBe("rgb(0, 17, 0)");
+  // Back on ace's own look, the screen keeps the theme's text and the panel's background.
+  rerender(<ScreenRows rows={rows} label="zsh output" look={terminalLook(null, "dark")} />);
+  expect(log.style.color).toBe("");
+  expect(log.style.backgroundColor).toBe("");
+  expectSymbolFallback(log.style.fontFamily);
+});
+
 test("the xterm terminal is created with the resolved monospace stack plus the symbol faces", async () => {
   const sessions: Pick<TerminalSessions, "output" | "write" | "resize"> = {
     output: () => () => {},
@@ -72,15 +103,23 @@ test("the xterm terminal is created with the resolved monospace stack plus the s
     resize: () => {},
   };
   render(
-    <XtermView
-      sessions={sessions as TerminalSessions}
-      id="pty-1"
-      name="zsh"
-      onSurface={() => {}}
-      readOnly={false}
-      autoFocus={false}
-      onFind={() => {}}
-    />,
+    // No Suit is applied: the terminal looks as it does under a built-in theme.
+    <ThemeProvider
+      environment={{
+        storage: { getItem: () => null, setItem() {}, removeItem() {} },
+        root: document.createElement("div"),
+      }}
+    >
+      <XtermView
+        sessions={sessions as TerminalSessions}
+        id="pty-1"
+        name="zsh"
+        onSurface={() => {}}
+        readOnly={false}
+        autoFocus={false}
+        onFind={() => {}}
+      />
+    </ThemeProvider>,
   );
   await waitFor(() => expect(created).toHaveLength(1));
   expectSymbolFallback(created[0]?.fontFamily);

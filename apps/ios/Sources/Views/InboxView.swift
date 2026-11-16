@@ -303,6 +303,17 @@ struct InboxView: View {
                 .environment(\.openPullRequest) { project, number, repository in
                     path.wrappedValue.append(.forge(ForgeRoute(kind: .pull, machineId: key.machineId, project: project, number: number, repository: repository)))
                 }
+                // A subagent delegated to another machine opens on that machine's client.
+                .environment(\.openElsewhere) { host, child, name in
+                    let paired = inbox.client(host)
+                    switch DelegatedElsewhere.reach(host: host, name: paired == nil ? name : inbox.name(host), connection: paired?.connection) {
+                    case .open(let machine):
+                        inbox.client(machine)?.open(child)
+                        path.wrappedValue.append(.thread(InboxKey(machineId: machine, id: child)))
+                        return nil
+                    case .away(let words): return words
+                    }
+                }
                 // A thread on another paired machine (who sent a message) opens on that machine.
                 .environment(\.remoteThreads, RemoteThreads.on(inbox) { other, host, id in
                     other.open(id); path.wrappedValue.append(.thread(InboxKey(machineId: host, id: id)))

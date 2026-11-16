@@ -16,12 +16,21 @@ import { queuedTexts } from "./queue-read.ts";
 import { seedSheets } from "./sheet-scenario.ts";
 import { seedWork, WorkScenario } from "./work-scenario.ts";
 import { seedSubagents } from "./subagent-scenario.ts";
+import { seedElsewhere, seedWorktreeStops } from "./elsewhere-scenario.ts";
 import { seedArchive, snoozeNap } from "./archive-scenario.ts";
 import { seedProjects } from "./project-scenario.ts";
 import { seedProjectMarks } from "./project-marks-scenario.ts";
 import { seedChats } from "./chats-scenario.ts";
 import { seedMessageAttachments, seedNativeMedia, seedRichAnswer } from "./media-scenario.ts";
-import { answerScreenshot, browserControl, realVideo, seedBrowser } from "./spike-browser.ts";
+import {
+  answerScreenshot,
+  browserControl,
+  degradedBrowser,
+  realVideo,
+  seedBrowser,
+} from "./spike-browser.ts";
+import { spikePoster } from "./spike-poster.ts";
+import { spikeMedia, type PhoneMain, type SpikeSocketData } from "./spike-media.ts";
 import { devicesControl, featureClosed, featureMessage, spikeDevices } from "./spike-devices.ts";
 import { seedFiles } from "./files-scenario.ts";
 import { seedChanges } from "./changes-scenario.ts";
@@ -132,6 +141,12 @@ daemon.apply("ios-stream", [
 // many deltas (about nine hours at 20 a second), in one append, to check that a thread that has
 // run for hours opens as fast as a new one.
 const streamed = Number(process.env.ACE_IOS_SPIKE_STREAMED ?? 0);
+/** `ACE_IOS_SPIKE_DEGRADED=1`: the browser's video reports it runs on the processor. */
+const degraded = degradedBrowser(process.env.ACE_IOS_SPIKE_DEGRADED === "1");
+/** `ACE_IOS_SPIKE_POSTER=1`: browser subscribes bring a poster; `hold` also holds video back. */
+const poster = spikePoster(daemon, process.env.ACE_IOS_SPIKE_POSTER);
+/** `ACE_IOS_SPIKE_MEDIA=1`: ace-media's media listener, played on this port (`spike-media.ts`). */
+const media = spikeMedia(port, process.env.ACE_IOS_SPIKE_MEDIA === "1");
 if (Number.isSafeInteger(streamed) && streamed > 0)
   daemon.apply("ios-stream", [
     facts.stream(
@@ -227,6 +242,8 @@ daemon.createThread({
   details: details("perf/shards"),
 });
 seedSubagents(daemon);
+seedElsewhere(daemon, { hostId, name: machineName });
+seedWorktreeStops(daemon);
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-snoozed",
@@ -309,9 +326,12 @@ let fresh = 0;
 let works = 0;
 let naps = 0;
 
-const connections = new Map<ServerWebSocket<undefined>, ReturnType<FakeDaemon["connect"]>>();
+const connections = new Map<ServerWebSocket<SpikeSocketData>, ReturnType<FakeDaemon["connect"]>>();
 let online = true;
 let deltas = streamed > 0 ? streamed : 0;
+/** The ios-stream answer the timer streams into; `/stream/finish` moves it on. */
+let streamKey = "stream";
+let answers = 0;
 let commands = 0;
 let snapshots = 0;
 let replays = 0;
@@ -343,7 +363,7 @@ function spikeNotification(threadId: ThreadId, id: string): Notification | undef
   });
 }
 const lostReceipt = new LostReceipt();
-const server = Bun.serve<undefined>({
+const server = Bun.serve<SpikeSocketData>({
   hostname: "127.0.0.1",
   port,
   async fetch(request, listener) {
@@ -460,6 +480,8 @@ const server = Bun.serve<undefined>({
       );
       return Response.json({ ok: true });
     }
+    const posterReply = poster.control(request);
+    if (posterReply) return posterReply;
     const browserReply = await browserControl(daemon, request);
     if (browserReply) return browserReply;
     const devicesReply = devicesControl(daemon, request);
@@ -477,6 +499,17 @@ const server = Bun.serve<undefined>({
         replays,
         fragmentParts,
       });
+    // Finishes the answer streaming on ios-stream and starts the next, so the thread keeps
+    // streaming for whatever runs after; the finished answer's key.
+    if (path === "/stream/finish" && request.method === "POST") {
+      const finished = streamKey;
+      streamKey = `stream-${++answers}`;
+      daemon.apply("ios-stream", [
+        facts.finish("root", finished),
+        facts.message("root", streamKey, "assistant", "And the next step:", false),
+      ]);
+      return Response.json({ finished });
+    }
     if (path === "/control" && request.method === "POST") {
       online = Control.parse(await request.json()).online;
       if (!online) for (const socket of connections.keys()) socket.close(1001);
@@ -498,11 +531,25 @@ const server = Bun.serve<undefined>({
           threadId: ThreadId.parse(new URL(request.url).searchParams.get("thread") ?? "ios-stream"),
         }),
       );
-    if (online && listener.upgrade(request)) return;
+    const mediaReply = media.control(request);
+    if (mediaReply) return mediaReply;
+    if (path === "/media")
+      return listener.upgrade(request, { data: { media: true } })
+        ? undefined
+        : new Response("No", { status: 400 });
+    if (online && listener.upgrade(request, { data: {} })) return;
     return new Response("Unavailable", { status: 503 });
   },
   websocket: {
     open(socket) {
+      if (socket.data?.media) return;
+      const main: PhoneMain = {
+        send: (text) => socket.send(text),
+        forward: (text) => connections.get(socket)?.receive(text),
+      };
+      socket.data = { main };
+      // Pieces for a thread delivered on the media connection, held with the rest for a poster.
+      const toMedia = poster.gate((bytes) => media.socketFor(main)?.send(bytes));
       connections.set(
         socket,
         daemon.connect({
@@ -514,26 +561,37 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of socketFrames(text)) {
+            for (const frame of socketFrames(poster.rewrite(media.toPhone(main, degraded(text))))) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }
           },
           close: (code) => socket.close(code),
-          binary: realVideo(daemon, (bytes) => socket.send(bytes)),
+          binary: realVideo(
+            daemon,
+            poster.gate((bytes) => socket.send(bytes)),
+            (threadId) => (media.route(main, threadId) ? toMedia : undefined),
+          ),
         }),
       );
     },
     message(socket, data) {
+      if (socket.data?.media)
+        return media.message(socket, typeof data === "string" ? data : new Uint8Array(data));
+      const main = socket.data?.main;
+      if (typeof data === "string" && main && media.fromPhone(main, data)) return;
       if (typeof data === "string") {
         if (featureMessage(daemon, socket, data, connections)) return;
         if (data.includes('"type":"command"')) commands++;
         lostReceipt.observe(data);
+        poster.observe(data);
         if (answerScreenshot(data, (text) => socket.send(text), daemon)) return;
         connections.get(socket)?.receive(data);
       }
     },
     close(socket) {
+      if (socket.data?.media) return media.close(socket);
+      if (socket.data?.main) media.mainClosed(socket.data.main);
       featureClosed(socket);
       connections.get(socket)?.close();
       connections.delete(socket);
@@ -543,7 +601,7 @@ const server = Bun.serve<undefined>({
 const timer = setInterval(() => {
   deltas++;
   daemon.apply("ios-stream", [
-    facts.stream("root", "stream", ` Next step ${deltas}: wire the safe kill-all filters.`),
+    facts.stream("root", streamKey, ` Next step ${deltas}: wire the safe kill-all filters.`),
   ]);
 }, 50);
 process.on("SIGINT", () => {

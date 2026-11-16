@@ -58,11 +58,28 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
+      data-part="button"
       data-variant={variant ?? "secondary"}
+      data-state={props.disabled ? "disabled" : undefined}
       className={cn(buttonVariants({ variant, tone, size }), className)}
       {...props}
     />
   );
 }
 
-export { Button, buttonVariants };
+/**
+ * A link or menu trigger drawn as a button: its classes, and its Suit part (`button`, with its
+ * variant), so a Suit restyles it with the rest of the buttons.
+ */
+function buttonLook(
+  look: VariantProps<typeof buttonVariants> = {},
+  className?: string,
+): { "data-part": "button"; "data-variant": string; className: string } {
+  return {
+    "data-part": "button",
+    "data-variant": look.variant ?? "secondary",
+    className: cn(buttonVariants(look), className),
+  };
+}
+
+export { Button, buttonLook, buttonVariants };

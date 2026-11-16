@@ -61,7 +61,7 @@ async function open(scenario: Scenario) {
 const restart =
   "ace restarted. The previous provider process stopped. Continue the interrupted task from native history. Recheck unfinished tools and expired approvals before relying on their results.\nNo known background work was live.";
 
-test("ace's restart input reads as one quiet row, never as the person's message", async () => {
+test("ace's restart input is never the person's message: one turn, its restart one row inside Worked for", async () => {
   const feed = await open(
     thread("thread-restart", [
       say("before", "assistant", "Looking at the redirect guard."),
@@ -71,14 +71,18 @@ test("ace's restart input reads as one quiet row, never as the person's message"
     ]),
   );
   await within(feed).findByText("Picking up where I left off.");
-  await waitFor(() =>
-    expect(within(feed).getAllByRole("note", { name: "Resumed after restart" })).toHaveLength(1),
-  );
+  const heads = await within(feed).findAllByRole("button", { name: /^Worked for/ });
+  expect(heads).toHaveLength(1);
   expect(within(feed).queryByText(/ace restarted\./)).toBeNull();
+  expect(within(feed).queryByRole("note", { name: /Restarted|Resumed/ })).toBeNull();
   expect(within(feed).getByText("Fix the login redirect loop")).toBeTruthy();
+  await userEvent.click(heads[0]!);
+  await waitFor(() =>
+    expect(within(feed).getAllByRole("note", { name: "Restarted, continued" })).toHaveLength(1),
+  );
 });
 
-/** The daemon's own resume: a fresh turn whose input is ace's "continue". */
+/** The daemon's own resume: a run whose input is ace's "continue", carrying the turn on. */
 const resumed = (id: string): Scenario => ({
   thread: { id, workspaceId: "relay", title: "Resumed", provider: "claude" },
   steps: [
@@ -117,17 +121,22 @@ const resumed = (id: string): Scenario => ({
   ],
 });
 
-test("a resumed thread shows one Resumed after restart row that hides what ace sent until opened", async () => {
+test("a resumed turn reads as one turn whose restart row, inside Worked for, hides what ace sent until opened", async () => {
   const feed = await open(resumed("thread-resumed"));
   await within(feed).findByText("Picking up where I left off.");
-  const rows = await within(feed).findAllByRole("note", { name: "Resumed after restart" });
+  const heads = await within(feed).findAllByRole("button", { name: /^Worked for/ });
+  expect(heads).toHaveLength(1);
+  // Nothing outside the fold mentions the restart.
+  expect(within(feed).queryByRole("note", { name: /Restarted|Resumed/ })).toBeNull();
+  await userEvent.click(heads[0]!);
+  const rows = await within(feed).findAllByRole("note", { name: "Restarted, continued" });
   expect(rows).toHaveLength(1);
   const row = rows[0]!;
   expect(within(feed).queryByText("continue")).toBeNull();
   expect(within(feed).queryByText("What the agent received")).toBeNull();
   // The row is its own and only disclosure.
   expect(within(row).getAllByRole("button")).toHaveLength(1);
-  await userEvent.click(within(row).getByRole("button", { name: /Resumed after restart/ }));
+  await userEvent.click(within(row).getByRole("button", { name: /Restarted, continued/ }));
   expect(within(row).getByText("continue")).toBeTruthy();
   expect(within(row).queryByRole("button", { name: /Details/ })).toBeNull();
 });
@@ -135,7 +144,7 @@ test("a resumed thread shows one Resumed after restart row that hides what ace s
 test("nothing in the transcript holds focus once the resume renders", async () => {
   const feed = await open(resumed("thread-resumed-focus"));
   await within(feed).findByText("Picking up where I left off.");
-  await within(feed).findByRole("note", { name: "Resumed after restart" });
+  await within(feed).findByRole("button", { name: /^Worked for/ });
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(feed.contains(document.activeElement)).toBe(false);
 });

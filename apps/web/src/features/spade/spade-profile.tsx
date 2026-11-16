@@ -1,8 +1,9 @@
-import { CaretLeftIcon, ExportIcon, XIcon } from "@phosphor-icons/react";
+import { CaretLeftIcon, ExportIcon, XIcon } from "@ace/icons";
 import { useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { ProfileComputer, type ProfileComputerPlace } from "./computer/profile-computer.tsx";
 import { profileTabNames, profileTabs, type ProfileTab } from "./computer/panel-place.ts";
 import { ProfileDetails } from "./spade-profile-details.tsx";
@@ -80,7 +81,11 @@ export function SpadeProfile(props: {
     tabs.current?.querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus();
   };
   return (
-    <section aria-label={`${bot.name}'s profile`} className="flex h-full min-h-0 flex-col">
+    <section
+      aria-label={`${bot.name}'s profile`}
+      {...part("right-panel", undefined, "spade-profile")}
+      className="flex h-full min-h-0 flex-col"
+    >
       {props.covering && (
         <div className="flex h-11 shrink-0 items-center gap-2 px-2">
           <button
@@ -101,6 +106,7 @@ export function SpadeProfile(props: {
           ref={tabs}
           role="tablist"
           aria-label="Profile"
+          {...part("segmented", undefined, "profile")}
           onKeyDown={move}
           className="mx-4 mb-4 flex gap-0.5 rounded-full bg-hover p-0.5"
         >
@@ -115,6 +121,7 @@ export function SpadeProfile(props: {
                 data-tab={each}
                 aria-selected={selected}
                 aria-controls={ids.panel}
+                {...part("segment", selected && "selected", each)}
                 tabIndex={selected ? 0 : -1}
                 onClick={() => props.onTab(each)}
                 className={cn(
@@ -133,6 +140,7 @@ export function SpadeProfile(props: {
           role="tabpanel"
           id={ids.panel}
           aria-labelledby={ids.tab(tab)}
+          {...part("panel-body", "active", tab)}
           className="flex flex-col px-4 pb-8"
         >
           {tab === "details" ? (

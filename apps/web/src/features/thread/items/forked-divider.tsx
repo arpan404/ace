@@ -1,4 +1,4 @@
-import { GitForkIcon } from "@phosphor-icons/react";
+import { GitForkIcon } from "@ace/icons";
 import { ThreadLink } from "../transitions/thread-link.tsx";
 import { CentredDivider } from "./centred-divider.tsx";
 

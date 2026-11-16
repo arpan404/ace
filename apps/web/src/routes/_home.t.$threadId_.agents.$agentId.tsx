@@ -25,7 +25,7 @@ function SubagentRoute() {
   const { threadId, agentId } = Route.useParams();
   const { machine, on } = Route.useSearch();
   return (
-    <OnMachine machine={machine} title="Subagent">
+    <OnMachine machine={machine} title="Subagent" page="thread">
       {on ? (
         <DelegatedElsewhereView
           key={`${machine ?? ""}:${threadId}:${on}:${agentId}`}

@@ -8,7 +8,7 @@ import { MessageAttachments } from "@/components/attachment-message.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
 import { useAgent, useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary, TodoEntry } from "@ace/protocol";
-import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@phosphor-icons/react";
+import { CheckCircleIcon, CircleHalfIcon, CircleIcon, XCircleIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -240,7 +240,11 @@ function RawFrames(props: { frames: readonly unknown[] }) {
         Raw
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+        <pre
+          data-part="tool-output"
+          data-variant="raw"
+          className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+        >
           {JSON.stringify(props.frames, null, 2)}
         </pre>
       </CollapsibleContent>
@@ -252,7 +256,11 @@ function JsonText(props: { label: string; value: unknown }) {
   return (
     <div>
       <p className="text-xs text-subtle-foreground">{props.label}</p>
-      <pre className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+      <pre
+        data-part="tool-output"
+        data-variant="json"
+        className="max-h-80 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground"
+      >
         {JSON.stringify(props.value, null, 2)}
       </pre>
     </div>
@@ -328,7 +336,7 @@ function ShellOutput(props: { output: OutputSummary }) {
   const [full, setFull] = useState<string>();
   const text = stripAnsi(full ?? props.output.tail ?? "");
   return (
-    <div className={`overflow-hidden rounded-card bg-code ${cardEdge}`}>
+    <div data-part="tool-output" className={`overflow-hidden rounded-card bg-code ${cardEdge}`}>
       <pre
         aria-label="Output"
         className="max-h-72 overflow-auto px-3 py-2 font-mono text-xs leading-normal whitespace-pre-wrap text-muted-foreground"
@@ -386,7 +394,7 @@ export function ChangeDiff(props: { change: FileChange; cwd?: string | undefined
     ? patchLines(change.diff)
     : (change.newText ?? "").split("\n").map((text) => ({ kind: "add" as const, text }));
   return (
-    <figure className={`overflow-hidden rounded-card ${cardEdge}`}>
+    <figure data-part="diff" className={`overflow-hidden rounded-card ${cardEdge}`}>
       <figcaption className="flex h-8 items-center gap-2 border-b px-3 font-mono text-xs text-muted-foreground">
         <span title={change.movePath ?? change.path} className="truncate">
           {change.movePath ? `${path(change.path)} → ${path(change.movePath)}` : path(change.path)}

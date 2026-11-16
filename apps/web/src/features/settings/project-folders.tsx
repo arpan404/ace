@@ -1,4 +1,4 @@
-import { FolderPlusIcon } from "@phosphor-icons/react";
+import { FolderPlusIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { folderName, projectProblem } from "@ace/ui-core";
 import { Icon } from "@/components/icon.tsx";
@@ -23,6 +23,7 @@ import {
   resolveRootPath,
   saveProjectRoots,
 } from "@/lib/project-roots.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * The folders the daemon may open projects in. A typed folder that doesn't exist yet is
@@ -140,6 +141,7 @@ export function ProjectFolders() {
             type="button"
             aria-label={`Create ${folderName(offer.path)} and add`}
             disabled={disabled}
+            {...part("button", disabled && "disabled", "suggestion")}
             onClick={add}
             className="flex h-[30px] min-w-0 basis-full items-center gap-2 rounded-sm bg-accent px-2 text-left text-ui text-foreground focus-ring disabled:opacity-60"
           >

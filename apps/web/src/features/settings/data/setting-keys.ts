@@ -56,6 +56,8 @@ export const settingKeys = {
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   forkOnSwitch: setting("threads.forkOnSwitch", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
+  mediaEncode: setting("media.encode", SettingsValues.shape["media.encode"], "legacy"),
+  mediaDelivery: setting("media.delivery", SettingsValues.shape["media.delivery"], "legacy"),
   maxRunningChildren: setting(
     "agents.maxRunningChildren",
     SettingsValues.shape["agents.maxRunningChildren"],

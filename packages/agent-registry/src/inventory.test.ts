@@ -2,6 +2,7 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { bindLocal, ExecutableDigests, LocalInventory } from "./inventory.ts";
 
 const directories: string[] = [];
@@ -188,5 +189,84 @@ describe("launch revalidation", () => {
     await rm(claude);
     await file(root, "claude", "claude-v2");
     await expect(inventory.resolve(identity, {})).rejects.toThrow("Native bridge CLI changed");
+  });
+});
+
+/** A digest memory as a file would keep it, in memory. */
+function memory(initial?: unknown) {
+  let stored: unknown = initial;
+  return {
+    load: async () => stored,
+    save: async (entries: unknown) => {
+      stored = structuredClone(entries);
+    },
+  };
+}
+/** One daemon run's inventory, with digests recalled from what earlier runs kept. */
+async function run(
+  approved: Awaited<ReturnType<typeof bindLocal>>,
+  kept: ReturnType<typeof memory>,
+) {
+  const digests = new ExecutableDigests(later, kept);
+  await digests.recall();
+  return { inventory: new LocalInventory([approved], digests), digests };
+}
+describe("digests across restarts", () => {
+  const custom = {
+    acpAgentId: "local:custom",
+    installationId: "custom-1",
+    instanceId: "custom-1:default",
+  };
+
+  it("a later run takes an unchanged agent's digest from the memory instead of hashing it", async () => {
+    const root = await directory();
+    const agent = await file(root, "agent", "agent-v1");
+    const approved = await bindLocal(
+      { ...custom, version: "1", command: agent, args: [] },
+      { PATH: root },
+    );
+    const kept = memory();
+    const first = await run(approved, kept);
+    await first.inventory.resolve(custom, {});
+    await first.digests.saved();
+    await expect(
+      run(approved, kept).then(({ inventory }) => inventory.resolve(custom, {})),
+    ).resolves.toMatchObject({ command: agent });
+    // A remembered digest that no longer matches the approval refuses the launch: the next
+    // run believed the memory for the unchanged file rather than reading it again.
+    const remembered = z
+      .array(z.object({ path: z.string(), file: z.string(), digest: z.string() }))
+      .parse(await kept.load());
+    for (const entry of remembered) entry.digest = "0".repeat(64);
+    const altered = memory(remembered);
+    const { inventory } = await run(approved, altered);
+    await expect(inventory.resolve(custom, {})).rejects.toThrow("new approval required");
+  });
+
+  it("an agent rewritten between runs needs approval again", async () => {
+    const root = await directory();
+    const agent = await file(root, "agent", "agent-v1");
+    const approved = await bindLocal(
+      { ...custom, version: "1", command: agent, args: [] },
+      { PATH: root },
+    );
+    const kept = memory();
+    const first = await run(approved, kept);
+    await first.inventory.resolve(custom, {});
+    await first.digests.saved();
+    await writeFile(agent, "agent-v2");
+    const second = await run(approved, kept);
+    await expect(second.inventory.resolve(custom, {})).rejects.toThrow("new approval required");
+  });
+
+  it("an unreadable memory is forgotten and the agent is hashed afresh", async () => {
+    const root = await directory();
+    const agent = await file(root, "agent", "agent-v1");
+    const approved = await bindLocal(
+      { ...custom, version: "1", command: agent, args: [] },
+      { PATH: root },
+    );
+    const { inventory } = await run(approved, memory({ not: "a list" }));
+    await expect(inventory.resolve(custom, {})).resolves.toMatchObject({ command: agent });
   });
 });

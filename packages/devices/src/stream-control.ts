@@ -2,6 +2,7 @@ import type { ScreenStreamSettings } from "@ace/protocol";
 import { DeviceError } from "./sdk.ts";
 import { deviceFrameRate } from "./stream-profile.ts";
 import { recordingImages } from "./recording-feed.ts";
+import { commonStream, sameStream, StreamOwners } from "@ace/screen";
 
 /**
  * A capture nobody is watching: agents' stills and recordings read its JPEG frames. No live view
@@ -42,116 +43,74 @@ export function liveViewRequest(settings: ScreenStreamSettings): ScreenStreamSet
 export function commonDeviceStream(
   profiles: readonly ScreenStreamSettings[],
 ): ScreenStreamSettings {
-  if (!profiles.length) return deviceImageStream;
-  return {
-    codec: "h264",
-    maxWidth: Math.min(...profiles.map((p) => p.maxWidth)),
-    maxHeight: Math.min(...profiles.map((p) => p.maxHeight)),
-    fps: Math.min(...profiles.map((p) => p.fps)),
-    bitrate: Math.min(...profiles.map((p) => p.bitrate)),
-  };
+  return profiles.length ? commonStream(profiles) : deviceImageStream;
 }
-export function sameDeviceStream(a: ScreenStreamSettings, b: ScreenStreamSettings): boolean {
-  return (
-    a.codec === b.codec &&
-    a.maxWidth === b.maxWidth &&
-    a.maxHeight === b.maxHeight &&
-    a.fps === b.fps &&
-    a.bitrate === b.bitrate
-  );
-}
+export const sameDeviceStream = sameStream;
 
 /**
  * Coalesce reconfiguration while a native update is outstanding. No queue of old sizes. While
  * anyone watches, the capture streams H.264 at the viewers' common budget, recording or not
  * (a recording decodes that video itself); a capture that can't is refused, never downgraded.
+ * The owners' arbitration is the shared `StreamOwners` (`@ace/screen`); this adds the device's
+ * rules: live views are H.264 only, and a recording's images while nobody watches.
  */
 export class DeviceStreamControl {
-  private readonly viewers = new Map<string, ScreenStreamSettings>();
-  private readonly apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>;
-  /** What the capture streams while nobody watches or records. */
-  private readonly idle: () => ScreenStreamSettings;
-  private revision = 0;
-  private applied = -1;
-  private settings: ScreenStreamSettings | undefined;
-  private result: { codec: "jpeg" | "h264" } = { codec: "jpeg" };
-  private running: Promise<{ codec: "jpeg" | "h264" }> | undefined;
-  private closed = false;
-  private recordings = 0;
+  readonly #owners: StreamOwners;
+  #recordings = 0;
+  #closed = false;
   constructor(
     apply: (settings: ScreenStreamSettings) => Promise<{ codec: "jpeg" | "h264" }>,
     idle: () => ScreenStreamSettings = () => deviceImageStream,
   ) {
-    this.apply = apply;
-    this.idle = idle;
-  }
-  has(owner: string): boolean {
-    return this.viewers.has(owner);
-  }
-  async set(owner: string, settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
-    if (this.closed) throw new Error("Stream closed");
-    if (!this.viewers.has(owner) && this.viewers.size >= 64) throw new Error("Stream viewer limit");
-    this.viewers.set(owner, liveViewRequest(settings));
-    return this.refresh();
-  }
-  remove(owner: string): Promise<{ codec: "jpeg" | "h264" }> {
-    if (this.closed || !this.viewers.delete(owner)) return Promise.resolve({ codec: "jpeg" });
-    return this.refresh();
-  }
-  async refresh(): Promise<{ codec: "jpeg" | "h264" }> {
-    this.revision++;
-    // A no-op drain may already have settled when another update joins it.
-    do {
-      this.running ??= this.drain().finally(() => {
-        this.running = undefined;
-      });
-      await this.running;
-    } while (!this.closed && this.applied !== this.revision);
-    return this.result;
-  }
-  acquireRecording(): { ready: Promise<{ codec: "jpeg" | "h264" }>; release(): Promise<void> } {
-    if (this.closed) throw new Error("Stream closed");
-    this.recordings++;
-    let released = false;
-    return {
-      ready: this.refresh(),
-      release: async () => {
-        if (released) return;
-        released = true;
-        this.recordings--;
-        if (!this.closed) await this.refresh();
-      },
-    };
-  }
-  private async drain(): Promise<{ codec: "jpeg" | "h264" }> {
-    let result = this.result;
-    while (!this.closed && this.applied !== this.revision) {
-      const revision = this.revision;
-      const next = this.viewers.size
-        ? commonDeviceStream([...this.viewers.values()])
-        : this.recordings
-          ? { ...deviceImageStream, ...recordingImages }
-          : this.idle();
-      if (!this.settings || !sameDeviceStream(this.settings, next)) {
-        // A refused update may have half-applied: the next one always reaches the capture.
-        this.settings = undefined;
-        result = await this.apply(next);
+    this.#owners = new StreamOwners({
+      apply,
+      idle: () => (this.#recordings ? { ...deviceImageStream, ...recordingImages } : idle()),
+      check: (next, result) => {
         if (next.codec === "h264" && result.codec !== "h264")
           throw new DeviceError(
             "not_supported",
             "This device's capture can't stream video for a live view",
             "Live views are H.264 only. Restart the device's live view; if it persists, check its capture tools.",
           );
-        this.settings = { ...next };
-        this.result = result;
-      }
-      this.applied = revision;
+      },
+    });
+  }
+  has(owner: string): boolean {
+    return this.#owners.has(owner);
+  }
+  set(owner: string, settings: ScreenStreamSettings): Promise<{ codec: "jpeg" | "h264" }> {
+    if (this.#closed) return Promise.reject(new Error("Stream closed"));
+    let request: ScreenStreamSettings;
+    try {
+      request = liveViewRequest(settings);
+    } catch (error) {
+      return Promise.reject(error);
     }
-    return result;
+    return this.#owners.set(owner, request);
+  }
+  remove(owner: string): Promise<{ codec: "jpeg" | "h264" }> {
+    if (this.#closed || !this.#owners.has(owner)) return Promise.resolve({ codec: "jpeg" });
+    return this.#owners.remove(owner);
+  }
+  refresh(): Promise<{ codec: "jpeg" | "h264" }> {
+    return this.#owners.refresh();
+  }
+  acquireRecording(): { ready: Promise<{ codec: "jpeg" | "h264" }>; release(): Promise<void> } {
+    if (this.#closed) throw new Error("Stream closed");
+    this.#recordings++;
+    let released = false;
+    return {
+      ready: this.refresh(),
+      release: async () => {
+        if (released) return;
+        released = true;
+        this.#recordings--;
+        if (!this.#closed) await this.refresh();
+      },
+    };
   }
   async close(): Promise<void> {
-    this.closed = true;
-    this.viewers.clear();
-    await this.running;
+    this.#closed = true;
+    await this.#owners.close();
   }
 }

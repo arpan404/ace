@@ -42,12 +42,26 @@ export async function bundleDaemon(
     plugins: [
       daemonWithoutKoffi,
       {
+        // css-tree's module build reads its syntax data with `require("../data/patch.json")` and
+        // `require("mdn-data/...")` at run time, files a bundle doesn't ship; its dist build
+        // carries the same data inline.
+        name: "css-tree-inline-data",
+        setup(ctx: PluginBuild) {
+          ctx.onResolve({ filter: /^css-tree$/ }, (args) =>
+            ctx.resolve("css-tree/dist/csstree.esm", {
+              kind: args.kind,
+              resolveDir: args.resolveDir,
+            }),
+          );
+        },
+      },
+      {
         name: "release-paths",
         setup(ctx: PluginBuild) {
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|install|device-tools|metadata-host-client|document)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|worktree-io|usage-scanner|review-isolate|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|diagnostics-report|descriptor|node-search|injection|mcp-ready|history-publisher|stall-watchdog|fork|pty|account-management|process-guardian|pi-login-driver|pi-sdk|probe-thread|session|api-key|builtins|builtin-suits|install|device-tools|metadata-host-client|document)\.ts$/,
             },
             async (args) => {
               // Windows paths arrive with backslashes; the rewrites below match `/` paths.
@@ -93,6 +107,8 @@ export async function bundleDaemon(
                 );
               if (args.path.endsWith("/plugins/src/builtins.ts"))
                 contents = contents.replace('"../builtin-skills"', '"./builtin-skills"');
+              if (args.path.endsWith("/plugins/src/builtin-suits.ts"))
+                contents = contents.replace('"../builtin-suits"', '"./builtin-suits"');
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/daemon/src/history-publisher.ts"))
@@ -214,6 +230,9 @@ export async function bundleDaemon(
     outExtension: { ".js": ".mjs" },
   });
   await cp(join(repo, "packages/plugins/builtin-skills"), join(root, "builtin-skills"), {
+    recursive: true,
+  });
+  await cp(join(repo, "packages/plugins/builtin-suits"), join(root, "builtin-suits"), {
     recursive: true,
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");

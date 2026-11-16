@@ -9,7 +9,7 @@ import {
   SmileyStickerIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ForgeReactionContent, ForgeReactionSubject } from "@ace/protocol";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuCheckboxItem, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";

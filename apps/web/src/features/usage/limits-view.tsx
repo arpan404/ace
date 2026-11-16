@@ -1,4 +1,4 @@
-import { PushPinIcon } from "@phosphor-icons/react";
+import { PushPinIcon } from "@ace/icons";
 import {
   limitDetails,
   railBars,
@@ -16,6 +16,7 @@ import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
 import { LimitBar } from "./limit-bar.tsx";
 
@@ -45,7 +46,7 @@ export function LimitsView(props: {
     new Set(providers.flatMap((group) => group.accounts.map((each) => each.environment))).size > 1;
   const rows = providers.flatMap((group) => group.accounts.map((entry) => ({ group, entry })));
   return (
-    <div className="@container/limits">
+    <div {...part("list", undefined, "limits")} className="@container/limits">
       {rows.map(({ group, entry }, index) => (
         <AccountBlock
           key={entry.key}
@@ -140,6 +141,7 @@ function AccountBlock(props: {
   const plan = entry.plan && planLabel(entry.plan);
   return (
     <article
+      {...part("list-group")}
       aria-label={`${name} · ${entry.environment}`}
       className={cn("py-4", !props.first && "border-t border-border")}
     >
@@ -261,7 +263,7 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
     </>
   );
   return (
-    <li>
+    <li {...part("list-row")}>
       <HoverCard>
         <HoverCardTrigger
           // Opens once the pointer settles; leaving the row closes it at once.

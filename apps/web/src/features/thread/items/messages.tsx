@@ -1,7 +1,7 @@
 import type { ThreadReader } from "@ace/client";
 import { useAgent, useItem, useThread } from "@ace/client-react";
 import { agentName, forkPointOf, formatClock, saidAt, sameForkPoint } from "@ace/ui-core";
-import { GitForkIcon } from "@phosphor-icons/react";
+import { GitForkIcon } from "@ace/icons";
 import { lazy, Suspense, useCallback } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -42,7 +42,10 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
   const name = subagent ? agentName(subagent, spawn) : undefined;
   const pi = (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi";
   return (
-    <div className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
+    <div
+      data-part="message-agent"
+      className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word"
+    >
       {/* Its words, where the person can select a passage to reply to (features/quotes). */}
       <div data-quotable="">
         <Prose
@@ -69,7 +72,10 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
         </div>
       )}
       {!props.between && (item.complete || (answer.truncated && !streaming)) && (
-        <div className={cn(messageActions("answer"), "absolute top-full left-0")}>
+        <div
+          data-part="message-meta"
+          className={cn(messageActions("answer"), "absolute top-full left-0")}
+        >
           <time
             dateTime={new Date(saidAt(item)).toISOString()}
             className="text-xs text-subtle-foreground"

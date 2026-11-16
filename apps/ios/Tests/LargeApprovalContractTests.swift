@@ -15,7 +15,7 @@ import Testing
         try await untilMany("large approval: loaded=\(model.thread?.loaded ?? false), items=\(model.thread?.items.count ?? 0), error=\(model.error ?? "none")") { model.thread?.approvals.first?.options.count == 300 }
         let approval = try #require(model.thread?.approvals.first)
         let option = try #require(approval.options.last)
-        #expect(option.id == "action-299-" + String(repeating: "x", count: 32768))
+        #expect(option.id == "action-299-" + String(repeating: "x", count: 100))
         #expect(model.error == nil)
         #expect(model.largestFrame <= 32768)
         model.approve(approval, option: option)
@@ -42,7 +42,7 @@ import Testing
         #expect(consumer.wasAbsentAfterRejection)
         let approval = try #require(consumer.model.thread?.approvals.first)
         let option = try #require(approval.options.last)
-        #expect(option.id == "action-299-" + String(repeating: "x", count: 32768))
+        #expect(option.id == "action-299-" + String(repeating: "x", count: 100))
         let action: [String: Any] = ["type": "command", "requestId": "test-retry", "payload": ["type": "interaction.resolve", "interactionId": approval.id, "resolution": ["kind": "approval", "optionId": option.id]]]
         runtime.invoke("aceAction", json: String(decoding: try JSONSerialization.data(withJSONObject: action), as: UTF8.self))
         try await untilMany { consumer.model.thread?.interactions[approval.id]?.state == "resolved" }

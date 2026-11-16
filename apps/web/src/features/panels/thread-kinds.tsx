@@ -10,7 +10,7 @@ import {
   GlobeSimpleIcon,
   PlusIcon,
   ClipboardTextIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
 import {

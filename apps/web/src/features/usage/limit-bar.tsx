@@ -1,5 +1,6 @@
 import type { AccountWindow } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * What is left, in grey ink only: solid up to what the pace still leaves at the reset, faint for
@@ -17,6 +18,7 @@ export function LimitBar(props: {
   const valuetext = window.stale ? "Not used since its reset" : `${window.leftPercent}% left`;
   return (
     <div
+      {...part("chart", undefined, "limit")}
       role="meter"
       aria-label={window.label}
       aria-valuemin={0}

@@ -139,6 +139,13 @@ export const SettingsValues = z.object({
    */
   "media.encode": z.enum(["auto", "legacy"]),
   /**
+   * Who delivers live video to viewers (ADR 0147, docs/media/plan.md "Routes"): `legacy` keeps
+   * the daemon's own fanout on each client's main socket; `auto` lets clients open a media
+   * connection to ace-media, which paces, scales and sends every viewer's pictures itself. It
+   * falls back to `legacy` whenever ace-media isn't healthy. Global only; read live.
+   */
+  "media.delivery": z.enum(["auto", "legacy"]),
+  /**
    * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
    * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off
    * across restarts until turned on again.

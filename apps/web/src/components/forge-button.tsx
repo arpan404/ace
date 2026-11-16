@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { GitPullRequestIcon } from "@phosphor-icons/react";
+import { GitPullRequestIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { railDotClass, railPlaceClass } from "./rail-place.ts";
@@ -34,7 +34,9 @@ export function ForgeButton(props: {
       <Link
         to={props.to}
         aria-current={props.active ? "page" : undefined}
+        data-state={props.active ? "active" : undefined}
         aria-label={said}
+        data-part="rail-item"
         className={railPlaceClass}
       >
         <Icon icon={GitPullRequestIcon} size={20} active={props.active} />

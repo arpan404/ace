@@ -88,6 +88,8 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     struct Size: Codable, Sendable, Equatable { let width: Double; let height: Double }
     let activity: Activity?
     let problem: DeviceProblem?
+    /// One sentence while the picture runs degraded on the processor; empty otherwise.
+    var degraded: String? = nil
     let touch: String
     /// A foldable device's posture (`closed`, `partiallyOpen` or `open`); nil when it doesn't fold.
     var posture: String? = nil

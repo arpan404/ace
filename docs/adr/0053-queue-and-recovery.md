@@ -419,3 +419,32 @@ after a reload) and `transcript-live-state.test.tsx`.
 
 The person's Stop is now done and already read, never attention and never offered a Continue; see
 [ADR 0052](0052-agent-control.md), amendment of the same date.
+
+## Amendment 2026-11-15: a resume carries its turn on
+
+The owner saw a real thread where every restart added "Interrupted by a restart. Continuing." and
+"Resumed after restart", a usage limit added "Resumed after the usage limit", and the resume read
+as a second turn with its own "Worked for" and its own subagents block. This replaces "A resume is
+a new turn" above.
+
+- **One turn.** A `restart` or `limit_resume` run carries the turn it continues on, like a run the
+  agent starts by itself (`carriesOnStretch` in `ui-core/thread-ledger.ts`). The turn tree, the
+  live "Working for" timer and the transcript all read one turn: one "Working for…" or "Worked
+  for…" line and one subagents block. ace's Continue input ("Continue where you left off.", or an
+  older build's instructions) is never the person's message.
+- **Its time is working time.** The gap before a restart's continuation (ace was down) and before
+  a limit resume (the limit held it) is idle, not work (`TurnStretches.clock`). Gaps while the
+  turn's children work on still count, as before.
+- **Held, it still reads complete.** While a limit holds the turn it reads as the 2026-11-01
+  amendment says. A turn is held only while its newest run is the held one, so once the resume
+  runs the same turn works again and never reads done while it works.
+- **One quiet row per moment, inside the work.** Each restart is one row where it happened,
+  "Restarted, continued" with its time; restarts back to back merge ("Restarted twice, continued",
+  9:23–9:30 AM). A limit's wait is "Waited for the usage limit" with its span. "Delegated work
+  finished" rows that land together merge ("2 subagents finished"). These rows show in place while
+  the turn works and fold into "Worked for" once it completes; nothing outside the fold mentions a
+  restart (`ui-core/turn-moments.ts`, the `moment` block). What ace sent stays behind the row's
+  disclosure. Subagent blocks are never folded.
+
+Tests: web `transcript/blocks-interruptions.test.ts`, `transcript/blocks-resumes.test.ts`,
+`turn-structure.test.tsx` and `system-events.test.tsx`; ui-core `turn-moments.test.ts`.

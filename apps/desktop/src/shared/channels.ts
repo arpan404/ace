@@ -92,6 +92,11 @@ export const requests = {
   /** Reload the window with a fresh daemon connection; restarts a daemon that failed. */
   "app.reload": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
+  /**
+   * The connection the page will most likely get, at once, before the daemon answers; the
+   * request is the address the page was last handed, if it kept one.
+   */
+  "daemon.expected": { request: SocketUrl.nullable(), result: DaemonConnection.nullable() },
   "daemon.authorize": { request: SocketUrl, result: None },
   "daemon.status": { request: None, result: DaemonStatus },
   "daemon.restart": { request: None, result: DaemonStatus },
@@ -119,6 +124,22 @@ export const requests = {
   "badge.set": { request: Count, result: None },
   "window.action": { request: WindowAction, result: WindowState },
   "window.state": { request: None, result: WindowState },
+  /**
+   * The app window as it looks now, as a JPEG at most `maxWidth` CSS px wide, for a Suit's live
+   * check (ADR 0150). Only the window's own page; never another window or the screen.
+   */
+  "window.capture": {
+    request: z.strictObject({
+      maxWidth: z.number().int().min(320).max(2560),
+      quality: z.number().int().min(30).max(95),
+    }),
+    result: z.object({
+      mimeType: z.literal("image/jpeg"),
+      data: z.string().min(1),
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+    }),
+  },
   "theme.appearance": { request: None, result: NativeAppearance },
   "theme.setSource": { request: ThemeSource, result: NativeAppearance },
   /** The page's theme colours, painted behind it from the next launch's first frame on. */

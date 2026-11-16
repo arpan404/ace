@@ -1,6 +1,7 @@
 import type { ProviderKind, ProviderInstallProgress } from "@ace/protocol";
 import type { ReadinessView } from "@ace/ui-core";
-import { ArrowClockwiseIcon, DotsThreeIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, CheckIcon, DotsThreeIcon, InfoIcon, XIcon } from "@ace/icons";
+import { Icon } from "@/components/icon.tsx";
 import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { StatusLine } from "@/components/provider-tile.tsx";
@@ -12,6 +13,7 @@ import { SignInButton } from "@/features/sign-in/index.ts";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { useInstall } from "./use-install.ts";
 
 const progressNames: Record<ProviderInstallProgress["state"], string> = {
@@ -115,7 +117,14 @@ export function ProviderSetupRow({
           ? "Cancelled"
           : undefined;
   return (
-    <div className="flex min-w-0 flex-col">
+    <div
+      {...part(
+        "list-row",
+        busy ? "working" : failed ? "failed" : missing ? "disabled" : undefined,
+        "provider",
+      )}
+      className="flex min-w-0 flex-col"
+    >
       <div className="flex min-h-9 min-w-0 items-center gap-2 text-sm">
         {!props.heading && (
           <ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={16} />
@@ -154,6 +163,18 @@ export function ProviderSetupRow({
               tone={props.view.tone}
               text={props.view.primary === "sign_in" ? "Signed out" : props.view.summary}
             />
+          ) : props.view?.summary ? (
+            // Ready says so too ("Signed in as ada@example.com"), quietly: only what needs the
+            // person takes colour.
+            <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+              <Icon
+                icon={CheckIcon}
+                size={14}
+                weight="bold"
+                className="shrink-0 text-status-done"
+              />
+              <span className="truncate">{props.view.summary}</span>
+            </span>
           ) : null}
           {props.columns && <span aria-hidden className="hidden flex-1 @[34rem]:block" />}
           {busy ? (

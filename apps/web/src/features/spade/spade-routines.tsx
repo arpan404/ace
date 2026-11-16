@@ -11,6 +11,7 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
+import { part } from "@/lib/suit-part.ts";
 import { fault } from "./spade-profile-actions.ts";
 import { ProfileProblem, ProfileSection, rowPill } from "./spade-profile-parts.tsx";
 import { HeartbeatEditor, RoutineEditor } from "./spade-routine-editors.tsx";
@@ -131,6 +132,7 @@ function RoutineRow(props: {
   return (
     <div
       data-setting-slot=""
+      {...part("list-row", props.on && "checked", "routine")}
       className="group/routine flex min-h-(--setting-row-height) items-center gap-3 py-2"
     >
       <button

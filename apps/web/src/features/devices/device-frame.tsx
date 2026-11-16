@@ -6,7 +6,7 @@ import {
   GogglesIcon,
   TelevisionSimpleIcon,
   WatchIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import type { ReactNode } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";

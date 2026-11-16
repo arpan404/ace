@@ -72,6 +72,8 @@
     "@ace/secure-channel": "workspace:*",
     "@ace/service": "workspace:*",
     "@ace/settings": "workspace:*",
+    "@ace/suit-scene-runtime": "workspace:*",
+    "@ace/suits": "workspace:*",
     "@ace/terminal": "workspace:*",
     "@ace/themes": "workspace:*",
     "@ace/ui-core": "workspace:*",

@@ -10,6 +10,7 @@ import type { Store } from "../store.ts";
 import { resolveProject } from "./projects.ts";
 import type { DelegationService } from "./delegations.ts";
 import type { ModelLoadBudget } from "./model-load-budget.ts";
+import { lineageIds } from "./thread-lineage.ts";
 
 export type ConversationStartPort = (
   caller: McpAttribution,
@@ -62,6 +63,8 @@ export async function conversationTool(
       ...(operation.cursor ? { cursor: operation.cursor } : {}),
     });
     signal.throwIfAborted();
+    // Each delegated thread names its parent and top-level thread, so an agent knows its owner.
+    for (const hit of data.hits) Object.assign(hit, lineageIds(service.journal, hit.threadId));
     if (withinJsonBudget(data, 180 * 1024) && Buffer.byteLength(JSON.stringify(data)) <= 180 * 1024)
       return { ok: true, data };
     if (limit === 1) return { ok: false, code: "limit" };

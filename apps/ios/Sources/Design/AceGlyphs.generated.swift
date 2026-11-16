@@ -5,7 +5,7 @@ import SwiftUI
 /// ace's own glyph geometry, the web's numbers, on the glyphs' 24 box.
 enum AceGlyphs {
     static let box: CGFloat = 24
-    /// The outlined glyphs' stroke, Phosphor regular's.
+    /// The stroke every outlined glyph shares.
     static let stroke: CGFloat = 1.5
     /// The Pebble's outline, and its tip, the point that clicks.
     static let cursorOutline: CGFloat = 1.6

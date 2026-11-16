@@ -30,6 +30,7 @@ import type { Fleet } from "./data/use-fleet.ts";
 import { UpdateRowAction, UpdateWords } from "./fleet-software.tsx";
 import { useMachineSwitch } from "./machine-on-here.tsx";
 import { MachineDirectory } from "./machine-directory.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 type Row =
   | { id: string; name: string; machine: Machine; account?: undefined }
@@ -191,6 +192,7 @@ function MachineRow(props: {
         <Link
           to="/settings/remote/$machine"
           params={{ machine: machine.primary ? primaryMachineId : machine.id }}
+          {...part("link", undefined, "row")}
           className={rowLinkClass}
         >
           {machine.name}

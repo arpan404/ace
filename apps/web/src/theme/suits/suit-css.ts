@@ -1,0 +1,239 @@
+import type { SuitDetail, SuitFont, SuitManifest } from "@ace/protocol/suits";
+import {
+  customPalette,
+  themeSources,
+  type Palette,
+  type Scheme,
+  type ThemeFonts,
+  type ThemeId,
+} from "@ace/themes";
+import { declarationBlock, paletteDeclarations } from "../css.ts";
+import { defaultTranslucency } from "../translucency.ts";
+import { revealDeclarations, suitGuardSheet, suitLayerSheet } from "./suit-layers.ts";
+
+/*
+ * A Suit (ADR 0150) as the page's CSS: its palettes laid over the base theme and run through
+ * the same token path as a built-in theme, so status, row-status and danger tokens stay ace's
+ * own. Shape and motion scale the shared radius and duration tokens (styles/tokens.css,
+ * styles/motion.css); fonts are bundled files or system stacks, never remote. Pure.
+ */
+
+const schemes: readonly Scheme[] = ["light", "dark"];
+
+/** Suit bases are the built-in theme ids. */
+export const suitBaseTheme = (manifest: SuitManifest): ThemeId => manifest.base;
+
+/** The schemes a Suit has, light first. */
+export function suitSchemes(manifest: SuitManifest): Scheme[] {
+  return schemes.filter((scheme) => manifest[scheme] !== undefined);
+}
+
+/** The scheme a Suit draws in when `wanted` is asked for: a one-scheme Suit runs only in its own. */
+export function suitSchemeFor(manifest: SuitManifest, wanted: Scheme): Scheme {
+  const has = suitSchemes(manifest);
+  return has.includes(wanted) ? wanted : (has[0] ?? wanted);
+}
+
+/** The Suit's palette in the scheme it draws in for `wanted`. */
+export function suitPalette(manifest: SuitManifest, wanted: Scheme): Palette {
+  const scheme = suitSchemeFor(manifest, wanted);
+  return customPalette(suitBaseTheme(manifest), scheme, manifest[scheme] ?? {});
+}
+
+/** An internal family name per slot, so a bundled font never shadows an installed one. */
+export const suitFaceName = (id: string, slot: keyof ThemeFonts) => `ace-suit-${id}-${slot}`;
+
+/** A served URL a stylesheet may load: http(s) or a same-origin path, nothing that breaks out. */
+function safeUrl(url: string): string | undefined {
+  if (/["'\\()\s]/.test(url)) return undefined;
+  if (url.startsWith("/") && !url.startsWith("//")) return url;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const formats: Record<string, string> = {
+  woff2: "woff2",
+  woff: "woff",
+  ttf: "truetype",
+  otf: "opentype",
+};
+
+/** One family of a system stack: a quoted name or a bare keyword, with no characters that end a rule. */
+const stackPart = /^(?:"[A-Za-z0-9 ._-]+"|'[A-Za-z0-9 ._-]+'|[A-Za-z0-9-]+(?: [A-Za-z0-9-]+)*)$/;
+
+/** A system font stack as given, if every family in it is safe to place in a stylesheet. */
+export function systemStack(stack: string): string | undefined {
+  const parts = stack.split(",").map((part) => part.trim());
+  return parts.length > 0 && parts.every((part) => stackPart.test(part))
+    ? parts.join(", ")
+    : undefined;
+}
+
+interface FontPlan {
+  /** `@font-face` rules for bundled files. */
+  faces: string[];
+  /** The same files as family, URL and format. */
+  sources: { family: string; url: string; format: string | undefined }[];
+  fonts: ThemeFonts;
+}
+
+function fontPlan(detail: Pick<SuitDetail, "manifest" | "assets">): FontPlan {
+  const { manifest, assets } = detail;
+  const base = themeSources[suitBaseTheme(manifest)].fonts;
+  const faces: string[] = [];
+  const sources: FontPlan["sources"] = [];
+  const stack = (slot: keyof ThemeFonts, font: SuitFont | undefined): string => {
+    if (!font) return base[slot];
+    if ("system" in font) {
+      const given = systemStack(font.system);
+      return given ? `${given}, ${base[slot]}` : base[slot];
+    }
+    const served = assets[font.asset];
+    const url = served === undefined ? undefined : safeUrl(served);
+    if (!url) return base[slot];
+    const extension = font.asset.split(".").pop()?.toLowerCase() ?? "";
+    const format = formats[extension];
+    const name = suitFaceName(manifest.id, slot);
+    faces.push(
+      `@font-face{font-family:"${name}";src:url("${url}")${format ? ` format("${format}")` : ""};font-display:fallback}`,
+    );
+    sources.push({ family: name, url, format });
+    return `"${name}", ${base[slot]}`;
+  };
+  const fonts = manifest.fonts;
+  return {
+    faces,
+    sources,
+    fonts: {
+      ui: stack("ui", fonts?.ui),
+      prose: stack("prose", fonts?.prose),
+      mono: stack("mono", fonts?.mono),
+    },
+  };
+}
+
+/**
+ * The Suit's bundled fonts as `@font-face` rules, under the family names its tokens name. Each
+ * waits up to ~100 ms for its file before showing the fallback (`fallback`), so a font the
+ * browser has cached (a reload, or a switch `loadSuitFonts` waited for) is never seen swapping
+ * in, and a slow or missing one never hides text for long.
+ */
+export function suitFontFaces(detail: Pick<SuitDetail, "manifest" | "assets">): string[] {
+  return fontPlan(detail).faces;
+}
+
+/** A bundled font file: the family it serves, its URL and the face it is (weight, style). */
+export interface SuitFontSource {
+  family: string;
+  url: string;
+  format: string | undefined;
+  weight?: string;
+  style?: string;
+}
+
+/** One descriptor's value in an `@font-face` body, unquoted. */
+const descriptor = (body: string, name: string) =>
+  new RegExp(`(?:^|[;{\\s])${name}\\s*:\\s*([^;]+)`).exec(body)?.[1]?.trim();
+const unquote = (value: string) => value.replace(/^(["'])(.*)\1$/, "$2");
+
+/**
+ * The `@font-face` rules in the Suit's sanitised suit.css as sources: their family, weight,
+ * style and first file (the daemon has already rewritten it to a served URL). Pure.
+ */
+export function cssFontSources(css: string | null): SuitFontSource[] {
+  if (!css) return [];
+  const sources: SuitFontSource[] = [];
+  for (const [, body = ""] of css.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
+    const family = descriptor(body, "font-family");
+    const src = /url\(\s*(["']?)([^"')\s]+)\1\s*\)/.exec(body)?.[2];
+    const url = src === undefined ? undefined : safeUrl(src);
+    if (!family || !url) continue;
+    const extension = url.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
+    const weight = descriptor(body, "font-weight");
+    const style = descriptor(body, "font-style");
+    sources.push({
+      family: unquote(family),
+      url,
+      format: formats[extension],
+      ...(weight ? { weight } : {}),
+      ...(style ? { style } : {}),
+    });
+  }
+  return sources;
+}
+
+/**
+ * Every bundled font the Suit uses, from `fonts` and from suit.css's `@font-face` rules, for
+ * loading them before the Suit shows.
+ */
+export function suitFontSources(
+  detail: Pick<SuitDetail, "manifest" | "assets"> & { css?: string | null },
+): SuitFontSource[] {
+  return [...fontPlan(detail).sources, ...cssFontSources(detail.css ?? null)];
+}
+
+/** Shape and motion as the scales the shared tokens read. */
+function shapeDeclarations(manifest: SuitManifest): Record<string, string> {
+  return {
+    "--radius-scale": String(manifest.shape?.radius ?? 1),
+    "--border-weight": `${manifest.shape?.border ?? 1}px`,
+    "--motion-scale": String(manifest.motion?.speed ?? 1),
+  };
+}
+
+/** Every declaration the Suit sets when the page asks for `wanted`. */
+export function suitDeclarations(
+  detail: Pick<SuitDetail, "manifest" | "assets">,
+  wanted: Scheme,
+  translucency = defaultTranslucency,
+): Record<string, string> {
+  const { manifest } = detail;
+  const scheme = suitSchemeFor(manifest, wanted);
+  const palette = suitPalette(manifest, scheme);
+  return {
+    ...paletteDeclarations(palette, scheme, fontPlan(detail).fonts, translucency),
+    ...shapeDeclarations(manifest),
+    ...revealDeclarations(manifest, palette),
+  };
+}
+
+/**
+ * The Suit as one stylesheet: its font faces, then a rule per scheme that matches an element
+ * carrying `data-suit` and `data-scheme`. A one-scheme Suit's palette answers both schemes, so
+ * the page never shows the base theme while it settles on the Suit's scheme.
+ */
+export function suitStylesheet(
+  detail: Pick<SuitDetail, "manifest" | "assets">,
+  translucency = defaultTranslucency,
+): string {
+  const { faces } = fontPlan(detail);
+  const rules = schemes.map(
+    (scheme) =>
+      `[data-suit="${detail.manifest.id}"][data-scheme="${scheme}"]{${declarationBlock(suitDeclarations(detail, scheme, translucency))}}`,
+  );
+  return [...faces, ...rules].join("\n");
+}
+
+/**
+ * Everything a Suit puts on the page: its tokens, then its sanitised suit.css in `@layer suit`,
+ * then ace's guard over both. A new version of the Suit replaces this text in place.
+ */
+export function suitSheets(
+  detail: Pick<SuitDetail, "manifest" | "assets" | "css">,
+  translucency = defaultTranslucency,
+): string {
+  return [suitStylesheet(detail, translucency), suitLayerSheet(detail), suitGuardSheet]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Density as the app has it: Spacious draws as Comfortable, the roomiest the app has. */
+export function suitDensity(manifest: SuitManifest): "comfortable" | "compact" | undefined {
+  const density = manifest.shape?.density;
+  if (density === undefined) return undefined;
+  return density === "compact" ? "compact" : "comfortable";
+}

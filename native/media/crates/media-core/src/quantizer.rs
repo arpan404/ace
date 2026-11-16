@@ -35,8 +35,14 @@ impl QuantizerControl {
         self.bits_per_frame = bitrate / fps;
         self.bitrate = bitrate;
     }
+    /// A keyframe is coded coarse enough that, judged from the last one, it fits half a
+    /// second of the bit rate (ADR 0149 §3).
     pub fn next(&mut self, key: bool) -> f64 {
-        let q = (self.quantizer + if key { 6.0 } else { 0.0 }).min(51.0);
+        let mut q = self.quantizer + if key { 6.0 } else { 0.0 };
+        if let (true, Some(kq), Some(bits)) = (key, self.key_quantizer, self.key_bits) {
+            q = q.max((kq + 6.0 * (bits / (self.bitrate * 0.5)).log2()).ceil());
+        }
+        let q = q.min(51.0);
         self.last = q;
         if key {
             self.key_quantizer = Some(q);

@@ -12,7 +12,7 @@ beforeEach(() => localStorage.clear());
 
 type Facts = Parameters<FakeDaemon["apply"]>[1];
 
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const list = () => {
   const viewport = threads().querySelector("[data-virtual-viewport]");
   if (!(viewport instanceof HTMLElement)) throw new Error("no list");
@@ -64,7 +64,7 @@ async function openHome() {
       provider: "codex",
     });
   await app.open("/");
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findAllByRole("link");
   expect(order()).toEqual(["Newest", "Middle", "Oldest"]);
   return app;
 }

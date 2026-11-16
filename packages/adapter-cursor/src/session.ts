@@ -1,4 +1,9 @@
-import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
+import {
+  assertSteerTarget,
+  InputRejected,
+  type ProviderSession,
+  type SessionContext,
+} from "@ace/engine-api";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { z } from "zod";
@@ -198,7 +203,7 @@ export async function openCursorSession(
           modelParams: readCursorModelParams(selection.options),
         });
       },
-      async send(input: ContentPart[], delivery, commandId) {
+      async send(input: ContentPart[], delivery, commandId, _origin, fence) {
         // Every refusal before the host's send request leaves the input unsent.
         if (closing || exited) throw new InputRejected("SDK host is closed");
         if (uncertain)
@@ -215,6 +220,8 @@ export async function openCursorSession(
         control = true;
         try {
           if (delivery === "steer" && active) {
+            // A steer here cancels the running turn first: check its fence before that write.
+            assertSteerTarget(delivery, fence);
             frame("send", "cancel", { replacement: true, commandId }, operation, segment);
             await host.request("cancel").catch((error: unknown) => {
               throw rejected(error);

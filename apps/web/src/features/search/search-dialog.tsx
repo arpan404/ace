@@ -1,4 +1,4 @@
-import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { FunnelSimpleIcon, MagnifyingGlassIcon } from "@ace/icons";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { formatAge, resultCountLabel } from "@ace/ui-core";
 import { useNavigate, useRouter } from "@tanstack/react-router";
@@ -13,6 +13,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { warmThread } from "@/lib/thread-warmer.ts";
 import { focusComposerSoon } from "@/lib/focus-composer.ts";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
@@ -61,13 +62,13 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
     parts.push({ text: props.snippet.text.slice(at), hit: false, at });
   return (
     <p className="min-w-0 flex-1 line-clamp-2 break-words text-ui text-muted-foreground">
-      {parts.map((part) =>
-        part.hit ? (
-          <mark key={part.at} className="rounded-[2px] bg-ring/22 font-medium text-foreground">
-            {part.text}
+      {parts.map((run) =>
+        run.hit ? (
+          <mark key={run.at} className="rounded-[2px] bg-ring/22 font-medium text-foreground">
+            {run.text}
           </mark>
         ) : (
-          <span key={part.at}>{part.text}</span>
+          <span key={run.at}>{run.text}</span>
         ),
       )}
     </p>
@@ -238,7 +239,10 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         </div>
       )}
       {showFilters && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+        <div
+          {...part("filter-bar")}
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2"
+        >
           <SegmentedControl
             label="Kind"
             size="sm"
@@ -330,6 +334,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
         ) : (
           <>
             <ul
+              {...part("list", undefined, "results")}
               id="search-results"
               role="listbox"
               aria-label="Results"
@@ -342,6 +347,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
                 // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
                 <li
                   key={hitKey(hit)}
+                  {...part("list-row", index === active && "selected")}
                   id={`search-hit-${index}`}
                   role="option"
                   aria-selected={index === active}

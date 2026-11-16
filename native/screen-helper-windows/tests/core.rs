@@ -72,6 +72,8 @@ fn frame_packets_delimit_exact_jpeg_bytes_and_preserve_scale() {
         height: 2,
         scale: 1.5,
         codec: "jpeg".into(),
+        keyframe: None,
+        video_codec: None,
         bytes: jpeg.len(),
         dirty_rects: None,
     };

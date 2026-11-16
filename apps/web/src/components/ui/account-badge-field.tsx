@@ -1,7 +1,7 @@
 import { accountBadgeProblem } from "@ace/ui-core";
 import { AccountBadgeColor, type AccountBadgeIcon } from "@ace/protocol/accounts";
 import type { ProviderKind } from "@ace/protocol";
-import { TextAaIcon } from "@phosphor-icons/react";
+import { TextAaIcon } from "@ace/icons";
 import { useId, type ReactNode } from "react";
 import { Tip } from "./tooltip.tsx";
 import { Input } from "./input.tsx";

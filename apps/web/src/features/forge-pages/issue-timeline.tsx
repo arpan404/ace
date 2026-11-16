@@ -7,6 +7,7 @@ import { PersonAvatar as PrAvatar, RelativeTime as PrTime } from "@/components/p
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
+import { part } from "@/lib/suit-part.ts";
 import { issueEventText } from "./issue-events.ts";
 import { CommentsSkeleton } from "./issue-skeletons.tsx";
 import { WebLink } from "@/components/web-link.tsx";
@@ -86,7 +87,10 @@ function useTimelinePage(
 
 function Comment(props: { event: IssueEvent }) {
   return (
-    <li className="flex gap-3 border-t border-border py-4 first:border-t-0">
+    <li
+      {...part("timeline-item", undefined, "comment")}
+      className="flex gap-3 border-t border-border py-4 first:border-t-0"
+    >
       <PrAvatar name={props.event.actor} className="size-6 min-w-6 self-start" />
       <div className="min-w-0 flex-1">
         <p className="flex items-baseline gap-1.5 text-ui">
@@ -103,7 +107,10 @@ function Comment(props: { event: IssueEvent }) {
 
 function Activity(props: { event: IssueEvent; text: string }) {
   return (
-    <li className="flex items-baseline gap-1.5 border-t border-border py-2 pl-9 text-ui text-muted-foreground first:border-t-0">
+    <li
+      {...part("timeline-item", undefined, props.event.kind)}
+      className="flex items-baseline gap-1.5 border-t border-border py-2 pl-9 text-ui text-muted-foreground first:border-t-0"
+    >
       <span className="font-medium text-foreground/85">{props.event.actor}</span>
       {props.event.pullRequestUrl ? (
         <WebLink href={props.event.pullRequestUrl} className="text-link hover:underline focus-ring">
@@ -129,7 +136,7 @@ interface PageProps {
 
 function Events(props: { page: TimelinePage }) {
   return (
-    <ul className="flex flex-col">
+    <ul {...part("list")} className="flex flex-col">
       {props.page.events.map((event) => {
         if (event.kind === "issue_comment") return <Comment key={event.id} event={event} />;
         const text = issueEventText(event);
@@ -233,7 +240,11 @@ export function IssueTimeline(props: {
   if (!first.data) return <CommentsSkeleton />;
   if (last === 0)
     return (
-      <section aria-label="Conversation" className="mt-6">
+      <section
+        {...part("page-section", undefined, "conversation")}
+        aria-label="Conversation"
+        className="mt-6"
+      >
         <Forward
           project={project}
           repository={repository}
@@ -244,7 +255,11 @@ export function IssueTimeline(props: {
       </section>
     );
   return (
-    <section aria-label="Conversation" className="mt-6">
+    <section
+      {...part("page-section", undefined, "conversation")}
+      aria-label="Conversation"
+      className="mt-6"
+    >
       {from > 1 && (
         <Button
           size="sm"

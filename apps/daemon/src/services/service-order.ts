@@ -31,6 +31,7 @@ export const serviceOrder = [
   },
   { name: "relay", phase: "core", requires: ["files"], after: [] },
   { name: "plugins", phase: "core", requires: [], after: [] },
+  { name: "suits", phase: "core", requires: [], after: [] },
   { name: "activityReads", phase: "core", requires: [], after: [] },
   {
     name: "sidebarPlacement",

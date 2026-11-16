@@ -27,16 +27,17 @@ fn a_long_refusal_then_recovery_allocates_nothing_and_credits_only_delivered_byt
             Event::Dropped => panic!("the window holds half a second"),
             _ => {}
         };
-        viewer.publish(1, piece, |_| accepts, &mut track);
+        viewer.publish(1, piece, 0.0, |_| accepts, &mut track);
         if !accepts {
             for _ in 0..20 {
-                viewer.flush(|_| false, &mut track);
+                viewer.flush(0.0, |_| false, &mut track);
             }
             continue;
         }
         rate.acknowledged(sequence, now + 20.0);
-        viewer.acknowledge(
+        viewer.acknowledge_through(
             sequence,
+            0.0,
             |_| true,
             |e| {
                 if let Event::Sent(p) = e {

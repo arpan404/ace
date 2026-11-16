@@ -7,10 +7,11 @@ import type {
 } from "@ace/protocol";
 import { fileAnnotation, formatAgo } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import { TextAction } from "./pr-text-action.tsx";
-import { CheckDisc, type DiscTone } from "./pr-check-disc.tsx";
+import { CheckDisc, discState, type DiscTone } from "./pr-check-disc.tsx";
 import { checkDuration, checkState } from "./pr-checks-list.tsx";
 
 /** "Failed after 2m 14s · just now", "Running for 4m 2s": the head's line under the name. */
@@ -59,13 +60,14 @@ export function Annotations(props: {
 }) {
   if (!props.annotations.length) return null;
   return (
-    <ul aria-label="Annotations" className="space-y-2">
+    <ul {...part("list", undefined, "annotations")} aria-label="Annotations" className="space-y-2">
       {props.annotations.map((annotation) => {
         const look = levelLook[annotation.level];
         const where = `${annotation.path}${annotation.startLine ? `:${annotation.startLine}` : ""}`;
         return (
           <li
             key={`${where}:${annotation.level}:${annotation.title}:${annotation.message}`}
+            {...part("list-row", undefined, annotation.level)}
             data-tone={look.tone}
             className={cn(
               "rounded-lg border px-3 py-2.5 text-ui",
@@ -124,11 +126,15 @@ export function Steps(props: { steps: readonly ForgeCheckStep[]; onJump(line: nu
   const shown = props.steps.filter((step) => step.status !== "skipped");
   if (shown.length < 2) return null;
   return (
-    <ol aria-label="Steps">
+    <ol {...part("list", undefined, "steps")} aria-label="Steps">
       {shown.map((step) => {
         const line = step.line;
         return (
-          <li key={step.number} className="border-t border-border-soft first:border-t-0">
+          <li
+            key={step.number}
+            {...part("list-row", discState(stepTone[step.status]), step.status)}
+            className="border-t border-border-soft first:border-t-0"
+          >
             <button
               type="button"
               disabled={line === null}

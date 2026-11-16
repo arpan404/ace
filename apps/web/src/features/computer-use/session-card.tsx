@@ -3,7 +3,7 @@ import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
 import { chooserWaitingCopy, screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
 import { agentInitial } from "@ace/ui-core/cowork";
-import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, HandIcon, StopIcon } from "@ace/icons";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { AppMark } from "@/components/app-mark.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -13,7 +13,9 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { LiveView } from "./live-view.tsx";
+import { DegradedLine } from "@/lib/video/degraded.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * One agent-controlled (or person-controlled) app: its live picture (with the agent's pointer, and
@@ -45,7 +47,7 @@ export function SessionCard(props: {
   const controllable = !view.viewOnly && !view.awaitingChoice;
   if (props.compact)
     return (
-      <article aria-label={view.app} className="border-b">
+      <article {...part("list-row", expanded && "open")} aria-label={view.app} className="border-b">
         <button
           type="button"
           aria-expanded={expanded}
@@ -67,7 +69,11 @@ export function SessionCard(props: {
       </article>
     );
   return (
-    <article aria-label={view.app} className="flex min-w-0 flex-col overflow-hidden border-b">
+    <article
+      {...part("card", undefined, "session")}
+      aria-label={view.app}
+      className="flex min-w-0 flex-col overflow-hidden border-b"
+    >
       {props.live !== false && session && state.lifecycle === "live" && (
         <div className="relative aspect-video border-b">
           <LiveView
@@ -116,6 +122,9 @@ export function SessionCard(props: {
             " · Only you can control a shared screen"}
           {state.controller === "agent" && holderThread && ` · ${holderThread}`}
         </p>
+        {view.lifecycle === "live" && (
+          <DegradedLine acceleration={state.acceleration} className="text-sm" />
+        )}
         {view.watchOnlyReason && view.lifecycle === "live" && (
           <p className="text-sm text-muted-foreground">{view.watchOnlyReason}</p>
         )}

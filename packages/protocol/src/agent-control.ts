@@ -339,7 +339,10 @@ export const AgentControlOperation = z.discriminatedUnion("op", [
     threadId: ThreadId,
     requestId: key,
     text: MessageText,
-    /** Omitted: steer for the caller's own descendants, queue for any other thread. */
+    /**
+     * Omitted: steer. queue and restart reach only the caller's own descendants and the threads
+     * it started; any other thread it can read takes a steer, labelled as the caller's.
+     */
     delivery: z.enum(["queue", "steer", "restart"]).optional(),
   }),
   z.strictObject({ op: z.literal("wait"), ...WaitInput }),

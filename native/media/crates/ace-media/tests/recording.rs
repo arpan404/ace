@@ -138,8 +138,8 @@ fn pace() {
 struct Run {
     media: Media,
     messages: Receiver<FromMedia>,
-    priority: UnixStream,
-    _egress: UnixStream,
+    priority: support::SealedLane,
+    _egress: support::SealedLane,
     producer: UnixStream,
 }
 

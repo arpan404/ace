@@ -3,7 +3,7 @@ import {
   spadeSubscriptionSources,
   type SpadeEndpoint,
 } from "@ace/ui-core/spade-chat";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@ace/icons";
 import { useQueries } from "@tanstack/react-query";
 import { useState, type KeyboardEvent } from "react";
 import { Input } from "@/components/ui/input.tsx";

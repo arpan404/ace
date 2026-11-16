@@ -48,6 +48,8 @@ export interface ComposerActions {
   chooseModel(): void;
   /** Open the model chip's effort slider. */
   tuneEffort(): void;
+  /** Answer one of the thread's approvals, through the same gated sender its card uses. */
+  approve?(interactionId: string, optionId: string): void;
 }
 
 /** A step of the palette it can open on, instead of its search. */

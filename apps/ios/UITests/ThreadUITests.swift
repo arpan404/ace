@@ -104,6 +104,74 @@ import XCTest
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "opening the rows at the end hides the last line")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows after opening the rows at the end")
     }
+    func testTheTurnRailJumpsToATurnAndScrollToEndReturns() {
+        let app = launch()
+        // Far down the fixture's inbox: the shared helper scrolls until the row is in the middle.
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertFalse(rail.exists, "the rail stays away at the live end")
+        // Reading back shows the rail beside the transcript and Scroll to end over the composer.
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForExistence(timeout: 5))
+        // With the rail showing the app goes idle: every query waits for idle first, so one that
+        // takes seconds means the main thread is caught in an update loop.
+        sleep(1)
+        let asked = Date()
+        _ = rail.frame
+        XCTAssertLessThan(Date().timeIntervalSince(asked), 5, "the app never went idle with the rail showing")
+        screenshot("turn-rail")
+        // VoiceOver's element is a full tap wide and as tall as the rail; touches land only on the
+        // band at the screen's edge, inside the transcript's 20 pt margin.
+        XCTAssertGreaterThanOrEqual(rail.frame.width, 44)
+        XCTAssertGreaterThan(rail.frame.height, 88)
+        let edge = { (dy: CGFloat) in rail.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: dy)).withOffset(CGVector(dx: -8, dy: 0)) }
+        // Touch and hold near its foot, then drag to its top: the first turn's ask comes into view.
+        edge(0.9).press(forDuration: 0.5, thenDragTo: edge(0.01))
+        let first = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part 1.")).firstMatch
+        let shown = NSPredicate(format: "exists == true AND hittable == true")
+        expectation(for: shown, evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        sleep(1)
+        // A quick swipe beside the band, over the rail's drawn width, scrolls the transcript.
+        let before = first.frame.minY
+        let beside = rail.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.6)).withOffset(CGVector(dx: 6, dy: 0))
+        beside.press(forDuration: 0.05, thenDragTo: beside.withOffset(CGVector(dx: 0, dy: -200)))
+        sleep(1)
+        XCTAssertTrue(!first.exists || first.frame.minY < before - 100, "a swipe near the edge didn't scroll the transcript")
+        // A tap at the band's top jumps back to the first turn.
+        edge(0.01).tap()
+        expectation(for: shown, evaluatedWith: first)
+        waitForExpectations(timeout: 15)
+        screenshot("turn-rail-first-turn")
+        // Scroll to end goes back to the live end, where neither shows.
+        app.buttons["transcript.latest"].tap()
+        XCTAssertTrue(app.buttons["transcript.latest"].waitForNonExistence(timeout: 15))
+        XCTAssertTrue(rail.waitForNonExistence(timeout: 5))
+    }
+    func testASwipeStartingOnTheTurnRailsEdgeStillScrollsTheTranscript() {
+        let app = launch()
+        app.revealRow("thread.ios-log-long").tap()
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 25))
+        for _ in 0..<2 { transcript.swipeDown(velocity: .fast) }
+        let rail = app.descendants(matching: .any)["transcript.turnRail"]
+        XCTAssertTrue(rail.waitForExistence(timeout: 10))
+        sleep(1)
+        // An ask on screen to watch: the swipe must move it.
+        let asks = (1...6).map { app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Keep relay cursors, part \($0).")).firstMatch }
+        guard let watched = asks.first(where: { $0.exists && $0.isHittable }) else { XCTFail("no ask on screen"); return }
+        let before = watched.frame.minY
+        // A quick vertical swipe that starts on the band, 8 pt in from the screen's edge.
+        let start = rail.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.7)).withOffset(CGVector(dx: -8, dy: 0))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -250)))
+        sleep(1)
+        XCTAssertTrue(!watched.exists || watched.frame.minY < before - 100, "a swipe starting on the rail's edge didn't scroll the transcript")
+        // It neither scrubbed nor jumped: no turn card showed and Scroll to end is still offered.
+        XCTAssertTrue(app.buttons["transcript.latest"].exists)
+    }
     func testQuestionAndApprovalCards() {
         let app = launch()
         reveal("thread.ios-question", in: app)
@@ -182,7 +250,7 @@ import XCTest
         app.terminate()
         let relaunched = XCUIApplication()
         relaunched.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-keep-state"]
-        relaunched.launch()
+        relaunched.launchWithArguments()
         // The relaunch reopens the thread it was killed on, words and all.
         let restored = relaunched.textViews["composer.input"]
         XCTAssertTrue(restored.waitForExistence(timeout: 25))
@@ -273,14 +341,14 @@ import XCTest
         sleep(3)
         app.terminate()
         app.launchArguments.append("--spike-keep-state")
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["work.toggle"].firstMatch.waitForExistence(timeout: 25))
         screenshot("thread-restored")
         app.navigationBars.buttons.firstMatch.tap()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         app.terminate()
-        app.launch()
+        app.launchWithArguments()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         sleep(3)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
@@ -292,7 +360,7 @@ import XCTest
         // The fixture's 101st history message (the agent, turn and its run come first).
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-items", "200", "--spike-open", "ios-stream", "--spike-focus", "ios-stream.item.103"]
-        app.launch()
+        app.launchWithArguments()
         let transcript = app.scrollViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         let target = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "History 101.")).firstMatch
@@ -326,7 +394,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
                                "--spike-open", threadId]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     /// The inbox lists more fixture threads than fit; scroll until the row shows.
@@ -343,7 +411,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         return app
     }
     /// Scrolls the transcript until `row` sits above the strip and composer at the bottom.

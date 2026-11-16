@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import {
   Menu,
   MenuCheckboxItem,
@@ -9,6 +9,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /** One of a filter's choices; `""` is "any". */
 export interface Choice {
@@ -53,6 +54,7 @@ function FilterMenu(props: { section: FilterSection }) {
   return (
     <Menu>
       <MenuTrigger
+        {...part("button", on && "active", "filter")}
         aria-label={on ? `${section.label}: ${chosen}` : section.label}
         className={cn(
           "inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-ui focus-ring transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground aria-expanded:bg-hover",
@@ -61,7 +63,10 @@ function FilterMenu(props: { section: FilterSection }) {
       >
         {section.label}
         {on && section.kind === "many" && (
-          <span className="rounded-full bg-fill px-1.5 text-xs leading-[18px] tabular-nums">
+          <span
+            {...part("badge")}
+            className="rounded-full bg-fill px-1.5 text-xs leading-[18px] tabular-nums"
+          >
             {chosen}
           </span>
         )}

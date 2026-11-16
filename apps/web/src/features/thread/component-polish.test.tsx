@@ -13,7 +13,7 @@ async function open(path = "/t/thread-checkout") {
   const app = harness({ storage: memoryKeyValue() });
   for (const scenario of [...workbench(), flakyCheckout()]) app.play(scenario).runUntilBlocked();
   await app.open(path);
-  await screen.findByRole("navigation", { name: "Threads" }, { timeout: 10000 });
+  await screen.findByRole("navigation", { name: "Projects" }, { timeout: 10000 });
   if (path.startsWith("/t/"))
     await screen.findByRole("button", { name: /^Model:/ }, { timeout: 10000 });
   return app;
@@ -54,7 +54,7 @@ test("Add keeps the draft and accepts a context choice with the keyboard", async
 
 test("Delete asks before removing an idle thread, and Escape preserves it", async () => {
   await open("/");
-  const threads = screen.getByRole("navigation", { name: "Threads" });
+  const threads = screen.getByRole("navigation", { name: "Projects" });
   const link = await within(threads).findByRole("link", { name: /Invoice PDF/ });
   await userEvent.pointer({ keys: "[MouseRight]", target: link });
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));

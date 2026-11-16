@@ -8,8 +8,11 @@ export const guideTopics = [
   "ace-threads",
   "ace-computer-use",
 ] as const;
-/** Every family a tool can belong to: the guides above. */
-export const toolFamilies = [...guideTopics] as const;
+/**
+ * Every family a tool can belong to: the guides above, and guides the always-on text leaves out
+ * to stay short. Those still reach agents as native skills and as `guide` topics.
+ */
+export const toolFamilies = [...guideTopics, "make-a-suit"] as const;
 
 export type StatusReader = (caller: McpAttribution) => {
   access: McpStatus["access"];

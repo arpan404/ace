@@ -8,7 +8,7 @@ import { listGroup } from "@/test/list-groups.ts";
 configure({ asyncUtilTimeout: 10000 });
 
 const day = 24 * 60 * 60 * 1000;
-const threads = () => screen.getByRole("navigation", { name: "Threads" });
+const threads = () => screen.getByRole("navigation", { name: "Projects" });
 const bump = /^Bump Codex app-server to 0\.48/;
 
 /**
@@ -33,7 +33,7 @@ function settledAt(app: ReturnType<typeof harness>): number {
 
 async function openPanel(app: ReturnType<typeof harness>, path = "/new") {
   await app.open(path);
-  await within(await screen.findByRole("navigation", { name: "Threads" })).findByRole("link", {
+  await within(await screen.findByRole("navigation", { name: "Projects" })).findByRole("link", {
     name: /^Dedupe thread events/,
   });
 }
@@ -67,7 +67,7 @@ test("History lists settled threads by week and filters by project", async () =>
   await waitFor(() => expect(row.textContent).toContain("#212"));
   expect(row.textContent).toContain("chore/codex-048");
   // The rail keeps Threads current while History is open.
-  expect(screen.getByRole("link", { name: "Threads" }).getAttribute("aria-current")).toBe("page");
+  expect(screen.getByRole("link", { name: "Projects" }).getAttribute("aria-current")).toBe("page");
 
   await userEvent.click(within(main).getByRole("button", { name: "relay" }));
   await waitFor(() => expect(within(main).queryByRole("link", { name: bump })).toBeNull());

@@ -8,7 +8,9 @@
     "./activity-reads": "./src/activity-reads.ts",
     "./turn-boundary": "./src/turn-boundary.ts",
     "./wire-trim": "./src/wire-trim.ts",
-    "./short-deltas": "./src/short-deltas.ts"
+    "./entity-pages": "./src/entity-pages.ts",
+    "./short-deltas": "./src/short-deltas.ts",
+    "./interaction-summary": "./src/interaction-summary.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

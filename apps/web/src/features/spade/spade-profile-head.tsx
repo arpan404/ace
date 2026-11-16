@@ -3,6 +3,7 @@ import { spadeAgentNameMax } from "@ace/ui-core/spade-chat";
 import { useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { DottedFace, faceDotOf } from "./spade-list-parts.tsx";
 import { spadeBotRow } from "./spade-list-rows.ts";
@@ -32,10 +33,16 @@ export function ProfileHead(props: { bot: RosterBot }) {
     />
   );
   return (
-    <div className="flex flex-col items-center gap-2.5 px-4 pt-5 pb-4 text-center [--row-wash:var(--panel)]">
+    <div
+      {...part("page-header", undefined, "profile")}
+      className="flex flex-col items-center gap-2.5 px-4 pt-5 pb-4 text-center [--row-wash:var(--panel)]"
+    >
       {main ? face : <FaceButton bot={bot}>{face}</FaceButton>}
       {main ? (
-        <h2 className="max-w-full truncate px-2 text-2xl font-semibold tracking-title text-foreground">
+        <h2
+          {...part("page-title")}
+          className="max-w-full truncate px-2 text-2xl font-semibold tracking-title text-foreground"
+        >
           {bot.name}
         </h2>
       ) : (

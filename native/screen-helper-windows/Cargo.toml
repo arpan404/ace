@@ -3,13 +3,19 @@ name = "ace-screen-helper-windows"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-rust-version = "1.82"
+rust-version = "1.87"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jpeg-encoder = "0.6"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+# ace-media's wire format, codec contract and Media Foundation backend (docs/media/plan.md, E1).
+media-wire = { path = "../media/crates/media-wire" }
+media-ingest = { path = "../media/crates/media-ingest" }
+zeroize = "1"
+media-codec = { path = "../media/crates/media-codec" }
+media-mf = { path = "../media/crates/media-mf" }
 
 [dev-dependencies]
 jpeg-decoder = { version = "0.3", default-features = false }

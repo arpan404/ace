@@ -20,7 +20,12 @@ const command = {
 it("Linux live view starts in a Wayland session and names an X11 session as unsupported", () => {
   const launch = linuxLaunch({ DISPLAY: ":0", WAYLAND_DISPLAY: "wayland-0" }, "/ace/screen");
   expect(launch.expectedPlatform).toBe("linux-wayland");
-  expect(launch.args).toEqual(["--restore-token", "/ace/screen/portal/restore-token"]);
+  expect(launch.args).toEqual([
+    "--restore-token",
+    "/ace/screen/portal/restore-token",
+    "--data-dir",
+    "/ace",
+  ]);
   expect(() => linuxLaunch({ DISPLAY: ":0" }, "/ace/screen")).toThrow("X11 session");
   expect(() => linuxLaunch({}, "/ace/screen")).toThrow("No graphical session");
   expect(installedLinuxHelper("/ace", "arm64")).toBe(

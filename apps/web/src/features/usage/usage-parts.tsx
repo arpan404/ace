@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * The Usage page's one spacing scale: a section starts 32px under the one before it with its
@@ -14,7 +15,10 @@ export function SectionHeading(props: { id: string; title: string; children?: Re
         {props.title}
       </h2>
       {props.children && (
-        <div className="ml-auto flex items-center gap-3 text-xs text-subtle-foreground tabular-nums">
+        <div
+          {...part("page-toolbar")}
+          className="ml-auto flex items-center gap-3 text-xs text-subtle-foreground tabular-nums"
+        >
           {props.children}
         </div>
       )}
@@ -32,7 +36,7 @@ export function Stat(props: {
   testId?: string | undefined;
 }) {
   return (
-    <div className="min-w-0" data-testid={props.testId}>
+    <div {...part("stat")} className="min-w-0" data-testid={props.testId}>
       <dt className="text-xs text-subtle-foreground">{props.label}</dt>
       <dd
         className={cn(

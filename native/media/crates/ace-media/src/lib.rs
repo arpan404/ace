@@ -6,14 +6,13 @@ pub mod auth;
 pub mod encode;
 pub mod engine;
 pub mod framing;
+pub mod lane_cipher;
 pub mod os;
 pub mod probe;
 pub mod rank;
 pub mod record;
 pub mod secret;
 pub mod serve_sim;
-#[cfg(unix)]
 pub mod shell;
-#[cfg(unix)]
 pub mod stills;
 pub mod trials;

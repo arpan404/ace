@@ -54,7 +54,7 @@ final class AnswerDiagramView: UIView, UIContextMenuInteractionDelegate {
         addSubview(picture)
 
         var look = UIButton.Configuration.plain()
-        look.image = UIImage(named: "ph-code")?.withRenderingMode(.alwaysTemplate)
+        look.image = UIImage(ace: .code)?.withRenderingMode(.alwaysTemplate)
         look.baseForegroundColor = UIColor(AceTheme.Colours.mutedForeground)
         look.background.backgroundColor = UIColor(AceTheme.Colours.fill)
         look.cornerStyle = .capsule
@@ -131,8 +131,8 @@ final class AnswerDiagramView: UIView, UIContextMenuInteractionDelegate {
                                 configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
             UIMenu(children: [
-                UIAction(title: "Show source", image: UIImage(named: "ph-code")) { _ in self?.showSource() },
-                UIAction(title: "Copy source", image: UIImage(named: "ph-copy")) { _ in self?.copySource() },
+                UIAction(title: "Show source", image: UIImage(ace: .code)) { _ in self?.showSource() },
+                UIAction(title: "Copy source", image: UIImage(ace: .copy)) { _ in self?.copySource() },
             ])
         }
     }

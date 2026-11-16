@@ -9,6 +9,7 @@ import { discTone } from "./pr-check-disc.tsx";
 import { CheckDetailBox } from "./pr-check-detail.tsx";
 import { CheckDetailHead } from "./pr-check-parts.tsx";
 import { CheckRow } from "./pr-checks-list.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 /** The local check's name as other checks are named: "Local · bun run check". */
 function localName(run: VerifyRun | undefined, command: string | null | undefined) {
@@ -85,7 +86,10 @@ export function LocalCheckRow(props: {
   const { button } = useLocalControl(props.workspaceId, props.detail, run);
   if (command === null && !run)
     return (
-      <li className="flex min-h-9 items-center gap-2.5 py-1.5 pr-3 pl-3.5 text-ui">
+      <li
+        {...part("check-row", undefined, "off")}
+        className="flex min-h-9 items-center gap-2.5 py-1.5 pr-3 pl-3.5 text-ui"
+      >
         <span
           aria-hidden
           className="size-4 shrink-0 rounded-full border-[1.5px] border-faint-foreground"

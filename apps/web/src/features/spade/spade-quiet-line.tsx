@@ -10,7 +10,7 @@ import {
   CheckCircleIcon,
   CircleDashedIcon,
   CircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";

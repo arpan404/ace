@@ -5,6 +5,7 @@ import { PersonAvatar, RelativeTime } from "@/components/person-avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { PrCompareFiles, readFailureText } from "@/features/forge/index.ts";
 import { useCompare } from "./new-pr-data.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /**
  * What the new pull request brings: its commits, oldest first, each subject with its body
@@ -21,14 +22,14 @@ export function NewPrChanges(props: {
   const [pages, setPages] = useState(1);
   return (
     <div className="mt-10 space-y-8">
-      <section aria-label="Commits">
+      <section {...part("page-section", undefined, "commits")} aria-label="Commits">
         <h2 className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           Commits
           <span className="font-normal text-subtle-foreground tabular-nums">
             {first.totalCommits}
           </span>
         </h2>
-        <ol className="divide-y divide-border-soft">
+        <ol {...part("list", undefined, "commits")} className="divide-y divide-border-soft">
           {first.commits.map((commit) => (
             <CommitRow key={commit.sha} commit={commit} />
           ))}
@@ -39,7 +40,7 @@ export function NewPrChanges(props: {
           </p>
         )}
       </section>
-      <section aria-label="Files changed">
+      <section {...part("page-section", undefined, "files")} aria-label="Files changed">
         <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           Files changed
           <span className="font-normal text-subtle-foreground tabular-nums">
@@ -60,7 +61,7 @@ function CommitRow(props: { commit: ForgeCommit }) {
   const [subject = "", ...rest] = props.commit.message.split("\n");
   const body = rest.join("\n").trim();
   return (
-    <li className="flex gap-3 py-2">
+    <li {...part("commit-row")} className="flex gap-3 py-2">
       <PersonAvatar name={props.commit.author} url={props.commit.authorAvatarUrl} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">

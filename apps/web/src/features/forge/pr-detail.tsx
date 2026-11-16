@@ -16,6 +16,7 @@ import {
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { DiffStat } from "@/components/diff-stat.tsx";
+import { sceneThrough } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
@@ -54,6 +55,7 @@ import { ForgeContentScope } from "./rich/scope.ts";
 import { useTaskSave } from "./rich/use-task-save.ts";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { PrTabs, type PrTab } from "./pr-tabs.tsx";
+import { part } from "@/lib/suit-part.ts";
 
 export type { PrTab } from "./pr-tabs.tsx";
 
@@ -250,6 +252,7 @@ function PrDetailLoaded(props: {
       <div
         role="presentation"
         data-pr-scroller={props.page ? "" : undefined}
+        {...(props.page ? part("page-body") : {})}
         className={props.page ? "flex min-h-0 flex-1 flex-col overflow-y-auto" : "contents"}
         onKeyDown={onKeyDown}
       >
@@ -269,7 +272,7 @@ function PrDetailLoaded(props: {
                 onRefresh={refresh}
                 onReread={context.reread}
                 header={
-                  <div>
+                  <div {...(props.page ? part("page-header") : {})}>
                     <div className={readable}>
                       {props.page ? (
                         <PrPageHeader
@@ -573,11 +576,16 @@ export function PrDetail(props: {
         reread,
       }
     : undefined;
+  // Absolutely placed things in the tabs' scrollers (screen-reader labels) take the article as
+  // their containing block and can hang below it. `overflow-clip` keeps them from making the
+  // panel around it scrollable, and the article itself can't be scrolled, so the header never
+  // slides out of view.
   return (
     <article
       aria-label={`Pull request #${props.number}`}
       className={cn(
-        "@container/pr relative flex h-full min-h-0 flex-col bg-panel [--forge-gutter:1rem]",
+        "@container/pr relative flex h-full min-h-0 flex-col overflow-clip bg-panel [--forge-gutter:1rem]",
+        sceneThrough,
         props.page && "sm:[--forge-gutter:2rem]",
       )}
     >

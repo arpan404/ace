@@ -84,12 +84,19 @@ it("an agent working in a tab someone keeps watching never stops, reopens or re-
   const viewer = await watch(t.service);
   const playing = await capture(t.backend, 0);
   playing.send(1, true);
-  await expect.poll(() => viewer.chunks.length).toBe(1);
+  // The viewer acks what it shows, as every client does: a chunk left unacked past its deadline
+  // counts as lost, and its deltas would wait for a keyframe.
+  const shown = async (count: number) => {
+    await expect.poll(() => viewer.chunks.length).toBe(count);
+    await viewer.ack(viewer.chunks.at(-1)?.sequence ?? 0);
+  };
+  await shown(1);
   const keyframes = playing.opened.keyframes;
   for (let command = 0; command < 5; command++) {
     await t.use("a");
     await t.idleFor(defaultTabLifecycle.restAfterMs);
     playing.send(command + 2, false);
+    await shown(command + 2);
   }
   await expect.poll(() => viewer.chunks.map((chunk) => chunk.bytes[0])).toEqual([1, 2, 3, 4, 5, 6]);
   expect(t.backend.captures).toHaveLength(1);

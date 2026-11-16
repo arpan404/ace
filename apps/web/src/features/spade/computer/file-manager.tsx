@@ -1,6 +1,6 @@
 import { formatBytes } from "@ace/ui-core/byte-size";
 import { formatAgo } from "@ace/ui-core/time";
-import { DotsThreeIcon, FileIcon, FolderIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, FileIcon, FolderIcon } from "@ace/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
@@ -11,6 +11,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { part } from "@/lib/suit-part.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { saveAs } from "../save-as.ts";
 import { SpadeRequestError } from "../spade-requests.ts";
@@ -311,6 +312,7 @@ export function FileManager(props: {
                 ) : (
                   <li
                     key={entry.path}
+                    {...part("list-row", undefined, entry.kind)}
                     className="group flex h-(--row-height) min-w-0 items-center gap-1 rounded-md pr-1 hover:bg-hover focus-within:bg-hover"
                   >
                     <button

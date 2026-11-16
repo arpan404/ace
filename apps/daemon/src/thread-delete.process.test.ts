@@ -3,7 +3,16 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, DeviceId, TerminalRequest, Thread, type CommandPayload } from "@ace/protocol";
+import {
+  AgentId,
+  Command,
+  DeviceId,
+  RunId,
+  TerminalRequest,
+  Thread,
+  ThreadId,
+  type CommandPayload,
+} from "@ace/protocol";
 import { Store } from "./store.ts";
 import { startServer, type ServerOptions } from "./server.ts";
 import { stubHandler } from "./commands.ts";
@@ -237,6 +246,50 @@ test("a shell killed outside ace stays readable and no longer blocks plain delet
       await f.command(client, { type: "thread.delete", threadId: f.thread.id }, "killed-shell"),
     ).toMatchObject({ ok: true });
     expect(f.runtime.listTerminals(f.thread.id)).toEqual([]);
+  } finally {
+    await f.close();
+  }
+});
+
+/** The newest event of `threadId`'s the store holds: what a client last saw of it. */
+function latestSeq(store: Store, threadId: string): number {
+  const events = store.readEvents({ afterSeq: 0, threadId: ThreadId.parse(threadId), limit: 1000 });
+  return events.at(-1)?.seq ?? 0;
+}
+
+test("a Stop and delete decided before newer work started on the thread is refused, and deletes once decided after it", async () => {
+  const f = await fixture();
+  try {
+    const client = await f.connect();
+    const decided = latestSeq(f.store, f.thread.id);
+    // Another device starts work on the thread after the person looked.
+    f.store.appendEvents(f.thread.id, [
+      {
+        type: "run.started",
+        run: {
+          id: RunId.parse("newer-run"),
+          threadId: f.thread.id,
+          agentId: AgentId.parse("root-agent"),
+          trigger: "user",
+          state: "active",
+          startedAt: 1000,
+        },
+      },
+    ]);
+    const payload = { type: "thread.delete" as const, threadId: f.thread.id, force: true };
+    expect(
+      await f.command(client, { ...payload, beforeSeq: decided }, "decided-before"),
+    ).toMatchObject({ ok: false, error: "thread_changed" });
+    expect(f.store.getThread(f.thread.id)?.deletedAt).toBeUndefined();
+    // Decided having seen that work: it goes.
+    expect(
+      await f.command(
+        client,
+        { ...payload, beforeSeq: latestSeq(f.store, f.thread.id) },
+        "decided-after",
+      ),
+    ).toMatchObject({ ok: true });
+    expect(f.store.getThread(f.thread.id)?.deletedAt).toBe(1000);
   } finally {
     await f.close();
   }

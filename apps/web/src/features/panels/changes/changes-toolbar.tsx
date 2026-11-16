@@ -1,4 +1,4 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@ace/icons";
 import { Suspense } from "react";
 import type { Turn } from "@ace/ui-core";
 import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";
@@ -116,6 +116,8 @@ export function ChangesToolbar(props: {
     <div
       role="toolbar"
       aria-label="Changes"
+      data-part="panel-toolbar"
+      data-variant="changes"
       className={cn("flex h-10 shrink-0 items-center gap-1 bg-panel pr-2 pl-1.5", toolbarEdge)}
     >
       <ScopeMenu scope={props.scope} turns={props.turns} onScope={props.onScope} />

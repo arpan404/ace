@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { cn } from "@/lib/cn.ts";
 import { MessageReferences } from "./message-references.tsx";
-import { CaretDownIcon, CaretUpIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CaretUpIcon } from "@ace/icons";
 import {
   bubbleSegments,
   isLongMessage,

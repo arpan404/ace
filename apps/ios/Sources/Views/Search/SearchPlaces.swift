@@ -63,9 +63,10 @@ struct SearchPlaceCapsules: View {
     /// Open pull requests in the project Pull requests opens on; nil until read.
     let openPulls: Int?
     let open: (SearchPlace) -> Void
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        ChipFlow(spacing: AceDesign.Space.related) {
+        ChipFlow(spacing: AceDesign.Space.related, scale: displayScale) {
             ForEach(places) { place in
                 Button { open(place) } label: { capsule(place) }
                     .buttonStyle(.plain)

@@ -3,7 +3,7 @@ import {
   FolderSimpleIcon,
   FolderSimpleStarIcon,
   MagnifyingGlassIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -15,6 +15,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { AllowFolder } from "./allow-folder.tsx";
 import { tabCompletes } from "./path-completion.ts";
@@ -195,7 +196,10 @@ export function FolderSearchBox(props: {
   );
   return (
     <div className="grid min-w-0 gap-2">
-      <div className="flex h-9 items-center gap-2 rounded-md bg-input px-2.5 focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]">
+      <div
+        {...part("search-field")}
+        className="flex h-9 items-center gap-2 rounded-md bg-input px-2.5 focus-within:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]"
+      >
         <Icon
           icon={query.kind === "path" ? FolderOpenIcon : MagnifyingGlassIcon}
           size={16}
@@ -248,7 +252,13 @@ export function FolderSearchBox(props: {
       )}
       <ListViewport className={cn("h-72", props.listClassName)}>
         {state}
-        <div id={listId} role="listbox" aria-label={props.listLabel} hidden={state !== null}>
+        <div
+          {...part("list", undefined, "folders")}
+          id={listId}
+          role="listbox"
+          aria-label={props.listLabel}
+          hidden={state !== null}
+        >
           {sections.map((section, place) => {
             const first = starts[place] ?? 0;
             const render = (row: FolderRow, at: number) => (
@@ -262,7 +272,12 @@ export function FolderSearchBox(props: {
               />
             );
             return (
-              <div key={section.id} role="group" aria-labelledby={`${listId}-${section.id}`}>
+              <div
+                {...part("list-group")}
+                key={section.id}
+                role="group"
+                aria-labelledby={`${listId}-${section.id}`}
+              >
                 <div
                   id={`${listId}-${section.id}`}
                   className="px-2 pt-2 pb-1 text-xs font-medium text-subtle-foreground"
@@ -347,6 +362,7 @@ function FolderOption(props: {
   return (
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- keys pick through the combobox's aria-activedescendant
     <div
+      {...part("list-row", props.active ? "selected" : row.stale && "disabled")}
       id={props.id}
       role="option"
       aria-selected={props.active}

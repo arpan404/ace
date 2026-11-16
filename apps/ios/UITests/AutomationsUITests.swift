@@ -167,7 +167,7 @@ import XCTest
     private func launchIntoAutomations() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         app.openBrowseDestination("library.automations")
         return app
     }

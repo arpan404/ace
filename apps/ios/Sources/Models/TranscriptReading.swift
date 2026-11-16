@@ -99,8 +99,9 @@ struct ThreadFocus: Equatable {
     /// Explicit change evidence from the last reply, grounding the feed's next
     /// extent update. Reset when the window closes.
     private(set) var lastWindow = ReadingWindowMetadata.empty
-    /// The item a jump aimed at, until the feed has scrolled to it.
-    var focus: String?
+    /// The item a jump aims at, holding the reader's place until the feed has shown its row
+    /// (`TranscriptFocusLanding`).
+    var landing = TranscriptFocusLanding()
     @ObservationIgnored private var request: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var retryOperation = "older"
@@ -167,11 +168,11 @@ struct ThreadFocus: Equatable {
     /// Fold a service reply into window state. The production path called by
     /// every read's task; directly testable without the bridge by decoding a
     /// reply and applying it here.
-    func applyReply(_ reply: TranscriptReadingReply, operation: String) {
+    func applyReply(_ reply: TranscriptReadingReply, operation: String, now: Double) {
         hasOlder = reply.hasOlder
         hasNewer = reply.hasNewer
         joined = reply.joined
-        if let target = reply.focus { focus = target }
+        if operation == "item" || operation == "turn" { landing.replied(focus: reply.focus, now: now) }
         if operation != "hold", operation != "follow" { paged = true }
         lastWindow = ReadingWindowMetadata(
             evictedLeading: reply.evictedLeading,
@@ -194,6 +195,9 @@ struct ThreadFocus: Equatable {
         guard !loading else { return }
         loading = true
         problem = nil
+        // Retry repeats this read from here: a failed jump's aim belongs to that jump alone.
+        // Checked first, so a read with nothing kept writes nothing the feed observes.
+        if landing.failedJump != nil { landing.superseded() }
         request?.cancel()
         request = nil
         if updateRetry {
@@ -224,17 +228,39 @@ struct ThreadFocus: Equatable {
             do {
                 let reply = try await model.service(payload, as: TranscriptReadingReply.self)
                 guard !Task.isCancelled, generation == version else { return }
-                guard reply.active else { close(model: model); isStale = false; revision += 1; return }
-                applyReply(reply, operation: operation)
-                ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
+                received(reply, operation: operation, model: model, asked: asked)
             } catch {
                 guard !Task.isCancelled, generation == version else { return }
-                model.releaseReading()
-                problem = error.localizedDescription
+                failed(error, model: model)
             }
         }
     }
-    func retry(model: ClientModel, live: ThreadModel) { read(retryOperation, model: model, live: live, item: retryItem, turn: retryTurn, anchorItemId: retryAnchorItemId) }
+    /// The current read's reply: the window closed, or its rows and evidence to fold in.
+    private func received(_ reply: TranscriptReadingReply, operation: String, model: ClientModel, asked: Double) {
+        guard reply.active else {
+            close(model: model)
+            landing.readFailed()
+            isStale = false
+            revision += 1
+            return
+        }
+        applyReply(reply, operation: operation, now: model.now())
+        ThreadOpenTrace.page(operation, items: reply.count, blocks: thread?.screen.blockOrder.count ?? 0, seconds: CACurrentMediaTime() - asked)
+    }
+    /// The current read failed: what it held is applied, and nothing is coming to land, so
+    /// paging and the end's reads may go again.
+    private func failed(_ error: any Error, model: ClientModel) {
+        model.releaseReading()
+        landing.readFailed()
+        problem = error.localizedDescription
+    }
+    func retry(model: ClientModel, live: ThreadModel) {
+        guard !loading else { return }
+        // A focused open that failed lands on its focus when it succeeds; a reopened session
+        // or a page aims at nothing.
+        landing.retried(now: model.now())
+        read(retryOperation, model: model, live: live, item: retryItem, turn: retryTurn, anchorItemId: retryAnchorItemId)
+    }
     func live(model: ClientModel, thread: ThreadModel) {
         cancel(model: model)
         read("live", model: model, live: thread)
@@ -250,17 +276,25 @@ struct ThreadFocus: Equatable {
     /// Open a window around `item` (a search hit) and bring it into view.
     func jump(to item: String, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
+        landing.jumped(to: item, now: model.now())
+        read("item", model: model, live: live, item: item)
+    }
+    /// Reopen the window around `item` (a saved session) without bringing it into view: the
+    /// session restore puts the reader back at their own offset.
+    func reopen(around item: String, model: ClientModel, live: ThreadModel) {
+        cancel(model: model)
         read("item", model: model, live: live, item: item)
     }
     /// Open a window at turn `ordinal` (the turn list) and bring its ask into view.
     func jump(toTurn ordinal: Int, model: ClientModel, live: ThreadModel) {
         cancel(model: model)
+        landing.jumped(to: nil, now: model.now())
         read("turn", model: model, live: live, turn: ordinal)
     }
     func cancel(model: ClientModel) {
         generation += 1
         request?.cancel(); request = nil
-        loading = false; problem = nil; focus = nil
+        loading = false; problem = nil; landing = TranscriptFocusLanding()
         close(model: model)
         paged = false; hasOlder = true; hasNewer = false; joined = true; followsEnd = true
         isStale = false

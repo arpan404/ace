@@ -333,17 +333,22 @@ function ingest(capture: Capture, target: IngestTarget | undefined): void {
   capture.ingest = sink;
 }
 
-/** A running encode's new bit rate: the encoder reconfigures in place, keeping its stream. */
-function retune(entry: Encoder, bitrate: number): void {
-  if (entry.spec.bitrate === bitrate) return;
-  entry.spec = { ...entry.spec, bitrate };
-  // Configurations not tried yet take the new rate too.
-  entry.configs = entry.configs.map((config) => ({ ...config, bitrate }));
-  // In `quantizer` mode the rate is ace's own: frames aim for it from the next one.
-  entry.quantizer?.retarget(bitrate, entry.spec.fps);
+/**
+ * A running encode's new bit or frame rate (the link stepped it): the encoder reconfigures in
+ * place, keeping its stream, and the pacer takes frames at the new rate.
+ */
+function retune(entry: Encoder, bitrate: number, fps: number): void {
+  if (entry.spec.bitrate === bitrate && entry.spec.fps === fps) return;
+  entry.spec = { ...entry.spec, bitrate, fps };
+  entry.pacer.retime(fps);
+  // Configurations not tried yet take the new rates too.
+  entry.configs = entry.configs.map((config) => ({ ...config, bitrate, framerate: fps }));
+  // In `quantizer` mode the rate is ace's own: frames aim for it from the next one, and its
+  // keyframes stay within half a second of it.
+  entry.quantizer?.retarget(bitrate, fps);
   const encoder = entry.encoder;
   if (!encoder || encoder.state !== "configured" || !entry.active || entry.quantizer) return;
-  entry.active = { ...entry.active, bitrate };
+  entry.active = { ...entry.active, bitrate, framerate: fps };
   try {
     encoder.configure(entry.active);
   } catch {
@@ -640,7 +645,7 @@ Object.assign(globalThis, {
     },
     /**
      * The encodes capture `id` runs: new ones start (at a keyframe), missing ones stop, and a
-     * running one given another bit rate takes it in place, without a keyframe.
+     * running one given another bit or frame rate takes it in place, without a keyframe.
      */
     encodes(id: string, specs: readonly EncodeSpec[]): void {
       const capture = captures.get(id);
@@ -655,7 +660,7 @@ Object.assign(globalThis, {
       for (const spec of specs) {
         const running = capture.encoders.get(spec.key);
         if (running) {
-          retune(running, spec.bitrate);
+          retune(running, spec.bitrate, spec.fps);
           continue;
         }
         const entry: Encoder = {

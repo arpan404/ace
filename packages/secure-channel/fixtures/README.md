@@ -12,3 +12,7 @@ The [Noise project's test vector index](https://github.com/noiseprotocol/noise_w
 The requested fixture vendoring accepts snow's MIT license for this test data, with its notice retained in `LICENSE-snow`. The original [cacophony project](https://github.com/centromere/cacophony) releases its data under the Unlicense, retained in `LICENSE-cacophony`. This acceptance covers these fixtures only.
 
 Tests compare all three handshake ciphertexts, every subsequent transport ciphertext in both directions, decoded payloads, and cacophony's final handshake hash. Deterministic ephemeral keys are injected only for these tests.
+
+## Noise NK vectors
+
+`nk.json` holds `Noise_NK_25519_ChaChaPoly_SHA256` vectors (ADR 0155). Published NK vectors for this suite exist in the same upstream files, but only the XX entries were vendored. These were made by `scripts/nk-vectors.ts` with ace's own NK from the cacophony XX vector's keys and prologue, and `src/noise-nk-vectors.test.ts` checks every byte against an independent derivation written from the Noise specification on `node:crypto` (OpenSSL's X25519, HKDF, SHA-256 and ChaCha20-Poly1305).

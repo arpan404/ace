@@ -1,4 +1,5 @@
 import { botFaceStateOf } from "@ace/ui-core/bot-face";
+import { part } from "@/lib/suit-part.ts";
 import { SpadeFace } from "./spade-face.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
@@ -23,6 +24,7 @@ export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
       type="button"
       onClick={props.onOpen}
       aria-label={`${bot.name}${elsewhere ? ` on ${bot.machine.name}` : ""}: open its profile`}
+      {...part("header-title", undefined, "spade-pill")}
       className={conversationPill}
     >
       <SpadeFace avatar={bot.avatar} size={face} state={state} />

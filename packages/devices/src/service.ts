@@ -781,6 +781,19 @@ export class DevicesService {
       emit: (session) => this.emit(session),
       failure: deviceFailure,
       authorize: (session, actor) => this.authorize(session, actor),
+      // ace-media asks for the stream its views need: one more owner of the device's common
+      // stream budget, as each viewer is.
+      // Set and removed through the stream control, which applies them in order.
+      mediaWant: (session, settings) => {
+        const update: Promise<unknown> = settings
+          ? this.watchWith(session, "ace-media", settings)
+          : (session.streamControl?.remove("ace-media") ?? Promise.resolve());
+        update.catch((error: unknown) =>
+          this.options.log?.("warn", "Device stream update for ace-media failed", {
+            message: String(error),
+          }),
+        );
+      },
     };
   }
   private start(session: DeviceSession, fps: number): Promise<void> {
@@ -852,11 +865,15 @@ export class DevicesService {
   }
   /** The live view's frames, the newest one whenever `sink` is ready for another. */
   async subscribe(id: string, actor: Actor, sink: FrameSink): Promise<() => void> {
-    return this.view(id, actor, (session, check) =>
-      session.hub.subscribe(async (frame) => {
-        check();
-        await sink(frame);
-      }, session.latest),
+    return this.view(id, actor, (session, check, ended) =>
+      session.hub.subscribe(
+        async (frame) => {
+          check();
+          await sink(frame);
+        },
+        session.latest,
+        ended,
+      ),
     );
   }
   /**
@@ -868,17 +885,21 @@ export class DevicesService {
     actor: Actor,
     sink: (frame: Frame) => void,
   ): Promise<() => void> {
-    return this.view(id, actor, (session, check) =>
-      session.hub.subscribeEvery((frame) => {
-        check();
-        sink(frame);
-      }, session.latest),
+    return this.view(id, actor, (session, check, ended) =>
+      session.hub.subscribeEvery(
+        (frame) => {
+          check();
+          sink(frame);
+        },
+        session.latest,
+        ended,
+      ),
     );
   }
   private async view(
     id: string,
     actor: Actor,
-    attach: (session: DeviceSession, check: () => void) => () => void,
+    attach: (session: DeviceSession, check: () => void, ended: () => void) => () => void,
   ): Promise<() => void> {
     const viewer = this.streamOwners.scope(actor.owner);
     const session = await this.session(id);
@@ -891,12 +912,6 @@ export class DevicesService {
     if (!preferences.has(actor.owner))
       await this.watchWith(session, actor.owner, deviceVideoStream);
     viewer.guard();
-    const stop = attach(session, () => {
-      viewer.guard();
-      if (actor.kind === "agent" && session.bindingEpoch !== epoch)
-        throw new Error("Device binding changed");
-      this.authorize(session, actor);
-    });
     const remove = viewer.subscribe(id, () => {
       void preferences
         .remove(actor.owner)
@@ -904,10 +919,34 @@ export class DevicesService {
           this.options.log?.("warn", "Device stream update failed", { message: String(error) }),
         );
     });
-    return () => {
-      stop();
+    // One release, however the view ends: closed by its viewer, or dropped by the frame hub
+    // (its sink threw, or the session's hub was cleared). Either way its stream request goes.
+    let stop: (() => void) | undefined;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      stop?.();
       remove();
     };
+    try {
+      stop = attach(
+        session,
+        () => {
+          viewer.guard();
+          if (actor.kind === "agent" && session.bindingEpoch !== epoch)
+            throw new Error("Device binding changed");
+          this.authorize(session, actor);
+        },
+        release,
+      );
+    } catch (error) {
+      // Refused by the hub (its subscriber limit): the view never was, and holds nothing.
+      release();
+      throw error;
+    }
+    if (released) stop();
+    return release;
   }
   async subscribeLogs(
     id: string,

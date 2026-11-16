@@ -58,7 +58,7 @@ export function useOpenProfile(bot: RosterBot) {
  */
 export function ConversationScreen(props: { actions?: ReactNode; children: ReactNode }) {
   return (
-    <Screen title="" actions={props.actions}>
+    <Screen page="spade" title="" actions={props.actions}>
       {props.children}
     </Screen>
   );

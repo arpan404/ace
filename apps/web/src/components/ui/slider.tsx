@@ -15,6 +15,8 @@ function Slider({
   return (
     <SliderPrimitive.Root
       data-slot="slider"
+      data-part="slider"
+      data-state={props.disabled ? "disabled" : undefined}
       className={cn("w-40 data-disabled:opacity-50", className)}
       {...props}
     >
@@ -22,6 +24,7 @@ function Slider({
         <SliderPrimitive.Track className="h-1 w-full rounded-full bg-input">
           <SliderPrimitive.Indicator className="rounded-full bg-ring" />
           <SliderPrimitive.Thumb
+            data-part="slider-thumb"
             aria-label={label}
             getAriaValueText={valueText ? (_formatted, value) => valueText(value) : undefined}
             className="size-[18px] rounded-full bg-white shadow-[0_1px_3px_rgb(0_0_0/0.3),0_0_0_0.5px_rgb(0_0_0/0.1)] outline-none focus-visible:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_45%,transparent)]"

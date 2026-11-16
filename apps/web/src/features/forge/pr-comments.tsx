@@ -1,6 +1,6 @@
 import { type ReviewOutcome, reviewOutcomeLabels } from "@ace/ui-core";
 import { useState } from "react";
-import { ArrowsDownUpIcon, FunnelIcon } from "@phosphor-icons/react";
+import { ArrowsDownUpIcon, FunnelIcon } from "@ace/icons";
 import type { ForgeComment, ForgePrStatus } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuCheckboxItem, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";

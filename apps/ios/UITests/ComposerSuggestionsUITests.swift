@@ -8,7 +8,7 @@ import XCTest
     func testMentionsCommandsAndTheAddListInAThread() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
         if alert.waitForExistence(timeout: 5) { alert.tap() }
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
@@ -53,7 +53,7 @@ import XCTest
     func testNewThreadMentionsFilesAndOffersItsBuiltins() {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
-        app.launch()
+        app.launchWithArguments()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Don’t Allow"]
         if alert.waitForExistence(timeout: 5) { alert.tap() }
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))

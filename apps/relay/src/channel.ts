@@ -1,5 +1,5 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
-import type { Transport } from "@ace/secure-channel";
+import type { SessionKeys } from "@ace/secure-channel";
 import {
   CREDIT_FLAG,
   FlowCredit,
@@ -106,14 +106,14 @@ export type ClientChannel = MessageChannel<ServerMessage, ClientMessage>;
 export function clientMessageChannel(
   socket: WebSocket,
   reader: FrameReader,
-  transport: Transport,
+  transport: SessionKeys,
 ): ClientChannel {
   return createChannel(socket, reader, transport, ServerMessage, ClientMessage);
 }
 export function hostMessageChannel(
   socket: WebSocket,
   reader: FrameReader,
-  transport: Transport,
+  transport: SessionKeys,
   onReceive: (message: ClientMessage | Uint8Array | string) => void,
   authorize: () => void,
 ): HostChannel {
@@ -125,7 +125,7 @@ export function hostMessageChannel(
 function createChannel<Incoming extends WireMessage, Outgoing extends WireMessage>(
   socket: WebSocket,
   reader: FrameReader,
-  transport: Transport,
+  transport: SessionKeys,
   incoming: z.ZodType<Incoming>,
   outgoing: z.ZodType<Outgoing>,
   onReceive?: (message: Incoming | Uint8Array | string) => void,

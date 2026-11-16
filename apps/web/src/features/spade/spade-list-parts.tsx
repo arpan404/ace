@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useMachines } from "@/lib/machines.ts";
+import { part } from "@/lib/suit-part.ts";
 import { GroupFaces } from "./spade-group-faces.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import type { SpadeRowState } from "./spade-list-rows.ts";
@@ -139,6 +140,7 @@ export function BotListRow(props: {
       search={bot.machine.primary ? {} : { on: bot.machine.key }}
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
+      {...part("nav-item", props.current && "active", "agent")}
       className={rowClass}
     >
       <FaceCell>
@@ -171,6 +173,7 @@ export function GroupListRow(props: {
       search={group.machine.primary ? {} : { on: group.machine.key }}
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
+      {...part("nav-item", props.current && "active", "group")}
       className={rowClass}
     >
       <FaceCell>

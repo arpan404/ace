@@ -650,3 +650,64 @@ fn a_result_from_before_a_close_never_answers_a_reused_request_id() {
         [still("r", 5, (320, 240))]
     );
 }
+
+fn stamped(mut frame: MediaFrame, epoch: u32) -> MediaFrame {
+    frame.epoch = epoch;
+    frame
+}
+
+fn poster(engine: &mut Engine, request: &str, clear: Value) -> Vec<Effect> {
+    send(
+        engine,
+        json!({ "type": "still.poster", "request": request, "source": "s1", "width": 320,
+                "height": 240, "deadlineMs": 500, "clear": clear }),
+        &[],
+        NOW,
+    )
+}
+
+#[test]
+fn a_poster_comes_only_from_a_group_whose_every_epoch_was_decided_clear() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    // The keyframe is from epoch 1; a delta from epoch 2 carries content into the same picture.
+    feed(&mut engine, [stamped(key(1), 1), stamped(delta(2), 2)]);
+    let mut effects = poster(&mut engine, "p1", json!([[1, 1]]));
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [failed("p1", "private")]);
+    // Nothing decided clear: nothing at all.
+    let mut effects = poster(&mut engine, "p2", json!([]));
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [failed("p2", "private")]);
+    let mut effects = poster(&mut engine, "p3", json!([[1, 2]]));
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [still("p3", 2, (320, 240))]);
+    // Agents' stills are the daemon's grant, as before: unaffected.
+    assert_eq!(
+        shot(&mut engine, &maker, "q1", 320),
+        [still("q1", 2, (320, 240))]
+    );
+}
+
+#[test]
+fn a_poster_whose_epoch_is_discarded_while_it_is_made_never_arrives() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    feed(&mut engine, [stamped(key(1), 3)]);
+    // The subscribe came while the daemon still took epoch 3 for clear; the job is with the maker.
+    let mut effects = poster(&mut engine, "p1", json!([[3, 3]]));
+    // Then epoch 3 is decided discarded: it overlapped a private moment.
+    effects.extend(send(
+        &mut engine,
+        json!({ "type": "record.epochs", "source": "s1", "recording": "r1", "seq": 0,
+                "decided": 3, "clear": [], "discard": [[3, 3]] }),
+        &[],
+        NOW,
+    ));
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [failed("p1", "private")]);
+    // And a later poster from that picture is refused, whatever the request says is clear.
+    let mut effects = poster(&mut engine, "p2", json!([[0, 10]]));
+    effects.extend(arrive(&mut engine, &maker));
+    assert_eq!(answers(&effects), [failed("p2", "private")]);
+}

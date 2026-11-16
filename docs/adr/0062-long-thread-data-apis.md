@@ -1,6 +1,6 @@
 # 0062: Long-thread data APIs
 
-Date: 2026-10-03. Status: accepted.
+Date: 2026-10-03. Status: accepted. Amended by [ADR 0157](0157-short-transcript-windows-use-a-plain-stack.md) ("Phone client", List).
 
 ## Decision
 

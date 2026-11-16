@@ -10,10 +10,11 @@ import {
   type RefObject,
 } from "react";
 import { useRender } from "@base-ui/react/use-render";
-import { PlusIcon } from "@phosphor-icons/react";
+import { PlusIcon } from "@ace/icons";
 import { DisclosureCaret } from "@/components/ui/disclosure.tsx";
 import { InCard } from "@/components/ui/surface-context.ts";
 import { cn } from "@/lib/cn.ts";
+import { part, type SuitPartState } from "@/lib/suit-part.ts";
 
 /**
  * Marks the children that inset themselves inside a card (rows, notes, footers, lists). Anything
@@ -39,6 +40,9 @@ export function SettingRow(props: {
   density?: "default" | "compact";
   /** The row's anchor, from the settings index (`settingsIndex`). */
   id?: string;
+  /** The row's `data-state` and `data-variant` for Suits (a picked Suit, a provider's row). */
+  state?: SuitPartState | undefined;
+  variant?: string | undefined;
 }) {
   const compact = props.compact || props.density === "compact";
   const titleId = useId();
@@ -51,6 +55,7 @@ export function SettingRow(props: {
       {...slot}
       id={props.id}
       ref={row}
+      {...part("settings-row", props.state, props.variant)}
       data-flash={flashing || undefined}
       className={cn(
         "@container group/setting transition-colors duration-(--motion-slow)",
@@ -158,7 +163,12 @@ export function SettingSection(props: {
 }) {
   const id = useId();
   return (
-    <section id={props.anchor} className={settingsGroup} aria-labelledby={id}>
+    <section
+      id={props.anchor}
+      data-part="settings-section"
+      className={settingsGroup}
+      aria-labelledby={id}
+    >
       <SettingsGroupTitle id={id} note={props.note} actions={props.actions}>
         {props.label}
       </SettingsGroupTitle>
@@ -206,6 +216,7 @@ export function SettingCard(props: { children: ReactNode; className?: string }) 
   return (
     <InCard value>
       <div
+        {...part("card", undefined, "settings-group")}
         className={cn(
           // One rounded surface per group, rows inset from its edge with hairlines between them.
           "flex flex-col rounded-lg bg-surface-1 px-4 divide-y divide-border-soft",
@@ -243,6 +254,7 @@ export function SettingList({ className, ...props }: ComponentProps<"ul">) {
   return (
     <ul
       {...slot}
+      {...part("list")}
       className={cn("flex flex-col divide-y divide-border-soft", className)}
       {...props}
     />
@@ -258,6 +270,7 @@ export function SettingListItem({ className, id, ref, ...props }: ComponentProps
     defaultTagName: "li",
     ref: ref ? [own, ref] : own,
     props: {
+      ...part("list-row"),
       ...props,
       id,
       "data-flash": flashing || undefined,
@@ -288,6 +301,7 @@ export function SettingAction({
     defaultTagName: "button",
     ref: ref ? [own, ref] : own,
     props: {
+      ...part("list-row", undefined, "action"),
       ...props,
       ...slot,
       id,
@@ -324,12 +338,17 @@ export function SettingDisclosure(props: {
   children: ReactNode;
 }) {
   const inCard = use(InCard);
+  const [open, setOpen] = useState(props.open ?? false);
   return (
     <details
       {...slot}
+      {...part("list-group", open ? "open" : "closed")}
       open={props.open || undefined}
       data-setting-surface={inCard ? "card" : "plain"}
-      onToggle={(event) => props.onToggle?.(event.currentTarget.open)}
+      onToggle={(event) => {
+        setOpen(event.currentTarget.open);
+        props.onToggle?.(event.currentTarget.open);
+      }}
       className={cn("group/disclosure", props.className)}
     >
       <summary

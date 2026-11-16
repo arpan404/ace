@@ -1,7 +1,7 @@
 import type { PendingSend } from "@ace/client";
 import { useConnectionState } from "@ace/client-react";
 import type { ReactNode } from "react";
-import { ClockIcon } from "@phosphor-icons/react";
+import { ClockIcon } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
 import { waitingNote } from "@/lib/daemon-command.ts";
 import type { StagedSend } from "../composer/send-store.ts";

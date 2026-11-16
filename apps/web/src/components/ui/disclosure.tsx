@@ -1,4 +1,4 @@
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 

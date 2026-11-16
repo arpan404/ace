@@ -1,5 +1,5 @@
 import { formatClock, type HandoffEnd, type HandoffMarker } from "@ace/ui-core";
-import { ArrowRightIcon, ArrowsLeftRightIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, ArrowsLeftRightIcon } from "@ace/icons";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { CentredDivider } from "./centred-divider.tsx";

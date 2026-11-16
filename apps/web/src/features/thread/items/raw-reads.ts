@@ -4,8 +4,12 @@ import type { RawPayload } from "@ace/protocol";
  * How the Raw view reads a step's raw payloads with `item.raw` (hello trim `raw-on-demand`).
  * Pure: the hook around it sends the read it names and runs the refresh timer it asks for.
  *
- * - One read at a time, whoever wants it: opening, "Show more", a retry or a refresh. While one
- *   is out, "Show more" is not offered and other reads wait.
+ * - One read at a time, whoever wants it: opening, "Show more", a retry, a refresh or reading
+ *   on. While one is out, "Show more" is not offered and other reads wait.
+ * - Pages are small (one reply never holds up an urgent message for long), so the view reads on
+ *   by itself: opening, a refresh or "Show more" reads up to `autoPages` pages, each after the
+ *   one before has landed, so anything urgent passes between them. "Show more" reads the next
+ *   batch.
  * - A change to the step during a read makes it stale; exactly one read from the start follows
  *   when it ends: at once if the step has finished, else after the refresh interval.
  * - A read from the start replaces the list when its reply comes: the pages shown stay until
@@ -16,6 +20,9 @@ import type { RawPayload } from "@ace/protocol";
  */
 
 export type RawPhase = "closed" | "idle" | "reading" | "stale" | "waiting";
+
+/** Pages read on by themselves per batch: about 1 MiB of raw JSON at the daemon's 64 KiB pages. */
+export const autoPages = 16;
 
 /** A read the hook should send: `id` names it, so a reply to any other is dropped. */
 export interface RawRead {
@@ -43,6 +50,8 @@ export interface RawReads {
   read: RawRead | undefined;
   /** The last read id given out. */
   reads: number;
+  /** Further pages of this batch to read on to by themselves. */
+  auto: number;
 }
 
 export interface RawReply {
@@ -75,19 +84,39 @@ export function initialRawReads(running: boolean): RawReads {
     changedWhileClosed: false,
     read: undefined,
     reads: 0,
+    auto: 0,
   };
 }
 
-function reading(state: RawReads, from: number, revision: string | undefined): RawReads {
+/** Send a read, `auto` pages left in its batch after it. */
+function reading(
+  state: RawReads,
+  from: number,
+  revision: string | undefined,
+  auto: number,
+): RawReads {
   const id = state.reads + 1;
-  return { ...state, phase: "reading", read: { id, from, revision }, reads: id };
+  return { ...state, phase: "reading", read: { id, from, revision }, reads: id, auto };
 }
 
-/** After a read ends: one read from the start if the step moved on, at once once it finished. */
+/** The first page of a new batch: from the start, or a "Show more". */
+const batch = (state: RawReads, from: number, revision: string | undefined) =>
+  reading(state, from, revision, autoPages - 1);
+
+/** The next page of the batch, if it has one left and nothing went wrong. */
+function readOn(state: RawReads): RawReads | undefined {
+  if (state.failed || state.next === undefined || state.auto <= 0) return undefined;
+  return reading(state, state.next, state.revision, state.auto - 1);
+}
+
+/**
+ * After a read ends: one read from the start if the step moved on (at once once it finished),
+ * else the batch's next page, else idle.
+ */
 function settled(state: RawReads, stale: boolean): RawReads {
   const done = { ...state, read: undefined };
-  if (!stale) return { ...done, phase: "idle" };
-  return state.running ? { ...done, phase: "waiting" } : reading(done, 0, undefined);
+  if (stale) return state.running ? { ...done, phase: "waiting" } : batch(done, 0, undefined);
+  return readOn(done) ?? { ...done, phase: "idle" };
 }
 
 export function stepRawReads(state: RawReads, input: RawInput): RawReads {
@@ -101,9 +130,10 @@ export function stepRawReads(state: RawReads, input: RawInput): RawReads {
           phase: state.changedWhileClosed ? "stale" : "reading",
           changedWhileClosed: false,
         };
-      return !state.started || state.changedWhileClosed
-        ? reading({ ...state, changedWhileClosed: false }, 0, undefined)
-        : { ...state, phase: "idle" };
+      if (!state.started || state.changedWhileClosed)
+        return batch({ ...state, changedWhileClosed: false }, 0, undefined);
+      // A batch cut short by closing reads on.
+      return readOn(state) ?? { ...state, phase: "idle" };
     case "close":
       // The read out stays out: its reply is kept, but nothing follows while closed. A refresh
       // owed (stale, or waiting for its timer) stays owed: reopening reads again.
@@ -121,7 +151,7 @@ export function stepRawReads(state: RawReads, input: RawInput): RawReads {
       if (reply.changed)
         return closed
           ? { ...state, read: undefined, changedWhileClosed: true }
-          : reading(state, 0, undefined);
+          : batch(state, 0, undefined);
       const fresh = reply.from === 0;
       const next: RawReads = {
         ...state,
@@ -147,22 +177,21 @@ export function stepRawReads(state: RawReads, input: RawInput): RawReads {
         case "stale":
           return { ...next, phase: "stale" };
         case "waiting":
-          return input.running ? next : reading(next, 0, undefined);
+          return input.running ? next : batch(next, 0, undefined);
         case "idle":
           if (!state.started) return next;
-          return input.running ? { ...next, phase: "waiting" } : reading(next, 0, undefined);
+          return input.running ? { ...next, phase: "waiting" } : batch(next, 0, undefined);
       }
       return next;
     }
     case "more":
-      return state.phase === "idle" && state.started && state.next !== undefined
-        ? reading(state, state.next, state.revision)
-        : state;
+      return canReadMore(state) ? batch(state, state.next ?? 0, state.revision) : state;
     case "retry":
+      // The read that failed, again, with what was left of its batch.
       if (state.phase !== "idle" || !state.failed) return state;
-      return reading(state, state.failed.from, state.failed.revision);
+      return reading(state, state.failed.from, state.failed.revision, state.auto);
     case "timer":
-      return state.phase === "waiting" ? reading(state, 0, undefined) : state;
+      return state.phase === "waiting" ? batch(state, 0, undefined) : state;
   }
 }
 

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon } from "@ace/icons";
 import type { ForgePrStatus } from "@ace/protocol";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 import { PrComment } from "./pr-comment.tsx";
 import { can, plural, previewOf, threadPlace } from "@ace/ui-core";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
@@ -203,6 +204,12 @@ export function PrResolveButton(props: { thread: ReviewThread; className?: strin
  * choice holds until it is resolved or reopened, and survives the row scrolling away), which
  * comments are expanded, and whether an agent is fixing it.
  */
+/** A review thread's Suit part: an agent fixing it, resolved, or open or folded; outdated. */
+export function threadPart(thread: ReviewThread, view: { open: boolean; fixing: boolean }) {
+  const state = view.fixing ? "working" : thread.resolved ? "done" : view.open ? "open" : "closed";
+  return part("review-thread", state, thread.outdated ? "outdated" : undefined);
+}
+
 export function useThreadView(thread: ReviewThread) {
   const [fold, setFold] = useFold(thread.id);
   const open = fold && fold.resolved === thread.resolved ? fold.open : !thread.resolved;
@@ -242,6 +249,7 @@ export function PrThread(props: {
   const header = !!props.place || thread.resolved || thread.outdated;
   return (
     <section
+      {...threadPart(thread, { open, fixing })}
       aria-label={`Conversation on ${threadPlace(thread)}`}
       className={cn("min-w-0 space-y-3 font-sans whitespace-normal", props.className)}
     >

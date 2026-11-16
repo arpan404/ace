@@ -1,12 +1,8 @@
 import type { CSSProperties } from "react";
-import {
-  CheckCircleIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  RecordIcon,
-} from "@phosphor-icons/react";
+import { CheckCircleIcon, GitMergeIcon, GitPullRequestIcon, RecordIcon } from "@ace/icons";
 import { prTone, prWords, type IssueState, type PrState } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { part } from "@/lib/suit-part.ts";
 
 /*
  * GitHub's marks for a pull request or issue, in ace's status hues: open green, draft grey,
@@ -33,6 +29,7 @@ export function StateBadge(
         : GitPullRequestIcon;
   return (
     <span
+      {...part("badge", undefined, props.state)}
       data-tone={tone}
       className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--tone)_18%,transparent)] px-2.5 text-xs font-medium text-(--tone-text)"
     >
@@ -69,6 +66,7 @@ export function LabelPill(props: { name: string; color?: string | undefined }) {
     : undefined;
   return (
     <span
+      {...part("label-chip")}
       style={style}
       className={cn(
         "inline-flex h-5 max-w-40 shrink-0 items-center truncate rounded-full border px-2 text-2xs font-medium",

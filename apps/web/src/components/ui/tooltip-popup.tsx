@@ -23,6 +23,7 @@ export function TooltipPopup({
       >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
+          data-part="tooltip"
           role="tooltip"
           style={{ maxWidth: "min(20rem, calc(100vw - 24px))" }}
           className={cn(

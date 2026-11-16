@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { RelayStreamClosed, type HostChannel } from "@ace/relay";
-import type { ChannelClose } from "@ace/protocol";
+import type { ChannelClose, EarlySubscribe, HelloConfirm } from "@ace/protocol";
+import type { NkSession } from "./relay-nk/admission.ts";
 import type { MainSocket } from "./main-socket.ts";
 import type { SessionActor } from "./devices.ts";
 import type { DeliveryRuntime } from "./delivery-runtime.ts";
@@ -20,6 +21,30 @@ export interface RelayedMain {
   grantExpiresAt?: number | undefined;
   /** The hello asked for deflated bulk JSON (`compression: ["deflate-raw"]`). */
   deflate: boolean;
+  /**
+   * The relay host key this channel came through, when the daemon takes NK on it (ADR 0155):
+   * its welcome announces NK, and tickets handed on it are bound to this key.
+   */
+  relayEpoch?: string | undefined;
+  /**
+   * An NK stream not yet confirmed (ADR 0155): `hello` was rebuilt from its `hello.early`, and
+   * what a hello runs on the device waits for `confirmed`.
+   */
+  early?: EarlyRelayMain | undefined;
+}
+
+/** What the main-socket handler needs of an unconfirmed NK main channel. */
+export interface EarlyRelayMain {
+  subscribes: EarlySubscribe[];
+  session: NkSession;
+  confirmed: Promise<HelloConfirm | undefined>;
+  /** Resolved by the main-socket handler: true once the confirmed session may be read. */
+  readable: PromiseWithResolvers<boolean>;
+  /**
+   * Set by the main-socket handler: the subscribes to run at confirmation, before anything the
+   * client sent after it (`answerEarly`).
+   */
+  continuations: string[];
 }
 
 const OPEN = 1;
@@ -51,6 +76,8 @@ export class RelaySocket extends EventEmitter implements MainSocket {
   #paused = false;
   #resumed: (() => void) | undefined;
   readonly #delay: DeliveryRuntime["delay"];
+  /** Before confirmation: the session whose output budget applies. */
+  #session: NkSession | undefined;
   constructor(
     channel: HostChannel,
     options: { deflate: boolean; delay: DeliveryRuntime["delay"] },
@@ -74,10 +101,21 @@ export class RelaySocket extends EventEmitter implements MainSocket {
    * Deliver `first` (the hello the relay host already read) and then every message the channel
    * receives, in order, until it closes. Reading stops while paused, as a ws socket's does.
    */
-  start(first: string): void {
+  start(first: string, early?: EarlyRelayMain): void {
+    this.#session = early?.session;
     this.emit("message", Buffer.from(first), false);
     void (async () => {
       try {
+        // An unconfirmed NK stream's next message is its confirmation, which isn't ours to read:
+        // nothing the client sends is taken until it has confirmed.
+        if (early && !(await early.readable.promise)) {
+          this.terminate();
+          return;
+        }
+        this.#session = undefined;
+        // Subscribes that waited for the confirmation come first, then the client's own.
+        for (const message of early?.continuations ?? [])
+          this.emit("message", Buffer.from(message), false);
         while (this.#state === OPEN) {
           if (this.#paused) await new Promise<void>((resolve) => (this.#resumed = resolve));
           if (this.#state !== OPEN) return;
@@ -105,12 +143,35 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     }
     // As ws does: bytes are binary unless the caller says they are text.
     const binary = typeof data !== "string" && flags.binary !== false;
-    const task = binary
-      ? this.#channel.sendBinary(data)
-      : this.#channel.sendText(
-          typeof data === "string" ? data : Buffer.from(data).toString("utf8"),
-          this.#deflate && flags.compress !== false,
-        );
+    const compress = flags.compress !== false;
+    // Before confirmation at most 256 KiB goes out (ADR 0155). What produces output then
+    // checks the budget first (`answerEarly`); anything past it ends the session, so nothing
+    // waits anywhere for a client that hasn't confirmed.
+    const size = typeof data === "string" ? Buffer.byteLength(data) : data.length;
+    if (this.#session && !this.#session.output(size)) {
+      done?.(new Error("Unconfirmed output budget spent"));
+      this.terminate();
+      return;
+    }
+    this.#write(data, binary, compress, done);
+  }
+  #write(
+    data: string | Buffer | Uint8Array,
+    binary: boolean,
+    compress: boolean,
+    done: ((error?: Error) => void) | undefined,
+  ): void {
+    if (this.#state !== OPEN) {
+      done?.(new Error("Relay channel closed"));
+      return;
+    }
+    const task =
+      binary && typeof data !== "string"
+        ? this.#channel.sendBinary(data)
+        : this.#channel.sendText(
+            typeof data === "string" ? data : Buffer.from(data).toString("utf8"),
+            this.#deflate && compress,
+          );
     task.then(
       () => done?.(),
       (error: unknown) => done?.(error instanceof Error ? error : new Error("Relay send failed")),

@@ -55,7 +55,7 @@ struct NeedsRunPage: View {
             if sent && !["approval", "plan_review"].contains(request.kind) { decided() }
         }
         .sheet(isPresented: $reviewing) {
-            PlanReviewSheet(plan: request.plan, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
+            PlanReviewSheet(plan: request.plan, summarized: request.summarized ?? "", submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
                 reviewing = false
                 model.answerNeed(request, in: threadId, answer: answer)
                 decided()
@@ -151,7 +151,7 @@ struct NeedsRunPage: View {
             } else {
                 Button("Review") { reviewing = true }.buttonStyle(PillButtonStyle(kind: .secondary))
                     .accessibilityIdentifier("run.plan.review")
-                if model.canOperate {
+                if model.canOperate && !request.tooLargeToApprove {
                     Button("Approve") {
                         model.answerNeed(request, in: threadId, answer: ["kind": "plan", "decision": "approve"])
                         decided()

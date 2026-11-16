@@ -1,5 +1,6 @@
 import type { ServerMessage, DeliveryEvent } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import type { SuitServerMessage } from "@ace/protocol/suits";
 import { EventEncodings } from "./event-encodings.ts";
 
 /** What one connection's hello said it takes in place of whole events. */
@@ -50,7 +51,10 @@ export class WireEncoder {
       ? this.encodings.trimmedBytes(event)
       : this.encodings.bytes(event);
   }
-  encode(message: ServerMessage | PluginServerMessage, shape: EventShape = wholeEvents): string {
+  encode(
+    message: ServerMessage | PluginServerMessage | SuitServerMessage,
+    shape: EventShape = wholeEvents,
+  ): string {
     if (message.type !== "events") return JSON.stringify(message);
     const thread = shortThread(message, shape);
     const encoded = message.events.map((event) => this.eventJson(event, shape, thread));
@@ -107,5 +111,6 @@ function shortThread(message: Events, shape: EventShape): string | undefined {
 
 function eventsPrefix(message: Events, thread: string | undefined): string {
   const named = thread === undefined ? "" : `"threadId":${JSON.stringify(thread)},`;
-  return `{"type":"events","subscriptionId":${JSON.stringify(message.subscriptionId)},"afterSeq":${message.afterSeq},"throughSeq":${message.throughSeq},${named}"events":[`;
+  const early = message.early ? `"early":true,` : "";
+  return `{"type":"events","subscriptionId":${JSON.stringify(message.subscriptionId)},"afterSeq":${message.afterSeq},"throughSeq":${message.throughSeq},${early}${named}"events":[`;
 }

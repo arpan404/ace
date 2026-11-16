@@ -58,7 +58,7 @@ const address: Record<string, string> = {
 test("⌥⌘↓ and ⌥⌘↑ (Alt+Shift off Apple) step through another machine's thread in Home's order and back", async () => {
   const { made, history } = world();
   await made.open("/");
-  const threads = await screen.findByRole("list", { name: "Threads" });
+  const threads = await screen.findByRole("list", { name: "Projects" });
   await waitFor(() => expect(rowTitles(threads)).toHaveLength(3));
   // Whatever order Home settles on, the steps follow it, the build server's thread included.
   const order = rowTitles(threads);

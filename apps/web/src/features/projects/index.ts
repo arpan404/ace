@@ -17,3 +17,5 @@ export { isAddPage, projectSources, type AddPage } from "./project-sources.ts";
 export { AddProjectSteps } from "./add-project-steps.ts";
 export type { AddTab, ProjectRequest } from "./requests.ts";
 export { MachineChip, machineChoices } from "./machine-step.tsx";
+export { useHostHome } from "./use-folders.ts";
+export { newThreadIn } from "./land.ts";

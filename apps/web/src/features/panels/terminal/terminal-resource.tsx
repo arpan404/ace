@@ -8,7 +8,7 @@ import {
   TerminalWindowIcon,
   TrashIcon,
   WarningCircleIcon,
-} from "@phosphor-icons/react";
+} from "@ace/icons";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -292,7 +292,12 @@ function LiveTerminal(
     void terminals.close(info.id, scope).catch(() => {});
   };
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div
+      // The terminal's tab around its screen: offline line, screen, Find and the exit line.
+      data-part="terminal-tab"
+      data-state={exited ? "done" : undefined}
+      className="relative flex h-full min-h-0 flex-col"
+    >
       {props.offline && (
         <p
           role="status"

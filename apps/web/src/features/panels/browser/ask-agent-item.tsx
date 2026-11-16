@@ -1,4 +1,4 @@
-import { ChatCircleTextIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon } from "@ace/icons";
 import { displayAddress } from "@ace/ui-core";
 import { Icon } from "@/components/icon.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";

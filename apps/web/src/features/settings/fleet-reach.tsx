@@ -3,8 +3,7 @@ import { useState } from "react";
 import type { RemoteNetworks } from "@ace/protocol";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
-import { buttonVariants } from "@/components/ui/button.tsx";
-import { cn } from "@/lib/cn.ts";
+import { buttonLook } from "@/components/ui/button.tsx";
 import {
   machineSignOutQuestion,
   useMachineAccountStatus,
@@ -188,10 +187,7 @@ function ThisComputerAccount(props: {
           action === "appFirst" ? (
             <Link
               to="/settings/profile"
-              className={cn(
-                buttonVariants({ size: "sm", variant: "ghost" }),
-                "relative z-1 text-foreground",
-              )}
+              {...buttonLook({ size: "sm", variant: "ghost" }, "relative z-1 text-foreground")}
             >
               Sign in
             </Link>

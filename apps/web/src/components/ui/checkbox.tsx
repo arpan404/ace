@@ -1,5 +1,5 @@
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@ace/icons";
 import { cn } from "@/lib/cn.ts";
 
 /**
@@ -10,6 +10,8 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
   return (
     <CheckboxPrimitive.Root
       data-slot="checkbox"
+      data-part="checkbox"
+      data-state={props.disabled ? "disabled" : props.checked ? "checked" : undefined}
       className={cn(
         "grid size-3.5 shrink-0 place-items-center rounded-xs shadow-[inset_0_0_0_1px_var(--input)] outline-none transition-[background-color,box-shadow] duration-(--motion-fast)",
         "relative touch-hit touch-hit-xl focus-visible:shadow-[inset_0_0_0_1px_var(--input),0_0_0_2px_var(--background),0_0_0_4px_var(--focus,var(--ring))]",

@@ -10,6 +10,7 @@ import {
   zoomLabel,
   type BrowserFailure,
 } from "@ace/ui-core";
+import { degradedSentence } from "./video-degraded.ts";
 import type { Preview } from "./agents.ts";
 
 /*
@@ -101,6 +102,8 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
     closed: state.closed,
     status: state.status ?? "ready",
     reason: state.reason ? preview(state.reason, 512) : null,
+    /** One sentence while the tab's video runs degraded on the processor; empty otherwise. */
+    degraded: degradedSentence(state.acceleration),
     loading:
       state.loading === true ||
       shown?.loading === true ||

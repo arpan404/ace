@@ -119,8 +119,8 @@ export async function bindMcpSession(
       ...(setGoal ? { setGoal } : {}),
       ...(clearGoal ? { clearGoal } : {}),
       ...(backgroundTools ? { backgroundTools } : {}),
-      send: (input, delivery, commandId, origin) =>
-        session.send(input, delivery, commandId, origin),
+      send: (input, delivery, commandId, origin, fence) =>
+        session.send(input, delivery, commandId, origin, fence),
       interrupt: (target) => session.interrupt(target),
       resolve: (interaction, resolution) => session.resolve(interaction, resolution),
       stopTask: (task) => session.stopTask(task),

@@ -18,8 +18,8 @@ import {
   LightningIcon,
   TerminalWindowIcon,
   WarningIcon,
-  type Icon as PhosphorIcon,
-} from "@phosphor-icons/react";
+  type Icon as GlyphIcon,
+} from "@ace/icons";
 import { Suspense, useCallback, useState } from "react";
 import { ArtifactLine } from "@/components/attachment-artifact.tsx";
 import { PostedImage } from "@/components/attachment-tiles.tsx";
@@ -37,7 +37,7 @@ import { MergedForkNotice } from "../transitions/merged-fork-notice.tsx";
 import { UserMessage } from "./user-message.tsx";
 import { VisualizationItem } from "@/features/visualization/index.ts";
 
-const icons: Record<EventIcon, PhosphorIcon> = {
+const icons: Record<EventIcon, GlyphIcon> = {
   restart: ArrowClockwiseIcon,
   resume: ClockCounterClockwiseIcon,
   background: TerminalWindowIcon,
