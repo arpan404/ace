@@ -242,6 +242,22 @@ export function scanStep(
 /** The checks that need the whole entry, then the report. */
 export function finishScan(state: ScanState, input: ScanInput): MarketScanReport {
   const findings = [...state.findings];
+
+  // A scan that never read every file (a budget ran out, a step was skipped) is never a pass:
+  // an unread file could hide a block. The Worker only calls this once a scan is done; this
+  // guard holds the invariant even for a direct, cut-short call (ADR 0173 §8).
+  if (state.cursor < sortedFiles(input).length)
+    findings.push(
+      mkFinding(
+        "files",
+        "scan-incomplete",
+        "block",
+        "The scan didn't finish reading this entry, so it can't be listed.",
+        undefined,
+        undefined,
+        false,
+      ),
+    );
   const facts: ScanFacts = { hosts: [...(state.facts["hosts"] ?? [])] };
 
   // Non-file script views (a plugin's hooks and servers): their rules and their hosts.
