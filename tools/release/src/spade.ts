@@ -13,8 +13,8 @@ type ReleaseTarget = z.infer<typeof Target>;
  * (`.exe` on Windows) in the archive and in the desktop app's resources, so the signed
  * manifest and checksums cover it like everything else. `ACE_SPADE_SERVER_BIN` names a
  * prebuilt binary; otherwise cargo builds it from `spade/` in release mode. A build that can't
- * produce it fails. Whether a person sees Spade is decided at run time, by `features.json` in
- * ace's home (ADR 0139), never by the build.
+ * produce it fails. Whether a person sees Spade is decided at run time, by Settings › Beta's
+ * `beta.spade` (ADR 0139), never by the build.
  *
  * Spade reports the version stamped into it at build time (`ACE_SPADE_VERSION`) in `/health`,
  * `server.json` and `spade --version`, and the updater waits for exactly the release's

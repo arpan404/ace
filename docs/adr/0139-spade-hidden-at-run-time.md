@@ -1,6 +1,6 @@
 # 0139: Spade is shown or hidden at run time, by a flag in ace's home
 
-Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: "from now onward, when we
+Status: accepted, amended 2026-11-16 (see "Amendment: Settings › Beta"). Date: 2026-11-12. Decided by: the owner (2026-11-12: "from now onward, when we
 release the desktop version for spade, we hide the spade based on daemon flag in .ace folder,
 instead of in build"). Amends decision 2 of
 [ADR 0123](0123-spade-runs-as-its-own-service.md), which left Spade out of `DISABLE_SPADE=1`
@@ -61,3 +61,31 @@ to one person, or testing a release with Spade, meant a different build, and a r
   so use it rather than creating the file by hand on a machine where ace hasn't run.
 - The iPhone app still hides Spade's tab at build time (`HomeTabs.showsSpade`); reading
   `hidden` from the machine's `spade.status` there is follow-up work.
+
+## Amendment: Settings › Beta (2026-11-16)
+
+Decided by the owner: Spade and the marketplace are switches on Settings › Beta instead of a
+flag file. This replaces decisions 2, 3 and 6; decisions 1, 4 and 5 stand, with "hidden" now
+meaning "turned off in Beta".
+
+- **One setting per switch.** `beta.spade` and `beta.marketplace` are global daemon settings,
+  admin only, that default to `false`, stored in the global `settings.json` with the Beta page's
+  other settings. A workspace or thread layer can't set them. The daemon follows `beta.spade`
+  through its settings subscription, so a change applies at once, as the file watch did.
+- **`features.json` is folded in once.** On start, off the start path (ADR 0170), the daemon
+  reads `features.json`: `"spade": true` turns `beta.spade` on unless the person already set it,
+  then the `spade` key leaves the file (the file goes when nothing else is in it), so a later
+  "off" is never undone. A file that isn't a JSON object is left alone. Until a daemon has run,
+  read-only readers (`ace doctor`, `ace features`, `ace spade on`, the updater's service guard
+  in `@ace/service`) still count an unfolded `"spade": true` as on. One reader,
+  `@ace/settings/beta`, does both. A home holding only `features.json` still counts as new.
+- **`ace features`** prints both switches; `ace features on|off spade|marketplace` saves them,
+  through a running daemon or into the home when none runs. `show` and `hide` are gone.
+  `ace spade on` is refused while Beta has Spade off.
+- **The marketplace off** hides every way in on the client (its rail place, the palette, Spade's
+  apps button, New bot's link, Appearance's "More Suits", the Skills Add menu) and sends its
+  addresses home. The daemon answers every `marketplace.request` with `unavailable` and a message
+  saying it is turned off, and its daily refresh skips the network. What was installed from the
+  marketplace keeps working: Suits, skills and plugins run from their own services.
+- An older build reading a home whose flag was folded sees no `features.json` and hides Spade
+  until it is shown again there.

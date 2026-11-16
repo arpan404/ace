@@ -138,7 +138,7 @@ const config: Configuration = {
       ? [{ from: join(dist, "locked-use"), to: "locked-use" }]
       : []),
     { from: join(dist, "bin"), to: "bin" },
-    // Spade's server (ADR 0123), in every build; `features.json` hides it at run time (ADR 0139).
+    // Spade's server (ADR 0123), in every build; Settings › Beta hides it at run time (ADR 0139).
     { from: join(dist, "spade"), to: "spade" },
     { from: join(dist, "media"), to: "media" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.

@@ -375,6 +375,11 @@ places (no mockup here):
   and the person's choices), made through the daemon's link to Spade.
 - Reviews are bounded and paged as ADR 0014's are; pending reviews are in memory and expire
   after 30 minutes or on restart, as ADR 0103's do.
+- **Behind Settings › Beta** (2026-11-16, ADR 0139's amendment). `beta.marketplace`, global,
+  admin only and off by default, turns the marketplace on for a machine. Off, the app hides every
+  way in (`useBetaEnabled("marketplace")` in the web app) and its addresses lead home, the
+  daemon answers every `marketplace.request` with `unavailable` ("turned off"), and the daily
+  refresh skips the network. What was installed keeps working.
 
 ## Open for the owner
 

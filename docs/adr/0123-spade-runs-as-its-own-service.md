@@ -49,7 +49,7 @@ same way costs little.
 
 2. **Turning Spade on registers the service; off removes it.** The `spade.enabled` setting stays
    the one switch: the desktop app (or `ace spade on|off`) registers or removes the service and
-   writes the setting. While `features.json` hides Spade (ADR 0139) nothing is registered. Spade's data
+   writes the setting. While Settings › Beta has Spade off (`beta.spade`, ADR 0139) nothing is registered. Spade's data
    folder (`<ACE_HOME>/spade`), its single-instance lock (exit code 3), `server.json` and its
    0600 token file are unchanged.
 

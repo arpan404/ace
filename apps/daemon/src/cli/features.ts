@@ -5,6 +5,7 @@ import { print } from "./io.ts";
 import { CliFailure } from "./output.ts";
 
 const names: Record<BetaFeature, string> = { spade: "Spade", marketplace: "The marketplace" };
+const onOff = (on: boolean) => (on ? "on" : "off");
 const isFeature = (word: string | undefined): word is BetaFeature =>
   word === "spade" || word === "marketplace";
 
@@ -25,8 +26,7 @@ export async function featuresCommand(args: Args, home: string): Promise<void> {
       betaOnAtRest(home, "marketplace"),
     ]);
     if (machine) return print(args, { spade, marketplace });
-    const word = (on: boolean) => (on ? "on" : "off");
-    return print(args, `Spade: ${word(spade)}\nMarketplace: ${word(marketplace)}`);
+    return print(args, `Spade: ${onOff(spade)}\nMarketplace: ${onOff(marketplace)}`);
   }
   const feature = args.words[2];
   if ((verb !== "on" && verb !== "off") || !isFeature(feature))
