@@ -26,7 +26,8 @@ import type { ScenarioConfig } from "./measure/scenario.ts";
  * - `cold`: the daemon starts together with the app, as after a reboot.
  *
  * Options: --runs <n> (5) --modes reopen,first,cold --home <dir> --user-data <dir> --port <n>
- * (4343) --daemon-entry <cli.ts or a release ace.mjs> --daemon-delay <ms> (0) --skip-renderer
+ * (4343) --daemon-entry <cli.ts or a release ace.mjs> --daemon-delay <ms> (0) --daemon-slow
+ * --occlusion --hide-ms <ms> --skip-renderer
  * --json <file>.
  */
 const { values: args } = parseArgs({
@@ -39,6 +40,9 @@ const { values: args } = parseArgs({
     // The daemon to run: its source (default) or a release bundle (`apps/daemon/bench/compile.ts --cli`).
     "daemon-entry": { type: "string", default: "apps/daemon/src/cli.ts" },
     "daemon-delay": { type: "string", default: "0" },
+    "daemon-slow": { type: "boolean", default: false },
+    occlusion: { type: "boolean", default: false },
+    "hide-ms": { type: "string" },
     "skip-renderer": { type: "boolean", default: false },
     json: { type: "string" },
   },
@@ -65,7 +69,15 @@ if (!(await portFree(port))) throw new Error(`Port ${port} is taken`);
 
 function startDaemon(): { child: ChildProcess; startedAt: number } {
   const startedAt = performance.timeOrigin + performance.now();
-  const child = spawn("bun", [args["daemon-entry"], "start"], {
+  // `--daemon-slow`: the daemon on background QoS (efficiency cores, throttled I/O), so its whole
+  // start runs slowly, as on a busy Mac, not only its spawn.
+  const [command, ...rest] = [
+    ...(args["daemon-slow"] ? ["taskpolicy", "-b"] : []),
+    "bun",
+    args["daemon-entry"],
+    "start",
+  ];
+  const child = spawn(command ?? "bun", rest, {
     cwd: repo,
     stdio: ["ignore", "ignore", "pipe"],
     env: { ...process.env, ACE_HOME: home, ACE_PORT: String(port), ACE_LISTEN: "local" },
@@ -102,17 +114,26 @@ async function launch(mainFile: string, userData: string): Promise<Marks> {
     pageUrl: "",
   };
   const started = performance.timeOrigin + performance.now();
-  const child = spawn(await electronBinary(), [...e2eSwitches(process.platform), mainFile], {
-    stdio: ["ignore", "pipe", process.env.ACE_MEASURE_DEBUG ? "inherit" : "ignore"],
-    env: {
-      ...appEnvironment(process.env),
-      ACE_DESKTOP_DAEMON: "attach",
-      ACE_HOME: home,
-      ACE_DESKTOP_USER_DATA: userData,
-      ACE_DESKTOP_RENDERER_URL: "",
-      ACE_MEASURE: JSON.stringify(config),
+  // A window another app or Space covers reads as hidden, and a hidden page is sent no thread
+  // data (ADR 0056): on a shared Mac that measures the other app, not the start. `--occlusion`
+  // keeps Chromium's occlusion tracking; hiding the window (`--hide-ms`) still hides it.
+  const switches = args.occlusion ? [] : ["--disable-backgrounding-occluded-windows"];
+  const child = spawn(
+    await electronBinary(),
+    [...e2eSwitches(process.platform), ...switches, mainFile],
+    {
+      stdio: ["ignore", "pipe", process.env.ACE_MEASURE_DEBUG ? "inherit" : "ignore"],
+      env: {
+        ...appEnvironment(process.env),
+        ACE_DESKTOP_DAEMON: "attach",
+        ACE_HOME: home,
+        ACE_DESKTOP_USER_DATA: userData,
+        ACE_DESKTOP_RENDERER_URL: "",
+        ACE_MEASURE: JSON.stringify(config),
+        ...(args["hide-ms"] ? { ACE_MEASURE_HIDE_MS: args["hide-ms"] } : {}),
+      },
     },
-  });
+  );
   const exited = new Promise<void>((done) => child.once("exit", () => done()));
   let marks: Marks | undefined;
   for await (const line of createInterface({ input: child.stdout })) {
@@ -139,6 +160,8 @@ const shown = [
   "rows",
   "composer",
   "live",
+  "shownAgain",
+  "hidden",
 ] as const;
 const results: Record<string, Marks[]> = {};
 const record = (name: string, marks: Marks) => {
@@ -203,6 +226,16 @@ for (const [name, list] of Object.entries(results))
       `${name} (${list.length})`,
       ...[...shown, "daemonUp"].map((key) => median(list, key).toFixed(0)),
     ].join("\t"),
+  );
+// Stalled: never usable, or usable only when the startup screen's data cap (8 s) let it go,
+// well after the window went live.
+const stalled = (marks: Marks) =>
+  marks.composer === undefined ||
+  (marks.live !== undefined &&
+    marks.composer - Math.max(marks.live, marks.shownAgain ?? 0) > 5_000);
+for (const [name, list] of Object.entries(results))
+  console.log(
+    `${name}: ${list.filter(stalled).length} of ${list.length} stalled, ${list.filter((marks) => marks.hidden).length} saw the page hidden`,
   );
 if (args.json) await writeFile(args.json, JSON.stringify(results, null, 2));
 await rm(scratch, { recursive: true, force: true });

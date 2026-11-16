@@ -7,6 +7,8 @@ import type { BrowserWindow } from "electron";
  * - `rows`: real thread rows (not skeletons) in the sidebar, uncovered;
  * - `composer`: an enabled message input, uncovered;
  * - `live`: connected to the daemon, so what shows is live, not only what the window kept.
+ * `hidden` is 1 when the page was hidden at any point before them: a hidden page is sent no thread
+ * data (ADR 0056), so such a run measures when it was shown again, not the start.
  * Polled from the main process, so the page under measurement carries no probe code.
  */
 export type OpenMilestone = "shell" | "rows" | "composer" | "live";
@@ -18,7 +20,8 @@ const probe = `(() => {
   const rows = document.querySelectorAll('[data-part="thread-row"]').length;
   const input = document.querySelector('[data-part="composer-input"] [contenteditable="true"], [data-part="composer-input"] textarea:not([disabled])');
   const cached = document.querySelector('[data-part="app"]')?.getAttribute('data-connection') !== 'ready';
-  return { at: performance.timeOrigin + performance.now(), covered, shell, rows, composer: Boolean(input), cached, ...(globalThis.__aceMeasureDebug ? { href: location.href, conn: document.querySelector('[data-part="app"]')?.getAttribute('data-connection') } : {}) };
+  const hidden = document.visibilityState !== 'visible';
+  return { at: performance.timeOrigin + performance.now(), covered, shell, rows, composer: Boolean(input), cached, hidden, ...(globalThis.__aceMeasureDebug ? { href: location.href, conn: document.querySelector('[data-part="app"]')?.getAttribute('data-connection'), vis: document.visibilityState } : {}) };
 })()`;
 
 interface ProbeResult {
@@ -28,6 +31,7 @@ interface ProbeResult {
   rows: number;
   composer: boolean;
   cached: boolean;
+  hidden: boolean;
 }
 
 export async function measureOpen(
@@ -44,9 +48,27 @@ export async function measureOpen(
       | ProbeResult
       | undefined;
     if (process.env.ACE_MEASURE_DEBUG) {
-      const seen = JSON.stringify({ ...state, at: undefined });
+      const seen = JSON.stringify({
+        ...state,
+        at: undefined,
+        win: {
+          visible: window.isVisible(),
+          minimized: window.isMinimized(),
+          focused: window.isFocused(),
+        },
+      });
       if (seen !== last) console.error("probe", state ? since(state.at).toFixed(0) : "-", seen);
       last = seen;
+    }
+    // Before the window is first shown its page is hidden anyway.
+    if (state?.hidden && marks.windowShown !== undefined) {
+      // ACE_MEASURE_SCREEN=<path>: what the display really showed when the page read hidden.
+      const screen = process.env.ACE_MEASURE_SCREEN;
+      if (screen && marks.hidden === undefined) {
+        const { execFile } = await import("node:child_process");
+        execFile("screencapture", ["-x", screen], () => {});
+      }
+      marks.hidden = 1;
     }
     if (state && !state.covered) {
       // ACE_MEASURE_SHOT=<prefix>: what the window shows the moment it's uncovered, and later.
