@@ -92,6 +92,11 @@ export const requests = {
   /** Reload the window with a fresh daemon connection; restarts a daemon that failed. */
   "app.reload": { request: None, result: None },
   "daemon.connection": { request: None, result: DaemonConnection },
+  /**
+   * The connection the page will most likely get, at once, before the daemon answers; the
+   * request is the address the page was last handed, if it kept one.
+   */
+  "daemon.expected": { request: SocketUrl.nullable(), result: DaemonConnection.nullable() },
   "daemon.authorize": { request: SocketUrl, result: None },
   "daemon.status": { request: None, result: DaemonStatus },
   "daemon.restart": { request: None, result: DaemonStatus },
