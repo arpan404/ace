@@ -196,6 +196,15 @@ import XCTest
         app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(app.buttons["approval.allow_session"].waitForExistence(timeout: 25))
         screenshot("thread-approval")
+        // The answers are real buttons: each a full tap tall, none flush against another, so Deny
+        // is never a hair from Allow.
+        app.assertStripButtons(["approval.deny", "approval.allow_session", "approval.allow_once"])
+        // Tapping the request's words opens its details, with every option.
+        app.buttons["request.details"].tap()
+        XCTAssertTrue(app.buttons["request.close"].waitForExistence(timeout: 10))
+        screenshot("thread-approval-details")
+        app.buttons["request.close"].tap()
+        XCTAssertTrue(app.buttons["request.close"].waitForNonExistence(timeout: 5))
     }
     /// Leaving a scrolled transcript with a "Worked for" log open tears its views down after the
     /// thread's session closed; their releases must not surface as a failed request in the inbox.
