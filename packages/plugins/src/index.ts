@@ -23,7 +23,14 @@ export type {
 
 export { PluginService } from "./service.ts";
 
-export { gitRuntime, fetchRepository, extractPlugin, readGitTree, type GitRuntime } from "./git.ts";
+export {
+  gitRuntime,
+  fetchRepository,
+  extractPlugin,
+  readGitFile,
+  readGitTree,
+  type GitRuntime,
+} from "./git.ts";
 export { preparePluginSession } from "./session.ts";
 export { launchPluginProcess } from "./launch.ts";
 export {

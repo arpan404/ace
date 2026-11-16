@@ -1,0 +1,59 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // ace's marketplace (ADR 0168): the catalog API, publishing, the signer's routes and the
+  // public web page, at market.acehq.dev. Separate from ace cloud so a market deploy or fault
+  // never touches sign-in or the relay.
+  "name": "ace-market",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Publishers, entries, versions, review marks, categories, featured, withdrawals and download
+  // totals. Replace database_id with the id `wrangler d1 create ace-market` prints; see
+  // docs/market/deploy.md.
+  "d1_databases": [
+    {
+      "binding": "MARKET",
+      "database_name": "ace-market",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // Each version's archive, at objects/<content hash>, written once.
+  "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],
+  // Per caller address, counted in memory only: reads (API and pages), then publishing and
+  // withdrawing. The signer's routes, behind their secret, aren't limited.
+  "ratelimits": [
+    { "name": "READS", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } },
+    { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+  ],
+  // No request logs: nothing records who read or searched what (ADR 0168 §10).
+  "observability": { "enabled": false },
+  // Download totals reach the index's changes every quarter hour (src/store/downloads.ts).
+  "triggers": { "crons": ["*/15 * * * *"] },
+  // market.acehq.dev: deploy with `--env production`. The top level is for development and tests.
+  "env": {
+    "production": {
+      "name": "ace-market",
+      "routes": [{ "pattern": "market.acehq.dev", "custom_domain": true }],
+      "vars": {
+        // ACE_GRANT_KEYS is unset here, so publishing grants are checked against these.
+        "ACE_ACCOUNT_KEYS_URL": "https://cloud.acehq.dev/v1/keys",
+      },
+      "d1_databases": [
+        {
+          "binding": "MARKET",
+          "database_name": "ace-market",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],
+      "ratelimits": [
+        { "name": "READS", "namespace_id": "2001", "simple": { "limit": 600, "period": 60 } },
+        { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
+      ],
+      "observability": { "enabled": false },
+      "triggers": { "crons": ["*/15 * * * *"] },
+    },
+  },
+}

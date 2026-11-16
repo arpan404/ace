@@ -191,6 +191,9 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 - `parent`, `workers`: the bot that made it as a worker (`{id, name}`, else `null`), and how many
   of its own worker bots have not settled ([workers.md](workers.md)). `state` rolls up its
   workers: it reads `waiting` or `working` while any of them does.
+- `from_recipe`, `tools`: only on a bot made from a marketplace recipe: the recipe's
+  `{source, name, version}`, and the built-in tools it is narrowed to when the recipe named them
+  ([teams.md](teams.md)).
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"character","v":1,"body","pair","ears","marking","eyes","mouth","cheeks","accessory"}`
@@ -270,8 +273,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+  "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

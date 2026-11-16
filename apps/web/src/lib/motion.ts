@@ -288,12 +288,13 @@ function sameKeys(a: readonly string[], b: readonly string[]): boolean {
 
 /**
  * Run a visual state change (a theme switch) as a cross-fade when the browser supports view
- * transitions; otherwise just run it. A cross-fade is a fade, so reduced motion keeps it.
+ * transitions; otherwise just run it. A cross-fade is a fade, so reduced motion keeps it. An
+ * update that returns a promise holds the old picture until it settles.
  */
-export function withViewTransition(update: () => void): void {
+export function withViewTransition(update: () => void | Promise<void>): void {
   const start = globalThis.document?.startViewTransition?.bind(globalThis.document);
   if (!start) {
-    update();
+    void update();
     return;
   }
   start(update);

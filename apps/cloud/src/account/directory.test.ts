@@ -1,5 +1,11 @@
 import { expect, it } from "vitest";
-import { CloudGrantClaims, decodeBase64url, grantPublicKey, verifyGrant } from "@ace/account-grant";
+import {
+  CloudGrantClaims,
+  decodeBase64url,
+  grantPublicKey,
+  verifyGrant,
+  verifyMarketGrant,
+} from "@ace/account-grant";
 import { AceGrantResponse } from "@ace/protocol/ace-account";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { readAccountSetup } from "./config.ts";
@@ -36,11 +42,7 @@ it("the account backend signs a cloud credential that cannot authorize a relay h
     new Request("https://relay.acehq.dev/v1/grants", {
       method: "POST",
       headers: { authorization: `Bearer ${"s".repeat(43)}` },
-      body: JSON.stringify({
-        kind: "machine",
-        subject,
-        purpose,
-      }),
+      body: JSON.stringify({ kind: "machine", subject, purpose }),
     });
   const response = await routes.grant(request("spade-cloud"));
   expect(response.status).toBe(200);
@@ -89,4 +91,36 @@ it("the account backend signs a cloud credential that cannot authorize a relay h
     }),
   ).toEqual({ admitted: false, status: 401 });
   expect((await routes.grant(request("other-service"))).status).toBe(400);
+});
+
+it("the account backend signs a market publishing grant for a device that only the market accepts", async () => {
+  const signingKey = { id: "cloud-test", privateKey: new Uint8Array(32).fill(7) };
+  const keys = { keys: [grantPublicKey(signingKey)] };
+  const routes = directoryRoutes({
+    sessions: {
+      read: async () => ({
+        account: { id: "alice", email: "alice@example.com", name: "Alice" },
+        expiresAt: 999999,
+      }),
+      revoke: unused,
+    },
+    machines: { register: unused, seen: unused, list: unused, forget: unused },
+    keys,
+    signingKey,
+    now: () => 1000,
+  });
+  const response = await routes.grant(
+    new Request("https://cloud.acehq.dev/v1/grants", {
+      method: "POST",
+      headers: { authorization: `Bearer ${"s".repeat(43)}` },
+      body: JSON.stringify({ kind: "device", subject: "laptop", purpose: "market-publish" }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  const { token } = AceGrantResponse.parse(await response.json());
+  expect(verifyMarketGrant(token, keys, 2000)).toMatchObject({
+    account: "alice",
+    aud: "market.acehq.dev",
+  });
+  expect(() => verifyGrant(token, keys, 2000, "device")).toThrow();
 });

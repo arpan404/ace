@@ -132,6 +132,8 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** ace's marketplace (ADR 0168). */
+  marketplace?: import("../marketplace/service.ts").MarketplaceService;
   /** The Suit library (ADR 0150). */
   suits?: import("../suits/library.ts").SuitLibrary;
   /** Which devices hear an agent's Suit preview, keep or revert (ADR 0150). */

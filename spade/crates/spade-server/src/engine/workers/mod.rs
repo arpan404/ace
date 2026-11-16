@@ -289,13 +289,19 @@ impl Engine {
 
     /// Tools `id` may use with its grants: a worker's (or a worker's helper's) are its own
     /// grant's, and only those its parent may use now, so taking a tool from a parent takes it
-    /// from everything under it.
+    /// from everything under it. A bot made from a recipe is narrowed to the recipe's tools.
     pub(super) fn narrow_registry(&self, id: &str, registry: Registry) -> Registry {
         let owner = self
             .helper_of(id)
             .map_or_else(|| id.to_owned(), |h| h.parent);
         let Some(link) = self.worker_link(&owner) else {
-            return registry;
+            // A top-level bot made from a recipe that named its tools has only those (ADR 0168).
+            return match self.recipe_tools(&owner) {
+                Some(tools) => {
+                    registry.retain(|def| tree::allows(Some(&tools), def.spec.name.as_str()))
+                }
+                None => registry,
+            };
         };
         let parent = self.registry_for(&link.parent_conversation);
         let granted = link.grants.tools.clone();

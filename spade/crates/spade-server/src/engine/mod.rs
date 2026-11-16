@@ -35,6 +35,7 @@ mod oversight;
 mod park;
 mod plugin_hooks;
 mod questions;
+mod recipes;
 mod retry;
 mod review;
 pub mod roster;
@@ -74,6 +75,7 @@ pub use oversight::{
     OversightError,
 };
 pub use questions::{QuestionError, QuestionReply};
+pub use recipes::{BotRecipe, FromRecipe};
 pub use retry::Retry;
 pub use roster::{LastMessage, State};
 pub use routing::{RolesChange, entry_role};

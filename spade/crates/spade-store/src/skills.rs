@@ -41,6 +41,8 @@ pub enum SkillOrigin {
     Spade,
     /// From a plugin a bot is allowed; read only.
     Plugin,
+    /// A skill installed from ace's marketplace (ADR 0168), copied from the daemon; read only.
+    Market,
 }
 
 impl SkillOrigin {
@@ -49,6 +51,7 @@ impl SkillOrigin {
             Self::Ace => "ace",
             Self::Spade => "spade",
             Self::Plugin => "plugin",
+            Self::Market => "market",
         }
     }
 
@@ -57,6 +60,7 @@ impl SkillOrigin {
             "ace" => Some(Self::Ace),
             "spade" => Some(Self::Spade),
             "plugin" => Some(Self::Plugin),
+            "market" => Some(Self::Market),
             _ => None,
         }
     }
@@ -77,7 +81,8 @@ pub struct StoredSkill {
     pub hash: String,
     /// The skill's other files as JSON (`[{path, size, hash, executable}]`), shaped by the server.
     pub files: String,
-    /// For a plugin's skill, the plugin; unused otherwise.
+    /// For a plugin's skill, the plugin; for a market skill, its entry name; for an ace copy,
+    /// its scope.
     pub source: Option<String>,
     pub updated_ms: i64,
 }

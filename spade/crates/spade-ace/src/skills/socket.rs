@@ -54,18 +54,16 @@ impl Drop for Owner {
 }
 
 impl Socket {
-    /// `changed` is rung for each `skills.changed` the daemon pushes and once when the socket
-    /// ends, so whoever watches the library lists again (and subscribes on a new socket).
-    pub(super) async fn open(
-        config: &SkillsConfig,
-        changed: Arc<Notify>,
-    ) -> Result<Self, SkillsError> {
+    /// `changed.skills` is rung for each `skills.changed` the daemon pushes, `changed.market` for
+    /// each `marketplace.changed`, and both once when the socket ends, so whoever watches lists
+    /// again (and subscribes on a new socket).
+    pub(super) async fn open(config: &SkillsConfig, changed: Notices) -> Result<Self, SkillsError> {
         tokio::time::timeout(config.timeout(), Self::handshake(config, changed))
             .await
             .map_err(|_| SkillsError::Timeout)?
     }
 
-    async fn handshake(config: &SkillsConfig, changed: Arc<Notify>) -> Result<Self, SkillsError> {
+    async fn handshake(config: &SkillsConfig, changed: Notices) -> Result<Self, SkillsError> {
         let token = config.token().clone();
         let unreachable = |error: &dyn std::fmt::Display| {
             SkillsError::Unreachable(token.scrub(error.to_string()))
@@ -217,7 +215,16 @@ struct Task {
     token: Secret,
     stop: Arc<Notify>,
     timeout: Duration,
-    changed: Arc<Notify>,
+    changed: Notices,
+}
+
+/// What a socket rings when the daemon says something changed.
+#[derive(Clone, Default)]
+pub(super) struct Notices {
+    /// A subscribed skill list changed (`skills.changed`).
+    pub skills: Arc<Notify>,
+    /// Installed marketplace entries changed (`marketplace.changed`, ADR 0168).
+    pub market: Arc<Notify>,
 }
 
 type Stream =
@@ -289,16 +296,22 @@ async fn run(mut stream: Stream, mut rx: mpsc::Receiver<Message>, waiters: Waite
     for (_, waiter) in left {
         let _ = waiter.send(Err(ending.clone()));
     }
-    // A subscription ends with its socket: the watcher lists again on a new one.
-    changed.notify_one();
+    // A subscription ends with its socket: the watchers list again on a new one.
+    changed.skills.notify_one();
+    changed.market.notify_one();
 }
 
-fn route(text: &str, waiters: &Waiters, token: &Secret, changed: &Notify) {
+fn route(text: &str, waiters: &Waiters, token: &Secret, changed: &Notices) {
     let (request_id, answer) = match serde_json::from_str::<Incoming>(text) {
         Ok(Incoming::SkillsChanged) => {
-            changed.notify_one();
+            changed.skills.notify_one();
             return;
         }
+        Ok(Incoming::MarketChanged) => {
+            changed.market.notify_one();
+            return;
+        }
+        Ok(Incoming::MarketResult(result)) => (result.request_id, Ok(result.result)),
         Ok(Incoming::SkillsResult(result)) => (result.request_id, Ok(result.result)),
         Ok(Incoming::SpadeResult(result)) => (result.request_id, Ok(Value::Object(result.fields))),
         Ok(Incoming::PluginResult(result)) => (result.request_id, Ok(result.response)),

@@ -66,6 +66,16 @@ pub(super) struct NewAgent {
     /// message are made together, or neither is.
     #[serde(default)]
     first_message: Option<FirstMessage>,
+    /// A marketplace recipe to make the bot from (ADR 0168, docs/teams.md), with where it came
+    /// from, what the person granted by pressing Install, and whether its routines start on.
+    #[serde(default)]
+    recipe: Option<Value>,
+    #[serde(default)]
+    from_recipe: Option<crate::engine::FromRecipe>,
+    #[serde(default)]
+    grants: Option<crate::teams::RecipeGrants>,
+    #[serde(default)]
+    start_routines: bool,
 }
 
 /// A first message: its text and images, as `POST /conversations/{id}/messages` takes them.
@@ -193,7 +203,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
     shown
 }
 
-fn agent_problem(error: &AgentError) -> Response {
+pub(super) fn agent_problem(error: &AgentError) -> Response {
     let status = match error {
         AgentError::NotFound => StatusCode::NOT_FOUND,
         AgentError::Invalid(_) | AgentError::Image(_) => StatusCode::BAD_REQUEST,
@@ -227,6 +237,9 @@ pub(super) async fn list(State(state): State<AppState>) -> Response {
 pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAgent>) -> Response {
     if let Err(response) = access(body.access.as_deref()) {
         return *response;
+    }
+    if body.recipe.is_some() {
+        return super::recipes::create(state, body.into_recipe()).await;
     }
     let mut body = body;
     let avatar = match body.avatar.take().map(AvatarBody::input).transpose() {
@@ -268,6 +281,20 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
         (StatusCode::CREATED, Json(answer)).into_response()
     })
     .await
+}
+
+impl NewAgent {
+    /// The recipe parts of the body, for [`super::recipes::create`].
+    fn into_recipe(self) -> super::recipes::RecipeBody {
+        super::recipes::RecipeBody {
+            recipe: self.recipe.unwrap_or_default(),
+            from_recipe: self.from_recipe,
+            grants: self.grants.unwrap_or_default(),
+            start_routines: self.start_routines,
+            time_zone: self.time_zone,
+            also: self.template.is_some() || self.first_message.is_some(),
+        }
+    }
 }
 
 /// Makes the bot, from a template or not; a template's answer says what it left out.

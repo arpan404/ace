@@ -6,18 +6,19 @@
 //! sent once more on a fresh one (both only read); a create or edit never is. Dropping `AceSkills` closes the socket, even
 //! one stuck writing to a peer that stopped reading.
 
+mod market;
 mod socket;
 mod wire;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine as _;
 use serde_json::Value;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::Mutex;
 
 pub use crate::config::SkillsConfig;
-use socket::Socket;
+pub use market::{MarketFile, MarketFileBytes, MarketSkill};
+use socket::{Notices, Socket};
 use wire::Operation;
 pub use wire::SkillFile;
 
@@ -148,8 +149,8 @@ pub struct AceSkills {
     config: SkillsConfig,
     socket: Mutex<Option<Socket>>,
     next_id: AtomicU64,
-    /// Rung by a pushed `skills.changed` and when a socket ends.
-    changed: Arc<Notify>,
+    /// Rung by a pushed `skills.changed` or `marketplace.changed`, and when a socket ends.
+    changed: Notices,
     /// The daemon runs one plugin request per socket at a time and refuses a second.
     plugin_turn: Mutex<()>,
 }
@@ -162,7 +163,7 @@ impl AceSkills {
             socket: Mutex::new(None),
             next_id: AtomicU64::new(0),
             plugin_turn: Mutex::new(()),
-            changed: Arc::new(Notify::new()),
+            changed: Notices::default(),
         }
     }
 
@@ -170,7 +171,7 @@ impl AceSkills {
     /// pushed a change, or the socket it was subscribed on ended. One waiter at a time; a change
     /// that came while nobody waited is kept for the next wait.
     pub async fn changed(&self) {
-        self.changed.notified().await;
+        self.changed.skills.notified().await;
     }
 
     /// Like [`AceSkills::list`] for personal, plugin and builtin skills, and subscribes the

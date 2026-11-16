@@ -344,6 +344,16 @@ impl Engine {
         // client from before reads it rather than taking a missing one for `ask`.
         if let Some(shown) = oversight.as_object_mut() {
             shown.insert("access".into(), Access::AutoReview.name().into());
+            // The marketplace recipe it was made from (ADR 0168), for its profile.
+            if let Some(recipe) = self.bot_recipe(&agent.id) {
+                shown.insert(
+                    "from_recipe".into(),
+                    serde_json::to_value(&recipe.from_recipe).unwrap_or_default(),
+                );
+                if let Some(tools) = recipe.tools {
+                    shown.insert("tools".into(), tools.into());
+                }
+            }
             shown.insert(
                 "task_state".into(),
                 serde_json::to_value(&activity.task).unwrap_or_default(),

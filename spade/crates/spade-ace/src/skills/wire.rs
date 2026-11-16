@@ -142,6 +142,13 @@ pub(crate) enum Incoming {
     /// `PluginServerMessage` in `packages/protocol/src/plugins.ts`; `response` kept raw.
     #[serde(rename = "pluginResult")]
     PluginResult(PluginResult),
+    /// `marketplace.result` from `MarketServerMessage` in `packages/protocol/src/marketplace.ts`;
+    /// `result` kept raw.
+    #[serde(rename = "marketplace.result")]
+    MarketResult(SkillsResult),
+    /// `marketplace.changed`: installed entries changed. Spade lists again rather than reading it.
+    #[serde(rename = "marketplace.changed")]
+    MarketChanged,
     #[serde(other)]
     Other,
 }

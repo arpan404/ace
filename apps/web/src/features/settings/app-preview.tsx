@@ -13,7 +13,7 @@ import { suitDeclarations, suitFontFaces, suitSchemeFor } from "@/theme/suits/su
  * manifest names for the scheme (`thumbnail`), else a soft gradient from its palette, with the
  * sidebar and main area translucent over it. Drawn in `em` off a font size in container units,
  * so it keeps its proportions at any size. Its edge answers the picker's hover through the
- * `group`, and gives way to the accent ring when chosen.
+ * `group` and stays when chosen, inside the picker's accent ring.
  */
 
 /** A built-in theme, or a Suit as read from the library. */
@@ -143,7 +143,7 @@ export function AppPreview(props: {
       aria-hidden
       data-look-preview={"theme" in look ? look.theme : look.suit.manifest.id}
       className={cn(
-        "relative block overflow-hidden rounded-lg border border-border transition-[border-color] duration-(--motion-base) group-hover:border-border-strong group-aria-checked:border-transparent [container-type:size]",
+        "relative block overflow-hidden rounded-lg border border-border transition-colors duration-(--motion-fast) group-enabled:group-hover:border-border-strong [container-type:size]",
         props.className,
       )}
     >

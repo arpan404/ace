@@ -11,6 +11,7 @@ import * as appDevices from "@ace/protocol/devices";
 import * as transitions from "@ace/protocol/thread-transitions";
 import * as handoffRead from "@ace/protocol/handoff-read";
 import * as plugins from "@ace/protocol/plugins";
+import * as marketplace from "@ace/protocol/marketplace";
 import * as preview from "@ace/protocol/preview";
 import * as history from "@ace/protocol/history";
 import * as pi from "@ace/protocol/pi";
@@ -75,6 +76,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./forge-review", forgeReview],
   ["./forge-checks", forgeChecks],
   ["./plugins", plugins],
+  ["./marketplace", marketplace],
   ["./preview", preview],
   ["./history", history],
   ["./accounts", accounts],

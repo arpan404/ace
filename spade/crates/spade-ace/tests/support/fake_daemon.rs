@@ -9,6 +9,11 @@
 //! `review-code` has two files (`files`); [`FakeDaemon::edit_review`] gives it a new hash and
 //! one changed file, [`FakeDaemon::remove_review`] takes it away. A subscribed list hears
 //! `skills.changed` from [`FakeDaemon::push_change`].
+//!
+//! `marketplace.request` answers `spadeSkills` and `spadeSkillFiles` (ADR 0168) from the market
+//! skills set with [`FakeDaemon::set_market_skill`]; [`FakeDaemon::push_market_change`] pushes
+//! `marketplace.changed` to every welcomed socket, and [`FakeDaemon::market_unavailable`] makes
+//! every market request fail as a daemon whose marketplace isn't ready does.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -42,6 +47,19 @@ pub struct FakeDaemon {
     changes: broadcast::Sender<()>,
     subscriptions: Arc<AtomicUsize>,
     review: Arc<Mutex<Review>>,
+    market: Arc<Mutex<Market>>,
+    market_changes: broadcast::Sender<()>,
+}
+
+/// One market file: its path, content and whether it is executable.
+type MarketFile = (String, Vec<u8>, bool);
+
+/// The fake's installed market skills: each one's version and files (`SKILL.md` among them).
+#[derive(Default)]
+struct Market {
+    skills: std::collections::BTreeMap<String, (String, Vec<MarketFile>)>,
+    unavailable: bool,
+    requests: usize,
 }
 
 /// What `review-code` is now.
@@ -84,6 +102,9 @@ impl FakeDaemon {
         let watching = (changes.clone(), subscriptions.clone());
         let review = Arc::new(Mutex::new(Review::default()));
         let reviewing = review.clone();
+        let market = Arc::new(Mutex::new(Market::default()));
+        let (market_changes, _) = broadcast::channel(16);
+        let marketing = (market.clone(), market_changes.clone());
         let accept = (hellos.clone(), connections.clone(), drop_all.clone());
         let recorded = writes.clone();
         let closes = saw_close.clone();
@@ -102,6 +123,7 @@ impl FakeDaemon {
                         (accept.2.subscribe(), watching.0.subscribe()),
                         recorded.clone(),
                         (watching.1.clone(), reviewing.clone()),
+                        (marketing.0.clone(), marketing.1.subscribe()),
                     ));
                 }
             }
@@ -116,7 +138,40 @@ impl FakeDaemon {
             changes,
             subscriptions,
             review,
+            market,
+            market_changes,
         }
+    }
+
+    /// Installs (or replaces) the market skill `name` with `files`, `SKILL.md` among them.
+    pub fn set_market_skill(&self, name: &str, version: &str, files: &[(&str, &[u8], bool)]) {
+        let files = files
+            .iter()
+            .map(|(path, bytes, executable)| ((*path).to_owned(), bytes.to_vec(), *executable))
+            .collect();
+        lock(&self.market)
+            .skills
+            .insert(name.to_owned(), (version.to_owned(), files));
+    }
+
+    /// The market skill `name` is no longer installed.
+    pub fn remove_market_skill(&self, name: &str) {
+        lock(&self.market).skills.remove(name);
+    }
+
+    /// Every market request fails (`true`) or is answered again (`false`).
+    pub fn market_unavailable(&self, unavailable: bool) {
+        lock(&self.market).unavailable = unavailable;
+    }
+
+    /// How many `marketplace.request` frames came.
+    pub fn market_requests(&self) -> usize {
+        lock(&self.market).requests
+    }
+
+    /// Pushes `marketplace.changed` on every welcomed socket.
+    pub fn push_market_change(&self) {
+        let _ = self.market_changes.send(());
     }
 
     /// `review-code` gets a new hash, a changed guide and no script.
@@ -173,6 +228,7 @@ async fn serve(
     (mut drop_all, mut changes): (broadcast::Receiver<()>, broadcast::Receiver<()>),
     writes: Arc<Mutex<Vec<Value>>>,
     (subscriptions, review): (Arc<AtomicUsize>, Arc<Mutex<Review>>),
+    (market, mut market_changes): (Arc<Mutex<Market>>, broadcast::Receiver<()>),
 ) {
     let mut subscribed: Option<Value> = None;
     let (mut sink, mut stream) = socket.split();
@@ -193,6 +249,12 @@ async fn serve(
             Ok(()) = changes.recv() => {
                 if let Some(id) = &subscribed {
                     send(&out, json!({ "type": "skills.changed", "requestId": id, "entries": [], "stale": false }));
+                }
+                continue;
+            }
+            Ok(()) = market_changes.recv() => {
+                if authenticated {
+                    send(&out, json!({ "type": "marketplace.changed", "installed": 1, "updates": 0 }));
                 }
                 continue;
             }
@@ -227,6 +289,14 @@ async fn serve(
         }
         if message["type"] == "pluginRequest" {
             send(&out, plugin_answer(&message));
+            continue;
+        }
+        if message["type"] == "marketplace.request" {
+            let result = market_answer(&mut lock(&market), &message["operation"]);
+            send(
+                &out,
+                json!({ "type": "marketplace.result", "requestId": message["requestId"], "result": result }),
+            );
             continue;
         }
         if message["type"] != "skills.request" {
@@ -492,6 +562,59 @@ fn created(writes: &[Value]) -> Vec<(Value, String)> {
             )
         })
         .collect()
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// A `MarketResult` for one `MarketOperation` Spade sends.
+fn market_answer(market: &mut Market, operation: &Value) -> Value {
+    market.requests += 1;
+    if market.unavailable {
+        return json!({ "op": "error", "code": "unavailable", "message": "The marketplace isn't ready yet" });
+    }
+    let listed = |files: &[MarketFile]| -> Vec<Value> {
+        files
+            .iter()
+            .map(|(path, bytes, executable)| {
+                json!({ "path": path, "bytes": bytes.len(), "hash": sha256_hex(bytes), "executable": executable })
+            })
+            .collect()
+    };
+    match operation["op"].as_str() {
+        Some("spadeSkills") => json!({
+            "op": "spadeSkills",
+            "skills": market.skills.iter().map(|(name, (version, files))| {
+                let all: Vec<u8> = files.iter().flat_map(|(p, b, _)| p.bytes().chain(b.iter().copied())).collect();
+                json!({ "name": name, "version": version, "hash": sha256_hex(&all),
+                        "description": format!("{name} from the market") })
+            }).collect::<Vec<_>>(),
+        }),
+        Some("spadeSkillFiles") => {
+            let name = operation["name"].as_str().unwrap_or_default();
+            let Some((_, files)) = market.skills.get(name) else {
+                return json!({ "op": "error", "code": "not_found", "message": format!("There is no market skill {name}") });
+            };
+            match operation["path"].as_str() {
+                None => json!({ "op": "spadeSkillFiles", "files": listed(files) }),
+                Some(path) => match files.iter().find(|(p, _, _)| p == path) {
+                    Some(file) => {
+                        use base64::Engine as _;
+                        json!({ "op": "spadeSkillFiles", "files": listed(std::slice::from_ref(file)),
+                                "content": base64::engine::general_purpose::STANDARD.encode(&file.1) })
+                    }
+                    None => {
+                        json!({ "op": "error", "code": "not_found", "message": format!("{name} has no file {path}") })
+                    }
+                },
+            }
+        }
+        _ => json!({ "op": "error", "code": "invalid", "message": "unknown operation" }),
+    }
 }
 
 pub fn text_of(id: &str) -> String {

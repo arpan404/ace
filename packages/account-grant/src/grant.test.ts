@@ -5,9 +5,11 @@ import {
   grantPublicKey,
   signGrant,
   signCloudGrant,
+  signMarketGrant,
   grantLifetimeMs,
   verifyCloudGrant,
   verifyGrant,
+  verifyMarketGrant,
 } from "./index.ts";
 
 const key = { id: "k1", privateKey: crypto.getRandomValues(new Uint8Array(32)) };
@@ -97,4 +99,26 @@ it("ace cloud accepts only a cloud credential: a relay machine or device grant i
     expect(() => verifyCloudGrant(signGrant({ ...claims, kind }, key), keys, 2_000)).toThrow(
       "Malformed",
     );
+});
+
+it("the market accepts only a market grant, and no one else accepts it", () => {
+  for (const kind of ["machine", "device"] as const) {
+    const market = signMarketGrant({ ...claims, kind }, key);
+    expect(verifyMarketGrant(market, keys, 2_000)).toMatchObject({
+      account: "user_1",
+      aud: "market.acehq.dev",
+      purpose: "market-publish",
+    });
+    expect(() => verifyGrant(market, keys, 2_000, kind)).toThrow("Malformed");
+    expect(() => verifyCloudGrant(market, keys, 2_000)).toThrow("Malformed");
+    expect(() => verifyMarketGrant(signGrant({ ...claims, kind }, key), keys, 2_000)).toThrow(
+      "Malformed",
+    );
+  }
+  expect(() =>
+    verifyMarketGrant(signCloudGrant({ ...claims, kind: "machine" }, key), keys, 2_000),
+  ).toThrow("Malformed");
+  expect(() => verifyMarketGrant(signMarketGrant(claims, key), keys, claims.exp)).toThrow(
+    "expired",
+  );
 });

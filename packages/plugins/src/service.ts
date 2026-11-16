@@ -19,6 +19,10 @@ export class PluginService {
   extensions(provider: import("@ace/protocol").ProviderKind) {
     return this.admit(() => this.manager.extensions(provider));
   }
+  /** A review of bytes the caller verified itself (`PluginManager.prepareFiles`). */
+  prepareFiles(request: Parameters<PluginManager["prepareFiles"]>[0]) {
+    return this.admit(() => this.manager.prepareFiles(request));
+  }
   handle(input: unknown): Promise<PluginResponse> {
     return this.admit(() => this.publish(input));
   }
