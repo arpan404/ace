@@ -30,7 +30,10 @@ import XCTest
         screenshot("thread-transcript")
         worked.tap()
         screenshot("thread-worked-expanded")
-        app.buttons["subagents.rollup"].firstMatch.tap()
+        // At body size the expanded turn runs past the composer: bring the rollup above it first.
+        let rollup = app.buttons["subagents.rollup"].firstMatch
+        clearOfComposer(rollup, in: app)
+        rollup.tap()
         let review = app.buttons["subagent.Review PID-reuse safety"]
         XCTAssertTrue(review.waitForExistence(timeout: 10))
         // The opened rows run two lines each: bring the last above the strip and composer.
