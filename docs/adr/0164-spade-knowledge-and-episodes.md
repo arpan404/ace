@@ -44,8 +44,9 @@ standing instructions change only at a compaction (design.md, Caching).
    A bot's edit can lower an entry's trust, never raise it; only the person marks an entry
    trusted. Untrusted entries are always returned inside `<untrusted>` tags as data, and a
    tool result that shows one is itself untrusted, so it taints the turn as a web page does.
-   They never reach the standing instructions: the topic index (5) lists only trusted titles
-   and counts the rest. With trust as a label rather than a gate, writing knowledge never asks
+   They never reach the standing instructions: the topic index (5) lists only topics at least
+   one trusted entry has, with trusted titles only, and counts the rest; a topic only untrusted
+   entries have is left out, since its name is text the untrusted content may have chosen. With trust as a label rather than a gate, writing knowledge never asks
    the person (the auto-review classes it inside the bot's own state, audit C3): nothing in the
    base acts, and what came from outside stays marked wherever it is read.
 
@@ -63,7 +64,7 @@ standing instructions change only at a compaction (design.md, Caching).
    model call and once after each compaction, Spade stores `knowledge_indexed {text}`: up to 12
    topics from the bases the bot reads, most relevant to its task and open goal first (FTS
    match on the task's words, then use and recency), each with its entry count and up to three
-   trusted titles, within 2,000 characters, plus how many past episodes it can search. The
+   trusted titles (a topic with no trusted entry is left out), within 2,000 characters, plus how many past episodes it can search. The
    standing instructions end with the latest one, so the cached top changes only at a
    compaction. Entries written meanwhile reach the model through tool results.
 

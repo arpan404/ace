@@ -110,7 +110,12 @@ impl Engine {
                 }
             }
         }
-        let lines: Vec<TopicLine> = topics.into_values().collect();
+        // A topic only an untrusted entry has was named by text a stranger may have written:
+        // it never reaches the standing instructions, nor do untrusted entries' titles.
+        let lines: Vec<TopicLine> = topics
+            .into_values()
+            .filter(|line| line.entries > line.untrusted)
+            .collect();
         let episodes = self.store.count_episodes(&self.episode_bases(&agent))?;
         Ok(knowledge::index(&lines, episodes))
     }

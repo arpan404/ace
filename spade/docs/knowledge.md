@@ -51,7 +51,9 @@ Spade stores `knowledge_indexed {text}`: up to 12 topics of the bases the bot re
 words match its task and open goal first, then the most recent, each with its entry count, how
 many are untrusted, and up to three trusted titles, within 2,000 characters; and how many past
 episodes `episode_search` can find. The standing instructions end with the latest one (after
-the notes index), so the top changes only at a compaction. Untrusted titles are never shown.
+the notes index), so the top changes only at a compaction. Untrusted titles are never shown,
+and a topic only untrusted entries have is left out: its name came from text a stranger may
+have written.
 
 ## Tools
 
