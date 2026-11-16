@@ -67,7 +67,9 @@ struct DockStrip: View {
                     .padding(.top, AceDesign.Space.tight)
             }
         }
-        .padding(.horizontal, AceDesign.Space.margin)
+        // Above the composer its words start where the field's do (`ReadingColumn.stripLead`).
+        .padding(.leading, inBlock ? AceDesign.Space.margin : ReadingColumn.stripLead)
+        .padding(.trailing, AceDesign.Space.margin)
         .padding(.top, AceDesign.Space.row)
         .padding(.bottom, AceDesign.Space.stripBottom)
         .frame(maxWidth: .infinity, alignment: .leading)

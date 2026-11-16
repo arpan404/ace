@@ -53,7 +53,7 @@ struct TranscriptTurnRail: View {
     /// The touch band at the screen's edge: no wider than the transcript's side margin, so it never
     /// covers a row. It takes no touches itself; the recognizers on the feed take those that
     /// start on it (`TurnRailBand`), so a swipe that doesn't hold first still scrolls.
-    static let band = AceDesign.Space.feedSide
+    static let band = ReadingColumn.bar(.compact).text
 
     private func rail(ticks: [Int], height: CGFloat, scrub: Int?) -> some View {
         let current = scrub ?? readerTurn

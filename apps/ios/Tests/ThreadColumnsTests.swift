@@ -61,16 +61,26 @@ import SwiftUI
         #expect(!ThreadColumns.showsTabBar(.compact, path: [.thread(open)]))
     }
 
-    @Test func besideTheListTheCardComposerAndTranscriptShareOneColumnsEdges() {
-        let wide = ReadingColumn.bar(.regular)
-        #expect(wide.card == wide.composer)
-        #expect(wide.composer == ReadingColumn.textMargin)
-        // Clear of the window's resize corner, which sits under the composer's trailing end.
-        #expect(wide.bottom > ReadingColumn.bar(.compact).bottom)
-        // A phone keeps its composer near the edge and the card tucked narrower than it.
-        let phone = ReadingColumn.bar(.compact)
-        #expect(phone.card > phone.composer)
-        #expect(phone.composer < ReadingColumn.textMargin)
+    @Test func theTranscriptComposerAndStripsShareOneEdgeInEveryWindow() {
+        for sizeClass in [UserInterfaceSizeClass.compact, .regular] {
+            let bar = ReadingColumn.bar(sizeClass)
+            #expect(bar.composer == bar.text)
+        }
+        // A phone keeps the design language's one side margin.
+        #expect(ReadingColumn.bar(.compact).text == AceDesign.Space.margin)
+        // Beside the list the column keeps the wider reading margin, and stays clear of the
+        // window's resize corner, which sits under the composer's trailing end.
+        #expect(ReadingColumn.bar(.regular).text > ReadingColumn.bar(.compact).text)
+        #expect(ReadingColumn.bar(.regular).bottom > ReadingColumn.bar(.compact).bottom)
+    }
+
+    @MainActor @Test func aStripsWordsStartWhereTheComposersWordsStart() {
+        // The strip's lead mark, then its gap, end where the + and the field's inset end.
+        let lead = ReadingColumn.stripLead
+        #expect(lead + StripLeadMark.width + AceDesign.Space.related == ComposerCapsuleMetrics.aboveInset)
+        // The mark sits under the capsule's +, inside the strip's glass.
+        #expect(lead > 0)
+        #expect(lead + StripLeadMark.width <= AceDesign.Size.tap)
     }
 
     @Test func theListsHeaderStepsClearOfTheSidebarCornerAndTheWindowControlsOnly() {
