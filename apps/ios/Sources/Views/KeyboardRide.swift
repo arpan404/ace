@@ -4,7 +4,7 @@ import UIKit
 /// How far the docked keyboard lifts the thread's foot, frame by frame: one value the composer
 /// (`FloatingBar`) and the rows following the transcript's end (`ConversationFeed`) are both
 /// drawn by, so the two move as one (#2170). Each frame sets it from the keyboard's curve
-/// (`KeyboardCurve`) at the time the frame is shown, measured from the notification; a SwiftUI
+/// (`KeyboardCurve`) at the frame's time, measured from the notification; a SwiftUI
 /// animation would start when its change commits, frames after the keyboard does. Only the small
 /// offset modifiers read `lift`, so a frame redraws them and nothing under them.
 @MainActor @Observable final class KeyboardRide {
@@ -57,7 +57,9 @@ import UIKit
 
     fileprivate func tick(_ link: CADisplayLink) {
         guard let move else { return }
-        let elapsed = link.targetTimestamp - move.start
+        // The frame's own time, the base the curve was fitted in: the frame's target time put the
+        // composer a frame ahead of the keyboard, under it as it closed.
+        let elapsed = link.timestamp - move.start
         let distance = Double(target - move.from)
         if KeyboardCurve.settled(elapsed, duration: move.duration, distance: distance) {
             land()

@@ -19,6 +19,8 @@ import UIKit
     /// Each frame's drawn y of the line, the composer's top and the keyboard's edge.
     private var trace: [String] = []
     private var lag: Double = 0
+    /// The farthest the composer's foot went under the keyboard's edge.
+    private var covered: Double = 0
     private var until: CFTimeInterval = 0
     private var motion = "open"
     private var observing = false
@@ -49,6 +51,7 @@ import UIKit
         gaps = []
         trace = []
         lag = 0
+        covered = 0
         // The frame before the motion, then every frame until it has surely settled.
         sample()
         let link = CADisplayLink(target: Ticker(), selector: #selector(Ticker.tick))
@@ -63,7 +66,10 @@ import UIKit
 
     private func sample() {
         if let line = y(.line), let composer = y(.composer) { gaps.append((composer - line).rounded()) }
-        if let foot = y(.composerFoot), let keyboard = y(.keyboard) { lag = max(lag, abs(keyboard - foot).rounded()) }
+        if let foot = y(.composerFoot), let keyboard = y(.keyboard) {
+            lag = max(lag, abs(keyboard - foot).rounded())
+            covered = max(covered, (foot - keyboard).rounded())
+        }
         trace.append([Mark.line, .composer, .keyboard].map { y($0).map { String(Int($0.rounded())) } ?? "-" }.joined(separator: "/"))
     }
 
@@ -75,6 +81,7 @@ import UIKit
         PerfProbe.record(["keyboard.\(motion).gaps": gaps.map { String(Int($0)) }.joined(separator: ","),
                           "keyboard.\(motion).drift": String(Int(high - low)),
                           "keyboard.\(motion).lag": String(Int(lag)),
+                          "keyboard.\(motion).covered": String(Int(covered)),
                           "keyboard.\(motion).trace": trace.joined(separator: " ")])
     }
 
