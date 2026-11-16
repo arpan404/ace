@@ -168,34 +168,39 @@ export async function updateProfile(
 }
 
 /**
- * Moves a publisher to a new handle. The old one is retired for the publisher, so nobody else
- * can take it; taking back one of its own retired handles un-retires it. False when another
- * request took the handle first.
+ * Moves a publisher from the handle it was read with to a new one, in one batch that re-checks
+ * that handle: the old one is retired for the publisher, so nobody else can take it, and taking
+ * back one of its own retired handles un-retires it. `stale` when another rename landed first,
+ * `taken` when another publisher took the handle first.
  */
 export async function changeHandle(
   db: D1Database,
   publisher: { id: string; name: string; skeleton: string },
   next: { handle: string; skeleton: string },
   now: number,
-): Promise<boolean> {
+): Promise<"moved" | "stale" | "taken"> {
+  const current = "EXISTS (SELECT 1 FROM publishers WHERE id = ?3 AND name = ?2)";
   try {
-    await db.batch([
+    const results = await db.batch([
       db
         .prepare(
-          `INSERT INTO retired_handles (skeleton, handle, publisher, at) VALUES (?1, ?2, ?3, ?4)
+          `INSERT INTO retired_handles (skeleton, handle, publisher, at)
+            SELECT ?1, ?2, ?3, ?4 WHERE ${current}
             ON CONFLICT (skeleton) DO NOTHING`,
         )
         .bind(publisher.skeleton, publisher.name, publisher.id, now),
       db
-        .prepare("DELETE FROM retired_handles WHERE skeleton = ?1 AND publisher = ?2")
-        .bind(next.skeleton, publisher.id),
+        .prepare(
+          `DELETE FROM retired_handles WHERE skeleton = ?1 AND publisher = ?3 AND ${current}`,
+        )
+        .bind(next.skeleton, publisher.name, publisher.id),
       db
-        .prepare("UPDATE publishers SET name = ?2, skeleton = ?3 WHERE id = ?1")
-        .bind(publisher.id, next.handle, next.skeleton),
+        .prepare("UPDATE publishers SET name = ?4, skeleton = ?1 WHERE id = ?3 AND name = ?2")
+        .bind(next.skeleton, publisher.name, publisher.id, next.handle),
     ]);
-    return true;
+    return (results[2]?.meta.changes ?? 0) === 1 ? "moved" : "stale";
   } catch (error) {
-    if (isUniqueFailure(error)) return false;
+    if (isUniqueFailure(error)) return "taken";
     throw error;
   }
 }

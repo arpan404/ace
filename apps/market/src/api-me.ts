@@ -241,8 +241,14 @@ async function profileWrites(
         { handle, skeleton: skeleton(handle) },
         context.now,
       );
-      if (!moved)
+      if (moved === "taken")
         return failure(409, "conflict", "That handle, or one that looks like it, is taken.");
+      if (moved === "stale")
+        return failure(
+          409,
+          "conflict",
+          "Your handle changed while this was on its way; try again.",
+        );
       await touchOwn(db, publisher.id, context.now);
       const after = await publisherById(db, publisher.id);
       return after ? json(profileOf(after)) : noProfile();

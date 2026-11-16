@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { skeleton } from "@ace/marketplace/profile";
 import { sampleSkill } from "@ace/marketplace/testing";
 import { startMarket, type Market } from "./testing/harness.ts";
 import {
@@ -20,7 +21,7 @@ import {
   setVisibility,
 } from "./store/me-entries.ts";
 import { addAppeal, offerTransfer } from "./store/me-transfers.ts";
-import { setPins } from "./store/profiles.ts";
+import { changeHandle, setPins } from "./store/profiles.ts";
 import { addWithdrawal, storePending } from "./store/publish.ts";
 
 /*
@@ -224,5 +225,35 @@ describe("deleting an entry that was never listed", () => {
     });
     await sign(market, upload, { id: maker.id, name: maker.handle });
     expect((await market.fetch(`/v1/objects/${hash}`)).status).toBe(200);
+  });
+});
+
+describe("two renames from the same handle", () => {
+  it("the second one, read before the first landed, fails and leaves no handle unretired", async () => {
+    const renamer = await establishedPublisher(market, "acct_race_renamer", "race-renamer");
+    const before = { id: renamer.id, name: "race-renamer", skeleton: skeleton("race-renamer") };
+    const first = await changeHandle(
+      market.db,
+      before,
+      { handle: "race-first", skeleton: skeleton("race-first") },
+      1,
+    );
+    const second = await changeHandle(
+      market.db,
+      before,
+      { handle: "race-second", skeleton: skeleton("race-second") },
+      2,
+    );
+    expect([first, second]).toEqual(["moved", "stale"]);
+    const row = await market.db
+      .prepare("SELECT name FROM publishers WHERE id = ?1")
+      .bind(renamer.id)
+      .first<{ name: string }>();
+    expect(row?.name).toBe("race-first");
+    const response = await asAccount(market, "acct_race_other", "POST", "/v1/me/profile", {
+      handle: "race-renamer",
+      displayName: "Someone else",
+    });
+    expect(response.status).toBe(409);
   });
 });
