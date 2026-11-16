@@ -1,0 +1,164 @@
+{
+  "format": 1,
+  "id": "ion",
+  "name": "Ion",
+  "description": "Clean cyberpunk: blue-black glass-free panels, a faint grid, chamfered edges and one ionised cyan line.",
+  "version": "1",
+  "base": "midnight",
+  "dark": {
+    "canvas": "#0C0F14",
+    "sidebar": "#080A0E",
+    "surface": "#12161D",
+    "raised": "#171C24",
+    "hover": "#1C222B",
+    "active": "#232A35",
+    "code": "#090C10",
+    "border": "#1B212A",
+    "borderStrong": "#2A323E",
+    "text": "#E2EBF2",
+    "muted": "#A6B3C0",
+    "subtle": "#8996A4",
+    "faint": "#6E7A88",
+    "accent": "#1FE0EC",
+    "accentHover": "#62EDF4",
+    "accentFg": "#04161A",
+    "accentText": "#6FEAF2",
+    "diffAdd": "#0D221F",
+    "diffAddFg": "#4CDDA6",
+    "diffDel": "#26121A",
+    "diffDelFg": "#FF7290",
+    "syntax": {
+      "kw": "#F27BC6",
+      "fn": "#7FE6EE",
+      "str": "#B9E58C",
+      "num": "#F5B97A",
+      "type": "#8DB8FF",
+      "com": "#6C7886",
+      "punc": "#8996A4"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#F2F5F8",
+    "sidebar": "#E6EBF0",
+    "surface": "#FFFFFF",
+    "raised": "#FFFFFF",
+    "hover": "#E3E9EF",
+    "active": "#D7DFE7",
+    "code": "#ECF0F4",
+    "border": "#DAE1E8",
+    "borderStrong": "#BFC9D4",
+    "text": "#0B1016",
+    "muted": "#3A4652",
+    "subtle": "#4F5B67",
+    "faint": "#86919D",
+    "accent": "#007EA8",
+    "accentHover": "#006A8E",
+    "accentFg": "#FFFFFF",
+    "accentText": "#00668A",
+    "diffAdd": "#E1F4EB",
+    "diffAddFg": "#137A4A",
+    "diffDel": "#FAE5EA",
+    "diffDelFg": "#B8203F",
+    "syntax": {
+      "kw": "#A8156F",
+      "fn": "#006B75",
+      "str": "#457200",
+      "num": "#9C4C00",
+      "type": "#2B58B0",
+      "com": "#68737F",
+      "punc": "#4F5B67"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"Ion Sans\", \"Hanken Grotesk\", \"SF Pro Text\", system-ui, sans-serif"
+    },
+    "prose": {
+      "system": "\"Ion Sans\", \"Hanken Grotesk\", \"SF Pro Text\", system-ui, sans-serif"
+    },
+    "mono": {
+      "asset": "assets/fonts/CommitMono-Regular.woff2",
+      "family": "Ion Mono"
+    }
+  },
+  "shape": {
+    "radius": 0.3,
+    "border": 1
+  },
+  "motion": {
+    "speed": 0.85
+  },
+  "layout": {
+    "toolRows": "detailed"
+  },
+  "labels": {
+    "composer-placeholder": "Jack in. Give the next directive…"
+  },
+  "terminal": {
+    "fontFamily": "Ion Mono",
+    "fontSize": 12.5,
+    "lineHeight": 1.4,
+    "cursorStyle": "block",
+    "cursorBlink": true,
+    "dark": {
+      "background": "#07090C",
+      "foreground": "#D5E0E8",
+      "cursor": "#1FE0EC",
+      "cursorAccent": "#04161A",
+      "selection": "#1FE0EC33",
+      "ansi": {
+        "black": "#232A35",
+        "red": "#FF6B88",
+        "green": "#5FE0A8",
+        "yellow": "#F2D46B",
+        "blue": "#7AA8FF",
+        "magenta": "#F27BC6",
+        "cyan": "#1FE0EC",
+        "white": "#C3CFD9",
+        "brightBlack": "#5A6673",
+        "brightRed": "#FF8FA5",
+        "brightGreen": "#86EBC0",
+        "brightYellow": "#F7E294",
+        "brightBlue": "#9FC0FF",
+        "brightMagenta": "#F7A0D6",
+        "brightCyan": "#7FEFF5",
+        "brightWhite": "#EEF4F8"
+      }
+    },
+    "light": {
+      "background": "#F7F9FB",
+      "foreground": "#141A21",
+      "cursor": "#007EA8",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#00788326",
+      "ansi": {
+        "black": "#0B1016",
+        "red": "#B8203F",
+        "green": "#137A4A",
+        "yellow": "#866300",
+        "blue": "#2B58B0",
+        "magenta": "#A8156F",
+        "cyan": "#007883",
+        "white": "#4F5B67",
+        "brightBlack": "#3A4652",
+        "brightRed": "#CC3352",
+        "brightGreen": "#1E8C5A",
+        "brightYellow": "#9A7400",
+        "brightBlue": "#3A68C2",
+        "brightMagenta": "#BC2A82",
+        "brightCyan": "#008A96",
+        "brightWhite": "#86919D"
+      }
+    }
+  },
+  "reveal": {
+    "app": 0.85,
+    "transcript": 0.75,
+    "page": 0.75,
+    "header": 0.85,
+    "rail": 0,
+    "sidebar": 0.5
+  }
+}

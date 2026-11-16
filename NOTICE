@@ -81,3 +81,16 @@ when available; browser fallbacks are bundled, with no third-party image request
 Sublime Text uses its published favicon (https://www.sublimetext.com/favicon.ico).
 IntelliJ IDEA uses its official JetBrains mark (https://github.com/JetBrains/logos,
 https://www.jetbrains.com/company/brand/). Both identify only the corresponding installed app.
+
+The Suits ace ships (packages/plugins/builtin-suits/) bundle these fonts, each under the SIL Open
+Font License 1.1, with its license text kept beside the font files in the Suit's assets/fonts/:
+- Hanken Grotesk, Copyright 2021 The Hanken Grotesk Project Authors
+  (https://github.com/marcologous/hanken-grotesk), in Tarn and Ion.
+- Commit Mono, Copyright 2023 Commit Mono authors (https://github.com/eigilnikolajsen/commit-mono),
+  in Tarn, Mizzle and Ion.
+- Instrument Sans, Copyright 2022 The Instrument Sans Project Authors
+  (https://github.com/Instrument/instrument-sans), in Mizzle.
+- Pixelify Sans, Copyright 2021 The Pixelify Sans Project Authors
+  (https://github.com/eifetx/Pixelify-Sans), in Loam.
+These fonts are accepted under that license and are not licensed under ace's license. The Suits'
+scenes and art are ace's own, drawn in code.

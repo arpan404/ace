@@ -109,7 +109,7 @@
 
 [data-part="thread-row"],
 [data-part="chat-row"],
-[data-part="nav-item"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"],
 [data-part="rail-item"] {
   transition:
     background-color 140ms ease,
@@ -117,14 +117,14 @@
 }
 [data-part="thread-row"]:hover,
 [data-part="chat-row"]:hover,
-[data-part="nav-item"]:hover,
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"]:hover,
 [data-part="rail-item"]:hover {
   background: var(--suit-wash-1);
 }
 /* The open row: a raised plate with a hairline and the smallest shadow. */
 [data-part="thread-row"]:is([data-state="active"], [data-state="selected"]),
 [data-part="chat-row"][data-state="active"],
-[data-part="nav-item"][data-state="active"],
+:is([data-part="sidebar"], [data-part="settings-nav"]) [data-part="nav-item"][data-state="active"],
 [data-part="rail-item"][data-state="active"] {
   background: var(--suit-plate);
   box-shadow:
