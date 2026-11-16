@@ -1,0 +1,168 @@
+import { fileURLToPath } from "node:url";
+import { createTestHarness } from "wrangler";
+import {
+  GRANT_LIFETIME_MS,
+  grantPublicKey,
+  signCloudGrant,
+  signGrant,
+  signMarketGrant,
+} from "@ace/account-grant";
+import {
+  contentHash,
+  hashFiles,
+  signManifest,
+  signReviewMark,
+  writeArchive,
+  type ArchiveFile,
+  type MarketSigningKey,
+} from "@ace/marketplace";
+import { keySetOf, testKey, testPublisher } from "@ace/marketplace/testing";
+import type { MarketEntryType } from "@ace/protocol/marketplace";
+
+/*
+ * The market Worker under real workerd (Miniflare) with local D1 and R2, and helpers that act
+ * as a publisher and as the signer through its HTTP API.
+ */
+
+export const grantKey = { id: "acct", privateKey: new Uint8Array(32).fill(3) };
+export const marketKey = testKey("market", 9);
+export const signerToken = "signer-token-for-tests";
+
+export async function startMarket() {
+  const harness = createTestHarness({
+    workers: [
+      {
+        configPath: fileURLToPath(import.meta.resolve("../../wrangler.jsonc")),
+        secrets: {
+          ACE_GRANT_KEYS: JSON.stringify({ keys: [grantPublicKey(grantKey)] }),
+          MARKET_PUBLIC_KEYS: JSON.stringify(keySetOf(marketKey)),
+          MARKET_SIGNER_TOKEN: signerToken,
+        },
+      },
+    ],
+  });
+  await harness.listen();
+  const worker = harness.getWorker();
+  await worker.applyD1Migrations("MARKET");
+  const fetch = (path: string, init?: Parameters<typeof worker.fetch>[1]) =>
+    worker.fetch(`https://market.acehq.dev${path}`, init);
+  return { fetch, close: () => harness.close() };
+}
+export type Market = Awaited<ReturnType<typeof startMarket>>;
+
+const lifetime = (iat = Date.now()) => ({ iat, exp: iat + GRANT_LIFETIME_MS });
+
+/** A market publishing grant for `account`, as the account backend mints it. */
+export const marketGrant = (account: string) =>
+  signMarketGrant({ kind: "machine", account, subject: "host-a", ...lifetime() }, grantKey);
+export const relayGrant = (account: string, kind: "machine" | "device" = "machine") =>
+  signGrant({ kind, account, subject: "host-a", ...lifetime() }, grantKey);
+export const cloudGrant = (account: string) =>
+  signCloudGrant({ kind: "machine", account, subject: "host-a", ...lifetime() }, grantKey);
+
+export const asSigner = { authorization: `Bearer ${signerToken}` };
+
+export interface Upload {
+  type: MarketEntryType;
+  name: string;
+  version?: string;
+  files: ArchiveFile[];
+  account?: string;
+  publisher?: string;
+  grant?: string;
+}
+
+/** Publishes a folder as `account` (by default `acct_a`, publisher `tester`). */
+export function publish(market: Market, upload: Upload) {
+  const account = upload.account ?? "acct_a";
+  const params = new URLSearchParams({ version: upload.version ?? "1.0.0" });
+  params.set("publisher", upload.publisher ?? "tester");
+  return market.fetch(`/v1/publish/${upload.type}/${upload.name}/versions?${params}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${upload.grant ?? marketGrant(account)}`,
+      "content-type": "application/x-tar",
+    },
+    body: writeArchive(upload.files),
+  });
+}
+
+/** The manifest the signer would sign for a stored version. */
+export function manifestFor(
+  upload: { type: MarketEntryType; name: string; version?: string; files: ArchiveFile[] },
+  options: { key?: MarketSigningKey; publisher?: { id: string; name: string } | undefined } = {},
+) {
+  const hashed = hashFiles(upload.files);
+  const key = options.key ?? marketKey;
+  return signManifest(
+    {
+      format: "ace-market-manifest",
+      type: upload.type,
+      name: upload.name,
+      version: upload.version ?? "1.0.0",
+      publisher: options.publisher ?? testPublisher,
+      hash: contentHash(hashed),
+      files: hashed,
+      size: hashed.reduce((sum, file) => sum + file.bytes, 0),
+      published: 1_700_000_000_000,
+      key: key.id,
+    },
+    key,
+  );
+}
+
+export function put(market: Market, path: string, body: unknown) {
+  return market.fetch(path, {
+    method: "PUT",
+    headers: { ...asSigner, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** The publisher the signer sees for a pending version. */
+export async function pendingPublisher(market: Market, type: string, name: string) {
+  const pending = (await (
+    await market.fetch("/v1/signer/pending", { headers: asSigner })
+  ).json()) as {
+    versions: { type: string; name: string; publisher: { id: string; name: string } }[];
+  };
+  return pending.versions.find((version) => version.type === type && version.name === name)
+    ?.publisher;
+}
+
+/** Publishes, then signs, as publisher and signer together; optionally with a review mark. */
+export async function publishSigned(
+  market: Market,
+  upload: Upload & { reviewed?: boolean; byAce?: boolean },
+) {
+  const published = await publish(market, upload);
+  if (published.status !== 201 && published.status !== 200)
+    throw new Error(`publish failed: ${published.status} ${await published.text()}`);
+  const publisher = await pendingPublisher(market, upload.type, upload.name);
+  const version = upload.version ?? "1.0.0";
+  const path = `${upload.type}/${upload.name}/${version}`;
+  const signed = await put(market, `/v1/signer/versions/${path}`, {
+    manifest: manifestFor(upload, publisher ? { publisher } : {}),
+  });
+  if (signed.status !== 200)
+    throw new Error(`sign failed: ${signed.status} ${await signed.text()}`);
+  if (upload.reviewed !== undefined) {
+    const hash = contentHash(hashFiles(upload.files));
+    const review = signReviewMark(
+      {
+        format: "ace-market-review",
+        type: upload.type,
+        name: upload.name,
+        hash,
+        reviewed: upload.reviewed,
+        byAce: upload.byAce ?? false,
+        at: 1_700_000_000_000,
+        key: marketKey.id,
+      },
+      marketKey,
+    );
+    const marked = await put(market, `/v1/signer/reviews/${path}`, { review });
+    if (marked.status !== 200) throw new Error(`review failed: ${marked.status}`);
+  }
+  return { hash: contentHash(hashFiles(upload.files)) };
+}

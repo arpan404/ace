@@ -222,6 +222,19 @@
         "react-dom": "^19.3.0",
       },
     },
+    "apps/market": {
+      "name": "@ace/market",
+      "dependencies": {
+        "@ace/account-grant": "workspace:*",
+        "@ace/marketplace": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.20261102.1",
+        "wrangler": "^4.156.2",
+      },
+    },
     "apps/marketing": {
       "name": "@ace/marketing",
       "dependencies": {
@@ -1302,6 +1315,8 @@
     "@ace/interaction": ["@ace/interaction@workspace:packages/interaction"],
 
     "@ace/ios": ["@ace/ios@workspace:apps/ios"],
+
+    "@ace/market": ["@ace/market@workspace:apps/market"],
 
     "@ace/marketing": ["@ace/marketing@workspace:apps/marketing"],
 
