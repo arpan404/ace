@@ -1,0 +1,157 @@
+{
+  "format": 1,
+  "id": "palm-haze",
+  "name": "Palm Haze",
+  "description": "A sunset coast: plum dusk panels, flamingo-pink accents, palms swaying over the sea, neon art-deco hotels and a convertible cruising the boulevard.",
+  "version": "1",
+  "base": "ace",
+  "dark": {
+    "canvas": "#110E16",
+    "sidebar": "#0D0A11",
+    "surface": "#1C1822",
+    "raised": "#231E2A",
+    "hover": "#2A2431",
+    "active": "#332C3B",
+    "code": "#0E0B12",
+    "border": "#2A2431",
+    "borderStrong": "#433A4E",
+    "text": "#F1EAF2",
+    "muted": "#C3B6C7",
+    "subtle": "#AC9DB1",
+    "faint": "#857789",
+    "accent": "#FEBCE4",
+    "accentHover": "#FFD0EC",
+    "accentFg": "#2A0F22",
+    "accentText": "#FFC8E8",
+    "diffAdd": "#16261F",
+    "diffAddFg": "#72D3A6",
+    "diffDel": "#2C161E",
+    "diffDelFg": "#FF8A9C",
+    "syntax": {
+      "kw": "#FF9EC9",
+      "fn": "#FFD9A0",
+      "str": "#9FE3C8",
+      "num": "#8FD4F0",
+      "type": "#E0B4FF",
+      "com": "#8A7C8F",
+      "punc": "#AC9DB1"
+    },
+    "glass": null
+  },
+  "light": {
+    "canvas": "#FBF6F1",
+    "sidebar": "#F3EBE3",
+    "surface": "#FFFFFF",
+    "raised": "#FFFFFF",
+    "hover": "#F1E8DF",
+    "active": "#E7DCD1",
+    "code": "#F6EFE8",
+    "border": "#EADFD5",
+    "borderStrong": "#D2C3B5",
+    "text": "#221A1E",
+    "muted": "#4E4248",
+    "subtle": "#62545B",
+    "faint": "#94868C",
+    "accent": "#5E1648",
+    "accentHover": "#4A1038",
+    "accentFg": "#FFFFFF",
+    "accentText": "#5E1648",
+    "diffAdd": "#E2F3EA",
+    "diffAddFg": "#1E7A50",
+    "diffDel": "#FBE4E8",
+    "diffDelFg": "#B02848",
+    "syntax": {
+      "kw": "#A3175F",
+      "fn": "#7A4A10",
+      "str": "#1E6E58",
+      "num": "#1A6688",
+      "type": "#6B3A9A",
+      "com": "#7A6C72",
+      "punc": "#62545B"
+    },
+    "glass": null
+  },
+  "fonts": {
+    "ui": {
+      "system": "\"SF Pro Text\", Inter, system-ui, sans-serif"
+    },
+    "mono": {
+      "system": "\"SF Mono\", Menlo, ui-monospace, monospace"
+    }
+  },
+  "shape": {
+    "radius": 1.1,
+    "border": 1
+  },
+  "motion": {
+    "speed": 1
+  },
+  "labels": {
+    "composer-placeholder": "Where to tonight?"
+  },
+  "reveal": {
+    "app": 0.75,
+    "header": 0.6,
+    "transcript": 0.42,
+    "page": 0.5,
+    "rail": 0,
+    "sidebar": 0.5
+  },
+  "terminal": {
+    "fontFamily": "\"SF Mono\", Menlo, monospace",
+    "fontSize": 12.5,
+    "lineHeight": 1.35,
+    "cursorStyle": "bar",
+    "cursorBlink": true,
+    "dark": {
+      "background": "#110E15",
+      "foreground": "#EDE4EE",
+      "cursor": "#FEBCE4",
+      "cursorAccent": "#110E15",
+      "selection": "#FEBCE433",
+      "ansi": {
+        "black": "#332C3B",
+        "red": "#FF8A9C",
+        "green": "#72D3A6",
+        "yellow": "#FFD38A",
+        "blue": "#8FB4F0",
+        "magenta": "#FF9EC9",
+        "cyan": "#8FD4F0",
+        "white": "#D8CCDA",
+        "brightBlack": "#857789",
+        "brightRed": "#FFA8B6",
+        "brightGreen": "#98E2C0",
+        "brightYellow": "#FFE2AE",
+        "brightBlue": "#B0CBF6",
+        "brightMagenta": "#FFBEDC",
+        "brightCyan": "#B0E2F6",
+        "brightWhite": "#F8F2F8"
+      }
+    },
+    "light": {
+      "background": "#FDF9F5",
+      "foreground": "#221A1E",
+      "cursor": "#5E1648",
+      "cursorAccent": "#FFFFFF",
+      "selection": "#5E164826",
+      "ansi": {
+        "black": "#221A1E",
+        "red": "#B02848",
+        "green": "#1E7A50",
+        "yellow": "#8A5E00",
+        "blue": "#2A5A9E",
+        "magenta": "#A3175F",
+        "cyan": "#1A6688",
+        "white": "#62545B",
+        "brightBlack": "#4E4248",
+        "brightRed": "#C43858",
+        "brightGreen": "#2A8C60",
+        "brightYellow": "#9E6E00",
+        "brightBlue": "#3A6CB2",
+        "brightMagenta": "#B82A74",
+        "brightCyan": "#2A7A9C",
+        "brightWhite": "#94868C"
+      }
+    }
+  }
+}
