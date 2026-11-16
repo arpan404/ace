@@ -6,6 +6,9 @@ struct GlassChoiceItem: Identifiable, Equatable {
     let id: String
     let label: String
     var glyph: Glyph? = nil
+    /// What VoiceOver reads instead of `label` ("Effort, Medium"), and after it ("default").
+    var spoken: String? = nil
+    var spokenValue: String? = nil
 }
 
 /// Exclusive choices in words on one glass capsule (system glass on iOS 26, the regular material
@@ -73,7 +76,8 @@ struct GlassChoice: View {
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .accessibilityLabel(item.label)
+        .accessibilityLabel(item.spoken ?? item.label)
+        .accessibilityValue(item.spokenValue ?? "")
         .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("\(idPrefix).\(item.id)")
         .sensoryFeedback(.selection, trigger: on)

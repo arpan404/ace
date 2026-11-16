@@ -6,8 +6,10 @@ import SwiftUI
 /// starred, else on the account the thread runs on, with its model checked. Picking marks a model;
 /// the check moves the thread to it by the bridge's rules: the same provider switches at once,
 /// another provider asks first, and a move that needs a new thread asks, then waits for the next
-/// message. A row the thread can't move to says why and can't be picked. Effort and speed have
-/// their own panel from the composer.
+/// message. A row the thread can't move to says why and can't be picked. Effort and Speed sit at
+/// the top for the model it would run on: on the model in use a tap applies at once, as the
+/// bridge takes it for the next message; on a model picked in the list it is held and goes with
+/// the move.
 struct ModelPickerSheet: View {
     let model: ClientModel
     @Bindable var screen: ThreadScreenModel
@@ -18,6 +20,9 @@ struct ModelPickerSheet: View {
     @State private var shown: String?
     @State private var expanded: Set<String> = []
     @State private var asking: Asking?
+    /// Effort and speed picked for a model other than the one in use, sent with the move.
+    @State private var heldEffort: String?
+    @State private var heldSpeed: String?
 
     /// A move waiting on the person's answer, in the bridge's words.
     private struct Asking { let target: NewThreadPickerRows.Chosen; let ask: ThreadModels.Ask }
@@ -39,6 +44,18 @@ struct ModelPickerSheet: View {
         }
     }
 
+    /// The picked model's catalog row, for its levels.
+    private var pickedModel: ComposeAgent.Model? {
+        guard let picked else { return nil }
+        return list.read.agents.first { $0.provider == picked.provider }?.models
+            .first { $0.key == picked.key && $0.account == picked.account }
+    }
+    private var onCurrent: Bool { picked == nil || picked == list.current }
+    private var tune: TuneChoices? {
+        TuneChoices.forThread(tune: screen.tune, current: list.current, target: chosen, model: pickedModel,
+                              effort: heldEffort, speed: heldSpeed)
+    }
+
     var body: some View {
         let open = expanded.contains(tab)
         let listed = ThreadPickerRows.rows(list, tab: tab, chosen: chosen, query: query, expanded: open)
@@ -48,7 +65,8 @@ struct ModelPickerSheet: View {
             toggleMore: { if open { expanded.remove(tab) } else { expanded.insert(tab) } },
             rowPrefix: "threadModel", morePrefix: "threadModel.\(tab)", starProblem: list.read.starProblem,
             retry: { model.requestModels() }, confirming: switching, confirm: confirm,
-            choose: pick, star: { model.favoriteModel($0.key) }
+            choose: pick, star: { model.favoriteModel($0.key) },
+            tune: tune, pickEffort: pickEffort, pickSpeed: pickSpeed
         )
         .onAppear { model.requestModels() }
         // Where it opens is decided once the list arrives, so a new star never moves the sheet.
@@ -76,7 +94,17 @@ struct ModelPickerSheet: View {
         let ref = ComposeTab.Ref(key: sent.key, account: sent.account)
         return NewThreadPickerRows.resolve(list.read.agents, ref)?.0.provider ?? ""
     }
+    private func pickEffort(_ level: TuneChoiceRow.Level) {
+        // The model's own default goes back to it rather than naming it.
+        if onCurrent { Task { _ = await model.setEffort(level.isDefault ? nil : level.id) } }
+        else { heldEffort = level.id }
+    }
+    private func pickSpeed(_ level: TuneChoiceRow.Level) {
+        if onCurrent { Task { _ = await model.setSpeed(level.id) } }
+        else { heldSpeed = level.id }
+    }
     private func pick(_ row: ModelPickerRow) {
+        heldEffort = nil; heldSpeed = nil
         if let current = list.current, row.id == current.account + "\u{0}" + current.key { picked = current; return }
         let refs = list.read.tabs.flatMap(\.models)
         guard let ref = refs.first(where: { $0.account + "\u{0}" + $0.key == row.id }),
@@ -91,7 +119,9 @@ struct ModelPickerSheet: View {
     private func move(to target: NewThreadPickerRows.Chosen, confirmed: Bool) {
         switching = true
         Task {
-            let moved = await model.switchModel(key: target.key, account: target.account, confirmed: confirmed)
+            let held = target == picked
+            let moved = await model.switchModel(key: target.key, account: target.account, confirmed: confirmed,
+                                                effort: held ? heldEffort : nil, speed: held ? heldSpeed : nil)
             switching = false
             if moved { dismiss() }
         }

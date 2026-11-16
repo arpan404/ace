@@ -65,12 +65,13 @@ extension ClientModel {
     func favoriteModel(_ key: String) { threadAction(["type": "favorite", "key": key]) }
     /// Move the thread to a model on one account; `confirmed` once the person answered the row's
     /// question. The bridge decides what that does: switch, or continue with the next message.
-    func switchModel(key: String, account: String, confirmed: Bool) async -> Bool {
+    func switchModel(key: String, account: String, confirmed: Bool, effort: String? = nil, speed: String? = nil) async -> Bool {
         guard canOperate else { return false }
         let id = admissions.nextId()
-        return await admissions.wait(id: id) {
-            threadAction(["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id])
-        }
+        var action: [String: Any] = ["type": "switchModel", "key": key, "account": account, "confirmed": confirmed, "requestId": id]
+        if let effort { action["effort"] = effort }
+        if let speed { action["speed"] = speed }
+        return await admissions.wait(id: id) { threadAction(action) }
     }
     /// Change a queued follow-up: `change` is remove, steer (send it now) or new words.
     func editQueued(_ message: QueueRow.Message, change: [String: Any]) async -> Bool {

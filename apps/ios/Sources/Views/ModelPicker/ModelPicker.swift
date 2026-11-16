@@ -8,11 +8,12 @@ enum ModelPickerState: Equatable {
     case failed(title: String, message: String)
 }
 
-/// The model sheet shared by a thread's composer and New thread, models only: X on the left, a
-/// check on the right, "Find a model" at the bottom within the thumb's reach (under the title
-/// before iOS 26), Favorites and one tab per account on a
-/// glass bar, then the shown tab's models as plain rows under hairlines, each with a star. A tab
-/// that can't take work says why in one line above its models.
+/// The one model sheet shared by an open thread and New thread: X on the left, a check on the
+/// right, "Find a model" at the bottom within the thumb's reach (under the title before iOS 26).
+/// At its top, Effort and Speed for the model it would run on (`TuneSection`); below them
+/// Favorites and one tab per account on a glass bar that stays pinned while the models scroll,
+/// then the shown tab's models as plain rows under hairlines, each with a star. A tab that can't
+/// take work says why in one line above its models. Searching hides the tune rows and tabs.
 struct ModelPicker: View {
     @Binding var query: String
     let tabs: [ModelPickerTab]
@@ -35,7 +36,12 @@ struct ModelPicker: View {
     let confirm: () -> Void
     let choose: (ModelPickerRow) -> Void
     let star: (ModelPickerRow) -> Void
+    /// Effort and Speed for the model it would run on; nil or empty shows no rows.
+    var tune: TuneChoices? = nil
+    var pickEffort: (TuneChoiceRow.Level) -> Void = { _ in }
+    var pickSpeed: (TuneChoiceRow.Level) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
+    @State private var detent: PresentationDetent = .large
 
     private var tab: ModelPickerTab? { tabs.first { $0.id == shown } }
     private var searching: Bool { ModelSearch.active(query) }
@@ -48,8 +54,7 @@ struct ModelPicker: View {
             .background(AceTheme.Colours.background)
             .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
             .modifier(ModelSearchField(query: $query))
-            .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
-            .pinnedTopBar { if tabs.count > 1 && !searching { tabBar } }
+            .navigationTitle("Model").navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
@@ -60,7 +65,7 @@ struct ModelPicker: View {
         }
         .tint(AceTheme.Colours.foreground)
         .toggleStyle(.systemSwitch)
-        .presentationDetents([.large]).presentationDragIndicator(.visible)
+        .presentationDetents([.medium, .large], selection: $detent).presentationDragIndicator(.visible)
     }
 
     private var tabBar: some View {
@@ -68,6 +73,9 @@ struct ModelPicker: View {
             .padding(.horizontal, AceTheme.Spacing.lg)
             .padding(.top, AceTheme.Spacing.xs)
             .padding(.bottom, AceTheme.Spacing.sm)
+            .frame(maxWidth: .infinity)
+            .background(AceTheme.Colours.background)
+            .listRowInsets(EdgeInsets())
     }
     private func item(_ tab: ModelPickerTab) -> GlassChoiceItem {
         GlassChoiceItem(id: tab.id, label: tab.name,
@@ -75,6 +83,15 @@ struct ModelPicker: View {
     }
 
     @ViewBuilder private var content: some View {
+        if let tune, !tune.isEmpty, !searching {
+            TuneSection(choices: tune, pickEffort: pickEffort, pickSpeed: pickSpeed)
+        }
+        // The tabs head the models and stay pinned while they scroll.
+        Section { models } header: { if tabs.count > 1 && !searching { tabBar } }
+            .listSectionSeparator(.hidden, edges: .top)
+    }
+
+    @ViewBuilder private var models: some View {
         switch state {
         case .loading:
             SkeletonRows(count: 4, label: "Loading models").listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -93,14 +110,11 @@ struct ModelPicker: View {
                     PickerNote(text: "Star a model to keep it here.").accessibilityIdentifier("favorites.empty")
                 } else if tab?.note == nil { PickerNote(text: "No models on this account.") }
             } else {
-                Section {
-                    ForEach(rows) { row in
-                        ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: (searching || tab?.note == nil) && row.note == nil,
-                                       choose: { choose(row) }, star: { star(row) })
-                    }
-                    if hidden > 0 || expanded { moreRow }
+                ForEach(rows) { row in
+                    ModelChoiceRow(row: row, identifier: "\(rowPrefix).\(row.label)", enabled: (searching || tab?.note == nil) && row.note == nil,
+                                   choose: { choose(row) }, star: { star(row) })
                 }
-                .listSectionSeparator(.hidden, edges: .top)
+                if hidden > 0 || expanded { moreRow }
             }
         }
     }
