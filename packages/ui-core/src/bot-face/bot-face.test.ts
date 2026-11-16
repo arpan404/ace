@@ -19,6 +19,7 @@ import {
   botPairColours,
   botFaceStateAfter,
   botFaceStateOf,
+  botFaceMotion,
   type BotFace,
 } from "./index.ts";
 
@@ -174,5 +175,12 @@ describe("states", () => {
     expect(botFaceStateOf({ state: "working", status: "Reading a page" })).toBe("working");
     expect(botFaceStateOf({ state: "idle", problem: "Signed out" })).toBe("blocked");
     expect(botFaceStateOf({ state: "idle" })).toBe("idle");
+  });
+
+  it("a sleeping bot's face sleeps, holds still, and never reads as done", () => {
+    expect(botFaceStateOf({ state: "sleeping" })).toBe("sleeping");
+    expect(botFaceStateAfter("working", "sleeping")).toBe("sleeping");
+    expect(botFaceStateAfter("sleeping", "working")).toBe("acknowledge");
+    expect(botFaceMotion.sleeping.kind).toBe("still");
   });
 });

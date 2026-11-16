@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
+import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
@@ -211,6 +212,7 @@ const known = z.discriminatedUnion("type", [
     text: z.string(),
     data: z.array(z.unknown()).optional(),
   }),
+  ...spadeCapabilityEvents,
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;
@@ -255,7 +257,8 @@ const waitingMemberShape = z.object({
     .transform((machine) => machine ?? null),
 });
 const statusShape = z.object({
-  state: z.enum(["idle", "working", "waiting"]),
+  /** `sleeping`: it sleeps or waits on a wake (ADR 0160), never idle or done. */
+  state: z.enum(["idle", "working", "waiting", "sleeping"]),
   status: z.string().nullish().catch(undefined),
   /** In a group's stream, the member that waits for the person; anything unreadable is none. */
   waiting_member: waitingMemberShape.nullish().catch(undefined),
@@ -271,7 +274,7 @@ export type SpadeLiveInput =
   /** The agent's current state and its few words on what it does now (ADR 0127). */
   | {
       kind: "status";
-      state: "idle" | "working" | "waiting";
+      state: "idle" | "working" | "waiting" | "sleeping";
       status: string | undefined;
       /** In a group's stream, the member that waits for the person (by id, never by words). */
       waitingMember?: { id: string; name: string; machine: string | null } | undefined;

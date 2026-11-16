@@ -194,3 +194,23 @@ export function spadeProblemStep(problem: string): string {
   const first = problem.trim().split(/(?<=[.!?])\s/)[0] ?? problem;
   return first.replace(/[.!]$/, "");
 }
+
+/** How Spade opens the reason of a request the bot asked again after a refusal (ADR 0163). */
+const refusedAgain = /^refused again:\s*/i;
+
+/**
+ * A request the bot asked again after the auto-review refused it: the card opens with that, so
+ * the person knows why it reached them. `sentence` from `spadeRequestCard` ("… wants to …")
+ * becomes "… asks again to …", and `before` is what the review said the first time. Undefined
+ * for any other request (one the review couldn't decide).
+ */
+export function spadeAskedAgain(
+  sentence: string,
+  reason: string | undefined,
+): { sentence: string; before: string } | undefined {
+  if (!reason || !refusedAgain.test(reason.trim())) return undefined;
+  return {
+    sentence: sentence.replace(" wants to ", " asks again to "),
+    before: reason.trim().replace(refusedAgain, ""),
+  };
+}

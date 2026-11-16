@@ -1,6 +1,7 @@
 /*
  * What a face does: a pose per state, and how it gets there. Only working and thinking loop;
  * every other state moves once and holds its last pose, which is also what reduced motion shows.
+ * Sleeping (ADR 0127, amended for ADR 0160) is still from the start: lids down, head low.
  */
 
 export type BotFaceState =
@@ -10,7 +11,9 @@ export type BotFaceState =
   | "working"
   | "needs-you"
   | "blocked"
-  | "done";
+  | "done"
+  /** It sleeps or waits on a wake: never idle or done, and held still. */
+  | "sleeping";
 
 export interface BotFaceMotion {
   /** `loop`: repeats while the state lasts; `once`: plays, then holds the pose. */
@@ -27,15 +30,17 @@ export const botFaceMotion: Record<BotFaceState, BotFaceMotion> = {
   "needs-you": { kind: "once", ms: 700 },
   blocked: { kind: "once", ms: 800 },
   done: { kind: "once", ms: 800 },
+  sleeping: { kind: "still", ms: 0 },
 };
 
 /** What an agent's face shows, from what Spade says the agent is doing. */
 export function botFaceStateOf(agent: {
-  state: "idle" | "working" | "waiting";
+  state: "idle" | "working" | "waiting" | "sleeping";
   status?: string | undefined;
   problem?: string | undefined;
 }): BotFaceState {
   if (agent.state === "waiting") return "needs-you";
+  if (agent.state === "sleeping") return "sleeping";
   if (agent.state === "working") return agent.status === "Thinking" ? "thinking" : "working";
   if (agent.problem) return "blocked";
   return "idle";

@@ -27,3 +27,8 @@ export * from "./computer.ts";
 export * from "./request-words.ts";
 export * from "./questions.ts";
 export * from "./runs.ts";
+export * from "./wire-capabilities.ts";
+export * from "./fold-capabilities.ts";
+export * from "./quiet.ts";
+export * from "./wakes.ts";
+export * from "./digests.ts";
