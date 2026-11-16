@@ -15,6 +15,7 @@ import {
   type MarketKeySet,
 } from "@ace/marketplace";
 import type { GitCatalogs } from "./git.ts";
+import { TurnedOff } from "./turned-off.ts";
 import type { MarketHttp } from "./http.ts";
 import { storedMarketWithdrawn } from "../stored-decode.ts";
 import type { MarketStore, StoredListing, StoredSource } from "./store.ts";
@@ -155,6 +156,8 @@ export async function refreshSource(
     } else next = await readGit(deps.store, deps.git, source, deps.now());
     next = { ...next, readAt: deps.now(), problem: undefined };
   } catch (error) {
+    // Turned off isn't the source's problem; the read stops and is tried again later.
+    if (error instanceof TurnedOff) throw error;
     next = {
       ...source,
       problem: (error instanceof Error ? error.message : "The read failed").slice(0, 500),

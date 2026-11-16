@@ -30,8 +30,8 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
     suits: () => services.suits,
     plugins: () => (services.plugins ? plugins : undefined),
     spade: spadePort(() => services.spade?.ready()?.connection),
-    // Off in Settings › Beta, the daily refresh doesn't reach the network.
-    paused: async () => !(await marketplaceTurnedOn(services.settings)),
+    // Settings › Beta: off, the service refuses requests, queued work, fetches and install steps.
+    enabled: () => marketplaceTurnedOn(services.settings),
     schedule: (run, ms) => {
       const timer = setTimeout(run, ms);
       timer.unref?.();
@@ -42,16 +42,9 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
   services.marketplace = marketplace;
 }
 
-/** What every marketplace request gets while Settings › Beta has the marketplace off. */
-const turnedOff: MarketResult = {
-  op: "error",
-  code: "unavailable",
-  message: "The marketplace is turned off. Turn it on in Settings › Beta.",
-};
-
 /**
- * Settings › Beta's marketplace switch (`beta.marketplace`), read per request so a change applies
- * at once. Off with no settings to read. What was installed from the marketplace is never gated
+ * Settings › Beta's marketplace switch (`beta.marketplace`), read wherever the service starts
+ * work so a change applies at once. Off with no settings to read. What was installed from the marketplace is never gated
  * here: suits, skills and plugins run from their own services.
  */
 export async function marketplaceTurnedOn(settings: SettingsService | undefined): Promise<boolean> {
@@ -102,9 +95,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
         return true;
       }
-      const task = marketplaceTurnedOn(options.settings).then(async (on) =>
-        reply(on ? await marketplace.request(message.operation) : turnedOff),
-      );
+      const task = marketplace.request(message.operation).then(reply);
       tasks.add(task);
       void task.finally(() => tasks.delete(task));
       return true;
