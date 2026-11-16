@@ -43,6 +43,8 @@ export interface MarketplaceOptions {
   spade: SpadePort;
   /** Runs `run` after `ms`; returns its cancel. */
   schedule: (run: () => void, ms: number) => () => void;
+  /** True while the daily refresh should skip the network (the marketplace turned off). */
+  paused?: () => Promise<boolean>;
   /** Tests add catalogs by local path; people add https addresses only. */
   allowLocalGit?: boolean;
 }
@@ -123,7 +125,10 @@ export class MarketplaceService {
   #daily(ms: number): void {
     this.#cancelTimer = this.#options.schedule(() => {
       if (this.#closed) return;
-      void this.#refreshAll().finally(() => this.#daily(dayMs));
+      const refresh = async () => {
+        if (!(await this.#options.paused?.())) await this.#refreshAll();
+      };
+      void refresh().finally(() => this.#daily(dayMs));
     }, ms);
   }
 

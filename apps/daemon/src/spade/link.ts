@@ -100,7 +100,7 @@ export class SpadeLink {
     };
   }
   /**
-   * Spade hidden on this machine (`features.json`, ADR 0139): the status says only that, and
+   * Spade turned off in Settings › Beta (`beta.spade`, ADR 0139): the status says only that, and
    * nothing is forwarded, whatever Spade's own state.
    */
   setHidden(hidden: boolean): void {

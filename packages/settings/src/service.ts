@@ -25,6 +25,8 @@ const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
   "media.encode",
   "media.delivery",
   "spade.enabled",
+  "beta.spade",
+  "beta.marketplace",
   // Which programs a provider may start (ADR 0138): a repository can't point them elsewhere.
   "providers.codex.toolSource",
   "providers.claude.chrome",
@@ -235,6 +237,8 @@ export class SettingsService {
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
     if (key === "spade.enabled" && layer.kind !== "global")
       throw new SettingsError("validation", "Running Spade is a global setting");
+    if (key.startsWith("beta.") && layer.kind !== "global")
+      throw new SettingsError("validation", "Beta features are a global setting");
     if (globalOnlyKeys.has(key) && layer.kind !== "global")
       throw new SettingsError("validation", "Working while this Mac is locked is a global setting");
     if (roleSettingKeys.includes(key) && layer.kind !== "global")

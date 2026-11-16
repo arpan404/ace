@@ -1,6 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { z } from "zod";
-import { basename, dirname, join } from "node:path";
+import { betaOnAtRest } from "@ace/settings/beta";
+import { basename, dirname } from "node:path";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { runProcess, type Runner } from "./process.ts";
 import { spadeRegistrationKind, type SpadeServicePlan } from "./spade-plan.ts";
@@ -15,18 +14,9 @@ export interface SpadeServicePorts {
   run: Runner;
   wait(ms: number): Promise<void>;
 }
-const spadeVisibility = z.object({ spade: z.boolean() });
-
 export const systemSpadePorts: SpadeServicePorts = {
-  async shown(home) {
-    try {
-      const value: unknown = JSON.parse(await readFile(join(home, "features.json"), "utf8"));
-      const parsed = spadeVisibility.safeParse(value);
-      return parsed.success && parsed.data.spade;
-    } catch {
-      return false;
-    }
-  },
+  // Settings › Beta's Spade switch (`beta.spade`), read from the home's files.
+  shown: (home) => betaOnAtRest(home, "spade"),
   run: runProcess,
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };

@@ -1,4 +1,8 @@
 import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SettingsService } from "@ace/settings";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
 import { sampleSkill, signedVersion } from "@ace/marketplace/testing";
@@ -55,13 +59,22 @@ test("a read device browses the marketplace and hears installs, but only an admi
   const market = await fakeMarket();
   const spade = await fakeSpade();
   const harness = await marketplaceHarness({ origin: market.origin, spade });
+  const settingsHome = await mkdtemp(join(tmpdir(), "ace-market-settings-"));
+  const settings = new SettingsService({ dataDir: settingsHome });
   const sockets: WebSocket[] = [];
   try {
     const files = sampleSkill();
     market.publish(signedVersion({ type: "spade-skill", name: "triage-mail", files }), files);
-    const f = await setup({ marketplace: harness.service });
+    const f = await setup({ marketplace: harness.service, settings });
     const reader = await connect(f, sockets, ["read"]);
     const admin = await connect(f, sockets, ["admin"]);
+    // Off in Settings › Beta (the default), every request is answered as turned off.
+    expect(await admin.ask("off", { op: "search", query: "triage" })).toMatchObject({
+      op: "error",
+      code: "unavailable",
+      message: expect.stringContaining("turned off"),
+    });
+    await settings.set("beta.marketplace", true, { kind: "global" });
     expect(await reader.ask("refresh", { op: "refresh" })).toMatchObject({
       op: "error",
       code: "forbidden",
@@ -120,5 +133,7 @@ test("a read device browses the marketplace and hears installs, but only an admi
     await harness.close();
     await market.close();
     await spade.close();
+    await settings.close();
+    await rm(settingsHome, { recursive: true, force: true });
   }
 });

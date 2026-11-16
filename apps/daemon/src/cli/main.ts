@@ -44,7 +44,7 @@ ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 ace clean --compact [--abandon COMPACTION_ID]
 ace config get [retention-days|log-cap]|config set retention-days DAYS|config set log-cap SIZE
 ace spade on|off
-ace features [show|hide spade]
+ace features [on|off spade|marketplace]
 ace marketplace check PATH --type TYPE [--name NAME]
 ace market keygen KEY_FILE [--id ID]|market sign --key KEY_FILE [--url URL]
 ace market review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed]|market feature TYPE/NAME ...

@@ -11,11 +11,14 @@ import { parseArgs } from "./args.ts";
 import { featuresCommand } from "./features.ts";
 import { spadeCommand } from "./spade.ts";
 
-/** A home whose features.json shows Spade. */
+/** A home with Spade turned on in Settings › Beta. */
 async function shownHome(onTestFinished: (run: () => Promise<void>) => void): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
-  await writeFile(join(home, "features.json"), '{"spade": true}');
+  await writeFile(
+    join(home, "settings.json"),
+    JSON.stringify({ version: 2, settings: { "beta.spade": true } }),
+  );
   return home;
 }
 
@@ -138,7 +141,7 @@ test("ace spade refuses anything but on or off", async () => {
   ).rejects.toThrow("ace spade on|off");
 });
 
-test("ace spade on is refused while Spade is hidden, and works once ace features shows it", async ({
+test("ace spade on is refused while Spade is turned off in Beta, and works once ace features turns it on", async ({
   onTestFinished,
 }) => {
   const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
@@ -146,17 +149,47 @@ test("ace spade on is refused while Spade is hidden, and works once ace features
   const printed = quietStdout(onTestFinished);
   const manager = serviceManager();
   await expect(spadeCommand(parseArgs(["spade", "on"]), home, manager.control)).rejects.toThrow(
-    /hidden/,
+    /turned off in Settings › Beta/,
   );
   expect(manager.asked).toEqual([]);
 
-  await featuresCommand(parseArgs(["features", "show", "spade"]), home);
+  await featuresCommand(parseArgs(["features", "on", "spade"]), home);
   await featuresCommand(parseArgs(["features"]), home);
-  expect(printed.at(-1)).toContain("Spade: shown");
+  expect(printed.at(-1)).toContain("Spade: on");
   await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
   expect(manager.asked).toEqual(["installBinary", "register"]);
 
-  await featuresCommand(parseArgs(["features", "hide", "spade"]), home);
+  await featuresCommand(parseArgs(["features", "off", "spade"]), home);
   await featuresCommand(parseArgs(["features"]), home);
-  expect(printed.at(-1)).toContain("Spade: hidden");
+  expect(printed.at(-1)).toContain("Spade: off");
+  // Off in Beta keeps Spade's own switch as it was.
+  expect(await saved(home)).toBe(true);
+});
+
+test("ace features turns the marketplace on and off, and refuses anything else", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const printed = quietStdout(onTestFinished);
+  await featuresCommand(parseArgs(["features"]), home);
+  expect(printed.at(-1)).toContain("Marketplace: off");
+  await featuresCommand(parseArgs(["features", "on", "marketplace"]), home);
+  await featuresCommand(parseArgs(["features"]), home);
+  expect(printed.at(-1)).toContain("Marketplace: on");
+  await expect(featuresCommand(parseArgs(["features", "show", "spade"]), home)).rejects.toThrow(
+    "ace features on|off spade|marketplace",
+  );
+});
+
+test("an old features.json that shows Spade still lets ace spade on through until it is moved", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  quietStdout(onTestFinished);
+  await writeFile(join(home, "features.json"), '{"spade": true}');
+  const manager = serviceManager();
+  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  expect(manager.asked).toEqual(["installBinary", "register"]);
 });
