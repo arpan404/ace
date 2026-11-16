@@ -492,9 +492,9 @@ extension AceDesign.Ink {
 }
 
 extension AceDesign.Motion {
-    /// The keyboard's own motion (`KeyboardCurve`), for what animates with it: the composer opening
-    /// as it takes the keyboard.
-    static func keyboard(_ duration: Double) -> Animation { .spring(response: KeyboardCurve.response(duration), dampingFraction: 1) }
+    /// Close to the keyboard's own ease-out (`KeyboardCurve`), for what animates as it moves: the
+    /// composer opening as it takes the keyboard.
+    static func keyboard(_ duration: Double) -> Animation { .timingCurve(0.1, 0.7, 0.3, 1, duration: duration) }
 }
 
 // MARK: - Pull requests, files and tools: the values these places name
