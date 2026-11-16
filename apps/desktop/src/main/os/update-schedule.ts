@@ -18,20 +18,14 @@ export interface UpdateSchedule {
   openGapMs: number;
 }
 
-/**
- * A few seconds after the daemon is running, then about every minute while the app is in use,
- * so a new release shows within a minute or two. While the window is hidden or the computer is
- * on battery, every half hour: opening or focusing the window checks again at once after a gap,
- * so nothing is missed by then. Each wait is stretched by a random part of up to half again, so
- * installs started together don't all ask the feed at the same moment.
- */
+/** Launch after daemon readiness, then every four to six hours with jitter. */
 export const updateSchedule: UpdateSchedule = {
   afterDaemonMs: 5_000,
   launchLatestMs: 60_000,
-  everyMs: 60_000,
-  idleEveryMs: 30 * 60_000,
+  everyMs: 4 * 60 * 60_000,
+  idleEveryMs: 4 * 60 * 60_000,
   spread: 0.5,
-  openGapMs: 30_000,
+  openGapMs: 4 * 60 * 60_000,
 };
 
 export interface CheckSchedulePorts {
