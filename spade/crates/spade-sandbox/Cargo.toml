@@ -19,10 +19,12 @@ uuid.workspace = true
 [target."cfg(target_os = \"linux\")".dependencies]
 # Linux's sandbox (ADR 0167 decision 1): a Landlock ruleset the launcher applies to itself.
 landlock = { version = "0.4.4", optional = true }
+# Carving opens each place relative to its folder without following links (`openat`).
+rustix = { version = "1.1.6", features = ["fs"], optional = true }
 
 [features]
 # The Linux sandbox. Off by default until its network boundary (seccomp) is complete.
-landlock = ["dep:landlock"]
+landlock = ["dep:landlock", "dep:rustix"]
 
 [dev-dependencies]
 tempfile.workspace = true

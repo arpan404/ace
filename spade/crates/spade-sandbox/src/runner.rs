@@ -231,7 +231,7 @@ mod platform {
     ) -> Result<Launch, Unavailable> {
         let launcher =
             launcher.ok_or_else(|| Unavailable("Spade's own program is unknown".to_owned()))?;
-        let plan = crate::linux::plan(policy, &crate::linux::list_dir);
+        let plan = crate::linux::plan(policy);
         let plan = serde_json::to_string(&plan)
             .map_err(|error| Unavailable(format!("the sandbox plan: {error}")))?;
         let mut all: Vec<OsString> = vec![crate::linux::LAUNCHER_ARG.into(), plan.into()];
