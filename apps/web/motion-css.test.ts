@@ -107,10 +107,11 @@ test("every animation the production stylesheet plays has its keyframes", () => 
  * the startup mark's breath (while ace starts), an indeterminate progress bar (during a transfer
  * it can't measure), a live agent's mark in the open Summary tree (ADR 0108) and a working Spade
  * bot's eyes, its face being its status (ADR 0127), may repeat, and each goes away when what it
- * stands for ends.
+ * stands for ends. A bot's character face moves its eyes, pupils and head the same way while it
+ * works or thinks, and only then.
  */
 const mayLoop =
-  /^(?::root\[data-reduce-motion\] )?\.(?:fx-breathe|fx-indeterminate|fx-alive|fx-spade-look|fx-spade-blink)$/;
+  /^(?:(?::root\[data-reduce-motion\] )?\.(?:fx-breathe|fx-indeterminate|fx-alive|fx-spade-look|fx-spade-blink)|:root:not\(\[data-reduce-motion\]\) \.bot-face\[data-state=(?:working|thinking)\] \.bf-(?:ey|pu|hd))$/;
 
 test("the production stylesheet loops no animation but the startup breath, indeterminate progress, live Summary marks and a working Spade bot's eyes", () => {
   const theme = themeAnimations();
