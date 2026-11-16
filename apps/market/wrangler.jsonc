@@ -9,7 +9,7 @@
   "compatibility_flags": ["nodejs_compat"],
   // Publishers, entries, versions, review marks, categories, featured, withdrawals and download
   // totals. Replace database_id with the id `wrangler d1 create ace-market` prints; see
-  // docs/marketplace/deploy.md.
+  // docs/market/deploy.md.
   "d1_databases": [
     {
       "binding": "MARKET",

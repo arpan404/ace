@@ -1,10 +1,10 @@
 # Deploying the market Worker
 
-`apps/marketplace` is ace's marketplace at `market.acehq.dev` (ADR 0168): the catalog API, the
+`apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168): the catalog API, the
 publishing and signer routes, and the public web page. Deploying it is the owner's step; nothing
 in the repository deploys it or talks to a Cloudflare account.
 
-Run each command from `apps/marketplace`.
+Run each command from `apps/market`.
 
 1. **Create the database and the bucket.**
 
