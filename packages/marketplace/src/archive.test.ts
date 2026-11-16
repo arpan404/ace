@@ -107,4 +107,63 @@ describe("entry archives", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  describe("with a malformed extended header", () => {
+    const record = (key: string, value: string) => {
+      const body = ` ${key}=${value}\n`;
+      let length = body.length + 1;
+      while (length !== body.length + String(length).length)
+        length = body.length + String(length).length;
+      return `${length}${body}`;
+    };
+    /** A pax header saying `text`, then a regular file holding `content`. */
+    const paxed = (text: string, content = "hello") => {
+      const pax = new TextEncoder().encode(text);
+      const paxBlock = new Uint8Array(Math.ceil(pax.byteLength / 512) * 512);
+      paxBlock.set(pax);
+      const file = new Uint8Array(512);
+      file.set(new TextEncoder().encode(content));
+      return join2(
+        header("././@PaxHeader", "x", pax.byteLength),
+        paxBlock,
+        header("a.md", "0", 5),
+        file,
+      );
+    };
+
+    it.each([
+      ["a negative size", record("size", "-1024")],
+      ["a fractional size", record("size", "12.5")],
+      ["a size past the safe integers", record("size", "9007199254740993")],
+      ["a size that isn't a number", record("size", "lots")],
+      ["a size past the archive's end", record("size", "4096")],
+      ["a record longer than what is left", "900 path=a.md\n"],
+      ["a record whose length isn't a number", "x path=a.md\n"],
+    ])("refuses %s promptly", { timeout: 2_000 }, (_label, text) => {
+      expect(() => readArchive(paxed(text), limits)).toThrow(ArchiveError);
+    });
+
+    it(
+      "refuses a negative size that would step back onto an earlier header",
+      { timeout: 2_000 },
+      () => {
+        // Each header says the next one is 1536 bytes long, which steps the reader back to the first.
+        const pax = new TextEncoder().encode(record("size", "-1536"));
+        const paxBlock = new Uint8Array(512);
+        paxBlock.set(pax);
+        const looping = join2(
+          header("././@PaxHeader", "x", pax.byteLength),
+          paxBlock,
+          header("././@PaxHeader", "x", pax.byteLength),
+          paxBlock,
+        );
+        expect(() => readArchive(looping, limits)).toThrow(ArchiveError);
+      },
+    );
+
+    it("still reads a well-formed one", () => {
+      const [file] = readArchive(paxed(record("path", "long/name.md")), limits);
+      expect(file?.path).toBe("long/name.md");
+    });
+  });
 });

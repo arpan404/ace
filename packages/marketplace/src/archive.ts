@@ -59,22 +59,35 @@ function checksumOf(header: Uint8Array): number {
   return sum;
 }
 
-/** `path` and `size` from a pax extended header; other keys (times, xattrs) are ignored. */
+/** A size or length as tar gives it: a non-negative safe integer in decimal, nothing else. */
+function decimal(text: string, what: string): number {
+  if (!/^\d{1,16}$/.test(text)) throw new ArchiveError(`The archive has a damaged ${what}`);
+  const value = Number(text);
+  if (!Number.isSafeInteger(value)) throw new ArchiveError(`The archive has a damaged ${what}`);
+  return value;
+}
+
+/**
+ * `path` and `size` from a pax extended header; other keys (times, xattrs) are ignored. Each
+ * record's length must fit in what is left, and every record must end in a newline.
+ */
 function readPax(content: Uint8Array): { path?: string; size?: number } {
   const text = decoder.decode(content);
   const result: { path?: string; size?: number } = {};
   let at = 0;
   while (at < text.length) {
     const space = text.indexOf(" ", at);
-    const length = Number(text.slice(at, space));
-    if (space < 0 || !Number.isInteger(length) || length <= 0)
+    if (space < 0) throw new ArchiveError("The archive has a damaged extended header");
+    const length = decimal(text.slice(at, space), "extended header");
+    if (length <= space - at + 1 || length > text.length - at || text[at + length - 1] !== "\n")
       throw new ArchiveError("The archive has a damaged extended header");
     const record = text.slice(space + 1, at + length - 1);
     const equals = record.indexOf("=");
+    if (equals <= 0) throw new ArchiveError("The archive has a damaged extended header");
     const key = record.slice(0, equals);
     const value = record.slice(equals + 1);
     if (key === "path") result.path = value;
-    if (key === "size") result.size = Number(value);
+    if (key === "size") result.size = decimal(value, "extended header");
     at += length;
   }
   return result;
@@ -98,10 +111,15 @@ export function readArchive(archive: Uint8Array, limits: ArchiveLimits): Archive
     const name = pax.path ?? (prefix ? `${prefix}/${rawName}` : rawName);
     const size = pax.size ?? readOctal(header, 124, 12);
     const mode = readOctal(header, 100, 8);
-    offset += block;
-    const start = offset;
-    offset += Math.ceil(size / block) * block;
-    if (offset > archive.byteLength) throw new ArchiveError("The archive ends early");
+    if (!Number.isSafeInteger(size) || size < 0)
+      throw new ArchiveError("The archive has a damaged header");
+    const start = offset + block;
+    // Every entry moves the reader forward and stays inside the archive.
+    if (size > archive.byteLength - start) throw new ArchiveError("The archive ends early");
+    const next = start + Math.ceil(size / block) * block;
+    if (next <= offset || next > archive.byteLength)
+      throw new ArchiveError("The archive ends early");
+    offset = next;
     const content = archive.subarray(start, start + size);
     if (type === "x") {
       if (size > 64 * 1024) throw new ArchiveError("The archive has an oversized extended header");
