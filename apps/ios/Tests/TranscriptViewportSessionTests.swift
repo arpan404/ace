@@ -429,4 +429,57 @@ import Testing
             keyboardMinX: 0, keyboardMaxX: 400, keyboardMinY: 600)
         #expect(docked == 200)
     }
+
+    /// A 400 pt column whose foot is at 800 on an 834 pt screen (a phone's home indicator below).
+    private let column = CGRect(x: 0, y: 0, width: 400, height: 800)
+
+    @Test func aDockedKeyboardLiftsTheFootByWhatItCovers() {
+        let keyboard = CGRect(x: 0, y: 500, width: 400, height: 334)
+        #expect(TranscriptKeyboardLift.docked(column: column, keyboard: keyboard) == 300)
+    }
+
+    @Test func aKeyboardGoingOffScreenLiftsNothing() {
+        let gone = CGRect(x: 0, y: 834, width: 400, height: 334)
+        #expect(TranscriptKeyboardLift.docked(column: column, keyboard: gone) == 0)
+    }
+
+    @Test func aFloatingKeyboardThatDoesntReachTheFootLiftsNothing() {
+        // An iPad's floating keyboard over the column, clear of its foot: the composer stays put
+        // rather than jumping each time it's dragged.
+        let floating = CGRect(x: 50, y: 300, width: 320, height: 250)
+        #expect(TranscriptKeyboardLift.docked(column: column, keyboard: floating) == 0)
+        let beside = CGRect(x: 500, y: 500, width: 400, height: 334)
+        #expect(TranscriptKeyboardLift.docked(column: column, keyboard: beside) == 0)
+    }
+
+    @Test func roomForAnOpeningKeyboardIsAboveTheEndAtOnce() {
+        var room = TranscriptKeyboardRoom()
+        room.moved(to: 300)
+        #expect(room.kept == 300)
+        #expect(room.leaving == 0)
+    }
+
+    @Test func roomForAClosingKeyboardStaysBelowTheEndUntilTheRowsHaveMoved() {
+        var room = TranscriptKeyboardRoom()
+        room.moved(to: 300)
+        room.moved(to: 0)
+        // The end moves up at once; the content keeps its height, so the scroll down to the new
+        // end has room to run and the offset is never past the end mid-motion.
+        #expect(room.kept == 0)
+        #expect(room.leaving == 300)
+        room.settled()
+        #expect(room.leaving == 0)
+    }
+
+    @Test func aKeyboardReopeningMidCloseKeepsTheContentFromShrinking() {
+        var room = TranscriptKeyboardRoom()
+        room.moved(to: 300)
+        room.moved(to: 0)
+        room.moved(to: 260)
+        #expect(room.kept == 260)
+        #expect(room.kept + room.leaving == 300)
+        room.moved(to: 340)
+        #expect(room.kept == 340)
+        #expect(room.leaving == 0)
+    }
 }

@@ -69,14 +69,15 @@ struct ConversationFeed: View {
     /// Previous resident block-to-items snapshot, for classifying missing
     /// blocks on streaming changes without a fresh service reply.
     @State private var lastBlockItems: [String: [String]] = [:]
+    /// The room the keyboard takes under the last row (`TranscriptKeyboardRoom`).
+    @State private var keyboardRoom = TranscriptKeyboardRoom()
     /// How far the keyboard reaches above the feed's bottom edge.
-    @State private var keyboardLift: CGFloat = 0
+    private var keyboardLift: CGFloat { CGFloat(keyboardRoom.kept) }
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
     /// keyboard's own animation carries the rows there.
     @State private var keyboardMoving = false
     /// The keyboard's last animation duration: the composer opens on the same spring as it.
     @State private var keyboardDuration = 0.35
-    @State private var feedBottom: CGFloat = 0
     @State private var feedFrame: CGRect = .zero
     private var shown: ThreadModel { reading.shown ?? thread }
     private var ready: Bool { thread.loaded }
@@ -172,13 +173,15 @@ struct ConversationFeed: View {
                 // A finished turn with changes: one quiet line to review them (`ReviewReadyLine`).
                 ReviewReadyLine(model: model)
                 // Room for the composer, its strip and the keyboard, and under the last row so it
-                // clears the strip tucked above the composer. The feed itself never changes size as
-                // they move: resizing a long lazy transcript re-estimates its height and throws the
-                // scroll offset, so only this row grows and shrinks.
+                // clears the strip tucked above the composer. The feed itself never changes size or
+                // insets as they move: resizing a long lazy transcript re-estimates its height and
+                // throws the scroll offset, so only this row grows and shrinks.
                 Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
                     .keyboardDriftMark(.line)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
+                // A closing keyboard's room, below the end until the rows have moved down to it.
+                Color.clear.frame(height: CGFloat(keyboardRoom.leaving)).accessibilityHidden(true)
             }
             .modifier(TranscriptTextSize())
             .padding(.top, AceDesign.Space.related)
@@ -193,7 +196,7 @@ struct ConversationFeed: View {
                 contentScrolled(to: origin, proxy: proxy)
             }
         }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0; feedBottom = $0.maxY }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0 }
         .coordinateSpace(name: Self.viewportSpace)
         .defaultScrollAnchor(.bottom, for: .initialOffset)
         // A short thread sits on the dock, not at the top with empty room under it.
@@ -393,6 +396,13 @@ struct ConversationFeed: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
                 keyboardMoving = false
+                // The closing keyboard's room below the end: the scroll's target is above it, so
+                // it goes without moving the rows, even if the scroll is still finishing.
+                if keyboardRoom.leaving > 0 {
+                    var instant = Transaction()
+                    instant.disablesAnimations = true
+                    withTransaction(instant) { keyboardRoom.settled() }
+                }
                 // Text that streamed in while the keyboard moved.
                 if pinned && !intent.active { toEnd(proxy) }
             }
@@ -519,29 +529,20 @@ struct ConversationFeed: View {
             reading.refreshAfterReconnect(model: model, live: thread, anchorItemId: currentAnchorItemID())
         }
     }
+    /// The keyboard is about to move. `FloatingBar` lifts the composer by the same amount from the
+    /// same notification on the same curve, so the last row and the composer move as one (#2170):
+    /// the room changes at once, and only the scroll animates.
     private func keyboardWillMove(_ note: Notification, proxy: ScrollViewProxy) {
-        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
-        // Intersection, not just vertical overlap: a floating keyboard
-        // beside the reading column reserves no space over it.
-        let lift: CGFloat
-        if feedFrame == .zero {
-            lift = max(0, feedBottom - end.minY)
-        } else {
-            lift = CGFloat(TranscriptKeyboardLift.overlap(
-                feedMinX: Double(feedFrame.minX), feedMaxX: Double(feedFrame.maxX), feedBottom: Double(feedBottom),
-                keyboardMinX: Double(end.minX), keyboardMaxX: Double(end.maxX), keyboardMinY: Double(end.minY)))
-        }
-        if duration > 0 { keyboardDuration = duration }
+        guard let move = KeyboardMove(note) else { return }
+        let lift = CGFloat(TranscriptKeyboardLift.docked(column: feedFrame, keyboard: move.end))
+        if move.duration > 0 { keyboardDuration = move.duration }
         guard lift != keyboardLift else { return }
-        let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(duration)
+        let motion: Animation? = reduceMotion ? nil : AceDesign.Motion.keyboard(move.duration)
         let growth = lift - keyboardLift
         keyboardMoving = true
-        // The room is empty space: it changes at once, and only the scroll animates, so the
-        // two never drift apart on different curves.
         var instant = Transaction()
         instant.disablesAnimations = true
-        withTransaction(instant) { keyboardLift = lift }
+        withTransaction(instant) { keyboardRoom.moved(to: Double(lift)) }
         railPlace?.keyboard(up: lift > 0)
         roomChanged(by: growth, motion: motion, proxy: proxy)
     }

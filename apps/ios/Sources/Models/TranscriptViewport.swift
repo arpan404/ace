@@ -285,4 +285,34 @@ enum TranscriptKeyboardLift {
         guard feedMaxX > keyboardMinX, keyboardMaxX > feedMinX else { return 0 }
         return max(0, feedBottom - keyboardMinY)
     }
+
+    /// How far a keyboard ending at `keyboard` reaches above the foot of `column` (both in screen
+    /// points): the one lift the composer and the transcript's end move by together (#2170). Only
+    /// a keyboard that reaches the foot counts, so a floating one dragged around over the column
+    /// moves neither.
+    static func docked(column: CGRect, keyboard: CGRect) -> Double {
+        guard keyboard.maxY >= column.maxY else { return 0 }
+        return overlap(feedMinX: Double(column.minX), feedMaxX: Double(column.maxX), feedBottom: Double(column.maxY),
+                       keyboardMinX: Double(keyboard.minX), keyboardMaxX: Double(keyboard.maxX), keyboardMinY: Double(keyboard.minY))
+    }
+}
+
+/// The room under the transcript's last row that the keyboard takes, in two parts: `kept`, above
+/// the feed's end, and `leaving`, below it. A keyboard that opens adds its room above the end at
+/// once and the feed scrolls to the new end with the composer. One that closes moves the end up
+/// at once but leaves the old room below it, so the content keeps its height while the feed
+/// scrolls down to the new end with the composer; `settled` drops it once the motion is over. The
+/// content never shrinks under a moving offset, which would clamp it and jump the rows.
+struct TranscriptKeyboardRoom: Equatable {
+    private(set) var kept: Double = 0
+    private(set) var leaving: Double = 0
+
+    /// The keyboard now reaches `lift` above the foot.
+    mutating func moved(to lift: Double) {
+        leaving = max(0, kept + leaving - lift)
+        kept = lift
+    }
+
+    /// The motion is over: the room below the end goes.
+    mutating func settled() { leaving = 0 }
 }
