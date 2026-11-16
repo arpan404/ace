@@ -169,9 +169,7 @@ struct ThreadView: View {
             }
             // The system's title, the project and model under it, and its menu.
             .threadTitle(metadata?.title ?? "Thread", subtitle: heading.subtitle)
-            // Always given content: a title menu that is empty when the thread first draws (its
-            // row still on its way) is never installed, even once it has items.
-            .toolbarTitleMenu { EquatableView(content: heading) }
+            .toolbarTitleMenu { if heading.hasMenu { EquatableView(content: heading) } }
             .navigationBarTitleDisplayMode(.inline)
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.

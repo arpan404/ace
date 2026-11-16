@@ -51,16 +51,10 @@ struct ThreadTitleMenu: View, Equatable {
         return [project, Self.modelWords(model)].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    /// Whether the title has anything to do: without, its menu says where the thread is.
+    /// Whether the title has a menu to open at all.
     var hasMenu: Bool { model != nil || canRename || canRetitle || openWork != nil || !actions.isEmpty || startedBy != nil }
 
-    var body: some View {
-        if hasMenu {
-            items
-        } else {
-            Section { Text(place.isEmpty ? title : place) }
-        }
-    }
+    var body: some View { items }
 
     @ViewBuilder private var items: some View {
         if let startedBy { Section { Text(startedBy) } }
