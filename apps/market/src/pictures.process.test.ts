@@ -25,7 +25,8 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(() => market.close());
 
-const avatarOf = async (response: Response) => (await jsonOf<{ avatar: string }>(response)).avatar;
+const avatarOf = async (response: Parameters<typeof jsonOf>[0]) =>
+  (await jsonOf<{ avatar: string }>(response)).avatar;
 const keys = async (prefix: string) =>
   (await market.objects.list({ prefix })).objects.map((object) => object.key);
 const sweep = (now: number) => sweepPictures({ MARKET: market.db, OBJECTS: market.objects }, now);
