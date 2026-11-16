@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   compareVersions,
   entryState,
+  isNewPublisher,
+  plainManagement,
   publicVersions,
+  publisherLimits,
   summary,
+  versionStatus,
   visibleFeatured,
   type StoredVersion,
 } from "./rules.ts";
@@ -104,5 +108,103 @@ describe("listing rules", () => {
     ]);
     const list = ["d", "b", "a", "c", "e"].map((name) => ({ type: "suit", name }));
     expect(visibleFeatured(list, entries).map((item) => item.name)).toEqual(["d", "a"]);
+  });
+});
+
+describe("an entry's management (ADR 0173 §5)", () => {
+  const versions = [version("1.0.0", { reviewed: true }), version("1.1.0")];
+
+  it.each([
+    ["listed, with a live version and an active publisher", {}, true],
+    ["unlisted", { visibility: "unlisted" as const }, false],
+    ["archived", { archived: true }, false],
+    ["its publisher suspended", { publisherActive: false }, false],
+  ])("an entry %s is in the index: %s", (_label, manage, listed) => {
+    const state = entryState("notes", versions, { ...plainManagement, ...manage });
+    expect(state.listed).toBe(listed);
+    // Unlisted and archived entries keep their latest, so their page and objects still answer.
+    expect(state.latest).toBe("1.1.0");
+  });
+
+  it("the publisher's pick of a live version is the latest, the rollback; a pick no longer live isn't", () => {
+    const picked = entryState("notes", versions, { ...plainManagement, latestPick: "1.0.0" });
+    expect(picked).toMatchObject({ latest: "1.0.0", reviewed: true, title: "Notes 1.0.0" });
+    const gone = entryState(
+      "notes",
+      [version("1.0.0", { withdrawn: "Broken." }), version("1.1.0")],
+      { ...plainManagement, latestPick: "1.0.0" },
+    );
+    expect(gone.latest).toBe("1.1.0");
+  });
+
+  it("an approved listing edit's words show over the version's own", () => {
+    const state = entryState("notes", versions, {
+      ...plainManagement,
+      listing: {
+        title: "Better notes",
+        line: "A clearer line",
+        description: "More.",
+        categories: ["calm"],
+        keywords: ["notes"],
+        links: [],
+        previews: [],
+      },
+    });
+    expect(state).toMatchObject({ title: "Better notes", line: "A clearer line", latest: "1.1.0" });
+  });
+
+  it("the latest version's deprecation and the publisher's mark reach the index", () => {
+    const state = entryState("notes", [version("1.0.0", { deprecated: "Use 2.x." })], {
+      ...plainManagement,
+      publisherVerified: true,
+    });
+    const row = {
+      ...state,
+      type: "suit",
+      name: "notes",
+      publisher: { id: "p", name: "n" },
+      updated: 1,
+      downloads: 0,
+    };
+    expect(summary(row)).toMatchObject({ verified: true, deprecated: "Use 2.x." });
+  });
+
+  it.each([
+    [
+      "blocked by the scan",
+      { listed: false, state: "blocked" as const, blockReason: "Runs a download." },
+      "blocked",
+      false,
+    ],
+    ["withdrawn", { withdrawn: "Broken." }, "withdrawn", false],
+    ["signed and reviewed", { reviewed: true }, "live", false],
+    ["signed, no review mark", {}, "not-reviewed", false],
+    ["waiting for the signer", { listed: false, state: "pending" as const }, "waiting", false],
+    ["held for a maintainer", { listed: false, state: "held" as const }, "waiting", true],
+  ])("a version %s shows %s", (_label, fields, status, held) => {
+    expect(versionStatus(version("1.0.0", fields))).toMatchObject({ status, held });
+  });
+
+  it.each([
+    ["a week old", 7, 5, true],
+    ["old, with two live versions", 60, 2, true],
+    ["old, with three live versions", 60, 3, false],
+  ])("a publisher %s is new: %s", (_label, days, live, expected) => {
+    const now = 100 * 86_400_000;
+    expect(isNewPublisher({ created: now - days * 86_400_000, liveVersions: live }, now)).toBe(
+      expected,
+    );
+  });
+
+  it("a new publisher's limits are stricter", () => {
+    expect(publisherLimits(true)).toMatchObject({
+      uploadsPerDay: 10,
+      quotaBytes: 256 * 1024 * 1024,
+    });
+    expect(publisherLimits(false)).toMatchObject({
+      uploadsPerDay: 30,
+      quotaBytes: 1024 * 1024 * 1024,
+      draftLimit: 20,
+    });
   });
 });
