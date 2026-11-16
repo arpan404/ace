@@ -35,6 +35,7 @@ export {
   topPublishers,
   trendRules,
   trendScore,
+  trendScores,
   type DayCount,
   type HourCount,
   type ScoredEntry,

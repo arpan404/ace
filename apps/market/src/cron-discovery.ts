@@ -3,7 +3,7 @@ import {
   tierOf,
   topPublishers,
   trendRules,
-  trendScore,
+  trendScores,
   type HourCount,
 } from "@ace/marketplace";
 import type { Env } from "./env.ts";
@@ -85,10 +85,9 @@ export async function trendingStep(db: D1Database, now: number): Promise<boolean
     const scored = batch.flatMap((row) => {
       const counts = byEntry.get(`${row.type}/${row.name}`) ?? [];
       const tier = tierOf({ official: row.publisher === official, verified: row.verified === 1 });
-      const score = trendScore(counts, tier, atHour);
-      if (!score) return [];
-      const before = trendScore(counts, tier, atHour - trendRules.windowHours);
-      return [{ type: row.type, name: row.name, ...score, before: before?.score ?? 0 }];
+      // Last week's qualifiers stay in, so last week's ranks are the real ones.
+      const scores = trendScores(counts, tier, atHour);
+      return scores ? [{ type: row.type, name: row.name, ...scores }] : [];
     });
     await db.batch([
       db

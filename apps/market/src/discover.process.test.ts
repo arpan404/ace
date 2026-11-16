@@ -161,3 +161,34 @@ it("sorts search by downloads, by first listing and by trending, and filters by 
   expect(await search("publisher=popular-folk&sort=new&offset=2")).toEqual(["popular-skill"]);
   expect(await search("publisher=nobody-here")).toEqual([]);
 });
+
+it("measures movement against last week's whole ranking, its leader included after it drops out", async () => {
+  for (const name of ["faded-leader", "steady-second"])
+    await publishLive(market, {
+      type: "spade-skill",
+      name,
+      files: sampleSkill(name),
+      account: "acct_movers",
+      publisher: "movers",
+    });
+  // Last week: the leader 30 an hour, the second 20. This week only the second downloads.
+  const hour = Math.floor(Date.now() / 3_600_000);
+  const rows: [string, number, number][] = [];
+  for (let ago = 170; ago <= 180; ago++)
+    rows.push(["faded-leader", hour - ago, 30], ["steady-second", hour - ago, 20]);
+  for (let ago = 1; ago <= 11; ago++) rows.push(["steady-second", hour - ago, 20]);
+  await market.db.batch(
+    rows.map(([name, at, count]) =>
+      market.db
+        .prepare(
+          "INSERT INTO downloads_hourly (type, name, hour, count) VALUES ('spade-skill', ?1, ?2, ?3)",
+        )
+        .bind(name, at, count),
+    ),
+  );
+  await market.scheduled();
+  const body = await discover();
+  const row = (name: string) => body.trending.find((item) => names([item.entry])[0] === name);
+  expect(row("faded-leader")).toBeUndefined();
+  expect(row("steady-second")).toMatchObject({ rank: 1, movement: { kind: "up", by: 1 } });
+});

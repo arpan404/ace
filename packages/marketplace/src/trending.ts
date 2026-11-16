@@ -93,6 +93,7 @@ export function trendScore(
 
 export interface ScoredEntry {
   key: string;
+  /** This week's score; 0 when it trended only the week before. */
   score: number;
   week: number;
   /** The same ranking's score a week earlier; 0 when it didn't trend then. */
@@ -143,14 +144,28 @@ export interface TrendInput {
   hours: readonly HourCount[];
 }
 
+/**
+ * One entry's scores this week and the week before, or undefined when it trended in neither.
+ * An entry that qualified only last week keeps a place in last week's ranking (score 0 now), so
+ * the others' movement is measured against the ranking as it really was.
+ */
+export function trendScores(
+  hours: readonly HourCount[],
+  tier: RankingTier | undefined,
+  atHour: number,
+): Omit<ScoredEntry, "key"> | undefined {
+  const now = trendScore(hours, tier, atHour);
+  const before = trendScore(hours, tier, atHour - trendRules.windowHours);
+  if (!now && !before) return undefined;
+  return { score: now?.score ?? 0, week: now?.week ?? 0, before: before?.score ?? 0 };
+}
+
 /** The whole ranking at `atHour`, as the cron builds it in batches. */
 export function rankTrending(entries: readonly TrendInput[], atHour: number): TrendRow[] {
   return rankScores(
     entries.flatMap((entry) => {
-      const now = trendScore(entry.hours, entry.tier, atHour);
-      if (!now) return [];
-      const before = trendScore(entry.hours, entry.tier, atHour - trendRules.windowHours);
-      return [{ key: entry.key, ...now, before: before?.score ?? 0 }];
+      const scores = trendScores(entry.hours, entry.tier, atHour);
+      return scores ? [{ key: entry.key, ...scores }] : [];
     }),
   );
 }

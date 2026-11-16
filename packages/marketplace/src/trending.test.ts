@@ -111,6 +111,20 @@ describe("trending movement against the same ranking a week earlier", () => {
     const same = rankTrending([{ key: "a", hours: [...lastWeek(10), ...thisWeek(10)] }], now);
     expect(same[0]?.movement).toEqual({ kind: "same" });
   });
+
+  it("still counts last week's leader in last week's ranking when it drops below the minimum", () => {
+    const rows = rankTrending(
+      [
+        // Last week: a 30, b 20. This week a is gone and b stands alone, up one.
+        { key: "a", hours: lastWeek(30) },
+        { key: "b", hours: [...lastWeek(20), ...thisWeek(20)] },
+      ],
+      now,
+    );
+    expect(rows.map((row) => [row.key, row.rank, row.movement])).toEqual([
+      ["b", 1, { kind: "up", by: 1 }],
+    ]);
+  });
 });
 
 describe("tiers in trending", () => {
