@@ -176,6 +176,7 @@ struct ConversationFeed: View {
                 // they move: resizing a long lazy transcript re-estimates its height and throws the
                 // scroll offset, so only this row grows and shrinks.
                 Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
+                    .keyboardDriftMark(.line)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
                 TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
             }

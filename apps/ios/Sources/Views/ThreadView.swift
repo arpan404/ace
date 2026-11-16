@@ -384,6 +384,7 @@ struct ThreadView: View {
             }
             composer
         }
+        .keyboardDriftMark(.composer)
         // No band behind the foot: the transcript scrolls on under the glass pills, strip and
         // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {

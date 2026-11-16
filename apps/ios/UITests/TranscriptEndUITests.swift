@@ -151,6 +151,26 @@ import XCTest
         assertEndInView(app, "after the keyboard went")
     }
 
+    /// Following the end of a finished thread, the newest line and the composer move as one while
+    /// the keyboard opens and closes: the gap between them, read every frame from what is drawn
+    /// (`KeyboardDriftProbe`), changes by a few points at most.
+    func testTheNewestLineAndTheComposerMoveAsOneWithTheKeyboard() {
+        let app = open("ios-log-long", probe: true)
+        let transcript = app.scrollViews["transcript"]
+        waitForReady(transcript)
+        app.textViews["composer.input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let opening = keyboardGaps(app, "open")
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let closing = keyboardGaps(app, "close")
+        for (motion, gaps) in [("opens", opening), ("closes", closing)] {
+            XCTAssertGreaterThan(gaps.count, 5, "frames were sampled as the keyboard \(motion)")
+            let drift = (gaps.max() ?? 0) - (gaps.min() ?? 0)
+            XCTAssertLessThanOrEqual(drift, 4, "the gap holds as the keyboard \(motion): \(gaps)")
+        }
+    }
+
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
     /// the newest lines stay drawn just above the composer, never scrolled off into empty space.
     func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() async throws {
@@ -304,10 +324,22 @@ import XCTest
         }
         return id
     }
-    private func open(_ threadId: String) -> XCUIApplication {
+    /// The gaps `KeyboardDriftProbe` read on each frame of the keyboard's last `motion`.
+    private func keyboardGaps(_ app: XCUIApplication, _ motion: String) -> [Int] {
+        let probe = app.descendants(matching: .any)["perf.probe"]
+        // The probe records once the motion has settled.
+        sleep(1)
+        let key = "keyboard.\(motion).gaps="
+        let recorded = NSPredicate(format: "value CONTAINS %@", key)
+        wait(for: [expectation(for: recorded, evaluatedWith: probe)], timeout: 5)
+        let value = probe.value as? String ?? ""
+        let entry = value.split(separator: ";").first { $0.hasPrefix(key) }?.dropFirst(key.count) ?? ""
+        return entry.split(separator: ",").compactMap { Int($0) }
+    }
+    private func open(_ threadId: String, probe: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
-                               "--spike-open", threadId]
+                               "--spike-open", threadId] + (probe ? ["--perf-probe"] : [])
         app.launchWithArguments()
         // The fixture build asks for notifications on first launch.
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
