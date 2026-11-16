@@ -151,6 +151,40 @@ import XCTest
         assertEndInView(app, "after the keyboard went")
     }
 
+    /// Following the end of a finished thread, the newest line and the composer move as one while
+    /// the keyboard opens and closes: the gap between them, read every frame from what is drawn
+    /// (`KeyboardDriftProbe`), changes by a few points at most.
+    func testTheNewestLineAndTheComposerMoveAsOneWithTheKeyboard() {
+        let app = open("ios-log-long", probe: true)
+        let transcript = app.scrollViews["transcript"]
+        waitForReady(transcript)
+        app.textViews["composer.input"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let opening = keyboardMotion(app, "open")
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let closing = keyboardMotion(app, "close")
+        let report = "opening \(opening), closing \(closing)"
+        // The frames go in the log either way, for the before and after of a change here, with how
+        // each frame of the ride read the keyboard (`KeyboardRide`).
+        let sources = (app.descendants(matching: .any)["perf.probe"].value as? String ?? "")
+            .split(separator: ";").filter { $0.hasPrefix("keyboard.source.") }.joined(separator: " ")
+        print("keyboard drift: \(report); read by \(sources)")
+        XCTAssertTrue(opening.gaps.count > 5 && closing.gaps.count > 5, "frames were sampled each way: \(report)")
+        XCTAssertTrue(opening.drift <= 4 && closing.drift <= 4, "the gap holds each way: \(report)")
+        XCTAssertFalse(opening.trace.contains("-") || closing.trace.contains("-"), "every frame read the keyboard's edge: \(report)")
+        // The composer sits on the keyboard's edge from the third frame the keyboard moves in:
+        // measured 0 to 3 pt on the simulator. The first two moving frames, while UIKit commits the
+        // keyboard's animation, were 4 to 35 pt off, more under load; they're held to 40.
+        for motion in [opening, closing] {
+            let errors = motion.errors.split(separator: ",").compactMap { Int($0) }.map(abs)
+            let edges = motion.trace.split(separator: " ").map { $0.split(separator: "/").last.map(String.init) ?? "" }
+            let start = edges.firstIndex { $0 != edges.first } ?? 0
+            XCTAssertLessThanOrEqual(errors.prefix(start + 2).max() ?? 0, 40, "the composer starts with the keyboard: \(report)")
+            XCTAssertLessThanOrEqual(errors.dropFirst(start + 2).max() ?? 0, 3, "the composer sits on the keyboard: \(report)")
+        }
+    }
+
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
     /// the newest lines stay drawn just above the composer, never scrolled off into empty space.
     func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() async throws {
@@ -304,10 +338,28 @@ import XCTest
         }
         return id
     }
-    private func open(_ threadId: String) -> XCUIApplication {
+    /// What `KeyboardDriftProbe` read over the keyboard's last `motion`: the line-to-composer gap
+    /// on each frame, and the farthest the composer's foot strayed from the keyboard's edge.
+    private func keyboardMotion(_ app: XCUIApplication, _ motion: String) -> KeyboardMotion {
+        let probe = app.descendants(matching: .any)["perf.probe"]
+        // The probe records once the motion has settled.
+        sleep(1)
+        let recorded = NSPredicate(format: "value CONTAINS %@", "keyboard.\(motion).gaps=")
+        wait(for: [expectation(for: recorded, evaluatedWith: probe)], timeout: 5)
+        let entries = (probe.value as? String ?? "").split(separator: ";").reduce(into: [String: String]()) { found, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count == 2 { found[parts[0]] = parts[1] }
+        }
+        let gaps = (entries["keyboard.\(motion).gaps"] ?? "").split(separator: ",").compactMap { Int($0) }
+        return KeyboardMotion(gaps: gaps, lag: Int(entries["keyboard.\(motion).lag"] ?? "") ?? -1,
+                              covered: Int(entries["keyboard.\(motion).covered"] ?? "") ?? -1,
+                              errors: entries["keyboard.\(motion).errors"] ?? "",
+                              trace: entries["keyboard.\(motion).trace"] ?? "")
+    }
+    private func open(_ threadId: String, probe: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
-                               "--spike-open", threadId]
+                               "--spike-open", threadId] + (probe ? ["--perf-probe"] : [])
         app.launchWithArguments()
         // The fixture build asks for notifications on first launch.
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
@@ -323,6 +375,20 @@ import XCTest
             try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
         }
     }
+}
+
+/// One keyboard motion as the probe saw it.
+private struct KeyboardMotion: CustomStringConvertible {
+    let gaps: [Int]
+    let lag: Int
+    /// The farthest the composer's foot went under the keyboard's edge.
+    let covered: Int
+    /// Each frame's composer foot minus where the keyboard puts it, in points.
+    let errors: String
+    /// Each frame's drawn y of the line, the composer and the keyboard's edge.
+    let trace: String
+    var drift: Int { (gaps.max() ?? 0) - (gaps.min() ?? 0) }
+    var description: String { "drift \(drift) pt, composer off the keyboard by up to \(lag) pt and under it by up to \(covered) pt (per frame \(errors)), gaps \(gaps), line/composer/keyboard \(trace)" }
 }
 
 /// The fixture's own view of a thread, cut to what these tests read of it.
