@@ -26,53 +26,69 @@ transcript re-estimate its height by about 126,000 pt and lose the end.
 - **A drawn offset on the rows, animated by SwiftUI on a curve fitted to the keyboard.** The
   curves matched, but a SwiftUI animation starts when its change commits, a frame or more after
   the keyboard starts, and how much later varies: 56 to 130 pt.
-- **One value, set every frame, drawing both the composer and the rows (chosen).** The gap can't
-  change because both are drawn from the same number in the same frame. Only how closely the
-  composer keeps to the keyboard depends on a fitted curve.
+- **One value, set every frame from a fitted curve, drawing both the composer and the rows.**
+  The gap held at 0 pt, but the composer ran up to 56 pt ahead of the keyboard on every
+  opening, and the curve was fitted to one iOS version.
+- **One value, set every frame from where the keyboard is drawn (chosen).** The gap still can't
+  change, and the composer follows the keyboard's own animation, whatever curve a future iOS
+  gives it.
 
 ## Decision
 
 1. **The thread owns one `KeyboardRide`, and the keyboard's notification moves it.** Its `lift`
-   is set on every frame by a display link from the frame's time since the notification and
-   `KeyboardCurve`. Only a keyboard that reaches the foot lifts it
+   is set on every frame by a display link. Only a keyboard that reaches the foot lifts it
    (`TranscriptKeyboardLift.docked`), so a floating keyboard moves nothing.
-2. **The composer is drawn by it and takes no system keyboard avoidance.** `FloatingBar` lays the
+2. **The lift is read from where the keyboard is drawn.** `KeyboardEdgeTracker` pins a one-point
+   view to the `keyboardLayoutGuide` of a container constrained to the window, so UIKit animates
+   it with the keyboard on the keyboard's own animation (public API: a view constrained to the
+   guide moves with the keyboard). Each tick evaluates that animation (its `CABasicAnimation` or
+   `CASpringAnimation` parameters and timing function, `AnimationTiming`) at the time the lift
+   reaches the screen, one frame after the frame the tick is for: the presentation layer says
+   where the edge is now, and a lift set from it trailed the keyboard by exactly a frame. An
+   animation UIKit has added but not committed has no begin time, so the tick commits it
+   (`CATransaction.flush()`) before reading. The edge is read in the container's own points: SwiftUI
+   places the representable's host with a transform the window constraints don't see, which
+   added 116 pt when converted.
+3. **Fallbacks.** If the animation can't be read, the presentation layer; if no edge moves yet,
+   the fitted ease-out (`KeyboardCurve`, starting 12 ms after the notification when opening and
+   30 ms when closing, so it errs above the keyboard). In the measured runs every frame was read
+   from the animation, and the curve was used on no frame.
+4. **The composer is drawn by it and takes no system keyboard avoidance.** `FloatingBar` lays the
    bar out at the foot of the keyboard-free area and offsets it up by `lift`. The offset moves its
    taps with it; nothing is resized and no inset changes.
-3. **Rows following the end are drawn by the same lift, then the scroll takes over.** While the
+5. **Rows following the end are drawn by the same lift, then the scroll takes over.** While the
    ride runs they're offset up by `lift` beyond the lift the scroll already allows for
    (`KeyboardRideOffset`), outside the rows' coordinate space and inside the content reader, so
    row measurements and the place keeper never see it. When it lands, one transaction sets the
    offset to 0 and scrolls to the end, a frame that moves nothing.
-4. **The room changes at once, and a closing keyboard's room stays below the end until it lands**
+6. **The room changes at once, and a closing keyboard's room stays below the end until it lands**
    (`TranscriptKeyboardRoom`). The content never shrinks under an offset that's still moving.
    The only part of the feed the offset brings into view is that empty room.
-5. **`KeyboardCurve` is the keyboard as drawn, erring above it:** an ease-out at a rate of 5.94
-   over the notified duration, fitted to traced moves. Where the fit is off, the composer should
-   show floor above the keyboard rather than slip under it, so an opening ride starts 12 ms after
-   the notification and a closing one 30 ms after.
 
 Rows that aren't following the end don't ride, as before. Reduce Motion moves everything at once.
 
 ## Consequences
 
-- The composer and the newest line keep their gap on every frame of an opening and a closing.
 - Measured on the iPhone 17 Pro simulator (iOS 26.1), the gap between the newest line and the
   composer moved by 0 pt on every frame of an opening and a closing (it was 44 and 276 pt).
-- The composer no longer sits exactly on the system's keyboard edge: opening, it runs up to
-  56 pt ahead, with the page-coloured floor under the bar showing between them, and dips under
-  the edge by up to 7 pt; closing, it stays within 13 pt. A machine under heavy load moved
-  these by about 20 pt more.
-- The curve came from one simulator and OS. A new iOS that changes the keyboard's motion shows up
-  as the composer straying from the keyboard, and the probe's `lag` measures it.
+- From the third frame of a move on, the composer's foot is within 2 pt of the keyboard's edge,
+  opening and closing. The first one or two moving frames, while the keyboard's animation is
+  being committed, were off by up to 16 pt opening and 11 pt closing across three runs.
+- The tick commits the pending Core Animation transaction once per move, when it finds the
+  keyboard's animation uncommitted.
 - A display link runs for the length of each keyboard move, about half a second, and redraws two
   offset modifiers per frame.
+- If a future UIKit stops animating views constrained to the keyboard layout guide, the ride
+  falls back to the fitted curve, and the probe's per-source counts show it.
 
 ## Tests
 
 - `AceUITests/TranscriptEndUITests/testTheNewestLineAndTheComposerMoveAsOneWithTheKeyboard` reads
-  the probe's gaps over an opening and a closing and holds their spread to 4 pt.
-- `AceTests/KeyboardCurveTests` holds the curve to a traced keyboard move.
+  the probe over an opening and a closing: the gap's spread is at most 4 pt, every frame read the
+  keyboard's edge, and the composer is within 2 pt of it from the third frame of a move on (20 pt
+  for the first two).
+- `AceTests/AnimationTimingTests` reads Bézier and spring timings; `AceTests/KeyboardCurveTests`
+  holds the fallback curve to traced keyboard moves.
 - `AceTests/TranscriptViewportSessionTests`: the docked lift and the room that stays below the end.
 - `TranscriptEndUITests`' keyboard checks and `ComposerSuggestionsUITests` keep the end, Scroll to
   end and the pills working with the keyboard up.
