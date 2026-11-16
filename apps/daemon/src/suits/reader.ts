@@ -39,7 +39,12 @@ export async function walkSuit(folder: string, maxEntries: number): Promise<Suit
           : stat.isFile()
             ? "file"
             : "other";
-      entries.push({ path, kind, size: kind === "file" ? stat.size : 0 });
+      entries.push({
+        path,
+        kind,
+        size: kind === "file" ? stat.size : 0,
+        mtimeMs: stat.mtimeMs,
+      });
       marks.push(`${path}\u0000${kind}\u0000${stat.size}\u0000${stat.mtimeMs}`);
       if (kind === "directory" && depth < 16) await visit(path, depth + 1);
     }
@@ -99,6 +104,7 @@ export async function readSuit(
     const walk: SuitPlan = {
       read: [],
       skipped: [],
+      stream: [],
       problems: [problem("schema", `${id} is not a folder (a link or a file); a Suit is a folder`)],
     };
     return {

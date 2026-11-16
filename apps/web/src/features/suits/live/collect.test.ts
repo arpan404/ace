@@ -29,7 +29,6 @@ function sceneWithVeil(veil: string) {
   placed(host.querySelector("span") as HTMLElement);
   const scene: SceneFrame = {
     host,
-    frame: host.querySelector("iframe") as HTMLIFrameElement,
     veils: [...host.querySelectorAll("[data-suit-veil]")],
     // One black cell: the scene is dark everywhere.
     grid: {
