@@ -1,25 +1,25 @@
 import Foundation
 
-/// The keyboard's motion as the system draws it, for what moves beside the system's keyboard
-/// avoidance (the transcript's end, #2170). The notification names curve 7 and a duration
-/// (0.383 s on iOS 26.1). Traced frame by frame on the iPhone 17 Pro simulator, the keyboard and
-/// the composer it carries move as a critically damped spring whose response is 0.65 of that
-/// duration, starting as the notification is posted.
+/// The keyboard's motion, for the composer and the transcript's end that ride it (#2170). The
+/// notification names curve 7 and a duration (0.383 s on iOS 26.1). Traced frame by frame on the
+/// iPhone 17 Pro simulator, the keyboard's edge starts about 18 ms after the notification, then
+/// closes the distance left by a near-constant share each frame: an ease-out at a rate of 15.5 per
+/// second for that duration. Over five traced 311 pt moves that is within about 20 pt (32 pt on a
+/// heavily loaded machine). A spring starting from rest fit worse: it starts too slowly.
 enum KeyboardCurve {
-    /// How long after the notification what the system draws starts to follow the curve, as seen
-    /// from a value set for a frame's target time: the rows led the composer by two 60 Hz frames
-    /// in every traced move without it.
-    static let delay = 1.0 / 30
+    /// How long after the notification the keyboard starts to move.
+    static let delay = 0.018
 
-    /// The spring's response for a move the notification says lasts `duration` seconds.
-    static func response(_ duration: Double) -> Double { duration * 0.65 }
+    /// The ease-out's rate for a move the notification says lasts `duration` seconds.
+    static func rate(_ duration: Double) -> Double { 5.94 / duration }
 
-    /// How far through its move the keyboard is `elapsed` seconds after the notification: 0 at
-    /// the start, nearing 1 as it settles.
+    /// How far through its move the keyboard is `elapsed` seconds after the notification: 0 until
+    /// it starts, nearing 1 as it settles.
     static func progress(_ elapsed: Double, duration: Double) -> Double {
-        guard elapsed > 0, duration > 0 else { return elapsed > 0 ? 1 : 0 }
-        let x = 2 * Double.pi / response(duration) * elapsed
-        return 1 - (1 + x) * exp(-x)
+        let moving = elapsed - delay
+        guard moving > 0 else { return 0 }
+        guard duration > 0 else { return 1 }
+        return 1 - exp(-rate(duration) * moving)
     }
 
     /// Whether a move of `distance` points is within half a point of its end `elapsed` seconds in.

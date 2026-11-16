@@ -1,62 +1,69 @@
 import SwiftUI
 import UIKit
 
-/// The rows following the transcript's end as the keyboard moves: drawn `shift` points from
-/// where the scroll puts them, set every frame from the keyboard's curve (`KeyboardCurve`) at the
-/// time the frame is shown, measured from the notification less the curve's `delay`. A SwiftUI animation would start when
-/// its change commits, frames after the keyboard does; this lands each frame where the keyboard
-/// is, hitches included (#2170). Only `KeyboardRideOffset` reads `shift`, so a frame redraws the
-/// offset and nothing under it.
+/// How far the docked keyboard lifts the thread's foot, frame by frame: one value the composer
+/// (`FloatingBar`) and the rows following the transcript's end (`ConversationFeed`) are both
+/// drawn by, so the two move as one (#2170). Each frame sets it from the keyboard's curve
+/// (`KeyboardCurve`) at the time the frame is shown, measured from the notification; a SwiftUI
+/// animation would start when its change commits, frames after the keyboard does. Only the small
+/// offset modifiers read `lift`, so a frame redraws them and nothing under them.
 @MainActor @Observable final class KeyboardRide {
-    private(set) var shift: CGFloat = 0
+    /// The lift drawn this frame.
+    private(set) var lift: CGFloat = 0
+    /// Where the current move ends.
+    private(set) var target: CGFloat = 0
+    /// The notified duration of the latest move.
+    private(set) var duration = 0.35
+    /// Bumped as each move starts and as each one lands.
+    private(set) var moves = 0
+    private(set) var landings = 0
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var move: Move?
 
     private struct Move {
         let from: CGFloat
-        let to: CGFloat
         let start: CFTimeInterval
         let duration: Double
-        let done: () -> Void
     }
 
     var running: Bool { move != nil }
 
-    /// Draws the rows `shift` points off at once, ending any ride.
-    func hold(at shift: CGFloat) {
-        stop()
-        self.shift = shift
-    }
-
-    /// Rides from `from` to `to` on the keyboard's curve for a move announced at `start`
-    /// (`CACurrentMediaTime`), then calls `done`.
-    func ride(from: CGFloat, to: CGFloat, start: CFTimeInterval, duration: Double, done: @escaping () -> Void) {
-        stop()
-        shift = from
-        move = Move(from: from, to: to, start: start, duration: duration, done: done)
+    /// Moves the lift to `target` on the keyboard's curve for a move announced at `start`
+    /// (`CACurrentMediaTime`) lasting `duration`; `animated: false` puts it there at once.
+    func move(to target: CGFloat, start: CFTimeInterval, duration: Double, animated: Bool) {
+        guard target != self.target else { return }
+        self.target = target
+        self.duration = duration
+        moves += 1
+        guard animated else {
+            land()
+            return
+        }
+        // A move under way goes on from where it's drawn.
+        move = Move(from: lift, start: start, duration: duration)
+        guard link == nil else { return }
         let link = CADisplayLink(target: RideTicker(ride: self), selector: #selector(RideTicker.tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
     }
 
-    /// Ends a ride where it was going, without calling its `done`.
-    func stop() {
+    private func land() {
         link?.invalidate()
         link = nil
-        if let move { shift = move.to }
         move = nil
+        lift = target
+        landings += 1
     }
 
     fileprivate func tick(_ link: CADisplayLink) {
         guard let move else { return }
-        let elapsed = link.targetTimestamp - move.start - KeyboardCurve.delay
-        let distance = Double(move.to - move.from)
+        let elapsed = link.targetTimestamp - move.start
+        let distance = Double(target - move.from)
         if KeyboardCurve.settled(elapsed, duration: move.duration, distance: distance) {
-            stop()
-            move.done()
+            land()
             return
         }
-        shift = move.from + CGFloat(distance * KeyboardCurve.progress(elapsed, duration: move.duration))
+        lift = move.from + CGFloat(distance * KeyboardCurve.progress(elapsed, duration: move.duration))
     }
 }
 
@@ -67,10 +74,13 @@ private final class RideTicker: NSObject {
     @MainActor @objc func tick(_ link: CADisplayLink) { ride?.tick(link) }
 }
 
-/// Draws its content `ride.shift` points down; the only view that reads it.
+/// Draws its content up by the ride's lift beyond `base`, the lift the content is already laid
+/// out or scrolled for; nothing while `riding` is off. The only views that read the lift.
 struct KeyboardRideOffset: ViewModifier {
     let ride: KeyboardRide
+    var base: CGFloat = 0
+    var riding = true
     func body(content: Content) -> some View {
-        content.offset(y: ride.shift)
+        content.offset(y: riding ? base - ride.lift : 0)
     }
 }

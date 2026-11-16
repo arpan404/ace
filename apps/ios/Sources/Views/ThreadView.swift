@@ -63,6 +63,9 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// How far the keyboard lifts the foot, frame by frame: the composer and the transcript's end
+    /// are both drawn by it (`KeyboardRide`).
+    @State private var keyboardRide = KeyboardRide()
     /// The strip over the capsule: the `@` and `/` list opens above it, never over it.
     @State private var stripHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
@@ -125,7 +128,7 @@ struct ThreadView: View {
                                                 openMedia: openMedia, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
-                         barHeight: barHeight, behind: $behind, jumps: jumps, railPlace: railPlace)
+                         barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps, railPlace: railPlace)
             .modifier(TurnRailOverlay(model: model, threadId: thread.id, behind: behind, place: railPlace, bottom: barHeight))
             .markdownShelf(threadId: thread.id)
     }
@@ -163,7 +166,7 @@ struct ThreadView: View {
 
     private func content(pageWidth: CGFloat) -> some View {
         headed
-            .modifier(FloatingBar(height: $barHeight) { bottomBar })
+            .modifier(FloatingBar(height: $barHeight, ride: keyboardRide) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -638,22 +641,41 @@ private struct GoalPresentation: Identifiable {
 /// The composer floats over the feed and rides the keyboard, while the feed keeps its size under
 /// the keyboard and makes room for the bar, request included, at its end. The transcript scrolls
 /// on behind the composer's glass; from the composer's lower edge on down the page is solid, so
-/// words never show in the gap above the keyboard or behind the home indicator. The bar takes the
-/// system's keyboard avoidance, which moves it on the keyboard's own curve; the transcript's end
-/// follows it on the same curve (`ConversationFeed.keyboardWillMove`).
+/// words never show in the gap above the keyboard or behind the home indicator.
+///
+/// The bar doesn't take the system's keyboard avoidance. It is drawn up by `ride`, which this sets
+/// from the keyboard's notification and the rows following the transcript's end are drawn by too,
+/// so the two never drift apart (#2170). The offset moves the bar's taps with it; nothing around
+/// it is resized and no inset changes.
 private struct FloatingBar<Bar: View>: ViewModifier {
     @Binding var height: CGFloat
+    let ride: KeyboardRide
     @ViewBuilder let bar: () -> Bar
+    @Environment(\.aceReduceMotion) private var reduceMotion
+    /// The area the bar rests at the foot of, keyboard ignored, in screen points.
+    @State private var column: CGRect = .zero
     func body(content: Content) -> some View {
         ZStack(alignment: .bottom) {
             content.ignoresSafeArea(.keyboard, edges: .bottom)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { column = $0 }
+                // In the keyboard-free area, so the system's avoidance never moves it.
+                .overlay(alignment: .bottom) {
+                    // The composer keeps the transcript's reading width; its floor spans the window.
+                    bar()
+                        .frame(maxWidth: ReadingColumn.maxWidth)
+                        .frame(maxWidth: .infinity)
+                        .background(alignment: .bottom) { BarFloor() }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                        .modifier(KeyboardRideOffset(ride: ride))
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                }
             KeyboardEdgeMark()
-            // The composer keeps the transcript's reading width; its floor spans the window.
-            bar()
-                .frame(maxWidth: ReadingColumn.maxWidth)
-                .frame(maxWidth: .infinity)
-                .background(alignment: .bottom) { BarFloor() }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            let start = CACurrentMediaTime()
+            guard let move = KeyboardMove(note) else { return }
+            let lift = CGFloat(TranscriptKeyboardLift.docked(column: column, keyboard: move.end))
+            ride.move(to: lift, start: start, duration: move.duration, animated: !reduceMotion)
         }
     }
 }
