@@ -30,7 +30,7 @@ export interface Listing {
   keywords: string[];
 }
 
-const decoder = new TextDecoder("utf-8", { fatal: true });
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 export function text(bytes: Uint8Array | undefined): string | undefined {
   if (!bytes) return undefined;
   try {

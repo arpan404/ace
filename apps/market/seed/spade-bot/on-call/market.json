@@ -1,0 +1,5 @@
+{
+  "line": "Looks at alerts and errors and says what matters.",
+  "categories": ["engineering"],
+  "keywords": ["alerts", "incidents", "errors"]
+}

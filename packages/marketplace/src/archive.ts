@@ -31,7 +31,7 @@ export class ArchiveError extends Error {
 
 const block = 512;
 const encoder = new TextEncoder();
-const decoder = new TextDecoder("utf-8", { fatal: true });
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 function normalise(input: string): string {
   const parsed = ContainedPath.safeParse(input);
