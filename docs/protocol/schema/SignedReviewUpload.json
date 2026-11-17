@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/SignedReviewUpload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "review": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    }
+  },
+  "required": [
+    "review"
+  ],
+  "type": "object"
+}

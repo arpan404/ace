@@ -359,6 +359,107 @@
     {
       "additionalProperties": false,
       "properties": {
+        "op": {
+          "const": "discover",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "handle": {
+          "$ref": "https://ace.local/protocol/v1/MarketPublisherName.json"
+        },
+        "op": {
+          "const": "publisher",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "handle"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+        },
+        "kind": {
+          "$ref": "https://ace.local/protocol/v1/MarketPictureKind.json"
+        },
+        "op": {
+          "const": "picture",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "kind",
+        "hash"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "publish",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "https://ace.local/protocol/v1/MarketPublishAction.json"
+        }
+      },
+      "required": [
+        "op",
+        "request"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 1000,
+          "type": "string"
+        },
+        "op": {
+          "const": "report",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "https://ace.local/protocol/v1/MarketReportReason.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "type",
+        "name",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "name": {
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },

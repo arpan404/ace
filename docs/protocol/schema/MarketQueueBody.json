@@ -1,0 +1,194 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketQueueBody.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "appeals": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "pattern": "^apl_[a-z0-9]{8,40}$",
+            "type": "string"
+          },
+          "name": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+          },
+          "note": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "publisher": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+          },
+          "reason": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "replacement": {
+            "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+          },
+          "state": {
+            "$ref": "https://ace.local/protocol/v1/MarketAppealState.json"
+          },
+          "status": {
+            "enum": [
+              "blocked",
+              "held"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+          },
+          "version": {
+            "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+          }
+        },
+        "required": [
+          "id",
+          "note",
+          "at",
+          "state",
+          "type",
+          "name",
+          "version",
+          "publisher",
+          "status"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "held": {
+      "items": {
+        "properties": {
+          "hash": {
+            "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+          },
+          "name": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+          },
+          "newPublisher": {
+            "type": "boolean"
+          },
+          "published": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "publisher": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+          },
+          "scan": {
+            "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+          },
+          "type": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+          },
+          "version": {
+            "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "version",
+          "hash",
+          "publisher",
+          "newPublisher",
+          "published"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "listings": {
+      "items": {
+        "properties": {
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "listing": {
+            "$ref": "https://ace.local/protocol/v1/MarketListingEdit.json"
+          },
+          "name": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+          },
+          "publisher": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+          },
+          "scan": {
+            "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+          },
+          "type": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "publisher",
+          "listing",
+          "scan",
+          "at"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    },
+    "verifications": {
+      "items": {
+        "properties": {
+          "at": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "flagged": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "proofs": {
+            "items": {
+              "$ref": "https://ace.local/protocol/v1/MarketVerificationProof.json"
+            },
+            "maxItems": 8,
+            "type": "array"
+          },
+          "publisher": {
+            "$ref": "https://ace.local/protocol/v1/MarketPublisher.json"
+          }
+        },
+        "required": [
+          "publisher",
+          "proofs",
+          "at"
+        ],
+        "type": "object"
+      },
+      "maxItems": 500,
+      "type": "array"
+    }
+  },
+  "required": [
+    "held",
+    "listings",
+    "verifications",
+    "appeals"
+  ],
+  "type": "object"
+}

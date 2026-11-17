@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketAppeal.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "answer": {
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "at": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "pattern": "^apl_[a-z0-9]{8,40}$",
+      "type": "string"
+    },
+    "note": {
+      "maxLength": 2000,
+      "type": "string"
+    },
+    "replacement": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/MarketAppealState.json"
+    }
+  },
+  "required": [
+    "id",
+    "note",
+    "at",
+    "state"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,174 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketPublishAnswer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "me",
+          "type": "string"
+        },
+        "me": {
+          "$ref": "https://ace.local/protocol/v1/MarketMe.json"
+        }
+      },
+      "required": [
+        "kind",
+        "me"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "$ref": "https://ace.local/protocol/v1/MarketOwnEntry.json"
+        },
+        "kind": {
+          "const": "entry",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "entry"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "profile",
+          "type": "string"
+        },
+        "profile": {
+          "$ref": "https://ace.local/protocol/v1/MarketProfile.json"
+        }
+      },
+      "required": [
+        "kind",
+        "profile"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "draft": {
+          "$ref": "https://ace.local/protocol/v1/MarketDraft.json"
+        },
+        "kind": {
+          "const": "draft",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "draft"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "signals",
+          "type": "string"
+        },
+        "signals": {
+          "$ref": "https://ace.local/protocol/v1/MarketSignals.json"
+        }
+      },
+      "required": [
+        "kind",
+        "signals"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "verification",
+          "type": "string"
+        },
+        "verification": {
+          "$ref": "https://ace.local/protocol/v1/MarketVerificationStatus.json"
+        }
+      },
+      "required": [
+        "kind",
+        "verification"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "held": {
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "published",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "kind",
+        "type",
+        "name",
+        "version",
+        "held"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pending",
+          "type": "string"
+        },
+        "scan": {
+          "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+        },
+        "what": {
+          "enum": [
+            "listing",
+            "withdrawal"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "what"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "done",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    }
+  ]
+}

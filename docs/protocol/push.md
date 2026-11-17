@@ -1711,25 +1711,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "entry": {
-      "description": "example",
-      "summary": {
-        "byAce": true,
-        "categories": [],
-        "downloads": 9,
-        "keywords": [],
-        "line": "example",
-        "name": "xkki8e1cw5v",
-        "reviewed": false,
-        "source": "git:m3",
-        "supported": true,
-        "title": "example",
-        "type": "example",
-        "updated": 2
-      },
-      "versions": []
-    },
-    "op": "read"
+    "op": "sources",
+    "sources": []
   },
   "type": "marketplace.result"
 }

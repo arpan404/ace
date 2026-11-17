@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketScanState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "read": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "const": "scanning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "read",
+        "files"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "report": {
+          "$ref": "https://ace.local/protocol/v1/MarketScanReport.json"
+        },
+        "state": {
+          "const": "done",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "report"
+      ],
+      "type": "object"
+    }
+  ]
+}
