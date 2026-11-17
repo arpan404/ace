@@ -6,17 +6,16 @@
 //! an entry are only read when that entry lands in a page, so showing the first 500 of 100,000
 //! costs 500 stats instead of 100,000.
 
+use files_safe::Root;
 use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
-
-use files_safe::Root;
 
 use crate::entry::{Entry, Kind, kind_of, millis, size_of};
 use crate::error::Error;
 use crate::hide::Hidden;
 use crate::rules::Rules;
+use crate::stamp::Stamp;
 
 /// One entry as far as ordering and ignoring are concerned.
 #[derive(Debug)]
@@ -32,8 +31,10 @@ struct Item {
 /// A folder as it was when it was read: its stamp and its listable entries in listing order.
 #[derive(Debug)]
 pub(crate) struct Snapshot {
-    /// The folder's modification time in nanoseconds.
-    pub(crate) stamp: u128,
+    /// The folder's identity when it was read.
+    pub(crate) stamp: Stamp,
+    /// Whether the folder changed too recently for `stamp` to prove it is unchanged.
+    pub(crate) racy: bool,
     /// The hide patterns this listing was filtered with.
     pub(crate) hide: String,
     abs: PathBuf,
@@ -76,21 +77,13 @@ impl Snapshot {
     }
 }
 
-/// A folder's own modification time in nanoseconds, which is when its entry list last changed.
-pub(crate) fn stamp(metadata: &std::fs::Metadata) -> u128 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |age| age.as_nanos())
-}
-
 /// Reads `abs` (the folder `dir` under `root`) and returns every entry the contract lists.
 pub(crate) fn read(
     root: &Root,
     dir: &str,
     abs: &Path,
-    stamp: u128,
+    stamp: Stamp,
+    racy: bool,
     rules: &Rules,
     hidden: &Hidden,
 ) -> Result<Snapshot, Error> {
@@ -104,6 +97,7 @@ pub(crate) fn read(
     items.sort_by(compare);
     Ok(Snapshot {
         stamp,
+        racy,
         hide: hidden.fingerprint().to_owned(),
         abs: abs.to_path_buf(),
         items,

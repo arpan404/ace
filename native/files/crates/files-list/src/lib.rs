@@ -9,6 +9,7 @@
 //!
 //! Paths in and out are relative to the root, `/` separated, and validated by `files-safe`.
 
+mod clock;
 mod cursor;
 mod entry;
 mod error;
@@ -18,7 +19,9 @@ mod lister;
 mod page;
 mod rules;
 mod snapshot;
+mod stamp;
 
+pub use crate::clock::{Clock, SystemClock};
 pub use crate::entry::{Entry, Kind};
 pub use crate::error::Error;
 pub use crate::lister::Lister;

@@ -152,3 +152,41 @@ fn a_cursor_from_the_root_is_not_honoured_by_a_child_folder() {
         .unwrap_err();
     assert_eq!(error.code(), "INVALID_CURSOR");
 }
+
+#[test]
+fn a_cursor_is_not_trusted_while_the_folder_is_racy() {
+    let home = TempDir::new().unwrap();
+    let root = home.path();
+    for index in 0..4 {
+        support::write(root, &format!("f{index}.txt"), "x");
+    }
+
+    let clock = std::sync::Arc::new(support::FakeClock::new(std::time::SystemTime::now()));
+    let lister = support::lister_with(root, clock.clone());
+    let first = first_page(&lister, "", &options(2));
+    let cursor = first.next_cursor.unwrap();
+
+    let refused = lister
+        .list(
+            "",
+            &ListOptions {
+                cursor: Some(cursor.clone()),
+                ..options(2)
+            },
+        )
+        .unwrap_err();
+    assert_eq!(refused.code(), "INVALID_CURSOR");
+
+    clock.set(std::time::SystemTime::now() + std::time::Duration::from_secs(3));
+
+    let second = lister
+        .list(
+            "",
+            &ListOptions {
+                cursor: Some(cursor),
+                ..options(2)
+            },
+        )
+        .unwrap();
+    assert_eq!(support::names(&second.entries), ["f2.txt", "f3.txt"]);
+}

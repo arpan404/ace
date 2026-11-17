@@ -7,6 +7,7 @@ use std::sync::{Arc, RwLock};
 
 use files_safe::Root;
 
+use crate::clock::{Clock, SystemClock};
 use crate::cursor::Cursor;
 use crate::entry::{Entry, Kind, kind_of, millis, size_of};
 use crate::error::Error;
@@ -14,6 +15,7 @@ use crate::hide::Hidden;
 use crate::page::{ListOptions, Page};
 use crate::rules::Rules;
 use crate::snapshot::{self, Snapshot};
+use crate::stamp::Stamp;
 
 /// The most entries one page may hold.
 const MAX_LIMIT: usize = 5000;
@@ -29,15 +31,24 @@ const MAX_CACHED_SNAPSHOTS: usize = 64;
 /// changes, and `invalidate` drops them early when the daemon knows better.
 pub struct Lister {
     root: Root,
+    clock: Arc<dyn Clock>,
     rules: RwLock<HashMap<String, Arc<Rules>>>,
     snapshots: RwLock<HashMap<String, Arc<Snapshot>>>,
 }
 
 impl Lister {
-    /// Wraps a root; nothing is read until the first request.
+    /// Wraps a root, reading the time from the system clock; nothing is read until the first
+    /// request.
     pub fn new(root: Root) -> Lister {
+        Lister::with_clock(root, Arc::new(SystemClock))
+    }
+
+    /// Wraps a root and a clock. Tests pass a clock they control so a folder they just wrote counts
+    /// as settled instead of being inside the racy window.
+    pub fn with_clock(root: Root, clock: Arc<dyn Clock>) -> Lister {
         Lister {
             root,
+            clock,
             rules: RwLock::new(HashMap::new()),
             snapshots: RwLock::new(HashMap::new()),
         }
@@ -46,7 +57,8 @@ impl Lister {
     /// Lists one page of the folder `dir` (empty for the root).
     ///
     /// A cursor from another call is only honoured while the folder holds the same entries it
-    /// held then; otherwise it is `INVALID_CURSOR` and the caller starts again from the top.
+    /// held then, and once the folder is past the racy window; otherwise it is `INVALID_CURSOR`
+    /// and the caller starts again from the top.
     pub fn list(&self, dir: &str, options: &ListOptions) -> Result<Page, Error> {
         if options.limit == 0 || options.limit > MAX_LIMIT {
             return Err(Error::InvalidArgument(format!(
@@ -69,6 +81,11 @@ impl Lister {
         let offset = match cursor {
             None => 0,
             Some(cursor) => {
+                if snapshot.racy {
+                    return Err(Error::InvalidCursor(format!(
+                        "folder {dir:?} changed too recently to page through"
+                    )));
+                }
                 if cursor.stamp != snapshot.stamp || cursor.count != total as u64 {
                     return Err(Error::InvalidCursor(format!(
                         "folder {dir:?} changed since the cursor was handed out"
@@ -176,7 +193,8 @@ impl Lister {
         if !metadata.is_dir() {
             return Err(Error::NotDirectory(dir.to_owned()));
         }
-        let stamp = snapshot::stamp(&metadata);
+        let stamp = Stamp::of(&metadata);
+        let racy = stamp.is_racy(self.clock.now());
         let hide = hidden.fingerprint();
         if let Some(cached) = self
             .snapshots
@@ -188,8 +206,12 @@ impl Lister {
         {
             return Ok(cached);
         }
-        let fresh = Arc::new(snapshot::read(&self.root, dir, &abs, stamp, rules, hidden)?);
-        if let Ok(mut cache) = self.snapshots.write() {
+        let fresh = Arc::new(snapshot::read(
+            &self.root, dir, &abs, stamp, racy, rules, hidden,
+        )?);
+        // A folder that changed within the racy window is not cached: its stamp cannot prove it
+        // will look the same on the next call, so the next call reads it again.
+        if !racy && let Ok(mut cache) = self.snapshots.write() {
             if cache.len() >= MAX_CACHED_SNAPSHOTS && !cache.contains_key(dir) {
                 cache.clear();
             }

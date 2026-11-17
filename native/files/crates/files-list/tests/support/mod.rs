@@ -10,15 +10,49 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
-use files_list::{Entry, ListOptions, Lister, Page};
+use files_list::{Clock, Entry, ListOptions, Lister, Page};
 use files_safe::Root;
 
 /// What the daemon passes as the default for `hide`.
 pub const HIDE: [&str; 2] = [".git", ".DS_Store"];
 
 pub fn lister(root: &Path) -> Lister {
-    Lister::new(Root::open(root).unwrap())
+    lister_with(root, Arc::new(FakeClock::new(settled())))
+}
+
+pub fn lister_with(root: &Path, clock: Arc<dyn Clock>) -> Lister {
+    Lister::with_clock(Root::open(root).unwrap(), clock)
+}
+
+/// An instant far enough past anything a test just wrote that its folders count as settled.
+pub fn settled() -> SystemTime {
+    SystemTime::now() + Duration::from_secs(10)
+}
+
+/// A clock the test moves, for the racy window.
+pub struct FakeClock {
+    now: Mutex<SystemTime>,
+}
+
+impl FakeClock {
+    pub fn new(at: SystemTime) -> FakeClock {
+        FakeClock {
+            now: Mutex::new(at),
+        }
+    }
+
+    pub fn set(&self, at: SystemTime) {
+        *self.now.lock().unwrap() = at;
+    }
+}
+
+impl Clock for FakeClock {
+    fn now(&self) -> SystemTime {
+        *self.now.lock().unwrap()
+    }
 }
 
 pub fn options(limit: usize) -> ListOptions {
