@@ -34,7 +34,7 @@ test("headless pairing persists a remote profile, hides its token and reads thro
     const pairing = await f.pairing();
     const redeemed = await invoke(
       home,
-      ["pair", "redeem", "--profile", "test-host", "--json"],
+      ["pair", "redeem", "-", "--profile", "test-host", "--json"],
       {},
       pairing.url,
     );
@@ -104,6 +104,7 @@ test("cloud submission passes prompt bytes to the installed CLI and retries its 
       "cloud",
       "codex",
       "exec",
+      "-",
       "--env",
       "synthetic-env",
       "--idempotency-key",

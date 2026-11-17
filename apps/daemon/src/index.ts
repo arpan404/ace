@@ -519,6 +519,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       log: (error) => log.log("warn", "ace account", logError(error)),
     });
     await account.load();
+    services.marketAgent?.bindAccount(account, hostId);
     resources.own(() => account.close(), "ace account");
 
     const socketReady = Promise.withResolvers<void>();

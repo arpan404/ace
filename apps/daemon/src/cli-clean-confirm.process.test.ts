@@ -51,7 +51,7 @@ async function cleanWithAnswer(answer: Confirmation["ask"]) {
 
 test("answering yes at the terminal prompt applies the reviewed plan", async () => {
   const run = await cleanWithAnswer(async () => true);
-  expect(run.questions).toEqual([expect.stringMatching(/^Remove 1 item .*\[y\/N\] $/)]);
+  expect(run.questions).toEqual([expect.stringMatching(/^Remove 1 item \(.*\)\?$/)]);
   expect(run.outcome).toBe(exitCodes.ok);
   expect(run.removed).toBe(true);
 });

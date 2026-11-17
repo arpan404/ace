@@ -5,6 +5,7 @@ import { marketOrigin, shippedMarketKeys } from "@ace/marketplace";
 import { gitRuntime } from "@ace/plugins";
 import {
   marketReadOperations,
+  type MarketOperation,
   type MarketResult,
   type MarketServerMessage,
 } from "@ace/protocol/marketplace";
@@ -13,6 +14,9 @@ import { betaKeys } from "@ace/settings/beta";
 import { pickPorts } from "../marketplace/pick-ports.ts";
 import { pluginPort } from "../marketplace/plugin-port.ts";
 import { MarketplaceService } from "../marketplace/service.ts";
+import { MarketAgent } from "../marketplace/market-agent.ts";
+import { grantSignInAge } from "@ace/account-grant";
+import { hostMarketRefusal, signedInRecently } from "../marketplace/fresh-sign-in.ts";
 import { spadePort } from "../marketplace/spade-port.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import type { ServiceContext } from "./types.ts";
@@ -49,6 +53,13 @@ export async function startMarketplace(context: ServiceContext): Promise<void> {
   });
   resources.own(() => marketplace.close());
   services.marketplace = marketplace;
+  services.marketAgent = new MarketAgent({
+    marketplace,
+    store: context.store,
+    engine: () => services.engine,
+    settings: () => services.settings,
+    id: context.id,
+  });
 }
 
 /**
@@ -99,29 +110,66 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
         reply({ op: "error", code: "forbidden", message: `${scope} scope required` });
         return true;
       }
-      const marketplace = options.marketplace;
-      if (!marketplace) {
+      // A publish mints its market grant through this machine's ace account, for this request
+      // alone; it never reaches the socket, the disk or a log. An agent's shell names its thread
+      // (ADR 0176 §12.5): its person-only actions become a request there instead.
+      // Without a thread the caller says it is the person, which the host token alone can't
+      // prove: person-only actions from it need a fresh ace sign-in (`fresh-sign-in.ts`).
+      const { operation, thread } = message;
+      const agent = options.marketAgent;
+      const asPerson = async (market: MarketAgent) =>
+        (await hostMarketRefusal({
+          operation,
+          hostCredential: context.hostCredential?.() === true,
+          fresh: () => market.freshSignIn(),
+        })) ?? market.asPerson(operation);
+      const run = agent
+        ? () => (thread ? agent.forAgent(thread, operation) : asPerson(agent))
+        : // A server started with the marketplace service alone (tests): as the person.
+          options.marketplace && !thread
+          ? async () =>
+              (await hostMarketRefusal({
+                operation,
+                hostCredential: context.hostCredential?.() === true,
+                fresh: () => machineFresh(options),
+              })) ?? serviceAlone(options, operation)
+          : undefined;
+      if (!run) {
         reply({ op: "error", code: "unavailable", message: "The marketplace isn't ready yet" });
         return true;
       }
-      // A publish mints its market grant through this machine's ace account, for this request
-      // alone; it never reaches the socket, the disk or a log.
-      const account = options.machineAccount;
-      const grant = account ? () => account.marketGrant(options.hostId) : undefined;
-      // The signed-in person's name and email, for the privacy pass over what they publish.
-      const signedIn = account?.account();
-      const names = signedIn
-        ? [signedIn.name, signedIn.email, signedIn.email.split("@")[0] ?? ""]
-        : [];
-      const task = marketplace
-        .request(
-          message.operation,
-          message.operation.op === "publish" ? { grant, names } : { names },
-        )
-        .then(reply);
+      const task = run().then(reply);
       tasks.add(task);
       void task.finally(() => tasks.delete(task));
       return true;
     },
   };
+}
+
+/** The marketplace as the person reaches it, for a server given the service without its agent. */
+function serviceAlone(
+  options: SocketContext["options"],
+  operation: MarketOperation,
+): Promise<MarketResult> {
+  const { marketplace, machineAccount: account, hostId } = options;
+  const grant = account ? () => account.marketGrant(hostId) : undefined;
+  return (
+    marketplace?.request(operation, operation.op === "publish" ? { grant } : {}) ??
+    Promise.resolve({
+      op: "error",
+      code: "unavailable",
+      message: "The marketplace isn't ready yet",
+    })
+  );
+}
+
+/** Whether the machine's account signed in within ten minutes, for a server without its agent. */
+async function machineFresh(options: SocketContext["options"]): Promise<boolean> {
+  const { machineAccount: account, hostId } = options;
+  try {
+    const grant = account ? await account.marketGrant(hostId) : undefined;
+    return grant !== undefined && signedInRecently(grantSignInAge(grant));
+  } catch {
+    return false;
+  }
 }

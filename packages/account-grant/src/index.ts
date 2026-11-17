@@ -223,6 +223,25 @@ export function grantLifetimeMs(token: string): number | undefined {
   }
 }
 
+/**
+ * How long before a market grant was issued its sign-in happened (`iat - authAt`), read without
+ * checking the signature: the daemon reads it from a grant it just took from its own account
+ * backend, to apply ADR 0174 §2's ten-minute rule before a person-only action. Both times are
+ * the backend's, so this machine's clock doesn't enter into it. Undefined for any other grant or
+ * a malformed one.
+ */
+export function grantSignInAge(token: string): number | undefined {
+  try {
+    const body = token.split(".")[0] ?? "";
+    const claims = MarketGrantClaims.parse(
+      JSON.parse(new TextDecoder().decode(decodeBase64url(body))),
+    );
+    return claims.iat - claims.authAt;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The grant a WebSocket upgrade offered in `Sec-WebSocket-Protocol`, if any. */
 export function grantFromSubprotocols(header: string | null): string | undefined {
   for (const protocol of header?.split(",") ?? []) {

@@ -370,6 +370,12 @@ export async function startServer(options: ServerOptions): Promise<{
         : actor;
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
+    // Authenticated with the daemon's token file on loopback: the person's whole authority, which
+    // any process able to read the file has (ADR 0176 §12.5).
+    const hostCredential = () =>
+      relayed === undefined &&
+      accountAdmitted === undefined &&
+      authenticated.get(socket)?.revocable === false;
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
@@ -403,10 +409,7 @@ export async function startServer(options: ServerOptions): Promise<{
       },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
-      hostCredential: () =>
-        relayed === undefined &&
-        accountAdmitted === undefined &&
-        authenticated.get(socket)?.revocable === false,
+      hostCredential,
       accountDevice: () => accountId,
       access: {
         auth,
@@ -726,6 +729,7 @@ export async function startServer(options: ServerOptions): Promise<{
             flights,
             open: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
             authorize,
+            hostCredential,
             send,
             delay: runtime.delay,
           });

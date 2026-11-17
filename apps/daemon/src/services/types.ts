@@ -144,6 +144,8 @@ export interface Services {
   pluginAvailability: import("./plugin-availability.ts").Availability<PluginService>;
   /** ace's marketplace (ADR 0168). */
   marketplace?: import("../marketplace/service.ts").MarketplaceService;
+  /** The marketplace as the person or an agent reaches it (ADR 0176 §12.5). */
+  marketAgent?: import("../marketplace/market-agent.ts").MarketAgent;
   /** The Suit library (ADR 0150). */
   suits?: import("../suits/library.ts").SuitLibrary;
   /** Which devices hear an agent's Suit preview, keep or revert (ADR 0150). */

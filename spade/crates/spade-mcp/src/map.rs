@@ -26,6 +26,8 @@ pub struct McpTool {
     pub annotated: bool,
     /// `openWorldHint`: it reaches beyond the server's own data.
     pub open_world: Option<bool>,
+    /// The tool's `_meta`, as sent: ace declares an effect there (`ace/effect`, ADR 0171).
+    pub meta: Map<String, Value>,
 }
 
 /// One piece of a tool's answer. `extra` holds every field of the block besides the ones read
@@ -99,6 +101,11 @@ pub(crate) fn tool(tool: &rmcp::model::Tool) -> McpTool {
                 || a.open_world_hint.is_some()
         }),
         open_world: annotations.and_then(|a| a.open_world_hint),
+        meta: tool
+            .meta
+            .as_ref()
+            .map(|meta| meta.0.clone())
+            .unwrap_or_default(),
     }
 }
 

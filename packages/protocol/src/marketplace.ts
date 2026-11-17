@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ThreadId } from "./ids.ts";
 import { PluginExecution, PluginName } from "./plugins.ts";
 import {
   MarketCategory,
@@ -334,6 +335,11 @@ export const MarketErrorCode = z.enum([
   "expired",
   "busy",
   "failed",
+  /**
+   * An agent asked for an action that is the person's (ADR 0176 §12.5): ace opened a request in
+   * the asking thread's strip, named by `request`, that only a person's device answers.
+   */
+  "person_only",
 ]);
 
 export const MarketResult = z.discriminatedUnion("op", [
@@ -376,6 +382,8 @@ export const MarketResult = z.discriminatedUnion("op", [
     message: z.string().max(2000),
     problems: z.array(MarketProblem).max(200).optional(),
     scan: MarketScanReport.optional(),
+    /** The person's request ace opened, for `person_only`. */
+    request: z.string().max(200).optional(),
   }),
 ]);
 export type MarketResult = z.infer<typeof MarketResult>;
@@ -384,6 +392,11 @@ export const MarketClientMessage = z.strictObject({
   type: z.literal("marketplace.request"),
   requestId: z.string().min(1).max(80),
   operation: MarketOperation,
+  /**
+   * The thread of the agent asking (`ACE_THREAD_ID` in its shell, ADR 0176 §10): the daemon
+   * turns a person-only action into a request in that thread instead of running it.
+   */
+  thread: ThreadId.optional(),
 });
 export type MarketClientMessage = z.infer<typeof MarketClientMessage>;
 

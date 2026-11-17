@@ -116,6 +116,8 @@ export function createCursorAdapter(
         const env = {
           ...cursorSdkEnvironment(selected, launch),
           ...userToolEnv({ ...userTools(), launch }),
+          // This session's own SDK host: its local shell inherits the agent's variables (§10).
+          ...context.agentEnv,
         };
         // An accounts-composed environment must already carry the private SDK default home.
         if (env.HOME !== join(selected.homeDir, "user"))
