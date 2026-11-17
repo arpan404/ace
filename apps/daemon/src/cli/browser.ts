@@ -3,19 +3,19 @@ import type { Client } from "@ace/client";
 import { randomUUID } from "node:crypto";
 import { open, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { option, timeoutMs, validateArgs, type Args } from "./args.ts";
+import { option, timeoutMs, type Args } from "./args.ts";
 import { waitSelection } from "./connection.ts";
-import { mutationResult } from "./io.ts";
+import { emit } from "./io.ts";
+import { browserArtifactLine } from "./render/browser.ts";
 import { CliFailure } from "./output.ts";
-export async function browserCommand(args: Args, client: Client, signal: AbortSignal) {
-  validateArgs(args, ["output", "duration", "url"], 3);
-  const verb = args.words[1];
-  if (verb !== "shot" && verb !== "record")
-    throw new CliFailure(
-      "refused",
-      "Usage: ace browser shot|record THREAD [--output PATH] [--url URL]",
-    );
-  const threadId = ThreadId.parse(args.words[2]);
+export async function browserCommand(
+  args: Args,
+  client: Client,
+  signal: AbortSignal,
+  verb: "screenshot" | "record",
+  threadRef: string,
+) {
+  const threadId = ThreadId.parse(threadRef);
   const duration = timeoutMs({ words: [], flags: { timeout: option(args, "duration") ?? "5s" } });
   const lease = client.thread(threadId);
   let recording = false;
@@ -62,7 +62,7 @@ export async function browserCommand(args: Args, client: Client, signal: AbortSi
         );
     }
     let artifact: { path: string; mimeType: string };
-    if (verb === "shot") {
+    if (verb === "screenshot") {
       const shot = await client.request(
         { type: "browser.execute", threadId, command: { action: "screenshot" } },
         { signal },
@@ -110,7 +110,8 @@ export async function browserCommand(args: Args, client: Client, signal: AbortSi
     if (published?.type !== "artifact" || !published.artifactId)
       throw new CliFailure("uncertain", "Browser artifact is not downloadable");
     const output =
-      option(args, "output") ?? `ace-${verb}-${randomUUID()}.${verb === "shot" ? "png" : "mp4"}`;
+      option(args, "output") ??
+      `ace-${verb === "screenshot" ? "shot" : "record"}-${randomUUID()}.${verb === "screenshot" ? "png" : "mp4"}`;
     const file = await open(output, "wx", 0o600);
     let complete = false;
     try {
@@ -125,11 +126,11 @@ export async function browserCommand(args: Args, client: Client, signal: AbortSi
       await file.close();
       if (!complete) await rm(output, { force: true });
     }
-    await mutationResult(args, {
-      path: output,
-      mimeType: artifact.mimeType,
-      artifactId: published.artifactId,
-    });
+    await emit(
+      args,
+      { path: output, mimeType: artifact.mimeType, artifactId: published.artifactId },
+      { human: browserArtifactLine, quiet: (value) => [value.path] },
+    );
   } finally {
     stopFrames();
     if (recording && client.state === "ready")

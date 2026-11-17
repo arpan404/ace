@@ -1,6 +1,12 @@
+import { globalFlagNames } from "./commands/globals.ts";
+import { usageFailure } from "./output.ts";
 export interface Args {
   words: string[];
   flags: Record<string, string | true>;
+  /** Every value of a flag given more than once (`--keyword a --keyword b`). */
+  lists?: Record<string, readonly string[]>;
+  /** A person is at a terminal and may be asked (ADR 0176 §9); false for agents and pipes. */
+  interactive?: boolean;
 }
 const switches = new Set([
   "json",
@@ -77,22 +83,37 @@ export function option(args: Args, name: string): string | undefined {
   const value = args.flags[name];
   return typeof value === "string" ? value : undefined;
 }
+/**
+ * A command module's own check of what reached it. The command table already refused unknown
+ * flags and wrong argument counts with their sentences (ADR 0176); this guards the module's
+ * narrower contract, as a usage error.
+ */
 export function validateArgs(args: Args, names: readonly string[], min: number, max = min): void {
   for (const name of Object.keys(args.flags))
-    if (!["json", "jq", "help", "timeout", "remote", ...names].includes(name))
-      throw new Error(`Unknown option --${name}`);
+    if (!globalFlagNames.has(name) && !["idempotency-key", ...names].includes(name))
+      throw usageFailure(`--${name} doesn't apply here.`, {
+        code: "unknown_flag",
+        argument: `--${name}`,
+        hint: "See its flags with --help.",
+      });
   if (args.words.length < min || args.words.length > max)
-    throw new Error("Invalid arguments. See ace --help.");
+    throw usageFailure(
+      args.words.length < min ? "An argument is missing." : "There are too many arguments.",
+      {
+        code: args.words.length < min ? "missing_argument" : "too_many_arguments",
+        hint: "See the command's arguments with --help.",
+      },
+    );
 }
 export function timeoutMs(args: Args): number {
   const value = option(args, "timeout");
   if (value === undefined) return 240_000;
   if (!/^\d+(?:ms|s|m|h)?$/.test(value))
-    throw new Error("Timeout must be a positive duration, e.g. 30s");
+    throw usageFailure("--timeout takes a duration, like 30s or 10m.", { argument: "--timeout" });
   const suffix = value.match(/[a-z]+$/)?.[0] ?? "ms";
   const scale = suffix === "h" ? 3_600_000 : suffix === "m" ? 60_000 : suffix === "s" ? 1000 : 1;
   const result = Number.parseInt(value, 10) * scale;
   if (!Number.isSafeInteger(result) || result <= 0 || result > 86_400_000)
-    throw new Error("Timeout must be at most 24h");
+    throw usageFailure("--timeout can be at most 24h.", { argument: "--timeout" });
   return result;
 }

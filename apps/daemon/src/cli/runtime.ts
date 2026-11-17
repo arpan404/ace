@@ -8,21 +8,10 @@ import type { Config } from "../config.ts";
 import { validateArgs, type Args } from "./args.ts";
 import { result } from "./io.ts";
 import { CliFailure } from "./output.ts";
+import { startedJson, startedText } from "./render/daemon.ts";
+/** `ace start` and `ace serve` (`ace daemon start|serve`): the daemon, in the foreground. */
 export async function runtimeCommand(args: Args, config: Config) {
   const command = args.words[0] ?? "start";
-  if (command === "service") {
-    validateArgs(args, ["linger"], 2, 3);
-    await result(
-      args,
-      await (
-        await import("@ace/service")
-      ).serviceCommand(config.dataDir, [
-        ...args.words.slice(1),
-        ...(args.flags.linger ? ["--linger"] : []),
-      ]),
-    );
-    return;
-  }
   validateArgs(args, [], 0, 1);
   const development = process.env.ACE_DEV === "1";
   const { startDaemon, runDaemonProcess, NewerDataError, DaemonLockHeldError } =
@@ -72,17 +61,17 @@ export async function runtimeCommand(args: Args, config: Config) {
     await daemon.close();
     throw error;
   }
+  const started = {
+    running: true as const,
+    url: daemon.url,
+    tokenPath: daemon.tokenPath,
+    remoteUrl: daemon.remoteUrl,
+    fingerprint: daemon.fingerprint,
+  };
+  // The desktop app, the login service and `ace chat` read these bytes: they never change.
   await result(
     args,
-    args.flags.json || args.flags.jq
-      ? {
-          running: true,
-          url: daemon.url,
-          tokenPath: daemon.tokenPath,
-          remoteUrl: daemon.remoteUrl,
-          fingerprint: daemon.fingerprint,
-        }
-      : `ace daemon: ${daemon.url}\nToken file: ${daemon.tokenPath}${daemon.remoteUrl ? `\nRemote: ${daemon.remoteUrl}\nPublic-key SHA-256: ${daemon.fingerprint}` : ""}`,
+    args.flags.json || args.flags.jq ? startedJson(started) : startedText(started),
   );
 }
 

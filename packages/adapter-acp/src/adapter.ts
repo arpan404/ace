@@ -50,7 +50,8 @@ export function createAcpAdapter(
       };
     },
     async openSession(ctx) {
-      const env = { ...options.env, ...ctx.env };
+      // One agent process per session: its shell tool inherits the agent's variables (§10).
+      const env = { ...options.env, ...ctx.env, ...ctx.agentEnv };
       const method = options.signInMethod?.(ctx);
       const signIn = method ? { signInMethod: method } : {};
       if (options.resolveLaunch) {
@@ -58,7 +59,7 @@ export function createAcpAdapter(
         return openAcpSession(ctx, quirks, {
           command: plan.command,
           args: [...plan.args],
-          env: { ...ctx.env, ...plan.env },
+          env: { ...ctx.env, ...plan.env, ...ctx.agentEnv },
           version: plan.version,
           ...(plan.profile ? { profile: plan.profile } : {}),
           ...signIn,

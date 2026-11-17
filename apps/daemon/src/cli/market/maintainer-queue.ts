@@ -1,7 +1,4 @@
-import { lstat, opendir, readFile, writeFile } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
 import { z } from "zod";
-import { decodeBase64url, encodeBase64url } from "@ace/account-grant";
 import {
   MarketEntryName,
   MarketEntryType,
@@ -12,251 +9,21 @@ import {
   type MarketCollection,
 } from "@ace/protocol/marketplace";
 import {
-  marketOrigin,
-  marketPublicKey,
-  shippedMarketKeys,
-  marketSigningKey,
-  type ArchiveFile,
-  type MarketSigningKey,
-} from "@ace/marketplace";
-import { type MarketKeySet } from "@ace/protocol/marketplace";
-import { checkFiles } from "@ace/marketplace/checks";
-import {
   findingSentence,
   signBlocklistChange,
   signOfficialChange,
-  signPending,
   signReview,
-  signRevocation,
   signVerifiedChange,
   signWithdrawAll,
   type BlocklistChange,
   type SignerIo,
 } from "@ace/marketplace/signer";
-import { option, validateArgs, type Args } from "./args.ts";
-import { print } from "./io.ts";
-import { CliFailure } from "./output.ts";
+import { option, validateArgs, type Args } from "../args.ts";
+import { print } from "../io.ts";
+import { CliFailure } from "../output.ts";
+import { marketUrl, now, readKey, signerIo, trustedWith } from "./maintainer-io.ts";
 
-/*
- * The marketplace's maintainer tools (ADR 0168 §6, §7), run on a maintainer's machine:
- *
- *   ace market keygen KEY_FILE [--id ID]          a signing key in a file; prints its public half
- *   ace market sign --key KEY_FILE [--url URL]    re-scan, then sign, hold or block what waits;
- *                                                 sign any pending withdrawals
- *   ace market review                             what waits for a maintainer, as sentences
- *   ace market review TYPE/NAME@VERSION --show|--approve|--block REASON
- *   ace market review TYPE/NAME@VERSION --key KEY_FILE [--by-ace] [--not-reviewed]
- *                                                 sign the review mark
- *   ace market feature TYPE/NAME ... [--url URL]  the featured list (reviewed entries only)
- *   ace market revoke HASH --reason TEXT --key KEY_FILE
- *                                                 withdraw bytes wherever they are listed
- *   ace market reports [resolve ID --state STATE [--note TEXT]]
- *   ace market collection list|put ID --title T --line L TYPE/NAME ...|remove ID
- *   ace market publisher HANDLE --suspend REASON|--restore|--withdraw-all REASON [--key KEY_FILE]
- *   ace market block HASH|block-file SHA256|block-pattern TEXT --reason TEXT --key KEY_FILE
- *   ace market appeals | appeal ID --answer TEXT --approve|--keep
- *   ace market verify|unverify HANDLE --reason TEXT --key KEY_FILE
- *   ace market official add|remove ACCOUNT --key KEY_FILE
- *   ace marketplace check PATH --type TYPE [--name NAME]   the publish checks on a folder
- *
- * The signer's token comes from ACE_MARKET_SIGNER_TOKEN; the key only ever from its file.
- */
-
-const KeyFile = z.object({ id: z.string(), privateKey: z.string() });
-
-async function readKey(path: string | undefined): Promise<MarketSigningKey> {
-  if (!path) throw new CliFailure("refused", "Pass the signing key's file with --key");
-  const info = await lstat(path);
-  if (process.platform !== "win32" && (info.mode & 0o077) !== 0)
-    throw new CliFailure("refused", `${path} can be read by others; chmod 600 it first`);
-  const file = KeyFile.parse(JSON.parse(await readFile(path, "utf8")));
-  return marketSigningKey(file.id, decodeBase64url(file.privateKey));
-}
-
-function marketUrl(args: Args): URL {
-  const url = new URL(option(args, "url") ?? marketOrigin);
-  if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost")
-    throw new CliFailure("refused", "The market is reached over https only");
-  return url;
-}
-
-async function answered(response: Response): Promise<Response> {
-  if (!response.ok)
-    throw new CliFailure(
-      "failed",
-      `The market answered ${response.status}: ${(await response.text()).slice(0, 300)}`,
-    );
-  return response;
-}
-
-function signerIo(base: URL): SignerIo {
-  const token = process.env["ACE_MARKET_SIGNER_TOKEN"];
-  if (!token)
-    throw new CliFailure("refused", "Set ACE_MARKET_SIGNER_TOKEN to the market's signer token");
-  const headers = { authorization: `Bearer ${token}` };
-  return {
-    get: async (path) => (await answered(await fetch(new URL(path, base), { headers }))).json(),
-    object: async (hash) =>
-      new Uint8Array(
-        await (
-          await answered(await fetch(new URL(`/v1/signer/objects/${hash}`, base), { headers }))
-        ).arrayBuffer(),
-      ),
-    put: async (path, body) => {
-      const response = await fetch(new URL(path, base), {
-        method: "PUT",
-        headers: { ...headers, "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      return { status: response.status, text: (await response.text()).slice(0, 2000) };
-    },
-  };
-}
-
-/** A folder's regular files, as an archive would hold them; links and other kinds refused. */
-async function readFolder(root: string): Promise<ArchiveFile[]> {
-  const files: ArchiveFile[] = [];
-  const walk = async (folder: string, depth: number) => {
-    if (depth > 32) throw new CliFailure("refused", `${folder} is nested too deep`);
-    for await (const entry of await opendir(folder)) {
-      const path = join(folder, entry.name);
-      const name = relative(root, path).split(sep).join("/");
-      if (entry.name === ".git") continue;
-      if (entry.isSymbolicLink())
-        throw new CliFailure("refused", `${name} is a link; an entry holds only its own files`);
-      if (entry.isDirectory()) await walk(path, depth + 1);
-      else if (entry.isFile()) {
-        const info = await lstat(path);
-        files.push({
-          path: name,
-          executable: (info.mode & 0o111) !== 0,
-          content: new Uint8Array(await readFile(path)),
-        });
-      } else throw new CliFailure("refused", `${name} isn't a regular file`);
-    }
-  };
-  await walk(root, 0);
-  return files;
-}
-
-const now = () => Date.now();
-
-/**
- * The keys a read-back signature may be by: the ones this build ships and the key signing now,
- * so a list or manifest the previous key signed still verifies after a rotation.
- */
-function trustedWith(key: MarketSigningKey): MarketKeySet {
-  const active = marketPublicKey(key);
-  return {
-    keys: [...shippedMarketKeys.keys.filter((known) => known.id !== active.id), active],
-  };
-}
-
-export async function marketCommand(args: Args): Promise<void> {
-  const verb = args.words[1];
-  switch (verb) {
-    case "keygen": {
-      validateArgs(args, ["id"], 3, 3);
-      const path = args.words[2] ?? "";
-      const key = marketSigningKey(
-        option(args, "id") ?? "market-1",
-        crypto.getRandomValues(new Uint8Array(32)),
-      );
-      await writeFile(
-        path,
-        JSON.stringify({ id: key.id, privateKey: encodeBase64url(key.privateKey) }) + "\n",
-        { flag: "wx", mode: 0o600 },
-      );
-      return print(args, { file: path, publicKey: marketPublicKey(key) });
-    }
-    case "sign": {
-      validateArgs(args, ["key", "url"], 2, 2);
-      const key = await readKey(option(args, "key"));
-      const report = await signPending(signerIo(marketUrl(args)), key, now, trustedWith(key));
-      await print(args, report);
-      if (report.failed.length > 0)
-        throw new CliFailure("failed", "Some signatures weren't taken by the market");
-      return;
-    }
-    case "review":
-      return reviewCommand(args);
-    case "feature": {
-      validateArgs(args, ["url"], 2, 26);
-      const entries = args.words.slice(2).map((word) => {
-        const [type = "", name = ""] = word.split("/");
-        return { type: MarketEntryType.parse(type), name: MarketEntryName.parse(name) };
-      });
-      const answer = await signerIo(marketUrl(args)).put("/v1/signer/featured", { entries });
-      if (answer.status < 200 || answer.status >= 300)
-        throw new CliFailure("failed", `The market answered ${answer.status}: ${answer.text}`);
-      return print(args, { ok: true, featured: entries.length });
-    }
-    case "revoke": {
-      validateArgs(args, ["key", "url", "reason"], 3, 3);
-      const hash = args.words[2] ?? "";
-      const reason = option(args, "reason");
-      if (!/^[a-f0-9]{64}$/.test(hash))
-        throw new CliFailure("refused", "Name the bytes by their content hash");
-      if (!reason) throw new CliFailure("refused", "Say why with --reason; devices show it");
-      const key = await readKey(option(args, "key"));
-      const answer = await signRevocation(signerIo(marketUrl(args)), key, now, trustedWith(key), {
-        hash,
-        reason,
-      });
-      if (answer.status < 200 || answer.status >= 300)
-        throw new CliFailure("failed", `The market answered ${answer.status}: ${answer.text}`);
-      return print(args, { ok: true, revoked: hash });
-    }
-    default:
-      return maintainerCommand(verb, args);
-  }
-}
-
-/** `ace marketplace check PATH --type TYPE [--name NAME]`: the checks the market runs on upload. */
-export async function marketplaceCommand(args: Args): Promise<void> {
-  if (args.words[1] !== "check")
-    throw new CliFailure("refused", "Use ace marketplace check PATH --type TYPE");
-  validateArgs(args, ["type", "name"], 3, 3);
-  const root = args.words[2] ?? "";
-  const type = MarketEntryType.safeParse(option(args, "type"));
-  if (!type.success)
-    throw new CliFailure("refused", "Pass --type suit, spade-skill, spade-plugin or spade-bot");
-  const name = option(args, "name") ?? root.split(/[\\/]/).findLast(Boolean) ?? "";
-  if (!MarketEntryName.safeParse(name).success)
-    throw new CliFailure("refused", `${name} isn't an entry name; pass --name`);
-  const checked = checkFiles(type.data, name, await readFolder(root));
-  const result = {
-    type: type.data,
-    name,
-    hash: checked.hash,
-    files: checked.files.length,
-    bytes: checked.size,
-    listing: checked.listing,
-    problems: checked.problems,
-  };
-  if (checked.problems.length === 0)
-    return print(
-      args,
-      args.flags.json ? result : `${type.data}/${name} passes. Content hash ${checked.hash}.`,
-    );
-  await print(
-    args,
-    args.flags.json
-      ? result
-      : checked.problems
-          .map(
-            (problem) =>
-              `${problem.path ?? name}${problem.line ? `:${problem.line}` : ""}: ${problem.message}`,
-          )
-          .join("\n"),
-  );
-  throw new CliFailure(
-    "refused",
-    `${checked.problems.length} problem${checked.problems.length === 1 ? "" : "s"}`,
-  );
-}
-
-/* ---------------------------------------------------------------- the maintainers' work */
+/* The maintainers' queue work: reviews, reports, collections, publishers, blocks, appeals. */
 
 const succeeded = (answer: { status: number; text: string }) => {
   if (answer.status < 200 || answer.status >= 300)
@@ -335,7 +102,12 @@ async function readQueue(io: SignerIo): Promise<Queue> {
 }
 
 async function reviewCommand(args: Args): Promise<void> {
-  validateArgs(args, ["key", "url", "by-ace", "not-reviewed", "show", "approve", "block"], 2, 3);
+  validateArgs(
+    args,
+    ["key", "url", "dev-market", "by-ace", "not-reviewed", "show", "approve", "block"],
+    2,
+    3,
+  );
   const io = signerIo(marketUrl(args));
   if (args.words.length === 2) {
     const queue = await readQueue(io);
@@ -381,7 +153,7 @@ async function reviewCommand(args: Args): Promise<void> {
 async function reportsCommand(args: Args): Promise<void> {
   const io = signerIo(marketUrl(args));
   if (args.words[2] === "resolve") {
-    validateArgs(args, ["url", "state", "note"], 4, 4);
+    validateArgs(args, ["url", "dev-market", "state", "note"], 4, 4);
     const state = MarketReportState.exclude(["open"]).safeParse(option(args, "state"));
     if (!state.success)
       throw new CliFailure("refused", "Pass --state dismissed, kept, withdrawn or blocked");
@@ -397,7 +169,7 @@ async function reportsCommand(args: Args): Promise<void> {
       args.flags.json ? { ok: true } : `Report ${args.words[3]} is ${state.data}.`,
     );
   }
-  validateArgs(args, ["url"], 2, 2);
+  validateArgs(args, ["url", "dev-market"], 2, 2);
   const { reports } = MarketReportsBody.parse(await io.get("/v1/signer/reports"));
   if (args.flags.json) return print(args, reports);
   const lines = reports.map(
@@ -420,7 +192,7 @@ async function collectionCommand(args: Args): Promise<void> {
     }),
   );
   if (action === "list") {
-    validateArgs(args, ["url"], 3, 3);
+    validateArgs(args, ["url", "dev-market"], 3, 3);
     if (args.flags.json) return print(args, current);
     const lines = current.map(
       (collection) =>
@@ -431,7 +203,7 @@ async function collectionCommand(args: Args): Promise<void> {
   let next: MarketCollection[];
   const id = args.words[3] ?? "";
   if (action === "put") {
-    validateArgs(args, ["url", "title", "line"], 5, 28);
+    validateArgs(args, ["url", "dev-market", "title", "line"], 5, 28);
     const collection: MarketCollection = {
       id,
       title: needed(args, "title", "Give the collection a --title"),
@@ -441,7 +213,7 @@ async function collectionCommand(args: Args): Promise<void> {
     const at = current.findIndex((item) => item.id === id);
     next = at === -1 ? [...current, collection] : current.with(at, collection);
   } else if (action === "remove") {
-    validateArgs(args, ["url"], 4, 4);
+    validateArgs(args, ["url", "dev-market"], 4, 4);
     if (!current.some((item) => item.id === id))
       throw new CliFailure("refused", `There's no collection ${id}`);
     next = current.filter((item) => item.id !== id);
@@ -454,7 +226,7 @@ async function collectionCommand(args: Args): Promise<void> {
 }
 
 async function publisherCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url", "key", "suspend", "restore", "withdraw-all"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "key", "suspend", "restore", "withdraw-all"], 3, 3);
   const handle = args.words[2] ?? "";
   const io = signerIo(marketUrl(args));
   const suspend = option(args, "suspend");
@@ -486,7 +258,7 @@ async function publisherCommand(args: Args): Promise<void> {
 }
 
 async function blockCommand(verb: string, args: Args): Promise<void> {
-  validateArgs(args, ["url", "key", "reason"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "key", "reason"], 3, 3);
   const subject = args.words[2] ?? "";
   const reason = needed(args, "reason", "Say why with --reason; publishers and devices show it");
   let change: BlocklistChange;
@@ -509,7 +281,7 @@ async function blockCommand(verb: string, args: Args): Promise<void> {
 }
 
 async function appealsCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url"], 2, 2);
+  validateArgs(args, ["url", "dev-market"], 2, 2);
   const { appeals } = await readQueue(signerIo(marketUrl(args)));
   if (args.flags.json) return print(args, appeals);
   const lines = queueSentences({ held: [], listings: [], verifications: [], appeals });
@@ -517,7 +289,7 @@ async function appealsCommand(args: Args): Promise<void> {
 }
 
 async function appealCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url", "answer", "approve", "keep"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "answer", "approve", "keep"], 3, 3);
   const answer = needed(args, "answer", "Answer the publisher with --answer");
   if ((args.flags.approve === true) === (args.flags.keep === true))
     throw new CliFailure("refused", "Pass one of --approve or --keep");
@@ -537,7 +309,7 @@ async function appealCommand(args: Args): Promise<void> {
 }
 
 async function verifyCommand(verb: string, args: Args): Promise<void> {
-  validateArgs(args, ["url", "key", "reason"], 3, 3);
+  validateArgs(args, ["url", "dev-market", "key", "reason"], 3, 3);
   const handle = args.words[2] ?? "";
   const reason = needed(args, "reason", "Say why with --reason");
   const key = await readKey(option(args, "key"));
@@ -560,7 +332,7 @@ const newPublisherId = () =>
   `pub_${[...crypto.getRandomValues(new Uint8Array(12))].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 
 async function officialCommand(args: Args): Promise<void> {
-  validateArgs(args, ["url", "key"], 4, 4);
+  validateArgs(args, ["url", "dev-market", "key"], 4, 4);
   const action = args.words[2];
   if (action !== "add" && action !== "remove")
     throw new CliFailure("refused", "Use ace market official add|remove ACCOUNT");
@@ -584,8 +356,10 @@ async function officialCommand(args: Args): Promise<void> {
   );
 }
 
-async function maintainerCommand(verb: string | undefined, args: Args): Promise<void> {
+export async function maintainerWork(verb: string | undefined, args: Args): Promise<void> {
   switch (verb) {
+    case "review":
+      return reviewCommand(args);
     case "reports":
       return reportsCommand(args);
     case "collection":
@@ -608,7 +382,7 @@ async function maintainerCommand(verb: string | undefined, args: Args): Promise<
     default:
       throw new CliFailure(
         "refused",
-        "Use ace market keygen, sign, review, feature, revoke, reports, collection, publisher, block, appeals, appeal, verify or official. See ace --help.",
+        "Use ace market maintainer keygen, sign, review, feature, revoke, reports, collection, publisher, block, appeals, appeal, verify or official. See ace help market-maintainer.",
       );
   }
 }
