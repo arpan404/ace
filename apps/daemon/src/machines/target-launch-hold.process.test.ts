@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { Device, HostId, ThreadId } from "@ace/protocol";
-import { harness, scriptFrames } from "../engine/test-support.ts";
+import { end, harness, scriptFrames } from "../engine/test-support.ts";
 import { TargetThreads } from "./target-threads.ts";
 
 /*
@@ -37,8 +37,9 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 
-async function setup() {
-  const h = await harness([], scriptFrames());
+async function setup(limits?: { maxActiveThreads: number }) {
+  const frames = scriptFrames();
+  const h = await harness([], frames, limits ? { limits } : {});
   await h.engine.ready();
   // The calling machine's paired device, as pairing records it.
   h.store.atomic((db) =>
@@ -94,7 +95,36 @@ async function setup() {
     }
   };
   const free = () => disk.exec("PRAGMA max_page_count=1073741823");
-  return { h, threads, machine, timers, tick, reported, fill, free };
+  /** Runs what is due now, as the event loop would, one scheduled tick at a time. */
+  const runDue = (max = 100) => {
+    let ran = 0;
+    for (let index = timers.findIndex((t) => t.ms === 0); index >= 0 && ran < max; ran++) {
+      const [timer] = timers.splice(index, 1);
+      timer?.run();
+      index = timers.findIndex((t) => t.ms === 0);
+    }
+    return ran;
+  };
+  /** The child's turn ends, freeing its engine slot. */
+  const finish = (index: number) => h.contexts[index]?.onFrame(frames.frame(end));
+  const heldRows = () =>
+    Number(
+      h.store.atomic((db) => db.prepare("SELECT COUNT(*) AS n FROM machine_held_messages").get())
+        ?.n,
+    );
+  return {
+    h,
+    threads,
+    machine,
+    timers,
+    tick,
+    reported,
+    fill,
+    free,
+    runDue,
+    finish,
+    heldRows,
+  };
 }
 
 it("a child sent here while the disk is full waits queued, says why, backs off, and starts once space is back", async () => {
@@ -164,7 +194,7 @@ const follow = (threadId: ThreadId, requestId: string, delivery: "queue" | "stee
   ({ op: "message", threadId, requestId, text: `Follow-up ${requestId}`, delivery }) as const;
 
 it("a parent's messages to a child held for admission start nothing, and reach it once, after its task, when admission reopens", async () => {
-  const { h, threads, machine } = await setup();
+  const { h, threads, machine, runDue } = await setup();
   machine.admits = false;
   const sent = await threads.delegate(device, origin, delegate("waits"));
   await settled();
@@ -180,6 +210,7 @@ it("a parent's messages to a child held for admission start nothing, and reach i
   machine.admits = true;
   threads.launches.pump();
   threads.resumeHeld();
+  runDue();
   await h.engine.flush();
   expect(h.contexts).toHaveLength(1);
   const got = inputs(h, sent.threadId);
@@ -193,13 +224,14 @@ it("a parent's messages to a child held for admission start nothing, and reach i
   );
   // Delivered once: another reopen, or a copy arriving late, sends nothing again.
   threads.resumeHeld();
+  runDue();
   threads.message(device, follow(sent.threadId, "first"));
   await h.engine.flush();
   expect(inputs(h, sent.threadId).filter((text) => text === "Follow-up first")).toHaveLength(1);
 });
 
 it("a message to a running child from another machine is held while admission is closed", async () => {
-  const { h, threads, machine } = await setup();
+  const { h, threads, machine, runDue } = await setup();
   const sent = await threads.delegate(device, origin, delegate("runs"));
   await h.engine.flush();
   expect(h.contexts).toHaveLength(1);
@@ -209,6 +241,89 @@ it("a message to a running child from another machine is held while admission is
   expect(inputs(h, sent.threadId)).not.toContain("Follow-up later");
   machine.admits = true;
   threads.resumeHeld();
+  runDue();
   await h.engine.flush();
   expect(inputs(h, sent.threadId).filter((text) => text === "Follow-up later")).toHaveLength(1);
+});
+
+it("a held message the engine has no room for yet keeps its place and goes in once there is room", async () => {
+  const { h, threads, machine, runDue, finish, heldRows, timers } = await setup({
+    maxActiveThreads: 1,
+  });
+  const busy = await threads.delegate(device, origin, delegate("busy"));
+  await h.engine.flush();
+  expect(h.contexts).toHaveLength(1);
+  machine.admits = false;
+  const waits = await threads.delegate(device, origin, delegate("waits"));
+  await settled();
+  expect(threads.message(device, follow(waits.threadId, "noted"))).toEqual({ arrival: "held" });
+
+  // Reopened, but the one engine slot is taken: the message stays, no failure is kept for it.
+  machine.admits = true;
+  threads.resumeHeld();
+  runDue();
+  await h.engine.flush();
+  expect(heldRows()).toBe(1);
+  expect(inputs(h, waits.threadId)).not.toContain("Follow-up noted");
+  expect(timers.some((timer) => timer.ms > 0)).toBe(true);
+
+  finish(0);
+  await h.engine.flush();
+  expect(inputs(h, busy.threadId).length).toBeGreaterThan(0);
+  // The backed-off retry finds room now.
+  for (const timer of timers.splice(0)) timer.run();
+  runDue();
+  await h.engine.flush();
+  expect(heldRows()).toBe(0);
+  expect(inputs(h, waits.threadId).filter((text) => text === "Follow-up noted")).toHaveLength(1);
+});
+
+it("a held backlog is delivered one bounded batch per tick, never all at once", async () => {
+  const { h, threads, machine, runDue, heldRows } = await setup();
+  machine.admits = false;
+  const sent = await threads.delegate(device, origin, delegate("backlog"));
+  await settled();
+  for (let index = 0; index < 40; index++)
+    expect(threads.message(device, follow(sent.threadId, `m${index}`))).toEqual({
+      arrival: "held",
+    });
+  machine.admits = true;
+  threads.resumeHeld();
+  expect(heldRows()).toBe(40);
+  runDue(1);
+  expect(heldRows()).toBe(24);
+  runDue(1);
+  expect(heldRows()).toBe(8);
+  runDue();
+  expect(heldRows()).toBe(0);
+  await h.engine.flush();
+  const got = inputs(h, sent.threadId).filter((text) => text.startsWith("Follow-up"));
+  expect(got).toEqual(Array.from({ length: 40 }, (_, index) => `Follow-up m${index}`));
+});
+
+it("held messages past a device's budget are refused in words, while copies of held ones still go in", async () => {
+  const { threads, machine, heldRows } = await setup();
+  machine.admits = false;
+  const sent = await threads.delegate(device, origin, delegate("many"));
+  for (let index = 0; index < 64; index++)
+    threads.message(device, follow(sent.threadId, `n${index}`));
+  expect(heldRows()).toBe(64);
+  expect(() => threads.message(device, follow(sent.threadId, "one-more"))).toThrow(
+    /holding too many messages/,
+  );
+  // A copy of one already held is that message, not a new one.
+  expect(threads.message(device, follow(sent.threadId, "n3"))).toEqual({ arrival: "held" });
+  expect(heldRows()).toBe(64);
+});
+
+it("a deleted thread's held messages are not kept", async () => {
+  const { h, threads, machine, heldRows } = await setup();
+  machine.admits = false;
+  const sent = await threads.delegate(device, origin, delegate("gone"));
+  threads.message(device, follow(sent.threadId, "secret"));
+  expect(heldRows()).toBe(1);
+  h.store.appendEvents(sent.threadId, [
+    { type: "thread.client.updated", changes: { deletedAt: 5, autoSettleAt: null } },
+  ]);
+  expect(heldRows()).toBe(0);
 });

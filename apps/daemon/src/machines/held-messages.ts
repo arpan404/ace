@@ -13,6 +13,19 @@ export interface HeldMessage {
 }
 
 /**
+ * The most held messages may take, per paired device and across all of them, by count and by
+ * their stored bytes. A long pause or storage hold can't let callers fill the database.
+ */
+export interface HeldLimits {
+  perDevice: { count: number; bytes: number };
+  total: { count: number; bytes: number };
+}
+export const heldLimits: HeldLimits = {
+  perDevice: { count: 64, bytes: 2 * 1024 * 1024 },
+  total: { count: 512, bytes: 16 * 1024 * 1024 },
+};
+
+/**
  * Messages from other machines' agents that arrived while this machine held new work (a pause,
  * an update, a full disk; ADR 0041, 0174). Each is kept once under its request key, so a retried
  * copy is the same message, and is delivered in arrival order once admission reopens. Durable:
@@ -28,14 +41,45 @@ export class HeldMessages {
         device_id TEXT NOT NULL, thread_id TEXT NOT NULL, call TEXT NOT NULL)`),
     );
   }
-  /** Keeps `call` to deliver later; a copy of one already kept changes nothing. */
-  hold(key: string, deviceId: string, call: Message): void {
+  /**
+   * Keeps `call` to deliver later; a copy of one already kept changes nothing. "full" when it
+   * would pass the device's or the machine's budget (`heldLimits`), and nothing is kept.
+   */
+  hold(
+    key: string,
+    deviceId: string,
+    call: Message,
+    limits: HeldLimits = heldLimits,
+  ): "held" | "full" {
+    const text = JSON.stringify(call);
+    const bytes = Buffer.byteLength(text);
+    return this.store.atomic((db) => {
+      if (db.prepare("SELECT 1 FROM machine_held_messages WHERE request_key=?").get(key))
+        return "held";
+      const used = (where: string, ...args: string[]) => {
+        const row = db
+          .prepare(
+            `SELECT COUNT(*) AS n, COALESCE(SUM(length(CAST(call AS BLOB))),0) AS bytes FROM machine_held_messages ${where}`,
+          )
+          .get(...args);
+        return { count: Number(row?.n), bytes: Number(row?.bytes) };
+      };
+      const over = (
+        now: { count: number; bytes: number },
+        limit: { count: number; bytes: number },
+      ) => now.count + 1 > limit.count || now.bytes + bytes > limit.bytes;
+      if (over(used("WHERE device_id=?", deviceId), limits.perDevice)) return "full";
+      if (over(used(""), limits.total)) return "full";
+      db.prepare(
+        "INSERT INTO machine_held_messages (request_key,device_id,thread_id,call) VALUES (?,?,?,?)",
+      ).run(key, deviceId, call.threadId, text);
+      return "held";
+    });
+  }
+  /** Drops what was held for a thread that is deleted: its text is not kept past it. */
+  forget(threadId: string): void {
     this.store.atomic((db) =>
-      db
-        .prepare(
-          "INSERT OR IGNORE INTO machine_held_messages (request_key,device_id,thread_id,call) VALUES (?,?,?,?)",
-        )
-        .run(key, deviceId, call.threadId, JSON.stringify(call)),
+      db.prepare("DELETE FROM machine_held_messages WHERE thread_id=?").run(threadId),
     );
   }
   /** Whether anything waits to be delivered: to `threadId`, or to any thread. */

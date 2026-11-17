@@ -39,9 +39,10 @@ import {
 import { messageArrival } from "../agent-control/message-arrival.ts";
 import { deliveryNotice, noticeText } from "../agent-control/message-notices.ts";
 import { TargetRefusal } from "./target-refusal.ts";
-import { TargetLaunches } from "./target-launches.ts";
+import { TargetLaunches, heldRetryMs } from "./target-launches.ts";
+import { isStoreRetry } from "../store-busy.ts";
 import { MessageRejections, messageKey } from "./target-rejections.ts";
-import { HeldMessages } from "./held-messages.ts";
+import { HeldMessages, type HeldMessage } from "./held-messages.ts";
 import {
   diskWait,
   diskWaitStep,
@@ -90,6 +91,24 @@ export interface TargetThreadDeps {
   storageFull?(): boolean;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
+/** Held messages delivered per tick: a backlog drains over many turns of the event loop. */
+const heldBatch = 16;
+/** Engine answers that mean "not now", never "not ever": a held message tries again later. */
+const notNow: ReadonlySet<string> = new Set([
+  "engine_capacity_exceeded",
+  "engine_starting",
+  "daemon_shutting_down",
+  "maintenance",
+]);
+/** A send the engine can't take yet: the held message keeps its place and is tried again. */
+class HeldBack extends Error {
+  override name = "HeldBack";
+}
+/** A step of a delivery the engine refused, said as the caller reads it. */
+function refuse(text: string, error: string | undefined): never {
+  if (error !== undefined && notNow.has(error)) throw new HeldBack(text);
+  throw new TargetRefusal("unavailable", text);
+}
 /** `browser` rows are browser threads from before guest sessions (ADR 0105). */
 const Owner = z.object({
   device_id: z.string(),
@@ -118,7 +137,11 @@ export class TargetThreads {
   readonly rejections: MessageRejections;
   /** Messages that arrived while admission here was closed, delivered once it reopens. */
   private held: HeldMessages;
-  private resuming = false;
+  /** The scheduled replay of held messages, and how many in a row found it still blocked. */
+  private cancelHeld: (() => void) | undefined;
+  private heldBlocked = 0;
+  private closed = false;
+  private unhookHeld: () => void;
   private outcomes: TargetOutcomes;
   private cancelAttempts = 0;
   constructor(deps: TargetThreadDeps) {
@@ -136,6 +159,15 @@ export class TargetThreads {
     this.launches = new TargetLaunches(deps);
     this.rejections = new MessageRejections(deps.store, deps.now);
     this.held = new HeldMessages(deps.store);
+    // A deleted thread's held messages go in the transaction that deletes it, whichever path.
+    this.unhookHeld = deps.store.onWrite((events) => {
+      for (const event of events)
+        if (
+          event.payload.type === "thread.client.updated" &&
+          typeof event.payload.changes.deletedAt === "number"
+        )
+          this.held.forget(event.threadId);
+    });
     this.markDelegatedFrom();
   }
   /**
@@ -169,6 +201,10 @@ export class TargetThreads {
     }
   }
   close() {
+    this.closed = true;
+    this.cancelHeld?.();
+    this.cancelHeld = undefined;
+    this.unhookHeld();
     this.unsubscribe();
     this.launches.close();
   }
@@ -546,16 +582,20 @@ export class TargetThreads {
       CommandId.parse(`machine-message:${key}`),
       DeviceId.parse(device.id),
     );
-    if (!delivered) {
-      if (this.admits() && this.held.waiting(call.threadId)) this.resumeHeld();
-      if (!this.admits() || this.held.waiting(call.threadId)) {
-        this.held.hold(key, device.id, call);
-        return { arrival: "held" as const };
-      }
+    if (!delivered && (!this.admits() || this.held.waiting(call.threadId))) {
+      if (this.held.hold(key, device.id, call) === "full")
+        throw new TargetRefusal(
+          "unavailable",
+          "This machine is holding too many messages while it takes no new work; send this one again once it does.",
+        );
+      this.resumeHeld();
+      return { arrival: "held" as const };
     }
     try {
       return this.deliver(device.id, call, engine, key);
     } catch (error) {
+      // Live, a send the engine can't take now is answered as before.
+      if (error instanceof HeldBack) throw new TargetRefusal("unavailable", error.message, true);
       // Each refusal from here follows a step recorded under the request (the restart's stop, the
       // send, the queue move, the message's own fate), so every copy of the request gets the same
       // answer and none runs anew: the caller can stop sending it.
@@ -586,8 +626,7 @@ export class TargetThreads {
         threadId: call.threadId,
         cascade: true,
       });
-      if (!stopped.ok)
-        throw new TargetRefusal("unavailable", `This machine could not stop it: ${stopped.error}`);
+      if (!stopped.ok) refuse(`This machine could not stop it: ${stopped.error}`, stopped.error);
     }
     const id = CommandId.parse(`machine-message:${key}`);
     // New work reopens a child that settled before it ever ran: its old outcome goes in the
@@ -606,11 +645,7 @@ export class TargetThreads {
       }
       return result;
     });
-    if (!sent.ok)
-      throw new TargetRefusal(
-        "unavailable",
-        `This machine did not take the message: ${sent.error}`,
-      );
+    if (!sent.ok) refuse(`This machine did not take the message: ${sent.error}`, sent.error);
     this.forgetNotice(call.threadId);
     const queue = engine.queue(call.threadId);
     if (restart && queue.messages[0]?.id !== id) {
@@ -628,40 +663,79 @@ export class TargetThreads {
     return { arrival: reading.arrival };
   }
   /**
-   * Delivers the messages held while admission was closed, oldest first, once it is open again.
-   * A message whose device lost access or whose thread was deleted meanwhile is dropped, as it
-   * would have been refused; one this machine refuses on delivery is done with. Any other failure
-   * (a full disk) keeps it and the rest for the next reopen. Delivery is recorded per request, so
-   * one delivered before a failed removal is never sent twice.
+   * Asks for the messages held while admission was closed to be delivered, oldest first, once it
+   * is open: one bounded batch per scheduled tick, so a backlog never holds the event loop (ADR
+   * 0170). Safe to call any time; with nothing held, or admission closed, a tick does nothing.
    */
-  resumeHeld(): void {
-    if (this.resuming) return;
-    this.resuming = true;
+  resumeHeld(delayMs = 0): void {
+    if (this.closed || this.cancelHeld) return;
+    this.cancelHeld = this.deps.schedule(delayMs, () => {
+      this.cancelHeld = undefined;
+      this.replayHeld();
+    });
+  }
+  /** One batch. A message the engine can't take yet keeps its place, and the rest wait too. */
+  private replayHeld(): void {
+    // Closed again: the next reopen asks.
+    if (this.closed || !this.admits()) return;
+    const engine = this.deps.engine();
+    if (!engine) return this.heldLater();
+    let batch: ReturnType<HeldMessages["oldest"]>;
     try {
-      for (;;) {
-        const batch = this.admits() ? this.held.oldest() : [];
-        if (!batch.length) return;
-        for (const message of batch) {
-          const engine = this.deps.engine();
-          if (!engine || !this.admits()) return;
-          const thread = this.deps.store.getThread(message.call.threadId);
-          if (
-            this.rejections.active({ id: DeviceId.parse(message.deviceId) }) &&
-            thread &&
-            thread.deletedAt === undefined
-          )
-            try {
-              this.deliver(message.deviceId, message.call, engine, message.key);
-            } catch (error) {
-              this.deps.report(error);
-              if (!(error instanceof TargetRefusal)) return;
-            }
-          this.held.remove(message.key);
-        }
-      }
-    } finally {
-      this.resuming = false;
+      batch = this.held.oldest(heldBatch);
+    } catch (error) {
+      this.deps.report(error);
+      return this.heldLater();
     }
+    if (!batch.length) {
+      this.heldBlocked = 0;
+      return;
+    }
+    for (const message of batch) {
+      if (!this.admits()) return;
+      if (this.replay(message, engine) === "later") return this.heldLater();
+    }
+    this.heldBlocked = 0;
+    this.resumeHeld();
+  }
+  /**
+   * Delivers one held message, in one transaction with its removal. A send the engine can't take
+   * now (full, starting, a busy or full store) rolls back whole, its failure receipt with it, and
+   * the message stays for a later try. Only a lasting answer ends it: its device lost access, its
+   * thread is gone, or this machine refuses it for good.
+   */
+  private replay(message: HeldMessage, engine: Engine): "done" | "later" {
+    const thread = this.deps.store.getThread(message.call.threadId);
+    try {
+      if (
+        !this.rejections.active({ id: DeviceId.parse(message.deviceId) }) ||
+        !thread ||
+        thread.deletedAt !== undefined
+      ) {
+        this.held.remove(message.key);
+        return "done";
+      }
+      this.deps.store.atomic(() => {
+        this.deliver(message.deviceId, message.call, engine, message.key);
+        this.held.remove(message.key);
+      });
+      return "done";
+    } catch (error) {
+      if (error instanceof HeldBack || isStoreRetry(error)) return "later";
+      this.deps.report(error);
+      if (!(error instanceof TargetRefusal)) return "later";
+      try {
+        this.held.remove(message.key);
+      } catch (removal) {
+        this.deps.report(removal);
+        return "later";
+      }
+      return "done";
+    }
+  }
+  /** Tries the held messages again after a backoff, up to 30 s, until they go in. */
+  private heldLater(): void {
+    this.resumeHeld(heldRetryMs(++this.heldBlocked));
   }
   private admits(): boolean {
     return this.deps.admitsWork?.() !== false;
