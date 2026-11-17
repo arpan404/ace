@@ -4,6 +4,13 @@
 
 use crate::error::Error;
 
+/// The longest relative path accepted, in bytes. Nothing the protocol carries is longer, and a
+/// cap keeps every walk and every error message bounded.
+const MAX_REL_BYTES: usize = 4096;
+
+/// The longest single name accepted, in bytes: the limit every platform we run on shares.
+const MAX_SEGMENT_BYTES: usize = 255;
+
 /// Validates the relative form: `/`-separated, no leading or trailing `/`, no empty, `.` or `..`
 /// segments, no NUL, and on Windows no segment Windows would read differently.
 ///
@@ -12,10 +19,13 @@ pub(crate) fn check(rel: &str) -> Result<&str, Error> {
     if rel.is_empty() {
         return Ok(rel);
     }
-    let malformed = rel.starts_with('/')
+    let malformed = rel.len() > MAX_REL_BYTES
+        || rel.starts_with('/')
         || rel.ends_with('/')
         || rel.contains('\0')
-        || rel.split('/').any(|segment| !segment_allowed(segment));
+        || rel
+            .split('/')
+            .any(|segment| segment.len() > MAX_SEGMENT_BYTES || !segment_allowed(segment));
     if malformed {
         Err(Error::InvalidPath(rel.to_owned()))
     } else {
@@ -36,7 +46,7 @@ fn segment_allowed(segment: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::check;
+    use super::{MAX_REL_BYTES, check};
 
     #[test]
     fn accepts_the_protocol_form() {
@@ -77,6 +87,24 @@ mod tests {
     fn rejects_nul() {
         assert_eq!(check("a\0b").unwrap_err().code(), "INVALID_PATH");
         assert_eq!(check("\0").unwrap_err().code(), "INVALID_PATH");
+    }
+
+    #[test]
+    fn rejects_names_past_the_length_limits() {
+        let long_segment = "a".repeat(256);
+        assert_eq!(
+            check(&long_segment).unwrap_err().code(),
+            "INVALID_PATH",
+            "256-byte segment"
+        );
+        assert!(check(&"a".repeat(255)).is_ok(), "255-byte segment");
+
+        let deep = "ab/".repeat(MAX_REL_BYTES / 3 + 1);
+        assert!(deep.len() > MAX_REL_BYTES);
+        assert_eq!(
+            check(deep.trim_end_matches('/')).unwrap_err().code(),
+            "INVALID_PATH"
+        );
     }
 
     #[cfg(not(windows))]

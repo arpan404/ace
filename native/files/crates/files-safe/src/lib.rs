@@ -6,12 +6,17 @@
 //! trailing `/`, no empty, `.` or `..` segments, no NUL, plus the names Windows refuses.
 //! [`Root::check`] enforces that form and [`Root::resolve`] turns one into an absolute path that
 //! is proven to sit inside the root, following symbolic links only while they stay inside.
-//! Crates above this one call these two and never join a path themselves, so a traversal bug can
-//! only exist in one place.
+//!
+//! Reading and writing goes through handles, never through a path: [`Root::open_dir`] opens a
+//! folder and [`Root::open_parent`] opens the folder that holds a leaf, so a rename cannot
+//! redirect an operation between the check and the open. [`Root::resolve`] is for read-only
+//! walkers such as a directory lister or a content search, which take a path and only ever read.
 
 mod check;
 mod error;
-mod resolve;
+mod identity;
+mod names;
+mod walk;
 #[cfg(any(windows, test))]
 mod windows;
 
@@ -22,11 +27,12 @@ use std::sync::Arc;
 
 /// A checkout root: its canonical path plus a capability handle that reaches inside it.
 ///
-/// The handle is what I/O code opens files through. It resolves every path relative to the root
-/// folder, so the kernel itself refuses to leave the tree even if a caller passes a bad path.
+/// The handle is opened once. Every lookup goes through it, so the kernel resolves each name
+/// relative to that folder and cannot leave the tree even if a path is rewritten underneath.
 #[derive(Clone)]
 pub struct Root {
     path: PathBuf,
+    opened: PathBuf,
     dir: Arc<cap_std::fs::Dir>,
 }
 
@@ -37,13 +43,15 @@ impl Root {
     /// Fails with `NOT_DIRECTORY` when the path exists but is not a folder, and `NOT_FOUND` when
     /// it does not exist.
     pub fn open(path: &Path) -> Result<Root, Error> {
-        let path = std::fs::canonicalize(path)?;
+        let opened = path.to_path_buf();
+        let path = std::fs::canonicalize(&opened)?;
         if !path.is_dir() {
             return Err(Error::NotDirectory(path.display().to_string()));
         }
         let dir = cap_std::fs::Dir::open_ambient_dir(&path, cap_std::ambient_authority())?;
         Ok(Root {
             path,
+            opened,
             dir: Arc::new(dir),
         })
     }
@@ -53,17 +61,25 @@ impl Root {
         &self.path
     }
 
+    /// The path the root was opened with, before canonicalizing. It can differ from
+    /// [`Root::path`] when a folder on the way is a link (`/var` and `/private/var` on macOS), and
+    /// both spellings count as inside the root.
+    pub(crate) fn opened(&self) -> &Path {
+        &self.opened
+    }
+
     /// A capability handle on the root folder, for opening files and folders inside it.
     pub fn dir(&self) -> &cap_std::fs::Dir {
         &self.dir
     }
 
-    /// Validates the relative form without touching the filesystem: `/`-separated, no leading or
-    /// trailing `/`, no empty, `.` or `..` segments, no NUL. The empty string is the root itself.
+    /// Validates the relative form without touching the filesystem: `/`-separated, at most 4096
+    /// bytes and 255 per segment, no leading or trailing `/`, no empty, `.` or `..` segments, no
+    /// NUL. The empty string is the root itself.
     ///
-    /// On Windows a segment also may not contain `\` or `:`, end in a dot or a space, or name a
-    /// device such as `CON` or `NUL`; those spellings mean something else there than they do on
-    /// Unix, so they are refused rather than guessed at.
+    /// On Windows a segment also may not contain `\`, `:` or `~`, end in a dot or a space, name a
+    /// device such as `CON` or `NUL`, or hold a character Windows cannot store; those spellings
+    /// mean something else there than they do on Unix, so they are refused rather than guessed at.
     pub fn check(rel: &str) -> Result<&str, Error> {
         check::check(rel)
     }
@@ -73,22 +89,63 @@ impl Root {
     /// A link that leaves the root is `PATH_ESCAPE`, as is any segment that would climb out. A
     /// path whose last segment does not exist yet resolves under its parent, which is what callers
     /// that are about to create a file need; a missing segment anywhere higher up is `NOT_FOUND`.
+    ///
+    /// This path is for read-only walkers (a lister, the path index, a content search). Opening,
+    /// creating or deleting must go through [`Root::open_dir`] or [`Root::open_parent`]: a path can
+    /// be rewritten between this walk and the open, a handle cannot.
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, Error> {
-        resolve::resolve(self, rel)
+        walk::resolve(self, rel)
+    }
+
+    /// Opens the folder `rel` names and returns a handle to it.
+    ///
+    /// Nothing is followed after the walk, so the handle is the folder that was walked into even
+    /// if the path changed in between. Fails with `NOT_DIRECTORY` when the last segment is not a
+    /// folder and `PATH_ESCAPE` when a link leads out of the root.
+    pub fn open_dir(&self, rel: &str) -> Result<cap_std::fs::Dir, Error> {
+        walk::open_dir(self, rel)
+    }
+
+    /// Opens the folder that holds the last segment of `rel` and returns it with that segment's
+    /// name, so a create, a rename or a delete can be made relative to the folder itself.
+    ///
+    /// Mutations go through the returned handle and create with `O_EXCL` and no link following, so
+    /// nothing is written outside the folder that was walked. The leaf is never followed: a link
+    /// that points nowhere, or points out of the root, is returned as a name in its folder, which
+    /// is what deleting or replacing it needs. The name is the one the folder stores, so writes
+    /// land on the entry a case-insensitive volume would match.
+    pub fn open_parent(&self, rel: &str) -> Result<(cap_std::fs::Dir, String), Error> {
+        walk::open_parent(self, rel)
     }
 
     /// The relative form of `absolute`, the inverse of [`Root::resolve`]; `None` outside the root.
     ///
-    /// The root itself maps to the empty string. Paths carrying `.` or `..` are `None`, since
-    /// they are not in the form the rest of ace-files accepts.
+    /// The root itself maps to the empty string. Only paths in the accepted form are returned, so
+    /// the result always passes [`Root::check`]: a path carrying `.` or `..`, or a name the
+    /// platform refuses, is `None`. Name-based policies should run on `relative(resolve(x))`, which
+    /// carries the names the disk stores rather than the spelling the caller used.
     pub fn relative(&self, absolute: &Path) -> Option<String> {
         if let Ok(rest) = absolute.strip_prefix(&self.path) {
             return encode(rest);
         }
         #[cfg(windows)]
-        return windows::relative(self.path.to_str()?, absolute.to_str()?);
+        return encode(Path::new(&windows::relative(
+            self.path.to_str()?,
+            absolute.to_str()?,
+        )?));
         #[cfg(not(windows))]
         None
+    }
+
+    /// Proves the folder behind the handle is still the folder the root path names, so a root
+    /// that was moved away and replaced by a link cannot lend its name to another tree.
+    pub(crate) fn still_ours(&self) -> Result<(), Error> {
+        let changed = || Error::PathChanged(self.path.display().to_string());
+        let handle = self.dir.try_clone()?.into_std_file();
+        match identity::same_file(handle, &self.path) {
+            Ok(true) => Ok(()),
+            _ => Err(changed()),
+        }
     }
 }
 
@@ -97,9 +154,11 @@ fn encode(rest: &Path) -> Option<String> {
     let mut parts = Vec::new();
     for component in rest.components() {
         match component {
-            Component::Normal(part) => parts.push(part.to_str()?.to_owned()),
+            Component::Normal(part) => parts.push(part.to_str()?),
             _ => return None,
         }
     }
-    Some(parts.join("/"))
+    let joined = parts.join("/");
+    Root::check(&joined).ok()?;
+    Some(joined)
 }

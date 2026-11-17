@@ -3,44 +3,37 @@
 //! Names Windows reads differently from Unix.
 //!
 //! A checkout can hold files whose names Windows would reinterpret: `a\b` becomes two folders,
-//! `C:x` becomes a drive-relative path, `CON` or `NUL` becomes a device, and a trailing dot or
-//! space is silently dropped so `a.` and `a` are the same file. Refusing them keeps the relative
-//! form meaning one thing on every platform the daemon runs on.
+//! `C:x` becomes a drive-relative path, `CON` or `NUL` becomes a device, `~` brings back an 8.3
+//! short name, and a trailing dot or space is silently dropped so `a.` and `a` are the same file.
+//! Refusing them keeps the relative form meaning one thing on every platform the daemon runs on,
+//! and keeps this crate agreeing with `packages/workspace/src/path-policy.ts`.
 //!
 //! The rules are plain string checks so they can be tested anywhere; reaching the filesystem is
 //! never needed to decide them.
 
+/// The stems Windows reserves for devices, in the exact spelling `path-policy.ts` uses. They are
+/// reserved in every folder and with any extension, and the superscript digits count.
+const RESERVED: [&str; 28] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "COM¹", "COM²", "COM³", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
+    "LPT9", "LPT¹", "LPT²", "LPT³",
+];
+
 /// Whether one `/`-separated segment is a name Windows opens as a folder member with that
 /// spelling.
 pub(crate) fn segment_is_valid(segment: &str) -> bool {
-    !segment.contains(['\\', ':'])
+    !segment.contains(['\\', ':', '~'])
         && !segment.ends_with(['.', ' '])
         && !is_device_name(segment)
         && !has_invalid_character(segment)
 }
 
-/// Device names are reserved in every folder and with any extension: `nul.txt` is the null
-/// device, not a file.
+/// Device stems are compared without extension and with trailing spaces ignored, because
+/// `CON .txt`, `nul.js` and `CON` all name the same device.
 fn is_device_name(segment: &str) -> bool {
-    let stem = segment
-        .split('.')
-        .next()
-        .unwrap_or(segment)
-        .to_ascii_uppercase();
-    matches!(
-        stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
-    ) || numbered_device(&stem, "COM")
-        || numbered_device(&stem, "LPT")
-}
-
-/// `COM1`..`COM9` and `LPT1`..`LPT9` name ports. `COM0` is accepted by Windows as well, so the
-/// whole digit range is refused.
-fn numbered_device(stem: &str, prefix: &str) -> bool {
-    match stem.strip_prefix(prefix) {
-        Some(rest) => rest.len() == 1 && rest.as_bytes().first().is_some_and(u8::is_ascii_digit),
-        None => false,
-    }
+    let stem = segment.split('.').next().unwrap_or(segment);
+    let stem = stem.trim_end_matches(' ').to_ascii_uppercase();
+    RESERVED.contains(&stem.as_str())
 }
 
 /// Characters Windows cannot store in a name at all. Some of them, like `?` and `*`, are globs.
@@ -51,11 +44,8 @@ fn has_invalid_character(segment: &str) -> bool {
 }
 
 /// Matches an absolute path against the root the way Windows does: ignoring case, ignoring the
-/// `\\?\` marker a canonical path carries, and treating both separators alike. Returns the
+/// `\\.\` or `\\?\` namespace a path may carry, and treating both separators alike. Returns the
 /// `/`-separated remainder, or `None` when the path is not inside the root.
-/// The verbatim marker a canonical root carries and the case and separator differences between
-/// an OS event path and the root are all Windows spellings of the same folder, so compare them
-/// that way instead of failing every path.
 pub(crate) fn relative(root: &str, absolute: &str) -> Option<String> {
     let root_parts: Vec<&str> = split(root)?;
     let absolute_parts: Vec<&str> = split(absolute)?;
@@ -76,12 +66,14 @@ pub(crate) fn relative(root: &str, absolute: &str) -> Option<String> {
     Some(rest.join("/"))
 }
 
-/// Splits a native path into its segments, dropping the verbatim marker, `.` for the current
-/// folder and any duplicate separators.
+/// Splits a native path into its segments, dropping a device or verbatim namespace, `.` for the
+/// current folder and any duplicate separators.
 fn split(path: &str) -> Option<Vec<&str>> {
     let path = path
         .strip_prefix(r"\\?\UNC\")
+        .or_else(|| path.strip_prefix(r"\\.\UNC\"))
         .or_else(|| path.strip_prefix(r"\\?\"))
+        .or_else(|| path.strip_prefix(r"\\.\"))
         .unwrap_or(path);
     let parts: Vec<&str> = path
         .split(['\\', '/'])
@@ -103,15 +95,17 @@ mod tests {
             "come1",
             "file name",
             "COM10",
+            "LPT10",
             "a-b_c",
+            "COM0",
         ] {
             assert!(segment_is_valid(segment), "{segment} should be allowed");
         }
     }
 
     #[test]
-    fn rejects_backslash_and_colon() {
-        for segment in [r"a\b", r"\", "C:", "c:", "file:stream"] {
+    fn rejects_backslash_colon_and_tilde() {
+        for segment in [r"a\b", r"\", "C:", "c:", "file:stream", "PROGRA~1", "~"] {
             assert!(!segment_is_valid(segment), "{segment} should be refused");
         }
     }
@@ -126,14 +120,16 @@ mod tests {
             "AUX",
             "NUL",
             "nul.tar.gz",
-            "CLOCK$",
-            "CONIN$",
-            "CONOUT$",
+            "CON .txt",
+            "nul .js",
             "COM1",
             "com9",
             "LPT1",
             "lpt9",
-            "COM0",
+            "COM¹",
+            "com²",
+            "LPT¹",
+            "lpt³",
         ] {
             assert!(!segment_is_valid(segment), "{segment} should be refused");
         }
@@ -164,6 +160,10 @@ mod tests {
             Some("src")
         );
         assert_eq!(
+            relative(r"C:\work\repo", r"\\.\C:\work\repo\src").as_deref(),
+            Some("src")
+        );
+        assert_eq!(
             relative(r"C:\work\repo", r"C:\work\repo").as_deref(),
             Some("")
         );
@@ -181,6 +181,10 @@ mod tests {
         let root = r"\\?\UNC\server\share\repo";
         assert_eq!(
             relative(root, r"\\server\share\repo\a").as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            relative(r"\\.\UNC\server\share\repo", r"\\server\share\repo\a").as_deref(),
             Some("a")
         );
         assert_eq!(relative(root, r"\\server\share\other\a"), None);
