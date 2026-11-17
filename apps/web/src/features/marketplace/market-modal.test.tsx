@@ -106,7 +106,8 @@ test("an entry ace hasn't reviewed says so on its page and its review", async ()
 
   // A reviewed one says it was.
   await userEvent.click(within(market).getByRole("button", { name: "Discover" }));
-  await userEvent.click(await within(market).findByRole("button", { name: "Triage mail" }));
+  const tools = within(await within(market).findByRole("region", { name: "Tools" }));
+  await userEvent.click(await tools.findByRole("button", { name: "Triage mail" }));
   expect(await within(market).findByText("Reviewed by ace")).toBeTruthy();
   expect(within(market).queryByText("Not reviewed by ace")).toBeNull();
 });
@@ -173,13 +174,24 @@ test("an update waits in Updates until its own review is installed", async () =>
 });
 
 test("Discover draws only the sections the daemon has data for", async () => {
-  await openApp("/chats?market=discover");
+  await openApp("/chats?market=discover", {
+    publishing: {
+      discover: {
+        featured: [],
+        trending: [],
+        fresh: [],
+        collections: [],
+        publishers: [],
+        rankedAt: 0,
+      },
+    },
+  });
   const market = await findMarket();
   // The featured hero and the type shelves come from the listings.
   expect(await within(market).findByRole("tablist", { name: "Featured" })).toBeTruthy();
   expect(await within(market).findByRole("region", { name: "Looks" })).toBeTruthy();
   expect(within(market).getByRole("region", { name: "Bots" })).toBeTruthy();
-  // The market doesn't rank or collect yet, Spade isn't running, and no one is signed in to publish.
+  // The market ranked and collected nothing yet, and Spade isn't running.
   for (const name of [
     "Trending this week",
     "New and notable",
@@ -189,6 +201,4 @@ test("Discover draws only the sections the daemon has data for", async () => {
   ])
     expect(within(market).queryByRole("region", { name })).toBeNull();
   expect(within(market).queryByRole("button", { name: "Apps" })).toBeNull();
-  expect(within(market).queryByRole("button", { name: "Your profile" })).toBeNull();
-  expect(within(market).queryByRole("button", { name: "Sign in to publish" })).toBeNull();
 });

@@ -20,7 +20,9 @@ import { faceFromReview, suitFromReview } from "./market-looks.ts";
 import {
   canDoSentences,
   failureSentence,
+  findingSentences,
   installBlock,
+  MarketFailure,
   needDefaults,
   typeWord,
 } from "./market-model.ts";
@@ -44,15 +46,27 @@ export function ReviewPage(props: { entry: EntryKey; update: boolean }) {
     enabled: read.data !== undefined && !block,
   });
   const title = read.data?.entry.summary.title ?? "";
-  if (block)
+  // The device's own scan refused these bytes: no review, no Install, and why in sentences.
+  const scanned =
+    review.error instanceof MarketFailure && review.error.code === "blocked"
+      ? review.error.scan
+      : undefined;
+  if (block || scanned)
     return (
       <div className="mk-inner" data-width="form">
         <h1 className="mk-display-sm" style={{ marginTop: 8 }}>
           Review {title}
         </h1>
-        <p className="mk-withdrawn-line" style={{ marginTop: 16 }}>
-          {block}
+        <p role="alert" className="mk-withdrawn-line" style={{ marginTop: 16 }}>
+          {block ?? "ace's scan on this device refused it, so it can't be installed."}
         </p>
+        {scanned && (
+          <div className="mk-sentences" style={{ marginTop: 16 }}>
+            {findingSentences(scanned).map((found) => (
+              <p key={found}>{found}</p>
+            ))}
+          </div>
+        )}
       </div>
     );
   if (review.isError || read.isError)
@@ -110,7 +124,9 @@ function ReviewBody(props: { prepared: PreparedReview }) {
       ? [`Replaces version ${review.updates}, which stays until you install.`]
       : []),
     ...canDoSentences(review),
+    ...(review.deprecated ? [`Its publisher deprecated this version: ${review.deprecated}`] : []),
   ];
+  const found = findingSentences(review.scan);
   return (
     <div className="mk-inner" data-width="form" data-variant="review">
       <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 8 }}>
@@ -142,6 +158,16 @@ function ReviewBody(props: { prepared: PreparedReview }) {
           <p key={line}>{line}</p>
         ))}
       </div>
+      {found.length > 0 && (
+        <>
+          <h3 className="mk-quiet-head">What ace's scan found</h3>
+          <div className="mk-sentences" aria-label="What ace's scan found">
+            {found.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        </>
+      )}
       {recipe && recipe.needs.length > 0 && (
         <>
           <h3 className="mk-quiet-head">Apps</h3>

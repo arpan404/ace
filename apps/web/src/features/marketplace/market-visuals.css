@@ -23,6 +23,13 @@
     box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.12);
     pointer-events: none;
   }
+  .mk-stage[data-type="picture"] > .mk-stage-picture {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
   .mk-stage[data-type="bot"] {
     background: color-mix(
       in oklab,

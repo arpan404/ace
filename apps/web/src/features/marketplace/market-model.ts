@@ -1,4 +1,9 @@
-import type { MarketEntryDetail, MarketNeed, MarketReview } from "@ace/protocol/marketplace";
+import type {
+  MarketEntryDetail,
+  MarketNeed,
+  MarketReview,
+  MarketScanReport,
+} from "@ace/protocol/marketplace";
 import { MarketErrorCode } from "@ace/protocol/marketplace";
 
 /*
@@ -39,7 +44,15 @@ const sentence = (text: string) => {
 };
 
 /** What was being done when something failed, so its sentence can say so. */
-export type MarketStep = "read" | "review" | "install" | "remove" | "add" | "removeSource";
+export type MarketStep =
+  | "read"
+  | "review"
+  | "install"
+  | "remove"
+  | "add"
+  | "removeSource"
+  | "publish"
+  | "change";
 
 const stepFailed: Readonly<Record<MarketStep, string>> = {
   read: "The marketplace couldn't be read.",
@@ -48,6 +61,8 @@ const stepFailed: Readonly<Record<MarketStep, string>> = {
   remove: "It couldn't be removed.",
   add: "That catalog couldn't be added.",
   removeSource: "That catalog couldn't be removed.",
+  publish: "It couldn't be published. Try again.",
+  change: "The change didn't go through. Try again.",
 };
 
 /**
@@ -75,6 +90,18 @@ export function failureSentence(error: unknown, step: MarketStep): string {
       return "This review expired. Review it again.";
     case "busy":
       return "Another install is running. Try again in a moment.";
+    case "signed_out":
+      return "Sign in to publish.";
+    case "reauth":
+      return "Sign in again to do this.";
+    case "blocked":
+      return step === "review"
+        ? "ace's scan on this device refused it."
+        : "ace's scan refused it. Fix what it found, then try again.";
+    case "suspended":
+      return "Your publisher account is suspended.";
+    case "quota":
+      return "You've reached your publishing limit for now.";
     default:
       return stepFailed[step];
   }
@@ -83,10 +110,22 @@ export function failureSentence(error: unknown, step: MarketStep): string {
 /** The marketplace answered with an error, or with something other than what was asked. */
 export class MarketFailure extends Error {
   readonly code: string;
-  constructor(code: string) {
+  /** The scan that refused it, when a scan did (`blocked`). */
+  readonly scan: MarketScanReport | undefined;
+  constructor(code: string, scan?: MarketScanReport) {
     super(`marketplace: ${code}`);
     this.code = code;
+    this.scan = scan;
   }
+}
+
+/** A scan's findings as the sentences the person reads, blocks first. */
+export function findingSentences(scan: MarketScanReport | undefined): string[] {
+  if (!scan) return [];
+  const order = { block: 0, warn: 1, note: 2 } as const;
+  return scan.findings
+    .toSorted((a, b) => order[a.level] - order[b.level])
+    .map((finding) => sentence(finding.message));
 }
 
 /** A recipe's need switches as its review opens them: required ones on, optional ones off. */

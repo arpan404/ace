@@ -7,12 +7,13 @@ import { part } from "@/lib/suit-part.ts";
 import type { EntryKey } from "./market-api.ts";
 import { useBotLook, useSuitLook } from "./market-looks.ts";
 import { TypeMark } from "./market-marks.tsx";
+import { useMarketPicture } from "./market-publishing.ts";
 import { AceWindow, useFitScale } from "./market-window.tsx";
 
 /*
  * Every entry has a stage: a Suit is the ace window in its palette, a bot its face over a floor
- * in its colour, a skill or plugin its name set in mono, an app its mark. Without a picture of
- * its own (a listing not installed or reviewed yet) a stage shows its type's mark.
+ * in its colour, a skill or plugin its name set in mono, an app its mark. A listing with pictures
+ * of its own shows its first; without one, or before a look is known, its type's mark.
  */
 
 export type StageSize = "large" | "card" | "small";
@@ -21,11 +22,24 @@ const faceSizes: Readonly<Record<StageSize, number>> = { large: 220, card: 96, s
 
 /** The stage for an entry the person sees in a card, row or hero. */
 export function Stage(props: {
-  entry: EntryKey;
+  /** `previews`: the listing's pictures (ADR 0173 §5); the first is drawn when it loads. */
+  entry: EntryKey & { previews?: readonly string[] | undefined };
   size: StageSize;
   className?: string;
   style?: CSSProperties;
 }) {
+  const picture = useMarketPicture("preview", props.entry.previews?.[0]);
+  if (picture)
+    return (
+      <div
+        {...part("market-stage", undefined, "picture")}
+        className={`mk-stage ${props.className ?? ""}`}
+        data-type="picture"
+        style={props.style}
+      >
+        <img src={picture} alt="" className="mk-stage-picture" draggable={false} />
+      </div>
+    );
   if (props.entry.type === "suit") return <SuitStage {...props} />;
   if (props.entry.type === "spade-bot") return <BotStage {...props} />;
   return <ToolStage {...props} />;

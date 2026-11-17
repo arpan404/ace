@@ -8,8 +8,7 @@ import { Stage } from "./market-stage.tsx";
 
 /*
  * Cards (the visual leads, the words sit under it), result rows and the section a shelf sits in.
- * Every card and row opens its entry's page; the byline opens its publisher once publisher pages
- * exist (ADR 0173).
+ * Every card and row opens its entry's page; the byline opens its publisher's page (ADR 0173).
  */
 
 /** Who published it, in a byline's words: ace, a publisher, or a git catalog. */
@@ -19,14 +18,28 @@ export function publisherName(entry: Pick<MarketEntrySummary, "byAce" | "publish
   return entry.from?.replace(/^https:\/\//, "");
 }
 
-export function EntryByline(props: { entry: MarketEntrySummary }) {
+/** The publisher's handle on the market, whose page the byline opens; none for git catalogs. */
+export const publisherHandle = (entry: Pick<MarketEntrySummary, "source" | "publisher">) =>
+  entry.source === "market" ? entry.publisher?.name : undefined;
+
+/**
+ * "By ace" and "Verified" only from what the daemon checked: `byAce` and `verified` are set from
+ * the signed official and verified lists, for a publisher a verified manifest names.
+ */
+export const entryVerified = (entry: Pick<MarketEntrySummary, "byAce" | "verified">) =>
+  entry.byAce || entry.verified === true;
+
+export function EntryByline(props: { entry: MarketEntrySummary; inert?: boolean }) {
+  const nav = useMarketNav();
   const name = publisherName(props.entry);
+  const handle = publisherHandle(props.entry);
   if (!name) return null;
   return (
     <Byline
       name={name}
       ace={props.entry.byAce}
-      verified={props.entry.byAce || Reflect.get(props.entry, "verified") === true}
+      verified={entryVerified(props.entry)}
+      onOpen={handle && !props.inert ? () => nav.push({ kind: "publisher", handle }) : undefined}
     />
   );
 }

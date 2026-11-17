@@ -261,11 +261,6 @@
   .mk-check:not([data-ok]) > svg {
     color: var(--status-failed);
   }
-  .mk-check .mk-why {
-    color: var(--mk-muted);
-    font-size: var(--text-ui);
-    margin-top: 2px;
-  }
   .mk-check-summary {
     display: flex;
     align-items: center;
@@ -328,5 +323,18 @@
     width: 100%;
     border-radius: var(--radius-xl);
     margin-bottom: 16px;
+  }
+  .mk-why {
+    color: var(--mk-muted);
+    font-size: var(--text-ui);
+    margin: 2px 0 0;
+  }
+  .mk-ask {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: var(--radius-lg);
+    background: var(--surface-1);
   }
 }

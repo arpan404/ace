@@ -128,6 +128,7 @@ export async function publisherPage(
       pinned: summaries(source, ports.marks, body.data.pinned),
       entries: summaries(source, ports.marks, body.data.entries),
       downloads: body.data.downloads,
+      ...(badges.official(profile.id) ? { official: true } : {}),
     },
   };
 }

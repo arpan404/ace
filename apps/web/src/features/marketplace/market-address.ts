@@ -22,7 +22,10 @@ export type MarketPage =
   | { kind: "publisher"; handle: string }
   | { kind: "collection"; id: string }
   | { kind: "profile" }
-  | { kind: "publish" }
+  /** `draft`: carry on with one of the publisher's drafts. */
+  | { kind: "publish"; draft?: string | undefined }
+  /** One of the publisher's own entries, to manage. */
+  | { kind: "manage"; type: string; name: string }
   | { kind: "catalogs" };
 
 export interface MarketView {
@@ -87,6 +90,15 @@ export function parseMarket(value: unknown): MarketView | undefined {
   if (text === "catalogs") return view("installed", [{ kind: "catalogs" }]);
   const place = marketPlaces.find((known) => known === text);
   if (place) return view(place);
+  if (text.startsWith("me/")) {
+    const managed = entryOf(text.split("/")[1] ?? "", text.split("/")[2] ?? "");
+    return managed && managed.source === "market"
+      ? view("discover", [
+          { kind: "profile" },
+          { kind: "manage", type: managed.type, name: managed.name },
+        ])
+      : view("discover", [{ kind: "profile" }]);
+  }
   if (text.startsWith("@")) {
     const handle = text.slice(1);
     return slug.test(handle) ? view("discover", [{ kind: "publisher", handle }]) : view("discover");
@@ -121,6 +133,8 @@ export function formatMarket(at: MarketView): string {
       return "me";
     case "publish":
       return "publish";
+    case "manage":
+      return `me/${entryText({ source: "market", type: top.type, name: top.name })}`;
     case "catalogs":
       return "catalogs";
     case undefined:

@@ -1,14 +1,10 @@
+import type { MarketDiscover, MarketTopPublisher } from "@ace/protocol/marketplace";
 import { part } from "@/lib/suit-part.ts";
 import { Card, CardItem, Cards, Section, publisherName } from "./market-card.tsx";
-import type {
-  MarketCollectionView,
-  MarketDiscoverView,
-  MarketTopPublisherView,
-  MarketTrendingView,
-} from "./market-later.ts";
 import { typeWord } from "./market-model.ts";
 import { Avatar, Move, Verified } from "./market-marks.tsx";
 import { openEntry, useMarketNav } from "./market-nav.ts";
+import { useMarketPicture } from "./market-publishing.ts";
 import { Stage } from "./market-stage.tsx";
 
 /*
@@ -16,6 +12,9 @@ import { Stage } from "./market-stage.tsx";
  * notable, collections as a mosaic of what's inside, and the top publishers. Each renders only
  * when its list has something in it.
  */
+
+type MarketTrendingView = MarketDiscover["trending"][number];
+type MarketCollectionView = MarketDiscover["collections"][number];
 
 export function TrendingSection(props: { rows: readonly MarketTrendingView[] }) {
   if (!props.rows.length) return null;
@@ -26,9 +25,12 @@ export function TrendingSection(props: { rows: readonly MarketTrendingView[] }) 
         aria-label="Trending this week"
         style={{ listStyle: "none", margin: 0, padding: 0 }}
       >
-        {props.rows.slice(0, 10).map((row) => (
-          <TrendingRow key={`${row.entry.type}/${row.entry.name}`} row={row} />
-        ))}
+        {props.rows
+          .toSorted((a, b) => a.rank - b.rank)
+          .slice(0, 10)
+          .map((row) => (
+            <TrendingRow key={`${row.entry.type}/${row.entry.name}`} row={row} />
+          ))}
       </ol>
     </Section>
   );
@@ -96,9 +98,10 @@ export function CollectionCard(props: { collection: MarketCollectionView }) {
   );
 }
 
-export function PublisherCard(props: { publisher: MarketTopPublisherView }) {
+export function PublisherCard(props: { publisher: MarketTopPublisher }) {
   const nav = useMarketNav();
   const { publisher } = props;
+  const picture = useMarketPicture("avatar", publisher.avatar);
   return (
     <CardItem>
       <button
@@ -108,7 +111,7 @@ export function PublisherCard(props: { publisher: MarketTopPublisherView }) {
         onClick={() => nav.push({ kind: "publisher", handle: publisher.handle })}
       >
         <span style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <Avatar name={publisher.displayName} size={48} ace={publisher.handle === "ace"} />
+          <Avatar name={publisher.displayName} size={48} picture={picture} />
           <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
             <span className="mk-pub-name">
               {publisher.displayName}
@@ -127,7 +130,7 @@ export function PublisherCard(props: { publisher: MarketTopPublisherView }) {
 
 /** The ranked sections, in Discover's order, each only when it has entries. */
 export function RankedSections(props: {
-  discover: MarketDiscoverView | undefined;
+  discover: MarketDiscover | undefined;
   where: "top" | "collections" | "publishers";
   spade: boolean;
 }) {

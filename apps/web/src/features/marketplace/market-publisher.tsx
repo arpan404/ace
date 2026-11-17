@@ -1,8 +1,9 @@
-import type { MarketEntrySummary } from "@ace/protocol/marketplace";
+import type { MarketEntrySummary, MarketProfile } from "@ace/protocol/marketplace";
 import type { ReactNode } from "react";
 import { Card, CardItem, Cards, Empty, Section } from "./market-card.tsx";
-import { useMarketDiscover, useMarketPublisher, type MarketProfileView } from "./market-later.ts";
+import { failureSentence, MarketFailure } from "./market-model.ts";
 import { Avatar, Verified } from "./market-marks.tsx";
+import { useMarketDiscover, useMarketPicture, useMarketPublisher } from "./market-publishing.ts";
 
 /*
  * A collection, and a publisher's page (ADR 0173 §3, §6): their head (picture, name and seal,
@@ -14,14 +15,17 @@ const joinedText = (at: number) =>
   new Date(at).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 
 export function ProfileHead(props: {
-  profile: MarketProfileView;
+  profile: MarketProfile;
   entries: number;
+  /** ace's own publisher, by the signed official list. */
+  official?: boolean | undefined;
   actions?: ReactNode;
 }) {
   const { profile } = props;
+  const picture = useMarketPicture("avatar", profile.avatar);
   return (
     <div className="mk-profile-head">
-      <Avatar name={profile.displayName} size={96} ace={profile.handle === "ace"} />
+      <Avatar name={profile.displayName} size={96} ace={props.official} picture={picture} />
       <div className="mk-profile-words">
         <h1 className="mk-display-sm">
           {profile.displayName}
@@ -36,7 +40,7 @@ export function ProfileHead(props: {
           <div className="mk-profile-links">
             {profile.links.map((link) => (
               <a key={link.url} href={link.url} target="_blank" rel="noreferrer" title={link.url}>
-                {link.label ?? link.url.replace(/^https:\/\//, "")}
+                {link.label}
               </a>
             ))}
           </div>
@@ -70,13 +74,28 @@ function Group(props: {
 }
 
 export function PublisherPage(props: { handle: string }) {
-  const page = useMarketPublisher(props.handle);
-  if (!page) return <Empty title="This publisher's page can't be shown yet" />;
+  const query = useMarketPublisher(props.handle);
+  const page = query.data;
+  if (query.isError && !page)
+    return (
+      <Empty
+        title={
+          query.error instanceof MarketFailure && query.error.code === "not_found"
+            ? "There's no publisher by that name"
+            : failureSentence(query.error, "read")
+        }
+      />
+    );
+  if (!page) return null;
   const pinned = new Set(page.pinned.map(key));
   const rest = page.entries.filter((entry) => !pinned.has(key(entry)));
   return (
     <div className="mk-inner">
-      <ProfileHead profile={page.profile} entries={page.entries.length} />
+      <ProfileHead
+        profile={page.profile}
+        entries={page.entries.length}
+        official={page.official === true}
+      />
       {page.pinned.length > 0 && (
         <Section title="Pinned">
           <Cards cols={2} label="Pinned">
@@ -101,8 +120,10 @@ export function PublisherPage(props: { handle: string }) {
 }
 
 export function CollectionPage(props: { id: string }) {
-  const collection = useMarketDiscover()?.collections.find((each) => each.id === props.id);
-  if (!collection) return <Empty title="This collection can't be shown yet" />;
+  const discover = useMarketDiscover();
+  const collection = discover?.collections.find((each) => each.id === props.id);
+  if (!discover) return null;
+  if (!collection) return <Empty title="This collection isn't listed anymore" />;
   return (
     <div className="mk-inner">
       <div style={{ display: "grid", gap: 8, maxWidth: 640, marginTop: 8 }}>
@@ -125,7 +146,7 @@ export function CollectionPage(props: { id: string }) {
 
 /** A crumb's words for a publisher or collection page, once known. */
 export function usePageTitle(kind: "publisher" | "collection", id: string): string {
-  const publisher = useMarketPublisher(kind === "publisher" ? id : "");
+  const publisher = useMarketPublisher(kind === "publisher" ? id : "").data;
   const collection = useMarketDiscover()?.collections.find((each) => each.id === id);
   if (kind === "publisher") return publisher?.profile.displayName ?? `@${id}`;
   return collection?.title ?? "Collection";

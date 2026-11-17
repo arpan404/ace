@@ -4,9 +4,9 @@ import { useMarketHome, useMarketSearch } from "./market-api.ts";
 import type { MarketPlace } from "./market-address.ts";
 import { Card, CardItem, Cards, Empty, ResultRow, Section } from "./market-card.tsx";
 import { Hero } from "./market-hero.tsx";
-import { useMarketDiscover } from "./market-later.ts";
 import { failureSentence } from "./market-model.ts";
 import { useMarketNav } from "./market-nav.ts";
+import { useMarketDiscover } from "./market-publishing.ts";
 import { RankedSections } from "./market-ranked.tsx";
 
 /*
@@ -52,7 +52,9 @@ export function DiscoverPage(props: { query: string }) {
   if (props.query)
     return <SearchResults query={props.query} types={spade ? spadeTypes : undefined} />;
   if (home.isError && !home.data) return <Empty title={failureSentence(home.error, "read")} />;
-  const featured = home.data?.featured.filter((entry) => !spade || entry.type !== "suit") ?? [];
+  // Discover's own picks once the market has them, else the listings' featured ones.
+  const picks = discover?.featured.length ? discover.featured : home.data?.featured;
+  const featured = picks?.filter((entry) => !spade || entry.type !== "suit") ?? [];
   return (
     <div className="mk-inner">
       {featured.length > 0 && <Hero featured={featured} />}

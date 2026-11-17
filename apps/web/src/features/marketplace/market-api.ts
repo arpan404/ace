@@ -38,7 +38,7 @@ export async function market<T extends MarketResult["op"]>(
     signal ? { signal } : {},
   );
   const result = reply.result;
-  if (result.op === "error") throw new MarketFailure(result.code);
+  if (result.op === "error") throw new MarketFailure(result.code, result.scan);
   if (!answers(result, expected)) throw new MarketFailure("failed");
   return result;
 }

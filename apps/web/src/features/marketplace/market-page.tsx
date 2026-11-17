@@ -9,6 +9,7 @@ import { BotsPage, DiscoverPage, LooksPage, SearchResults, ToolsPage } from "./m
 import { EntryPage } from "./market-entry.tsx";
 import { InstalledPage } from "./market-installed.tsx";
 import { useMarketNav } from "./market-nav.ts";
+import { ManageCrumb, ManagePage } from "./market-manage.tsx";
 import { ProfilePage } from "./market-profile.tsx";
 import { PublishPage } from "./market-publish.tsx";
 import { CollectionPage, PublisherPage, usePageTitle } from "./market-publisher.tsx";
@@ -47,6 +48,8 @@ function crumbKey(page: Page): string {
       return `publisher:${page.handle}`;
     case "collection":
       return `collection:${page.id}`;
+    case "manage":
+      return `manage:${page.type}/${page.name}`;
     default:
       return page.kind;
   }
@@ -65,6 +68,8 @@ function crumbOf(page: Page) {
       return "Your profile";
     case "publish":
       return "Publish";
+    case "manage":
+      return <ManageCrumb type={page.type} name={page.name} />;
     case "catalogs":
       return "Catalogs";
   }
@@ -73,7 +78,7 @@ function crumbOf(page: Page) {
 const widthOf = (page: Page | undefined) =>
   page?.kind === "review" || page?.kind === "publish"
     ? "form"
-    : page?.kind === "profile" || page?.kind === "catalogs"
+    : page?.kind === "profile" || page?.kind === "catalogs" || page?.kind === "manage"
       ? "read"
       : undefined;
 
@@ -116,7 +121,9 @@ function TopPage(props: { page: Page }) {
     case "profile":
       return <ProfilePage />;
     case "publish":
-      return <PublishPage />;
+      return <PublishPage draft={page.draft} />;
+    case "manage":
+      return <ManagePage type={page.type} name={page.name} />;
     case "catalogs":
       return <CatalogsPage />;
   }

@@ -5,9 +5,9 @@ import { part } from "@/lib/suit-part.ts";
 import type { MarketPlace } from "./market-address.ts";
 import { useMarketInstalled } from "./market-api.ts";
 import { useMarketApps } from "./market-apps.tsx";
-import { useMarketMe } from "./market-later.ts";
 import { Avatar } from "./market-marks.tsx";
 import { useMarketNav } from "./market-nav.ts";
+import { useMarketMe, useMarketPicture } from "./market-publishing.ts";
 
 /*
  * The modal's one bar, read left to right as the person works: Marketplace · the five places ·
@@ -45,6 +45,7 @@ export function MarketBar(props: {
   const updates = installed?.filter((item) => item.update).length ?? 0;
   const apps = useMarketApps();
   const { me, signedOut } = useMarketMe();
+  const avatar = useMarketPicture("avatar", me?.profile?.avatar);
   const top = view.pages.at(-1);
   const shown = places.filter(
     (place) => (place.id !== "looks" || view.scope !== "spade") && (place.id !== "apps" || apps),
@@ -123,11 +124,15 @@ export function MarketBar(props: {
               margin: "0 4px",
             }}
           >
-            <Avatar name={me.profile.displayName} size={30} />
+            <Avatar name={me.profile.displayName} size={30} picture={avatar} />
           </button>
         ) : signedOut ? (
           <Button variant="secondary" onClick={() => nav.push({ kind: "profile" })}>
             Sign in to publish
+          </Button>
+        ) : me ? (
+          <Button variant="secondary" onClick={() => nav.push({ kind: "profile" })}>
+            Make your profile
           </Button>
         ) : null}
       </span>

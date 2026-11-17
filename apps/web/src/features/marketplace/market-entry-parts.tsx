@@ -4,7 +4,16 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
 import { useMarketSearch, type EntryKey } from "./market-api.ts";
-import { Card, CardItem, Cards, EntryByline, Section, publisherName } from "./market-card.tsx";
+import {
+  Card,
+  CardItem,
+  Cards,
+  EntryByline,
+  Section,
+  entryVerified,
+  publisherHandle,
+  publisherName,
+} from "./market-card.tsx";
 import { dateText, entryAction, installBlock, sizeText } from "./market-model.ts";
 import { Avatar, Verified } from "./market-marks.tsx";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
@@ -145,20 +154,32 @@ export function versionFacts(detail: MarketEntryDetail): FactRow[] {
 
 /** The publisher, under the facts. */
 export function PublisherMini(props: { entry: MarketEntrySummary }) {
+  const nav = useMarketNav();
   const name = publisherName(props.entry);
   if (!name) return null;
-  const verified = props.entry.byAce || Reflect.get(props.entry, "verified") === true;
-  return (
-    <div className="mk-publisher-mini">
+  const handle = publisherHandle(props.entry);
+  const words = (
+    <>
       <Avatar name={name} size={40} ace={props.entry.byAce} />
       <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
         <span className="mk-pub-name">
           {name}
-          {verified && <Verified />}
+          {entryVerified(props.entry) && <Verified />}
         </span>
         <span className="mk-meta">{props.entry.from ? "Git catalog" : "Publisher"}</span>
       </span>
-    </div>
+    </>
+  );
+  return handle ? (
+    <button
+      type="button"
+      className="mk-publisher-mini"
+      onClick={() => nav.push({ kind: "publisher", handle })}
+    >
+      {words}
+    </button>
+  ) : (
+    <div className="mk-publisher-mini">{words}</div>
   );
 }
 

@@ -33,6 +33,11 @@ export interface MarketPublishSeed {
   verification?: MarketVerificationStatus;
   /** A draft's publish by id: held for a maintainer, or blocked with this scan. */
   publishing?: Record<string, "held" | { blocked: MarketScanReport }>;
+  /**
+   * The scans a draft of `type/name` finishes with, in turn: each new scan takes the next and
+   * the last one stays. Absent, every scan passes.
+   */
+  scans?: Record<string, MarketScanReport[]>;
   /** Discover; absent builds one from the seeded listings. */
   discover?: Omit<MarketDiscover, "readAt">;
   publishers?: MarketPublisherPage[];
@@ -81,6 +86,7 @@ export class FakeMarketPublishing {
     challenges: [],
   };
   #publishing: NonNullable<MarketPublishSeed["publishing"]> = {};
+  #scans: NonNullable<MarketPublishSeed["scans"]> = {};
   #discover: MarketPublishSeed["discover"];
   #publishers = new Map<string, MarketPublisherPage>();
   #counter = 0;
@@ -99,6 +105,7 @@ export class FakeMarketPublishing {
     if (seed.signals) this.#signals = seed.signals;
     if (seed.verification) this.#verification = seed.verification;
     if (seed.publishing) this.#publishing = seed.publishing;
+    if (seed.scans) this.#scans = structuredClone(seed.scans);
     if (seed.discover) this.#discover = seed.discover;
     for (const page of seed.publishers ?? []) this.#publishers.set(page.profile.handle, page);
   }
@@ -200,7 +207,7 @@ export class FakeMarketPublishing {
           draft.updated = this.#now();
         } else if (draft.scan.state === "scanning")
           // The scan finishes by the next read, as the Worker's steps would.
-          draft.scan = { state: "done", report: passedScan(draft.hash, draft.files) };
+          draft.scan = { state: "done", report: this.#nextScan(draft) };
         return ok({ kind: "draft", draft });
       }
       case "draftDelete":
@@ -243,6 +250,12 @@ export class FakeMarketPublishing {
     }
   }
 
+  #nextScan(draft: MarketDraft): MarketScanReport {
+    const queued = this.#scans[key(draft)];
+    const next = queued && queued.length > 1 ? queued.shift() : queued?.[0];
+    return next ?? passedScan(draft.hash, draft.files);
+  }
+
   #page(): MarketMe {
     return {
       ...this.#me,
@@ -256,6 +269,8 @@ export class FakeMarketPublishing {
     if (!draft) return failure("not_found", "There is no such draft");
     if (draft.scan.state === "scanning")
       return failure("conflict", "The draft is still being scanned");
+    if (draft.scan.report.verdict === "block")
+      return failure("blocked", "The scan refused this version", { scan: draft.scan.report });
     const outcome = this.#publishing[id];
     if (typeof outcome === "object")
       return failure("blocked", "The scan refused this version", { scan: outcome.blocked });

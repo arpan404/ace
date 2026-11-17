@@ -117,12 +117,16 @@ export function Byline(props: {
       {props.verified && <Verified />}
     </>
   );
+  // "By ace" is the official mark: only for ace's own publisher by the signed list, never a name.
+  const label = props.ace ? "By ace" : `Published by ${props.name}`;
   return props.onOpen ? (
-    <button type="button" className="mk-by" onClick={props.onOpen}>
+    <button type="button" className="mk-by" aria-label={label} onClick={props.onOpen}>
       {inner}
     </button>
   ) : (
-    <span className="mk-by">{inner}</span>
+    <span className="mk-by" aria-label={label}>
+      {inner}
+    </span>
   );
 }
 

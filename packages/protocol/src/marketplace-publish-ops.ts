@@ -195,6 +195,8 @@ export const MarketPublisherPage = z.strictObject({
   pinned: z.array(MarketEntrySummary).max(6),
   entries: z.array(MarketEntrySummary).max(500),
   downloads: z.number().int().nonnegative(),
+  /** ace's own publisher, by the signed official list (ADR 0173 §14). */
+  official: z.boolean().optional(),
 });
 export type MarketPublisherPage = z.infer<typeof MarketPublisherPage>;
 
