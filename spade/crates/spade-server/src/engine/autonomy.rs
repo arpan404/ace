@@ -183,6 +183,9 @@ pub(super) async fn review(
         ),
         Judged::Stopped => return Reviewed::Stopped,
     };
+    // The check is over: until the call starts or the person is asked, the bot is thinking, not
+    // still checking (a stale "Checking a step" showed after an approval).
+    engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     let (verdict, reason) = match &outcome {
         Outcome::Run => (Verdict::Allow, String::new()),
         Outcome::Refuse(reason) => (Verdict::Refuse, reason.clone()),
