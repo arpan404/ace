@@ -131,7 +131,8 @@ export class MarketPersonRequests {
     this.deps.store.atomic((db) =>
       db.prepare("DELETE FROM market_person_pending WHERE interaction_id=?").run(interactionId),
     );
-    if (resolution.optionId === RUN) void this.carryOut(threadId, row);
+    // carryOut() reports its own failure to the thread; nothing waits on this answer.
+    if (resolution.optionId === RUN) void this.carryOut(threadId, row).catch(() => {});
     return { commandId: command.id, ok: true };
   }
 

@@ -159,7 +159,7 @@ export class SpadeLink {
       // A change to server.json or the token is worth a look now, whatever the backoff.
       this.stopWatch = this.options.runtime.watch(this.options.dataDir, () => {
         this.misses = 0;
-        void this.refresh();
+        void this.refresh().catch((error: unknown) => this.options.report?.(error));
       });
     } else {
       this.stopWatch?.();
@@ -167,13 +167,13 @@ export class SpadeLink {
       this.cancelTimer?.();
       this.cancelTimer = undefined;
     }
-    this.refresh();
+    void this.refresh().catch((error: unknown) => this.options.report?.(error));
   }
   /** Turning on is underway (`installing`), or failed with `problem`; cleared with undefined. */
   setSwitch(input: { installing?: boolean; problem?: string | undefined }): void {
     this.facts = { ...this.facts, installing: input.installing ?? false, problem: input.problem };
     this.misses = 0;
-    void this.refresh();
+    void this.refresh().catch((error: unknown) => this.options.report?.(error));
   }
   /**
    * Looks again now. A call during a look waits for one more look after it, and calls made
@@ -276,7 +276,7 @@ export class SpadeLink {
       : Math.min(poll.waiting * 2 ** Math.max(0, this.misses - 1), poll.idle);
     this.cancelTimer?.();
     this.cancelTimer = runtime.after(wait, () => {
-      void this.refresh();
+      void this.refresh().catch((error: unknown) => this.options.report?.(error));
     });
   }
   /**
@@ -298,7 +298,7 @@ export class SpadeLink {
     const poll = { ...defaultPoll, ...this.options.pollMs };
     this.cancelTimer?.();
     this.cancelTimer = this.options.runtime.after(poll.waiting, () => {
-      void this.refresh();
+      void this.refresh().catch((error: unknown) => this.options.report?.(error));
     });
   }
   private apply(

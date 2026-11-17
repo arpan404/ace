@@ -86,7 +86,8 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     this.#channel = channel;
     this.#deflate = options.deflate;
     this.#delay = options.delay;
-    void channel.closed.then((cause) => this.#finish(...endedBy(cause)));
+    // The channel's closed promise only resolves, with its cause.
+    void channel.closed.then((cause) => this.#finish(...endedBy(cause))).catch(() => {});
   }
   get readyState(): 0 | 1 | 2 | 3 {
     return this.#state;
@@ -128,7 +129,8 @@ export class RelaySocket extends EventEmitter implements MainSocket {
       } catch {
         this.terminate();
       }
-    })();
+      // The loop terminates the socket on any failure, so there is nothing left to report.
+    })().catch(() => {});
   }
   send(
     data: string | Buffer | Uint8Array,
