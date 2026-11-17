@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { deviceBrowser } from "@/test/device-browser.ts";
 import { harness } from "@/test/harness.tsx";
+import { findSettingsGeneral } from "@/test/navigation.ts";
 import { screenWorld } from "@/test/screen-world.ts";
 
 // jsdom has no canvas or WebCodecs: the device browser decodes H.264 and records what is drawn.
@@ -325,7 +326,7 @@ test("coming back to Computer use shows apps as still on while the screen channe
     ).toBe("true"),
   );
 
-  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await userEvent.click(await findSettingsGeneral());
   await waitFor(() =>
     expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull(),
   );
@@ -351,7 +352,7 @@ test("once the daemon says apps are off, a dropped channel doesn't bring back th
   await waitFor(() => expect(appsSwitch().getAttribute("aria-checked")).toBe("true"));
 
   // Away from Computer use, apps are switched off on the machine.
-  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await userEvent.click(await findSettingsGeneral());
   await waitFor(() =>
     expect(screen.queryByRole("switch", { name: "Let agents use apps" })).toBeNull(),
   );

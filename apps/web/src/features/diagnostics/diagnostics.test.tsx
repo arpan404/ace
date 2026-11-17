@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { fakeClient } from "@/test/fake-client.ts";
 import { harness } from "@/test/harness.tsx";
+import { findSettingsGeneral } from "@/test/navigation.ts";
 import { openDevices } from "@/test/device-browser.ts";
 afterEach(() => vi.restoreAllMocks());
 test("Run checks shows results and a next step for an agent needing attention", async () => {
@@ -88,7 +89,7 @@ test("Run checks keeps going after leaving the page, and coming back shows it ru
   await userEvent.click(await screen.findByRole("button", { name: "Run checks" }));
   expect(await screen.findByText(/^Checking for \d+s\. You can leave this page/)).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await userEvent.click(await findSettingsGeneral());
   await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
   await userEvent.click(screen.getByRole("link", { name: "Advanced" }));
 
@@ -133,11 +134,11 @@ test("checks that ended while the page was away show their report on return and 
   void app.client
     .request({ type: "diagnostics.request", operation: "doctor" }, { timeoutMs: 60_000 })
     .catch(() => {});
-  await userEvent.click(await screen.findByRole("link", { name: "General" }));
+  await userEvent.click(await findSettingsGeneral());
   await userEvent.click(await screen.findByRole("link", { name: "Advanced" }));
   await screen.findByText(/^Checking for/);
 
-  await userEvent.click(screen.getByRole("link", { name: "General" }));
+  await userEvent.click(await findSettingsGeneral());
   await waitFor(() => expect(screen.queryByText(/^Checking for/)).toBeNull());
   finish();
   await new Promise((resolve) => setTimeout(resolve, 50));
