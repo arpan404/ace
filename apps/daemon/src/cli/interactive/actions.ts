@@ -34,7 +34,7 @@ export function editText(terminal: Terminal, text: string, env: NodeJS.ProcessEn
 /** The table's command for each place, first one this build has. */
 const placeCommands: Record<Place, readonly string[]> = {
   projects: ["project.list"],
-  spade: ["spade.status", "spade.list", "spade.bots", "feature.list"],
+  spade: ["spade.status", "spade.list", "spade.bots"],
   market: ["market.search", "market.browse", "market.installed"],
   settings: ["config.list", "config.get"],
   help: ["help"],
