@@ -3,15 +3,20 @@
 mod linux;
 
 #[test]
-fn only_the_inherited_pty_can_be_opened_not_another_same_user_terminal() {
+fn the_command_opens_only_its_dedicated_pty_never_the_callers_or_another_terminal() {
     let w = linux::world();
     let code = r#"import errno,os,sys
 try:
- f=os.open(sys.argv[1],os.O_RDWR|os.O_NOCTTY); os.close(f)
+ f=os.open(sys.argv[1],os.O_RDWR|os.O_NOCTTY)
 except OSError as e:
- assert sys.argv[2]=="denied" and e.errno in (errno.EACCES,errno.EPERM),e
+ assert e.errno in (errno.EACCES,errno.EPERM),e
 else:
- assert sys.argv[2]=="allowed","opened another terminal"
+ raise SystemExit("opened the caller's own terminal")
+if sys.argv[2]=="terminal":
+ own=os.ttyname(0); assert own!=sys.argv[1],own
+ os.close(os.open(own,os.O_RDWR|os.O_NOCTTY))
+else:
+ assert not os.isatty(0)
 "#;
     let launch = linux::runner()
         .wrap(
@@ -25,13 +30,14 @@ else:
         .collect();
     let json = serde_json::to_string(&serde_json::to_string(&args).unwrap_or_default())
         .unwrap_or_default();
+    // The caller's terminal is a same-user pty: on stdin it is replaced, never reopened.
     let parent = format!(
         r#"import json,os,pty,subprocess
 m,s=pty.openpty(); path=os.ttyname(s); assert os.stat(path).st_uid==os.getuid()
 args=json.loads({json})
-for mode,stdin in [("denied",subprocess.DEVNULL),("allowed",s)]:
+for mode,stdin in [("none",subprocess.DEVNULL),("terminal",s)]:
  a=[v.replace("TARGET_PTY",path).replace("MODE",mode) for v in args]
- r=subprocess.run(a,stdin=stdin); assert r.returncode==0
+ r=subprocess.run(a,stdin=stdin); assert r.returncode==0,mode
 os.close(m); os.close(s)
 "#
     );

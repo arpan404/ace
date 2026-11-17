@@ -88,6 +88,28 @@ pub fn runner() -> Runner {
     runner
 }
 
+/// Whether commands run in their own PID namespace (an init, a fresh `/proc`) on this machine.
+pub fn namespaced() -> bool {
+    runner().status().processes == spade_sandbox::Coverage::Contained
+}
+
+/// `program args` started by the launcher directly with `plan`, as `wrap` would with the status
+/// that leads to it.
+pub fn launched(plan: &spade_sandbox::linux::Plan, program: &str, args: &[&str]) -> Command {
+    let mut command = Command::new(launcher());
+    command
+        .arg(spade_sandbox::linux::LAUNCHER_ARG)
+        .arg(serde_json::to_string(plan).unwrap_or_else(|e| panic!("{e}")))
+        .arg(program)
+        .args(args)
+        .current_dir(&plan.sockets)
+        .env_clear()
+        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("HOME", &plan.sockets)
+        .stdin(Stdio::null());
+    command
+}
+
 /// Runs `script` with `sh -c` under `policy`.
 pub fn output(policy: &Policy, script: &str) -> Output {
     let launch = runner()

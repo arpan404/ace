@@ -42,6 +42,10 @@ pub struct Status {
     pub syscalls: Coverage,
     pub devices: Coverage,
     pub ipc: Coverage,
+    /// Whether other processes are hidden: Linux's own PID namespace and `/proc` per command
+    /// (partial where unprivileged user namespaces aren't allowed and `/proc`'s process folders
+    /// are closed instead), macOS's same-sandbox `process-info`.
+    pub processes: Coverage,
     /// Linux: the Landlock ABI the kernel enforces.
     pub landlock_abi: Option<u8>,
     /// Why a boundary isn't held, in a sentence the person reads.
@@ -57,6 +61,7 @@ impl Status {
             && self.syscalls == Coverage::Contained
             && self.devices == Coverage::Contained
             && self.ipc == Coverage::Contained
+            && self.processes == Coverage::Contained
             && (self.platform != "linux" || self.landlock_abi.is_some_and(|abi| abi >= 3))
     }
 
@@ -75,6 +80,7 @@ impl Status {
             syscalls: Coverage::None,
             devices: Coverage::None,
             ipc: Coverage::None,
+            processes: Coverage::None,
             landlock_abi: None,
             reason: Some(reason.to_owned()),
         }
@@ -187,6 +193,7 @@ mod platform {
                 syscalls: Coverage::Contained,
                 devices: Coverage::Contained,
                 ipc: Coverage::Contained,
+                processes: Coverage::Contained,
                 landlock_abi: None,
                 reason: None,
             },
@@ -221,7 +228,7 @@ mod platform {
 #[cfg(target_os = "linux")]
 mod platform {
     use super::*;
-    use crate::linux::Network;
+    use crate::linux::{Network, Processes};
 
     #[cfg(feature = "landlock")]
     pub(super) fn probe(launcher: Option<&Path>) -> Status {
@@ -272,6 +279,20 @@ mod platform {
         } else {
             reason
         };
+        let reason = match (&probed.processes, reason) {
+            (Ok(()), reason) => reason,
+            (Err(why), reason) => Some(
+                // What failed, on one line.
+                reason.map(|r| format!("{r} ")).unwrap_or_default()
+                    + &format!(
+                        "Commands can't have their own process list here ({}): this machine \
+                         doesn't allow unprivileged user namespaces, so Spade keeps every \
+                         process's /proc folder closed instead, and commands are reviewed as \
+                         before.",
+                        why.lines().collect::<Vec<_>>().join("; ")
+                    ),
+            ),
+        };
         Status {
             platform: "linux",
             mechanism: Mechanism::Landlock,
@@ -293,6 +314,11 @@ mod platform {
                 Coverage::Partial
             },
             ipc: if probed.filtered.is_ok() {
+                Coverage::Contained
+            } else {
+                Coverage::Partial
+            },
+            processes: if probed.processes.is_ok() {
                 Coverage::Contained
             } else {
                 Coverage::Partial
@@ -322,7 +348,13 @@ mod platform {
         } else {
             Network::Landlock
         };
-        let plan = crate::linux::plan(policy, network);
+        // Its own process namespace where the probe found one starts.
+        let processes = if status.processes == Coverage::Contained {
+            Processes::Private
+        } else {
+            Processes::Hidden
+        };
+        let plan = crate::linux::plan(policy, network, processes);
         let plan = serde_json::to_string(&plan)
             .map_err(|error| Unavailable(format!("the sandbox plan: {error}")))?;
         let mut all: Vec<OsString> = vec![crate::linux::LAUNCHER_ARG.into(), plan.into()];
@@ -351,6 +383,7 @@ mod platform {
             syscalls: Coverage::None,
             devices: Coverage::None,
             ipc: Coverage::None,
+            processes: Coverage::None,
             landlock_abi: None,
             reason: Some(
                 "Spade's Windows sandbox (AppContainer) isn't built yet, so commands are \
@@ -421,6 +454,7 @@ mod tests {
             syscalls: Coverage::Contained,
             devices: Coverage::Contained,
             ipc: Coverage::Contained,
+            processes: Coverage::Contained,
             landlock_abi: Some(4),
             reason: None,
         };
@@ -438,6 +472,9 @@ mod tests {
         status.devices = Coverage::Contained;
         status.ipc = Coverage::Partial;
         assert!(!status.contains());
+        status.ipc = Coverage::Contained;
+        status.processes = Coverage::Partial;
+        assert!(!status.contains());
     }
 }
 
@@ -449,6 +486,7 @@ mod linux_status_tests {
         let status = platform::status(&crate::linux::Probed {
             abi: 6,
             filtered: Err("filter unavailable".to_owned()),
+            processes: Ok(()),
         });
         assert_eq!(status.files, Coverage::Partial);
         assert!(!status.contains());
@@ -460,6 +498,7 @@ mod linux_status_tests {
                 let status = platform::status(&crate::linux::Probed {
                     abi,
                     filtered: filtered.clone(),
+                    processes: Ok(()),
                 });
                 assert_eq!(
                     status.contains(),
@@ -484,5 +523,41 @@ mod linux_status_tests {
                 }
             }
         }
+    }
+    #[test]
+    fn without_user_namespaces_processes_are_partial_and_reviews_stay_with_a_reason() {
+        let status = platform::status(&crate::linux::Probed {
+            abi: 6,
+            filtered: Ok(()),
+            processes: Err("unshare: Operation not permitted".to_owned()),
+        });
+        assert_eq!(status.processes, Coverage::Partial);
+        assert_eq!(status.files, Coverage::Contained);
+        assert!(status.usable() && !status.contains());
+        assert!(
+            status
+                .reason
+                .as_deref()
+                .is_some_and(|r| r.contains("user namespaces") && r.contains("/proc")),
+            "{status:?}"
+        );
+        // Wrapped runs ask the launcher for closed process folders, not a namespace.
+        let runner = Runner {
+            status,
+            launcher: Some(PathBuf::from("/usr/bin/spade")),
+        };
+        let policy = Policy::build(&crate::policy::Facts::default());
+        let launch = runner
+            .wrap(&policy, Path::new("/bin/sh"), &[])
+            .unwrap_or_else(|e| panic!("{e}"));
+        let plan: crate::linux::Plan = serde_json::from_str(
+            launch
+                .args
+                .get(1)
+                .and_then(|a| a.to_str())
+                .unwrap_or_default(),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(plan.processes, crate::linux::Processes::Hidden);
     }
 }

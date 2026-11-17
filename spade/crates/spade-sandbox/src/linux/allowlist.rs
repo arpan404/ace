@@ -185,16 +185,27 @@ pub const FCNTL: &[u64] = &[
     0, 1, 2, 3, 4, 5, 6, 7, 36, 37, 38, 1030, 1031, 1032, 1033, 1034,
 ];
 
-/// Terminal queries/changes on inherited PTYs, fd-local controls, and copy-on-write file data.
+/// Read-only terminal queries on any descriptor, fd-local controls, and copy-on-write file data.
+/// Terminal changes (modes, window size) are not here: [`super::terminal`] supervises them and
+/// makes them only on the command's dedicated pty. TIOCSCTTY and TIOCSPGRP stay direct because
+/// the kernel scopes them to the caller's own controlling terminal, which in its new session can
+/// only be the dedicated pty (taking a terminal another session controls needs CAP_SYS_ADMIN).
 /// No inode flags, block-device, network-configuration or input-injection ioctl is admitted.
 pub const IOCTL: &[u64] = &[
-    0x5401, 0x5402, 0x5403, 0x5404, // TCGETS, TCSETS, TCSETSW, TCSETSF
-    0x540e, 0x540f, 0x5410, // TIOCSCTTY, TIOCGPGRP, TIOCSPGRP
-    0x5413, 0x5414, 0x541b, 0x5421, // window size, FIONREAD, FIONBIO
-    0x5450, 0x5451, // FIONCLEX, FIOCLEX
-    0x80045430, 0x40045431, // TIOCGPTN, TIOCSPTLCK on an inherited PTY master
-    0x40049409,
-    0x4020940d, // FICLONE, FICLONERANGE require an already writable destination fd
+    0x5401,
+    0x802c_542a, // TCGETS, TCGETS2 (glibc 2.42 and later)
+    0x540e,      // TIOCSCTTY
+    0x540f,
+    0x5410, // TIOCGPGRP, TIOCSPGRP
+    0x5413,
+    0x5429, // TIOCGWINSZ, TIOCGSID
+    0x541b,
+    0x5421, // FIONREAD, FIONBIO
+    0x5450,
+    0x5451,      // FIONCLEX, FIOCLEX
+    0x8004_5430, // TIOCGPTN
+    0x4004_9409,
+    0x4020_940d, // FICLONE, FICLONERANGE require an already writable destination fd
 ];
 
 /// All affect/query only the calling task. No PR_SET_SECCOMP, PR_SET_MM or ptracer grants.

@@ -19,7 +19,8 @@ servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
 Spade probes the sandbox once at start (`Runner::probe`). On macOS: the real profile on a
 throwaway folder running `/usr/bin/true`. On Linux: a real sandbox through the launcher on a
 throwaway folder, whose check (`spade sandbox-check`) writes in its workspace and not beside it,
-reaches a listener standing in for the proxy and can't open a UDP socket (see
+reaches a listener standing in for the proxy, can't open a UDP socket, and has its own PID
+namespace and `/proc` (or, without one, can't read the prober's `/proc` folder) (see
 [Linux](#linux)). `SPADE_SANDBOX=off` turns it off. Without all required sandbox boundaries and the proxy listening, reviews stay in place.
 
 ## What a sandboxed run may touch
@@ -42,14 +43,16 @@ problem.
 | Everything else: home folders, `/Users/Shared`, `/Volumes`, the person's temporary storage (`/private/var/folders`, `/private/tmp`) | none (ancestors of an opened place: `stat` only)                                                           |
 | Spade's data (other bots' workspaces, database, keys), ace's data                                                                   | none                                                                                                       |
 | The credential deny-list                                                                                                            | none, whatever else allows it                                                                              |
-| Devices                                                                                                                             | macOS: null/zero/random/urandom, ttys, fd; Linux: only the precise minimal devices and inherited PTY below |
+| Devices                                                                                                                             | macOS: null/zero/random/urandom, ttys, fd; Linux: only the precise minimal devices and dedicated PTY below |
 
 The system's folders on macOS: `/System`, `/usr`, `/bin`, `/sbin`, `/Library`, `/opt`, `/nix`,
 `/private/etc`, `/private/var/db/timezone`, `/private/var/select`,
 `/private/var/db/xcode_select_link`, `/Applications/Xcode.app`, and the listing of `/` (the loader
 reads it). On Linux: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/etc`, `/opt`, `/nix`,
-`/snap`, `/var/lib`, `/proc`, `/sys`. Nothing is readable by default and then hidden: every
-read rule names what it opens.
+`/snap`, `/var/lib`, `/sys`, and `/proc` as freshly mounted in the command's own PID namespace
+(where that namespace can't start, only `/proc`'s machine-wide entries: `cpuinfo`, `meminfo`,
+`stat`, `loadavg`, `uptime`, `version`, `filesystems`, `sys`). Nothing is readable by default
+and then hidden: every read rule names what it opens.
 
 Network: TCP to the egress proxy on `127.0.0.1` and nothing else, no DNS. Listening on loopback
 is allowed, so a dev server can start. On Linux, Unix sockets inside the workspace can also be
@@ -89,9 +92,11 @@ the rules are installed on. The word list in
 on other systems).
 
 **The launcher.** `spade sandbox-exec <plan> <program> <args>…` stays outside the sandbox as the
-run's supervisor. It carves the plan's roots, lowers its limits, sets itself as the subreaper,
-and starts one thread that applies Landlock and the seccomp filter to itself and starts the
-command, which inherits both. It starts the command in a new session through `/usr/bin/setsid`, forwards `SIGINT`,
+run's supervisor. On every ABI it first starts itself again as the init of a private user, PID,
+IPC and mount namespace with a fresh `/proc` (below). Where its stdio is a terminal, the
+outermost launcher gives the command a dedicated pty and relays it (below). It carves the plan's
+roots, lowers its limits, sets itself as the subreaper, and starts one thread that applies
+Landlock and the seccomp filter to itself and starts the command, which inherits both. It starts the command in a new session through `/usr/bin/setsid`, forwards `SIGINT`,
 `SIGQUIT`, `SIGTERM` and `SIGHUP` to its process group, reaps what it adopted and exits as
 the command did: its code, or the same signal. A run that can't be confined answers 126 with
 `spade sandbox-exec: …` on stderr.
@@ -118,7 +123,8 @@ See [the syscall inventory](linux-syscalls.md) for names, conditions and reprodu
 
 The direct list covers Landlock-checked file data/namespace operations, process/thread
 runtime, memory, polling, timers and read-only queries. Socket creation, send flags, clone
-flags, ioctl requests, prctl options and UID/GID restoration are conditional. io_uring,
+flags, ioctl requests, prctl options and UID/GID restoration are conditional. Terminal changes
+(TCSETS/TCSETSW/TCSETSF, their termios2 forms and TIOCSWINSZ) are supervised (below). io_uring,
 namespace changes, kernel administration, arbitrary ioctl, nested seccomp and cross-process
 memory effects are unlisted. no_new_privs is set. Open files are capped at 65,536; tasks at
 the machine's current count plus 4,096.
@@ -143,23 +149,58 @@ Socket retention is capped at a quarter of the fd limit (max 4,096), workers at 
 requests return EAGAIN.
 
 **Devices and IPC.** There is no blanket /dev or /dev/pts grant, even under broad folder
-consent. Only /dev/null, zero, full, random, urandom, tty and verified inherited stdio PTY
-inodes are granted. Another terminal of the same user cannot be opened. A separate session
-means /dev/tty refers only to the command's own acquired controlling terminal. The launcher
-uses precise Landlock device rules on every ABI, without retaining mount privileges for
-private devpts. /dev/ptmx and /dev/shm are unavailable. POSIX shared memory and new PTY
-allocation are consequently unsupported. Every SysV IPC syscall is refused, including
-creation, attach, control and semaphore/message operations. Below ABI 6 the signal namespace
-also requests a private IPC namespace; ABI 6+ needs no namespace because IPC is refused.
+consent. Only /dev/null, zero, full, random, urandom, tty and the command's dedicated pty
+(below) are granted. The person's own terminal and another terminal of the same user cannot be
+opened. A separate session means /dev/tty refers only to the command's own controlling
+terminal, its dedicated pty. The launcher uses precise Landlock device rules on every ABI,
+without retaining mount privileges for private devpts. /dev/ptmx and /dev/shm are unavailable
+to the command. POSIX shared memory and new PTY allocation inside the sandbox are consequently
+unsupported. Every SysV IPC syscall is refused, including creation, attach, control and
+semaphore/message operations. The private namespace also has its own IPC namespace; where it
+can't start, IPC is still contained because every SysV call is refused.
 
-**Signals and cleanup.** Below ABI 6, util-linux unshare starts with
+**Terminals.** When the launcher's stdin, stdout or stderr is a terminal, the outermost
+launcher opens a fresh pty (through /dev/ptmx, outside the sandbox), copies the caller's modes
+and window size to it, and gives the command the pty in place of each terminal; stdio that
+isn't a terminal is passed through unchanged, and with no terminal on stdio nothing changes.
+With the pty on stdin, `setsid --ctty` makes it the command's controlling terminal. The
+launcher relays the pty's output to the caller's terminal and, while it may read stdin (it is
+not a background job of that terminal), the caller's keystrokes to the pty, holding the
+caller's terminal in raw mode so the line discipline runs once, in the pty; SIGWINCH copies the
+caller's new size to the pty. When the command's whole tree has ended it drains the last output
+(two seconds at most) and restores the caller's modes before exiting as the command did.
+Only the dedicated pty is granted to Landlock, so the command never holds the person's terminal
+through its stdio.
+
+As a second layer, the ioctl allowlist admits only read-only terminal requests directly on any
+descriptor (TCGETS, TCGETS2, TIOCGWINSZ, TIOCGPGRP, TIOCGSID, TIOCGPTN, FIONREAD). Mode and
+size changes are notified: the supervisor copies the new value, duplicates the caller's
+descriptor and makes the change itself only when it is the dedicated pty (same device and
+inode); another terminal answers EPERM, a non-terminal ENOTTY. Nothing is checked and then
+continued. TIOCSCTTY and TIOCSPGRP stay direct: the kernel scopes them to the caller's own
+controlling terminal, which in its new session can only be the dedicated pty (taking a terminal
+another session controls needs CAP_SYS_ADMIN). TIOCSTI and every other terminal request stay
+refused. A terminal changed by the supervisor is not subject to the background-job SIGTTOU
+stop; within the command's own pty that is the only difference.
+
+**Processes, signals and cleanup.** On every ABI, util-linux unshare starts with
 `--user --map-current-user --pid --ipc --fork --mount-proc --kill-child` before restrictions.
-Namespace PID 1 must call setsid and sends its own pidfd through an authenticated private
-handshake to the outer launcher. The outer launcher forwards INT/QUIT/TERM/HUP directly to
-init, bypassing unshare's waiting parent; TERM/HUP escalates to killing init after 500 ms.
-ABI 6+ uses Landlock signal scoping. On every ABI the command starts in its own session
-through /usr/bin/setsid, and terminal signals are forwarded to its private process group.
-A failed namespace, session or handshake starts no filtered command.
+The fresh `/proc` lists only the command's namespace, so no other process's command line,
+status or folder can be read; the launcher grants that mount whole. Namespace PID 1 must call
+setsid and sends its own pidfd through an authenticated private handshake to the outer
+launcher. The outer launcher forwards INT/QUIT/TERM/HUP directly to init, bypassing unshare's
+waiting parent; TERM/HUP escalates to killing init after 500 ms. ABI 6+ adds Landlock signal
+scoping. On every ABI the command starts in its own session through /usr/bin/setsid, and
+terminal signals are forwarded to its private process group. A failed namespace, session or
+handshake starts no command whose plan asked for one.
+
+Where unprivileged user namespaces aren't allowed, the probe falls back to a plan without the
+namespace: only `/proc`'s machine-wide entries are granted, never a process's folder or a link
+into one (`self`, `thread-self`, `mounts`, `net`). Landlock rules hold inodes, and each process's
+`/proc/<pid>` is its own, so the command's own folder can't be granted to it and its
+descendants either; it stays closed too, and tools that read `/proc/self` lose that. Status
+reports `processes: partial` with the reason and reviews stay. Below ABI 6 signals also need the
+namespace, so there the filtered launch fails closed and Landlock alone is used.
 
 TERM/HUP escalates after 250 ms via the pre-opened leader pidfd and owned-child kills.
 Normal command exit also drains adopted descendants, including detached sessions. One
@@ -172,16 +213,18 @@ cleanup repeats bounded passes until ECHILD. The leader remains unreaped until g
 forwarding is disabled. Interrupts do not escalate. The unlinked status file preserves
 termination signals separately from intentional exit codes such as 143.
 
-**Coverage and fallbacks.** Status exposes files, network, signals, syscalls, devices, ipc
-and landlock_abi. `contains()` requires all six boundaries contained and Linux ABI >=3.
+**Coverage and fallbacks.** Status exposes files, network, signals, syscalls, devices, ipc,
+processes and landlock_abi. `contains()` requires all seven boundaries contained and Linux
+ABI >=3.
 Default-deny filtering, minimal devices, metadata supervision and IPC isolation/refusal are
 mandatory parts of the filtered launch. Missing setup reports partial with a plain reason.
 
 | Kernel/ABI and setup                                                                                      | Coverage and reviews                                                                                                   |
 | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | ABI 1 to 2                                                                                                | Files partial: no truncate right. Reviews stay.                                                                        |
-| ABI 3 to 5, full policy and private signal/IPC namespace                                                  | All six contained; reviews may drop. ABI 4+ adds Landlock TCP-port defense.                                            |
-| ABI 6+, full policy                                                                                       | All six contained using Landlock signal scoping; no user namespace required.                                           |
+| ABI 3 to 5, full policy and private namespace                                                             | All seven contained; reviews may drop. ABI 4+ adds Landlock TCP-port defense.                                          |
+| ABI 6+, full policy and private namespace                                                                 | All seven contained, signals also by Landlock scoping; reviews may drop.                                               |
+| ABI 6+, full policy, no unprivileged user namespaces                                                      | Processes partial (no process folder readable); the other six contained. Reviews stay.                                 |
 | Landlock alone: unsupported architecture, filter/listener failure, Yama 2 to 3, or failed namespace setup | Files/syscalls/devices/IPC partial; network partial at ABI 4+ or none; signals contained only at ABI 6+. Reviews stay. |
 | No Landlock                                                                                               | No sandbox; reviews stay.                                                                                              |
 
@@ -194,13 +237,14 @@ records the choice and its limits.
 **Apps and visibility.** Session bus, Wayland and X11 sockets are outside the workspace or
 abstract, so commands cannot reach desktop apps. Their environment omits
 DBUS_SESSION_BUS_ADDRESS, DISPLAY, WAYLAND_DISPLAY and XDG_RUNTIME_DIR. There is no desktop
-bus/display grant yet. Proc exposes other processes' names/status on ABI 6+ (only the private
-namespace below); Landlock blocks their memory, environment, fds and cwd. A credential
+bus/display grant yet. `/proc` shows only the command's own namespace (or no process folder at
+all without one); Landlock also blocks other processes' memory, environment, fds and cwd. A credential
 hard-linked inside a directory granted whole remains that directory's file, as on macOS.
 
 **Building.** Debian 12/Ubuntu need build-essential, pkg-config and libseccomp-dev (2.5+),
-then `cargo build -p spade-server`. Runtime needs libseccomp.so.2 and util-linux setsid;
-older kernels also need unshare and unprivileged user namespaces. See the
+then `cargo build -p spade-server`. Runtime needs libseccomp.so.2, util-linux setsid and
+unshare, and unprivileged user namespaces for `contained` (without them processes are partial,
+and below ABI 6 the filter can't run). See the
 [syscall inventory](linux-syscalls.md) for the real-kernel verification procedure.
 
 ## The egress proxy

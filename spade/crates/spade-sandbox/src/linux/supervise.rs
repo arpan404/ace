@@ -20,9 +20,16 @@ use rustix::net::{SocketAddrAny, SocketAddrUnix};
 
 use super::net::{self, Call, MAX_ADDRESS, Rules, Verdict};
 
-/// Answers notifications on `listener` until it closes.
-pub fn serve(listener: RawFd, rules: Rules, metadata: Arc<super::metadata_access::Grants>) {
+/// Answers notifications on `listener` until it closes. `terminal` is the command's dedicated
+/// pty, the only terminal whose modes and size it may change.
+pub fn serve(
+    listener: RawFd,
+    rules: Rules,
+    metadata: Arc<super::metadata_access::Grants>,
+    terminal: super::terminal::Dedicated,
+) {
     let names = Names::new();
+    let ioctl = ScmpSyscall::from_name("ioctl").ok();
     let sockets = Arc::new(Mutex::new(HashMap::new()));
     // Leave descriptors for pidfds, proc directories and status files during shutdown, even
     // when a command repeatedly creates sockets or leaves blocking notifications pending.
@@ -61,6 +68,14 @@ pub fn serve(listener: RawFd, rules: Rules, metadata: Arc<super::metadata_access
         let handled = std::thread::Builder::new().spawn(move || {
             let _permit = permit;
             let syscall = request.data.syscall;
+            if Some(syscall) == ioctl {
+                respond(
+                    listener,
+                    request.id,
+                    super::terminal::handle(listener, &request, terminal),
+                );
+                return;
+            }
             let operation = super::metadata::CALLS
                 .iter()
                 .find(|n| ScmpSyscall::from_name(n).ok() == Some(syscall));

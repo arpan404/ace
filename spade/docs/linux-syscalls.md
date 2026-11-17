@@ -49,24 +49,28 @@ sched_getattr sched_rr_get_interval getpriority ioprio_get landlock_create_rules
 landlock_add_rule landlock_restrict_self restart_syscall
 ```
 
-Signal delivery is scoped by Landlock ABI 6+ or a private PID namespace and separate session
-below ABI 6. The kernel restricts wait calls to children and setpgid to the current session.
+Signal delivery is scoped by the command's private PID namespace (every ABI where user
+namespaces are allowed), by Landlock ABI 6+, and by its separate session. The kernel restricts wait calls to children and setpgid to the current session.
 setrlimit has no external PID argument. Read-only scheduling/priority queries stay allowed.
 
 ### Conditional rules
 
-| Syscall                   | Condition                                                                                                                                    |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| truncate                  | Landlock ABI >=3, which mediates truncation                                                                                                  |
-| clone                     | No CLONE_NEW* or CLONE_NEWTIME bits                                                                                                          |
-| socket, socketpair        | TCP stream on AF_INET/AF_INET6, protocol 0/TCP; Unix stream/seqpacket, protocol 0                                                            |
-| sendto, sendmsg, sendmmsg | No MSG_FASTOPEN                                                                                                                              |
-| ioctl                     | Explicit terminal attributes/session/window controls, FIONREAD/FIONBIO, descriptor CLOEXEC, inherited PTY queries/lock, FICLONE/FICLONERANGE |
-| fcntl                     | Duplication, fd/status flags, POSIX/OFD locks, pipe sizes, seals; no signal ownership/recipient, leases or directory notifications           |
-| prctl                     | Explicit self-only runtime/security/query options; no SET_MM, ptracer or nested seccomp                                                      |
-| setresuid, setresgid      | Every low-32-bit argument is the launcher's current real ID or UINT_MAX (no change)                                                          |
+| Syscall                   | Condition                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| truncate                  | Landlock ABI >=3, which mediates truncation                                                                                        |
+| clone                     | No CLONE_NEW* or CLONE_NEWTIME bits                                                                                                |
+| socket, socketpair        | TCP stream on AF_INET/AF_INET6, protocol 0/TCP; Unix stream/seqpacket, protocol 0                                                  |
+| sendto, sendmsg, sendmmsg | No MSG_FASTOPEN                                                                                                                    |
+| ioctl                     | Read-only terminal queries, TIOCSCTTY/TIOCSPGRP (kernel-scoped to the own ctty), FIONREAD/FIONBIO, CLOEXEC, FICLONE/FICLONERANGE   |
+| fcntl                     | Duplication, fd/status flags, POSIX/OFD locks, pipe sizes, seals; no signal ownership/recipient, leases or directory notifications |
+| prctl                     | Explicit self-only runtime/security/query options; no SET_MM, ptracer or nested seccomp                                            |
+| setresuid, setresgid      | Every low-32-bit argument is the launcher's current real ID or UINT_MAX (no change)                                                |
 
-The numeric ioctl/fcntl/prctl selectors are in allowlist.rs. Clone3 returns ENOSYS so libc
+The numeric ioctl/fcntl/prctl selectors are in allowlist.rs. The direct ioctl requests are
+TCGETS, TCGETS2 (glibc 2.42 and later use it for tcgetattr and isatty), TIOCSCTTY, TIOCGPGRP,
+TIOCSPGRP, TIOCGWINSZ, TIOCGSID, FIONREAD, FIONBIO, FIONCLEX, FIOCLEX, TIOCGPTN, FICLONE and
+FICLONERANGE. Terminal changes are supervised instead (below); TIOCSPTLCK is no longer
+admitted, since the command never holds a pty master. Clone3 returns ENOSYS so libc
 can use checked clone. Unknown numbers in 0 to 511 return ENOSYS; fchmodat2 (452) is explicitly
 notified even when the installed libseccomp does not know it. All other unlisted numbers
 return EPERM, including new kernel calls unknown to this build.
@@ -79,6 +83,17 @@ Socket and PID/TID effects:
 connect bind listen prlimit64 sched_setaffinity sched_setscheduler sched_setparam sched_setattr
 setpriority ioprio_set kcmp pidfd_open
 ```
+
+Terminal changes, by ioctl request (same numbers on both architectures):
+
+```text
+TCSETS 0x5402  TCSETSW 0x5403  TCSETSF 0x5404  TIOCSWINSZ 0x5414
+TCSETS2 0x402c542b  TCSETSW2 0x402c542c  TCSETSF2 0x402c542d
+```
+
+The supervisor copies the termios/termios2 or winsize value, duplicates the caller's fd and
+performs the change itself only when that fd is the command's dedicated pty (device and inode
+of the node the launcher granted). Another terminal answers EPERM, a non-terminal ENOTTY.
 
 Socket operations copy the address, pin the fd and execute in the supervisor under an
 inode lock. No pointer-dependent operation continues in the caller. Scalar PID/TID calls
@@ -107,12 +122,15 @@ fd-targeted process memory changes; namespace/mount changes; kernel administrati
 perf/BPF/userfaultfd; personality; mknod; arbitrary ioctl/fcntl/prctl; and new interfaces not
 reviewed here. This is an allowlist, so absence is sufficient to refuse a call.
 
-Minimal /dev rules grant null/zero/full/random/urandom/tty and verified inherited stdio PTY
-inodes. No whole /dev or /dev/pts, no ptmx, and no /dev/shm. Broad consent cannot reopen
-/dev. The launcher uses exact Landlock rules instead of retaining mount privileges for
-private devpts/tmpfs; it does not support creating new PTYs or POSIX shm. Below ABI 6 it
-also requests a private IPC namespace alongside the private signal namespace. Above it,
-SysV refusal and absent /dev/shm provide the IPC boundary without user namespaces.
+Minimal /dev rules grant null/zero/full/random/urandom/tty and the command's dedicated pty,
+which the outermost launcher opens in place of any terminal on its stdio and relays; the
+person's own terminal is never granted. No whole /dev or /dev/pts, no ptmx, and no /dev/shm.
+Broad consent cannot reopen /dev. The launcher uses exact Landlock rules instead of retaining
+mount privileges for private devpts/tmpfs; commands can't create new PTYs or POSIX shm. On every
+ABI the launcher requests a private user, PID, IPC and mount namespace with a fresh /proc, so
+/proc lists only the command's processes. Without unprivileged user namespaces it grants only
+/proc's machine-wide entries and reports processes partial; SysV refusal and absent /dev/shm
+still provide the IPC boundary.
 
 ## Workload evidence
 
@@ -173,6 +191,15 @@ objects, metadata symlink races, host shared memory and SysV objects. Cleanup te
 to force EMFILE, on both namespace and Landlock-scoped paths. They assert a shutdown deadline
 and no continuing descendant heartbeat.
 
+Process visibility and the dedicated terminal need no container setup beyond the above: run
+the suites as an ordinary user with no capabilities. tests/processes.rs starts an outside
+process whose command line carries a marker and checks it can't be read, by number or by
+listing /proc, in both plans; tests/terminal.rs hands the launcher a real same-user pty as the
+person's terminal (and leaks it as fd 9) and checks that size and mode changes land only on the
+dedicated pty, keystrokes are relayed, and pipes stay pipes. The no-user-namespace fallback
+can be exercised without root by lowering user.max_user_namespaces to 0 inside a throwaway user
+namespace, dropping every capability (setpriv) and probing there.
+
 Capture test exit statuses plus grep -c -- '--- FAILED' and grep -c '^error: test failed'
 on each final suite/smoke log. Intentional red runs are kept separately. Remove test
 containers and stop every test VM after preserving logs.
@@ -208,3 +235,21 @@ results: the full workspace needed the hosted client-document fixture, compariso
 must not share live workspace artifacts, and the QEMU cleanup fixture needed a start barrier
 before descendant heartbeat traffic. Its shutdown assertion still uses a deadline, 160
 detached children, a 64-fd limit and explicit reaper EMFILE injection.
+
+## Process visibility and dedicated terminal, 2026-11-17
+
+Verified natively on an x86_64 Arch-based desktop, kernel 7.2.15 (Landlock ABI 10), glibc
+2.44, util-linux 2.42.4, libseccomp 2.6.0 and Rust 1.95.0, as UID 1000 with zero capabilities.
+Unprivileged user namespaces are allowed there, so the probe reported all seven boundaries
+contained. Before this change, glibc 2.44's tcgetattr and ttyname failed with EPERM inside the
+sandbox on a terminal, because they use TCGETS2; it is now a direct read-only request.
+
+| Suite                                                      | Passed | Ignored | Both requested grep counts |
+| ---------------------------------------------------------- | -----: | ------: | -------------------------- |
+| cargo test -p spade-sandbox                                |    113 |       1 | 0 / 0                      |
+| cargo test -p spade-server --test security --test effects  |     24 |       0 | 0 / 0                      |
+| cargo test -p spade-server --test computer (terminal tool) |     29 |       0 | 0 / 0                      |
+
+The ignored test is the networked smoke, not run here. The no-user-namespace fallback was
+probed inside a user namespace with user.max_user_namespaces set to 0 and every capability
+dropped: processes partial with the plain reason, the other six boundaries contained.

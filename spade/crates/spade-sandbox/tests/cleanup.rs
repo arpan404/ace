@@ -54,7 +54,7 @@ while time.monotonic()<end and not os.path.exists("fixture-stop"): time.sleep(0.
     );
     if exhaust {
         let mut target = child.id();
-        if linux::runner().status().landlock_abi.is_some_and(|a| a < 6) {
+        if linux::namespaced() {
             // Outer launcher -> unshare -> namespace init. Fault the actual reaper, not
             // the host-side waiter, while the fixture keeps every process alive.
             for _ in 0..2 {

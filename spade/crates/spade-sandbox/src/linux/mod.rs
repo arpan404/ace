@@ -11,6 +11,11 @@
 //!   hands every `connect`, `bind` and `listen` to the supervisor, which does them on the
 //!   command's socket itself ([`net`] decides): TCP to the proxy's loopback port, binds on
 //!   loopback, Unix sockets in the workspace, nothing else;
+//! - a private PID namespace with a freshly mounted `/proc` ([`namespace`]), so the command sees
+//!   only its own processes; where unprivileged user namespaces aren't allowed, `/proc`'s process
+//!   folders stay closed instead and the run is `partial`;
+//! - a dedicated pseudo-terminal ([`pty`]) when the caller's stdio is a terminal, so the command
+//!   never holds the person's own;
 //! - `no_new_privs` and limits on processes and open files.
 //!
 //! The plan, the carving and the network rules are pure and tested everywhere; applying them
@@ -38,9 +43,15 @@ mod namespace;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod namespace_handle;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
+mod probe;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
+mod pty;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
 mod seccomp;
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 mod supervise;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
+mod terminal;
 
 use std::path::PathBuf;
 
@@ -50,7 +61,9 @@ use serde::{Deserialize, Serialize};
 pub use carve::RealFs;
 pub use carve::{Fs, Kind, carve};
 #[cfg(all(target_os = "linux", feature = "landlock"))]
-pub use launch::{Probed, landlock_supported, probe};
+pub use launch::landlock_supported;
+#[cfg(all(target_os = "linux", feature = "landlock"))]
+pub use probe::{Probed, probe};
 
 use crate::policy::Policy;
 
@@ -62,9 +75,24 @@ pub const CHECK_ARG: &str = "sandbox-check";
 
 /// System folders a command reads and runs from. The home folder, `/root`, `/mnt`, `/media`,
 /// `/srv`, `/run`, `/tmp` and the rest of `/var` are not among them, so they stay hidden.
+/// `/proc` depends on [`Processes`].
 const SYSTEM: &[&str] = &[
     "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/opt", "/nix", "/snap",
-    "/var/lib", "/proc", "/sys",
+    "/var/lib", "/sys",
+];
+
+/// `/proc`'s machine-wide entries, readable where the command shares the host's process list
+/// ([`Processes::Hidden`]). None of them is a process's folder or a link into one (`self`,
+/// `thread-self`, `mounts`, `net`), so no process, the command's own included, can be read.
+const PROC_SHARED: &[&str] = &[
+    "/proc/cpuinfo",
+    "/proc/meminfo",
+    "/proc/stat",
+    "/proc/loadavg",
+    "/proc/uptime",
+    "/proc/version",
+    "/proc/filesystems",
+    "/proc/sys",
 ];
 
 /// Device nodes a command may write.
@@ -96,6 +124,19 @@ pub enum Network {
     Landlock,
 }
 
+/// What a command sees of the machine's processes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Processes {
+    /// Its own PID namespace with a freshly mounted `/proc`, readable whole: only the command's
+    /// own processes are in it (`contained`).
+    Private,
+    /// The host's PID namespace, where unprivileged user namespaces aren't allowed: only
+    /// `/proc`'s machine-wide entries ([`PROC_SHARED`]) are readable, no process's folder
+    /// (`partial`).
+    Hidden,
+}
+
 /// What the launcher applies: its roots, the one port it may connect to, and where Unix sockets
 /// may be.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,12 +144,13 @@ pub struct Plan {
     pub roots: Vec<Root>,
     pub proxy_port: Option<u16>,
     pub network: Network,
+    pub processes: Processes,
     /// The workspace: the only place a Unix socket may be connected to or bound.
     pub sockets: PathBuf,
 }
 
 /// The plan for `policy`. Pure: what is opened, and around what, is decided by the launcher.
-pub fn plan(policy: &Policy, network: Network) -> Plan {
+pub fn plan(policy: &Policy, network: Network, processes: Processes) -> Plan {
     let mut roots = Vec::new();
     let mut add = |paths: &mut dyn Iterator<Item = PathBuf>, write: bool, deny: &[PathBuf]| {
         for path in paths {
@@ -120,6 +162,12 @@ pub fn plan(policy: &Policy, network: Network) -> Plan {
         }
     };
     add(&mut SYSTEM.iter().map(PathBuf::from), false, &policy.deny);
+    // In its own namespace the launcher opens `/proc` after mounting it afresh: the rule is on
+    // that mount, which lists only the command's processes.
+    match processes {
+        Processes::Private => add(&mut std::iter::once(PathBuf::from("/proc")), false, &[]),
+        Processes::Hidden => add(&mut PROC_SHARED.iter().map(PathBuf::from), false, &[]),
+    }
     add(&mut policy.read.iter().cloned(), false, &policy.deny);
     add(&mut policy.write.iter().cloned(), true, &policy.deny);
     // A plugin's folder sits inside ace's data, which is denied: only credentials stay closed.
@@ -153,6 +201,7 @@ pub fn plan(policy: &Policy, network: Network) -> Plan {
         roots,
         proxy_port: policy.proxy_port,
         network,
+        processes,
         sockets: policy.workspace.clone(),
     }
 }
@@ -177,7 +226,7 @@ fn launcher(args: &[std::ffi::OsString]) -> std::process::ExitCode {
 
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 fn check(args: &[std::ffi::OsString]) -> std::process::ExitCode {
-    launch::check(args)
+    probe::check(args)
 }
 
 #[cfg(not(all(target_os = "linux", feature = "landlock")))]
@@ -211,7 +260,7 @@ mod tests {
             scratch: vec!["/h/spade/terminal/b1".into()],
             proxy_port: Some(4100),
         };
-        let plan = plan(&policy, Network::Filtered);
+        let plan = plan(&policy, Network::Filtered, Processes::Private);
         let written: Vec<&Path> = plan
             .roots
             .iter()
@@ -248,5 +297,37 @@ mod tests {
         assert_eq!(plan.proxy_port, Some(4100));
         // Unix sockets only in the workspace.
         assert_eq!(plan.sockets, Path::new("/h/spade/workspace/b1"));
+    }
+
+    #[test]
+    fn proc_is_read_whole_only_when_the_command_has_its_own_process_namespace() {
+        let policy = Policy::build(&crate::policy::Facts {
+            home: "/h".into(),
+            spade_data: "/h/spade".into(),
+            workspace: "/h/spade/workspace/b1".into(),
+            ..Default::default()
+        });
+        let read = |processes| -> Vec<PathBuf> {
+            plan(&policy, Network::Filtered, processes)
+                .roots
+                .into_iter()
+                .filter(|r| r.path.starts_with("/proc"))
+                .map(|r| r.path)
+                .collect()
+        };
+        assert_eq!(read(Processes::Private), vec![PathBuf::from("/proc")]);
+        let hidden = read(Processes::Hidden);
+        assert!(!hidden.contains(&PathBuf::from("/proc")), "{hidden:?}");
+        // Nothing that is, or links into, a process's folder.
+        for path in &hidden {
+            let name = path.strip_prefix("/proc").unwrap_or(path);
+            let first = name.iter().next().and_then(|n| n.to_str()).unwrap_or("");
+            assert!(
+                !first.bytes().all(|b| b.is_ascii_digit())
+                    && !["self", "thread-self", "mounts", "net"].contains(&first),
+                "{path:?}"
+            );
+        }
+        assert!(hidden.contains(&PathBuf::from("/proc/cpuinfo")));
     }
 }

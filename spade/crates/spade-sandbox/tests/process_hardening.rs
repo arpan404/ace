@@ -5,8 +5,7 @@ mod linux;
 #[test]
 fn the_command_and_namespace_init_have_their_own_sessions() {
     let w = linux::world();
-    let abi = linux::runner().status().landlock_abi.unwrap_or(0);
-    let init = if abi < 6 {
+    let init = if linux::namespaced() {
         "assert os.getsid(1)==1 and os.getpgid(1)==1;"
     } else {
         ""
@@ -48,7 +47,7 @@ fn sched_setattr_cannot_change_the_supervisor_or_an_outside_process() {
             .trim(),
         "0 0"
     );
-    let target = if linux::runner().status().landlock_abi.is_some_and(|a| a < 6) {
+    let target = if linux::namespaced() {
         1
     } else {
         std::process::id()

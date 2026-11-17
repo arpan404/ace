@@ -241,7 +241,7 @@ filesystem and network isolation are both required.
 
 Replaces the Linux bullet of decision 1, the Linux part of decision 9 and the last consequence.
 Linux counts as `contained` only with Landlock ABI 3 or newer and contained files, network,
-signals, syscalls, devices and IPC. Only then does ADR 0171's sandboxed path (no classifier,
+signals, syscalls, devices, IPC and processes. Only then does ADR 0171's sandboxed path (no classifier,
 no reviewer) apply there as on macOS.
 
 1. **Keep the launcher outside the command's restrictions.** `spade sandbox-exec <plan>
@@ -286,11 +286,23 @@ no reviewer) apply there as on macOS.
    unresolved/deleted fd paths are refused. Only explicit no-follow ownership/timestamp
    operations may change a symlink itself. Device metadata cannot be changed.
 
-4. **Minimal devices and no shared host IPC.** Grant only `/dev/null`, `/dev/zero`,
-   `/dev/full`, `/dev/random`, `/dev/urandom`, `/dev/tty`, and the command's inherited stdio PTY
-   inode after checking its exact `/dev/pts/<number>` path. Never grant all of `/dev` or
-   `/dev/pts`. A different terminal of the same user cannot be opened. Separate sessions
-   mean `/dev/tty` can refer only to a controlling terminal acquired by this command.
+4. **Minimal devices, a dedicated terminal and no shared host IPC.** Grant only `/dev/null`,
+   `/dev/zero`, `/dev/full`, `/dev/random`, `/dev/urandom`, `/dev/tty`, and the command's
+   dedicated pty. Never grant all of `/dev` or `/dev/pts`. The person's own terminal and a
+   different terminal of the same user cannot be opened. Separate sessions mean `/dev/tty` can
+   refer only to the command's own controlling terminal.
+
+   A command used to inherit the person's terminal on stdio, and a terminal-control ioctl on it
+   (TIOCSWINSZ, TCSETS) changed the person's terminal. Now, when any of the launcher's stdin,
+   stdout or stderr is a terminal, the outermost launcher (before any namespace) opens a fresh
+   pty itself, copies the caller's modes and size, and gives the command the pty in place of
+   each terminal; non-terminal stdio passes through, and with no terminal nothing changes.
+   With the pty on stdin, `setsid --ctty` makes it the controlling terminal. The launcher relays
+   output, and keystrokes while it may read stdin, holding the caller's terminal raw so the line
+   discipline runs once; SIGWINCH copies the size. After the whole tree ends it drains the last
+   output (at most two seconds) and restores the caller's modes before ending as the command
+   did. The Landlock rule names that pty's node, verified against the opened pty by device and
+   inode, so the command never holds the person's terminal through stdio.
 
    Use this precise Landlock policy rather than retaining mount privileges or depending on
    private devpts support. The unprivileged launcher after exec has no mount capabilities;
@@ -299,12 +311,11 @@ no reviewer) apply there as on macOS.
    memory therefore need further design. If a future private devpts/tmpfs path is added,
    it must preserve the same boundary and be probed before claiming coverage.
 
-   Below ABI 6, the existing private user/PID/mount namespace launch also requests a private
-   IPC namespace before confinement. Every SysV IPC call is unlisted on every ABI: shm,
-   semaphore and message creation, attachment, operations and control all fail `EPERM`.
-   ABI 6+ therefore contains IPC without requiring user namespaces. An unavailable namespace
-   below ABI 6 fails the filtered launch; no path falls back to shared host IPC while claiming
-   containment.
+   The private user/PID/mount namespace launch (decision 6) also requests a private IPC
+   namespace before confinement. Every SysV IPC call is unlisted on every ABI: shm, semaphore
+   and message creation, attachment, operations and control all fail `EPERM`, so IPC stays
+   contained where the namespace can't start. Below ABI 6 an unavailable namespace fails the
+   filtered launch; no path falls back to shared host IPC while claiming containment.
 
 5. **Supervise socket addresses and PID/TID effects.** Landlock ABI 4 limits TCP ports,
    but cannot limit an address. Notify connect, bind and listen. Copy and judge the address,
@@ -325,21 +336,41 @@ no reviewer) apply there as on macOS.
    is already self-only. process_madvise/mrelease, process_vm, ptrace, NUMA migration and
    pidfd_getfd stay unlisted. No fd/pointer target is checked and then continued.
 
-   ioctl has an explicit request list for terminal/fd controls and file cloning; prctl has
+   ioctl has an explicit request list: read-only terminal queries on any descriptor (TCGETS,
+   TCGETS2, TIOCGWINSZ, TIOCGPGRP, TIOCGSID, TIOCGPTN, FIONREAD), fd controls and file
+   cloning. Terminal changes (TCSETS, TCSETSW, TCSETSF, their termios2 forms and TIOCSWINSZ)
+   are notified as a second layer behind the dedicated pty: the supervisor copies the value,
+   duplicates the caller's descriptor and makes the change itself only on the dedicated pty;
+   another terminal answers `EPERM`. Nothing is checked and then continued. The cost: a
+   background job's mode change on its own pty is applied instead of stopping it with SIGTTOU.
+   TIOCSCTTY and TIOCSPGRP stay direct because the kernel scopes them to the caller's own
+   controlling terminal, which in its new session can only be the dedicated pty; taking a
+   terminal another session controls needs CAP_SYS_ADMIN. TIOCSPTLCK is dropped. prctl has
    self-only options. Make's UID/GID restoration is conditional on the launcher's current real
    IDs or the no-change sentinel. Namespace changes, arbitrary ioctls, nested seccomp,
    io_uring and kernel administration remain unlisted. no_new_privs is set; open files are
    capped at 65,536 and tasks at the machine's current count plus 4,096.
 
-6. **Separate sessions and isolate every signal form.** Below Landlock ABI 6, util-linux
-   unshare creates a private user, PID, IPC and mount namespace with a fresh proc before
-   confinement. Namespace PID 1 must successfully call setsid. It sends its own pidfd over
+6. **A private PID namespace and `/proc`, separate sessions and every signal form isolated.**
+   On every Landlock ABI, util-linux unshare creates a private user, PID, IPC and mount
+   namespace with a fresh proc before confinement; the launcher grants that `/proc` whole. It
+   lists only the command's own processes. Before, ABI 6+ shared the host's PID namespace and
+   `/proc` was readable whole, so a command could list every process's command line. Namespace PID 1 must successfully call setsid. It sends its own pidfd over
    a private authenticated Unix handshake to the outer launcher before command startup.
    The outer launcher verifies the peer is unshare's child and that the pidfd names it,
    then unlinks the socket. Signals go directly through this handle, bypassing unshare's
    waiting parent. TERM/HUP escalates to killing namespace init after 500 ms, ending all
    descendants. This contains queued/thread signals without emulating their semantics.
-   ABI 6+ uses Landlock signal and abstract-socket scoping and needs no namespace.
+   ABI 6+ also uses Landlock signal and abstract-socket scoping.
+
+   Where unprivileged user namespaces aren't allowed the probe falls back to a plan without
+   the namespace, which grants only `/proc`'s machine-wide entries (`cpuinfo`, `meminfo`,
+   `stat`, `loadavg`, `uptime`, `version`, `filesystems`, `sys`), never a process's folder or a
+   link into one. Granting `/proc/self` and `/proc/thread-self` alone isn't possible: Landlock
+   rules hold inodes, the links resolve to `/proc/<pid>` of whoever follows them, and every
+   descendant has its own, so the command's own folder stays closed as well. Such runs report
+   `processes: partial` with a plain reason and keep reviews; below ABI 6 the filtered launch
+   fails closed there too and Landlock alone is used.
 
    On every ABI the freshly spawned child runs through `/usr/bin/setsid` before exec.
    This creates a private session/group without an unsafe Rust pre_exec hook. Failure
@@ -360,24 +391,30 @@ no reviewer) apply there as on macOS.
    and notification workers at most 32, leaving room for cleanup.
 8. **Probe the complete policy before dropping reviews.** The real launcher probe writes
    inside its workspace, cannot write beside it, reaches a stand-in proxy and cannot open
-   UDP. All filter, device, metadata and IPC policy setup is mandatory on that path. Status
-   exposes files, network, signals, syscalls, devices, ipc and landlock_abi. `contains()`
-   requires all six fields contained and ABI >=3. Missing setup reports partial with a
+   UDP. With the namespace it checks that its PID namespace differs from the prober's and that
+   `/proc/self` names itself; without, that the prober's `/proc` folder can't be read. All
+   filter, device, metadata, IPC and namespace setup is mandatory on that path. Status
+   exposes files, network, signals, syscalls, devices, ipc, processes and landlock_abi.
+   `contains()` requires all seven fields contained and ABI >=3. Missing setup reports partial with a
    plain reason. Landlock alone reports files partial too, because metadata remains exposed;
    network is partial at ABI 4+ or none below, signals contained only at ABI 6+, and commands
    retain reviews. No Landlock means no sandbox. The policy is retried on every run.
 9. **Apps and remaining visibility.** The desktop bus and display sockets lie outside the
    workspace or in the refused abstract namespace. The environment omits their variables,
    so xdg-open, gio, notify-send and systemd-run --user cannot reach desktop apps. There is
-   no bus/display grant yet. Proc remains readable (host process names/status on ABI 6+,
-   only the private namespace below); Landlock blocks other processes' memory, environment,
-   file descriptors and cwd. A credential hard-linked inside a directory granted whole is
+   no bus/display grant yet. `/proc` shows only the command's own namespace, or no process
+   folder at all without one; Landlock also blocks other processes' memory, environment, file
+   descriptors and cwd. A terminal leaked to the command on a descriptor other than stdio can
+   still be read and written (only its modes and size are protected); Spade's own runs never
+   pass one. A credential hard-linked inside a directory granted whole is
    still that directory's file, as on macOS. Runtime needs libseccomp.so.2; builds need its
    development headers.
 
 ### Verification
 
-Real-kernel regression tests cover another same-user PTY, metadata variants with path/fd and
+Real-kernel regression tests cover the person's terminal and another same-user PTY (only the
+dedicated pty opens; size and mode changes land only on it, even through a leaked descriptor),
+another process's command line under both `/proc` plans, metadata variants with path/fd and
 symlink races, SysV IPC, host POSIX shm, an unlisted syscall, compatibility-ABI refusal and
 160 detached children under a 64-fd limit, including forced EMFILE in the actual reaper.
 Sandbox, security and effects suites and the six-step proxy smoke run on Linux 6.8 / ABI 4

@@ -1,5 +1,5 @@
 //! Default-deny, native-architecture filter. New kernel calls never become permitted implicitly.
-use super::{allowlist, metadata};
+use super::{allowlist, metadata, terminal};
 use libseccomp::{
     ScmpAction, ScmpArch, ScmpArgCompare, ScmpCompareOp, ScmpFilterContext, ScmpSyscall,
 };
@@ -85,6 +85,13 @@ fn build(landlock_truncates: bool) -> Result<ScmpFilterContext, libseccomp::erro
     for request in allowlist::IOCTL {
         ctx.add_rule_conditional(
             ScmpAction::Allow,
+            ScmpSyscall::from_name("ioctl")?,
+            &[equal(1, *request)],
+        )?;
+    }
+    for request in terminal::CHANGES {
+        ctx.add_rule_conditional(
+            ScmpAction::Notify,
             ScmpSyscall::from_name("ioctl")?,
             &[equal(1, *request)],
         )?;

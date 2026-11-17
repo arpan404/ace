@@ -1,16 +1,19 @@
 //! Signals and reaping for a command in its own session, on every Linux ABI.
 use super::children;
 use rustix::process::{Pid, Signal, WaitId, WaitIdOptions};
-use std::fs::File;
-use std::io::Write;
-use std::process::{Child, ExitCode};
+use std::process::Child;
 use std::sync::{Arc, Mutex};
 
-pub fn wait(
-    child: Child,
-    mut ending: Option<File>,
-    mut signals: signal_hook::iterator::Signals,
-) -> Result<ExitCode, String> {
+/// How the command ended, once everything it started is gone too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ended {
+    Code(u8),
+    /// The signal that ended it. The launcher gives the caller back its terminal before it ends
+    /// the same way.
+    Signal(i32),
+}
+
+pub fn wait(child: Child, mut signals: signal_hook::iterator::Signals) -> Result<Ended, String> {
     let pid = Pid::from_child(&child);
     let fd = rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty())
         .map_err(|e| e.to_string())?;
@@ -71,16 +74,10 @@ pub fn wait(
         .finish()
         .map_err(|e| format!("the command's descendants could not be stopped: {e}"))?;
     if let Some(code) = status.exit_status() {
-        return Ok(ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1)));
+        return Ok(Ended::Code(u8::try_from(code & 0xff).unwrap_or(1)));
     }
     if let Some(signal) = status.terminating_signal() {
-        if let Some(file) = ending.as_mut() {
-            // Namespace init cannot restore its own default fatal signal; the outer launcher can.
-            writeln!(file, "{signal}").map_err(|e| e.to_string())?;
-        } else {
-            let _ = signal_hook::low_level::emulate_default_handler(signal);
-        }
-        return Ok(ExitCode::from(u8::try_from(128 + signal).unwrap_or(1)));
+        return Ok(Ended::Signal(signal));
     }
-    Ok(ExitCode::from(1))
+    Ok(Ended::Code(1))
 }
