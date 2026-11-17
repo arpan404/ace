@@ -1,14 +1,21 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { GRANT_LIFETIME_MS, grantPublicKey, signCloudGrant, signGrant } from "@ace/account-grant";
+import {
+  GRANT_LIFETIME_MS,
+  MARKET_GRANT_ISSUER,
+  grantPublicKey,
+  signCloudGrant,
+  signGrant,
+  signMarketGrant,
+} from "@ace/account-grant";
 
 const account = { id: "user_a", email: "a@example.com", name: "A" };
 const base64url43 = () => randomBytes(32).toString("base64url");
 const GrantBody = z.object({
   kind: z.enum(["machine", "device"]),
   subject: z.string(),
-  purpose: z.literal("spade-cloud").optional(),
+  purpose: z.enum(["spade-cloud", "market-publish"]).optional(),
 });
 
 function reply(response: ServerResponse, status: number, body: unknown) {
@@ -69,14 +76,27 @@ export async function startFakeAccountBackend(now: () => number) {
         return reply(response, 200, {});
       }
       if (url.pathname === "/v1/grants" && request.method === "POST") {
-        const body = GrantBody.parse(JSON.parse(Buffer.concat(chunks).toString()));
+        // A body this fake can't read is answered, never left hanging until the caller's timeout.
+        const parsed = GrantBody.safeParse(JSON.parse(Buffer.concat(chunks).toString() || "{}"));
+        if (!parsed.success) return reply(response, 400, { error: "invalid" });
+        const body = parsed.data;
         grantRequests.push(body);
         const exp = now() + GRANT_LIFETIME_MS;
+        const claims = {
+          kind: body.kind,
+          account: account.id,
+          subject: body.subject,
+          iat: now(),
+          exp,
+        };
         return reply(response, 200, {
-          token: (body.purpose ? signCloudGrant : signGrant)(
-            { kind: body.kind, account: account.id, subject: body.subject, iat: now(), exp },
-            signingKey,
-          ),
+          token:
+            body.purpose === "market-publish"
+              ? signMarketGrant(
+                  { ...claims, iss: MARKET_GRANT_ISSUER, emailVerified: true, authAt: now() },
+                  signingKey,
+                )
+              : (body.purpose ? signCloudGrant : signGrant)(claims, signingKey),
           expiresAt: exp,
         });
       }

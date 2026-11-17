@@ -166,6 +166,28 @@ describe("the market's refusals as the CLI reports them", () => {
     expect(failure.detail.hint).toContain("ace login");
   });
 
+  it("a market grant that couldn't be minted is a refusal to retry, not a turned-off marketplace", () => {
+    const failure = marketFailure({
+      op: "error",
+      code: "unavailable",
+      message: "ace's account service can't give a market grant: The operation timed out.",
+    });
+    expect(failure.outcome).toBe("refused");
+    expect(failure.detail.code).toBe("refused");
+    expect(failure.detail.hint).toContain("ace account status");
+    expect(failure.detail.hint).not.toContain("features on marketplace");
+  });
+
+  it("a marketplace turned off in Settings › Beta says how to turn it on", () => {
+    const failure = marketFailure({
+      op: "error",
+      code: "unavailable",
+      message: "The marketplace is turned off. Turn it on in Settings › Beta.",
+    });
+    expect(failure.detail.code).toBe("turned_off");
+    expect(failure.detail.hint).toBe("Turn the marketplace on with ace features on marketplace.");
+  });
+
   it("a person-only answer carries the request ace opened", () => {
     const failure = marketFailure({
       op: "error",

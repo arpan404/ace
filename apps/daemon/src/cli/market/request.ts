@@ -25,7 +25,8 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
   not_found: ["refused", "not_found"],
   invalid: ["refused", "refused"],
   refused: ["refused", "refused"],
-  unavailable: ["refused", "turned_off"],
+  // The market, the account service or a part of ace couldn't be reached; nothing was changed.
+  unavailable: ["refused", "refused"],
   busy: ["refused", "busy"],
   expired: ["failed", "failed"],
   failed: ["failed", "failed"],
@@ -34,13 +35,24 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
 const hints: Partial<Record<MarketError["code"], string>> = {
   signed_out: "Sign in with ace login, then run it again.",
   reauth: "Sign in again with ace login, then run it again.",
-  unavailable: "Turn the marketplace on with ace features on marketplace.",
+  unavailable:
+    "Nothing was changed. Try again shortly; ace account status shows whether this machine is signed in.",
   expired: "The review ran out; run the command again for a fresh one.",
 };
 
 /** The market's refusal as the CLI reports it (ADR 0176 §12.3–§12.4). Pure. */
+/**
+ * `unavailable` also answers a marketplace turned off in Settings › Beta (`TurnedOff` in the
+ * daemon, which says so in these words); that one alone is `turned_off`, with the switch's hint.
+ */
+const turnedOff = (error: MarketError) =>
+  error.code === "unavailable" &&
+  (error.message.startsWith("The marketplace is turned off") ||
+    error.message === "market.acehq.dev is turned off");
+
 export function marketFailure(error: MarketError): CliFailure {
-  const [outcome, code] = outcomes[error.code];
+  const [outcome, mapped] = outcomes[error.code];
+  const code = turnedOff(error) ? "turned_off" : mapped;
   const findings: CliProblem[] = (error.scan?.findings ?? [])
     .filter((finding) => finding.level !== "note")
     .map((finding) => {
@@ -55,7 +67,11 @@ export function marketFailure(error: MarketError): CliFailure {
   const hint =
     error.code === "blocked"
       ? "The draft is kept. Fix the files and update it, or ask for a look with ace market appeal REF@VERSION --note TEXT."
-      : hints[error.code];
+      : turnedOff(error)
+        ? error.message.startsWith("market.acehq.dev")
+          ? "Turn the source back on with ace market source on market."
+          : "Turn the marketplace on with ace features on marketplace."
+        : hints[error.code];
   return new CliFailure(outcome, message, error.scan ? { scan: error.scan } : undefined, {
     code,
     ...(hint ? { hint } : {}),

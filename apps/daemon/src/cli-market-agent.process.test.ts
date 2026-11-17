@@ -80,6 +80,9 @@ async function world() {
   );
   cleanup.push(() => f.daemon.close());
   await f.daemon.settings.set("beta.marketplace", true, { kind: "global" });
+  // Signing in starts ace's relay registration, which this fake account doesn't serve; remote
+  // access isn't what these tests are about, and left on it holds the daemon's shutdown.
+  await f.daemon.settings.set("remote.enabled", false, { kind: "global" });
   const home = join(f.h.home, "daemon");
   const { origin, token } = hostConnection(home);
   await accessRequest(origin, "/v1/ace-account", {
