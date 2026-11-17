@@ -10,10 +10,10 @@ servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
 
 ## What is built where
 
-| Platform | Mechanism                                                  | Files     | Network                                       | Reviews dropped |
-| -------- | ---------------------------------------------------------- | --------- | --------------------------------------------- | --------------- |
-| macOS    | Seatbelt profile per run, `/usr/bin/sandbox-exec -p`       | contained | contained (TCP to the proxy's port only)      | yes             |
-| Linux    | Landlock via `spade sandbox-exec`, `landlock` feature, off | contained | partial (TCP only; UDP and Unix sockets open) | no              |
+| Platform | Mechanism                                                                | Files                                                                | Network                                              | Reviews dropped                                 |
+| -------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------- |
+| macOS    | Seatbelt profile per run, `/usr/bin/sandbox-exec -p`                     | contained                                                            | contained (TCP to the proxy's port only)             | yes                                             |
+| Linux    | Landlock via `spade sandbox-exec`, `landlock` feature, off               | contained                                                            | partial (TCP only; UDP and Unix sockets open)        | no                                              |
 | Windows  | Less Privileged AppContainer per run + job, via `spade sandbox-exec-win` | contained (no-network runs on Spade-owned folders only; else review) | not contained: a networked run keeps the review path | yes, for no-network runs on Spade-owned folders |
 
 Spade probes the sandbox once at start (`Runner::probe`: macOS runs the real profile on a
@@ -89,7 +89,7 @@ can't be reached by the bot's other running commands. The profile is deleted whe
 A run is `contained` on Windows only when it **has no network** and is a **Less Privileged
 AppContainer (LPAC)**: the process opts out of the
 `ALL APPLICATION PACKAGES` SID (the `ALL_APPLICATION_PACKAGES_POLICY` proc-thread attribute), so
-files, registry keys and COM objects that any app package may read system-wide are *not* reachable —
+files, registry keys and COM objects that any app package may read system-wide are _not_ reachable —
 only what the run's own container SID is granted, plus the core system binaries that carry the
 restricted `ALL RESTRICTED APPLICATION PACKAGES` ACE the loader needs (`System32` keeps that ACE, so
 `curl.exe`, `cmd.exe` and the system DLLs still load). (Measured on the VM, including as a standard
@@ -105,15 +105,18 @@ would keep ambient read access to what every app package may read (files, some r
 objects), which is not what `contained` promises. So: confining a networked run returns
 needs-review; an unreviewed one is refused, never launched plainly; a reviewed one runs as on a
 machine without the sandbox. The bot's network defaults to the allow list, so on Windows a bot's
-commands are contained only once its network is off. A plugin's local server or hook has no review
-path, so one with network does not start on Windows. Giving LPAC runs egress without opening the
+commands are contained only once its network is off. A plugin's local server or hook that can't be
+sealed off doesn't start until the person allows it to run outside the sandbox, through a request
+card bound to the plugin's version, content hash, command and environment ([plugins.md](plugins.md),
+"Local MCP servers"); it then runs plainly, labelled `outside_sandbox`, never `contained`, and its
+tool calls keep their reviews. Giving LPAC runs egress without opening the
 network is future work (ADR 0167, Windows amendment).
 
 **Spade only ever edits ACLs on folders it owns** (under its own data directory), because changing
 ACLs on the person's folders touches other principals' inheritance and descendant identities.
 So a run is `contained` only when its grants are Spade-owned:
 
-- an inheritable *Modify* ACE (read, write, execute, delete — but not `WRITE_DAC`/`WRITE_OWNER`) on
+- an inheritable _Modify_ ACE (read, write, execute, delete — but not `WRITE_DAC`/`WRITE_OWNER`) on
   the workspace, its `.spade/tmp` (`TEMP`/`TMP`), the terminal scratch, and a plugin folder that
   lives under Spade's data;
 - toolchains are **read without any ACL change**: a toolchain Spade installs under its own data is
@@ -147,8 +150,10 @@ name inside its granted workspace and then reach the file's data through that na
 VM through both the Win32 `CreateHardLink` path and the native
 `NtSetInformationFile(FileLinkInformation)` path, under an LPAC token and a plain AppContainer one:
 a link between two of the run's own files is made (the control); the person's file is refused at
-*opening the source*; the run's own file linked into a folder it wasn't granted opens but is refused
-at *creating the link*. The person's file keeps its single name.
+_opening the source_; the run's own file linked into a folder it wasn't granted opens but is refused
+at _creating the link_. The same three were also tried through `CreateHardLinkW` called directly,
+with no pre-check of Spade's in front of it, under both tokens: Windows itself refuses the person's
+file and the ungranted destination, and no link appears. The person's file keeps its single name.
 
 The grants are set on **open handles opened by walking the path one component at a time** — each
 opened relative to its parent's pinned handle and refused if it is a reparse point, so no component
@@ -174,7 +179,7 @@ the run is contained or it does not run. Dropping the run closes the job and end
 **ACL hygiene (durable).** Each run records, in a per-run journal
 (`<data>/sandbox-acls/<container>.json`), every object its SID is granted on **with that object's
 identity (volume serial and file id, not just its path)**. The journal is written — and flushed to
-disk (`FlushFileBuffers`) — *before* the profile is created and before any ACL change, so a failure
+disk (`FlushFileBuffers`) — _before_ the profile is created and before any ACL change, so a failure
 anywhere is recoverable; a guard armed right after the grants takes them and the profile back if the
 rest of setup (the bridge, the plan) fails. When the run ends — after its processes are gone, so no
 open handle survives revocation — its grants are taken back by identity (so a renamed or moved
@@ -196,7 +201,7 @@ grants and deletes its profiles.
 networked run isn't contained on Windows yet (above), Spade doesn't launch one through it. An
 AppContainer with no capabilities has no DNS and can't open a
 loopback connection to a process outside the container, so it can't reach the proxy directly, and
-the per-container loopback *exemption* that would let it isn't port-scoped (it would open every
+the per-container loopback _exemption_ that would let it isn't port-scoped (it would open every
 local port). Instead each networked run gets a bridge: a tiny process inside the container (same
 SID and job as the command) listens on `127.0.0.1:<port>` — what `HTTP_PROXY` points at — and
 forwards each connection over a named pipe whose DACL grants only that run's container SID to a
@@ -296,15 +301,16 @@ something its parent lacks gets `400`. Revoking a parent's grant narrows every w
   shell classifier and takes ADR 0163's route.
 
 **The gate's decision travels to the launch.** For each call it lets run, the gate records an
-immutable launch token under the call's key: *outside* (sent outside the sandbox), *contained*
+immutable launch token under the call's key: _outside_ (sent outside the sandbox), _contained_
 (decided in the sandbox's light, whether it skipped review because the sandbox held it or was
-reviewed as a sandboxed command), or *reviewed* (reviewed or approved without relying on the
-sandbox). The shell takes the token instead of deciding again: a *contained* call launches only
+reviewed as a sandboxed command), or _reviewed_ (reviewed or approved without relying on the
+sandbox). The shell takes the token instead of deciding again: a _contained_ call launches only
 contained, and if the sandbox no longer holds it at launch (the person added a consented folder in
 between, say) it is refused — "The command wasn't run: it was cleared to run in Spade's sandbox, but
 the sandbox no longer holds it. Run it again and Spade will ask first." — never launched plainly; a
-call the gate didn't mark counts as *contained*. A setting that changes in between never moves an
+call the gate didn't mark counts as _contained_. A setting that changes in between never moves an
 unreviewed call outside.
+
 - **Asking to run outside** (`outside_sandbox: true` on `shell`): a request with
   `ask: outside_sandbox`. Allow once runs that call outside; Always for this bot runs it and sets
   the bot's `commands` to `outside`; Deny declines it.
@@ -353,25 +359,25 @@ where their content still matches the trust record.
 
 Under `/v1`, with the bearer token. Only the person's API writes any of this; no bot tool does.
 
-| Method and path                             | Body                                   | Answer                                                                                                                                                                                                                                                                         |
-| ------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /security`                             |                                        | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}`     |
-| `PUT /security/commands`                    | `{commands: sandboxed\|outside}`       | The machine's view; what bots without their own inherit                                                                                                                                                                                                                        |
-| `PUT /security/network`                     | `{mode, allow?, dropped?}`             | The machine's view; `400` as for a bot's                                                                                                                                                                                                                                       |
-| `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`             | As above, for plugins                                                                                                                                                                                                                                                          |
+| Method and path                             | Body                                   | Answer                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /security`                             |                                        | `{sandbox: {platform, mechanism: seatbelt\|landlock\|app_container\|none, files, network: contained\|partial\|none, reason}, proxy: {running, problem}, contained, defaults: [host], bots: {commands, network: Policy, plugin_network: Policy}, toolchains_found: [path]}`                                                                                                                                                              |
+| `PUT /security/commands`                    | `{commands: sandboxed\|outside}`       | The machine's view; what bots without their own inherit                                                                                                                                                                                                                                                                                                                                                                                 |
+| `PUT /security/network`                     | `{mode, allow?, dropped?}`             | The machine's view; `400` as for a bot's                                                                                                                                                                                                                                                                                                                                                                                                |
+| `PUT /security/plugin-network`              | `{mode, allow?, dropped?}`             | As above, for plugins                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `GET /agents/{id}/security`                 |                                        | `{contained, reason, commands, network: Policy, plugin_network: Policy, own: {commands, network, plugin_network}, toolchains: [path], grants: [Grant], effective_grants: [Grant], folders: [{grant, path, write}]}` (what holds, and whether each is the bot's own; `contained` is this bot's, and `reason` the plain line when the machine has a sandbox but this bot's commands keep the review path, else `null`); `404` unknown bot |
-| `PUT /agents/{id}/security/commands`        | `{commands: sandboxed\|outside\|null}` | The bot's view; `null` follows the machine                                                                                                                                                                                                                                     |
-| `DELETE /agents/{id}/security/network`      |                                        | The bot's view, its commands following the machine's rule again (`/plugin-network` likewise)                                                                                                                                                                                   |
-| `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`             | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                                                                                |
-| `PUT /agents/{id}/security/plugin-network`  | `{mode, allow?, dropped?}`             | As above, for its plugins' hooks and servers                                                                                                                                                                                                                                   |
-| `PUT /agents/{id}/security/toolchains`      | `{toolchains: [path]}`                 | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                                                                                       |
-| `GET /agents/{id}/security/egress`          | `?limit=` (1–5,000, default 200)       | `{entries: [Entry]}`, oldest first                                                                                                                                                                                                                                             |
-| `GET /agents/{id}/grants`                   |                                        | `{grants: [Grant], effective: [Grant]}`                                                                                                                                                                                                                                        |
-| `POST /agents/{id}/grants`                  | `{kind, …scope}`                       | `201 {grant}`; `400` refused (why); `404` unknown bot                                                                                                                                                                                                                          |
-| `DELETE /agents/{id}/grants/{grant}`        |                                        | `204`; `404` no such grant                                                                                                                                                                                                                                                     |
-| `GET /agents/{id}/checkpoints`              |                                        | `{checkpoints: [{id, at, reason}], keep: 20, longest_days: 7, every_seconds: 60}`, newest first                                                                                                                                                                                |
-| `POST /agents/{id}/checkpoints`             |                                        | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                                                                                 |
-| `POST /agents/{id}/checkpoints/{c}/restore` |                                        | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                                                                                        |
+| `PUT /agents/{id}/security/commands`        | `{commands: sandboxed\|outside\|null}` | The bot's view; `null` follows the machine                                                                                                                                                                                                                                                                                                                                                                                              |
+| `DELETE /agents/{id}/security/network`      |                                        | The bot's view, its commands following the machine's rule again (`/plugin-network` likewise)                                                                                                                                                                                                                                                                                                                                            |
+| `PUT /agents/{id}/security/network`         | `{mode, allow?, dropped?}`             | The bot's view, as above; `400` for an entry that isn't a host, `*.host` or `host:port`, or a dropped name that isn't a default                                                                                                                                                                                                                                                                                                         |
+| `PUT /agents/{id}/security/plugin-network`  | `{mode, allow?, dropped?}`             | As above, for its plugins' hooks and servers                                                                                                                                                                                                                                                                                                                                                                                            |
+| `PUT /agents/{id}/security/toolchains`      | `{toolchains: [path]}`                 | The bot's view; `400` for a path that isn't an absolute folder or holds sign-ins or data                                                                                                                                                                                                                                                                                                                                                |
+| `GET /agents/{id}/security/egress`          | `?limit=` (1–5,000, default 200)       | `{entries: [Entry]}`, oldest first                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `GET /agents/{id}/grants`                   |                                        | `{grants: [Grant], effective: [Grant]}`                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /agents/{id}/grants`                  | `{kind, …scope}`                       | `201 {grant}`; `400` refused (why); `404` unknown bot                                                                                                                                                                                                                                                                                                                                                                                   |
+| `DELETE /agents/{id}/grants/{grant}`        |                                        | `204`; `404` no such grant                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `GET /agents/{id}/checkpoints`              |                                        | `{checkpoints: [{id, at, reason}], keep: 20, longest_days: 7, every_seconds: 60}`, newest first                                                                                                                                                                                                                                                                                                                                         |
+| `POST /agents/{id}/checkpoints`             |                                        | `201 {checkpoint}`; `400` when the workspace doesn't exist yet                                                                                                                                                                                                                                                                                                                                                                          |
+| `POST /agents/{id}/checkpoints/{c}/restore` |                                        | `200 {restored, saved}` (`saved`: the checkpoint taken just before); `404` no such checkpoint; `409` the bot is working                                                                                                                                                                                                                                                                                                                 |
 
 Settings are one stored setting per bot, `security:<bot id>`, and the machine's defaults,
 `security.machine`; a value that doesn't parse reads as the defaults. A bot's own value wins; a

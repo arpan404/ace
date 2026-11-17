@@ -249,11 +249,11 @@ on a real Windows 11 machine changed one thing in the design and firmed up the r
 - **The egress bridge, not a loopback exemption.** Decision 1 said the proxy would be reached
   "through a loopback exemption for that one profile". Measured on Windows: an AppContainer with
   no capabilities cannot open a loopback connection to a process outside the container at all, and
-  the loopback *exemption* that would let it is **per AppContainer and not port-scoped** — enabling
+  the loopback _exemption_ that would let it is **per AppContainer and not port-scoped** — enabling
   it opens every local port to the command, not just the proxy's, and it is a machine-wide,
   admin-only developer setting. That is the opposite of "network only through the proxy", so it is
   rejected (the task anticipated this and asked for a justified choice). Instead each networked run
-  gets a **named-pipe bridge**: a tiny bridge process runs *inside* the container (same SID and
+  gets a **named-pipe bridge**: a tiny bridge process runs _inside_ the container (same SID and
   job as the command), listening on `127.0.0.1:<port>` — what `HTTP_PROXY` points at — and
   forwarding each connection over a named pipe whose DACL grants only that run's container SID to a
   daemon-side acceptor, which splices it to the real TCP proxy on loopback. The command can reach a
@@ -264,8 +264,8 @@ on a real Windows 11 machine changed one thing in the design and firmed up the r
   with a raw security descriptor directly, and because the pipe's DACL is the natural place to name
   the one SID allowed to connect.
 - **Files.** The AppContainer denies everything by default (no capabilities), so the policy is all
-  grants: the run's container SID gets an inheritable *Modify* ACE on the workspace, the run's temp
-  folder, granted read-write folders and Spade's own per-run scratch, and a *Read & execute* ACE on
+  grants: the run's container SID gets an inheritable _Modify_ ACE on the workspace, the run's temp
+  folder, granted read-write folders and Spade's own per-run scratch, and a _Read & execute_ ACE on
   toolchains, granted read-only folders and the plugin folder. The Modify and Read masks leave out
   `WRITE_DAC`/`WRITE_OWNER`, so a command can't rewrite an ACL to reopen a denied place.
 - **The job.** The process tree runs in a job object with kill-on-close and die-on-unhandled, a
@@ -290,13 +290,13 @@ Two security reviews of the Windows build asked for six changes before it may re
   redirects the ACE, and the ACE is set on that pinned handle.
 - **Reconciled to exact rights.** A grant removes the SID's previous ACEs on the object before
   setting the new one, so a folder changed from read-write to read-only no longer keeps Modify.
-  Staleness is judged by path *and* rights.
+  Staleness is judged by path _and_ rights.
 - **Correct inheritance.** ACLs are edited as `SE_FILE_OBJECT` (not `SE_KERNEL_OBJECT`) and written
   `UNPROTECTED`, so an inheritable grant propagates to existing children and revoking a parent
   removes the inherited ACEs on its descendants. A moved file keeps its ACE (Windows doesn't
   re-evaluate on move) and is cleaned up by file id; a hard link shares one ACL, so revoking by any
   name clears it. A denied place is the exception: because an AppContainer's check grants the
-  package SID on *any* allow ACE — a deny does not out-rank an inherited allow as it does for a
+  package SID on _any_ allow ACE — a deny does not out-rank an inherited allow as it does for a
   normal token — a deny stops the node inheriting, removes the SID's allow and leaves a protected,
   inheritable deny, so the place is truly unreachable even inside a granted folder.
 - **Per-run identity.** Each run gets its own AppContainer profile (derived from the bot and the
@@ -305,7 +305,7 @@ Two security reviews of the Windows build asked for six changes before it may re
   revocation, a run's grants are taken back only after its processes are gone (the run's hold is
   dropped once the command has finished).
 - **Durable revocation.** The journal records each object's identity (volume serial and file id,
-  not just its path) and is written as intent *before* any ACL change, so a crash mid-apply is
+  not just its path) and is written as intent _before_ any ACL change, so a crash mid-apply is
   fully recoverable. A revocation finds the object by id even after it is renamed or moved, keeps
   any revocation it can't confirm pending, refuses the bot's next run until cleanup succeeds, and
   reports the failure rather than swallowing it. Recovery at start retries every run's pending
@@ -422,10 +422,10 @@ and four things left, fixed test-first in the VM:
 - **The gate's decision is carried to the launch.** The shell tool recomputed `contains()` at
   execution, so a command that skipped review because the sandbox held it could launch plainly if
   containment changed before it started (the person adds a consented folder). The gate now records
-  an immutable launch token per call — *outside*, *contained* (decided in the sandbox's light), or
-  *reviewed* (without relying on the sandbox) — and the shell takes it instead of deciding again. A
-  *contained* call launches only contained; if the sandbox no longer holds it, it is refused and
-  running it again goes back through the gate. An unmarked call counts as *contained*. A process test
+  an immutable launch token per call — _outside_, _contained_ (decided in the sandbox's light), or
+  _reviewed_ (without relying on the sandbox) — and the shell takes it instead of deciding again. A
+  _contained_ call launches only contained; if the sandbox no longer holds it, it is refused and
+  running it again goes back through the gate. An unmarked call counts as _contained_. A process test
   drives the race with a sandbox that holds the command when the gate asks and has lapsed by launch:
   the command is refused and never runs (before the fix it ran plainly).
 - **A journal-listing error blocks.** Directory entries were filtered before their errors were
@@ -439,8 +439,8 @@ and four things left, fixed test-first in the VM:
   network commands yet, so Spade asks first." (a run needing the person's folders says "This needs
   your folders, so Spade asks first."); the bot's security view now reports its own `contained` and
   that `reason`. Consequences: a bot's network defaults to the allow list, so a Windows bot's commands
-  are contained only once its network is off; and a plugin's local server or hook, which has no review
-  path, does not start on Windows when it has network. A Windows process test on the real AppContainer
+  are contained only once its network is off; and a plugin's local server or hook with network can't
+  be contained on Windows (it starts only with the person's consent, below). A Windows process test on the real AppContainer
   probe checks both sides: the default-network bot is not contained and its run needs review with the
   network line; with network off the same bot is contained and its run is held.
 - **The egress broker is not built; it is future work.** The idea was a broker in the bridge process
@@ -461,3 +461,33 @@ and four things left, fixed test-first in the VM:
   of the run's own files is made and is the same file (the control); the person's file is refused at
   opening the source; the run's own file linked into a folder it wasn't granted opens, but the link
   is refused. The person's file keeps its single name.
+
+### Before merge: plugin consent, the unguarded hard-link call (2026-11-17)
+
+A last review confirmed the no-network LPAC boundary — no path for a `contained` command to write
+outside its grants, read the person's files or credentials, reach the network or act as the person —
+and asked for two more things, done test-first in the VM.
+
+- **Plugins the sandbox can't seal off start only with consent.** Plugin networking defaults to open,
+  so on Windows network-enabled plugin servers and hooks stopped starting. They now start through an
+  explicit consent, never by turning needs-review into plain execution. Before a plugin's server or
+  hook starts, Spade asks the sandbox without side effects (`Confine::review`, the same decision
+  `confine` makes); when it can't be held, Spade raises a request card in the bot's conversation —
+  "<plugin> needs the network, and Windows can't seal that off yet. Run it outside the sandbox?" —
+  with **Allow** (one start) and **Always for this plugin version** (and **Deny**). The answer is
+  bound to a digest of the bot, the plugin's id, version and content hash, server or hook, the
+  command and its environment; an update, or a changed command or environment, asks again. Until
+  approved the server waits (`waiting_for_you`) and a hook fails with that reason. Once approved it
+  runs plainly and its status says `outside_sandbox` — never `contained`, and never a plain
+  AppContainer labelled contained — and the server's tool calls keep their usual reviews. Tests:
+  refused before approval, runs after, an update asks again, a once-allowed hook runs once, and the
+  server's write call still goes to the person; the hook test runs on Windows too, and a Windows
+  test checks the probe gives the same answer as `confine` for plugin runs (network: the network
+  line; network off and a folder Spade doesn't own: the folders line; network off and Spade's own
+  folder: contained).
+- **The unguarded `CreateHardLinkW`.** The Win32 hard-link check opened the source itself first, so a
+  refusal there could be Spade's open rather than Windows'. That diagnostic stays (it names the
+  failing stage), and the test now also calls `CreateHardLinkW` directly with no pre-check, under
+  both the LPAC and plain AppContainer tokens: a link between the run's own files is made; the
+  person's file and a link into an ungranted folder are refused by Windows itself, and no
+  destination link appears.
