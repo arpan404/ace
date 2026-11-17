@@ -95,7 +95,12 @@ import {
 } from "./terminal-client.ts";
 import { WorkspaceActionRequest, WorkspaceActionResult } from "./workspace-actions.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
-import { SuitClientMessage, SuitReportMessage, SuitServerMessage } from "./suits.ts";
+import {
+  SuitClientMessage,
+  SuitReportMessage,
+  SuitServerMessage,
+  SuitWatchMessage,
+} from "./suits.ts";
 import { MarketClientMessage, MarketServerMessage } from "./marketplace.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { BrowserBrowsing, BrowserBrowsingWatch } from "./browser-browsing.ts";
@@ -275,6 +280,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PluginClientMessage,
   SuitClientMessage,
   SuitReportMessage,
+  SuitWatchMessage,
   MarketClientMessage,
   DiagnosticsHealthRequest,
   DiagnosticsRequest,

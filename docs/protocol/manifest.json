@@ -37,8 +37,8 @@
       "sha256": "2d24ff94df96f493c31c3766d09b23cf83b80ed2771115d97c12aa363f563d8e"
     },
     "requests.md": {
-      "bytes": 120831,
-      "sha256": "a5b0a8b96b340fb67a8d8e827c73ce8e4a591b1d852c8ef86a6c2482853a84ca"
+      "bytes": 121384,
+      "sha256": "f1f27a0fbed3cefe526be462c4264f1d6d5ecef806dfe4fbd317463bca5d90bd"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -1109,8 +1109,8 @@
       "sha256": "2f1e1ffc9faa51131521287da65770e27b55c0c3ea5fbc4859c5941deae224b4"
     },
     "schema/ClientMessage.json": {
-      "bytes": 65482,
-      "sha256": "5cbf32432e393e1e520054c30d56ee2798cc47bc336cb720de95f4825a4ff665"
+      "bytes": 65563,
+      "sha256": "3b1d8637fc35bed4b424299c8e524a80e2c4bd116bd01fe928b3611f549298e3"
     },
     "schema/CollectionsUpload.json": {
       "bytes": 378,
@@ -5464,6 +5464,10 @@
       "bytes": 361,
       "sha256": "4115bcead203761b304e359fb03035cdc6a2b50cdc55f15daa416aafa1a7bece"
     },
+    "schema/SuitWatchMessage.json": {
+      "bytes": 418,
+      "sha256": "a51502e060b8d896d2a340fcee8a953ed7d898b251223abff23fbd02c0830ecb"
+    },
     "schema/SuitsChanged.json": {
       "bytes": 334,
       "sha256": "09ea06c4336b15af4802516f879ce247cc35d2b56b122ec98387dad97494ede6"
@@ -6341,10 +6345,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1286176,
-      "sha256": "e55dfe69bbaff12eeb31792df5f1e7011ae6c81f14f42c7429f441a3da03486a"
+      "bytes": 1286501,
+      "sha256": "8fefba7a6859be685a3091158029c36440bfa1a7ebf42f51ce2841f21fb0d585"
     }
   },
-  "input": "f5ac3025d0a096e44cb0a624b8d7baee2a5045f2eb4857b2694e02ae3b18ecab",
+  "input": "ffb68a7b8ba7b59aa6813538a23266f6d2500ad1addec8a6f06a2c8451582fb8",
   "version": 1
 }
