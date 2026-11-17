@@ -754,3 +754,44 @@ boundary is the operation rather than the call — every kernel object a run ope
 its container token, and the job bars the desktop, clipboard and global atoms — so it is reported
 held on that basis, not as a syscall filter. Which runs are contained is still decided per run
 (no network, Spade-owned folders).
+
+### Networked runs under LPAC: measured, not qualified (2026-11-18)
+
+The owner asked whether networked Windows runs could be contained too. Each route was measured in
+the VM (`spade-sandbox/tests/windows_network.rs`, ignored measurement tests), against the bar a
+networked run would have to clear: the tools (`curl`, `git`, `npm`, `pip`, `cargo`) work through
+the proxy; nothing else is reachable (no direct connection, DNS, UDP or other loopback port); LPAC
+file isolation from `ALL APPLICATION PACKAGES` holds; the registry it opens holds no secrets; and
+it all works as a standard user.
+
+- **LPAC alone:** Winsock doesn't start (`WSAStartup` fails), as recorded above. No socket of any
+  kind; file isolation holds.
+- **LPAC plus `registryRead`** (route a, no elevation): Winsock starts, the run's own sockets stay
+  refused (no direct connection, DNS, UDP or other loopback port) and file isolation holds — but
+  even a loopback listener is refused (`WSAEACCES`, 10013). The in-container egress bridge can't
+  bind its port, so there is no socket path to the proxy at all: every tool fails before it
+  reaches it. The tools can't use the SID-scoped pipe instead; they only speak TCP. Granting read
+  on only the Winsock catalog keys to a Spade capability (instead of `registryRead`) was narrower
+  but not enough even for Winsock to start. Because this route already fails the first check, what
+  `registryRead` opens beyond the Winsock catalog was not taken further.
+- **LPAC plus a network capability** (route b, `internetClient`, with `registryRead` so Winsock
+  starts): sockets work, and so do direct connections, DNS and UDP — the capability reopens the
+  network the sandbox exists to close. Windows Firewall rules for the run's package (outbound TCP
+  blocked except the proxy's loopback port, UDP blocked) plus a loopback exemption closed direct
+  TCP and UDP, but name lookups still resolved (they go through the DNS Client service, not the
+  run's own socket) and another loopback port stayed reachable. Every rule and exemption is also
+  per package, and each run has its own package SID, so it would need elevation on every run.
+  Route (b) is dropped from the build.
+- **An intercepting broker** (route c) remains as described under "Final review": the tools open
+  TCP sockets themselves, so a broker would have to interpose the socket API inside each command's
+  process — fragile across tools and architectures, and itself security-sensitive. Not built.
+
+**Decision: networked Windows runs keep the review path.** They are not `contained`, and the line
+the person reads stays "Windows can't seal off network commands yet, so Spade asks first." No
+elevation or setup step is added. Ways to revisit it later: an intercepting broker; a Windows
+Filtering Platform callout or a filter installed by a privileged Spade service, which could allow a
+run's package exactly one loopback destination (the proxy) and nothing else, DNS included; or a
+change in Windows that lets an LPAC open loopback sockets without a network capability. The launch
+token now carries capability SIDs (`launch::Token`, `Sid::capability`) and the test helper has the
+probes (`winsock`, `bind-why`, `resolve`, `tcp`, `udp-dns`, `run-env`), so a later attempt can
+measure the same things.

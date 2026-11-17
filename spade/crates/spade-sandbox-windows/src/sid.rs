@@ -2,7 +2,7 @@
 
 use windows::Win32::Foundation::{HLOCAL, LocalFree};
 use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSidToSidW};
-use windows::Win32::Security::{GetLengthSid, IsValidSid, PSID};
+use windows::Win32::Security::{DeriveCapabilitySidsFromName, GetLengthSid, IsValidSid, PSID};
 use windows::core::{HSTRING, PWSTR};
 
 /// An owned SID.
@@ -26,6 +26,45 @@ impl Sid {
         // SAFETY: `raw` was allocated by LocalAlloc in ConvertStringSidToSidW.
         unsafe { LocalFree(Some(HLOCAL(raw.0))) };
         sid
+    }
+
+    /// The capability SID Windows derives from the capability `name` (as an app's manifest names
+    /// it, such as `registryRead`, or a name of Spade's own): an AppContainer holding it reaches
+    /// what an ACE names it on, and nothing more.
+    pub fn capability(name: &str) -> std::io::Result<Self> {
+        let mut groups: *mut PSID = std::ptr::null_mut();
+        let mut group_count = 0u32;
+        let mut caps: *mut PSID = std::ptr::null_mut();
+        let mut cap_count = 0u32;
+        // SAFETY: every out-pointer is a live local; the arrays and each SID in them are
+        // LocalAlloc'd by the call and freed below.
+        unsafe {
+            DeriveCapabilitySidsFromName(
+                &HSTRING::from(name),
+                &mut groups,
+                &mut group_count,
+                &mut caps,
+                &mut cap_count,
+            )
+        }
+        .map_err(crate::io)?;
+        let found = if cap_count > 0 {
+            // SAFETY: `caps` holds `cap_count` SIDs; the first is the capability's own.
+            unsafe { Self::copy(*caps) }
+        } else {
+            Err(std::io::Error::other("Windows derived no capability SID"))
+        };
+        for (array, count) in [(groups, group_count), (caps, cap_count)] {
+            for at in 0..count as usize {
+                // SAFETY: each entry is a SID the call allocated with LocalAlloc.
+                unsafe { LocalFree(Some(HLOCAL((*array.add(at)).0))) };
+            }
+            if !array.is_null() {
+                // SAFETY: the array itself was LocalAlloc'd by the call.
+                unsafe { LocalFree(Some(HLOCAL(array.cast()))) };
+            }
+        }
+        found
     }
 
     /// Copies the SID at `raw`.
