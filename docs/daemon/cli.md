@@ -978,14 +978,345 @@ Delete an automation.
 
 - `--idempotency-key KEY`: Run this mutation at most once; retry with the same key
 
+### `ace market discover`
+
+What's featured, new and trending, and how to find more.
+
+Every market command goes through this machine's daemon, so its sources, signature checks and ace account are used. Maintainer tools: ace help market-maintainer
+
+### `ace market search [QUERY…] [flags]`
+
+Search the market.
+
+- `QUERY`: Words to look for; everything when omitted
+
+- `--type TYPE`: suit, spade-skill, spade-plugin or spade-bot
+- `--category CATEGORY`: One category, such as dev-tools
+- `--source SOURCE`: market or git:ID
+- `--limit N`: At most N entries (50)
+
+    ace market search linear --type spade-plugin
+    # Plugins
+
+### `ace market show REF [flags]`
+
+An entry: what it is, who publishes it, its versions; or a publisher's page.
+
+- `REF`: TYPE/NAME or @HANDLE
+
+- `--source SOURCE`: market or git:ID
+
+### `ace market install REF [flags]`
+
+Read an entry's review, then install it.
+
+The review prints first: what it is, who published it, what it can run and reach, and what the scan found. Without a terminal, --yes installs with the review's defaults (no routines started). From an agent, installing is the person's: ace asks them in the thread.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+- `--version VERSION`: This version, not the newest
+- `--source SOURCE`: market or git:ID
+
+### `ace market update [REF…] [flags]`
+
+Read what changed, then update installed entries.
+
+- `REF`: TYPE/NAME; every update with --all
+
+- `--all`: Every entry with an update
+
+### `ace market remove REF`
+
+Remove an installed entry.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market restore REF`
+
+Turn a withdrawn or turned-off entry back on, from its pinned files.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market installed [flags]`
+
+What's installed from the market.
+
+- `--updates`: Only entries with an update
+
+### `ace market source list`
+
+Where entries come from.
+
+### `ace market source add ADDRESS`
+
+Add a git catalog as a source.
+
+- `ADDRESS`: The catalog's https address
+
+### `ace market source remove SOURCE`
+
+Remove a source.
+
+- `SOURCE`: The source's id: market or git:ID
+
+### `ace market source on SOURCE`
+
+Turn a source on.
+
+- `SOURCE`: The source's id: market or git:ID
+
+### `ace market source off SOURCE`
+
+Turn a source off.
+
+- `SOURCE`: The source's id: market or git:ID
+
+### `ace market source refresh [SOURCE]`
+
+Read sources again now.
+
+- `SOURCE`: One source; every source when omitted
+
+### `ace market report REF [flags]`
+
+Report an entry to ace's maintainers.
+
+- `REF`: TYPE/NAME or TYPE/NAME@VERSION
+
+- `--reason REASON`: What's wrong
+- `--note TEXT`: What you saw
+
 ### `ace market check [PATH] [flags]`
 
 The market's checks on a folder, before publishing.
 
+Runs here, with no account and no daemon.
+
 - `PATH`: The folder; this one when omitted
 
 - `--type TYPE`: suit, spade-skill, spade-plugin or spade-bot
-- `--name NAME`: The entry's name, when the folder doesn't say
+- `--name NAME`: The entry's name; the folder's otherwise
+
+### `ace market publish TYPE PATH [flags]`
+
+Upload a version as a draft, read its scan, then publish it.
+
+- `TYPE`: suit, spade-skill, spade-plugin or spade-bot
+- `PATH`: A folder, or one of your Suits by id
+
+- `--name NAME`: The entry's name; the folder's otherwise
+- `--version VERSION`: The version to publish, such as 1.2.0
+- `--changelog TEXT`: What changed: the text, - for stdin, or @FILE
+- `--draft`: Stop at the draft and print its id
+- `--unlisted`: Reached by its link, not by search
+- `--wait`: Watch until it is live, or blocked
+
+    ace market publish suit ./dusk-harbor --version 1.2.0 --draft
+    # A draft and its scan
+
+### `ace market draft list`
+
+Your drafts.
+
+### `ace market draft show DRAFT`
+
+One draft and its scan.
+
+- `DRAFT`: The draft's id (drf_…)
+
+### `ace market draft update DRAFT [flags]`
+
+Change a draft's version, changelog or files.
+
+- `DRAFT`: The draft's id (drf_…)
+
+- `--version VERSION`: Another version
+- `--changelog TEXT`: What changed: the text, - for stdin, or @FILE
+- `--from PATH`: New files from this folder
+
+### `ace market draft publish DRAFT [flags]`
+
+Publish a draft.
+
+- `DRAFT`: The draft's id (drf_…)
+
+- `--wait`: Watch until it is live, or blocked
+
+### `ace market draft delete DRAFT`
+
+Delete a draft.
+
+- `DRAFT`: The draft's id (drf_…)
+
+### `ace market status [REF]`
+
+Your entries, and where each version is.
+
+- `REF`: One entry: TYPE/NAME
+
+### `ace market versions REF`
+
+One entry's versions with status, changelog and deprecation.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market describe REF [flags]`
+
+Change an entry's listing words.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+- `--title TEXT`: Its title
+- `--line TEXT`: Its one line
+- `--description TEXT`: Its description, or @FILE
+- `--category CATEGORY`: A category (up to 3)
+- `--keyword WORD`: A keyword (up to 16)
+- `--link LABEL=URL`: A link (up to 5)
+
+### `ace market changelog REF [TEXT|-]`
+
+Set one version's changelog.
+
+- `REF`: TYPE/NAME@VERSION
+- `TEXT`: The text, - for stdin, or @FILE
+
+### `ace market latest REF [VERSION] [flags]`
+
+Which version the listing shows.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+- `VERSION`: The version; --newest follows the newest
+
+- `--newest`: Follow the newest live version
+
+### `ace market deprecate REF [flags]`
+
+Deprecate a version, with a note installs show.
+
+- `REF`: TYPE/NAME@VERSION
+
+- `--note TEXT`: Why, and what to use instead
+- `--clear`: Clear the deprecation
+
+### `ace market visibility REF VISIBILITY`
+
+Listed in search, or reached by its link only.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+- `VISIBILITY`: listed or unlisted
+
+### `ace market archive REF`
+
+Hide an entry from search; installs keep working.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market unarchive REF`
+
+List an archived entry again.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market withdraw REF [flags]`
+
+Withdraw a version, or every version, from everyone's devices.
+
+- `REF`: TYPE/NAME@VERSION, or TYPE/NAME for all
+
+- `--reason TEXT`: Why; devices show it
+
+### `ace market transfer REF [flags]`
+
+Offer an entry to another publisher.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+- `--to @HANDLE`: Who receives it
+
+### `ace market transfer accept TRANSFER`
+
+Accept a transfer offered to you.
+
+- `TRANSFER`: The transfer's id (trf_…)
+
+### `ace market transfer decline TRANSFER`
+
+Decline a transfer offered to you.
+
+- `TRANSFER`: The transfer's id (trf_…)
+
+### `ace market delete REF`
+
+Delete an entry that only ever had drafts or was never listed.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market signals REF`
+
+Downloads, installs and reports for one entry.
+
+- `REF`: TYPE/NAME, such as suit/dusk-harbor
+
+### `ace market appeal REF [flags]`
+
+Ask ace's maintainers to look again at a held or blocked version.
+
+- `REF`: TYPE/NAME@VERSION
+
+- `--note TEXT`: What you changed, or why it's fine
+- `--replacement VERSION`: A newer version that answers it
+
+### `ace market profile show`
+
+Your publisher profile.
+
+### `ace market profile create [flags]`
+
+Make your publisher profile.
+
+- `--handle HANDLE`: Your handle, such as arpan
+- `--name NAME`: The name people see
+- `--bio TEXT`: A line about you
+
+### `ace market profile edit [flags]`
+
+Change your profile's name or bio.
+
+- `--name NAME`: The name people see
+- `--bio TEXT`: A line about you
+
+### `ace market profile handle HANDLE`
+
+Change your handle.
+
+- `HANDLE`: The new handle
+
+### `ace market profile avatar FILE`
+
+Set your profile picture.
+
+- `FILE`: A PNG, JPEG or WebP, at most 1 MB
+
+### `ace market profile pins [REF…]`
+
+Pin up to six of your entries on your page.
+
+- `REF`: TYPE/NAME, in order
+
+### `ace market verification show`
+
+Your verification and its proofs.
+
+### `ace market verification apply [flags]`
+
+Apply for ace's verified mark.
+
+- `--domain DOMAIN`: A domain you own
+- `--github LOGIN`: Your GitHub login
+
+### `ace market verification check`
+
+Check your proofs again now.
 
 ## Agent tools
 
@@ -1257,7 +1588,6 @@ Each prints a notice on a terminal for two releases after the one it was replace
 | `ace market block-file` | `ace market maintainer block-file` | 0.0.24 |
 | `ace market block-pattern` | `ace market maintainer block-pattern` | 0.0.24 |
 | `ace market appeals` | `ace market maintainer appeals` | 0.0.24 |
-| `ace market appeal` | `ace market maintainer appeal` | 0.0.24 |
 | `ace market verify` | `ace market maintainer verify` | 0.0.24 |
 | `ace market unverify` | `ace market maintainer unverify` | 0.0.24 |
 | `ace market official` | `ace market maintainer official` | 0.0.24 |
@@ -1317,25 +1647,47 @@ On a remote, --project takes a project id from ace project list; paths are refus
 ### Publishing Suits, skills and bots to the market
 
 ```
-  ace market check ./my-suit --type suit     the market's checks, locally
-  ace market publish suit ./my-suit --draft  upload a draft and read its scan
-  ace market draft publish DRAFT             publish it
-  ace market status                          your entries and where each version is
+  ace market check ./my-suit --type suit                 the market's checks, here
+  ace market publish suit ./my-suit --version 1.2.0 --draft
+                                                         a draft and its scan
+  ace market draft publish DRAFT                         publish it
+  ace market status                                      your entries and their versions
+  ace market describe suit/my-suit --title "My Suit"     the listing's words
 
 Publishing needs this machine signed in to your ace account (ace login). Withdrawing,
-transferring and handle changes ask you to sign in again first.
+transferring, handle changes, editing a verified profile and verification ask you to sign
+in again first (exit 2, code reauth, without a terminal).
+
+From an agent (ACE_THREAD_ID set, or ace's market_publish tool), publishing follows your
+provider's permissions. Withdraw, transfer, handle changes, deleting an entry, verified
+profile edits, verification and installing are yours: ace asks you in the agent's thread
+and the command exits 2 with code person_only and the request's id; --yes doesn't change
+that. Settings › Beta › Ask me before agents publish makes every agent publish such a
+request too.
 ```
 
 ### The market's maintainer tools
 
 ```
-Maintainer tools: ace market maintainer COMMAND. They need ACE_MARKET_SIGNER_TOKEN and a
-signing key, and talk to market.acehq.dev directly, never through the daemon.
+Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.
 
-  keygen sign review feature revoke reports collection publisher block block-file
-  block-pattern appeals appeal verify unverify official
+ace market maintainer COMMAND talks to market.acehq.dev directly, never through the daemon
+or an ace account. --json and --jq work as everywhere.
 
-ace help market maintainer COMMAND for one.
+  keygen KEY_FILE [--id ID]            a signing key; prints its public half
+  sign --key KEY_FILE                  re-scan, then sign, hold or block what waits
+  review [TYPE/NAME@VERSION]           the queue, or one version: --show, --approve, --block
+  feature TYPE/NAME…                   the featured list
+  revoke HASH --reason TEXT            withdraw bytes wherever they're listed
+  reports [resolve ID --state STATE]   open reports
+  collection list|put|remove           curated collections
+  publisher HANDLE --suspend|--restore|--withdraw-all
+  block|block-file|block-pattern       the signed blocklist
+  appeals | appeal ID --answer TEXT --approve|--keep
+  verify|unverify HANDLE --reason TEXT
+  official add|remove ACCOUNT
+
+The old ace market VERB spellings still work for now.
 ```
 
 ### Using ace from scripts

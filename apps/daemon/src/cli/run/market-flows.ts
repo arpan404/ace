@@ -48,8 +48,9 @@ async function signedIn<T>(context: CommandContext, run: () => Promise<T>): Prom
     if (!(await askConfirm(asked, true))) throw error;
     const { aceAccountCommand } = await import("../ace-account.ts");
     await aceAccountCommand(
-      { ...context.args, words: ["login"], flags: {} },
+      { ...context.args, words: [], flags: {} },
       context.config().dataDir,
+      "login",
     );
     return run();
   }
