@@ -18,7 +18,7 @@ function down(error: unknown): boolean {
 
 /**
  * `ace status`: the daemon's health exactly as before (or `{running: false}`), plus the ace
- * account, how many requests need the person and how many threads work (ADR 0176 §7). The
+ * account, how many requests need the person and how many threads work (ADR 0178 §7). The
  * extras are additive: one the daemon can't give in time is left out, and status never fails
  * because of them.
  */

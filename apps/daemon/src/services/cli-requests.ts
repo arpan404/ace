@@ -29,7 +29,7 @@ export interface RequestSource {
 }
 
 /**
- * Every open request across the threads the caller can read, oldest first (ADR 0176 §7,
+ * Every open request across the threads the caller can read, oldest first (ADR 0178 §7,
  * `ace request list`). Pure over `source`: reads only the threads that wait on a person, and
  * each one's own list of open asks (`live.asking`), so the work is bounded by what is open.
  */

@@ -2,7 +2,7 @@ import type { Command, CommandResult, Interaction } from "@ace/protocol";
 import { reauthSentence } from "./marketplace/fresh-sign-in.ts";
 
 /*
- * Who may answer a request (AGENTS.md: agents never answer approvals; ADR 0176 §12.5). Pure.
+ * Who may answer a request (AGENTS.md: agents never answer approvals; ADR 0178 §12.5). Pure.
  *
  * - An agent's own device (`ace-agent`, the reviewer's `ace-reviewer`) never answers an
  *   approval, a plan, an elicitation or a browser-help request. It may answer a question its own

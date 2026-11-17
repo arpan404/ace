@@ -5,7 +5,7 @@ import type { HomeRow } from "./home-rows.ts";
 import type { TreeLine } from "./tree.ts";
 
 /**
- * The home drawn at a width (ADR 0176 §9): one flat list, then one line of keys. Pure. Below
+ * The home drawn at a width (ADR 0178 §9): one flat list, then one line of keys. Pure. Below
  * 60 columns the meta columns (branch, provider, project) drop.
  */
 export interface HomeView {

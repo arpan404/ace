@@ -9,7 +9,7 @@ import { applyCleanup, applyOutcome, planCleanup, storageRequest } from "./reten
 import { receiptLine, usageLines } from "./render/storage.ts";
 
 /**
- * `ace storage usage|plan|apply|status` (ADR 0176 §7). The daemon owns the inventory, the
+ * `ace storage usage|plan|apply|status` (ADR 0178 §7). The daemon owns the inventory, the
  * protection rules, the reviewed plan identities and every effect; these only ask and print.
  */
 

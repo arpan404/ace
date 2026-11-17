@@ -18,7 +18,7 @@ async function openList(context: CommandContext, client: Client, signal: AbortSi
   return readRequests(client, signal, threadId);
 }
 
-/** The request named by REQUEST (or `--request`), or the one picked (ADR 0176 §9). */
+/** The request named by REQUEST (or `--request`), or the one picked (ADR 0178 §9). */
 async function chosen(
   context: CommandContext,
   client: Client,
@@ -39,7 +39,7 @@ async function chosen(
   return found;
 }
 
-/** Off a terminal, a missing REQUEST is a usage error before anything is read (ADR 0176 §9). */
+/** Off a terminal, a missing REQUEST is a usage error before anything is read (ADR 0178 §9). */
 function requireRequest(context: CommandContext, usage: string): void {
   const { args } = context;
   if (args.interactive || args.words[0] !== undefined) return;
@@ -88,7 +88,7 @@ async function resolveWith(
   done: string,
   verb: "allow" | "deny" | "answer",
 ): Promise<void> {
-  // Only a person at a terminal answers, and they type the word (ADR 0176 §12.5); main.ts
+  // Only a person at a terminal answers, and they type the word (ADR 0178 §12.5); main.ts
   // refused everyone else before this ran, and this holds for any other caller too.
   const refused = personOnlyRefusal("answer", {
     agent: agentShell(context.env),

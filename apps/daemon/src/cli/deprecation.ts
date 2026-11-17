@@ -1,7 +1,7 @@
 import type { AliasSpec, CommandSpec } from "./commands/spec.ts";
 
 /**
- * Where an old spelling is in its retirement (ADR 0176 decision 6): a notice in the release the
+ * Where an old spelling is in its retirement (ADR 0178 decision 6): a notice in the release the
  * new spelling ships in and the two after it, a usage error naming the new command in the third
  * release after, then gone. While ace is `0.0.N`, every release counts as a minor release.
  */
@@ -51,7 +51,7 @@ export type AliasOutcome =
 
 /**
  * Pure. The notice shows only to a person at a terminal: never in `--json` or `--quiet`
- * output, and never into a pipe (ADR 0176 §8).
+ * output, and never into a pipe (ADR 0178 §8).
  */
 export function aliasOutcome(
   alias: AliasSpec | undefined,

@@ -139,7 +139,7 @@ test("clean is refused and removes nothing without consent, a kind for --older-t
       [["clean"], 4],
       [["clean", "--logs"], 4],
       [["storage", "clean", "--worktrees", "--older-than", "7d", "--json"], 4],
-      // A threshold with nothing to apply it to is a wrong command line (ADR 0176 §4).
+      // A threshold with nothing to apply it to is a wrong command line (ADR 0178 §4).
       [["clean", "--older-than", "1d", "--yes"], 64],
       [["clean", "--logs", "--force-items", '["unused"]', "--yes"], 4],
       [["storage", "clean", "--logs", "--force-item", "unused", "--yes"], 4],

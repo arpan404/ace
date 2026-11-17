@@ -375,7 +375,7 @@ export async function startServer(options: ServerOptions): Promise<{
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
     // Authenticated with the daemon's token file on loopback: the person's whole authority, which
-    // any process able to read the file has (ADR 0176 §12.5).
+    // any process able to read the file has (ADR 0178 §12.5).
     const hostCredential = () =>
       relayed === undefined &&
       accountAdmitted === undefined &&

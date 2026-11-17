@@ -27,7 +27,7 @@ export interface SpadeSwitch {
 export type AskBeta = () => Promise<boolean>;
 
 /**
- * `ace spade on|off` (ADR 0123, ADR 0176 §8): the same switch as Settings. A running daemon
+ * `ace spade on|off` (ADR 0123, ADR 0178 §8): the same switch as Settings. A running daemon
  * applies it at once: it registers or removes Spade's service and makes or retires Spade's
  * grant. With no daemon running the CLI registers or removes the service itself and saves the
  * setting; the daemon makes or retires the grant when it next starts. `on` while Settings › Beta

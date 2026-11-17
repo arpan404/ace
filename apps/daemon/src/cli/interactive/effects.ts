@@ -1,7 +1,7 @@
 import type { CommandPayload } from "@ace/protocol";
 
 /**
- * What a key press asks the shell to do (ADR 0176 §9). The models are pure reducers that
+ * What a key press asks the shell to do (ADR 0178 §9). The models are pure reducers that
  * return these; `app.ts` carries them out against the daemon and the terminal.
  */
 export type Place = "projects" | "spade" | "market" | "settings" | "help";

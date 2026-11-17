@@ -54,7 +54,7 @@ export async function chatCommand(
   validateArgs(args, ["project", "provider", "thread", "model", "idempotency-key", "stream"], 1);
   if (args.flags.stream && args.flags.stream !== "jsonl")
     throw new CliFailure("refused", "Chat streams use jsonl");
-  // A person at a terminal gets attach as the app shows it (ADR 0176 §9); scripts keep JSONL.
+  // A person at a terminal gets attach as the app shows it (ADR 0178 §9); scripts keep JSONL.
   if (args.interactive && makeIO === chatIO) return attachInteractive(args, config);
   if (!selectedProfile(config.dataDir, option(args, "remote")))
     await ensureDaemon(config.dataDir, args, systemOpenRuntime());
@@ -373,7 +373,7 @@ export async function chatCommand(
           });
         } else if (action.kind === "approve" || action.kind === "deny") {
           // This path runs only off a terminal (a person there gets attach's own strip): nobody
-          // is there to confirm, and an agent's shell never answers (ADR 0176 §12.5).
+          // is there to confirm, and an agent's shell never answers (ADR 0178 §12.5).
           const refused = personOnlyRefusal("answer", {
             agent: agentShell(process.env),
             interactive: false,

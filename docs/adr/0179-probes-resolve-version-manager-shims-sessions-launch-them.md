@@ -1,4 +1,4 @@
-# 0177: Probes resolve version-manager shims; sessions launch them
+# 0179: Probes resolve version-manager shims; sessions launch them
 
 Date: 2026-11-17. Status: accepted. Decided by: the owner (rule), the test-isolation work (design).
 

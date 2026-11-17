@@ -9,7 +9,7 @@ import { installQuestion, reviewLines } from "../render/market-review.ts";
 import { answerOf, type MarketAsk } from "./request.ts";
 
 /*
- * Install and update show the review before anything changes (ADR 0176 §11). On a terminal the
+ * Install and update show the review before anything changes (ADR 0178 §11). On a terminal the
  * person confirms; without one, `--yes` installs with the review's defaults (no routines
  * started) after printing the review to stderr, and without `--yes` it exits 2 with the review in
  * the error. A blocked review exits 4. The install sends the reviewed hash, so bytes that changed

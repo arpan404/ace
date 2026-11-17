@@ -11,7 +11,7 @@ import { openSettings, type SettingsPort } from "./global-setting.ts";
 import { switchSpade } from "./spade.ts";
 
 /**
- * `ace config list|get|set|unset` (ADR 0176 §7) over every global setting. A running daemon
+ * `ace config list|get|set|unset` (ADR 0178 §7) over every global setting. A running daemon
  * saves and applies a value at once and pushes it to connected clients. With no daemon running
  * the CLI saves the same settings file, which the daemon reads when it starts.
  */

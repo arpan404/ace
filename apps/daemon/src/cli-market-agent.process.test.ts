@@ -14,7 +14,7 @@ import { accessRequest } from "./client-access.ts";
 import { fakeMarket } from "./marketplace/test-support.ts";
 
 /*
- * `ace market` against a real daemon, a fake market and a fake ace account (ADR 0176 §12):
+ * `ace market` against a real daemon, a fake market and a fake ace account (ADR 0178 §12):
  * a publisher's draft reaches the market with this machine's grant, and an agent's shell
  * (ACE_THREAD_ID) asking to withdraw gets the person's request instead, whatever --yes says.
  */

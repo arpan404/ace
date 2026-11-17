@@ -11,7 +11,7 @@ import { receipt, stringFlag } from "./output.ts";
 import { snoozeUntil } from "./snooze.ts";
 import { threadArgument } from "./thread-reads.ts";
 
-/** The person's default provider from Settings (ADR 0176 §2); Codex if none is readable. */
+/** The person's default provider from Settings (ADR 0178 §2); Codex if none is readable. */
 export async function defaultProvider(client: Client, signal: AbortSignal): Promise<string> {
   try {
     const result = await client.request(

@@ -10,7 +10,7 @@ import { typed, type Key } from "../tui/keys.ts";
 import type { Effect } from "./effects.ts";
 
 /**
- * Answering one open request from the keyboard (ADR 0176 §9), shared by the requests walk and
+ * Answering one open request from the keyboard (ADR 0178 §9), shared by the requests walk and
  * attach. Pure. Approvals answer with `y` Allow once, `n` Deny, `a` Always allow and `↵`
  * details; questions with their choices' numbers or a typed answer; plans in a pager, then
  * `y` Approve or `n` Ask for changes. The words and options come from `@ace/ui-core`'s

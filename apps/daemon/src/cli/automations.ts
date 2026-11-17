@@ -6,7 +6,7 @@ import { key } from "./mutations.ts";
 import { CliFailure, usageFailure } from "./output.ts";
 
 /**
- * `ace automation list|show|run|create|remove` (ADR 0176 §7) over the daemon's automation
+ * `ace automation list|show|run|create|remove` (ADR 0178 §7) over the daemon's automation
  * requests, the same ones the app's Automations page sends.
  */
 

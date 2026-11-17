@@ -7,7 +7,7 @@ import type { OutputMode } from "../input-mode.ts";
 import { CliFailure } from "../output.ts";
 import type { Parsed } from "../parse.ts";
 
-/** What a command's handler gets (ADR 0176 §14): the parsed line and how to reach ace. */
+/** What a command's handler gets (ADR 0178 §14): the parsed line and how to reach ace. */
 export interface CommandContext {
   readonly command: CommandSpec;
   readonly parsed: Parsed;

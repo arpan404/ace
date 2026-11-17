@@ -3,7 +3,7 @@ import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 /*
  * The host token (`ACE_HOME/daemon-token`) is the person's whole authority: any process that
  * can read it acts as the person, an unsandboxed coding agent included. So for person-only
- * market actions, the host token alone isn't enough (ADR 0176 §12.5): they need the app or a
+ * market actions, the host token alone isn't enough (ADR 0178 §12.5): they need the app or a
  * paired device, or an ace sign-in from the last ten minutes, which takes the person in a
  * browser (ADR 0174 §2's rule). Pure.
  */
