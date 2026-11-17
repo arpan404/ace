@@ -11,12 +11,13 @@ import {
   Helper,
   localFrameEndpoint,
 } from "./index.ts";
-import { deferred, fakeCommand, ids, manager, ready } from "./testing/support.ts";
+import { deferred, fakeCommand, ids, macHostPlatform, manager, ready } from "./testing/support.ts";
 
 it("negotiates capabilities and preserves v1 helpers without inventing semantic support", async () => {
   for (const v2 of [false, true]) {
     const helper = await Helper.open({
       ...fakeCommand,
+      ...macHostPlatform,
       env: { FAKE_V2: v2 ? "1" : "0", LEGACY_ONLY: v2 ? "0" : "1" },
       transport: v2 ? "endpoint" : "legacy",
       nextId: ids(),
