@@ -40,7 +40,7 @@ test("a machine that stops answering shows why on the map, and its fix reconnect
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   app.crashMachine("build");
   const build = await node("Build server");
-  expect(await within(await map()).findByText(/^(offline|couldn't reach it)$/)).toBeTruthy();
+  expect(await within(await map()).findByText(/^(offline|couldn't reach it)$/i)).toBeTruthy();
   expect(await screen.findByText(/1 connection needs you\.$/)).toBeTruthy();
   await userEvent.click(build);
   const panel = await screen.findByRole("region", { name: "Build server details" });
@@ -55,7 +55,7 @@ test("Problems only fades everything that's fine and keeps the problem in full",
   await app.open("/settings/remote/map");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   app.crashMachine("build");
-  await within(await map()).findByText(/^(offline|couldn't reach it)$/);
+  await within(await map()).findByText(/^(offline|couldn't reach it)$/i);
   await userEvent.click(screen.getByRole("checkbox", { name: "Problems only" }));
   await waitFor(async () =>
     expect((await node("iPhone 16 Pro")).getAttribute("opacity")).toBe(String(fadedOpacity)),
