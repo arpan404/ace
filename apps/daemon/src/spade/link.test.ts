@@ -26,11 +26,19 @@ function machine(report?: (error: unknown) => void) {
     serviceReads: 0,
     /** Each wait before the next look, as the link scheduled it. */
     waits: [] as number[],
+    /** The next read of Spade's files fails, as a disk error would. */
+    unreadable: false,
   };
   const link = new SpadeLink({
     dataDir: "/ace/spade",
     runtime: {
-      readText: async (path) => files.get(path),
+      readText: async (path) => {
+        if (world.unreadable) {
+          world.unreadable = false;
+          throw new Error("EIO: i/o error, read");
+        }
+        return files.get(path);
+      },
       health: async (endpoint, nonce) => {
         const key = world.answering.get(endpoint.port);
         if (key === undefined) return undefined;
@@ -290,19 +298,53 @@ test("a Spade that stays down is looked at less and less, up to a minute, and it
   expect(world.waits.at(-1)).toBe(5000);
 });
 
-test("a listener that throws while Spade is looked at is reported, and the link keeps looking", async () => {
+test("a listener that throws is reported, and every other listener is still told", async () => {
   const reported: unknown[] = [];
   const { link, world, spadeStarts } = machine((error) => reported.push(error));
-  link.onReady(() => {
-    throw new Error("listener broke");
+  const statuses: string[] = [];
+  const arrived: number[] = [];
+  const ended: number[] = [];
+  link.subscribe(() => {
+    throw new Error("subscriber broke");
   });
+  link.subscribe((status) => statuses.push(status.state));
+  link.onReady(() => {
+    throw new Error("arrival broke");
+  });
+  link.onReady((ready) => arrived.push(ready.connection.port));
+  link.onRunEnded(() => {
+    throw new Error("ending broke");
+  });
+  link.onRunEnded((generation) => ended.push(generation));
   world.service = "running";
   spadeStarts(41, 4100);
-  // Turning on looks once, and that look's listener throws; the look asked for meanwhile runs.
   link.setEnabled(true);
   await link.refresh();
-  expect(reported).toEqual([new Error("listener broke")]);
-  // The failed look still scheduled the next (a second), and the next found Spade ready.
+  const first = link.ready()?.generation;
+  expect(statuses.at(-1)).toBe("ready");
+  expect(arrived).toEqual([4100]);
+
+  // Restarted on another port: the old instance's end reaches the listener after the broken one.
+  world.answering.clear();
+  spadeStarts(42, 4200);
+  await link.refresh();
+  expect(ended).toEqual([first]);
+  expect(arrived).toEqual([4100, 4200]);
+  expect(reported).toContainEqual(new Error("subscriber broke"));
+  expect(reported).toContainEqual(new Error("arrival broke"));
+  expect(reported).toContainEqual(new Error("ending broke"));
+});
+
+test("a look that fails is reported, and the link looks again a second later", async () => {
+  const reported: unknown[] = [];
+  const { link, world, spadeStarts } = machine((error) => reported.push(error));
+  world.service = "running";
+  spadeStarts(41, 4100);
+  world.unreadable = true;
+  // Turning on looks once and that look fails; the look asked for meanwhile runs.
+  link.setEnabled(true);
+  await link.refresh();
+  expect(reported).toEqual([new Error("EIO: i/o error, read")]);
   expect(world.waits).toEqual([1000, 5000]);
   expect(link.status().state).toBe("ready");
 });
