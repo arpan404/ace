@@ -107,7 +107,7 @@ export class AutomationService {
     // Runs that waited while new work was paused start once it is resumed.
     this.stopReopen = this.deps.admission?.onReopen(() => this.drainWaiting());
     try {
-      for (const job of this.store.jobs()) {
+      for (const job of this.store.jobs(this.unreadable)) {
         try {
           const ready = { fired: false };
           const prepared = this.runtime.prepare(job.automation, this.hooks(generation, ready));
@@ -138,7 +138,7 @@ export class AutomationService {
           if (!this.live) break;
         }
       }
-      for (const { run, input } of this.store.active()) {
+      for (const { run, input } of this.store.active(this.unreadable)) {
         if (!this.live) break;
         try {
           this.executions.restore(run, input);
@@ -159,6 +159,11 @@ export class AutomationService {
       if (this.lifecycle.endStart()) this.stop();
     }
   }
+  /** A stored automation or run this build can't read: reported, kept, and passed over. */
+  private unreadable = (id: string, error: unknown) =>
+    this.report(
+      new Error(`Automation record ${id} can't be read by this build; skipped`, { cause: error }),
+    );
   private isolateJob(job: JobMetadata, generation: number, error: unknown): void {
     if (!this.live || generation !== this.generation) return;
     try {

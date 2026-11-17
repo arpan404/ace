@@ -50,6 +50,9 @@ const Input = z.object({
 /** Where a run still going sorts in `automation_finished`: after every real finish time. */
 const notFinished = Number.MAX_SAFE_INTEGER;
 
+/** Told of a stored row this build can't read, by its id; the row is kept. */
+type Unreadable = (id: string, error: unknown) => void;
+
 export class AutomationStore {
   private catalogCache: z.infer<typeof CatalogMetadata>[] | undefined;
   private db: DatabaseSync;
@@ -243,28 +246,39 @@ export class AutomationStore {
     const state: unknown = JSON.parse(String(row.state));
     return state;
   }
-  *jobs(): Iterable<JobMetadata> {
+  /**
+   * Every automation this build can read. One it can't (a trigger or provider another build
+   * wrote, say) is kept, told to `unreadable`, and passed over, so it never takes down the rest.
+   */
+  *jobs(unreadable?: Unreadable): Iterable<JobMetadata> {
     let count = 0;
     for (const row of this.sql(
-      "SELECT j.body,j.nominal,j.due,r.revision,e.body AS pollError,t.body AS triggerError FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id LEFT JOIN automation_trigger_errors t ON t.id=j.id ORDER BY j.id LIMIT 1001",
+      "SELECT j.id,j.body,j.nominal,j.due,r.revision,e.body AS pollError,t.body AS triggerError FROM automation_jobs j LEFT JOIN automation_revisions r ON r.id=j.id LEFT JOIN automation_poll_errors e ON e.id=j.id LEFT JOIN automation_trigger_errors t ON t.id=j.id ORDER BY j.id LIMIT 1001",
     ).iterate()) {
       if (++count > 1000) throw new Error("Automation limit exceeded");
-      yield JobMetadata.parse({
-        automation: JSON.parse(String(row.body)),
-        nominal: row.nominal,
-        due: row.due,
-        revision: Number(row.revision ?? 1),
-        lastPollError: row.pollError
-          ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
-          : undefined,
-        triggerError: row.triggerError
-          ? AutomationTriggerError.parse(JSON.parse(String(row.triggerError)))
-          : undefined,
-      });
+      let job: JobMetadata;
+      try {
+        job = JobMetadata.parse({
+          automation: JSON.parse(String(row.body)),
+          nominal: row.nominal,
+          due: row.due,
+          revision: Number(row.revision ?? 1),
+          lastPollError: row.pollError
+            ? AutomationPollError.parse(JSON.parse(String(row.pollError)))
+            : undefined,
+          triggerError: row.triggerError
+            ? AutomationTriggerError.parse(JSON.parse(String(row.triggerError)))
+            : undefined,
+        });
+      } catch (error) {
+        unreadable?.(String(row.id), error);
+        continue;
+      }
+      yield job;
     }
   }
-  list(): JobMetadata[] {
-    return [...this.jobs()];
+  list(unreadable?: Unreadable): JobMetadata[] {
+    return [...this.jobs(unreadable)];
   }
   /** Catalog reads need names, never prompt bodies, scheduling state or run history. */
   catalog(provider: Automation["provider"], workspace: string): { id: string; title: string }[] {
@@ -273,7 +287,11 @@ export class AutomationStore {
       json_extract(body,'$.workspace') AS workspace, json_extract(body,'$.provider') AS provider
       FROM automation_jobs ORDER BY id LIMIT 1000`)
       .all()
-      .map((row) => CatalogMetadata.parse(row));
+      .flatMap((row) => {
+        // An automation this build can't read has no catalog entry; the rest still do.
+        const parsed = CatalogMetadata.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      });
     return this.catalogCache
       .filter((a) => a.enabled && a.provider === provider && a.workspace === workspace)
       .slice(0, 128)
@@ -334,7 +352,12 @@ export class AutomationStore {
         FROM automation_jobs j ORDER BY j.id LIMIT 1001`,
     ).iterate()) {
       if (row.runBody === null || row.runBody === undefined) continue;
-      runs.set(String(row.aid), AutomationRun.parse(JSON.parse(String(row.runBody))));
+      // A latest run this build can't read shows as none, never failing the whole list.
+      try {
+        runs.set(String(row.aid), AutomationRun.parse(JSON.parse(String(row.runBody))));
+      } catch {
+        continue;
+      }
     }
     return runs;
   }
@@ -541,13 +564,23 @@ export class AutomationStore {
       return run;
     });
   }
-  active(): { run: AutomationRun; input: ExecutionInput }[] {
-    return this.sql("SELECT body,input FROM automation_runs WHERE status='running' LIMIT 256")
+  /** Running runs this build can read; one it can't is told to `unreadable` and kept. */
+  active(unreadable?: Unreadable): { run: AutomationRun; input: ExecutionInput }[] {
+    return this.sql("SELECT id,body,input FROM automation_runs WHERE status='running' LIMIT 256")
       .all()
-      .map((row) => ({
-        run: AutomationRun.parse(JSON.parse(String(row.body))),
-        input: Input.parse(JSON.parse(String(row.input))),
-      }));
+      .flatMap((row) => {
+        try {
+          return [
+            {
+              run: AutomationRun.parse(JSON.parse(String(row.body))),
+              input: Input.parse(JSON.parse(String(row.input))),
+            },
+          ];
+        } catch (error) {
+          unreadable?.(String(row.id), error);
+          return [];
+        }
+      });
   }
   inbox(
     limit = 50,
