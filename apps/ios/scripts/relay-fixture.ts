@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { startRelay, connectHostToRelay } from "@ace/relay";
 import { fingerprint, keyPair } from "@ace/secure-channel";
 import type { ClientMessage } from "@ace/protocol";
+import { olderRelay, startProxy, stepOneOnly, RELAY_SHORTCUTS } from "./relay-proxy.ts";
 
 /**
  * The real Node relay with a stand-in daemon behind it, for the iOS relay socket's live test
@@ -16,6 +17,12 @@ import type { ClientMessage } from "@ace/protocol";
  * flow control, as from the daemon; device `ios-stream` gets 8 MB of text instead of the deflated
  * message, which arrives whole only if the phone returns credit. A hello presenting the grant
  * `fixture-refused` is refused as the daemon refuses a grant it won't take: `unauthorized`.
+ *
+ * `relays` are proxies in front of the same relay standing in for other relays (ADR 0155): `full`
+ * passes everything, `stepOne` knows early frames but not the message in the upgrade, `older`
+ * knows neither, `refusing` turns away an upgrade carrying the message, `losing` closes an early
+ * connection with 4020 and `alwaysLosing` every connection, and `slowFull` and `slowOlder` add 200 ms each way. Each one's `log`
+ * answers what its connections offered (entries cut to their prefix), echoed and sent.
  */
 const out = process.argv[2] ?? "/tmp/ace-relay-fixture.json";
 /** Text deflate can't shrink, so a stream really fills the flow window. */
@@ -77,9 +84,26 @@ const host = await connectHostToRelay({
     }
   },
 });
-writeFileSync(out, JSON.stringify({ url: relay.url, hostId: host.hostId }));
+const slow = 200;
+const proxies = {
+  full: await startProxy(relay.url),
+  stepOne: await startProxy(relay.url, { filter: stepOneOnly }),
+  older: await startProxy(relay.url, { filter: olderRelay }),
+  refusing: await startProxy(relay.url, {
+    refuse: (header) => header.includes(RELAY_SHORTCUTS.messagePrefix),
+  }),
+  losing: await startProxy(relay.url, { lose: "early" }),
+  alwaysLosing: await startProxy(relay.url, { lose: "every" }),
+  slowFull: await startProxy(relay.url, { delay: slow }),
+  slowOlder: await startProxy(relay.url, { filter: olderRelay, delay: slow }),
+};
+const relays = Object.fromEntries(
+  Object.entries(proxies).map(([name, proxy]) => [name, { url: proxy.url, log: proxy.log }]),
+);
+writeFileSync(out, JSON.stringify({ url: relay.url, hostId: host.hostId, relays }));
 process.stdout.write(`relay ${relay.url} host ${fingerprint(hostKeys.publicKey)}\n`);
 const stop = async () => {
+  for (const proxy of Object.values(proxies)) await proxy.close();
   await host.close();
   await relay.close();
   process.exit(0);
