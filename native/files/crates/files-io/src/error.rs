@@ -20,6 +20,8 @@ pub enum Error {
         /// The version that was found, or `None` when nothing was there.
         current: Option<String>,
     },
+    #[error("too much to walk: {0}")]
+    LimitExceeded(String),
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
     #[error(transparent)]
@@ -33,6 +35,7 @@ impl Error {
             Error::Path(error) => error.code(),
             Error::NotFile(_) => "NOT_FILE",
             Error::Conflict { .. } => "CONFLICT",
+            Error::LimitExceeded(_) => "LIMIT_EXCEEDED",
             Error::InvalidArgument(_) => "INVALID_ARGUMENT",
             Error::Io(error) => io_code(error),
         }

@@ -10,6 +10,7 @@ mod encoding;
 mod error;
 mod mutate;
 mod read;
+mod tree;
 mod version;
 mod write;
 

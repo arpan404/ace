@@ -11,7 +11,7 @@ use std::path::Path;
 use files_safe::Root;
 
 use crate::Error;
-use crate::version::version_of;
+use crate::version::{entry_version, version_of};
 
 /// Replaces a file's contents, refusing when the version the caller worked from is no longer
 /// current.
@@ -25,11 +25,11 @@ pub fn write(
     expected: Option<&str>,
 ) -> Result<String, Error> {
     let absolute = root.resolve(path)?;
-    let original = guard(&absolute, path, expected)?;
+    let original = guard(root, &absolute, path, expected)?;
     let temp = staged(&absolute, bytes, original.as_ref())?;
     // The temp copy is complete and synced; check once more so a save that lost a race with
     // another writer never lands on top of it.
-    let _ = guard(&absolute, path, expected)?;
+    let _ = guard(root, &absolute, path, expected)?;
     temp.persist(&absolute)
         .map_err(|error| Error::Io(error.error))?;
     version_of(&absolute, &std::fs::metadata(&absolute)?)
@@ -41,7 +41,12 @@ pub fn create_file(root: &Root, path: &str, bytes: &[u8]) -> Result<String, Erro
 }
 
 /// The metadata of the file the caller expects, or `CONFLICT` when the disk has moved on.
-fn guard(absolute: &Path, path: &str, expected: Option<&str>) -> Result<Option<Metadata>, Error> {
+fn guard(
+    root: &Root,
+    absolute: &Path,
+    path: &str,
+    expected: Option<&str>,
+) -> Result<Option<Metadata>, Error> {
     let found = match std::fs::symlink_metadata(absolute) {
         Ok(metadata) => Some(metadata),
         Err(error) if error.kind() == ErrorKind::NotFound => None,
@@ -49,7 +54,7 @@ fn guard(absolute: &Path, path: &str, expected: Option<&str>) -> Result<Option<M
     };
     match (expected, found) {
         (Some(expected), Some(metadata)) => {
-            let current = version_of(absolute, &metadata)?;
+            let current = entry_version(root, path, absolute, &metadata)?;
             if current != expected {
                 return Err(Error::Conflict {
                     path: path.to_owned(),
@@ -67,7 +72,7 @@ fn guard(absolute: &Path, path: &str, expected: Option<&str>) -> Result<Option<M
         }),
         (None, Some(metadata)) => Err(Error::Conflict {
             path: path.to_owned(),
-            current: Some(version_of(absolute, &metadata)?),
+            current: Some(entry_version(root, path, absolute, &metadata)?),
         }),
         (None, None) => Ok(None),
     }

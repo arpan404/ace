@@ -16,6 +16,7 @@ workspace = true
 chardetng = "0.1"
 encoding_rs = "0.8"
 files-safe = { path = "../files-safe" }
+sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 

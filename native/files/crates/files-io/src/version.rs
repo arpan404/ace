@@ -22,9 +22,24 @@ pub fn stat_version(root: &Root, path: &str) -> Result<Option<String>, Error> {
         Err(error) => return Err(error.into()),
     };
     match std::fs::symlink_metadata(&absolute) {
-        Ok(metadata) => Ok(Some(version_of(&absolute, &metadata)?)),
+        Ok(metadata) => Ok(Some(entry_version(root, path, &absolute, &metadata)?)),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
+    }
+}
+
+/// The version of any entry: a file's own, or a folder's tree digest, which is what the daemon
+/// compares a caller's expected version against.
+pub(crate) fn entry_version(
+    root: &Root,
+    path: &str,
+    absolute: &Path,
+    metadata: &Metadata,
+) -> Result<String, Error> {
+    if metadata.is_dir() {
+        crate::tree::version(root, path, absolute, metadata)
+    } else {
+        version_of(absolute, metadata)
     }
 }
 
