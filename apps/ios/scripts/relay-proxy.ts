@@ -102,33 +102,42 @@ export async function startProxy(target: string, options: ProxyOptions = {}) {
       upstream.on("open", () => {
         record.echoed = redact(upstream.protocol);
         chosen.set(request, upstream.protocol);
+        // From the open on: what the relay sends while the delayed answer is on its way waits.
+        let client: WebSocket | undefined;
+        const waiting: Buffer[] = [];
+        upstream.on("message", (data: Buffer) =>
+          later(() => {
+            if (!client) return void waiting.push(data);
+            note("received");
+            if (client.readyState === WebSocket.OPEN) client.send(data);
+          }),
+        );
+        upstream.on("close", (code) => {
+          record.closed ??= code;
+          later(() => client?.close(code === 1005 || code === 1006 ? 1000 : code));
+        });
         later(() =>
-          wss.handleUpgrade(request, socket, head, (client) => {
+          wss.handleUpgrade(request, socket, head, (opened) => {
             if (
               options.lose === "every" ||
               (options.lose === "early" && earlyEchoes.has(upstream.protocol))
             ) {
               record.closed = RELAY_SHORTCUTS.lostClose;
-              client.close(RELAY_SHORTCUTS.lostClose, "Early frame lost");
+              opened.close(RELAY_SHORTCUTS.lostClose, "Early frame lost");
               upstream.close();
               return;
             }
-            client.on("message", (data: Buffer) => {
+            client = opened;
+            for (const data of waiting.splice(0)) {
+              note("received");
+              opened.send(data);
+            }
+            opened.on("message", (data: Buffer) => {
               note("sent");
               later(() => upstream.readyState === WebSocket.OPEN && upstream.send(data));
             });
-            upstream.on("message", (data: Buffer) =>
-              later(() => {
-                note("received");
-                if (client.readyState === WebSocket.OPEN) client.send(data);
-              }),
-            );
-            upstream.on("close", (code) => {
-              record.closed ??= code;
-              later(() => client.close(code === 1005 || code === 1006 ? 1000 : code));
-            });
-            client.on("close", () => upstream.close());
-            client.on("error", () => upstream.terminate());
+            opened.on("close", () => upstream.close());
+            opened.on("error", () => upstream.terminate());
           }),
         );
       });
