@@ -102,6 +102,8 @@ impl Lister {
     }
 
     /// Reports one entry, following nothing: a symlink reports what it points at.
+    ///
+    /// The root itself is not an entry of anything, so the empty path is `INVALID_PATH`.
     pub fn stat(&self, path: &str) -> Result<Entry, Error> {
         Root::check(path)?;
         if path.is_empty() {
