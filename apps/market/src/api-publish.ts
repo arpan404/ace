@@ -15,7 +15,7 @@ import { authenticate, notYours, type Authed, type AuthedPublisher } from "./aut
 import { draftKey, draftReportKey, objectKey, versionReportKey, type Context } from "./context.ts";
 import type { Env } from "./env.ts";
 import { failure, json, readCapped, readJson, refused } from "./http.ts";
-import { isNewPublisher, publisherLimits } from "./rules.ts";
+import { isNewPublisher, limitTier, publisherLimits } from "./rules.ts";
 import type { EntryKey, Route, VersionKey } from "./routes.ts";
 import { ensureCopy } from "./store/copies.ts";
 import type { Databases } from "./store/databases.ts";
@@ -90,7 +90,7 @@ const changed = () =>
 
 /** The publisher's caps, by their standing now (ADR 0173 §9). */
 const capsOf = (publisher: AuthedPublisher, now: number) =>
-  publisherLimits(isNewPublisher(publisher, now));
+  publisherLimits(limitTier(publisher, now));
 
 /** Writes the archive at its hash unless one is there: the key is its content hash. */
 async function putOnce(bucket: R2Bucket, hash: string, bytes: () => Uint8Array) {
@@ -234,7 +234,7 @@ export async function publish(
   const reserve = async (charge: boolean) => {
     const refusal = await reserveUpload(publishers, {
       publisher: author.id,
-      newPublisher: isNewPublisher(author, context.now),
+      tier: limitTier(author, context.now),
       size: checked.size,
       newDraft: !scanned.done,
       ...(charge ? { charge: { item: chargeItem(versionKey), nonce: context.newToken() } } : {}),
@@ -413,7 +413,7 @@ async function storeDraft(
   if (!body) return failure(413, "too_large", `An archive is at most ${maxArchiveBytes} bytes.`);
   const refusal = await reserveUpload(db, {
     publisher: publisher.id,
-    newPublisher: isNewPublisher(publisher, context.now),
+    tier: limitTier(publisher, context.now),
     size: body.byteLength,
     newDraft: !existing,
     replacing: existing?.id,

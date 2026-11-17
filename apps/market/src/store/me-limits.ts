@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { MarketLimits as Schema } from "@ace/protocol/marketplace";
-import { dayOf, publisherLimits } from "../rules.ts";
+import { dayOf, publisherLimits, type LimitTier } from "../rules.ts";
 
 export type MarketLimits = z.infer<typeof Schema>;
 export type Caps = ReturnType<typeof publisherLimits>;
@@ -38,7 +38,7 @@ export const markUsageDirty = (db: D1Database, publisher: string, now: number) =
 export async function limitsOf(
   db: D1Database,
   publisher: string,
-  newPublisher: boolean,
+  tier: LimitTier,
   now: number,
 ): Promise<MarketLimits> {
   const row = await db
@@ -50,7 +50,7 @@ export async function limitsOf(
     )
     .bind(publisher, dayOf(now))
     .first<{ uploads: number; stored: number; drafts: number }>();
-  const caps = publisherLimits(newPublisher);
+  const caps = publisherLimits(tier);
   return {
     uploadsToday: row?.uploads ?? 0,
     uploadsPerDay: caps.uploadsPerDay,
@@ -78,7 +78,7 @@ export function uploadRefusal(
 
 export interface UploadReservation {
   publisher: string;
-  newPublisher: boolean;
+  tier: LimitTier;
   size: number;
   /** Whether the upload makes a new draft, so the draft cap applies. */
   newDraft: boolean;
@@ -101,7 +101,7 @@ export async function reserveUpload(
   db: D1Database,
   input: UploadReservation,
 ): Promise<string | undefined> {
-  const caps = publisherLimits(input.newPublisher);
+  const caps = publisherLimits(input.tier);
   const values = [
     input.publisher,
     dayOf(input.now),
@@ -126,7 +126,7 @@ export async function reserveUpload(
         .bind(...values.slice(0, 8))
         .run();
   if (result.meta.changes === 1) return undefined;
-  const limits = await limitsOf(db, input.publisher, input.newPublisher, input.now);
+  const limits = await limitsOf(db, input.publisher, input.tier, input.now);
   const replaced = input.replacing
     ? ((await db
         .prepare("SELECT size FROM drafts WHERE id = ?1")
