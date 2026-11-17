@@ -286,7 +286,7 @@ impl Security {
     fn windows_system_roots() -> Vec<PathBuf> {
         ["SystemRoot", "ProgramFiles", "ProgramFiles(x86)"]
             .iter()
-            .filter_map(|name| std::env::var_os(name))
+            .filter_map(std::env::var_os)
             .map(|value| spade_sandbox::policy::real(Path::new(&value)))
             .collect()
     }

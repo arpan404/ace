@@ -250,7 +250,7 @@ fn clone_tree(from: &Path, to: &Path) -> Result<(), String> {
     {
         // NTFS has no cheap clone, so a plain recursive copy (ReFS block-cloning is a later step).
         let _ = &run;
-        return copy_tree(from, to).map_err(|error| error.to_string());
+        copy_tree(from, to).map_err(|error| error.to_string())
     }
     #[cfg(not(windows))]
     {
