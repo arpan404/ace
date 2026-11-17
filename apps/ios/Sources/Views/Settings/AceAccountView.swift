@@ -38,17 +38,6 @@ struct AceAccountView: View {
         .onChange(of: model.account?.id) { _, _ in browserProblem = nil; Task { await machines?.refreshAccount() } }
         .onChange(of: model.login?.loginUrl) { _, url in if let url { Task { await authenticate(url) } } }
         .onDisappear { model.cancel() }
-        .confirmationDialog("Forget \(forgetting.map(Self.name) ?? "machine")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
-                            titleVisibility: .visible, presenting: forgetting) { machine in
-            Button("Forget", role: .destructive) {
-                Task { notice = await machines?.forgetAccountMachine(machine.hostId) }
-            }.accessibilityIdentifier("account.machine.forget.confirm")
-        } message: { _ in Text("It comes back when it signs in again.") }
-        // Web's sign-out question (`accountSignOutQuestion`).
-        .confirmationDialog("Sign out?", isPresented: $signingOut, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive) { Task { await model.signOut() } }
-                .accessibilityIdentifier("account.signOut.confirm")
-        } message: { Text("Your threads and drafts stay on this device.") }
         .alert(notice?.message ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         }
@@ -127,6 +116,11 @@ struct AceAccountView: View {
                 .frame(maxWidth: .infinity)
                 .disabled(model.busy)
                 .accessibilityIdentifier("account.signOut")
+                // Web's sign-out question (`accountSignOutQuestion`), pointing at the button.
+                .confirmationDialog("Sign out?", isPresented: $signingOut, titleVisibility: .visible) {
+                    Button("Sign out", role: .destructive) { Task { await model.signOut() } }
+                        .accessibilityIdentifier("account.signOut.confirm")
+                } message: { Text("Your threads and drafts stay on this device.") }
         }
         .insetRowBackground()
     }
@@ -208,6 +202,11 @@ struct AceAccountView: View {
                     // One element per machine ("studio, Seen 3 days ago"), not one per glyph and line.
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("account.machine.\(machine.hostId)")
+                    .confirmationDialog("Forget \(Self.name(machine))?", isPresented: forgetQuestion(machine), titleVisibility: .visible) {
+                        Button("Forget", role: .destructive) {
+                            Task { notice = await machines?.forgetAccountMachine(machine.hostId) }
+                        }.accessibilityIdentifier("account.machine.forget.confirm")
+                    } message: { Text("It comes back when it signs in again.") }
             }
         } header: {
             InsetHeader("Machines on your account")
@@ -218,6 +217,11 @@ struct AceAccountView: View {
     private func forget(_ machine: AceMachine) -> some View {
         Button("Forget") { forgetting = machine }
             .tint(AceDesign.Ink.destructive)
+    }
+
+    /// Whether `machine`'s Forget question is up, so it points at that machine's row.
+    private func forgetQuestion(_ machine: AceMachine) -> Binding<Bool> {
+        Binding(get: { forgetting?.hostId == machine.hostId }, set: { if !$0 { forgetting = nil } })
     }
 
     private static func name(_ machine: AceMachine) -> String { machine.name.isEmpty ? "Machine" : machine.name }
