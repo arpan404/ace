@@ -17,15 +17,20 @@ export const recordedDatabases = (dbs: Databases): { name: string; db: D1Databas
   { name: "lists", db: dbs.lists },
 ];
 
-/** Records today's sizes unless today is recorded already. */
+/**
+ * Records today's sizes for every database not recorded today yet. A database's size row is
+ * written in the batch with its table rows, so it marks that database's day complete: a run cut
+ * off part way leaves the rest for the next.
+ */
 export async function recordSizes(dbs: Databases, now: number): Promise<void> {
   const today = Math.floor(now / day);
-  const done = await dbs.counts
-    .prepare("SELECT 1 AS found FROM database_sizes WHERE day = ?1 LIMIT 1")
+  const { results } = await dbs.counts
+    .prepare("SELECT database FROM database_sizes WHERE day = ?1")
     .bind(today)
-    .first();
-  if (done) return;
+    .all<{ database: string }>();
+  const done = new Set(results.map((row) => row.database));
   for (const { name, db } of recordedDatabases(dbs)) {
+    if (done.has(name)) continue;
     const tables = await db
       .prepare(
         `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
@@ -48,18 +53,18 @@ export async function recordSizes(dbs: Databases, now: number): Promise<void> {
     await dbs.counts.batch([
       dbs.counts
         .prepare(
-          `INSERT INTO database_sizes (day, database, bytes) VALUES (?1, ?2, ?3)
-            ON CONFLICT (day, database) DO UPDATE SET bytes = excluded.bytes`,
-        )
-        .bind(today, name, bytes),
-      dbs.counts
-        .prepare(
           `INSERT INTO table_rows (day, database, name, rows)
             SELECT ?1, ?2, json_extract(value, '$.name'), json_extract(value, '$.rows')
               FROM json_each(?3) WHERE true
             ON CONFLICT (day, database, name) DO UPDATE SET rows = excluded.rows`,
         )
         .bind(today, name, JSON.stringify(rows)),
+      dbs.counts
+        .prepare(
+          `INSERT INTO database_sizes (day, database, bytes) VALUES (?1, ?2, ?3)
+            ON CONFLICT (day, database) DO UPDATE SET bytes = excluded.bytes`,
+        )
+        .bind(today, name, bytes),
     ]);
   }
 }
