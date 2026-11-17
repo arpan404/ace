@@ -56,6 +56,11 @@ fn removed_lines_mark_the_line_below() {
         "a removal at the end marks the last line",
     );
     assert_eq!(
+        marks("x\na\n", "a\n"),
+        [(1, MarkKind::Removed)],
+        "a removal above a shared tail line marks that line",
+    );
+    assert_eq!(
         marks("one\ntwo\nthree\n", "one\nthree\nnew\n"),
         [(2, MarkKind::Removed), (3, MarkKind::Added)],
         "a removal above an added line keeps the removal on that line",
@@ -88,6 +93,24 @@ fn modified_block() {
         [(2, MarkKind::Modified)],
         "a block at the end keeps its own mark instead of a removal",
     );
+    assert_eq!(
+        marks("a\nb\nc\nd\n", "A\nb\nc\n"),
+        [(1, MarkKind::Modified), (3, MarkKind::Removed)],
+        "a changed first line and a removal after the last shared line",
+    );
+}
+
+#[test]
+fn reordered_block_matches_the_diff_view() {
+    assert_eq!(
+        marks("u\nc\nc\nX\n", "c\nc\nY\nu\n"),
+        [
+            (1, MarkKind::Removed),
+            (3, MarkKind::Modified),
+            (4, MarkKind::Added),
+        ],
+        "the diff view's alignment, not one that merely minimises the edit count",
+    );
 }
 
 #[test]
@@ -116,7 +139,32 @@ fn nothing_to_mark_when_the_text_is_gone() {
         [],
         "an empty file has no line to mark",
     );
+    assert_eq!(
+        marks("a\n", ""),
+        [],
+        "a file emptied from its last line has no line to mark either",
+    );
     assert_eq!(marks("", "one\n"), [(1, MarkKind::Added)]);
+}
+
+#[test]
+fn blank_lines_are_lines() {
+    assert_eq!(marks("", ""), []);
+    assert_eq!(
+        marks("", "\n"),
+        [(1, MarkKind::Added)],
+        "one empty line is one added line",
+    );
+    assert_eq!(
+        marks("a\n", "a\n\n"),
+        [(2, MarkKind::Added)],
+        "a blank line appended after a newline is a second line",
+    );
+    assert_eq!(
+        marks("a\n\n", "a\n"),
+        [(1, MarkKind::Removed)],
+        "removing that blank line marks the line above it",
+    );
 }
 
 #[test]

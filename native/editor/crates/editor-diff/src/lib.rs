@@ -5,11 +5,13 @@
 //!
 //! [`line_marks`] diffs the two texts by line and reports one [`Mark`] per changed line on
 //! the current side, in ascending line order. A line carries at most one mark, so the
-//! result is exactly what a gutter draws. This is the Rust twin of `lineMarks` in
-//! `packages/ui-core`, and the kinds mean the same thing there.
+//! result is exactly what a gutter draws. The diff ports `diffTexts` from
+//! `packages/ui-core/src/diff.ts` and the marks are that package's `lineMarks` fold, so
+//! the gutter and the diff view always attribute a change to the same line.
 
 mod lines;
 mod marks;
+mod rows;
 
 pub use marks::{Mark, MarkKind};
 

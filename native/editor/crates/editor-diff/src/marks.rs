@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Turning a line diff into one mark per changed line of the current text.
-
-use imara_diff::{Algorithm, Diff, InternedInput};
+//! One gutter mark per changed line of the current text, folded from diff rows the way
+//! `lineMarks` in `packages/ui-core/src/line-marks.ts` folds them.
 
 use crate::lines;
+use crate::rows::{self, Row};
 
 /// How a line of the current text differs from the original.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -29,73 +29,58 @@ pub struct Mark {
 pub(super) fn marks(original: &str, current: &str) -> Vec<Mark> {
     let before: Vec<&str> = lines::split(original).collect();
     let after: Vec<&str> = lines::split(current).collect();
-    let (prefix, suffix) = lines::shared_ends(&before, &after);
-    let before_middle = &before[prefix..before.len() - suffix];
-    let after_middle = &after[prefix..after.len() - suffix];
+    if u32::try_from(before.len()).is_err() || u32::try_from(after.len()).is_err() {
+        return Vec::new();
+    }
+    number(fold(&rows::diff(&before, &after))).unwrap_or_default()
+}
 
-    let mut input: InternedInput<&str> = InternedInput::default();
-    input.reserve(before_middle.len() as u32, after_middle.len() as u32);
-    input.update_before(before_middle.iter().copied());
-    input.update_after(after_middle.iter().copied());
-
-    let mut diff = Diff::compute(Algorithm::Histogram, &input);
-    diff.postprocess_lines(&input);
-
-    let mut marks = Vec::new();
-    for hunk in diff.hunks() {
-        push_hunk_marks(&hunk, prefix, after.len(), &mut marks);
+/// Marks a run of removals and additions: the two pair up as modifications for as long as
+/// both have a line, the rest of the additions are additions, and removals left over mark
+/// the line below them (or the last line at the end of the text).
+///
+/// Marks come in ascending line order, so only the last mark can already sit on a line.
+fn fold(rows: &[Row]) -> Vec<(usize, MarkKind)> {
+    let mut marks: Vec<(usize, MarkKind)> = Vec::new();
+    let mut removed = 0;
+    let mut last_new = 0;
+    for row in rows {
+        match *row {
+            Row::Del => removed += 1,
+            Row::Add { new } => {
+                let kind = if removed > 0 {
+                    removed -= 1;
+                    MarkKind::Modified
+                } else {
+                    MarkKind::Added
+                };
+                marks.push((new, kind));
+                last_new = new;
+            }
+            Row::Context { new } => {
+                if removed > 0 && marks.last().is_none_or(|(line, _)| *line != new) {
+                    marks.push((new, MarkKind::Removed));
+                }
+                removed = 0;
+                last_new = new;
+            }
+        }
+    }
+    if removed > 0 && last_new > 0 && marks.last().is_none_or(|(line, _)| *line != last_new) {
+        marks.push((last_new, MarkKind::Removed));
     }
     marks
 }
 
-/// Marks one changed block: its lines pair up as modifications for as long as both sides
-/// have one, the rest are additions, and left-over removals land on the line below.
-///
-/// The diff only covered the lines between the shared ends, so `prefix` moves a block's
-/// position in that middle to a line of the whole text.
-fn push_hunk_marks(
-    hunk: &imara_diff::Hunk,
-    prefix: usize,
-    line_count: usize,
-    marks: &mut Vec<Mark>,
-) {
-    let removed = (hunk.before.end - hunk.before.start) as usize;
-    let added = (hunk.after.end - hunk.after.start) as usize;
-    let start = prefix + hunk.after.start as usize;
-    for offset in 0..added {
-        let kind = if offset < removed {
-            MarkKind::Modified
-        } else {
-            MarkKind::Added
-        };
+/// `None` when a line number does not fit [`Mark::line`], which the length check in
+/// [`marks`] makes unreachable.
+fn number(found: Vec<(usize, MarkKind)>) -> Option<Vec<Mark>> {
+    let mut marks = Vec::with_capacity(found.len());
+    for (line, kind) in found {
         marks.push(Mark {
-            line: line_number(start + offset),
+            line: u32::try_from(line).ok()?,
             kind,
         });
     }
-    if removed > added {
-        mark_removal_below(start + added, line_count, marks);
-    }
-}
-
-/// The line a removal shows on: the one below it, or the last line when it is at the end.
-/// A line that already carries a mark keeps it, so a block that ends in modified lines does
-/// not read as a removal as well.
-fn mark_removal_below(below: usize, line_count: usize, marks: &mut Vec<Mark>) {
-    let Some(last) = line_count.checked_sub(1) else {
-        return;
-    };
-    let line = line_number(below.min(last));
-    if marks.last().is_none_or(|mark| mark.line != line) {
-        marks.push(Mark {
-            line,
-            kind: MarkKind::Removed,
-        });
-    }
-}
-
-/// 1-based line number from a 0-based index. imara-diff rejects texts over `i32::MAX` lines,
-/// so the cast cannot truncate.
-fn line_number(index: usize) -> u32 {
-    index as u32 + 1
+    Some(marks)
 }
