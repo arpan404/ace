@@ -20,6 +20,8 @@ export type Resolved = Pick<SettingsEntry, "value" | "provenance">;
 export interface SettingsPort {
   readonly live: boolean;
   get(key: SettingsKey): Promise<Resolved>;
+  /** Many settings, in order, without flooding the settings service. */
+  getMany(keys: readonly SettingsKey[]): Promise<Resolved[]>;
   /** `value` has been checked against the key's schema; both sides check it again. */
   set(key: SettingsKey, value: JsonValue): Promise<void>;
   /** Back to the default. */
@@ -55,6 +57,15 @@ export async function openSettings(args: Args, home: string, thing: string): Pro
   return {
     live: false,
     get: (key) => service.get(key),
+    async getMany(keys) {
+      const resolved: Resolved[] = [];
+      // The service reads at most 32 keys at once.
+      for (let start = 0; start < keys.length; start += 32) {
+        const { entries } = await service.read({ keys: keys.slice(start, start + 32), scope: {} });
+        resolved.push(...entries);
+      }
+      return resolved;
+    },
     // Checked against the key's schema by the caller; the service checks it again.
     set: (key, value) => service.set(key, value as SettingsValues[typeof key], { kind: "global" }),
     unset: (key) => service.reset([key]),
@@ -77,17 +88,24 @@ function daemonPort(session: Awaited<ReturnType<typeof connectCli>>): SettingsPo
         { code: "forbidden", hint: "Run it on the machine itself, or from an admin device." },
       );
   };
+  const get = async (key: SettingsKey): Promise<Resolved> => {
+    const result = await client.request({ type: "settings.get", key, scope: {} }, { signal });
+    const entry = result.entries.find((candidate) => candidate.key === key);
+    if (!result.ok || !entry)
+      throw new CliFailure(
+        "uncertain",
+        result.diagnostics[0]?.message ?? `The daemon didn't return ${key}.`,
+      );
+    return entry;
+  };
   return {
     live: true,
-    async get(key) {
-      const result = await client.request({ type: "settings.get", key, scope: {} }, { signal });
-      const entry = result.entries.find((candidate) => candidate.key === key);
-      if (!result.ok || !entry)
-        throw new CliFailure(
-          "uncertain",
-          result.diagnostics[0]?.message ?? `The daemon didn't return ${key}.`,
-        );
-      return entry;
+    get,
+    async getMany(keys) {
+      // One at a time: the socket has no batch read, and a burst would queue behind itself.
+      const resolved: Resolved[] = [];
+      for (const key of keys) resolved.push(await get(key));
+      return resolved;
     },
     set: write,
     // The socket has no per-key reset: the default is saved, which reads the same.

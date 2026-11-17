@@ -29,13 +29,13 @@ async function withPort<T>(
 }
 
 export function configList(args: Args, home: string): Promise<CliConfigEntry[]> {
-  return withPort(args, home, "the settings", (port) =>
-    Promise.all(
-      configKeys.map(async (entry) =>
-        configEntry(entry.key, entry, await port.get(entry.key), port.live),
-      ),
-    ),
-  );
+  return withPort(args, home, "the settings", async (port) => {
+    const resolved = await port.getMany(configKeys.map((entry) => entry.key));
+    return configKeys.flatMap((entry, index) => {
+      const value = resolved[index];
+      return value ? [configEntry(entry.key, entry, value, port.live)] : [];
+    });
+  });
 }
 
 export function configGet(args: Args, home: string, name: string): Promise<CliConfigEntry> {
