@@ -60,6 +60,8 @@ export interface ServiceStatus {
   error?: string;
   /** Safe mode left this service off for the run; it is never retried. */
   skipped?: true;
+  /** For a degraded service: another attempt is scheduled or will follow; false once none is. */
+  retrying?: boolean;
 }
 export { systemStartup, type StartupRuntime } from "./startup-runtime.ts";
 
@@ -158,6 +160,7 @@ export class ServiceStartup {
       error = warming?.error ?? error;
       if (error !== undefined) result.error = error;
       if (skipped) result.skipped = true;
+      if (result.state === "degraded" && !skipped) result.retrying = this.willRetry(name);
       return result;
     });
   private report(name: string): void {
@@ -395,6 +398,22 @@ export class ServiceStartup {
     await Promise.all(settled.values());
     for (const definition of this.definitions)
       if (this.retriable(definition)) this.retryLater(definition);
+  }
+  /**
+   * Another attempt is scheduled or still to come: the service has retries left and none of what
+   * it requires has run out of its own (a dependent starts again when its dependency does).
+   */
+  private willRetry(name: string): boolean {
+    const definition = this.definitions.find((entry) => entry.name === name);
+    if (!definition || failurePolicy(definition, this.critical) !== "degrade-and-retry")
+      return false;
+    if (this.skip.has(name) || this.context.signal.aborted) return false;
+    if (this.retryTimers.has(name) || this.inflight.has(name)) return true;
+    const own = (this.retriesUsed.get(name) ?? 0) < (this.runtime.retryDelaysMs?.length ?? 0);
+    const required = definition.requires.filter(
+      (dependency) => this.statuses.get(dependency)?.state === "degraded",
+    );
+    return required.length ? required.every((d) => this.willRetry(d)) : own;
   }
   /** Degraded, not essential, with every required service ready, and retries left. */
   private retriable(definition: ServiceDefinition): boolean {

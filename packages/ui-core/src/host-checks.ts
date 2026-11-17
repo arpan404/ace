@@ -118,9 +118,11 @@ export function startupWords(startup: Admission["startup"]): string | null {
   if (startup.without.length)
     return `ace started in safe mode without ${nameList(startup.without)} after repeated crashes.`;
   if (!startup.failing.length) return null;
-  return startup.failing.length === 1
-    ? `${startup.failing[0]} isn't working right now; ace is retrying.`
-    : `${nameList(startup.failing)} aren't working right now; ace is retrying.`;
+  const retrying = startup.failing.filter((entry) => entry.retrying).map((entry) => entry.name);
+  const stopped = startup.failing.filter((entry) => !entry.retrying).map((entry) => entry.name);
+  if (stopped.length)
+    return `${nameList(stopped)} ${stopped.length === 1 ? "isn't" : "aren't"} working; restart ace to try again.`;
+  return `${nameList(retrying)} ${retrying.length === 1 ? "isn't" : "aren't"} working right now; ace is retrying.`;
 }
 
 /**

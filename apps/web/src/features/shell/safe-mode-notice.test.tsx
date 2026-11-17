@@ -47,7 +47,10 @@ test("a daemon that started in safe mode tells every client what it runs without
 });
 
 test("a service that keeps failing is named with the promise to retry", async () => {
-  const client = connected({ ...open, startup: { without: [], failing: ["Commands"] } });
+  const client = connected({
+    ...open,
+    startup: { without: [], failing: [{ name: "Commands", retrying: true }] },
+  });
   render(
     <ClientProvider client={client}>
       <SafeModeNotice scope={{}} />
@@ -56,6 +59,19 @@ test("a service that keeps failing is named with the promise to retry", async ()
   expect(
     await screen.findByText("Commands isn't working right now; ace is retrying."),
   ).toBeTruthy();
+});
+
+test("a service out of retries tells the person to restart instead of promising one", async () => {
+  const client = connected({
+    ...open,
+    startup: { without: [], failing: [{ name: "Commands", retrying: false }] },
+  });
+  render(
+    <ClientProvider client={client}>
+      <SafeModeNotice scope={{}} />
+    </ClientProvider>,
+  );
+  expect(await screen.findByText("Commands isn't working; restart ace to try again.")).toBeTruthy();
 });
 
 test("a healthy daemon shows nothing, whatever the desktop remembers", async () => {

@@ -163,10 +163,13 @@ test("a service that never recovers stays degraded once its retries are spent", 
     }),
   ]);
   await subject.listening(server);
+  const retrying = () => subject.status().find((entry) => entry.name === "suits")?.retrying;
+  expect(retrying()).toBe(true);
   for (let step = 0; step < 5; step++) await clock.advance(1_000);
   expect(attempts).toBe(3);
   expect(state(subject, "suits")).toBe("degraded");
   expect(clock.pending("retry")).toHaveLength(0);
+  expect(retrying()).toBe(false);
 });
 
 test("a retry does not stack a new start on one still stuck in a call", async () => {

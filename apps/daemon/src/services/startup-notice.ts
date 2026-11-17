@@ -36,6 +36,6 @@ export function startupNotice(statuses: readonly ServiceStatus[]): StartupNotice
   const without = statuses.filter((s) => s.skipped).map((s) => serviceTitle(s.name));
   const failing = statuses
     .filter((s) => s.state === "degraded" && !s.skipped)
-    .map((s) => serviceTitle(s.name));
+    .map((s) => ({ name: serviceTitle(s.name), retrying: s.retrying !== false }));
   return without.length || failing.length ? { without, failing } : undefined;
 }

@@ -83,11 +83,32 @@ test("safe mode names what it left off; a failing service is said to be retried"
   expect(startupWords({ without: ["Commands"], failing: [] })).toBe(
     "ace started in safe mode without Commands after repeated crashes.",
   );
-  expect(startupWords({ without: [], failing: ["Commands"] })).toBe(
+  const retrying = { retrying: true };
+  const spent = { retrying: false };
+  expect(startupWords({ without: [], failing: [{ name: "Commands", ...retrying }] })).toBe(
     "Commands isn't working right now; ace is retrying.",
   );
-  expect(startupWords({ without: [], failing: ["Commands", "Relay"] })).toBe(
-    "Commands and Relay aren't working right now; ace is retrying.",
+  expect(
+    startupWords({
+      without: [],
+      failing: [
+        { name: "Commands", ...retrying },
+        { name: "Relay", ...retrying },
+      ],
+    }),
+  ).toBe("Commands and Relay aren't working right now; ace is retrying.");
+  // Retries used up: never promise another.
+  expect(startupWords({ without: [], failing: [{ name: "Commands", ...spent }] })).toBe(
+    "Commands isn't working; restart ace to try again.",
   );
+  expect(
+    startupWords({
+      without: [],
+      failing: [
+        { name: "Commands", ...retrying },
+        { name: "Relay", ...spent },
+      ],
+    }),
+  ).toBe("Relay isn't working; restart ace to try again.");
   expect(startupWords(undefined)).toBeNull();
 });

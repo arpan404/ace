@@ -10,12 +10,20 @@ export type MaintenanceHold = z.infer<typeof MaintenanceHold>;
 
 /**
  * What the daemon runs without (ADR 0175), by the names a person knows. `without` is what a
- * safe-mode start left off; `failing` is what could not start or stopped working and is being
- * retried. Absent while everything runs.
+ * safe-mode start left off; `failing` is what could not start or stopped working, with whether it is
+ * still being retried. Absent while everything runs.
  */
 export const StartupNotice = z.object({
   without: z.array(z.string().min(1).max(64)).max(64),
-  failing: z.array(z.string().min(1).max(64)).max(64),
+  failing: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(64),
+        /** Whether another attempt is still to come; false once the retries are used up. */
+        retrying: z.boolean(),
+      }),
+    )
+    .max(64),
 });
 export type StartupNotice = z.infer<typeof StartupNotice>;
 
