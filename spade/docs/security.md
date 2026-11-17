@@ -14,11 +14,12 @@ servers). Extends [workspace.md](workspace.md), [computer.md](computer.md) and
 | -------- | ---------------------------------------------------------- | --------- | --------------------------------------------- | --------------- |
 | macOS    | Seatbelt profile per run, `/usr/bin/sandbox-exec -p`       | contained | contained (TCP to the proxy's port only)      | yes             |
 | Linux    | Landlock via `spade sandbox-exec`, `landlock` feature, off | contained | partial (TCP only; UDP and Unix sockets open) | no              |
-| Windows  | AppContainer, designed, not built                          | none      | none                                          | no              |
+| Windows  | AppContainer per bot + job, via `spade sandbox-exec-win`   | contained | contained (through a per-run named-pipe bridge to the proxy) | yes |
 
-Spade probes the sandbox once at start (`Runner::probe`: the real profile on a throwaway folder
-running `/usr/bin/true`). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds both
-files and network, and the proxy listening, nothing about reviews changes.
+Spade probes the sandbox once at start (`Runner::probe`: macOS runs the real profile on a
+throwaway folder against `/usr/bin/true`; Windows makes and deletes a throwaway AppContainer
+profile). `SPADE_SANDBOX=off` turns it off. Without a sandbox that holds both files and network,
+and the proxy listening, nothing about reviews changes.
 
 ## What a sandboxed run may touch
 
@@ -76,6 +77,46 @@ beside its opened folder, a link met while carving is skipped (never followed or
 object that is a denied one (same device and inode, a hard link included) is left out, and the
 descriptors carving opened are the ones the rules are installed on. The word list in
 `spade_core::autonomy::secrets` still refuses a call naming these places before anything runs.
+
+### On Windows (AppContainer)
+
+`spade-sandbox-windows` holds the system calls (the one Spade crate allowed `unsafe`);
+`spade-sandbox::windows` holds the policy and the launch; `spade-server` wires it in. Each bot
+gets an AppContainer profile with **no capabilities**, derived per bot, so it starts with no
+access to anything. The policy is all grants on that SID, set on **open handles** (opened without
+following a reparse point, so a link swapped into a name can't redirect them):
+
+- an inheritable *Modify* ACE (read, write, execute, delete — but not `WRITE_DAC`/`WRITE_OWNER`,
+  so the command can't rewrite an ACL to reopen a denied place) on the workspace, its `.spade/tmp`
+  (`TEMP`/`TMP`), granted read-write folders and Spade's per-run scratch;
+- a *Read & execute* ACE on confirmed toolchains, granted read-only folders and a plugin's folder;
+- an explicit *deny* ACE on any credential-list place that sits inside a granted folder (Windows
+  evaluates deny before allow); nothing else is granted, so the home folder, other users' folders,
+  other bots' workspaces and Spade's and ace's data are unreachable by default.
+
+The command runs through `spade sandbox-exec-win <plan> <program> <args>`: the daemon spawns
+Spade's own binary as the launcher with the command's stdio piped, and the launcher creates the
+command inside the AppContainer and a **job object** (kill-on-close, die-on-unhandled, caps on
+active processes and total memory, and UI restrictions — no clipboard read or write, no desktop
+switch, no global atoms, no system-parameter or display changes — so it can't drive other apps).
+Dropping the run closes the job and ends the whole tree.
+
+**ACL hygiene.** Each run reconciles its grants and records the touched paths in a per-bot journal
+(`<data>/sandbox-acls/<container>.json`); a path no longer in the policy is revoked. On start the
+daemon recovers — it revokes every path any journal still names and clears the journals — so a
+crash leaves no stale ACE and each next run re-applies its own. Deleting a bot revokes its grants
+and deletes its profile. The word list still refuses a call naming a credential place first.
+
+**Network (the egress bridge).** An AppContainer with no capabilities has no DNS and can't open a
+loopback connection to a process outside the container, so it can't reach the proxy directly, and
+the per-container loopback *exemption* that would let it isn't port-scoped (it would open every
+local port). Instead each networked run gets a bridge: a tiny process inside the container (same
+SID and job as the command) listens on `127.0.0.1:<port>` — what `HTTP_PROXY` points at — and
+forwards each connection over a named pipe whose DACL grants only that run's container SID to a
+daemon-side acceptor, which splices it to the proxy's TCP port on loopback. The run's token still
+rides in `HTTP_PROXY`, so the proxy identifies the run; the bridge and acceptor only move bytes,
+and the acceptor stops when the run's ticket drops. The only way out of the container is that one
+SID-scoped pipe.
 
 ## The egress proxy
 
@@ -188,7 +229,7 @@ the result ends with a line telling the bot it may call `shell` again with
 
 `security/checkpoints.rs`. A copy of the bot's workspace at `<data>/checkpoints/<bot>/<id>/`
 (`/bin/cp -c -R -p` on macOS, a clone on APFS, else a plain copy; `cp -a --reflink=auto` on
-Linux; none on Windows), its record `<id>.json` `{id, at, reason}` written once the copy is
+Linux; a plain recursive copy on Windows), its record `<id>.json` `{id, at, reason}` written once the copy is
 whole. A folder without a record is an unfinished copy and is removed when the list is read.
 `.spade/tmp` isn't kept. Taken:
 
@@ -257,9 +298,9 @@ is kept for the bot and tool.
 
 - A size bound on checkpoints (count and age only today; clones cost little on APFS, plain
   copies on other volumes don't).
-- Linux's seccomp filter (UDP, raw and Unix sockets) and Windows' AppContainer, the next
-  phases (ADR 0171 decision 6): once each counts as contained, its commands skip the classifier
-  and the review as macOS's do.
+- Linux's seccomp filter (UDP, raw and Unix sockets), the next phase (ADR 0171 decision 6): once
+  it counts as contained, its commands skip the classifier and the review as macOS's and
+  Windows' do. (Windows' AppContainer is built; see below.)
 - Per-value provenance at egress, `derived` trust for network-off runs (each run's proxy usage
   is already counted), and quarantined readers.
 - CLI brains in the sandbox (ADR 0133 keeps them on their own read-only modes).

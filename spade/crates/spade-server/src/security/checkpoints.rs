@@ -246,18 +246,43 @@ fn clone_tree(from: &Path, to: &Path) -> Result<(), String> {
                 }
             })
     };
-    let (from, to) = (from.as_os_str(), to.as_os_str());
-    if cfg!(target_os = "macos") {
-        // `-c` clones (copy-on-write); a volume that can't clone gets a plain copy.
-        run(&["-c".as_ref(), "-R".as_ref(), "-p".as_ref(), from, to]).or_else(|_| {
-            let _ = std::fs::remove_dir_all(to);
-            run(&["-R".as_ref(), "-p".as_ref(), from, to])
-        })
-    } else if cfg!(unix) {
-        run(&["-a".as_ref(), "--reflink=auto".as_ref(), from, to])
-    } else {
-        Err("checkpoints aren't available on this system yet".to_owned())
+    #[cfg(windows)]
+    {
+        // NTFS has no cheap clone, so a plain recursive copy (ReFS block-cloning is a later step).
+        let _ = &run;
+        return copy_tree(from, to).map_err(|error| error.to_string());
     }
+    #[cfg(not(windows))]
+    {
+        let (from, to) = (from.as_os_str(), to.as_os_str());
+        if cfg!(target_os = "macos") {
+            // `-c` clones (copy-on-write); a volume that can't clone gets a plain copy.
+            run(&["-c".as_ref(), "-R".as_ref(), "-p".as_ref(), from, to]).or_else(|_| {
+                let _ = std::fs::remove_dir_all(to);
+                run(&["-R".as_ref(), "-p".as_ref(), from, to])
+            })
+        } else {
+            run(&["-a".as_ref(), "--reflink=auto".as_ref(), from, to])
+        }
+    }
+}
+
+/// A plain recursive copy of `from` to `to` (Windows, which has no cheap clone).
+#[cfg(windows)]
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        let target = to.join(entry.file_name());
+        if kind.is_dir() {
+            copy_tree(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), &target)?;
+        }
+        // Symlinks and other entries are skipped: a checkpoint is a copy of the bot's own files.
+    }
+    Ok(())
 }
 
 #[cfg(test)]

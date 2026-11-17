@@ -69,8 +69,10 @@ filesystem and network isolation are both required.
      object holds and ends everything the command starts. Loopback is blocked for AppContainers by
      default. The proxy is reached through a loopback exemption for that one profile. A
      restricted token with a low integrity level is the fallback where AppContainer can't be
-     made. This is designed and stubbed: the runner reports `unavailable` on Windows, which keeps
-     today's reviews (decision 9).
+     made. This is now built (see the amendment below, which corrects the egress mechanism: a
+     loopback exemption isn't port-scoped, so a per-run named-pipe bridge carries the network
+     instead). Windows reports `contained` when an AppContainer, the job and the proxy are all
+     up, so decision 8's dropped reviews apply there too.
 
 2. **A credential deny-list backs the word list.** These places are denied for reading in every
    sandbox, whatever else is allowed:
@@ -235,3 +237,51 @@ filesystem and network isolation are both required.
 - `spade_core::grant` gets tables for matching and subsets.
 - The engine is tested through the API: a contained shell call runs unreviewed, and a call that
   isn't contained, or one with a kept finding, is still reviewed.
+
+## Amendment: Windows' sandbox is built (2026-11-17)
+
+Decision 1's Windows bullet is now built (`spade-sandbox-windows` for the system calls,
+`spade-sandbox::windows` for the policy and launch, `spade-server` for the wiring). Building it
+on a real Windows 11 machine changed one thing in the design and firmed up the rest.
+
+- **The egress bridge, not a loopback exemption.** Decision 1 said the proxy would be reached
+  "through a loopback exemption for that one profile". Measured on Windows: an AppContainer with
+  no capabilities cannot open a loopback connection to a process outside the container at all, and
+  the loopback *exemption* that would let it is **per AppContainer and not port-scoped** — enabling
+  it opens every local port to the command, not just the proxy's, and it is a machine-wide,
+  admin-only developer setting. That is the opposite of "network only through the proxy", so it is
+  rejected (the task anticipated this and asked for a justified choice). Instead each networked run
+  gets a **named-pipe bridge**: a tiny bridge process runs *inside* the container (same SID and
+  job as the command), listening on `127.0.0.1:<port>` — what `HTTP_PROXY` points at — and
+  forwarding each connection over a named pipe whose DACL grants only that run's container SID to a
+  daemon-side acceptor, which splices it to the real TCP proxy on loopback. The command can reach a
+  listener inside its own container and can open the SID-scoped pipe (both verified), but nothing
+  else: there is no DNS and no loopback to any other local service, so the only way out is the one
+  pipe, and the run's proxy token still rides in `HTTP_PROXY` so the proxy identifies the run. A
+  named pipe is used rather than an `AF_UNIX` socket because `tokio` supports a named-pipe server
+  with a raw security descriptor directly, and because the pipe's DACL is the natural place to name
+  the one SID allowed to connect.
+- **Files.** The AppContainer denies everything by default (no capabilities), so the policy is all
+  grants: the bot's container SID gets an inheritable *Modify* ACE on the workspace, the run's temp
+  folder, granted read-write folders and Spade's own per-run scratch, and a *Read & execute* ACE on
+  toolchains, granted read-only folders and the plugin folder. The Modify and Read masks leave out
+  `WRITE_DAC`/`WRITE_OWNER`, so a command can't rewrite an ACL to reopen a denied place. A
+  credential place that sits inside a granted folder gets an explicit *deny* ACE on top (Windows
+  evaluates deny before allow). Every ACL is set on an **open handle** (opened without following a
+  reparse point), not on a path, so a link swapped into a name can't redirect the grant.
+- **ACL hygiene and recovery.** Each run reconciles its grants and records the touched paths in a
+  per-bot journal; a grant no longer in the policy is revoked. On start the daemon runs recovery,
+  which revokes every path any journal still names and clears the journals, so a crash leaves no
+  stale ACE (each next run re-applies its own). Deleting a bot revokes its grants and deletes its
+  profile. The container SID is derived per bot, so a grant never widens another bot's access.
+- **The job.** The process tree runs in a job object with kill-on-close and die-on-unhandled, a
+  cap on active processes and total memory, and UI restrictions (no reading or writing the
+  clipboard, no desktop switch, no global atoms, no system-parameter or display changes, no handle
+  inheritance across the boundary), so a sandboxed command can't drive another app's windows.
+  Dropping the run closes the job and ends the whole tree, the bridge included.
+- **Building.** Spade builds for Windows. On ARM64 the aws-lc/ring dependencies need `clang`, which
+  the test machine lacks, so the build and the tests use the `x86_64-pc-windows-msvc` target (which
+  runs under emulation); native ARM64 is a toolchain follow-up, not a code change. The one crate
+  that uses `unsafe` is `spade-sandbox-windows`; the rest of Spade keeps `unsafe` forbidden.
+
+Linux is unchanged: it still reports `network: partial` until its seccomp filter lands.
