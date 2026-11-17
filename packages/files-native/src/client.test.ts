@@ -84,6 +84,37 @@ describe("FilesClient", () => {
     expect(summary).toMatchObject({ files: 1, matches: 1, limitHit: false });
   });
 
+  it("sends createDir, rename, remove, indexQuery and closeRoot, and forgets a closed root", async () => {
+    const { h, client } = harness();
+    await client.start();
+    const root = await client.openRoot("/repo");
+    await client.createDir(root, "notes");
+    await client.createFile(root, "notes/todo.md", new TextEncoder().encode("todo"));
+    await client.rename(root, "notes/todo.md", "notes/done.md");
+    await client.remove(root, "notes/done.md");
+    const index = await client.indexQuery(root, "main");
+    expect(index).toMatchObject({ type: "index", ready: true });
+    expect(index.hits[0]?.path).toBe("src/main.ts");
+    await client.closeRoot(root);
+    const ops = fakeMessages(h).flatMap((message) =>
+      message.type === "request" ? [message.op.op] : [],
+    );
+    expect(ops).toEqual(
+      expect.arrayContaining([
+        "createDir",
+        "createFile",
+        "rename",
+        "remove",
+        "indexQuery",
+        "closeRoot",
+      ]),
+    );
+    await until(() => fakeBodies(h).some((body) => body.bytes === 4));
+    await expect(client.stat(root, "notes/todo.md")).rejects.toMatchObject({
+      code: "INVALID_ARGUMENT",
+    });
+  });
+
   it("disposing a watch sends unwatch", async () => {
     const { h, client } = harness();
     await client.start();
