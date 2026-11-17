@@ -43,6 +43,7 @@ import {
 } from "./child-schedule.ts";
 import { ChildLedger, savedView, type ChildRow } from "./child-ledger.ts";
 import {
+  abandonedView,
   heldMessageReason,
   monitoredChild,
   outcomeOf,
@@ -534,7 +535,15 @@ export class MachineChildren implements RemoteChildren {
       // Pairings that can't be read leave every child as it was, lost or not.
       const lost = this.lostFrom(machine);
       if (!lost) continue;
-      const { children, rows } = this.childrenOf(machine, lost);
+      // One machine whose children can't be planned (a busy store) never holds up the others.
+      let planned: ReturnType<typeof this.childrenOf>;
+      try {
+        planned = this.childrenOf(machine, lost);
+      } catch (error) {
+        this.deps.log("Machine children not planned", { machine, error: String(error) });
+        continue;
+      }
+      const { children, rows } = planned;
       // A poll set for a child's due time asks it then, even if its timer ran a moment early.
       const plan = planTurn(
         children,
@@ -558,9 +567,14 @@ export class MachineChildren implements RemoteChildren {
       }
     }
     await Promise.all(calls);
-    // Stops due, then the lease: replies read above have already renewed what reported.
-    this.liveness.tick();
-    this.liveness.lapse();
+    // Stops due, then the lease: replies read above have already renewed what reported. Either
+    // failing (a busy store) is tried again next poll and never holds back results owed now.
+    try {
+      this.liveness.tick();
+      this.liveness.lapse();
+    } catch (error) {
+      this.deps.log("Machine child stops not checked", { error: String(error) });
+    }
     for (const row of this.ledger.undelivered()) this.results.queueResult(row, savedView(row));
     this.results.drain();
   }
@@ -587,6 +601,12 @@ export class MachineChildren implements RemoteChildren {
       });
     };
     for (let row of this.ledger.unsettledOf(machine)) {
+      // Its parent is gone and its machine unpaired: no cancel can reach it and no one is left
+      // to ask about it, so it stops being tracked, as the person's "stop tracking" does.
+      if (lost(row) && this.gone(row.parent_thread)) {
+        this.abandonOrphan(row);
+        continue;
+      }
       // Its parent is gone: it is stopped, as deleting the parent stops its children.
       if (row.stop_started_at === null && this.gone(row.parent_thread)) {
         this.liveness.stop(row.id);
@@ -612,6 +632,13 @@ export class MachineChildren implements RemoteChildren {
       add(row);
     }
     return { children, rows };
+  }
+  private abandonOrphan(row: ChildRow) {
+    const view = abandonedView(row, this.deps.label(row.machine), this.deps.now());
+    this.ledger.markAbandoned(row.id, JSON.stringify(view));
+    this.deps.mirror.release(`child:${row.id}`);
+    this.unanswered.delete(row.id);
+    this.emit([row.id]);
   }
   /** The parent is deleted, or the engine holds no state for it (its data was purged). */
   private gone(parent: ThreadId): boolean {
@@ -748,6 +775,11 @@ export class MachineChildren implements RemoteChildren {
    */
   private settledLost() {
     for (const row of this.ledger.settledLost()) {
+      // No one is left to ask about a child of a parent that is gone.
+      if (this.gone(row.parent_thread)) {
+        this.ledger.endWatch(row.id);
+        continue;
+      }
       const lost = this.lostFrom(row.machine);
       if (!lost) continue;
       if (lost(row)) this.lost.keepSettled(row);

@@ -54,3 +54,18 @@ it("a working child of a parent that is gone is stopped and settles there withou
   expect(unapplied(restarted)).toEqual([]);
   expect(restarted.timers).toEqual([]);
 });
+
+it("a working child of a parent that is gone, on a machine no longer paired, stops being tracked instead of polled every second", async () => {
+  const first = machine();
+  const id = first.add("d");
+  first.report(id, working);
+  await first.step();
+  first.children.close();
+
+  const restarted = machine(first.home, { engine: true });
+  // Its pairing went: no cancel can reach it, and its parent is gone, so no one can be asked.
+  restarted.pairings.set("studio", undefined);
+  await run(restarted, 40);
+  expect(restarted.state(id)).toBe("cancelled");
+  expect(restarted.timers).toEqual([]);
+});

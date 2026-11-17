@@ -28,6 +28,16 @@ const payloadTables = new Set([
   // Messages from other machines held while admission was closed (`machines/held-messages.ts`).
   "machine_held_messages",
 ]);
+/**
+ * The engine's own rows for the thread: its session, selection and queue. Without its state
+ * they only lead a reader to a thread it can no longer load (ADR 0177), so a purge removes them.
+ */
+const engineRows = [
+  "engine_sessions",
+  "engine_transitions",
+  "engine_transition_guards",
+  "engine_queue",
+];
 function tables(db: DatabaseSync): string[] {
   return db
     .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -125,4 +135,7 @@ export function purgeTranscript(db: DatabaseSync, id: ThreadId): void {
     ).run(id);
     db.prepare("DELETE FROM thread_state WHERE thread_id=?").run(id);
   }
+  for (const table of engineRows)
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))
+      db.prepare(`DELETE FROM "${table}" WHERE thread_id=?`).run(id);
 }

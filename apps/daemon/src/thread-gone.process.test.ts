@@ -171,6 +171,15 @@ function dangling(store: Store) {
       `SELECT child_id AS id FROM delegated_threads WHERE phase<>'settled' AND EXISTS ${gone("parent_id")}`,
     ),
     wakes: ids(`SELECT parent_id AS id FROM delegation_wakes WHERE EXISTS ${gone("parent_id")}`),
+    launches: ids(
+      `SELECT child_id AS id FROM delegation_launch_queue WHERE EXISTS ${gone("parent_id")}`,
+    ),
+    // A purged thread keeps no engine rows that would lead a reader to its missing state.
+    engineRows: ["engine_sessions", "engine_transitions", "engine_queue"].flatMap((table) =>
+      ids(
+        `SELECT thread_id AS id FROM ${table} WHERE thread_id IN (SELECT thread_id FROM storage_purged)`,
+      ),
+    ),
     machineChildren: ids(
       `SELECT id FROM machine_children WHERE (settled=0 OR settled_at IS NOT NULL)
         AND EXISTS ${gone("parent_thread")}`,
@@ -210,7 +219,13 @@ it("a parent retired through every deletion path and purged leaves every service
     // The notification log replays past the purged threads.
     expect(await daemon.notifications.cursor()).toBeGreaterThan(0);
     await vi.waitFor(() =>
-      expect(dangling(daemon.store)).toEqual({ edges: [], wakes: [], machineChildren: [] }),
+      expect(dangling(daemon.store)).toEqual({
+        edges: [],
+        wakes: [],
+        launches: [],
+        engineRows: [],
+        machineChildren: [],
+      }),
     );
     const { controls } = controlsOf(daemon);
     for (const [index, built] of trees.entries()) {
