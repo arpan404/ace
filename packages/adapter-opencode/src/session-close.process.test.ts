@@ -36,7 +36,10 @@ it("a cancelled session whose server stop fails records it once, and an awaited 
 
 it("a close that arrives while a cancelled session is still stopping its server waits for the outcome", async () => {
   const h = await setup();
-  const server = new OpenCodeServer({ ...h.options, runtime: { ...h.options.runtime, spawn: survivingServer } });
+  const server = new OpenCodeServer({
+    ...h.options,
+    runtime: { ...h.options.runtime, spawn: survivingServer },
+  });
   const controller = new AbortController();
   const frames: Frame[] = [];
   const session = await OpenCodeSession.open(
@@ -53,7 +56,9 @@ it("a close that arrives while a cancelled session is still stopping its server 
   );
   controller.abort(new Error("cancelled"));
   await expect(session.close("user")).rejects.toThrow("survived its stop");
-  await expect.poll(() =>
-    frames.filter((f) => f.channel === "lifecycle" && object(f.data).type === "stop-failed"),
-  ).toHaveLength(1);
+  await expect
+    .poll(() =>
+      frames.filter((f) => f.channel === "lifecycle" && object(f.data).type === "stop-failed"),
+    )
+    .toHaveLength(1);
 });

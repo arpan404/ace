@@ -251,7 +251,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
           // Resolves only once the tree is confirmed gone. A retained Windows tree has no group
           // owner to release it, so that confirmation releases ownership and its job handle.
           // Survivors stay owned and the stop rejects: the daemon's shutdown still ends them.
-          const ended = () => {
+          const treeGone = () => {
             clearTimeout(retainedKill);
             cancelRecheck?.();
             if (windows) {
@@ -260,7 +260,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
             }
           };
           retainedStop = stopRetained(pid, graceMs).then(() => {
-            ended();
+            treeGone();
             return exited;
           });
           /*
@@ -278,7 +278,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
                 /* Unknown: still owned. */
               }
               if (running) return recheck(Math.min(delayMs * 2, 60_000));
-              ended();
+              treeGone();
               retainedStop = exited;
             }, delayMs);
           };
