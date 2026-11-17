@@ -1,3 +1,4 @@
+import { hostAnswerRefusal } from "./answer-gate.ts";
 import {
   ThreadId,
   type Command,
@@ -28,6 +29,8 @@ export interface CommandAdmission {
   flights: { count: number };
   open(): boolean;
   authorize(scope: DeviceScope): boolean;
+  /** The socket authenticated with the daemon's token file (`answer-gate.ts`). */
+  hostCredential(): boolean;
   send(message: ServerMessage): void;
   delay(run: () => void, milliseconds: number): () => void;
 }
@@ -112,6 +115,20 @@ export async function admitCommand(command: Command, admission: CommandAdmission
     refuseBeforeAccept("not_implemented", "Command is not supported");
     return;
   }
+  // A person-only market request answered over the host token needs a fresh ace sign-in.
+  const market = options.marketAgent;
+  const held = market
+    ? await hostAnswerRefusal(command, {
+        hostCredential: admission.hostCredential(),
+        personOnlyMarket: (id) => market.requests.isPending(id),
+        fresh: () => market.freshSignIn(),
+      })
+    : undefined;
+  if (held) {
+    refuseBeforeAccept(held.code, held.message);
+    return;
+  }
+  if (!admission.open()) return;
   // Accepted commands run on their thread's lane, not on this socket's input queue:
   // a command still waiting after the grace keeps running while the socket goes on.
   const task = lanes.run(commandLane(command, device), device, command.id, async () => {

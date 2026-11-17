@@ -27,8 +27,9 @@ transfers, engine session rows. Readers of those rows assumed the thread was sti
   policy (`Engine.prepareDeletion`, bound to `DelegationService.cancelDescendants`) and writes the
   tombstone in one transaction. The thread lifecycle runs the policy when it admits the delete and
   stops the tree before it writes the tombstone, so it writes it with `tombstone`.
-- **Purging.** Every purge calls `purgeThread`: the thread's data goes and the purge is recorded in
-  one transaction. The `threads` row stays as the tombstone.
+- **Purging.** Every purge calls `purgeThread`: the thread's data goes, with the engine's own rows
+  for it (session, selection, queue), and the purge is recorded, in one transaction. The `threads`
+  row stays as the tombstone.
 - **Reading.** A thread is gone when it is deleted or the engine holds no state for it
   (`threadGone`). Every reader that may meet a reference to another thread checks it first and
   treats a gone thread as gone, never as an error: nothing is applied to it in the engine.
@@ -37,8 +38,10 @@ transfers, engine session rows. Readers of those rows assumed the thread was sti
   a gone parent. Machine children of a gone parent leave the re-check, and an open one is stopped
   as its parent's deletion stops it. A transfer of a gone thread ends without a hold. The
   notification log passes over events for a thread whose creation was purged.
-- **Healing.** Rows an older build left open heal at start: recovery settles or skips them, and an
-  edge that still fails to recover is reported through `onError` without stopping agent control.
+- **Healing.** Rows an older build left open heal at start: recovery settles or skips them (a
+  queued launch included), and an edge, queue or reservation that still can't be recovered or read
+  is reported through `onError` without stopping agent control. A remote child of a gone parent
+  whose machine is unpaired stops being tracked, since no cancel can reach it.
 - **Never done while running.** A gone parent's still-running children are cancelled by the
   deletion policy, or run on as their own threads; their own status is never changed to done for
   it.

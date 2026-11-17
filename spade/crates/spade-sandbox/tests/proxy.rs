@@ -261,8 +261,18 @@ async fn a_public_name_that_resolves_to_this_machine_is_refused() {
     assert!(answer.contains("resolves to a private address"));
 }
 
-/// curl inside the macOS sandbox, with only the ticket's variables, through the proxy.
-#[cfg(target_os = "macos")]
+/// The machine's sandbox: Seatbelt on macOS, Linux's launcher (this crate's own) on Linux.
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
+fn sandbox() -> spade_sandbox::Runner {
+    let launcher = cfg!(target_os = "linux")
+        .then(|| std::path::PathBuf::from(env!("CARGO_BIN_EXE_spade-sandbox-launcher")));
+    let runner = spade_sandbox::Runner::probe(launcher);
+    assert!(runner.status().contains(), "{:?}", runner.status());
+    runner
+}
+
+/// curl inside the sandbox, with only the ticket's variables, through the proxy.
+#[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 #[tokio::test]
 async fn a_sandboxed_run_reaches_allowed_hosts_only_through_the_proxy() {
     use std::ffi::OsString;
@@ -283,7 +293,7 @@ async fn a_sandboxed_run_reaches_allowed_hosts_only_through_the_proxy() {
     let ticket = setup
         .proxy
         .open("bot1", "run1", allowing(format!("localhost:{allowed}")));
-    let runner = spade_sandbox::Runner::probe(None);
+    let runner = sandbox();
     let curl = |url: String| {
         let launch = runner
             .wrap(

@@ -42,7 +42,9 @@
     "./ace-account": "./src/ace-account.ts",
     "./suits": "./src/suits.ts",
     "./marketplace": "./src/marketplace.ts",
-    "./suit-parts": "./src/suit-parts.ts"
+    "./suit-parts": "./src/suit-parts.ts",
+    "./cli-output": "./src/cli-output.ts",
+    "./cli-outputs": "./src/cli-outputs.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

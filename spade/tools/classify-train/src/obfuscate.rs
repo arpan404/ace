@@ -64,7 +64,7 @@ fn spacing(c: &str, rng: &mut Rng) -> Option<String> {
     let mut out = String::new();
     for (i, part) in c.split(' ').enumerate() {
         if i > 0 {
-            out.push_str(rng.pick(&gaps));
+            out.push_str(rng.pick::<&str>(&gaps));
         }
         out.push_str(part);
     }

@@ -199,6 +199,13 @@ export class ChildSync {
       this.ports.journal.settle(edge, outcome, this.ports.now());
       this.ports.waiters.deliver(edge.childId, outcome);
     });
+    // A parent that was never deleted but lost its state is damage worth knowing about, once.
+    if (store.getThread(edge.parentId)?.deletedAt === undefined)
+      this.ports.report(
+        new Error(
+          `Delegation parent ${edge.parentId} has no engine state; child ${edge.childId} settled as cancelled`,
+        ),
+      );
     return true;
   }
   /** Settles every open edge under a thread just deleted; its results are never delivered. */

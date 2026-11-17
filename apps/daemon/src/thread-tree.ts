@@ -38,6 +38,8 @@ export function readTreeMembers(
       },
       attention: threadAttention({ queue }),
       cancelled: queue?.lastFailure?.code === "cancelled" || edge?.outcome?.outcome === "cancelled",
+      ...(edge ? { parentId: edge.parentId } : {}),
+      ...(value ? { title: value.title.slice(0, 256) } : {}),
     };
   });
   return CliTree.parse(data);

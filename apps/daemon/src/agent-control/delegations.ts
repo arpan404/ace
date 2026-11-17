@@ -227,20 +227,23 @@ export class DelegationService {
       report: (child, problem) =>
         deps.onError(new Error(`agents_status listed child ${child} as read: ${problem}`)),
     });
-    // Recovery visits indexed current work, never transcript history or old receipts.
+    // Recovery visits indexed current work, never transcript history or old receipts. One record
+    // that can't be recovered (a thread whose state is gone) is reported and skipped, so it never
+    // takes agent control, and every tool that depends on it, down with it.
     for (const participant of this.journal.activeParticipants()) {
-      this.reconcileConversation(participant.thread_id);
+      this.recoverOne(participant.thread_id, () =>
+        this.reconcileConversation(participant.thread_id),
+      );
     }
-    // One edge that can't be recovered is reported; it never stops the others or the service.
-    for (const edge of [...this.journal.active(), ...this.journal.revived()])
-      try {
-        if (this.sync.orphaned(edge)) continue;
+    for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
+      this.recoverOne(edge.childId, () => {
+        // An edge whose parent is gone settles without reaching the engine (ADR 0177).
+        if (this.sync.orphaned(edge)) return;
         this.sync.reconcile(edge);
         // A notice a crash or a refused send left unsent goes now.
         this.limits.recheck([edge.childId]);
-      } catch (error) {
-        this.report(error);
-      }
+      });
+    }
     this.pumpAll();
     this.arm();
   }
@@ -999,13 +1002,9 @@ export class DelegationService {
   /** Fills free slots from each waiting parent's queue, oldest first. */
   private pumpAll(): void {
     if (this.closed || this.deps.admitsWork?.() === false || !this.launches.waiting()) return;
-    // One parent's queue that can't be drained never holds up the others, or the service.
+    // One parent whose queue can't move (its thread's state is gone) never stops the others.
     for (const parent of this.launches.parents())
-      try {
-        this.pump(parent);
-      } catch (error) {
-        this.report(error);
-      }
+      this.recoverOne(ThreadId.parse(parent), () => this.pump(parent));
   }
   private pump(value: string): void {
     if (this.closed || this.deps.admitsWork?.() === false) return;
@@ -1369,6 +1368,14 @@ export class DelegationService {
       () => this.timer(),
       Math.max(0, at - this.deps.clock.now(), this.retryAt - this.deps.clock.now()),
     );
+  }
+  /** Runs one step of delegation upkeep; a failure is reported with its thread, never thrown. */
+  private recoverOne(thread: ThreadId, step: () => void) {
+    try {
+      step();
+    } catch (error) {
+      this.report(new Error(`Delegation work skipped for ${thread}`, { cause: error }));
+    }
   }
   private report(error: unknown) {
     try {
