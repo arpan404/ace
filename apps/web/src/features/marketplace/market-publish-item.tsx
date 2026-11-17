@@ -1,11 +1,11 @@
-import type { MarketMe } from "@ace/protocol/marketplace";
+import type { MarketDraftChecked, MarketMe } from "@ace/protocol/marketplace";
 import { MarketEntryName } from "@ace/protocol/marketplace";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useNativePicker } from "@/lib/native-picker.ts";
-import { MarketFailure, typeWord } from "./market-model.ts";
-import { PickChoices, RecipePreview } from "./market-publish-pick.tsx";
-import { useBotRecipe } from "./market-publish-pick.ts";
+import { typeWord } from "./market-model.ts";
+import { PickChoices } from "./market-publish-pick.tsx";
+import { DraftReview } from "./market-publish-review.tsx";
 import { Foot, keyOf, Steps } from "./market-publish-parts.tsx";
 import {
   standing,
@@ -18,7 +18,8 @@ import { Stage } from "./market-stage.tsx";
 /*
  * The Item step: which one. A look is one of the person's own Suits, read from their library by
  * id. A bot, skill or plugin is picked from the person's own (Spade's bots, Spade's and ace's
- * skills, plugins they made), and the daemon reads its files; a bot shows its recipe first.
+ * skills, plugins they made), and the daemon reads its files and checks them here; the person
+ * sees exactly what would upload and confirms it (`DraftReview`) before Next.
  * "Choose a folder…" stays for anything else: the app's folder picker on desktop, a path on the
  * web, under a name.
  */
@@ -128,19 +129,6 @@ function FolderChoice(props: {
   );
 }
 
-/** The bot's recipe for a picked bot, and why it can't be published when Spade refused it. */
-function useChosenRecipe(chosen: MarketPublishItem | undefined) {
-  const id = chosen?.source?.kind === "spade-bot" ? chosen.source.id : undefined;
-  const recipe = useBotRecipe(id);
-  const error = recipe.error;
-  const failed = error
-    ? error instanceof MarketFailure && error.detail
-      ? error.detail
-      : "Spade couldn't give this bot's recipe."
-    : undefined;
-  return { id, data: recipe.data, failed };
-}
-
 export function ChooseItem(props: {
   type: MarketPublishType;
   me: MarketMe | undefined;
@@ -152,9 +140,15 @@ export function ChooseItem(props: {
 }) {
   const { type, chosen } = props;
   const [folder, setFolder] = useState<{ path: string }>();
+  const [checked, setChecked] = useState<MarketDraftChecked>();
+  // The review reports after each render; only a confirmation that says something new is kept.
+  const report = useCallback(
+    (next: MarketDraftChecked | undefined) =>
+      setChecked((before) => (JSON.stringify(before) === JSON.stringify(next) ? before : next)),
+    [],
+  );
   const picker = useNativePicker(true);
-  const recipe = useChosenRecipe(chosen);
-  const waiting = recipe.id !== undefined && (!recipe.data || recipe.failed !== undefined);
+  const reviewed = type !== "suit" && chosen?.source !== undefined;
   const chooseFolder = async () => {
     props.onChoose(undefined);
     const path = picker ? await picker.choose() : "";
@@ -171,16 +165,16 @@ export function ChooseItem(props: {
       ) : folder ? (
         <FolderChoice type={type} me={props.me} path={folder.path} onChoose={props.onChoose} />
       ) : (
-        <>
-          <PickChoices type={type} me={props.me} chosen={chosen} onChoose={props.onChoose} />
-          {recipe.id !== undefined && (
-            <RecipePreview
-              recipe={recipe.data?.recipe}
-              leftOut={recipe.data?.leftOut ?? []}
-              failed={recipe.failed}
-            />
-          )}
-        </>
+        <PickChoices type={type} me={props.me} chosen={chosen} onChoose={props.onChoose} />
+      )}
+      {type !== "suit" && chosen?.source && (
+        <DraftReview
+          key={`${chosen.name}:${JSON.stringify(chosen.source)}`}
+          type={type}
+          name={chosen.name}
+          source={chosen.source}
+          onChecked={report}
+        />
       )}
       <Foot
         left={
@@ -208,8 +202,8 @@ export function ChooseItem(props: {
         <Button
           variant="primary"
           size="lg"
-          disabled={!chosen || waiting}
-          onClick={() => chosen && props.onNext(chosen)}
+          disabled={!chosen || (reviewed && !checked)}
+          onClick={() => chosen && props.onNext(reviewed ? { ...chosen, checked } : chosen)}
         >
           Next
         </Button>

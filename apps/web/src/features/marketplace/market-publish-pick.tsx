@@ -1,21 +1,13 @@
-import type { MarketMe, MarketPickType, Recipe } from "@ace/protocol/marketplace";
+import type { MarketMe, MarketPickType } from "@ace/protocol/marketplace";
 import { parseStoredBotFace } from "@ace/ui-core/bot-face";
 import { keyOf } from "./market-publish-parts.tsx";
 import type { MarketPublishItem } from "./market-publish-port.ts";
-import {
-  fromWords,
-  needLabel,
-  pickedItem,
-  refName,
-  samePick,
-  usePublishables,
-} from "./market-publish-pick.ts";
+import { fromWords, pickedItem, samePick, usePublishables } from "./market-publish-pick.ts";
 import { BotPicture, Stage } from "./market-stage.tsx";
 
 /*
  * The Item step's lists: the person's own bots (face, name, task), skills (Spade's and ace's
- * library) and plugins, each a card that picks it; and a bot's recipe shown before Next, so the
- * person sees what publishing it sends.
+ * library) and plugins, each a card that picks it.
  */
 
 const nothing: Readonly<Record<MarketPickType, string>> = {
@@ -80,102 +72,5 @@ export function PickChoices(props: {
         </div>
       )}
     </>
-  );
-}
-
-/** What a bot's recipe holds, as publishing it sends it. */
-export function RecipePreview(props: {
-  recipe: Recipe | undefined;
-  leftOut: readonly string[];
-  failed: string | undefined;
-}) {
-  const { recipe } = props;
-  if (props.failed)
-    return (
-      <p className="mk-withdrawn-line" style={{ marginTop: 32 }}>
-        {props.failed}
-      </p>
-    );
-  if (!recipe)
-    return (
-      <p className="mk-line" style={{ marginTop: 32 }}>
-        Reading its recipe…
-      </p>
-    );
-  const skills = recipe.skills.map(refName);
-  const plugins = recipe.plugins.map(refName);
-  return (
-    <section aria-label="Its recipe" style={{ marginTop: 32, maxWidth: 640 }}>
-      <h2 className="mk-quiet-head">What its recipe holds</h2>
-      <dl className="mk-facts">
-        <div className="mk-fact">
-          <dt>Model</dt>
-          <dd>{recipe.model === "fast" ? "Fast" : "Capable"}, on each person's own model</dd>
-        </div>
-        {skills.length > 0 && (
-          <div className="mk-fact">
-            <dt>Skills</dt>
-            <dd>{skills.join(", ")}</dd>
-          </div>
-        )}
-        {plugins.length > 0 && (
-          <div className="mk-fact">
-            <dt>Plugins</dt>
-            <dd>{plugins.join(", ")}</dd>
-          </div>
-        )}
-        {recipe.needs.tools && (
-          <div className="mk-fact">
-            <dt>Tools</dt>
-            <dd>{recipe.needs.tools.join(", ")}</dd>
-          </div>
-        )}
-      </dl>
-      <h3 className="mk-quiet-head">Routines</h3>
-      {recipe.routines.length === 0 ? (
-        <p className="mk-line">None.</p>
-      ) : (
-        <ul aria-label="Routines" style={{ margin: 0, padding: 0, listStyle: "none" }}>
-          {recipe.routines.map((routine) => (
-            <li key={routine.name} className="mk-fact-row">
-              <span className="mk-words">
-                <span className="mk-name">{routine.name}</span>
-                <span className="mk-meta">{routine.schedule}</span>
-              </span>
-              <span className="mk-state-word">Starts paused</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <h3 className="mk-quiet-head">What it asks for</h3>
-      {recipe.needs.connectors.length === 0 ? (
-        <p className="mk-line">No apps.</p>
-      ) : (
-        <ul aria-label="What it asks for" style={{ margin: 0, padding: 0, listStyle: "none" }}>
-          {recipe.needs.connectors.map((need) => (
-            <li key={needLabel(need)} className="mk-fact-row">
-              <span className="mk-words">
-                <span className="mk-name">{needLabel(need)}</span>
-                <span className="mk-meta">{need.why}</span>
-              </span>
-              <span className="mk-state-word">{need.required ? "Required" : "Optional"}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {props.leftOut.length > 0 && (
-        <>
-          <h3 className="mk-quiet-head">Left out</h3>
-          {props.leftOut.map((line) => (
-            <p key={line} className="mk-line">
-              {line}
-            </p>
-          ))}
-        </>
-      )}
-      <p className="mk-line" style={{ marginTop: 16 }}>
-        Its keys, tokens, notes and the access you gave it stay on this machine.
-      </p>
-    </section>
   );
 }

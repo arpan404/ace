@@ -51,8 +51,10 @@ export {
   secretValueProblems,
 } from "./secrets.ts";
 export {
+  privacyQuote,
   privacySpans,
   privacyWords,
+  withSentences,
   type PrivacyContext,
   type PrivacyKind,
   type PrivacySpan,

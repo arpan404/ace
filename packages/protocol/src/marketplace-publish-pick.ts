@@ -88,6 +88,8 @@ export const MarketPrivacySpan = z.strictObject({
   end: z.number().int().nonnegative(),
   kind: MarketPrivacyKind,
   text: z.string().max(2000),
+  /** What it is, as the person reads it: "\"arlo@example.com\" is an email address." */
+  sentence: z.string().max(500),
 });
 export type MarketPrivacySpan = z.infer<typeof MarketPrivacySpan>;
 

@@ -148,6 +148,12 @@ test("publishing holds Next on a failed check until Check again passes", async (
   await userEvent.click(await within(market).findByRole("button", { name: "Choose a folder…" }));
   await userEvent.type(within(market).getByLabelText("Name in the marketplace"), "sort-receipts");
   await userEvent.type(within(market).getByLabelText("Folder on this machine"), "/Users/me/sort");
+  await within(market).findByRole("list", { name: "What will upload" });
+  await waitFor(() =>
+    expect(within(market).getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(
+      false,
+    ),
+  );
   await userEvent.click(within(market).getByRole("button", { name: "Next" }));
 
   expect(await within(market).findByText("A script downloads code and runs it.")).toBeTruthy();

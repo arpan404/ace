@@ -76,8 +76,11 @@ const recipe: Recipe = {
   notes: [],
 };
 
+const away = () => Promise.reject(new Error("Spade isn't running."));
+const plugin = (manifest: object) =>
+  folderWith({ ".claude-plugin/plugin.json": JSON.stringify(manifest), "README.md": "Tools.\n" });
+
 function ports(over: Partial<PickPorts> = {}): PickPorts {
-  const away = () => Promise.reject(new Error("Spade isn't running."));
   return {
     spade: {
       bots: away,
@@ -183,27 +186,27 @@ test("a source that changed since its check is refused", async () => {
   ).rejects.toThrow(/changed since/);
 });
 
-test("a picked plugin must still name itself, and name no other author than you", async () => {
-  const plugin = (manifest: object) =>
-    folderWith({ ".claude-plugin/plugin.json": JSON.stringify(manifest), "README.md": "Tools.\n" });
-  const draft = async (manifest: object) => {
-    const folder = await plugin(manifest);
-    return checkDraft(
-      ports({ plugins: async () => [{ name: "mail-tools", version: "1.0.0", folder }] }),
-      {
-        type: "spade-plugin",
-        name: "mail-tools",
-        source: { kind: "plugin", name: "mail-tools" },
-        me: async () => me,
-      },
-    );
-  };
-  await expect(draft({ name: "mail-tools", author: { name: "Arlo Quint" } })).resolves.toBeTruthy();
-  await expect(draft({ name: "mail-tools", author: "arloq" })).resolves.toBeTruthy();
-  await expect(draft({ name: "mail-tools", author: { name: "Someone Else" } })).rejects.toThrow(
-    /Someone Else/,
+const pluginDraft = async (manifest: object) => {
+  const folder = await plugin(manifest);
+  return checkDraft(
+    ports({ plugins: async () => [{ name: "mail-tools", version: "1.0.0", folder }] }),
+    {
+      type: "spade-plugin",
+      name: "mail-tools",
+      source: { kind: "plugin", name: "mail-tools" },
+      me: async () => me,
+    },
   );
-  await expect(draft({ name: "calendar", author: "arloq" })).rejects.toThrow(/calendar/);
+};
+test("a picked plugin must still name itself, and name no other author than you", async () => {
+  await expect(
+    pluginDraft({ name: "mail-tools", author: { name: "Arlo Quint" } }),
+  ).resolves.toBeTruthy();
+  await expect(pluginDraft({ name: "mail-tools", author: "arloq" })).resolves.toBeTruthy();
+  await expect(
+    pluginDraft({ name: "mail-tools", author: { name: "Someone Else" } }),
+  ).rejects.toThrow(/Someone Else/);
+  await expect(pluginDraft({ name: "calendar", author: "arloq" })).rejects.toThrow(/calendar/);
 });
 
 test("anything installed from the marketplace is refused at the check", async () => {

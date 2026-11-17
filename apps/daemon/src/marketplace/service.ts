@@ -5,7 +5,7 @@ import type {
   MarketPublishAction,
   MarketResult,
 } from "@ace/protocol/marketplace";
-import { privacySpans, type WithdrawalTarget } from "@ace/marketplace";
+import { privacySpans, withSentences, type WithdrawalTarget } from "@ace/marketplace";
 import { MarketPickType, type MarketKeySet, type MarketMe } from "@ace/protocol/marketplace";
 import type { GitRuntime } from "@ace/plugins";
 import { homeOf, publicInstall, readEntry, searchListings } from "./browse.ts";
@@ -484,7 +484,9 @@ export class MarketplaceService {
         const names = pick ? await pick.names() : [];
         return {
           op: "privacyCheck",
-          spans: operation.texts.map((text) => privacySpans(text, { names }).slice(0, 200)),
+          spans: operation.texts.map((text) =>
+            withSentences(privacySpans(text, { names }).slice(0, 200)),
+          ),
         };
       }
       case "botRecipe": {

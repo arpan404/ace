@@ -29,6 +29,14 @@ async function skillFolder() {
 }
 
 const away = () => Promise.reject(new Error("Spade isn't running."));
+const text = (path: string, executable = false): ArchiveFile => ({
+  path,
+  executable,
+  content: new TextEncoder().encode("x"),
+});
+const market = (type: string, name: string) =>
+  (type === "spade-skill" && name === "triage-mail") ||
+  (type === "spade-plugin" && name === "calendar");
 
 function ports(
   over: {
@@ -79,11 +87,6 @@ test("a skill that isn't one of the person's own is refused, and a linked file s
 });
 
 test("a Spade skill's files keep the folder rules: hidden and credential files stay home", async () => {
-  const text = (path: string, executable = false): ArchiveFile => ({
-    path,
-    executable,
-    content: new TextEncoder().encode("x"),
-  });
   const pick = ports({
     spade: {
       skills: async () => [{ id: "sks_01", name: "notes", description: "" }],
@@ -105,9 +108,6 @@ test("a Spade skill's files keep the folder rules: hidden and credential files s
 });
 
 test("nothing installed from the marketplace or a catalog is listed as the person's own", async () => {
-  const market = (type: string, name: string) =>
-    (type === "spade-skill" && name === "triage-mail") ||
-    (type === "spade-plugin" && name === "calendar");
   const pick = ports({
     spade: {
       bots: async () => [

@@ -71,7 +71,7 @@ function privateHost(host: string): boolean {
   if (name === "localhost" || name.endsWith(".localhost")) return true;
   if (privateSuffixes.some((suffix) => name.endsWith(suffix))) return true;
   if (privateIpv4(name)) return true;
-  if (name === "::1" || /^f[cd][0-9a-f]{2}:/.test(name) || /^fe80:/.test(name)) return true;
+  if (name === "::1" || /^f[cd][0-9a-f]{2}:/.test(name) || name.startsWith("fe80:")) return true;
   // A single-label host (`http://nas/`) only resolves on the person's own network.
   return !name.includes(".") && !name.includes(":");
 }
@@ -126,4 +126,21 @@ export function privacySpans(text: string, context: PrivacyContext): PrivacySpan
     else if (span.kind === "secret" && last.kind !== "secret") kept[kept.length - 1] = span;
   }
   return kept;
+}
+
+/** A flagged text, shortened past 80 characters, in quotes. */
+export const privacyQuote = (text: string) =>
+  `"${text.length > 80 ? `${text.slice(0, 77)}…` : text}"`;
+
+/** Each span with the sentence the person reads for it. */
+export function withSentences(
+  spans: readonly PrivacySpan[],
+): (PrivacySpan & { sentence: string })[] {
+  return spans.map((span) => ({
+    ...span,
+    sentence:
+      span.kind === "secret"
+        ? `Something here ${privacyWords.secret}. Take it out before publishing.`
+        : `${privacyQuote(span.text)} ${privacyWords[span.kind]}.`,
+  }));
 }

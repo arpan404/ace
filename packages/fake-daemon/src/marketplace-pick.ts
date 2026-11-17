@@ -1,4 +1,4 @@
-import { privacySpans } from "@ace/marketplace";
+import { privacySpans, withSentences } from "@ace/marketplace";
 import type {
   MarketDraftCheck,
   MarketPickType,
@@ -56,7 +56,10 @@ export class FakeMarketPick {
   /** The privacy pass, as the daemon runs it. */
   privacy(texts: readonly string[]): MarketResult {
     const names = this.#seed.names ?? [];
-    return { op: "privacyCheck", spans: texts.map((text) => privacySpans(text, { names })) };
+    return {
+      op: "privacyCheck",
+      spans: texts.map((text) => withSentences(privacySpans(text, { names }))),
+    };
   }
 
   /** What a draft from `source` would upload. */
@@ -66,7 +69,7 @@ export class FakeMarketPick {
       const found = this.#seed.recipes?.[source.id];
       if (!found) return { op: "error", code: "not_found", message: "no such agent" };
       const names = this.#seed.names ?? [];
-      const spans = (text: string) => privacySpans(text, { names });
+      const spans = (text: string) => withSentences(privacySpans(text, { names }));
       const { recipe } = found;
       const check: MarketDraftCheck = {
         files: [],
@@ -135,12 +138,13 @@ const inboxFace = {
 /** A person with a bot in Spade, a skill in Spade and one in ace's library, and a plugin. */
 export function marketPickFixture(): MarketPickSeed {
   return {
+    names: ["Arlo Quint", "arloq"],
     items: [
       {
         type: "spade-bot",
         name: "inbox-sorter",
         title: "Inbox sorter",
-        line: "You look after the person's inbox.",
+        line: "You look after Arlo Quint's inbox.",
         from: "spade",
         face: inboxFace,
         source: { kind: "spade-bot", id: "a_inbox" },
@@ -177,7 +181,7 @@ export function marketPickFixture(): MarketPickSeed {
           version: 2,
           name: "Inbox sorter",
           blurb: "",
-          task: "You look after the person's inbox.",
+          task: "You look after Arlo Quint's inbox.",
           face: inboxFace,
           model: "fast",
           routines: [
@@ -186,15 +190,23 @@ export function marketPickFixture(): MarketPickSeed {
               instruction: "Sort the inbox.",
               schedule: "weekdays at 8:00",
             },
+            {
+              name: "File receipts",
+              instruction: "Save receipts to /Users/arloq/Receipts.",
+              schedule: "daily at 18:00",
+            },
           ],
           skills: ["spade-skill/triage-mail"],
           plugins: ["spade-plugin/mail-tools"],
           needs: {
-            connectors: [{ id: "gmail", why: "Gmail is allowed for this bot.", required: true }],
+            connectors: [{ id: "gmail", why: "The bot uses this app.", required: true }],
           },
           notes: [],
         },
-        leftOut: ["The routine \"Hook\" doesn't run on a schedule, so a recipe can't carry it."],
+        leftOut: [
+          "The routine \"Hook\" doesn't run on a schedule, so a recipe can't carry it.",
+          "It uses a custom app you added, which a recipe can't ask for.",
+        ],
       },
     },
   };

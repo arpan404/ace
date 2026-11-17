@@ -26,17 +26,6 @@ export function usePublishables(type: MarketPickType) {
   });
 }
 
-/** A bot's recipe as publishing it sends it, with what a recipe can't carry. */
-export function useBotRecipe(id: string | undefined) {
-  return useDaemonQuery({
-    queryKey: [...pickKey, "recipe", id ?? ""],
-    enabled: id !== undefined,
-    retry: false,
-    read: async (client, signal) =>
-      await market(client, { op: "botRecipe", id: id ?? "" }, "botRecipe", signal),
-  });
-}
-
 /** What publishing one picked thing means: its name, words, source and where it stands. */
 export function pickedItem(me: MarketMe | undefined, picked: MarketPublishable): MarketPublishItem {
   const mine = me?.entries.find(

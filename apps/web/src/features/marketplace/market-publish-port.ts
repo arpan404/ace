@@ -1,5 +1,6 @@
 import type {
   MarketDraft,
+  MarketDraftChecked,
   MarketDraftSource,
   MarketEntryType,
   MarketMe,
@@ -37,6 +38,8 @@ export interface MarketPublishItem {
   source?: MarketDraftSource | undefined;
   /** A draft of it the publisher already has. */
   draft?: string | undefined;
+  /** The person's confirmation of what its check said would upload. */
+  checked?: MarketDraftChecked | undefined;
 }
 
 /** One line of the Check step: a scan check or a format problem, with its findings. */
@@ -165,7 +168,13 @@ export function usePublishSteps() {
       }
       const made = item.draft
         ? await ask(
-            { action: "draftUpdate", id: item.draft, version: item.version, source: item.source },
+            {
+              action: "draftUpdate",
+              id: item.draft,
+              version: item.version,
+              source: item.source,
+              ...(item.checked ? { checked: item.checked } : {}),
+            },
             "draft",
           )
         : await ask(
@@ -175,6 +184,7 @@ export function usePublishSteps() {
               name: item.name,
               version: item.version,
               source: item.source,
+              ...(item.checked ? { checked: item.checked } : {}),
             },
             "draft",
           );

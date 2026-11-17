@@ -3,8 +3,10 @@ import {
   frontmatter,
   hashFiles,
   pluginManifests,
+  privacyQuote,
   privacySpans,
   privacyWords,
+  withSentences,
   secretValueProblems,
   sha256Hex,
   writeArchive,
@@ -63,7 +65,7 @@ function textOf(content: Uint8Array): string | undefined {
   }
 }
 
-const quoted = (text: string) => `"${text.length > 80 ? `${text.slice(0, 77)}…` : text}"`;
+const quoted = privacyQuote;
 
 function fileFindings(file: ArchiveFile, names: readonly string[]): MarketDraftFinding[] {
   const text = textOf(file.content);
@@ -167,7 +169,7 @@ async function examine(ports: PickPorts, input: CheckInput): Promise<Examined | 
   const picked = await readPicked(ports, input.type, input.source);
   if (!picked) return undefined;
   const names = await ports.names();
-  const spans = (text: string) => privacySpans(text, { names });
+  const spans = (text: string) => withSentences(privacySpans(text, { names }));
   if (picked.kind === "bot") {
     const { recipe } = picked;
     return {

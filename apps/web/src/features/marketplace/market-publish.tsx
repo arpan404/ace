@@ -162,6 +162,8 @@ function PublishFlow(props: { resume: MarketDraft | undefined }) {
         onChoose={setItem}
         onBack={() => setStep("Type")}
         onNext={(chosen) => {
+          // The confirmed check travels with the item, so Check again sends it too.
+          setItem(chosen);
           runChecks(chosen);
           setStep("Check");
         }}
