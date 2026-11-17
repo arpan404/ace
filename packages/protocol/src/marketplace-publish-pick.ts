@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MarketEntryName } from "./marketplace-base.ts";
+import { MarketEntryName, trimmedText } from "./marketplace-base.ts";
 import { Recipe } from "./marketplace-catalog.ts";
 import { PluginName } from "./plugins.ts";
 import { SkillId } from "./skill-library.ts";
@@ -146,9 +146,9 @@ export const MarketDraftCheck = z.strictObject({
 export type MarketDraftCheck = z.infer<typeof MarketDraftCheck>;
 
 const RecipeRoutineText = z.strictObject({
-  name: z.string().trim().min(1).max(120),
-  instruction: z.string().trim().min(1).max(4000),
-  schedule: z.string().trim().min(1).max(200),
+  name: trimmedText(1, 120),
+  instruction: trimmedText(1, 4000),
+  schedule: trimmedText(1, 200),
 });
 
 /** The person's confirmation of a check, sent with the draft. */

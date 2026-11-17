@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/SignedVersionUpload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "manifest": {
+      "$ref": "https://ace.local/protocol/v1/Signed.json"
+    }
+  },
+  "required": [
+    "manifest"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppealAnswer.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "answer": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "keep"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "answer",
+    "decision"
+  ],
+  "type": "object"
+}

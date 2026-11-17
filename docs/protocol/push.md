@@ -1711,25 +1711,19 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "entry": {
-      "description": "example",
-      "summary": {
-        "byAce": true,
-        "categories": [],
-        "downloads": 9,
-        "keywords": [],
-        "line": "example",
-        "name": "xkki8e1cw5v",
-        "reviewed": false,
-        "source": "git:m3",
-        "supported": true,
-        "title": "example",
-        "type": "example",
-        "updated": 2
+    "leftOut": [],
+    "op": "botRecipe",
+    "recipe": {
+      "face": {},
+      "format": "spade-bot",
+      "name": "example",
+      "needs": {
+        "connectors": [],
+        "tools": []
       },
-      "versions": []
-    },
-    "op": "read"
+      "task": "example",
+      "version": 2
+    }
   },
   "type": "marketplace.result"
 }

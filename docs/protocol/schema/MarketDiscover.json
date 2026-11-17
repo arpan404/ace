@@ -1,0 +1,117 @@
+{
+  "$id": "https://ace.local/protocol/v1/MarketDiscover.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "collections": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+            },
+            "maxItems": 24,
+            "type": "array"
+          },
+          "id": {
+            "$ref": "https://ace.local/protocol/v1/MarketCategoryId.json"
+          },
+          "line": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 60,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "line",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "featured": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+      },
+      "maxItems": 24,
+      "type": "array"
+    },
+    "fresh": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+      },
+      "maxItems": 24,
+      "type": "array"
+    },
+    "hero": {
+      "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+    },
+    "publishers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/MarketTopPublisher.json"
+      },
+      "maxItems": 12,
+      "type": "array"
+    },
+    "rankedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "readAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "trending": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "entry": {
+            "$ref": "https://ace.local/protocol/v1/MarketEntrySummary.json"
+          },
+          "movement": {
+            "$ref": "https://ace.local/protocol/v1/MarketTrendMovement.json"
+          },
+          "rank": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "week": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "entry",
+          "rank",
+          "movement",
+          "week"
+        ],
+        "type": "object"
+      },
+      "maxItems": 50,
+      "type": "array"
+    }
+  },
+  "required": [
+    "featured",
+    "trending",
+    "fresh",
+    "collections",
+    "publishers",
+    "rankedAt",
+    "readAt"
+  ],
+  "type": "object"
+}
