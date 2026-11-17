@@ -228,7 +228,8 @@ export const pictureGraceMs = 24 * 3_600_000;
  * statement that checks they fit beside its versions, drafts and other pictures. The same
  * picture again is charged once. In the same batch the row drops any claim the cron holds on
  * the key, so the cron won't delete bytes a row now holds. False when it doesn't fit, or while
- * the cron is deleting that very object (a retry a moment later goes through).
+ * the cron is deleting that very object (a retry a moment later goes through). Every write moves
+ * the row's generation, which fences the sweep: it drops a row only at the generation it read.
  */
 export type PictureReservation = "stored" | "quota" | "deleting";
 
@@ -244,8 +245,10 @@ export async function reservePicture(
   const [charged] = await db.batch([
     db
       .prepare(
-        `INSERT INTO pictures (key, publisher, size, at) SELECT ?1, ?2, ?3, ?4 WHERE ${fits}
-          ON CONFLICT (key, publisher) DO UPDATE SET size = excluded.size, at = excluded.at
+        `INSERT INTO pictures (key, publisher, size, at, generation)
+          SELECT ?1, ?2, ?3, ?4, 1 WHERE ${fits}
+          ON CONFLICT (key, publisher) DO UPDATE SET size = excluded.size, at = excluded.at,
+            generation = pictures.generation + 1
             WHERE ${fits}`,
       )
       .bind(input.key, input.publisher, input.size, input.now, input.quotaBytes),
@@ -293,23 +296,27 @@ async function namedPreviews(dbs: Databases, keys: readonly string[]): Promise<S
  * Looks at up to `limit` picture rows older than the grace period: one nothing names is
  * dropped (its bytes stop counting), one still named is looked at again a grace period later.
  * The catalogues are asked which listing pictures are named first; then one batch drops or
- * renews each row only while it is still past its grace period, so an upload that charged the
- * picture again in between, or a profile naming it on the way, keeps it.
+ * renews each row only while it is still at the generation read, so an upload or a listing edit
+ * that reserved the picture again in between keeps it. Its object is deleted later only under a
+ * claim, while no row holds the key (decision 1).
  */
 export async function sweepPictureRows(dbs: Databases, now: number, limit: number) {
   const db = dbs.publishers;
   const before = now - pictureGraceMs;
   const { results: due } = await db
-    .prepare("SELECT key, publisher FROM pictures WHERE at < ?1 ORDER BY at LIMIT ?2")
+    .prepare("SELECT key, publisher, generation FROM pictures WHERE at < ?1 ORDER BY at LIMIT ?2")
     .bind(before, limit)
-    .all<{ key: string; publisher: string }>();
+    .all<{ key: string; publisher: string; generation: number }>();
   if (due.length === 0) return;
   const previews = [...new Set(due.map((row) => row.key))].filter((key) =>
     key.startsWith("previews/"),
   );
   const named = [...(await namedPreviews(dbs, previews))];
-  const rows = JSON.stringify(due.map((row) => `${row.publisher}:${row.key}`));
-  const isDue = `at < ?1 AND (publisher || ':' || key) IN (SELECT value FROM json_each(?2))`;
+  // Each row as read, generation included: one renewed since (an upload, or a listing edit that
+  // names it) no longer matches, and stays.
+  const rows = JSON.stringify(due.map((row) => `${row.generation}:${row.publisher}:${row.key}`));
+  const isDue = `at < ?1 AND (generation || ':' || publisher || ':' || key)
+    IN (SELECT value FROM json_each(?2))`;
   const kept = `(${avatarNamed} OR key IN (SELECT value FROM json_each(?3)))`;
   await db.batch([
     db

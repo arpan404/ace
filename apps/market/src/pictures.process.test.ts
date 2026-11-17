@@ -336,3 +336,83 @@ it("an object a sweep died holding is collected by a later sweep once its lease 
   expect(await keys("avatars/")).not.toContain(key);
   expect(await tombstone(key)).toBeNull();
 });
+
+/** A live entry of the painter's whose listing named a picture and then dropped it. */
+async function droppedPreview(name: string, side: number) {
+  await liveVersion(market, "acct_painter", painter, {
+    type: "spade-skill",
+    name,
+    files: sampleSkill(name),
+  });
+  const path = `/v1/me/entries/spade-skill/${name}`;
+  const uploaded = await asAccount(
+    market,
+    "acct_painter",
+    "PUT",
+    `${path}/previews/0`,
+    testPng(640, side),
+  );
+  expect(uploaded.status).toBe(200);
+  const [sha] = (
+    await jsonOf<{ listing: { previews: string[] } }>(
+      await asAccount(market, "acct_painter", "GET", path),
+    )
+  ).listing.previews;
+  if (!sha) throw new Error("no picture");
+  const edit = (previews: string[]) =>
+    asAccount(market, "acct_painter", "PUT", `${path}/listing`, {
+      title: name,
+      line: "A line.",
+      description: "Words.",
+      categories: [],
+      keywords: [],
+      links: [],
+      previews,
+    });
+  expect((await edit([])).status).toBe(200);
+  return { sha, key: `previews/${sha}`, edit };
+}
+
+it("a listing edit that names a picture while the sweep drops it keeps the picture", async () => {
+  const { sha, key, edit } = await droppedPreview("renamed-preview", 400);
+  const due = Date.now() + pictureGraceMs + 60_000;
+  // The sweep read the row as named by nothing; the edit lands before it drops the row.
+  let edited = 0;
+  const db = new Proxy(market.dbs.publishers, {
+    get(target, name, receiver) {
+      if (name !== "batch") return Reflect.get(target, name, receiver);
+      return async (statements: D1PreparedStatement[]) => {
+        if (edited === 0) edited = (await edit([sha])).status;
+        return target.batch(statements);
+      };
+    },
+  });
+  await sweepPictures(
+    { dbs: { ...market.dbs, publishers: db }, OBJECTS: market.objects },
+    due,
+    "a",
+  );
+  expect(edited).toBe(200);
+  // Later runs claim and delete only what nothing holds: this picture stays.
+  await sweep(due + 1_000);
+  await sweep(due + pictureClaimMs + 120_000);
+  expect(await keys("previews/")).toContain(key);
+  const held = await market.dbs.publishers
+    .prepare("SELECT 1 AS found FROM pictures WHERE key = ?1")
+    .bind(key)
+    .first();
+  expect(held).not.toBeNull();
+});
+
+it("a listing edit can't name a picture the cron is deleting", async () => {
+  const { sha, key, edit } = await droppedPreview("deleting-preview", 408);
+  await market.dbs.publishers.batch([
+    market.dbs.publishers.prepare("DELETE FROM pictures WHERE key = ?1").bind(key),
+    market.dbs.publishers
+      .prepare(
+        "INSERT INTO picture_tombstones (key, claimed_at, deleting, owner, generation, leased_at) VALUES (?1, 1, 1, 'run', 1, ?2)",
+      )
+      .bind(key, Date.now()),
+  ]);
+  expect((await edit([sha])).status).toBe(409);
+});

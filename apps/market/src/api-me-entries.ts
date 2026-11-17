@@ -203,11 +203,24 @@ export async function storePicture(
   key: string,
   image: { bytes: Uint8Array; type: string },
 ): Promise<Response | undefined> {
+  const unstored = await reservePictureFor(context, publisher, key, image.bytes.byteLength);
+  if (unstored) return unstored;
+  await context.env.OBJECTS.put(key, image.bytes, { httpMetadata: { contentType: image.type } });
+  return undefined;
+}
+
+/** Charges or renews a picture's reservation; answers the refusal when it can't be. */
+async function reservePictureFor(
+  context: Context,
+  publisher: AuthedPublisher,
+  key: string,
+  size: number,
+): Promise<Response | undefined> {
   const quotaBytes = publisherLimits(isNewPublisher(publisher, context.now)).quotaBytes;
   const charged = await reservePicture(context.dbs.publishers, {
     publisher: publisher.id,
     key,
-    size: image.bytes.byteLength,
+    size,
     quotaBytes,
     now: context.now,
   });
@@ -219,7 +232,6 @@ export async function storePicture(
       "quota",
       `Your entries, drafts and pictures can take ${Math.round(quotaBytes / 1024 / 1024)} MB.`,
     );
-  await context.env.OBJECTS.put(key, image.bytes, { httpMetadata: { contentType: image.type } });
   return undefined;
 }
 
@@ -240,10 +252,19 @@ async function editListing(
     const problem = linkProblem(link);
     return problem ? [problem] : [];
   });
-  for (const sha of listing.previews)
-    if (!(await context.env.OBJECTS.head(previewKey(sha))))
-      problems.push({ message: `Upload the picture ${sha.slice(0, 12)}… first.` });
   if (problems.length > 0) return refused(problems);
+  // Every picture the listing names is reserved again before the listing is written, so a sweep
+  // that read it as named by nothing can't drop it, and one the cron is deleting is refused.
+  for (const sha of listing.previews) {
+    const missing = () => refused([{ message: `Upload the picture ${sha.slice(0, 12)}… first.` }]);
+    const key = previewKey(sha);
+    const head = await context.env.OBJECTS.head(key);
+    if (!head) return missing();
+    const unstored = await reservePictureFor(context, publisher, key, head.size);
+    if (unstored) return unstored;
+    // The bytes may have gone between the look and the reservation.
+    if (!(await context.env.OBJECTS.head(key))) return missing();
+  }
   const scan = scanListing(
     listing,
     await scanContext(
