@@ -2,11 +2,11 @@ import { expect, it, onTestFinished } from "vitest";
 import { ToolRegistry, CredentialRegistry } from "@ace/mcp-server";
 import { McpScope } from "@ace/protocol";
 import { computerUseHandler, screenToolkit } from "./index.ts";
-import { manager, ready, target } from "./testing/support.ts";
+import { macHostPlatform, manager, ready, target } from "./testing/support.ts";
 import { helperGate } from "./testing/gate.ts";
 const fixtureArgs = [new URL("./testing/fake-helper-behavior.ts", import.meta.url).pathname];
 async function fixture(env: NodeJS.ProcessEnv = {}) {
-  const h = await manager(env, { args: fixtureArgs });
+  const h = await manager(env, { ...macHostPlatform, args: fixtureArgs });
   onTestFinished(h.close);
   return h;
 }

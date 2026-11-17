@@ -31,6 +31,8 @@ export interface FakeDaemonOptions {
   databaseId?: string;
   displayName?: string;
   version?: string;
+  /** The release line its welcome names (ADR 0177); absent, as an older daemon's. */
+  releaseLine?: string;
   /** The OS host.identity reports; absent, as an older daemon's. */
   platform?: string;
   catalog?: Partial<Pick<FakeServices, "accounts" | "models" | "commands" | "providerStatuses">>;

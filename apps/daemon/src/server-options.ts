@@ -123,6 +123,8 @@ export interface ServerOptions {
   maintenanceGate?: MaintenanceGate;
   /** The desktop app's update report; the server makes its own when omitted. */
   appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
+  /** The data formats the home holds, in each reply to the app's update report (ADR 0177). */
+  homeData?: () => import("@ace/protocol").HomeData;
   /** This machine's remote updates (ADR 0113); clients read `unavailable` when omitted. */
   machineUpdate?: {
     install: import("@ace/protocol").MachineInstall;

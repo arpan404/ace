@@ -37,6 +37,7 @@ export {
 export type { SidebarKey } from "./sidebar.ts";
 export {
   useConnectionGeneration,
+  useDaemonReleaseLine,
   useConnectionState,
   useIntent,
   useIntentSender,

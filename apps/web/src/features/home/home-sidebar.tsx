@@ -19,8 +19,9 @@ import { useResolvedKeymap } from "@/lib/keybindings.ts";
 import { formatKeys } from "@/lib/keymap.ts";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
-import { useSidebarDevice } from "./device-filter-state.ts";
-import { useMachines, usePrimaryMachine } from "@/lib/machines.ts";
+import { inScope, useSidebarDevice } from "./device-filter-state.ts";
+import { scopeNames, useScopeMachines } from "./device-filter.tsx";
+import { usePrimaryMachine } from "@/lib/machines.ts";
 import { useThreadsWindowSync } from "./thread-pagination.tsx";
 import { useHomeList, useSettledEntries } from "./use-home-threads.ts";
 import { useSettledSearch, useThreadHits, type SearchHit } from "./use-panel-search.ts";
@@ -62,7 +63,7 @@ export function HomeSidebar() {
   const own = usePrimaryMachine().id;
   const asked = useThreadHits(query);
   // Only this machine's daemon searches: another machine's threads match by title alone.
-  const found = device && device !== own ? noHits : asked;
+  const found = inScope(device, own) ? asked : noHits;
   const list = useHomeList(others, query, found);
   // Settled also lists older settled threads the search found that the list hasn't paged in.
   const settledShown = useSettledEntries(list.settled);
@@ -72,7 +73,7 @@ export function HomeSidebar() {
     [searching, older.matches],
   );
   const { project, tab } = useOrganizerState();
-  const deviceName = useMachines().find((machine) => machine.id === device)?.name;
+  const deviceName = scopeNames(useScopeMachines(device));
   useThreadsWindowSync();
   const organizer = useOrganizer();
   const loaded = useSidebarLoaded();

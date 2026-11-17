@@ -10,10 +10,10 @@ import { useHeld } from "@/lib/held.ts";
 import { useHostIdentity } from "@/lib/host-name.ts";
 import { useMachineEntries } from "@/lib/machine-threads.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
-import { useMachines } from "@/lib/machines.ts";
 import { FoundHits } from "./found-row.tsx";
 import { ChatsFilter } from "./chats-filter.tsx";
-import { useChatsDevice } from "./device-filter-state.ts";
+import { type DeviceScope, useChatsDevice } from "./device-filter-state.ts";
+import { scopeNames, useScopeMachines } from "./device-filter.tsx";
 import { DraftRows } from "./new-thread/draft-rows.tsx";
 import { useSettledPaging } from "./settled-paging.ts";
 import { ThreadList } from "./thread-list.tsx";
@@ -35,7 +35,7 @@ export function ChatsSidebar() {
   const host = useHostIdentity()?.hostId;
   const others = useOverlaidMachineEntries(useMachineEntries(host));
   const device = useChatsDevice();
-  const deviceName = useMachines().find((machine) => machine.id === device)?.name;
+  const deviceName = scopeNames(useScopeMachines(device));
   const organizer = useOrganizer();
   const chats = useChatList(query, others, device);
   const loaded = useSidebarLoaded();
@@ -112,7 +112,7 @@ export function ChatsSidebar() {
  * end stays in view, and the list keeps only the chats among them. Only this machine's daemon
  * pages: another machine's chats all arrive at once, so with one chosen nothing is asked.
  */
-function useOlderChats(near: boolean, device: string | undefined): void {
+function useOlderChats(near: boolean, device: DeviceScope): void {
   const paging = useSettledPaging(null, device);
   const ask = near && paging.hasMore && !paging.loading && !paging.error;
   const { more, nextAt } = paging;

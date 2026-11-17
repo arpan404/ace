@@ -42,7 +42,11 @@ bun run release:publish 0.0.3 --notes-file notes.md   # or: --draft to review it
 
 `release:build` packages the app for this Mac's architecture, signs and notarizes it, and
 verifies it (`codesign`, `spctl`, the stapled ticket). It stages the dmg, the zip that updates
-install from, their blockmaps, `latest-mac.yml` and `SHA256SUMS` under `dist/releases/v<version>`.
+install from, their blockmaps, `latest-mac.yml`, `ace-data.json` and `SHA256SUMS` under
+`dist/releases/v<version>`. `ace-data.json` holds the data formats the build reads (ADR 0177):
+installed apps check it before they offer a switch to an older release. `bun run release:data`
+prints it for this tree, or `bun run release:data <checkout>` for another (an older tag's, with
+`bun install` run in it); that command uploads nothing.
 
 `release:publish` checks that the staged files are unchanged and that GitHub has the commit.
 It uploads everything to a draft release tagged `v<version>` at that commit, then publishes
@@ -53,6 +57,26 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 `ACE_RELEASE_PRIVATE_KEY_FILE` (kept outside the repository), and run it on Node 26.12.1. See
 [tools/release](../tools/release/README.md). Always pass it: apps from before this updater
 (0.0.2 and earlier) check those signed manifests, and offer the download when they find one.
+
+## Beta builds
+
+A beta is a signed macOS arm64 build of a commit on `origin/main`, published as a GitHub
+prerelease tagged `ace-<X.Y.Z>-beta-<N>` (`ace-0.0.24-beta-1`) and never marked latest
+([ADR 0177](adr/0177-beta-release-line.md)). Apps on the Beta line pick it up.
+
+```sh
+bun run release:doctor                 # a beta is always signed and notarized
+bun run release:beta build             # works out the tag; stages dist/releases/<tag>
+                                       # --version 0.1.0 previews a later version
+bun run release:beta publish <tag> --notes-file notes.md
+```
+
+`build` refuses another platform or architecture, a dirty tree and a commit not on
+`origin/main`. A beta previews the next version: the patch after `apps/desktop/package.json`
+(0.0.23 → 0.0.24), or a later `--version`. `N` is one more than the highest beta of that
+version on GitHub, across days. It builds the app as `X.Y.Z-beta.<N>` (`0.0.24-beta.1`), titled
+`ace 0.0.24 beta 1`, without touching `package.json`, with a BETA band on the Dock icon. `publish` uploads a draft prerelease, then
+publishes it.
 
 ## What people see
 
@@ -78,6 +102,10 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
   page instead.
 - The changes come from the GitHub release notes, so write them for people:
   `--generate-notes` lists merged PR titles.
+- **Settings › General › Updates** picks the Stable or Beta line. Beta offers the newest
+  release of either line. Going back to an older release (Beta → Stable) is offered only when
+  that release reads every data format this install holds; otherwise Settings says why. A beta
+  build shows the word Beta at the sidebar's foot.
 
 ## Linux packages
 

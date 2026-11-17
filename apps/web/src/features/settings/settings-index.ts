@@ -423,6 +423,12 @@ const entries = [
     title: "Updates",
     keywords: ["check for updates", "download", "install", "version", "upgrade", "restart"],
   },
+  {
+    id: "app.updateLine",
+    page: "/settings/general",
+    title: "Release line",
+    keywords: ["beta", "stable", "channel", "prerelease", "downgrade"],
+  },
   // Appearance
   {
     id: "appearance.mode",
@@ -826,7 +832,7 @@ export function searchSettings(query: string, spadeShown: boolean): SettingEntry
           "app.globalShortcut",
           "app.attention",
         ].includes(entry.id)) &&
-      (entry.id !== "app.updates" || hasDesktopUpdates()) &&
+      (!["app.updates", "app.updateLine"].includes(entry.id) || hasDesktopUpdates()) &&
       (entry.id !== "app.terminalCommand" || desktopCli() !== undefined) &&
       matches(entry, text),
   );

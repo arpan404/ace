@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { openExternal } from "./open-external.ts";
 
@@ -25,8 +25,16 @@ export interface UpdateStatus {
   waiting: number;
   notes: { version: string; items: string[]; total: number }[];
   olderReleases: number;
+  /** The line the app updates from, and its own build's line (ADR 0177). */
+  line: ReleaseLine;
+  buildLine: ReleaseLine;
+  /** Why the line's release, older than this version, isn't offered; one sentence. */
+  blocked: string | null;
   error: { during: "check" | "download" | "install"; message: string } | null;
 }
+
+export type ReleaseLine = "stable" | "beta";
+const isLine = (value: unknown): value is ReleaseLine => value === "stable" || value === "beta";
 
 export const releasesUrl = "https://github.com/arpan404/ace/releases";
 
@@ -38,6 +46,7 @@ interface UpdatesBridge {
   download?(): Promise<unknown>;
   install?(): Promise<unknown>;
   busy?(): Promise<unknown>;
+  setLine?(line: ReleaseLine): Promise<unknown>;
 }
 
 function updatesBridge(scope: object): UpdatesBridge | undefined {
@@ -71,6 +80,12 @@ function updatesBridge(scope: object): UpdatesBridge | undefined {
   const download = call("download");
   const install = call("install");
   const busy = call("busy");
+  const setLineFunction: unknown = Reflect.get(updates, "setLine");
+  const setLine =
+    typeof setLineFunction === "function"
+      ? (line: ReleaseLine) =>
+          Promise.resolve<unknown>(Reflect.apply(setLineFunction, updates, [line]))
+      : undefined;
   return {
     onStatus,
     ...(onChecked ? { onChecked } : {}),
@@ -79,6 +94,7 @@ function updatesBridge(scope: object): UpdatesBridge | undefined {
     ...(download ? { download } : {}),
     ...(install ? { install } : {}),
     ...(busy ? { busy } : {}),
+    ...(setLine ? { setLine } : {}),
   };
 }
 
@@ -130,6 +146,9 @@ export function parseUpdateStatus(value: unknown): UpdateStatus | undefined {
   const state = field("state");
   if (!isState(state)) return undefined;
   const percent = field("percent");
+  const buildLine = field("buildLine");
+  const line = field("line");
+  const build: ReleaseLine = isLine(buildLine) ? buildLine : "stable";
   return {
     state,
     currentVersion: text(field("currentVersion"), 80) ?? "",
@@ -140,6 +159,9 @@ export function parseUpdateStatus(value: unknown): UpdateStatus | undefined {
     waiting: count(field("waiting")),
     notes: parseNotes(field("notes")),
     olderReleases: count(field("olderReleases")),
+    buildLine: build,
+    line: isLine(line) ? line : build,
+    blocked: text(field("blocked"), 400) ?? null,
     error: parseError(field("error")),
   };
 }
@@ -216,12 +238,18 @@ export interface DesktopUpdate {
   install(): void;
   /** How many agents on this machine Restart would stop; undefined when unknown. */
   busy(): Promise<number | undefined>;
+  /** Update from the Stable or Beta line; resolves with the status once the line is checked. */
+  setLine(line: ReleaseLine): Promise<void>;
+  /** Whether this app can switch lines (an app from before lines can't). */
+  canSetLine: boolean;
 }
 
 /** Where the app's update stands, and its actions, for the sidebar; undefined in a browser. */
 export function useDesktopUpdate(scope: object = globalThis): DesktopUpdate {
   const [status, setStatus] = useState<UpdateStatus | undefined>(undefined);
   const bridge = useRef<UpdatesBridge | undefined>(undefined);
+  // An app from before release lines has no `setLine`; the bridge is fixed for the page's life.
+  const canSetLine = useMemo(() => updatesBridge(scope)?.setLine !== undefined, [scope]);
   useEffect(() => {
     const updates = updatesBridge(scope);
     bridge.current = updates;
@@ -256,6 +284,11 @@ export function useDesktopUpdate(scope: object = globalThis): DesktopUpdate {
         return undefined;
       }
     },
+    setLine: async (line) => {
+      const next = parseUpdateStatus(await bridge.current?.setLine?.(line).catch(() => undefined));
+      if (next) setStatus(next);
+    },
+    canSetLine,
     download: () => void bridge.current?.download?.().catch(() => {}),
     install: () => void bridge.current?.install?.().catch(() => {}),
     busy: async () => {

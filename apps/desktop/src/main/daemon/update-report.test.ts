@@ -13,6 +13,9 @@ const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
   waiting: 0,
   notes: [],
   olderReleases: 0,
+  line: "stable",
+  buildLine: "stable",
+  blocked: null,
   error: null,
   ...patch,
 });
@@ -27,6 +30,7 @@ const reply = (instruction: AppUpdateInstruction | null): AppUpdateReply => ({
 function daemon(replies: (AppUpdateReply | undefined)[] = []) {
   const told: (AppUpdateReport | "withdrawn")[] = [];
   const instructed: AppUpdateInstruction[] = [];
+  const homes: unknown[] = [];
   let up = true;
   let ready = true;
   const timers: { run(): void; cancelled: boolean }[] = [];
@@ -38,6 +42,7 @@ function daemon(replies: (AppUpdateReply | undefined)[] = []) {
       return replies.shift();
     },
     instructed: (instruction) => instructed.push(instruction),
+    replied: (answer) => homes.push(answer.homeData),
     withdraw: async () => {
       if (!up) throw new Error("connect ECONNREFUSED");
       told.push("withdrawn");
@@ -58,6 +63,7 @@ function daemon(replies: (AppUpdateReply | undefined)[] = []) {
   return {
     told,
     instructed,
+    homes,
     reporter,
     readiness: (on: boolean) => (ready = on),
     down: (on: boolean) => (up = !on),
@@ -217,6 +223,21 @@ describe("app update reporting", () => {
     await reporter.settled();
     expect(instructed).toEqual([install]);
   });
+});
+
+it("the home's data formats in each reply reach the app, the latest last", async () => {
+  const before = { home: 1, daemon: 63, notify: 5, spade: 9 };
+  const after = { ...before, spade: 10 };
+  const { homes, reporter, renew } = daemon([
+    { ...reply(null), homeData: before },
+    { ...reply(null), homeData: after },
+  ]);
+  reporter.connected(true);
+  reporter.status(status());
+  await reporter.settled();
+  renew();
+  await reporter.settled();
+  expect(homes).toEqual([before, after]);
 });
 
 it("waits for readiness and retries a startup timeout without needing a reconnect", async () => {
